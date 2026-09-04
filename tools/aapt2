@@ -1,0 +1,4 @@
+#!/bin/sh
+set -eu
+exec /usr/bin/qemu-amd64-static -L /home/dev/src/terminal/.amd64-root \
+  /home/dev/.gradle/caches/8.13/transforms/601b704c970a7b6da4fc3167f52cba2c/transformed/aapt2-8.11.1-12782657-linux/aapt2 "$@"

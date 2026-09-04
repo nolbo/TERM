@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
+    <dev.terminal.app.ui.SignalAppBar android:id="@+id/toolbar" android:layout_width="match_parent" android:layout_height="wrap_content" app:barNavigationIcon="@drawable/ic_arrow_back" app:barTitle="크래시 리포트" />
+    <TextView style="@style/Text.TerminalGrid.Caption" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginHorizontal="@dimen/space_5" android:layout_marginTop="@dimen/space_3" android:text="예기치 않은 오류로 종료되었습니다. 보고서를 복사하면 원인 분석에 도움이 됩니다." />
+    <TextView style="@style/Text.TerminalGrid.Label" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginHorizontal="@dimen/space_5" android:layout_marginTop="@dimen/space_6" android:text="오류 세부 정보" />
+    <FrameLayout style="@style/Panel.TerminalGrid" android:layout_width="match_parent" android:layout_height="0dp" android:layout_marginHorizontal="@dimen/space_3" android:layout_marginTop="@dimen/space_2" android:layout_marginBottom="@dimen/space_3" android:layout_weight="1">
+        <ScrollView android:layout_width="match_parent" android:layout_height="match_parent"><TextView android:id="@+id/report_text" style="@style/Text.TerminalGrid.Report" android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="@dimen/space_4" android:textIsSelectable="true" /></ScrollView>
+    </FrameLayout>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="end" android:paddingHorizontal="@dimen/space_5" android:paddingBottom="@dimen/space_5">
+        <Button android:id="@+id/close_button" style="@style/Widget.TerminalGrid.Button.Secondary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="닫기" />
+        <Button android:id="@+id/copy_button" style="@style/Widget.TerminalGrid.Button.Primary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="@dimen/space_2" android:drawableStart="@drawable/ic_copy" android:drawablePadding="@dimen/space_2" android:text="오류 복사" />
+    </LinearLayout>
+</LinearLayout>

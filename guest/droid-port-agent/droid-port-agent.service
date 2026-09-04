@@ -1,0 +1,10 @@
+[Unit]
+Description=Droid Terminal guest port reporter
+After=network.target
+
+[Service]
+ExecStart=/usr/local/lib/droid/droid-port-agent
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

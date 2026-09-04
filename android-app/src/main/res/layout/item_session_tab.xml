@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" android:layout_width="wrap_content" android:layout_height="@dimen/touch_target" android:background="@drawable/bg_grid_tab" android:gravity="center_vertical" android:layoutDirection="ltr" android:orientation="horizontal" android:paddingStart="@dimen/space_3" android:paddingEnd="0dp">
+    <TextView android:id="@+id/tab_title" style="@style/Text.TerminalGrid.Caption" android:layout_width="wrap_content" android:layout_height="wrap_content" android:ellipsize="end" android:maxWidth="124dp" android:maxLines="1" android:textColor="@color/grid_text" />
+    <ImageButton android:id="@+id/tab_close" style="@style/Widget.TerminalGrid.IconButton" android:layout_width="@dimen/touch_target" android:layout_height="@dimen/touch_target" android:contentDescription="세션 종료" android:src="@drawable/ic_close" />
+</LinearLayout>

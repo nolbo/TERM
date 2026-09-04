@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/console_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:layoutDirection="ltr"
+    android:orientation="vertical">
+
+    <LinearLayout
+        android:id="@+id/console_chrome"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@color/grid_layer_1"
+        android:orientation="vertical">
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="@dimen/terminal_tab_bar_height"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <HorizontalScrollView
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="1"
+                android:fillViewport="false"
+                android:overScrollMode="never"
+                android:scrollbars="none">
+                <LinearLayout
+                    android:id="@+id/session_tabs"
+                    android:layout_width="wrap_content"
+                    android:layout_height="match_parent"
+                    android:gravity="bottom"
+                    android:orientation="horizontal" />
+            </HorizontalScrollView>
+            <ImageButton
+                android:id="@+id/new_session_button"
+                style="@style/Widget.TerminalGrid.IconButton"
+                android:layout_width="@dimen/touch_target"
+                android:layout_height="@dimen/touch_target"
+                android:contentDescription="새 셸"
+                android:src="@drawable/ic_add" />
+            <ImageButton
+                android:id="@+id/settings_button"
+                style="@style/Widget.TerminalGrid.IconButton"
+                android:layout_width="@dimen/touch_target"
+                android:layout_height="@dimen/touch_target"
+                android:contentDescription="설정"
+                android:src="@drawable/ic_settings" />
+        </LinearLayout>
+        <View android:layout_width="match_parent" android:layout_height="1dp" android:background="@color/grid_line" />
+    </LinearLayout>
+
+    <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
+        <com.termux.view.TerminalView
+            android:id="@+id/terminal_view"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@color/terminal_panel"
+            android:focusable="true"
+            android:focusableInTouchMode="true" />
+        <TextView
+            android:id="@+id/terminal_output"
+            style="@style/Text.TerminalGrid.Report"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:padding="@dimen/space_4"
+            android:textColor="@color/terminal_text" />
+    </FrameLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="@dimen/terminal_extra_keys_height"
+        android:background="@color/grid_layer_1"
+        android:orientation="vertical"
+        android:paddingHorizontal="2dp"
+        android:paddingVertical="2dp">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="38dp" android:orientation="horizontal">
+            <Button android:id="@+id/hotkey_escape" style="@style/Widget.TerminalGrid.Key" android:layout_width="0dp" android:layout_height="match_parent" android:layout_margin="2dp" android:layout_weight="1" android:text="ESC" />
+            <Button android:id="@+id/hotkey_slash" style="@style/Widget.TerminalGrid.Key" android:layout_width="0dp" android:layout_height="match_parent" android:layout_margin="2dp" android:layout_weight="1" android:text="/" />
+            <Button android:id="@+id/hotkey_minus" style="@style/Widget.TerminalGrid.Key" android:layout_width="0dp" android:layout_height="match_parent" android:layout_margin="2dp" android:layout_weight="1" android:text="-" />
+            <Button android:id="@+id/hotkey_home" style="@style/Widget.TerminalGrid.Key" android:layout_width="0dp" android:layout_height="match_parent" android:layout_margin="2dp" android:layout_weight="1" android:text="HOME" />
+            <Button android:id="@+id/hotkey_up" style="@style/Widget.TerminalGrid.Key" android:layout_width="0dp" android:layout_height="match_parent" android:layout_margin="2dp" android:layout_weight="1" android:text="↑" />
+            <Button android:id="@+id/hotkey_end" style="@style/Widget.TerminalGrid.Key" android:layout_width="0dp" android:layout_height="match_parent" android:layout_margin="2dp" android:layout_weight="1" android:text="END" />
+            <Button android:id="@+id/hotkey_page_up" style="@style/Widget.TerminalGrid.Key" android:layout_width="0dp" android:layout_height="match_parent" android:layout_margin="2dp" android:layout_weight="1" android:text="PGUP" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="38dp" android:orientation="horizontal">
+            <Button android:id="@+id/hotkey_tab" style="@style/Widget.TerminalGrid.Key" android:layout_width="0dp" android:layout_height="match_parent" android:layout_margin="2dp" android:layout_weight="1" android:text="TAB" />
+            <ToggleButton android:id="@+id/hotkey_ctrl" style="@style/Widget.TerminalGrid.Key" android:layout_width="0dp" android:layout_height="match_parent" android:layout_margin="2dp" android:layout_weight="1" android:textOff="CTRL" android:textOn="CTRL" />
+            <ToggleButton android:id="@+id/hotkey_alt" style="@style/Widget.TerminalGrid.Key" android:layout_width="0dp" android:layout_height="match_parent" android:layout_margin="2dp" android:layout_weight="1" android:textOff="ALT" android:textOn="ALT" />
+            <Button android:id="@+id/hotkey_left" style="@style/Widget.TerminalGrid.Key" android:layout_width="0dp" android:layout_height="match_parent" android:layout_margin="2dp" android:layout_weight="1" android:text="←" />
+            <Button android:id="@+id/hotkey_down" style="@style/Widget.TerminalGrid.Key" android:layout_width="0dp" android:layout_height="match_parent" android:layout_margin="2dp" android:layout_weight="1" android:text="↓" />
+            <Button android:id="@+id/hotkey_right" style="@style/Widget.TerminalGrid.Key" android:layout_width="0dp" android:layout_height="match_parent" android:layout_margin="2dp" android:layout_weight="1" android:text="→" />
+            <Button android:id="@+id/hotkey_page_down" style="@style/Widget.TerminalGrid.Key" android:layout_width="0dp" android:layout_height="match_parent" android:layout_margin="2dp" android:layout_weight="1" android:text="PGDN" />
+        </LinearLayout>
+    </LinearLayout>
+</LinearLayout>

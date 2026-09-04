@@ -1,0 +1,16 @@
+{
+  "name": "xtermx_debian",
+  "bootloader": "bootloader.bin",
+  "memory_bytes": 2147483648,
+  "match_host_cpu": true,
+  "debuggable": false,
+  "params": [
+    "console=hvc0"
+  ],
+  "disks": [
+    {
+      "image": "rootfs.img",
+      "writable": true
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+#!/bin/sh
+title=""
+text=""
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --title) title="$2"; shift 2 ;;
+    --content|--text) text="$2"; shift 2 ;;
+    *) echo "unsupported option: $1" >&2; exit 2 ;;
+  esac
+done
+if [ -z "$title" ]; then
+  echo "--title is required" >&2
+  exit 2
+fi
+exec droid notify --title "$title" --text "$text"

@@ -1,0 +1,16 @@
+<resources>
+    <string name="app_name">Droid Terminal</string>
+    <string name="runtime_disconnected">런타임 서비스 연결이 끊어졌습니다</string>
+    <string name="runtime_stopped_detail">VM이 중지되었습니다</string>
+    <string name="terminal_stopped_placeholder">$ 런타임이 중지됨\n$ VM을 시작해 지속되는 셸을 만드세요.</string>
+    <string name="terminal_ready_placeholder">$ droid-sessiond 준비됨\n$ 탭을 선택하거나 새 셸을 만드세요.</string>
+    <string name="terminal_attaching_placeholder">$ 세션에 연결하는 중…</string>
+    <string name="terminal_failure_placeholder">$ 런타임을 사용할 수 없음\n$ %1$s</string>
+    <string name="attach_unavailable">게스트 세션 프로토콜이 연결되면 세션 연결을 사용할 수 있습니다.</string>
+    <string name="no_session_to_attach">먼저 새 셸을 만드세요.</string>
+    <string name="attaching_session">%1$s에 연결하는 중…</string>
+    <string name="no_sessions">실행 중인 세션이 없습니다</string>
+    <string name="session_tab_description">세션 탭: %1$s</string>
+    <string name="select_session_before_input">명령을 보내기 전에 셸 탭을 선택하세요.</string>
+    <string name="capability_granted">VM 실행 중 %1$s 권한을 허용했습니다.</string>
+</resources>

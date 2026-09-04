@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:fillViewport="true" android:background="@color/grid_base">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="@dimen/space_5">
+        <TextView style="@style/Text.TerminalGrid.Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="세션" />
+        <TextView style="@style/Text.TerminalGrid.Display" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_2" android:text="새 터미널" />
+        <TextView style="@style/Text.TerminalGrid.Body" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_2" android:text="실행 환경을 선택하세요. 기존 세션은 계속 실행됩니다." android:textColor="@color/grid_text_secondary" />
+        <LinearLayout android:id="@+id/runtime_native" style="@style/Panel.TerminalGrid" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_5" android:clickable="true" android:focusable="true" android:orientation="vertical" android:padding="@dimen/space_4">
+            <TextView style="@style/Text.TerminalGrid.Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="ANDROID" />
+            <TextView style="@style/Text.TerminalGrid.Title" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_1" android:text="빠른 Native 셸" />
+            <TextView style="@style/Text.TerminalGrid.Caption" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_1" android:text="즉시 실행 · 추가 권한 없음" />
+        </LinearLayout>
+        <LinearLayout android:id="@+id/runtime_rootless" style="@style/Panel.TerminalGrid" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_2" android:clickable="true" android:focusable="true" android:orientation="vertical" android:padding="@dimen/space_4">
+            <TextView style="@style/Text.TerminalGrid.Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="LINUX" />
+            <TextView style="@style/Text.TerminalGrid.Title" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_1" android:text="Rootless Debian" />
+            <TextView style="@style/Text.TerminalGrid.Caption" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_1" android:text="자동 설치 · 공식 apt/glibc · 추가 권한 없음" />
+        </LinearLayout>
+        <LinearLayout android:id="@+id/runtime_avf" style="@style/Panel.TerminalGrid" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_2" android:clickable="true" android:focusable="true" android:orientation="vertical" android:padding="@dimen/space_4">
+            <TextView style="@style/Text.TerminalGrid.Label" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="AVF" />
+            <TextView style="@style/Text.TerminalGrid.Title" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_1" android:text="가속 Linux" />
+            <TextView style="@style/Text.TerminalGrid.Caption" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_1" android:text="실제 커널 · 별도 특권 설정 필요" />
+        </LinearLayout>
+        <Button android:id="@+id/cancel" style="@style/Widget.TerminalGrid.Button.Secondary" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/space_4" android:text="취소" />
+    </LinearLayout>
+</ScrollView>

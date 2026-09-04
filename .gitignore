@@ -1,0 +1,69 @@
+# Android / Gradle build output
+**/build/
+/app/
+.gradle/
+.kotlin/
+.externalNativeBuild/
+.cxx/
+local.properties
+captures/
+
+# Generated application and native binaries
+*.apk
+*.aab
+*.so
+*.zip
+release/
+
+# Required native artifacts outside the ignored app module
+!terminal-emulator/src/main/jniLibs/**/*.so
+
+# Signing and private/local configuration
+.signing/
+*.jks
+*.keystore
+*.p12
+*.pem
+*.env
+.env.*
+!.env.example
+com_crashlytics_export_strings.xml
+
+# IntelliJ / Android Studio
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Rust build output (Cargo.lock is intentionally not ignored)
+target/
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local SDK, rootfs, VM and temporary artifacts
+/.android-sdk/
+/.amd64-root/
+/tmp/*
+!/tmp/.gitkeep
+
+# Logs and editor swap files
+*.log
+*.swp
+*.swo
+*~
+
+# OS-specific files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
