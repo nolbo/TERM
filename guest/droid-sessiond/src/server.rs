@@ -122,6 +122,9 @@ impl SessionServer {
                 let signal = nix::sys::signal::Signal::try_from(signal)
                     .map_err(|_| DispatchError::invalid("invalid POSIX signal"))?;
                 self.sessions.terminate(&session_id, signal).map_err(DispatchError::from_pty)?;
+                if attached.as_deref() == Some(session_id.as_str()) {
+                    *attached = None;
+                }
                 Ok(SessionResponse::Terminating(session_id))
             }
         }

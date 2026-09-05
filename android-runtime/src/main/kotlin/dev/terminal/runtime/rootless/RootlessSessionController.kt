@@ -103,8 +103,10 @@ class RootlessSessionController(
         process.outputStream.write(bytes); process.outputStream.flush(); bytes.size
     }
     override suspend fun terminate(sessionId: String, signal: Int): Result<Unit> = runCatching {
-        val process = entries.remove(sessionId)?.process ?: error("Session not found")
-        process.terminate(signal); process.close()
+        val entry = entries[sessionId] ?: error("Session not found")
+        entry.process.terminate(signal)
+        entries.remove(sessionId, entry)
+        entry.process.close()
     }
     override fun close() {
         entries.values.forEach { it.process.terminate(SIGKILL); it.process.close() }

@@ -31,10 +31,12 @@ guest wire protocol. Once created, all runtimes use the same attach, detach,
 resize, input, output and terminate operations. Session JSON includes the
 runtime so the renderer does not infer backend behavior.
 
-The Android AIDL listener carries state, session-list, PTY-output,
-session-exit, and operation-error events. Activity recreation first restores
-the session list and only then evaluates runtime readiness, preventing an
-extra default shell from being created during reconnect.
+The Android AIDL listener carries state, revisioned session-list, PTY-output,
+session-exit, termination-failure, and operation-error events. Session-list
+callbacks include a monotonic service revision so a delayed Binder delivery
+cannot replace newer UI state. Listener registration immediately returns the
+current revision and list. Activity recreation treats that list as authoritative;
+an empty list remains empty and never creates an implicit default shell.
 
 Session requests begin with a one-byte operation code. Strings are UTF-8 with a
 two-byte big-endian length (maximum 4096 bytes). Terminal input is explicitly

@@ -17,6 +17,10 @@ Native PTYs are owned by `VmRuntimeService` in `:vmhost`. The current bootstrap
 is `/system/bin/sh` with app-private home and temporary directories. Dynamic
 executables from writable app data are not supported at target SDK 35.
 
+The runtime may remain ready with zero sessions. Terminating the final session
+does not stop the service or automatically create another Native shell; the UI
+offers explicit Native, Rootless, and AVF session creation from its empty state.
+
 `libtermux.so` is rebuilt from the checked-in JNI source for every supported
 ABI and uses 16 KiB ELF segment alignment. On ARM64 Linux build hosts, where
 Google's NDK host executables are unavailable, the build uses the native Clang

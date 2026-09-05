@@ -110,9 +110,10 @@ class NativeSessionController(private val root: File) : SessionController {
         bytes.size
     }
     override suspend fun terminate(sessionId: String, signal: Int): Result<Unit> = runCatching {
-        val process = entries.remove(sessionId)?.process ?: error("Session not found")
-        process.terminate(signal)
-        process.close()
+        val entry = entries[sessionId] ?: error("Session not found")
+        entry.process.terminate(signal)
+        entries.remove(sessionId, entry)
+        entry.process.close()
     }
     override fun close() {
         entries.values.forEach { entry ->

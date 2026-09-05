@@ -78,8 +78,8 @@ class VmRuntimeService : Service() {
     private var guestReportedWorkActive = false
     private val portRegistry = PortForwardRegistry()
     private lateinit var portForwarder: LocalhostPortForwarder
-    @Volatile private var sessionsJson: String = "[]"
-    @Volatile private var runningSessionCount: Int = 0
+    @Volatile private var publishedSessions = PublishedSessions(0L, "[]", 0)
+    private val sessionSnapshots = SessionSnapshotPipeline(::publishSessionSnapshot)
     private val hostBackgroundOperationCount = AtomicInteger(0)
     @Volatile private var latestState: RuntimeState = RuntimeState.Stopped
 
@@ -92,7 +92,7 @@ class VmRuntimeService : Service() {
 
         override fun getRuntimeStatusJson(): String = runtimeStatusJson()
 
-        override fun getSessionsJson(): String = this@VmRuntimeService.sessionsJson
+        override fun getSessionsJson(): String = publishedSessions.json
 
         override fun getForwardedPortsJson(): String = JSONArray().apply {
             portRegistry.ports.value.forEach { port ->
@@ -116,7 +116,7 @@ class VmRuntimeService : Service() {
         override fun startRuntime() = launchRuntimeOperation(trackAsWork = true) { prepareAndStart() }
 
         override fun stopRuntime(mode: Int) = launchRuntimeOperation {
-            closeSessionClient()
+            sessionSnapshots.clear(::closeSessionClient)
             backend.stop(if (mode == FORCE_STOP) StopMode.FORCE else StopMode.GRACEFUL)
         }
 
@@ -131,42 +131,43 @@ class VmRuntimeService : Service() {
                 return@launchRuntimeOperation
             }
             val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
-            val result = client.create(
-                requestedRuntime,
-                shell,
-                cwd,
-                env = mapOf(
-                    "TERM" to preferences.getString(KEY_NATIVE_TERM, "xterm-256color").orEmpty(),
-                    "DROID_LOGIN_SHELL" to preferences.getBoolean(KEY_NATIVE_LOGIN, true).toString(),
-                ),
-                rows = rows.toUShortDimension(),
-                cols = cols.toUShortDimension(),
-            )
-            result.onSuccess { refreshSessions(client) }
+            val result = sessionSnapshots.mutateAndRefresh(client) {
+                client.create(
+                    requestedRuntime,
+                    shell,
+                    cwd,
+                    env = mapOf(
+                        "TERM" to preferences.getString(KEY_NATIVE_TERM, "xterm-256color").orEmpty(),
+                        "DROID_LOGIN_SHELL" to preferences.getBoolean(KEY_NATIVE_LOGIN, true).toString(),
+                    ),
+                    rows = rows.toUShortDimension(),
+                    cols = cols.toUShortDimension(),
+                )
+            }
+            result.operation
                 .onFailure {
                     Log.e(TAG, "session.create failed runtime=${requestedRuntime.wireName} cause=${it.javaClass.simpleName}: ${it.userMessage()}")
                     notifyOperationError("세션 생성", it.userMessage())
                 }
+            result.snapshot?.onFailure { notifyOperationError("세션 목록 새로고침", it.userMessage()) }
         }
 
         override fun attachSession(sessionId: String) = launchRuntimeOperation {
             val client = ensureSessionClient()
                 ?: throw IllegalStateException("세션 런타임에 연결할 수 없습니다")
-            client.attach(sessionId)
-                .onSuccess {
-                    refreshSessions(client)
-                }
+            val result = sessionSnapshots.mutateAndRefresh(client) { client.attach(sessionId) }
+            result.operation
                 .onFailure { notifyOperationError("세션 연결", it.userMessage()) }
+            result.snapshot?.onFailure { notifyOperationError("세션 목록 새로고침", it.userMessage()) }
         }
 
         override fun detachSession(sessionId: String) = launchRuntimeOperation {
             val client = sessionClient
                 ?: throw IllegalStateException("세션 런타임에 연결되어 있지 않습니다")
-            client.detach(sessionId)
-                .onSuccess {
-                    refreshSessions(client)
-                }
+            val result = sessionSnapshots.mutateAndRefresh(client) { client.detach(sessionId) }
+            result.operation
                 .onFailure { notifyOperationError("세션 분리", it.userMessage()) }
+            result.snapshot?.onFailure { notifyOperationError("세션 목록 새로고침", it.userMessage()) }
         }
 
         override fun writeSessionInput(sessionId: String, bytes: ByteArray) = launchRuntimeOperation {
@@ -185,13 +186,23 @@ class VmRuntimeService : Service() {
 
         override fun terminateSession(sessionId: String) = launchRuntimeOperation {
             val client = sessionClient
-                ?: throw IllegalStateException("세션 런타임에 연결되어 있지 않습니다")
-            // Tab close is an explicit terminate operation, unlike a UI detach.
-            client.terminate(sessionId, SIGKILL)
+            if (client == null) {
+                notifySessionTerminationFailed(sessionId, "세션 런타임에 연결되어 있지 않습니다")
+                return@launchRuntimeOperation
+            }
+            val runtime = (client as? UnifiedSessionRegistry)?.runtimeOf(sessionId)?.wireName ?: "UNKNOWN"
+            Log.i(TAG, "session.terminate start id=$sessionId runtime=$runtime")
+            val result = sessionSnapshots.mutateAndRefresh(client) { client.terminate(sessionId, SIGKILL) }
+            result.operation
                 .onSuccess {
-                    refreshSessions(client)
+                    val snapshot = result.snapshot?.getOrNull()
+                    Log.i(TAG, "session.terminate success id=$sessionId runtime=$runtime revision=${snapshot?.revision} count=${snapshot?.sessions?.size}")
                 }
-                .onFailure { notifyOperationError("세션 종료", it.userMessage()) }
+                .onFailure {
+                    Log.w(TAG, "session.terminate failed id=$sessionId runtime=$runtime cause=${it.javaClass.simpleName}: ${it.userMessage()}")
+                    notifySessionTerminationFailed(sessionId, it.userMessage())
+                }
+            result.snapshot?.onFailure { notifyOperationError("세션 목록 새로고침", it.userMessage()) }
         }
 
         override fun setWakePolicy(policy: String) {
@@ -230,8 +241,14 @@ class VmRuntimeService : Service() {
         }
 
         override fun registerListener(listener: IRuntimeStateListener) {
-            listeners.register(listener)
-            runCatching { listener.onRuntimeStateChanged(latestState.wireName, latestState.detail()) }
+            synchronized(listenerLock) {
+                listeners.register(listener)
+                val snapshot = publishedSessions
+                runCatching {
+                    listener.onRuntimeStateChanged(latestState.wireName, latestState.detail())
+                    listener.onSessionsChanged(snapshot.revision, snapshot.json)
+                }
+            }
         }
 
         override fun unregisterListener(listener: IRuntimeStateListener) {
@@ -370,8 +387,8 @@ class VmRuntimeService : Service() {
                 registry.connectionState.collect { connectionState ->
                     if (connectionState == SessionConnectionState.DISCONNECTED && sessionClient === registry) {
                         sessionClient = null
-                        sessionsJson = "[]"
-                        broadcast { it.onSessionsChanged(sessionsJson) }
+                        // A transport disconnect is not proof that the guest PTY
+                        // owner died. Retain the last snapshot while reconnecting.
                         if (latestState is RuntimeState.Ready) scheduleGuestReconnect()
                     }
                 }
@@ -452,13 +469,22 @@ class VmRuntimeService : Service() {
     }
 
     private suspend fun refreshSessions(client: SessionController) {
-        client.list().onSuccess { sessions ->
-            sessionsJson = sessions.toJson()
-            runningSessionCount = sessions.count { it.state == dev.terminal.protocol.SessionStatus.RUNNING }
-            updateWakeState()
-            updateNotification(latestState)
-            broadcast { it.onSessionsChanged(sessionsJson) }
-        }
+        sessionSnapshots.refresh(client)
+            .onFailure { Log.w(TAG, "session.refresh failed cause=${it.javaClass.simpleName}: ${it.userMessage()}") }
+    }
+
+    private fun publishSessionSnapshot(snapshot: SessionSnapshot) {
+        val json = snapshot.sessions.toJson()
+        val published = PublishedSessions(
+            revision = snapshot.revision,
+            json = json,
+            runningCount = snapshot.sessions.count { it.state == dev.terminal.protocol.SessionStatus.RUNNING },
+        )
+        publishedSessions = published
+        updateWakeState()
+        updateNotification(latestState)
+        Log.d(TAG, "session.snapshot revision=${published.revision} count=${snapshot.sessions.size}")
+        broadcast { it.onSessionsChanged(published.revision, published.json) }
     }
 
     private fun notifyTerminalOutput(sessionId: String, bytes: ByteArray) {
@@ -467,6 +493,10 @@ class VmRuntimeService : Service() {
 
     private fun notifyOperationError(operation: String, message: String) {
         broadcast { it.onOperationError(operation, message) }
+    }
+
+    private fun notifySessionTerminationFailed(sessionId: String, message: String) {
+        broadcast { it.onSessionTerminationFailed(sessionId, message) }
     }
 
     private inline fun broadcast(action: (IRuntimeStateListener) -> Unit) {
@@ -485,13 +515,10 @@ class VmRuntimeService : Service() {
         portAgentJob?.cancel()
         portAgentJob = null
         portForwarder.stopAll()
-        sessionClient?.close()
+        val client = sessionClient
         sessionClient = null
-        sessionsJson = "[]"
-        runningSessionCount = 0
+        client?.close()
         guestReportedWorkActive = false
-        updateNotification(latestState)
-        updateWakeState()
     }
 
     private fun Throwable.userMessage(): String = message?.takeIf { it.isNotBlank() } ?: javaClass.simpleName
@@ -500,7 +527,7 @@ class VmRuntimeService : Service() {
         wakePolicies.get(),
         runtimeWorkState(
             latestState,
-            runningSessionCount,
+            publishedSessions.runningCount,
             guestReportedWorkActive,
             hostBackgroundOperationCount.get() > 0,
         ),
@@ -600,16 +627,16 @@ class VmRuntimeService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
         .setSmallIcon(android.R.drawable.stat_sys_warning)
         .setContentTitle(
-            if (runningSessionCount > 0) "Droid Terminal · 실행 중인 세션 ${runningSessionCount}개"
-            else "Droid Terminal runtime",
+            if (publishedSessions.runningCount > 0) "Droid Terminal · 실행 중인 세션 ${publishedSessions.runningCount}개"
+            else "Droid Terminal · 세션 없음",
         )
         .setContentText(
-            if (runningSessionCount > 0) "터미널을 닫아도 세션은 백그라운드에서 계속 실행됩니다."
+            if (publishedSessions.runningCount > 0) "터미널을 닫아도 세션은 백그라운드에서 계속 실행됩니다."
             else state.detail(),
         )
         // A live shell is a user-visible persistent operation. Do not allow
         // this notification to be dismissed while at least one PTY is alive.
-        .setOngoing(runningSessionCount > 0)
+        .setOngoing(publishedSessions.runningCount > 0)
         .setContentIntent(contentIntent)
         .build()
     }
@@ -647,6 +674,12 @@ class VmRuntimeService : Service() {
         const val ROOTLESS_SETUP_OPERATION = "ROOTLESS_SETUP"
         val SUPPORTED_TERMINAL_TYPES = setOf("xterm-256color", "xterm", "screen-256color")
     }
+
+    private data class PublishedSessions(
+        val revision: Long,
+        val json: String,
+        val runningCount: Int,
+    )
 }
 
 internal fun runtimeWorkState(

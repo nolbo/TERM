@@ -87,6 +87,16 @@ impl PtyProcess {
         }
     }
 
+    pub fn wait_for_exit(self) -> Result<i32, PtyError> {
+        loop {
+            match waitpid(self.child, None).map_err(PtyError::from)? {
+                WaitStatus::Exited(_, status) => return Ok(status),
+                WaitStatus::Signaled(_, signal, _) => return Ok(128 + signal as i32),
+                _ => continue,
+            }
+        }
+    }
+
     pub fn raw_fd(&self) -> std::os::fd::RawFd { self.master.as_raw_fd() }
 }
 

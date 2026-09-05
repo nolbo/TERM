@@ -111,9 +111,19 @@ impl SessionRegistry {
         Ok(())
     }
 
-    pub fn terminate(&self, id: &str, signal: Signal) -> Result<(), PtyError> {
-        let session = self.sessions.get(id).ok_or(PtyError::SessionNotFound)?;
-        session.pty.as_ref().ok_or(PtyError::SessionNotStarted)?.terminate(signal)
+    pub fn terminate(&mut self, id: &str, signal: Signal) -> Result<(), PtyError> {
+        {
+            let session = self.sessions.get(id).ok_or(PtyError::SessionNotFound)?;
+            session.pty.as_ref().ok_or(PtyError::SessionNotStarted)?.terminate(signal)?;
+        }
+        if let Some(mut removed) = self.sessions.remove(id) {
+            if let Some(pty) = removed.pty.take() {
+                std::thread::spawn(move || {
+                    let _ = pty.wait_for_exit();
+                });
+            }
+        }
+        Ok(())
     }
 
     pub fn output_fd(&self, id: &str) -> Result<RawFd, PtyError> {
@@ -139,5 +149,22 @@ mod tests {
         let session = sessions.create_shell("/bin/bash", "/home/user", 24, 80);
         assert_eq!(sessions.get(&session.id).unwrap().state, SessionState::Created);
         assert_eq!(sessions.list().count(), 1);
+    }
+
+    #[test]
+    fn terminating_middle_session_removes_only_its_entry() {
+        let mut sessions = SessionRegistry::default();
+        let ids = (0..3).map(|_| {
+            let id = sessions.create_shell("/bin/sh", "/", 24, 80).id.clone();
+            sessions.start_shell(&id, &[]).unwrap();
+            id
+        }).collect::<Vec<_>>();
+
+        sessions.terminate(&ids[1], Signal::SIGKILL).unwrap();
+
+        assert_eq!(sessions.list().map(|session| session.id.clone()).collect::<Vec<_>>(), vec![ids[0].clone(), ids[2].clone()]);
+        assert!(matches!(sessions.terminate(&ids[1], Signal::SIGKILL), Err(PtyError::SessionNotFound)));
+        sessions.terminate(&ids[0], Signal::SIGKILL).unwrap();
+        sessions.terminate(&ids[2], Signal::SIGKILL).unwrap();
     }
 }

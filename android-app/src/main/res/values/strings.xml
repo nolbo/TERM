@@ -25,6 +25,8 @@
     <string name="select_avf_image">AVF Debian 이미지 선택</string>
     <string name="avf_image_note">로컬 이미지 선택은 AVF 전용입니다. Rootless Debian은 별도 rootfs를 자동으로 준비합니다.</string>
     <string name="new_session">새 세션</string>
+    <string name="empty_terminal_title">열린 세션이 없습니다</string>
+    <string name="empty_terminal_message">런타임은 대기 중입니다. 원하는 실행 환경에서 새 세션을 시작할 수 있습니다.</string>
     <string name="settings">설정</string>
     <string name="current_session">현재 세션</string>
     <string name="session_title_format">%1$s · %2$s</string>

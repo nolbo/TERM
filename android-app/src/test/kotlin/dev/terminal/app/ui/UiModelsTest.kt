@@ -19,6 +19,63 @@ class UiModelsTest {
         assertTrue(parseSessions("not-json").isEmpty())
     }
 
+    @Test fun closingActiveTabSelectsNextThenPreviousAndRetainsSiblingIdentity() {
+        val a = session("native-a")
+        val b = session("native-b")
+        val c = session("native-c")
+        val clients = mutableMapOf(a.id to Any(), b.id to Any(), c.id to Any())
+        val cClient = clients.getValue(c.id)
+
+        val middleClosed = reconcileSessionTabs(listOf(a, b, c), b.id, setOf(b.id), listOf(a, c))
+        clients.keys.retainAll(listOf(a.id, c.id))
+
+        assertEquals(c.id, middleClosed.activeSessionId)
+        assertTrue(middleClosed.pendingTerminationIds.isEmpty())
+        assertTrue(cClient === clients.getValue(c.id))
+        assertEquals(b.id, reconcileSessionTabs(listOf(a, b, c), c.id, setOf(c.id), listOf(a, b)).activeSessionId)
+    }
+
+    @Test fun closingBackgroundTabDoesNotChangeActiveRendererIdentity() {
+        val a = session("native-a")
+        val b = session("native-b")
+        val activeClient = Any()
+        val clients = mutableMapOf(a.id to activeClient, b.id to Any())
+
+        val update = reconcileSessionTabs(listOf(a, b), a.id, setOf(b.id), listOf(a))
+        clients.keys.retainAll(listOf(a.id))
+
+        assertEquals(a.id, update.activeSessionId)
+        assertTrue(activeClient === clients.getValue(a.id))
+    }
+
+    @Test fun closingLastTabIsStableEmptyStateWithoutAnAutomaticCreateEffect() {
+        val only = session("native-a")
+
+        val update = reconcileSessionTabs(listOf(only), only.id, setOf(only.id), emptyList())
+
+        assertEquals(null, update.activeSessionId)
+        assertEquals(setOf(only.id), update.removedSessionIds)
+        assertTrue(update.pendingTerminationIds.isEmpty())
+    }
+
+    @Test fun terminationFailureClearsOnlyTargetPendingStateAndPreservesTabs() {
+        val sessions = listOf(session("native-a"), session("native-b"))
+        val pending = requestSessionTermination(sessions, emptySet(), "native-a")
+
+        val afterFailure = failSessionTermination(pending, "native-a")
+
+        assertTrue(afterFailure.isEmpty())
+        assertEquals(listOf("native-a", "native-b"), sessions.map { it.id })
+    }
+
+    @Test fun duplicateCloseRequestIsIdempotentAndUiDetachOnlyListsDetachTargets() {
+        val sessions = listOf(session("native-a"), session("rootless-b"))
+        val once = requestSessionTermination(sessions, emptySet(), "native-a")
+
+        assertEquals(once, requestSessionTermination(sessions, once, "native-a"))
+        assertEquals(listOf("native-a", "rootless-b"), sessionIdsForUiDetach(sessions))
+    }
+
     @Test fun missingTitleRemainsAUiConcern() {
         assertEquals("", parseSessions("""[{"id":"native-1","runtime":"NATIVE","state":"RUNNING"}]""").single().title)
     }
@@ -73,6 +130,8 @@ class UiModelsTest {
         assertTrue(contrast(colors.surface, colors.onSurface) >= 4.5f)
         assertTrue(contrast(colors.error, colors.onError) >= 4.5f)
     }
+
+    private fun session(id: String) = SessionUi(id, "NATIVE", id, "RUNNING")
 
     private fun contrast(first: Color, second: Color): Float {
         val lighter = maxOf(first.luminance(), second.luminance())

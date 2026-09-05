@@ -75,6 +75,15 @@ than the UI thread so a full 4 KiB emulator queue cannot deadlock rendering.
 Operation failures are returned through the same listener instead of being
 lost in a service coroutine.
 
+Session mutations and list publication pass through one serialized snapshot
+pipeline. Each published list has a monotonic revision, and the UI ignores an
+older revision. The unified registry retains each controller's last successful
+list across a transient list/transport failure; only a successful authoritative
+list or successful single-session termination removes its entries. Closing a
+tab therefore disposes only that session's UI projection after the service
+snapshot confirms removal. An empty authoritative list is a normal UI state,
+not a request to create a shell or stop the runtime.
+
 `SharedDirectoryManager` owns a per-VM host path only; it does not expose the
 rest of app-private storage. `PortForwardRegistry` accepts only validated port
 reports from a future guest port-agent, and `RuntimeWakeController` uses a

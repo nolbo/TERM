@@ -172,6 +172,7 @@ data class RuntimeChoiceUi(val id: String, val available: Boolean, val detail: S
 fun TerminalChrome(
     sessions: List<SessionUi>,
     activeSessionId: String?,
+    terminatingSessionIds: Set<String>,
     runtimeChoices: List<RuntimeChoiceUi>,
     newSessionMenuExpanded: Boolean,
     onSelect: (String) -> Unit,
@@ -207,7 +208,10 @@ fun TerminalChrome(
                                 Text(stringResource(R.string.session_title_format, runtimeLabel, sessionTitle), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
                                 Text(if (selected) stringResource(R.string.current_session) else sessionStateLabel(session.state), maxLines = 1, style = MaterialTheme.typography.labelSmall)
                             }
-                            IconButton(onClick = { onTerminate(session) }) {
+                            IconButton(
+                                onClick = { onTerminate(session) },
+                                enabled = session.id !in terminatingSessionIds,
+                            ) {
                                 Icon(Icons.Default.Close, stringResource(R.string.terminate_session_description, sessionTitle))
                             }
                         }
@@ -252,6 +256,43 @@ fun TerminalChrome(
                 }
             }
             IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, stringResource(R.string.settings)) }
+        }
+    }
+}
+
+@Composable
+fun TerminalEmptyState(
+    runtimeMessage: String,
+    onNewSession: () -> Unit,
+) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            Icons.Default.Terminal,
+            contentDescription = null,
+            modifier = Modifier.size(48.dp),
+            tint = MaterialTheme.colorScheme.primary,
+        )
+        Spacer(Modifier.height(16.dp))
+        Text(stringResource(R.string.empty_terminal_title), style = MaterialTheme.typography.headlineSmall)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            stringResource(R.string.empty_terminal_message),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        if (runtimeMessage.isNotBlank()) {
+            Spacer(Modifier.height(8.dp))
+            Text(runtimeMessage, style = MaterialTheme.typography.bodySmall)
+        }
+        Spacer(Modifier.height(20.dp))
+        Button(onClick = onNewSession, modifier = Modifier.heightIn(min = 48.dp)) {
+            Icon(Icons.Default.Add, contentDescription = null)
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.new_session))
         }
     }
 }

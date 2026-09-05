@@ -41,8 +41,13 @@ import dev.terminal.app.ui.RuntimeChoiceUi
 import dev.terminal.app.ui.SessionUi
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.ui.TerminalChrome
+import dev.terminal.app.ui.TerminalEmptyState
 import dev.terminal.app.ui.parseRuntimeChoices
 import dev.terminal.app.ui.parseSessions
+import dev.terminal.app.ui.failSessionTermination
+import dev.terminal.app.ui.reconcileSessionTabs
+import dev.terminal.app.ui.requestSessionTermination
+import dev.terminal.app.ui.sessionIdsForUiDetach
 import dev.terminal.image.DebianImageInstaller
 import dev.terminal.image.DebianImageLayout
 import dev.terminal.image.ImageInstallResult
@@ -64,6 +69,7 @@ class MainActivity : TerminalActivity() {
     private var newSessionMenuVisible by mutableStateOf(false)
     private var unavailableChoice by mutableStateOf<RuntimeChoiceUi?>(null)
     private var pendingTermination by mutableStateOf<SessionUi?>(null)
+    private var terminatingSessionIds by mutableStateOf(emptySet<String>())
     private var rootlessVisible by mutableStateOf(false)
     private var rootlessRunning by mutableStateOf(false)
     private var rootlessStatus by mutableStateOf("")
@@ -76,11 +82,13 @@ class MainActivity : TerminalActivity() {
     private var bound = false
     private var bindingRequested = false
     private var activityStarted = false
-    private var automaticShellRequested = false
     private var rootlessInstallInFlight = false
     private var rootlessSessionsBeforeInstall = emptySet<String>()
     private var displayedSessionId: String? = null
     private var terminalView: TerminalView? = null
+    private var bindingGeneration = 0L
+    private var lastSessionRevision = -1L
+    private var listener: IRuntimeStateListener? = null
     private val mainHandler by lazy { Handler(mainLooper) }
     private val terminalBackends = ConcurrentHashMap<String, RemoteTerminalBackend>()
     private val terminalSessions = mutableMapOf<String, TerminalSession>()
@@ -91,25 +99,37 @@ class MainActivity : TerminalActivity() {
         uri?.let { importImage(DocumentFile.fromTreeUri(this, it) ?: return@let) }
     }
 
-    private val listener = object : IRuntimeStateListener.Stub() {
+    private fun createRuntimeListener(generation: Long) = object : IRuntimeStateListener.Stub() {
         override fun onRuntimeStateChanged(state: String, detail: String) = runOnUiThread {
-            renderRuntimeState(state, detail)
+            if (generation == bindingGeneration) renderRuntimeState(state, detail)
         }
 
-        override fun onSessionsChanged(sessionsJson: String) = runOnUiThread {
-            renderSessions(sessionsJson)
+        override fun onSessionsChanged(revision: Long, sessionsJson: String) = runOnUiThread {
+            if (generation == bindingGeneration) renderSessions(revision, sessionsJson)
         }
 
         override fun onTerminalOutput(sessionId: String, bytes: ByteArray) {
-            terminalBackends[sessionId]?.output(bytes)
+            if (generation == bindingGeneration) terminalBackends[sessionId]?.output(bytes)
         }
 
         override fun onSessionExited(sessionId: String, exitCode: Int) = runOnUiThread {
-            sessionExitCodes[sessionId] = exitCode
-            terminalBackends[sessionId]?.exit(exitCode)
+            if (generation == bindingGeneration) {
+                sessionExitCodes[sessionId] = exitCode
+                terminalBackends[sessionId]?.exit(exitCode)
+            }
+        }
+
+        override fun onSessionTerminationFailed(sessionId: String, message: String) = runOnUiThread {
+            if (generation == bindingGeneration) {
+                terminatingSessionIds = failSessionTermination(terminatingSessionIds, sessionId)
+                val feedback = getString(R.string.operation_failed, getString(R.string.terminate), message)
+                runtimeMessage = getString(R.string.runtime_error_prompt, feedback)
+                feedbackMessage = feedback
+            }
         }
 
         override fun onRootlessProgress(phase: String, detail: String) = runOnUiThread {
+            if (generation != bindingGeneration) return@runOnUiThread
             rootlessRunning = true
             rootlessStatus = phase
             rootlessDetail = detail
@@ -117,10 +137,10 @@ class MainActivity : TerminalActivity() {
         }
 
         override fun onOperationError(operation: String, message: String) = runOnUiThread {
+            if (generation != bindingGeneration) return@runOnUiThread
             val feedback = getString(R.string.operation_failed, operation, message)
             runtimeMessage = getString(R.string.runtime_error_prompt, feedback)
             feedbackMessage = feedback
-            automaticShellRequested = false
             if (operation.contains("ROOTLESS", ignoreCase = true) || rootlessInstallInFlight) {
                 rootlessInstallInFlight = false
                 rootlessRunning = false
@@ -142,19 +162,16 @@ class MainActivity : TerminalActivity() {
             bound = true
             runCatching {
                 val connected = checkNotNull(runtime)
-                connected.registerListener(listener)
+                val currentListener = checkNotNull(listener)
+                connected.registerListener(currentListener)
                 updateRuntimeChoices(connected.runtimeStatusJson)
-                renderSessions(connected.sessionsJson)
                 renderRuntimeState(connected.state, connected.detail)
                 connected.startRuntime()
             }.onFailure { handleRuntimeDisconnect() }
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
-            bound = false
-            runtime = null
-            automaticShellRequested = false
-            runtimeMessage = getString(R.string.runtime_reconnecting_prompt)
+            handleRuntimeDisconnect()
         }
     }
 
@@ -191,11 +208,12 @@ class MainActivity : TerminalActivity() {
 
     override fun onStop() {
         activityStarted = false
+        bindingGeneration++
         mainHandler.removeCallbacks(reconnectRuntime)
         if (bindingRequested) {
             if (bound) {
-                sessions.forEach { session -> runCatching { runtime?.detachSession(session.id) } }
-                runCatching { runtime?.unregisterListener(listener) }
+                sessionIdsForUiDetach(sessions).forEach { id -> runCatching { runtime?.detachSession(id) } }
+                listener?.let { current -> runCatching { runtime?.unregisterListener(current) } }
             }
             runCatching { unbindService(connection) }
         }
@@ -206,6 +224,7 @@ class MainActivity : TerminalActivity() {
         bindingRequested = false
         bound = false
         runtime = null
+        listener = null
         super.onStop()
     }
 
@@ -225,6 +244,7 @@ class MainActivity : TerminalActivity() {
             TerminalChrome(
                 sessions = sessions,
                 activeSessionId = activeSessionId,
+                terminatingSessionIds = terminatingSessionIds,
                 runtimeChoices = runtimeChoices,
                 newSessionMenuExpanded = newSessionMenuVisible,
                 onSelect = ::attach,
@@ -235,33 +255,34 @@ class MainActivity : TerminalActivity() {
                 onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
             )
             if (activeSessionId == null) {
-                Text(runtimeMessage, Modifier.padding(horizontal = 16.dp, vertical = 8.dp), style = MaterialTheme.typography.bodyMedium)
+                TerminalEmptyState(runtimeMessage, ::showNewSession)
+            } else {
+                AndroidView(
+                    factory = { context ->
+                        TerminalView(context, null).apply {
+                            terminalView = this
+                            setTerminalViewClient(terminalInputCallbacks)
+                            TerminalAppearance.apply(terminalPreferences(), this)
+                        }
+                    },
+                    update = { view -> attachRenderer(view) },
+                    onRelease = { view -> if (terminalView === view) terminalView = null },
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                )
+                ExtraKeys(
+                    control = controlPressed,
+                    alt = altPressed,
+                    onKey = ::writeRaw,
+                    onControl = {
+                        terminalInputCallbacks.controlPressed = !terminalInputCallbacks.controlPressed
+                        syncModifierState()
+                    },
+                    onAlt = {
+                        terminalInputCallbacks.altPressed = !terminalInputCallbacks.altPressed
+                        syncModifierState()
+                    },
+                )
             }
-            AndroidView(
-                factory = { context ->
-                    TerminalView(context, null).apply {
-                        terminalView = this
-                        setTerminalViewClient(terminalInputCallbacks)
-                        TerminalAppearance.apply(terminalPreferences(), this)
-                    }
-                },
-                update = { view -> attachRenderer(view) },
-                onRelease = { view -> if (terminalView === view) terminalView = null },
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-            )
-            ExtraKeys(
-                control = controlPressed,
-                alt = altPressed,
-                onKey = ::writeRaw,
-                onControl = {
-                    terminalInputCallbacks.controlPressed = !terminalInputCallbacks.controlPressed
-                    syncModifierState()
-                },
-                onAlt = {
-                    terminalInputCallbacks.altPressed = !terminalInputCallbacks.altPressed
-                    syncModifierState()
-                },
-            )
         } }
 
         if (rootlessVisible) {
@@ -303,19 +324,20 @@ class MainActivity : TerminalActivity() {
             "FAILED" -> getString(R.string.runtime_error_prompt, detail.ifBlank { getString(R.string.runtime_disconnected) })
             else -> getString(R.string.runtime_state_prompt, detail.ifBlank { state })
         }
-        if (state in setOf("READY", "ACTIVE", "IDLE") && sessions.isEmpty() && !automaticShellRequested) {
-            automaticShellRequested = true
-            createSession("NATIVE")
-        }
     }
 
-    private fun renderSessions(json: String) {
+    private fun renderSessions(revision: Long, json: String) {
+        if (revision < lastSessionRevision) return
+        lastSessionRevision = revision
         val updated = parseSessions(json)
+        val tabUpdate = reconcileSessionTabs(sessions, activeSessionId, terminatingSessionIds, updated)
+        val removedSessionIds = tabUpdate.removedSessionIds
         sessions = updated
+        activeSessionId = tabUpdate.activeSessionId
+        terminatingSessionIds = tabUpdate.pendingTerminationIds
         val ids = updated.mapTo(mutableSetOf()) { it.id }
         sessionExitCodes.keys.retainAll(ids)
         updated.forEach { it.exitCode?.let { code -> sessionExitCodes[it.id] = code } }
-        if (updated.isNotEmpty()) automaticShellRequested = false
 
         if (rootlessInstallInFlight) {
             updated.firstOrNull { it.runtime == "ROOTLESS" && it.id !in rootlessSessionsBeforeInstall }?.let {
@@ -325,8 +347,17 @@ class MainActivity : TerminalActivity() {
                 activeSessionId = it.id
             }
         }
-        if (activeSessionId !in ids) activeSessionId = updated.firstOrNull()?.id
-        activeSessionId?.takeIf { it != displayedSessionId }?.let(::attach)
+        val selected = activeSessionId
+        if (selected == null) {
+            releaseTerminalFocus()
+        } else if (selected != displayedSessionId) {
+            attach(selected)
+        }
+        removedSessionIds.forEach { id ->
+            terminalBackends.remove(id)?.close()
+            terminalSessions.remove(id)
+            if (displayedSessionId == id) displayedSessionId = null
+        }
         runtime?.let { service -> runCatching { updateRuntimeChoices(service.runtimeStatusJson) } }
     }
 
@@ -360,16 +391,35 @@ class MainActivity : TerminalActivity() {
         if (view.currentSession !== session) view.attachSession(session)
         view.requestFocus()
         view.post {
+            if (activeSessionId == id && terminalView === view) {
+                (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
+                    .showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+            }
+        }
+    }
+
+    private fun releaseTerminalFocus() {
+        terminalView?.let { view ->
+            view.clearFocus()
             (getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager)
-                .showSoftInput(view, InputMethodManager.SHOW_IMPLICIT)
+                .hideSoftInputFromWindow(view.windowToken, 0)
         }
     }
 
     private fun terminate(id: String) {
-        terminalBackends.remove(id)?.close()
-        terminalSessions.remove(id)
-        if (displayedSessionId == id) displayedSessionId = null
-        safeRuntimeCall { it.terminateSession(id) }
+        if (id in terminatingSessionIds || sessions.none { it.id == id }) return
+        val service = runtime
+        if (service == null) {
+            feedbackMessage = getString(R.string.runtime_connecting_prompt)
+            bindRuntime()
+            return
+        }
+        terminatingSessionIds = requestSessionTermination(sessions, terminatingSessionIds, id)
+        runCatching { service.terminateSession(id) }
+            .onFailure {
+                terminatingSessionIds = failSessionTermination(terminatingSessionIds, id)
+                handleRuntimeDisconnect()
+            }
     }
 
     private fun showNewSession() {
@@ -471,10 +521,11 @@ class MainActivity : TerminalActivity() {
 
     private fun handleRuntimeDisconnect() {
         if (bindingRequested) runCatching { unbindService(connection) }
+        bindingGeneration++
         bindingRequested = false
         bound = false
         runtime = null
-        automaticShellRequested = false
+        listener = null
         runtimeMessage = getString(R.string.runtime_reconnecting_prompt)
         if (activityStarted) mainHandler.postDelayed(reconnectRuntime, RECONNECT_DELAY_MS)
     }
@@ -485,10 +536,16 @@ class MainActivity : TerminalActivity() {
 
     private fun bindRuntime() {
         if (bindingRequested) return
+        val generation = ++bindingGeneration
+        listener = createRuntimeListener(generation)
+        lastSessionRevision = -1L
         bindingRequested = runCatching {
             bindService(Intent(this, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE)
         }.getOrDefault(false)
-        if (!bindingRequested && activityStarted) mainHandler.postDelayed(reconnectRuntime, RECONNECT_DELAY_MS)
+        if (!bindingRequested) {
+            listener = null
+            if (activityStarted) mainHandler.postDelayed(reconnectRuntime, RECONNECT_DELAY_MS)
+        }
     }
 
     private fun importImage(directory: DocumentFile) = Thread {

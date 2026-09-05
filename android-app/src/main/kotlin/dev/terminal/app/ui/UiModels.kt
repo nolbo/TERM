@@ -17,6 +17,49 @@ internal fun parseSessions(json: String): List<SessionUi> = runCatching {
     }
 }.getOrDefault(emptyList())
 
+internal data class SessionTabUpdate(
+    val activeSessionId: String?,
+    val pendingTerminationIds: Set<String>,
+    val removedSessionIds: Set<String>,
+)
+
+internal fun requestSessionTermination(
+    sessions: List<SessionUi>,
+    pendingTerminationIds: Set<String>,
+    sessionId: String,
+): Set<String> = if (sessions.any { it.id == sessionId }) pendingTerminationIds + sessionId else pendingTerminationIds
+
+internal fun failSessionTermination(
+    pendingTerminationIds: Set<String>,
+    sessionId: String,
+): Set<String> = pendingTerminationIds - sessionId
+
+internal fun sessionIdsForUiDetach(sessions: List<SessionUi>): List<String> = sessions.map { it.id }
+
+internal fun reconcileSessionTabs(
+    previous: List<SessionUi>,
+    activeSessionId: String?,
+    pendingTerminationIds: Set<String>,
+    updated: List<SessionUi>,
+): SessionTabUpdate {
+    val updatedIds = updated.mapTo(linkedSetOf()) { it.id }
+    val previousIds = previous.mapTo(linkedSetOf()) { it.id }
+    val nextActive = when {
+        activeSessionId in updatedIds -> activeSessionId
+        updated.isEmpty() -> null
+        activeSessionId == null -> updated.first().id
+        else -> {
+            val closedIndex = previous.indexOfFirst { it.id == activeSessionId }
+            updated[closedIndex.takeIf { it >= 0 }?.coerceAtMost(updated.lastIndex) ?: 0].id
+        }
+    }
+    return SessionTabUpdate(
+        activeSessionId = nextActive,
+        pendingTerminationIds = pendingTerminationIds.intersect(updatedIds),
+        removedSessionIds = previousIds - updatedIds,
+    )
+}
+
 internal fun parseRuntimeChoices(json: String): List<RuntimeChoiceUi> {
     val status = runCatching { JSONObject(json) }.getOrNull()
     return listOf("NATIVE", "ROOTLESS", "AVF").map { runtime ->

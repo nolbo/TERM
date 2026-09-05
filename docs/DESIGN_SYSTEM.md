@@ -27,6 +27,11 @@ Droid Terminal의 활성 Android UI는 Jetpack Compose와 안정 Material 3 컴�
 2. `AndroidView`에 포함된 기존 `TerminalView`
 3. 각각 최소 48 dp인 두 줄 extra key
 
+권위 있는 세션 목록이 비어 있으면 두 번째와 세 번째 영역 대신 빈 상태를
+표시한다. 빈 상태는 런타임이 대기 중임을 설명하고 **새 세션** 동작을 제공하며,
+상단의 새 세션 메뉴와 설정 동작도 그대로 유지한다. 이때 터미널 View와 extra
+key를 구성하거나 IME 포커스를 유지하지 않는다.
+
 선택 세션은 체크 표시와 “현재 세션” 텍스트를 함께 보여 색만으로 상태를 전달하지 않는다. 종료 아이콘은 확인 대화상자를 연 뒤에만 runtime의 명시적 terminate 명령을 보낸다. 새 세션 선택은 추가 아이콘에 연결된 Material 3 드롭다운 메뉴를 사용하고, Rootless 준비 상태는 대화상자, 진행 표시기, 오류 텍스트, 재시도 및 닫기 동작을 사용한다.
 
 설정 개요와 상세는 Android 설정 앱과 같은 섹션 제목, rounded surface, `ListItem`, supporting text와 trailing control 계층을 사용한다. 모든 일반 화면의 앱 바는 표준 Material 3 `TopAppBar`다. boolean 행 전체가 한 번만 toggle된다. 숫자·경로·단일 선택은 복원 가능한 입력 초안과 저장값을 분리하고, 대화상자의 **저장**에서 전체 값을 검증한 뒤에만 반영한다. Rootless 상태 행은 확인 중·설치 필요·준비됨·오류를 구분하고 각각 진행 표시, 설치, 다시 확인, 재시도 동작을 제공한다. 진단과 크래시 payload는 선택 가능한 고정폭 텍스트로 유지한다. 크래시 화면에서는 복사를 primary action으로, 닫기를 낮은 강조 action으로 제공한다.
@@ -42,3 +47,7 @@ Droid Terminal의 활성 Android UI는 Jetpack Compose와 안정 Material 3 컴�
 Compose 상태는 서비스 상태의 투영일 뿐 권위 있는 세션 저장소가 아니다. Activity가 시작되거나 서비스에 재연결되면 세션 목록과 runtime 상태를 다시 읽는다. `AndroidView` 재구성은 `TerminalView`를 불필요하게 만들거나 세션을 종료하지 않으며, Activity 정지는 renderer callback을 detach하고 로컬 emulator projection만 폐기한다.
 
 PTY, 프로세스, Rootless 설치와 VM은 계속 `:vmhost` runtime 서비스가 소유한다. 대화상자 닫기, 세션 전환, Activity 재생성 또는 UI task 제거는 terminate 명령이 아니다. 실제 종료는 사용자가 확인한 세션 종료 동작을 runtime이 처리할 때만 일어난다.
+
+종료 요청 중인 탭은 중복 종료를 막고, 서비스가 revision이 증가한 목록으로
+제거를 확인한 뒤에만 해당 로컬 렌더러 상태를 폐기한다. 실패하면 탭과 형제
+렌더러를 유지하고 해당 탭의 대기 상태만 해제한다.

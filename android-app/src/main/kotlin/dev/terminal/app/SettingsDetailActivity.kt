@@ -55,9 +55,10 @@ class SettingsDetailActivity : TerminalActivity() {
 
     private val listener = object : IRuntimeStateListener.Stub() {
         override fun onRuntimeStateChanged(state: String, detail: String) = Unit
-        override fun onSessionsChanged(sessionsJson: String) = Unit
+        override fun onSessionsChanged(revision: Long, sessionsJson: String) = Unit
         override fun onTerminalOutput(sessionId: String, bytes: ByteArray) = Unit
         override fun onSessionExited(sessionId: String, exitCode: Int) = Unit
+        override fun onSessionTerminationFailed(sessionId: String, message: String) = Unit
         override fun onRootlessProgress(phase: String, detail: String) = runOnUiThread {
             rootlessState = RootlessSettingsState(
                 if (phase == getString(R.string.rootless_ready_phase)) RootlessSettingsStatus.READY else RootlessSettingsStatus.CHECKING,
