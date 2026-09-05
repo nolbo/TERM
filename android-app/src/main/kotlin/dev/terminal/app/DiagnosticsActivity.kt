@@ -6,7 +6,10 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.Bundle
 import android.os.IBinder
-import dev.terminal.app.databinding.ActivityDiagnosticsBinding
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import dev.terminal.app.ui.DiagnosticsScreen
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.lifecycle.VmRuntimeService
@@ -14,11 +17,18 @@ import org.json.JSONArray
 
 /** Read-only operational view; it helps distinguish image, AVF, guest and forwarding failures. */
 class DiagnosticsActivity : TerminalActivity() {
-    private lateinit var binding: ActivityDiagnosticsBinding
+    private var diagnosticText by mutableStateOf("")
     private var runtime: IRuntimeService? = null
     private var bound = false
+    private var bindingRequested = false
+    private var activityStarted = false
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
+            if (!activityStarted) {
+                runCatching { unbindService(this) }
+                bindingRequested = false
+                return
+            }
             runtime = IRuntimeService.Stub.asInterface(service)
             bound = true
             render()
@@ -28,20 +38,22 @@ class DiagnosticsActivity : TerminalActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityDiagnosticsBinding.inflate(layoutInflater)
-        setContentView(binding.root)
-        installRootInsets(binding.root)
-        binding.toolbar.setNavigationOnClickListener { finishWithMotion() }
-        binding.toolbar.setAction(R.drawable.ic_refresh, "새로고침") { render() }
+        diagnosticText = getString(R.string.diagnostics_connecting)
+        compose { DiagnosticsScreen({ finish() }, diagnosticText, ::render) }
     }
 
     override fun onStart() {
         super.onStart()
-        bindService(Intent(this, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE)
+        activityStarted = true
+        bindingRequested = runCatching {
+            bindService(Intent(this, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE)
+        }.getOrDefault(false)
     }
 
     override fun onStop() {
-        if (bound) unbindService(connection)
+        activityStarted = false
+        if (bindingRequested) runCatching { unbindService(connection) }
+        bindingRequested = false
         bound = false
         runtime = null
         super.onStop()
@@ -50,25 +62,25 @@ class DiagnosticsActivity : TerminalActivity() {
     private fun render() {
         val service = runtime
         if (service == null) {
-            binding.diagnosticsText.text = "런타임 서비스에 연결하는 중…"
+            diagnosticText = getString(R.string.diagnostics_connecting)
             return
         }
-        binding.diagnosticsText.text = buildString {
-            appendLine("런타임 상태: ${service.state}")
-            appendLine("상세: ${service.detail}")
-            appendLine("이미지: ${service.imageStatus}")
-            appendLine("절전 정책: ${service.wakePolicy}")
+        diagnosticText = buildString {
+            appendLine(getString(R.string.diagnostics_runtime_state, service.state))
+            appendLine(getString(R.string.diagnostics_detail, service.detail))
+            appendLine(getString(R.string.diagnostics_image, service.imageStatus))
+            appendLine(getString(R.string.diagnostics_wake_policy, service.wakePolicy))
             appendLine()
-            appendLine("세션: ${JSONArray(service.sessionsJson).length()}개")
-            appendLine("포트 전달:")
+            appendLine(getString(R.string.diagnostics_session_count, JSONArray(service.sessionsJson).length()))
+            appendLine(getString(R.string.diagnostics_ports))
             val ports = runCatching { JSONArray(service.forwardedPortsJson) }.getOrElse { JSONArray() }
-            if (ports.length() == 0) appendLine("  활성 포트 없음")
+            if (ports.length() == 0) appendLine(getString(R.string.diagnostics_no_ports))
             repeat(ports.length()) { index ->
                 val port = ports.getJSONObject(index)
-                appendLine("  ${port.getString("hostAddress")}:${port.getInt("hostPort")} → 게스트 ${port.getInt("guestPort")}")
+                appendLine(getString(R.string.diagnostics_port_item, port.getString("hostAddress"), port.getInt("hostPort"), port.getInt("guestPort")))
             }
             appendLine()
-            append("AVF 권한 또는 게스트 vsock 오류는 위 상태/상세 항목에서 확인하세요.")
+            append(getString(R.string.diagnostics_hint))
         }
     }
 }

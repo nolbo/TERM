@@ -5,8 +5,8 @@
     android:height="48dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <path android:fillColor="@color/grid_layer_2" android:pathData="M12,2A10,10 0,1 0,12 22A10,10 0,1 0,12 2" />
+    <path android:fillColor="@color/app_icon_surface" android:pathData="M12,2A10,10 0,1 0,12 22A10,10 0,1 0,12 2" />
     <group android:pivotX="12" android:pivotY="12" android:scaleX="0.72" android:scaleY="0.72">
-        <path android:pathData="M12,19H20M4,17L10,11L4,5" android:fillColor="@android:color/transparent" android:strokeColor="@color/grid_signal" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
+        <path android:pathData="M12,19H20M4,17L10,11L4,5" android:fillColor="@android:color/transparent" android:strokeColor="@color/app_icon_accent" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
     </group>
 </vector>

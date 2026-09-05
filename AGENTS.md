@@ -492,8 +492,9 @@ The UI presents Android Native, Rootless Linux, and AVF Linux as explicit
 choices with their setup, compatibility, and privilege differences.
 
 UI and settings may be reorganized when architecture or clarity requires it.
-Preserve the Terminal Grid design system in docs/DESIGN_SYSTEM.md unless the
-task explicitly changes that system.
+Active application screens use the shared Jetpack Compose Material 3 system in
+docs/DESIGN_SYSTEM.md. System light/dark and dynamic application color must
+remain independent from the user-selected terminal canvas palette.
 
 The UI renders state and sends typed commands. It never becomes the hidden
 owner of a process, PTY, VM, package operation, or capability grant.

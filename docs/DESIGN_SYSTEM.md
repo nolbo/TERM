@@ -1,56 +1,44 @@
-# Terminal Grid Design System
+# Compose Material 3 design system
 
 ## Direction
 
-Droid Terminal uses an application-owned system named **Terminal Grid**. Low-luminance neutral graphite layers keep long terminal sessions comfortable, while mint is reserved for focus, selection, active state, progress, and the primary command. The terminal canvas itself is true black.
+Droid Terminal의 활성 Android UI는 Jetpack Compose와 안정 Material 3 컴포넌트로 구현한다. 앱 크롬은 시스템의 밝은/어두운 테마를 따르고 Android 12 이상에서는 동적 색상을 사용한다. 동적 색상을 사용할 수 없을 때는 민트 계열 primary와 중립 surface를 갖는 명시적 밝은/어두운 색상표를 적용한다.
+
+터미널 캔버스는 예외다. `TerminalView`와 `TerminalAppearance`가 사용자 선택 팔레트, ANSI 색상, 커서, 선택 영역과 배경을 독립적으로 관리하며 Material 또는 동적 색상이 이를 덮어쓰지 않는다.
 
 ## Foundations
 
-- Color: achromatic graphite layers and text, with mint as the sole product accent. Validation uses contrast and border weight instead of introducing another decorative hue.
-- Spacing: a 4 dp grid with 4, 8, 12, 16, 20, 24, and 32 dp tokens.
-- Shape: 8 dp for dense controls, 12 dp for actions/fields/rows, 16 dp for grouped surfaces, and pill geometry only for compact values and switches.
-- Touch: interactive targets are at least 48 dp, except fixed extra-key cells whose complete row remains touch-sized.
-- Type: system sans-serif for Android UI. Monospace is limited to the terminal renderer, diagnostic/crash payloads, and terminal extra keys where fixed cells carry meaning.
-- Iconography: Lucide 24 px outline icons use the source set's 2 px round stroke. Product branding may use an application-owned mark, but navigation and actions must not use hand-drawn one-off glyphs.
-- Layering: `void`, `base`, and three explicit layers replace Material surface/elevation roles.
+- 색상은 `MaterialTheme.colorScheme`의 `primary`, `onPrimary`, `surface`, `surfaceContainer`, `onSurface`, `outline`, `error` 같은 의미 역할로만 사용한다.
+- 앱 텍스트는 Material 3 type scale을 사용한다. 고정폭 글꼴은 터미널, extra key, 진단 및 크래시 payload에만 사용한다.
+- 간격은 4 dp 배수를 기본으로 하며 표준 Material shape를 사용한다.
+- 모든 일반 상호작용 대상은 최소 48 dp다. 두 줄 extra key도 각 셀의 전체 높이를 48 dp 이상 유지한다.
+- 아이콘 버튼에는 동작을 설명하는 content description을 제공한다. 장식 아이콘에는 중복 설명을 제공하지 않는다.
+- 화면 전환에 별도 View transition을 강제하지 않는다. Compose 및 플랫폼의 애니메이터 배율을 따르는 표준 컴포넌트 상태 변화만 사용한다.
 
-Android resource tokens live in `android-app/src/main/res/values/colors.xml`, `dimens.xml`, and `styles.xml`. `SignalAppBar`, `GridFieldView`, panel backgrounds, row states, tab states, and choice dialogs are owned by the application.
+구현은 `android-app/src/main/kotlin/dev/terminal/app/ui/ComposeUi.kt`의 `DroidTheme`와 공통 scaffold/화면 컴포넌트에 모인다. 사용자 문구는 `android-app/src/main/res/values/strings.xml`에 둔다.
 
-Material Components is included only for Material 3 motion primitives: hierarchical screen navigation uses `MaterialSharedAxis`, in-place tab and settings updates use `MaterialFadeThrough`, and choice dialogs use `MaterialFade`. It does not supply visible application components or override Terminal Grid tokens.
+## Components and screens
 
-Lucide source icons are converted to Android VectorDrawable paths without changing their 24 px geometry or 2 px round-stroke rules. Redistribution notices are packaged at `android-app/src/main/assets/licenses/lucide-LICENSE.txt`.
+초기 설정은 Native, Rootless Debian, AVF Debian을 각각 카드로 설명하고 즉시 터미널 시작과 AVF 로컬 이미지 선택을 분리한다. 세로 스크롤을 사용하므로 좁은 화면, 가로 화면, 큰 글꼴에서도 작업 버튼에 접근할 수 있다.
 
-## Screen rules
+터미널은 다음 세 영역을 유지한다.
 
-### Terminal
+1. 가로 스크롤 세션 선택 영역과 고정된 새 세션/설정 아이콘 버튼
+2. `AndroidView`에 포함된 기존 `TerminalView`
+3. 각각 최소 48 dp인 두 줄 extra key
 
-The console has exactly three vertical regions: session tabs and actions, the native terminal renderer, and two fixed rows of extra keys. Tabs, add, and settings actions share one structural layer. A tab owns only attachment state; closing it explicitly asks the runtime supervisor to terminate the matching session.
+선택 세션은 체크 표시와 “현재 세션” 텍스트를 함께 보여 색만으로 상태를 전달하지 않는다. 종료 아이콘은 확인 대화상자를 연 뒤에만 runtime의 명시적 terminate 명령을 보낸다. 새 세션과 Rootless 준비 상태는 Material 3 대화상자, 진행 표시기, 오류 텍스트, 재시도 및 닫기 동작을 사용한다.
 
-The default guest session starts in `/home/user`. The shell prompt represents that home directory as `~`; the runtime protocol keeps the real absolute path for process creation and storage isolation.
+설정 개요와 상세는 공통 앱 바, `ListItem`, `Switch`, `OutlinedTextField`, 단일 선택 `AlertDialog`/`RadioButton`을 사용한다. boolean 행 전체가 한 번만 toggle되며 입력 오류는 supporting text로 설명한다. 진단과 크래시 payload는 선택 가능한 고정폭 텍스트로 유지한다. 크래시 화면에서는 복사를 primary action으로, 닫기를 낮은 강조 action으로 제공한다.
 
-### Initial setup
+## Insets and adaptive behavior
 
-Setup explains the default native path first and AVF as an optional advanced path. One filled action starts the terminal; one outlined action selects a Debian image. Capability and platform constraints remain visible before the user commits.
+모든 화면은 edge-to-edge다. 공통 앱 바와 터미널 chrome은 status bar inset을 적용하고, 하단 extra key는 navigation bar inset을 적용한다. 터미널 화면은 IME inset을 반영해 키보드가 terminal/extra key를 가리지 않게 한다. 목록 기반 화면은 고정 텍스트 높이를 사용하지 않고 스크롤한다.
 
-### Settings
-
-The overview uses rounded grouped surfaces with a leading category symbol, title, summary, and navigation affordance. Detail-page headings such as 글자, 리소스, and 실행 only create a list section; they never receive a shared card background or enclosing outline. Detail pages use Terminal Grid controls that match the value:
-
-- free numeric or path input: `GridFieldView` with inline signal/error validation;
-- boolean state: a platform `SwitchCompat` with neutral track and mint active state;
-- bounded choice: a value chip in the row and a single-selection radio dialog;
-- navigation or system action: preference row with trailing chevron.
-
-Settings that affect process creation state when they take effect. Terminal appearance is applied on return; VM resources apply on the next VM start; shell defaults apply to new sessions.
-
-### Diagnostics and crash reports
-
-Operational information uses selectable monospace text inside a grouped surface. Refresh is an app-bar action. Crash reports keep “copy” as the primary action and “dismiss” as a text action so diagnostic data is not discarded accidentally.
-
-## System bars and IME
-
-Every visible activity is edge-to-edge but must reserve system-bar space. `SignalAppBar` owns the status-bar top inset. `TerminalActivity` owns horizontal and navigation-bar insets, and input screens additionally apply the IME bottom inset. The console applies the same contract to its tab chrome, so neither tabs nor settings bars may render under device status icons.
+상태 표시줄과 탐색 표시줄 아이콘 명암은 현재 Compose 밝은/어두운 색상표에 맞춰 갱신한다. RTL에서는 start/end 기반 배치를 사용하되, 문자 셀 정확성이 필요한 터미널 렌더러 자체는 기존 방향 규칙을 유지한다.
 
 ## Lifecycle boundary
 
-The design system never changes runtime ownership. Activities render and issue commands through AIDL; the runtime process owns sessions and VM state. Visual tab removal is not used as a substitute for runtime termination acknowledgement.
+Compose 상태는 서비스 상태의 투영일 뿐 권위 있는 세션 저장소가 아니다. Activity가 시작되거나 서비스에 재연결되면 세션 목록과 runtime 상태를 다시 읽는다. `AndroidView` 재구성은 `TerminalView`를 불필요하게 만들거나 세션을 종료하지 않으며, Activity 정지는 renderer callback을 detach하고 로컬 emulator projection만 폐기한다.
+
+PTY, 프로세스, Rootless 설치와 VM은 계속 `:vmhost` runtime 서비스가 소유한다. 대화상자 닫기, 세션 전환, Activity 재생성 또는 UI task 제거는 terminate 명령이 아니다. 실제 종료는 사용자가 확인한 세션 종료 동작을 runtime이 처리할 때만 일어난다.

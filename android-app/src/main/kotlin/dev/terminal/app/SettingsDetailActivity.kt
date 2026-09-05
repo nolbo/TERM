@@ -3,351 +3,379 @@ package dev.terminal.app
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.ServiceConnection
 import android.net.Uri
 import android.os.Bundle
 import android.os.IBinder
 import android.provider.Settings
-import android.graphics.drawable.ColorDrawable
-import android.view.Gravity
-import android.view.View
-import android.widget.Button
-import android.widget.ImageView
-import android.widget.LinearLayout
-import android.widget.TextView
-import androidx.appcompat.app.AlertDialog
-import androidx.appcompat.content.res.AppCompatResources
-import androidx.appcompat.widget.AppCompatRadioButton
-import androidx.appcompat.widget.SwitchCompat
-import androidx.core.content.ContextCompat
-import androidx.core.widget.CompoundButtonCompat
-import androidx.core.widget.doAfterTextChanged
-import dev.terminal.app.databinding.ActivitySettingsDetailBinding
-import dev.terminal.app.ui.GridFieldView
-import dev.terminal.app.ui.TerminalMotion
+import androidx.annotation.StringRes
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.dp
+import dev.terminal.app.ui.AppScaffold
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.lifecycle.VmRuntimeService
+import org.json.JSONObject
 
 class SettingsDetailActivity : TerminalActivity() {
-    private lateinit var binding: ActivitySettingsDetailBinding
-    private val terminalPreferences by lazy { getSharedPreferences(TERMINAL_PREFERENCES, Context.MODE_PRIVATE) }
-    private val runtimePreferences by lazy { getSharedPreferences(RUNTIME_PREFERENCES, Context.MODE_PRIVATE) }
+    private val terminalPreferences by lazy { getSharedPreferences(TERMINAL_PREFERENCES, MODE_PRIVATE) }
+    private val runtimePreferences by lazy { getSharedPreferences(RUNTIME_PREFERENCES, MODE_PRIVATE) }
+    private val category get() = intent.getStringExtra(EXTRA_CATEGORY) ?: APPEARANCE
     private var runtime: IRuntimeService? = null
     private var bound = false
-    private var currentSection: LinearLayout? = null
-    private var sectionHasItem = false
-    private val connection = object : android.content.ServiceConnection {
+    private var bindingRequested = false
+    private var activityStarted = false
+    private var rootlessAvailable by mutableStateOf(false)
+    private var rootlessStatus by mutableStateOf("")
+    private var wakePolicy by mutableStateOf(DEFAULT_WAKE_POLICY)
+
+    private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
-            runtime = IRuntimeService.Stub.asInterface(service); bound = true
-            if (category == AVF || category == ROOTLESS) render()
+            if (!activityStarted) {
+                runCatching { unbindService(this) }
+                bindingRequested = false
+                return
+            }
+            runtime = IRuntimeService.Stub.asInterface(service)
+            bound = true
+            refreshServiceState()
         }
-        override fun onServiceDisconnected(name: ComponentName) { runtime = null; bound = false }
+
+        override fun onServiceDisconnected(name: ComponentName) {
+            runtime = null
+            bound = false
+        }
     }
-    private val category get() = intent.getStringExtra(EXTRA_CATEGORY) ?: APPEARANCE
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivitySettingsDetailBinding.inflate(layoutInflater)
-        setContentView(binding.root)
-        installRootInsets(binding.root, includeIme = true)
-        binding.toolbar.setNavigationOnClickListener { finishWithMotion() }
-        render()
-    }
-    override fun onStart() { super.onStart(); bindService(Intent(this, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE) }
-    override fun onStop() { if (bound) unbindService(connection); bound = false; runtime = null; super.onStop() }
-
-    private fun render() {
-        TerminalMotion.fadeThrough(binding.settingsRows)
-        binding.settingsRows.removeAllViews()
-        currentSection = null
-        sectionHasItem = false
-        when (category) {
-            APPEARANCE -> renderAppearance()
-            AVF -> renderAvf()
-            ROOTLESS -> renderRootless()
-            else -> renderNative()
-        }
+        rootlessStatus = getString(R.string.rootless_status_connecting)
+        wakePolicy = runtimePreferences.getString(KEY_WAKE_POLICY, DEFAULT_WAKE_POLICY) ?: DEFAULT_WAKE_POLICY
+        compose { DetailScreen() }
     }
 
-    private fun renderAppearance() {
-        binding.toolbar.title = "터미널 모양"
-        binding.description.text = "콘솔로 돌아가면 저장된 글꼴과 팔레트가 적용됩니다."
-        addSection("글자")
-        addIntegerInput("글자 크기", "8~72 범위의 값을 입력하세요.", "sp", terminalPreferences.getInt(KEY_FONT_SIZE, 16), 8..72) {
-            terminalPreferences.edit().putInt(KEY_FONT_SIZE, it).apply()
-        }
-        addSingleChoice("글꼴", "터미널에 사용할 고정폭 글꼴입니다.", listOf("기본 고정폭" to "MONOSPACE", "Sans 고정폭" to "SANS_MONOSPACE"), terminalPreferences.getString(KEY_FONT_FAMILY, "MONOSPACE") ?: "MONOSPACE") {
-            terminalPreferences.edit().putString(KEY_FONT_FAMILY, it).apply()
-        }
-        addSwitch("고정 문자 폭", "모든 글리프를 동일한 셀 폭으로 렌더링합니다.", terminalPreferences.getBoolean(KEY_FIXED_WIDTH, true)) {
-            terminalPreferences.edit().putBoolean(KEY_FIXED_WIDTH, it).apply()
-        }
-        addSection("팔레트")
-        addSingleChoice("색상 팔레트", "전경, 배경과 커서 색상을 함께 변경합니다.", listOf("중성 다크" to "DROID_DARK", "솔라라이즈드 다크" to "SOLARIZED_DARK", "AMOLED 블랙" to "AMOLED"), terminalPreferences.getString(KEY_PALETTE, "DROID_DARK") ?: "DROID_DARK") {
-            terminalPreferences.edit().putString(KEY_PALETTE, it).apply()
+    override fun onStart() {
+        super.onStart()
+        activityStarted = true
+        bindingRequested = runCatching {
+            bindService(Intent(this, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE)
+        }.getOrDefault(false)
+    }
+
+    override fun onStop() {
+        activityStarted = false
+        if (bindingRequested) runCatching { unbindService(connection) }
+        bindingRequested = false
+        bound = false
+        runtime = null
+        super.onStop()
+    }
+
+    private fun refreshServiceState() {
+        val service = runtime ?: return
+        runCatching {
+            wakePolicy = service.wakePolicy
+            val rootless = JSONObject(service.runtimeStatusJson).optJSONObject("ROOTLESS")
+            rootlessAvailable = rootless?.optBoolean("available") == true
+            rootlessStatus = rootless?.optString("detail").orEmpty().ifBlank { getString(R.string.rootless_status_connecting) }
         }
     }
 
-    private fun renderAvf() {
-        binding.toolbar.title = "가상 머신 (AVF)"
-        binding.description.text = "VM 리소스 변경은 다음 시작부터 적용됩니다. 맞춤 VM에는 시스템 권한이 필요합니다."
-        addSection("리소스")
-        addIntegerInput("메모리", "게스트에 할당할 메모리입니다.", "MiB", runtimePreferences.getInt(KEY_AVF_MEMORY, 2048), 512..32768) {
-            runtimePreferences.edit().putInt(KEY_AVF_MEMORY, it).apply()
-        }
-        addIntegerInput("가상 CPU", "게스트가 사용할 vCPU 개수입니다.", "개", runtimePreferences.getInt(KEY_AVF_CPU, 2), 1..16) {
-            runtimePreferences.edit().putInt(KEY_AVF_CPU, it).apply()
-        }
-        addSwitch("보호된 VM", "기기가 지원할 때 보호된 메모리 격리를 요청합니다.", runtimePreferences.getBoolean(KEY_AVF_PROTECTED, false)) {
-            runtimePreferences.edit().putBoolean(KEY_AVF_PROTECTED, it).apply()
-        }
-        addSwitch("게스트 네트워크", "VM의 virtio 네트워크 장치를 활성화합니다.", runtimePreferences.getBoolean(KEY_AVF_NETWORK, true)) {
-            runtimePreferences.edit().putBoolean(KEY_AVF_NETWORK, it).apply()
-        }
-        addSection("실행")
-        val policies = listOf("배터리 최적화" to "BATTERY_OPTIMIZED", "작업 중 유지" to "KEEP_ACTIVE_WORK_RUNNING", "항상 켜기" to "ALWAYS_AWAKE")
-        addSingleChoice("절전 정책", "백그라운드 실행과 wake lock 정책입니다.", policies, runtime?.wakePolicy ?: runtimePreferences.getString(KEY_WAKE_POLICY, "BATTERY_OPTIMIZED") ?: "BATTERY_OPTIMIZED") {
-            runtimePreferences.edit().putString(KEY_WAKE_POLICY, it).apply(); runtime?.setWakePolicy(it)
-        }
-        addAction("Debian 이미지", "자동 설치 또는 검증된 로컬 이미지를 선택합니다.") { startActivityWithMotion(Intent(this, SetupActivity::class.java)) }
-        addAction("상태 및 전달 포트", "이미지, 런타임, 공유 저장소와 포트를 확인합니다.") { startActivityWithMotion(Intent(this, DiagnosticsActivity::class.java)) }
-    }
-
-    private fun renderNative() {
-        binding.toolbar.title = "네이티브 런타임"
-        binding.description.text = "Termux 호환 PTY 세션을 만드는 기본값입니다. 새 세션부터 적용됩니다."
-        addSection("셸")
-        addTextInput("기본 셸", "실행할 절대 경로입니다.", runtimePreferences.getString(KEY_NATIVE_SHELL, "/system/bin/sh") ?: "/system/bin/sh") { value, field ->
-            val valid = value.startsWith("/") && value.length <= 256
-            field.setError(if (valid) null else "절대 경로를 입력하세요.")
-            if (valid) runtimePreferences.edit().putString(KEY_NATIVE_SHELL, value).apply()
-        }
-        addSingleChoice("터미널 유형", "셸과 프로그램에 전달할 TERM 값입니다.", listOf("xterm-256color" to "xterm-256color", "xterm" to "xterm", "screen-256color" to "screen-256color"), runtimePreferences.getString(KEY_NATIVE_TERM, "xterm-256color") ?: "xterm-256color") {
-            runtimePreferences.edit().putString(KEY_NATIVE_TERM, it).apply()
-        }
-        addSwitch("로그인 셸", "셸을 -l 옵션으로 실행합니다.", runtimePreferences.getBoolean(KEY_NATIVE_LOGIN, true)) {
-            runtimePreferences.edit().putBoolean(KEY_NATIVE_LOGIN, it).apply()
-        }
-        addSection("터미널 기록")
-        addIntegerInput("스크롤백", "각 탭이 보관할 최대 기록 행 수입니다.", "행", terminalPreferences.getInt(KEY_SCROLLBACK, 10_000), 1_000..100_000) {
-            terminalPreferences.edit().putInt(KEY_SCROLLBACK, it).apply()
-        }
-        addAction("Android 권한", "알림과 파일 선택 등 시스템 권한을 확인합니다.") {
-            startActivityWithMotion(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
-        }
-    }
-
-    private fun renderRootless() {
-        binding.toolbar.title = "Rootless Debian"
-        binding.description.text = "추가 Android 권한 없이 PRoot에서 Debian ARM64/glibc와 공식 apt를 사용합니다. AVF로 자동 전환되지 않습니다."
-        val status = runCatching {
-            org.json.JSONObject(runtime?.runtimeStatusJson.orEmpty()).optJSONObject("ROOTLESS")
-        }.getOrNull()
-        addSection("상태")
-        addAction(
-            if (status?.optBoolean("available") == true) "사용 가능" else "설치 필요",
-            status?.optString("detail").orEmpty().ifBlank { "서비스에 연결하면 rootfs와 APK PRoot 상태를 확인합니다." },
-        ) { render() }
-        addSection("환경")
-        addAction("공유 작업공간", "Android와 Rootless Debian의 /workspace만 공유합니다. rootfs는 AVF와 공유하지 않습니다.") { }
-        addAction("제약 사항", "PRoot는 실제 root, systemd, namespace/cgroup, 커널 mount를 제공하지 않으며 syscall과 파일 I/O 오버헤드가 있습니다.") { }
-    }
-
-    private fun addSection(title: String) {
-        binding.settingsRows.addView(TextView(this).apply {
-            text = title
-            setTextAppearance(R.style.Text_TerminalGrid_Label)
-            setPadding(20.dp(), 24.dp(), 20.dp(), 8.dp())
-        })
-        val rows = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply {
-                setMargins(0, 0, 0, 0)
+    @Composable
+    private fun DetailScreen() {
+        val title = stringResource(
+            when (category) {
+                APPEARANCE -> R.string.settings_appearance_title
+                AVF -> R.string.settings_avf_detail_title
+                ROOTLESS -> R.string.runtime_rootless_title
+                else -> R.string.settings_native_detail_title
+            },
+        )
+        val description = stringResource(
+            when (category) {
+                APPEARANCE -> R.string.settings_appearance_description
+                AVF -> R.string.settings_avf_description
+                ROOTLESS -> R.string.settings_rootless_description
+                else -> R.string.settings_native_description
+            },
+        )
+        AppScaffold(title, { finish() }) { padding ->
+            LazyColumn(
+                Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                item { Text(description, Modifier.padding(bottom = 8.dp), style = MaterialTheme.typography.bodyMedium) }
+                when (category) {
+                    APPEARANCE -> appearanceItems()
+                    AVF -> avfItems()
+                    ROOTLESS -> rootlessItems()
+                    else -> nativeItems()
+                }
             }
         }
-        binding.settingsRows.addView(rows)
-        currentSection = rows
-        sectionHasItem = false
     }
 
-    private fun addIntegerInput(title: String, helper: String, suffix: String, value: Int, range: IntRange, save: (Int) -> Unit) {
-        val field = gridField(title, helper, suffix).apply { useNumberKeyboard(); input.setText(value.toString()); input.selectAll() }
-        addControl(field)
-        field.input.doAfterTextChanged {
-            val parsed = it?.toString()?.toIntOrNull(); val valid = parsed != null && parsed in range
-            field.setError(if (valid) null else "${range.first}~${range.last} 범위로 입력하세요.")
-            if (valid) save(parsed!!)
+    private fun androidx.compose.foundation.lazy.LazyListScope.appearanceItems() {
+        item { SectionTitle(R.string.section_text) }
+        item {
+            IntegerSetting(R.string.font_size, R.string.font_size_support, R.string.unit_sp, terminalPreferences.getInt(KEY_FONT_SIZE, 16), 8..72) {
+                terminalPreferences.edit().putInt(KEY_FONT_SIZE, it).apply()
+            }
+        }
+        item {
+            ChoiceSetting(
+                R.string.font_family,
+                R.string.font_family_support,
+                listOf(Choice(R.string.font_monospace, "MONOSPACE"), Choice(R.string.font_sans_monospace, "SANS_MONOSPACE")),
+                terminalPreferences.getString(KEY_FONT_FAMILY, "MONOSPACE") ?: "MONOSPACE",
+            ) { terminalPreferences.edit().putString(KEY_FONT_FAMILY, it).apply() }
+        }
+        item {
+            BooleanSetting(R.string.fixed_width, R.string.fixed_width_support, terminalPreferences.getBoolean(KEY_FIXED_WIDTH, true)) {
+                terminalPreferences.edit().putBoolean(KEY_FIXED_WIDTH, it).apply()
+            }
+        }
+        item { SectionTitle(R.string.section_palette) }
+        item {
+            ChoiceSetting(
+                R.string.color_palette,
+                R.string.color_palette_support,
+                listOf(Choice(R.string.palette_neutral_dark, "DROID_DARK"), Choice(R.string.palette_solarized_dark, "SOLARIZED_DARK"), Choice(R.string.palette_amoled, "AMOLED")),
+                terminalPreferences.getString(KEY_PALETTE, "DROID_DARK") ?: "DROID_DARK",
+            ) { terminalPreferences.edit().putString(KEY_PALETTE, it).apply() }
         }
     }
 
-    private fun addTextInput(title: String, helper: String, value: String, changed: (String, GridFieldView) -> Unit) {
-        val field = gridField(title, helper).apply { useTextKeyboard(); input.setText(value); input.setSelection(input.text?.length ?: 0) }
-        addControl(field)
-        field.input.doAfterTextChanged { changed(it?.toString().orEmpty().trim(), field) }
-    }
-
-    private fun addSingleChoice(title: String, helper: String, options: List<Pair<String, String>>, selected: String, save: (String) -> Unit) {
-        val currentLabel = options.firstOrNull { it.second == selected }?.first ?: options.first().first
-        addToSection(selectionRow(title, helper, currentLabel).apply {
-            setOnClickListener { showChoiceDialog(title, options, selected, save) }
-        })
-    }
-
-    private fun addSwitch(title: String, summary: String, checked: Boolean, save: (Boolean) -> Unit) {
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL
-            setPadding(20.dp(), 12.dp(), 16.dp(), 12.dp()); minimumHeight = 76.dp()
-            background = AppCompatResources.getDrawable(this@SettingsDetailActivity, R.drawable.bg_grid_row)
-            isClickable = true
-            isFocusable = true
+    private fun androidx.compose.foundation.lazy.LazyListScope.avfItems() {
+        item { SectionTitle(R.string.section_resources) }
+        item {
+            IntegerSetting(R.string.memory, R.string.memory_support, R.string.unit_mib, runtimePreferences.getInt(KEY_AVF_MEMORY, 2048), 512..32768) {
+                runtimePreferences.edit().putInt(KEY_AVF_MEMORY, it).apply()
+            }
         }
-        container.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            addView(TextView(this@SettingsDetailActivity).apply { text = title; setTextAppearance(R.style.Text_TerminalGrid_Title) })
-            addView(summaryView(summary))
-        })
-        val toggle = SwitchCompat(this).apply {
-            showText = false
-            thumbTintList = AppCompatResources.getColorStateList(this@SettingsDetailActivity, R.color.grid_switch_thumb)
-            trackTintList = AppCompatResources.getColorStateList(this@SettingsDetailActivity, R.color.grid_switch_track)
-            isChecked = checked
-            contentDescription = title
-            minimumWidth = 52.dp()
-            minimumHeight = 48.dp()
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, 48.dp()).apply { marginStart = 12.dp() }
-            setOnCheckedChangeListener { _, value -> save(value) }
+        item {
+            IntegerSetting(R.string.virtual_cpu, R.string.virtual_cpu_support, R.string.unit_count, runtimePreferences.getInt(KEY_AVF_CPU, 2), 1..16) {
+                runtimePreferences.edit().putInt(KEY_AVF_CPU, it).apply()
+            }
         }
-        container.addView(toggle)
-        container.setOnClickListener { toggle.isChecked = !toggle.isChecked }
-        addToSection(container)
+        item {
+            BooleanSetting(R.string.protected_vm, R.string.protected_vm_support, runtimePreferences.getBoolean(KEY_AVF_PROTECTED, false)) {
+                runtimePreferences.edit().putBoolean(KEY_AVF_PROTECTED, it).apply()
+            }
+        }
+        item {
+            BooleanSetting(R.string.guest_network, R.string.guest_network_support, runtimePreferences.getBoolean(KEY_AVF_NETWORK, true)) {
+                runtimePreferences.edit().putBoolean(KEY_AVF_NETWORK, it).apply()
+            }
+        }
+        item { SectionTitle(R.string.section_execution) }
+        item {
+            ChoiceSetting(
+                R.string.wake_policy,
+                R.string.wake_policy_support,
+                listOf(Choice(R.string.wake_battery_optimized, DEFAULT_WAKE_POLICY), Choice(R.string.wake_keep_work, "KEEP_ACTIVE_WORK_RUNNING"), Choice(R.string.wake_always, "ALWAYS_AWAKE")),
+                wakePolicy,
+            ) {
+                wakePolicy = it
+                runtimePreferences.edit().putString(KEY_WAKE_POLICY, it).apply()
+                runCatching { runtime?.setWakePolicy(it) }
+            }
+        }
+        item { ActionSetting(R.string.debian_image, R.string.debian_image_support) { startActivity(Intent(this@SettingsDetailActivity, SetupActivity::class.java)) } }
+        item { ActionSetting(R.string.diagnostics_title, R.string.diagnostics_support) { startActivity(Intent(this@SettingsDetailActivity, DiagnosticsActivity::class.java)) } }
     }
 
-    private fun addAction(title: String, summary: String, action: () -> Unit) {
-        addToSection(preferenceRow(title, summary).apply { setOnClickListener { action() } })
+    private fun androidx.compose.foundation.lazy.LazyListScope.nativeItems() {
+        item { SectionTitle(R.string.section_shell) }
+        item {
+            TextSetting(R.string.default_shell, R.string.default_shell_support, runtimePreferences.getString(KEY_NATIVE_SHELL, "/system/bin/sh") ?: "/system/bin/sh") {
+                runtimePreferences.edit().putString(KEY_NATIVE_SHELL, it).apply()
+            }
+        }
+        item {
+            ChoiceSetting(
+                R.string.terminal_type,
+                R.string.terminal_type_support,
+                listOf(Choice(R.string.term_xterm_256, "xterm-256color"), Choice(R.string.term_xterm, "xterm"), Choice(R.string.term_screen_256, "screen-256color")),
+                runtimePreferences.getString(KEY_NATIVE_TERM, "xterm-256color") ?: "xterm-256color",
+            ) { runtimePreferences.edit().putString(KEY_NATIVE_TERM, it).apply() }
+        }
+        item {
+            BooleanSetting(R.string.login_shell, R.string.login_shell_support, runtimePreferences.getBoolean(KEY_NATIVE_LOGIN, true)) {
+                runtimePreferences.edit().putBoolean(KEY_NATIVE_LOGIN, it).apply()
+            }
+        }
+        item { SectionTitle(R.string.section_history) }
+        item {
+            IntegerSetting(R.string.scrollback, R.string.scrollback_support, R.string.unit_rows, terminalPreferences.getInt(KEY_SCROLLBACK, 10_000), 1_000..100_000) {
+                terminalPreferences.edit().putInt(KEY_SCROLLBACK, it).apply()
+            }
+        }
+        item {
+            ActionSetting(R.string.android_permissions, R.string.android_permissions_support) {
+                startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
+            }
+        }
     }
 
-    private fun gridField(title: String, helper: String, suffix: String = "") = GridFieldView(this, title, helper, suffix).apply {
-        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { setMargins(12.dp(), 8.dp(), 12.dp(), 8.dp()) }
+    private fun androidx.compose.foundation.lazy.LazyListScope.rootlessItems() {
+        item { SectionTitle(R.string.section_status) }
+        item {
+            ActionSetting(if (rootlessAvailable) R.string.rootless_available else R.string.rootless_setup_required, null, rootlessStatus, ::refreshServiceState)
+        }
+        item { SectionTitle(R.string.section_environment) }
+        item { InfoSetting(R.string.shared_workspace, R.string.shared_workspace_support) }
+        item { InfoSetting(R.string.rootless_limitations, R.string.rootless_limitations_support) }
     }
-    private fun addControl(view: View) = addToSection(view)
-    private fun addToSection(view: View) {
-        val section = checkNotNull(currentSection) { "설정 섹션이 먼저 생성되어야 합니다." }
-        if (sectionHasItem) section.addView(dividerView())
-        section.addView(view)
-        sectionHasItem = true
+
+    @Composable
+    private fun SectionTitle(@StringRes title: Int) {
+        Text(stringResource(title), Modifier.padding(top = 16.dp, bottom = 4.dp), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
     }
-    private fun summaryView(value: String) = TextView(this).apply {
-        text = value
-        setTextAppearance(R.style.Text_TerminalGrid_Caption)
-        setPadding(0, 4.dp(), 0, 0)
+
+    @Composable
+    private fun IntegerSetting(@StringRes title: Int, @StringRes supporting: Int, @StringRes suffix: Int, initial: Int, range: IntRange, onValid: (Int) -> Unit) {
+        var value by remember { mutableStateOf(initial.toString()) }
+        val parsed = value.toIntOrNull()
+        val error = parsed == null || parsed !in range
+        OutlinedTextField(
+            value = value,
+            onValueChange = {
+                value = it
+                it.toIntOrNull()?.takeIf(range::contains)?.let(onValid)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(title)) },
+            supportingText = { Text(if (error) stringResource(R.string.range_support, range.first, range.last) else stringResource(supporting)) },
+            trailingIcon = { Text(stringResource(suffix), Modifier.padding(end = 12.dp)) },
+            isError = error,
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        )
     }
-    private fun preferenceRow(title: String, summary: String) = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        minimumHeight = 76.dp()
-        setPadding(20.dp(), 12.dp(), 12.dp(), 12.dp())
-        background = AppCompatResources.getDrawable(this@SettingsDetailActivity, R.drawable.bg_grid_row)
-        isClickable = true
-        isFocusable = true
-        addView(LinearLayout(this@SettingsDetailActivity).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            addView(TextView(this@SettingsDetailActivity).apply { text = title; setTextAppearance(R.style.Text_TerminalGrid_Title) })
-            addView(summaryView(summary))
-        })
-        addView(chevron())
+
+    @Composable
+    private fun TextSetting(@StringRes title: Int, @StringRes supporting: Int, initial: String, onValid: (String) -> Unit) {
+        var value by remember { mutableStateOf(initial) }
+        val valid = value.startsWith("/") && value.length <= 256
+        OutlinedTextField(
+            value = value,
+            onValueChange = { value = it; if (it.startsWith("/") && it.length <= 256) onValid(it) },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text(stringResource(title)) },
+            supportingText = { Text(if (valid) stringResource(supporting) else stringResource(R.string.absolute_path_error)) },
+            isError = !valid,
+            singleLine = true,
+        )
     }
-    private fun selectionRow(title: String, summary: String, selectedLabel: String) = LinearLayout(this).apply {
-        orientation = LinearLayout.HORIZONTAL
-        gravity = Gravity.CENTER_VERTICAL
-        minimumHeight = 76.dp()
-        setPadding(20.dp(), 12.dp(), 12.dp(), 12.dp())
-        background = AppCompatResources.getDrawable(this@SettingsDetailActivity, R.drawable.bg_grid_row)
-        isClickable = true
-        isFocusable = true
-        addView(LinearLayout(this@SettingsDetailActivity).apply {
-            orientation = LinearLayout.VERTICAL
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f)
-            addView(TextView(this@SettingsDetailActivity).apply { text = title; setTextAppearance(R.style.Text_TerminalGrid_Title) })
-            addView(summaryView(summary))
-        })
-        addView(TextView(this@SettingsDetailActivity).apply {
-            text = selectedLabel
-            setTextAppearance(R.style.Text_TerminalGrid_Caption)
-            setTextColor(ContextCompat.getColor(this@SettingsDetailActivity, R.color.grid_text))
-            background = AppCompatResources.getDrawable(this@SettingsDetailActivity, R.drawable.bg_grid_value_chip)
-            gravity = Gravity.CENTER
-            maxWidth = 132.dp()
-            maxLines = 1
-            ellipsize = android.text.TextUtils.TruncateAt.END
-            setPadding(12.dp(), 6.dp(), 12.dp(), 6.dp())
-            layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT).apply { marginStart = 12.dp() }
-        })
-        addView(chevron())
+
+    @Composable
+    private fun BooleanSetting(@StringRes title: Int, @StringRes supporting: Int, initial: Boolean, onChange: (Boolean) -> Unit) {
+        var checked by remember { mutableStateOf(initial) }
+        val toggle = { checked = !checked; onChange(checked) }
+        ListItem(
+            headlineContent = { Text(stringResource(title)) },
+            supportingContent = { Text(stringResource(supporting)) },
+            trailingContent = { Switch(checked = checked, onCheckedChange = null) },
+            modifier = Modifier.fillMaxWidth().clickable(role = Role.Switch, onClick = toggle),
+        )
     }
-    private fun chevron() = ImageView(this).apply {
-        setImageResource(R.drawable.ic_chevron_right)
-        contentDescription = null
-        layoutParams = LinearLayout.LayoutParams(24.dp(), 24.dp()).apply { marginStart = 6.dp() }
-    }
-    private fun showChoiceDialog(title: String, options: List<Pair<String, String>>, selected: String, save: (String) -> Unit) {
-        lateinit var dialog: AlertDialog
-        val panel = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = AppCompatResources.getDrawable(this@SettingsDetailActivity, R.drawable.bg_grid_panel)
-            setPadding(16.dp(), 20.dp(), 16.dp(), 16.dp())
-            addView(TextView(this@SettingsDetailActivity).apply {
-                text = title
-                setTextAppearance(R.style.Text_TerminalGrid_Title)
-                setPadding(8.dp(), 0, 8.dp(), 12.dp())
-            })
-            options.forEach { option ->
-                addView(AppCompatRadioButton(this@SettingsDetailActivity).apply {
-                    text = option.first
-                    setTextAppearance(R.style.Text_TerminalGrid_Body)
-                    setTextColor(ContextCompat.getColor(this@SettingsDetailActivity, R.color.grid_text))
-                    isChecked = option.second == selected
-                    CompoundButtonCompat.setButtonTintList(this, AppCompatResources.getColorStateList(this@SettingsDetailActivity, R.color.grid_radio_tint))
-                    minimumHeight = 52.dp()
-                    background = AppCompatResources.getDrawable(this@SettingsDetailActivity, R.drawable.bg_grid_row)
-                    setPadding(8.dp(), 0, 8.dp(), 0)
-                    setOnClickListener {
-                        save(option.second)
-                        dialog.dismiss()
-                        render()
+
+    @Composable
+    private fun ChoiceSetting(@StringRes title: Int, @StringRes supporting: Int, choices: List<Choice>, initial: String, onChange: (String) -> Unit) {
+        var selected by remember(initial) { mutableStateOf(initial) }
+        var dialogVisible by remember { mutableStateOf(false) }
+        val selectedLabel = choices.firstOrNull { it.value == selected }?.label ?: choices.first().label
+        ListItem(
+            headlineContent = { Text(stringResource(title)) },
+            supportingContent = { Text(stringResource(supporting)) },
+            trailingContent = { Text(stringResource(selectedLabel), style = MaterialTheme.typography.labelLarge) },
+            modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { dialogVisible = true },
+        )
+        if (dialogVisible) {
+            AlertDialog(
+                onDismissRequest = { dialogVisible = false },
+                title = { Text(stringResource(title)) },
+                text = {
+                    Column {
+                        choices.forEach { choice ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable(role = Role.RadioButton) {
+                                    selected = choice.value
+                                    onChange(choice.value)
+                                    dialogVisible = false
+                                }.heightIn(min = 48.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                RadioButton(selected = selected == choice.value, onClick = null)
+                                Spacer(Modifier.width(8.dp))
+                                Text(stringResource(choice.label))
+                            }
+                        }
                     }
-                })
-            }
-            addView(Button(this@SettingsDetailActivity).apply {
-                text = "취소"
-                isAllCaps = false
-                setTextAppearance(R.style.Text_TerminalGrid_Body)
-                setTextColor(ContextCompat.getColor(this@SettingsDetailActivity, R.color.grid_text))
-                background = AppCompatResources.getDrawable(this@SettingsDetailActivity, R.drawable.bg_grid_action_secondary)
-                setOnClickListener { dialog.dismiss() }
-                layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 48.dp()).apply { topMargin = 12.dp() }
-            })
+                },
+                confirmButton = { TextButton(onClick = { dialogVisible = false }) { Text(stringResource(R.string.cancel)) } },
+            )
         }
-        dialog = AlertDialog.Builder(this).setView(panel).create()
-        TerminalMotion.configureDialog(dialog)
-        dialog.setOnShowListener {
-            dialog.window?.setBackgroundDrawable(ColorDrawable(android.graphics.Color.TRANSPARENT))
-            dialog.window?.setLayout(resources.displayMetrics.widthPixels - 40.dp(), android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
-        }
-        dialog.show()
     }
-    private fun dividerView() = View(this).apply {
-        setBackgroundColor(ContextCompat.getColor(this@SettingsDetailActivity, R.color.grid_line))
-        layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, 1.dp()).apply { marginStart = 20.dp(); marginEnd = 20.dp() }
+
+    @Composable
+    private fun ActionSetting(@StringRes title: Int, @StringRes supporting: Int?, supportingText: String? = null, action: () -> Unit) {
+        ListItem(
+            headlineContent = { Text(stringResource(title)) },
+            supportingContent = { Text(supportingText ?: supporting?.let { stringResource(it) }.orEmpty()) },
+            trailingContent = { Icon(Icons.Default.ChevronRight, null) },
+            modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = action),
+        )
     }
-    private fun Int.dp() = (this * resources.displayMetrics.density).toInt()
+
+    @Composable
+    private fun InfoSetting(@StringRes title: Int, @StringRes supporting: Int) {
+        ListItem(
+            headlineContent = { Text(stringResource(title)) },
+            supportingContent = { Text(stringResource(supporting)) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+    }
+
+    private data class Choice(@param:StringRes val label: Int, val value: String)
 
     companion object {
-        const val EXTRA_CATEGORY = "category"; const val APPEARANCE = "appearance"; const val AVF = "avf"; const val NATIVE = "native"; const val ROOTLESS = "rootless"
-        const val TERMINAL_PREFERENCES = "terminal-ui"; const val RUNTIME_PREFERENCES = "runtime-settings"
-        const val KEY_FONT_SIZE = "font-size-sp"; const val KEY_FONT_FAMILY = "font-family"; const val KEY_PALETTE = "palette"; const val KEY_FIXED_WIDTH = "fixed-width"; const val KEY_SCROLLBACK = "scrollback-rows"
-        const val KEY_AVF_MEMORY = "avf-memory-mib"; const val KEY_AVF_CPU = "avf-cpu-count"; const val KEY_AVF_PROTECTED = "avf-protected"; const val KEY_AVF_NETWORK = "avf-network"; const val KEY_WAKE_POLICY = "wake-policy"
-        const val KEY_NATIVE_SHELL = "native-shell"; const val KEY_NATIVE_TERM = "native-term"; const val KEY_NATIVE_LOGIN = "native-login-shell"
+        const val EXTRA_CATEGORY = "category"
+        const val APPEARANCE = "appearance"
+        const val AVF = "avf"
+        const val NATIVE = "native"
+        const val ROOTLESS = "rootless"
+        const val TERMINAL_PREFERENCES = "terminal-ui"
+        const val RUNTIME_PREFERENCES = "runtime-settings"
+        const val KEY_FONT_SIZE = "font-size-sp"
+        const val KEY_FONT_FAMILY = "font-family"
+        const val KEY_PALETTE = "palette"
+        const val KEY_FIXED_WIDTH = "fixed-width"
+        const val KEY_SCROLLBACK = "scrollback-rows"
+        const val KEY_AVF_MEMORY = "avf-memory-mib"
+        const val KEY_AVF_CPU = "avf-cpu-count"
+        const val KEY_AVF_PROTECTED = "avf-protected"
+        const val KEY_AVF_NETWORK = "avf-network"
+        const val KEY_WAKE_POLICY = "wake-policy"
+        const val KEY_NATIVE_SHELL = "native-shell"
+        const val KEY_NATIVE_TERM = "native-term"
+        const val KEY_NATIVE_LOGIN = "native-login-shell"
+        private const val DEFAULT_WAKE_POLICY = "BATTERY_OPTIMIZED"
     }
 }

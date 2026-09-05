@@ -1,22 +1,5 @@
 <resources>
-    <!-- Neutral graphite surfaces. Mint is reserved for active/primary state. -->
-    <color name="grid_void">#08090B</color>
-    <color name="grid_base">#0C0E11</color>
-    <color name="grid_layer_1">#121519</color>
-    <color name="grid_layer_2">#181C21</color>
-    <color name="grid_layer_3">#22272D</color>
-    <color name="grid_line">#30363D</color>
-    <color name="grid_line_strong">#4B535C</color>
-    <color name="grid_text">#F1F3F5</color>
-    <color name="grid_text_secondary">#A9B0B7</color>
-    <color name="grid_text_disabled">#686F77</color>
-    <color name="grid_signal">#6EF2AD</color>
-    <color name="grid_signal_pressed">#A0FFCA</color>
-    <color name="grid_signal_dim">#163526</color>
-    <color name="grid_on_signal">#07120C</color>
-    <color name="grid_error">#F1F3F5</color>
-    <color name="grid_error_dim">#25292E</color>
-
-    <color name="terminal_panel">#000000</color>
-    <color name="terminal_text">@color/grid_text</color>
+    <color name="app_icon_surface">#181C21</color>
+    <color name="app_icon_accent">#6EF2AD</color>
+    <color name="launch_surface">#F7FBF7</color>
 </resources>

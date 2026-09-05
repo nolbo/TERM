@@ -1,5 +1,0 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!-- Lucide "type", adapted from https://lucide.dev/icons/type -->
-<vector xmlns:android="http://schemas.android.com/apk/res/android" android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <path android:pathData="M12,4V20M4,7V5A1,1 0,0 1,5 4H19A1,1 0,0 1,20 5V7M9,20H15" android:fillColor="@android:color/transparent" android:strokeColor="@color/grid_signal" android:strokeWidth="2" android:strokeLineCap="round" android:strokeLineJoin="round" />
-</vector>
