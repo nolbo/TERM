@@ -82,10 +82,20 @@ time-bounded partial wake lock only when a configured policy reports meaningful
 guest work. Neither component treats a foreground service as an execution
 guarantee.
 
-Wake policy is persisted host-side. The initial work signal becomes active when
-a shell is created or attached and idle when it detaches; it is intentionally a
-conservative placeholder for the later authenticated guest `WORK_ACTIVE` /
-`WORK_IDLE` lifecycle messages.
+Wake policy is persisted host-side. `KEEP_ACTIVE_WORK_RUNNING` follows runtime
+work rather than UI attachment: a running session, host-owned setup/start
+operation, or authenticated guest `WORK_ACTIVE` report is active, while
+Activity detach alone does not make it idle. `WORK_IDLE`, the authoritative
+session list, and runtime stop/failure return the policy to idle or stopped
+state. Each partial-wake-lock acquisition remains time-bounded and is renewed
+only while that authoritative work state remains active.
+
+Settings live in separate UI and `:vmhost` processes. The settings Activity
+sends validated AVF, Native-session, and wake-policy values through typed AIDL
+setters, so the runtime process does not depend on cross-process
+`SharedPreferences` cache invalidation. AVF resource changes remain next-start
+configuration; Native TERM/login-shell changes apply to new sessions and wake
+policy changes apply immediately.
 
 Termux:API compatibility is a collection of guest command wrappers over the
 same `droid` CLI. It intentionally does not introduce a second host bridge or

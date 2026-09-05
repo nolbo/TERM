@@ -493,8 +493,8 @@ choices with their setup, compatibility, and privilege differences.
 
 UI and settings may be reorganized when architecture or clarity requires it.
 Active application screens use the shared Jetpack Compose Material 3 system in
-docs/DESIGN_SYSTEM.md. System light/dark and dynamic application color must
-remain independent from the user-selected terminal canvas palette.
+docs/DESIGN_SYSTEM.md. Application chrome uses its deliberate dark color scheme
+and remains independent from the user-selected terminal canvas palette.
 
 The UI renders state and sends typed commands. It never becomes the hidden
 owner of a process, PTY, VM, package operation, or capability grant.

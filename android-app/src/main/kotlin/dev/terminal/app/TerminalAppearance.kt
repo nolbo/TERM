@@ -3,13 +3,19 @@ package dev.terminal.app
 import android.content.SharedPreferences
 import android.graphics.Color
 import android.graphics.Typeface
+import android.util.TypedValue
 import com.termux.terminal.TerminalColors
 import java.util.Properties
+import kotlin.math.roundToInt
 
 /** Applies persisted renderer-only preferences; it never changes the runtime process. */
 object TerminalAppearance {
     fun apply(preferences: SharedPreferences, terminalView: com.termux.view.TerminalView) {
-        terminalView.setTextSize(preferences.getInt(KEY_FONT_SIZE, 16))
+        terminalView.setTextSize(
+            fontSizeSpToPx(preferences.getInt(KEY_FONT_SIZE, 16)) { value ->
+                TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, terminalView.resources.displayMetrics)
+            },
+        )
         terminalView.setTypeface(
             if (preferences.getString(KEY_FONT_FAMILY, "MONOSPACE") == "SANS_MONOSPACE")
                 Typeface.create("sans-serif-monospace", Typeface.NORMAL)
@@ -39,3 +45,6 @@ object TerminalAppearance {
     private const val KEY_PALETTE = "palette"
     private const val KEY_FIXED_WIDTH = "fixed-width"
 }
+
+internal fun fontSizeSpToPx(fontSizeSp: Int, convertToPixels: (Float) -> Float): Int =
+    convertToPixels(fontSizeSp.toFloat()).roundToInt().coerceAtLeast(1)

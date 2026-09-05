@@ -36,7 +36,6 @@ import androidx.documentfile.provider.DocumentFile
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
 import dev.terminal.app.ui.ExtraKeys
-import dev.terminal.app.ui.NewSessionDialog
 import dev.terminal.app.ui.RootlessSetupDialog
 import dev.terminal.app.ui.RuntimeChoiceUi
 import dev.terminal.app.ui.SessionUi
@@ -50,6 +49,7 @@ import dev.terminal.image.ImageInstallResult
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.ipc.IRuntimeStateListener
 import dev.terminal.runtime.lifecycle.VmRuntimeService
+import java.io.File
 import java.nio.file.Files
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
@@ -61,7 +61,7 @@ class MainActivity : TerminalActivity() {
     private var activeSessionId by mutableStateOf<String?>(null)
     private var runtimeMessage by mutableStateOf("")
     private var feedbackMessage by mutableStateOf<String?>(null)
-    private var newSessionVisible by mutableStateOf(false)
+    private var newSessionMenuVisible by mutableStateOf(false)
     private var unavailableChoice by mutableStateOf<RuntimeChoiceUi?>(null)
     private var pendingTermination by mutableStateOf<SessionUi?>(null)
     private var rootlessVisible by mutableStateOf(false)
@@ -168,7 +168,13 @@ class MainActivity : TerminalActivity() {
         compose { TerminalScreen() }
         runCatching { startForegroundService(Intent(this, VmRuntimeService::class.java)) }
             .onFailure { feedbackMessage = getString(R.string.runtime_start_failed, it.message.orEmpty()) }
-        if (intent.getBooleanExtra(EXTRA_OPEN_IMAGE_PICKER, false)) imagePicker.launch(null)
+        handleLaunchIntent(intent)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleLaunchIntent(intent)
     }
 
     override fun onStart() {
@@ -219,9 +225,13 @@ class MainActivity : TerminalActivity() {
             TerminalChrome(
                 sessions = sessions,
                 activeSessionId = activeSessionId,
+                runtimeChoices = runtimeChoices,
+                newSessionMenuExpanded = newSessionMenuVisible,
                 onSelect = ::attach,
                 onTerminate = { pendingTermination = it },
                 onNew = ::showNewSession,
+                onDismissNewSession = { newSessionMenuVisible = false },
+                onSelectRuntime = ::selectRuntime,
                 onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
             )
             if (activeSessionId == null) {
@@ -254,9 +264,6 @@ class MainActivity : TerminalActivity() {
             )
         } }
 
-        if (newSessionVisible) {
-            NewSessionDialog(runtimeChoices, { newSessionVisible = false }, ::selectRuntime)
-        }
         if (rootlessVisible) {
             RootlessSetupDialog(rootlessStatus, rootlessDetail, rootlessRunning, rootlessError, ::beginRootlessInstall) {
                 rootlessVisible = false
@@ -373,11 +380,11 @@ class MainActivity : TerminalActivity() {
             return
         }
         updateRuntimeChoices(service.runtimeStatusJson)
-        newSessionVisible = true
+        newSessionMenuVisible = true
     }
 
     private fun selectRuntime(choice: RuntimeChoiceUi) {
-        newSessionVisible = false
+        newSessionMenuVisible = false
         when {
             choice.id == "ROOTLESS" -> {
                 rootlessVisible = true
@@ -441,10 +448,17 @@ class MainActivity : TerminalActivity() {
         else -> getString(R.string.runtime_native_description)
     }
 
-    private fun defaultShell() = getSharedPreferences(SettingsDetailActivity.RUNTIME_PREFERENCES, MODE_PRIVATE)
-        .getString(SettingsDetailActivity.KEY_NATIVE_SHELL, "/system/bin/sh") ?: "/system/bin/sh"
+    private fun defaultShell(): String {
+        val stored = getSharedPreferences(SettingsDetailActivity.RUNTIME_PREFERENCES, MODE_PRIVATE)
+            .getString(SettingsDetailActivity.KEY_NATIVE_SHELL, DEFAULT_NATIVE_SHELL) ?: DEFAULT_NATIVE_SHELL
+        return stored.takeIf { path -> File(path).let { it.isFile && it.canExecute() } } ?: DEFAULT_NATIVE_SHELL
+    }
 
     private fun terminalPreferences() = getSharedPreferences(SettingsDetailActivity.TERMINAL_PREFERENCES, MODE_PRIVATE)
+
+    private fun handleLaunchIntent(intent: Intent) {
+        if (intent.getBooleanExtra(EXTRA_OPEN_IMAGE_PICKER, false)) imagePicker.launch(null)
+    }
 
     private fun safeRuntimeCall(action: (IRuntimeService) -> Unit) {
         val service = runtime
@@ -505,6 +519,7 @@ class MainActivity : TerminalActivity() {
         const val EXTRA_OPEN_IMAGE_PICKER = "open_image_picker"
         const val EXTRA_START_RUNTIME = "start_runtime"
         private const val DEFAULT_GUEST_HOME = "/home/user"
+        private const val DEFAULT_NATIVE_SHELL = "/system/bin/sh"
         private const val RECONNECT_DELAY_MS = 1_000L
     }
 }

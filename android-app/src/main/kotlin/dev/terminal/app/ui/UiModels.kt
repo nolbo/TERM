@@ -28,3 +28,26 @@ internal fun parseRuntimeChoices(json: String): List<RuntimeChoiceUi> {
         )
     }
 }
+
+internal enum class RootlessSettingsStatus { CHECKING, SETUP_REQUIRED, READY, ERROR }
+
+internal data class RootlessSettingsState(
+    val status: RootlessSettingsStatus,
+    val detail: String,
+)
+
+internal fun parseRootlessSettingsState(json: String): RootlessSettingsState = runCatching {
+    val rootless = JSONObject(json).getJSONObject("ROOTLESS")
+    val status = rootless.optString("state").takeIf { it.isNotBlank() }
+        ?.let(RootlessSettingsStatus::valueOf)
+        ?: if (rootless.optBoolean("available")) RootlessSettingsStatus.READY else RootlessSettingsStatus.SETUP_REQUIRED
+    RootlessSettingsState(status, rootless.optString("detail"))
+}.getOrElse { RootlessSettingsState(RootlessSettingsStatus.ERROR, it.message.orEmpty()) }
+
+internal fun validatedIntegerDraft(value: String, range: IntRange): Int? =
+    value.trim().toIntOrNull()?.takeIf(range::contains)
+
+internal fun validatedShellDraft(value: String, canExecute: (String) -> Boolean): String? {
+    val candidate = value.trim()
+    return candidate.takeIf { it.length <= 256 && it.startsWith('/') && canExecute(it) }
+}

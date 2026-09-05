@@ -3,7 +3,6 @@ package dev.terminal.app.ui
 import android.app.Activity
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -22,7 +21,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -36,60 +34,61 @@ import androidx.core.view.WindowCompat
 import dev.terminal.app.R
 import kotlinx.coroutines.launch
 
-internal val TerminalLightColors = lightColorScheme(
-    primary = Color(0xFF006C47),
-    onPrimary = Color(0xFFFFFFFF),
-    primaryContainer = Color(0xFF8BF8BD),
-    onPrimaryContainer = Color(0xFF002113),
-    secondary = Color(0xFF4D6357),
-    onSecondary = Color(0xFFFFFFFF),
-    surface = Color(0xFFF7FBF7),
-    onSurface = Color(0xFF191C1A),
-    surfaceContainer = Color(0xFFE8F0EA),
-    surfaceContainerHigh = Color(0xFFE2EAE4),
-    outline = Color(0xFF707973),
-    error = Color(0xFFBA1A1A),
-)
-
 internal val TerminalDarkColors = darkColorScheme(
     primary = Color(0xFF6EF2AD),
     onPrimary = Color(0xFF003822),
     primaryContainer = Color(0xFF005234),
     onPrimaryContainer = Color(0xFF8BF8BD),
+    inversePrimary = Color(0xFF006C47),
     secondary = Color(0xFFB4CCBD),
     onSecondary = Color(0xFF20352A),
+    secondaryContainer = Color(0xFF354B3F),
+    onSecondaryContainer = Color(0xFFD0E8D8),
+    tertiary = Color(0xFFA7CDDA),
+    onTertiary = Color(0xFF0B3541),
+    tertiaryContainer = Color(0xFF264B58),
+    onTertiaryContainer = Color(0xFFC3E9F6),
+    background = Color(0xFF0C0E11),
+    onBackground = Color(0xFFE1E3DF),
     surface = Color(0xFF0C0E11),
     onSurface = Color(0xFFE1E3DF),
+    surfaceVariant = Color(0xFF404943),
+    onSurfaceVariant = Color(0xFFBFC9C1),
+    surfaceTint = Color(0xFF6EF2AD),
+    inverseSurface = Color(0xFFE1E3DF),
+    inverseOnSurface = Color(0xFF2E312F),
     surfaceContainer = Color(0xFF181C21),
     surfaceContainerHigh = Color(0xFF22272D),
+    surfaceContainerHighest = Color(0xFF2D3238),
+    surfaceContainerLow = Color(0xFF13171B),
+    surfaceContainerLowest = Color(0xFF070A0D),
+    surfaceBright = Color(0xFF353A40),
+    surfaceDim = Color(0xFF0C0E11),
     outline = Color(0xFF89938C),
+    outlineVariant = Color(0xFF404943),
     error = Color(0xFFFFB4AB),
+    onError = Color(0xFF690005),
+    errorContainer = Color(0xFF93000A),
+    onErrorContainer = Color(0xFFFFDAD6),
+    scrim = Color(0xFF000000),
 )
 
 @Composable
 fun DroidTheme(
-    dynamicColor: Boolean = true,
-    darkTheme: Boolean = isSystemInDarkTheme(),
     content: @Composable () -> Unit,
 ) {
-    val context = LocalContext.current
-    val colorScheme = when {
-        dynamicColor && darkTheme -> dynamicDarkColorScheme(context)
-        dynamicColor -> dynamicLightColorScheme(context)
-        darkTheme -> TerminalDarkColors
-        else -> TerminalLightColors
-    }
     val view = LocalView.current
     SideEffect {
         val window = (view.context as? Activity)?.window ?: return@SideEffect
         WindowCompat.getInsetsController(window, view).apply {
-            isAppearanceLightStatusBars = !darkTheme
-            isAppearanceLightNavigationBars = !darkTheme
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
         }
     }
-    MaterialTheme(colorScheme = colorScheme, typography = Typography(), shapes = Shapes(), content = content)
+    MaterialTheme(colorScheme = TerminalDarkColors, typography = Typography(), shapes = Shapes(), content = content)
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AppScaffold(
     title: String,
@@ -100,30 +99,18 @@ fun AppScaffold(
 ) {
     Scaffold(
         topBar = {
-            Surface(color = MaterialTheme.colorScheme.surface) {
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .windowInsetsPadding(WindowInsets.statusBars)
-                        .heightIn(min = 64.dp)
-                        .padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
+            TopAppBar(
+                title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                navigationIcon = {
                     if (onBack != null) {
                         IconButton(onClick = onBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, stringResource(R.string.back))
                         }
                     }
-                    Text(
-                        title,
-                        Modifier.weight(1f).padding(horizontal = if (onBack == null) 12.dp else 4.dp),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.titleLarge,
-                    )
-                    actions()
-                }
-            }
+                },
+                actions = actions,
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+            )
         },
         snackbarHost = { if (snackbarHostState != null) SnackbarHost(snackbarHostState) },
         content = content,
@@ -185,9 +172,13 @@ data class RuntimeChoiceUi(val id: String, val available: Boolean, val detail: S
 fun TerminalChrome(
     sessions: List<SessionUi>,
     activeSessionId: String?,
+    runtimeChoices: List<RuntimeChoiceUi>,
+    newSessionMenuExpanded: Boolean,
     onSelect: (String) -> Unit,
     onTerminate: (SessionUi) -> Unit,
     onNew: () -> Unit,
+    onDismissNewSession: () -> Unit,
+    onSelectRuntime: (RuntimeChoiceUi) -> Unit,
     onSettings: () -> Unit,
 ) {
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
@@ -223,7 +214,43 @@ fun TerminalChrome(
                     }
                 }
             }
-            IconButton(onClick = onNew) { Icon(Icons.Default.Add, stringResource(R.string.new_session)) }
+            Box {
+                IconButton(onClick = onNew) { Icon(Icons.Default.Add, stringResource(R.string.new_session)) }
+                DropdownMenu(expanded = newSessionMenuExpanded, onDismissRequest = onDismissNewSession) {
+                    runtimeChoices.forEach { choice ->
+                        val title = when (choice.id) {
+                            "ROOTLESS" -> R.string.runtime_rootless_title
+                            "AVF" -> R.string.runtime_avf_title
+                            else -> R.string.runtime_native_title
+                        }
+                        val status = when {
+                            choice.available -> R.string.runtime_available
+                            choice.id == "ROOTLESS" -> R.string.rootless_setup_required
+                            else -> R.string.runtime_unavailable
+                        }
+                        DropdownMenuItem(
+                            text = {
+                                Column(Modifier.widthIn(min = 196.dp, max = 260.dp)) {
+                                    Text(stringResource(title), style = MaterialTheme.typography.titleSmall)
+                                    Text(stringResource(status), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
+                                    Text(choice.detail, style = MaterialTheme.typography.bodySmall)
+                                }
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    when {
+                                        choice.available -> Icons.Default.CheckCircle
+                                        choice.id == "ROOTLESS" -> Icons.Default.Download
+                                        else -> Icons.Default.Block
+                                    },
+                                    null,
+                                )
+                            },
+                            onClick = { onSelectRuntime(choice) },
+                        )
+                    }
+                }
+            }
             IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, stringResource(R.string.settings)) }
         }
     }
@@ -257,37 +284,6 @@ fun ExtraKeys(
             }
         }
     }
-}
-
-@Composable
-fun NewSessionDialog(choices: List<RuntimeChoiceUi>, onDismiss: () -> Unit, onSelect: (RuntimeChoiceUi) -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.new_session)) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                choices.forEach { choice ->
-                    val title = when (choice.id) { "ROOTLESS" -> R.string.runtime_rootless_title; "AVF" -> R.string.runtime_avf_title; else -> R.string.runtime_native_title }
-                    val status = when {
-                        choice.available -> R.string.runtime_available
-                        choice.id == "ROOTLESS" -> R.string.rootless_setup_required
-                        else -> R.string.runtime_unavailable
-                    }
-                    OutlinedButton(onClick = { onSelect(choice) }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
-                        Column(Modifier.fillMaxWidth()) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(stringResource(title), Modifier.weight(1f), style = MaterialTheme.typography.titleSmall)
-                                Icon(when { choice.available -> Icons.Default.CheckCircle; choice.id == "ROOTLESS" -> Icons.Default.Download; else -> Icons.Default.Block }, null)
-                            }
-                            Text(stringResource(status), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelMedium)
-                            Text(choice.detail, style = MaterialTheme.typography.bodySmall)
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
-    )
 }
 
 @Composable
@@ -335,26 +331,43 @@ private fun sessionStateLabel(state: String): String = stringResource(
 @Composable
 fun SettingsOverview(onBack: () -> Unit, onOpen: (String) -> Unit) {
     val rows = listOf(
-        Triple("appearance", R.string.settings_appearance_title, R.string.settings_appearance_summary),
-        Triple("rootless", R.string.runtime_rootless_title, R.string.settings_rootless_summary),
-        Triple("avf", R.string.settings_avf_title, R.string.settings_avf_summary),
-        Triple("native", R.string.settings_native_title, R.string.settings_native_summary),
+        SettingsDestination("appearance", R.string.settings_appearance_title, R.string.settings_appearance_summary, Icons.Default.TextFormat),
+        SettingsDestination("rootless", R.string.runtime_rootless_title, R.string.settings_rootless_summary, Icons.Default.Download),
+        SettingsDestination("avf", R.string.settings_avf_title, R.string.settings_avf_summary, Icons.Default.Memory),
+        SettingsDestination("native", R.string.settings_native_title, R.string.settings_native_summary, Icons.Default.Terminal),
     )
     AppScaffold(stringResource(R.string.settings), onBack) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(12.dp)) {
-            item { Text(stringResource(R.string.settings_intro), Modifier.padding(8.dp, 8.dp, 8.dp, 16.dp)) }
-            items(rows) { (key, title, summary) ->
-                ListItem(
-                    headlineContent = { Text(stringResource(title)) },
-                    supportingContent = { Text(stringResource(summary)) },
-                    trailingContent = { Icon(Icons.Default.ChevronRight, null) },
-                    modifier = Modifier.fillMaxWidth().clickable { onOpen(key) }.semantics { role = Role.Button },
-                )
-                HorizontalDivider()
+        LazyColumn(
+            Modifier.fillMaxSize().padding(padding),
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            item { Text(stringResource(R.string.settings_intro), style = MaterialTheme.typography.bodyLarge) }
+            item {
+                Card(Modifier.fillMaxWidth(), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                    rows.forEachIndexed { index, destination ->
+                        ListItem(
+                            headlineContent = { Text(stringResource(destination.title)) },
+                            supportingContent = { Text(stringResource(destination.summary)) },
+                            leadingContent = { Icon(destination.icon, null, tint = MaterialTheme.colorScheme.primary) },
+                            trailingContent = { Icon(Icons.Default.ChevronRight, null) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.fillMaxWidth().clickable { onOpen(destination.key) }.semantics { role = Role.Button },
+                        )
+                        if (index != rows.lastIndex) HorizontalDivider(Modifier.padding(start = 56.dp), color = MaterialTheme.colorScheme.outlineVariant)
+                    }
+                }
             }
         }
     }
 }
+
+private data class SettingsDestination(
+    val key: String,
+    val title: Int,
+    val summary: Int,
+    val icon: androidx.compose.ui.graphics.vector.ImageVector,
+)
 
 @Composable
 fun DiagnosticsScreen(onBack: () -> Unit, text: String, onRefresh: () -> Unit) {

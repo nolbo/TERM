@@ -21,6 +21,9 @@ interface IRuntimeService {
     void resizeSession(String sessionId, int rows, int cols);
     void terminateSession(String sessionId);
     void setWakePolicy(String policy);
+    void setAvfSettings(int memoryMib, int cpuCount, boolean protectedVm, boolean enableNetwork);
+    void setNativeSessionSettings(String terminalType, boolean loginShell);
+    void prepareRootless();
     void setCapabilityGrant(String capability, String grant);
     void registerListener(IRuntimeStateListener listener);
     void unregisterListener(IRuntimeStateListener listener);

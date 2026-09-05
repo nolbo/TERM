@@ -56,7 +56,7 @@ import dev.terminal.protocol.SessionDescriptor
 import dev.terminal.protocol.SessionEvent
 import dev.terminal.protocol.GuestWorkEvent
 import java.nio.file.Paths
-import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Owns the runtime in :vmhost; activities only bind, observe, and unbind. */
 class VmRuntimeService : Service() {
@@ -75,13 +75,12 @@ class VmRuntimeService : Service() {
     private lateinit var wakeController: RuntimeWakeController
     private lateinit var wakePolicies: WakePolicyStore
     private lateinit var capabilityGrants: SharedPreferencesCapabilityGrantStore
-    private var guestWork = RuntimeWakeController.GuestWorkState.IDLE
+    private var guestReportedWorkActive = false
     private val portRegistry = PortForwardRegistry()
     private lateinit var portForwarder: LocalhostPortForwarder
     @Volatile private var sessionsJson: String = "[]"
     @Volatile private var runningSessionCount: Int = 0
-    private val attachedSessionIds = ConcurrentHashMap.newKeySet<String>()
-
+    private val hostBackgroundOperationCount = AtomicInteger(0)
     @Volatile private var latestState: RuntimeState = RuntimeState.Stopped
 
     private val binder = object : IRuntimeService.Stub() {
@@ -112,16 +111,16 @@ class VmRuntimeService : Service() {
             capabilityGrants.get(DEFAULT_VM_INSTANCE_ID, Capability.entries.first { it.wireName == capability }).name
         }.getOrDefault(CapabilityGrant.ASK.name)
 
-        override fun prepare() = launchRuntimeOperation { prepareAndStart() }
+        override fun prepare() = launchRuntimeOperation(trackAsWork = true) { prepareAndStart() }
 
-        override fun startRuntime() = launchRuntimeOperation { prepareAndStart() }
+        override fun startRuntime() = launchRuntimeOperation(trackAsWork = true) { prepareAndStart() }
 
         override fun stopRuntime(mode: Int) = launchRuntimeOperation {
             closeSessionClient()
             backend.stop(if (mode == FORCE_STOP) StopMode.FORCE else StopMode.GRACEFUL)
         }
 
-        override fun createSession(runtimeType: String, shell: String, cwd: String, rows: Int, cols: Int) = launchRuntimeOperation {
+        override fun createSession(runtimeType: String, shell: String, cwd: String, rows: Int, cols: Int) = launchRuntimeOperation(trackAsWork = true) {
             val requestedRuntime = SessionRuntime.fromWireName(runtimeType)
                 ?: throw IllegalArgumentException("알 수 없는 런타임: $runtimeType")
             Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
@@ -155,9 +154,7 @@ class VmRuntimeService : Service() {
                 ?: throw IllegalStateException("세션 런타임에 연결할 수 없습니다")
             client.attach(sessionId)
                 .onSuccess {
-                    attachedSessionIds += sessionId
                     refreshSessions(client)
-                    updateAttachedWorkState()
                 }
                 .onFailure { notifyOperationError("세션 연결", it.userMessage()) }
         }
@@ -167,9 +164,7 @@ class VmRuntimeService : Service() {
                 ?: throw IllegalStateException("세션 런타임에 연결되어 있지 않습니다")
             client.detach(sessionId)
                 .onSuccess {
-                    attachedSessionIds -= sessionId
                     refreshSessions(client)
-                    updateAttachedWorkState()
                 }
                 .onFailure { notifyOperationError("세션 분리", it.userMessage()) }
         }
@@ -194,17 +189,38 @@ class VmRuntimeService : Service() {
             // Tab close is an explicit terminate operation, unlike a UI detach.
             client.terminate(sessionId, SIGKILL)
                 .onSuccess {
-                    attachedSessionIds -= sessionId
                     refreshSessions(client)
-                    updateAttachedWorkState()
                 }
                 .onFailure { notifyOperationError("세션 종료", it.userMessage()) }
         }
 
-        override fun setWakePolicy(policy: String) = launchRuntimeOperation {
-            val parsed = runCatching { RuntimeWakeController.WakePolicy.valueOf(policy) }.getOrNull() ?: return@launchRuntimeOperation
+        override fun setWakePolicy(policy: String) {
+            val parsed = runCatching { RuntimeWakeController.WakePolicy.valueOf(policy) }.getOrNull() ?: return
             wakePolicies.set(parsed)
-            wakeController.update(parsed, guestWork)
+            updateWakeState()
+        }
+
+        override fun setAvfSettings(memoryMib: Int, cpuCount: Int, protectedVm: Boolean, enableNetwork: Boolean) {
+            getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE).edit()
+                .putInt(KEY_AVF_MEMORY, memoryMib.coerceIn(512, 32768))
+                .putInt(KEY_AVF_CPU, cpuCount.coerceIn(1, 16))
+                .putBoolean(KEY_AVF_PROTECTED, protectedVm)
+                .putBoolean(KEY_AVF_NETWORK, enableNetwork)
+                .apply()
+        }
+
+        override fun setNativeSessionSettings(terminalType: String, loginShell: Boolean) {
+            val validatedTerminalType = terminalType.takeIf { it in SUPPORTED_TERMINAL_TYPES } ?: DEFAULT_TERMINAL_TYPE
+            getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE).edit()
+                .putString(KEY_NATIVE_TERM, validatedTerminalType)
+                .putBoolean(KEY_NATIVE_LOGIN, loginShell)
+                .apply()
+        }
+
+        override fun prepareRootless() = launchRuntimeOperation(trackAsWork = true) {
+            val root = filesDir.toPath().resolve("rootless/debian")
+            rootlessBackend.prepare(RuntimeConfig(imageDirectory = root.toString()))
+                .onFailure { notifyOperationError(ROOTLESS_SETUP_OPERATION, it.userMessage()) }
         }
 
         override fun setCapabilityGrant(capability: String, grant: String) = launchRuntimeOperation {
@@ -239,6 +255,7 @@ class VmRuntimeService : Service() {
         scope.launch {
             backend.observeState().collect { state ->
                 latestState = state
+                updateWakeState()
                 updateNotification(state)
                 notifyClients(state)
                 if (state is RuntimeState.Ready) {
@@ -302,10 +319,21 @@ class VmRuntimeService : Service() {
         backend.start().getOrThrow()
     }
 
-    private fun launchRuntimeOperation(block: suspend () -> Unit) {
+    private fun launchRuntimeOperation(trackAsWork: Boolean = false, block: suspend () -> Unit) {
         scope.launch {
-            runCatching { block() }
-                .onFailure { notifyOperationError("런타임 작업", it.userMessage()) }
+            if (trackAsWork) {
+                hostBackgroundOperationCount.incrementAndGet()
+                updateWakeState()
+            }
+            try {
+                runCatching { block() }
+                    .onFailure { notifyOperationError("런타임 작업", it.userMessage()) }
+            } finally {
+                if (trackAsWork) {
+                    hostBackgroundOperationCount.decrementAndGet()
+                    updateWakeState()
+                }
+            }
         }
     }
 
@@ -393,13 +421,8 @@ class VmRuntimeService : Service() {
                 backend.connectGuestBridge().getOrNull()?.let { connection ->
                     runCatching {
                         BridgeHostServer(broker) { work ->
-                            setGuestWork(
-                                if (work == GuestWorkEvent.WORK_ACTIVE) {
-                                    RuntimeWakeController.GuestWorkState.ACTIVE
-                                } else {
-                                    RuntimeWakeController.GuestWorkState.IDLE
-                                },
-                            )
+                            guestReportedWorkActive = work == GuestWorkEvent.WORK_ACTIVE
+                            updateWakeState()
                         }.serve(connection)
                     }
                     connection.close()
@@ -432,6 +455,7 @@ class VmRuntimeService : Service() {
         client.list().onSuccess { sessions ->
             sessionsJson = sessions.toJson()
             runningSessionCount = sessions.count { it.state == dev.terminal.protocol.SessionStatus.RUNNING }
+            updateWakeState()
             updateNotification(latestState)
             broadcast { it.onSessionsChanged(sessionsJson) }
         }
@@ -463,24 +487,24 @@ class VmRuntimeService : Service() {
         portForwarder.stopAll()
         sessionClient?.close()
         sessionClient = null
-        attachedSessionIds.clear()
         sessionsJson = "[]"
         runningSessionCount = 0
+        guestReportedWorkActive = false
         updateNotification(latestState)
-        setGuestWork(RuntimeWakeController.GuestWorkState.IDLE)
+        updateWakeState()
     }
-
-    private fun updateAttachedWorkState() = setGuestWork(
-        if (attachedSessionIds.isEmpty()) RuntimeWakeController.GuestWorkState.IDLE
-        else RuntimeWakeController.GuestWorkState.ACTIVE,
-    )
 
     private fun Throwable.userMessage(): String = message?.takeIf { it.isNotBlank() } ?: javaClass.simpleName
 
-    private fun setGuestWork(state: RuntimeWakeController.GuestWorkState) {
-        guestWork = state
-        wakeController.update(wakePolicies.get(), state)
-    }
+    private fun updateWakeState() = wakeController.update(
+        wakePolicies.get(),
+        runtimeWorkState(
+            latestState,
+            runningSessionCount,
+            guestReportedWorkActive,
+            hostBackgroundOperationCount.get() > 0,
+        ),
+    )
 
     private fun imageStatus(): String = if (backend is NativeBackend) {
         "Native 사용자 공간 준비됨. AVF Debian은 권한 있는 제품 빌드에서 사용할 수 있습니다."
@@ -517,8 +541,16 @@ class VmRuntimeService : Service() {
         val rootless = rootlessBackend.status()
         put(SessionRuntime.ROOTLESS.wireName, JSONObject().apply {
             put("available", rootless is RootlessStatus.Ready)
+            put("state", when (rootless) {
+                RootlessStatus.Checking -> "CHECKING"
+                RootlessStatus.Ready -> "READY"
+                is RootlessStatus.Error -> "ERROR"
+                is RootlessStatus.SetupRequired -> "SETUP_REQUIRED"
+            })
             put("detail", when (rootless) {
+                RootlessStatus.Checking -> "Rootless Debian 상태를 확인하고 있습니다"
                 RootlessStatus.Ready -> "Debian rootfs와 APK PRoot 준비됨"
+                is RootlessStatus.Error -> rootless.reason
                 is RootlessStatus.SetupRequired -> rootless.reason
             })
         })
@@ -531,7 +563,9 @@ class VmRuntimeService : Service() {
     private fun runtimeUnavailableReason(runtime: SessionRuntime): String = when (runtime) {
         SessionRuntime.NATIVE -> "Native 런타임이 이 제품 변형에서 준비되지 않았습니다"
         SessionRuntime.ROOTLESS -> when (val status = rootlessBackend.status()) {
+            RootlessStatus.Checking -> "Rootless Debian을 준비하고 있습니다"
             RootlessStatus.Ready -> "Rootless Debian 세션을 시작할 수 없습니다"
+            is RootlessStatus.Error -> status.reason
             is RootlessStatus.SetupRequired -> status.reason
         }
         SessionRuntime.AVF -> "AVF는 지원 기기, 특권 권한, 시스템 SDK 드라이버가 필요합니다"
@@ -609,5 +643,23 @@ class VmRuntimeService : Service() {
         const val KEY_AVF_NETWORK = "avf-network"
         const val KEY_NATIVE_TERM = "native-term"
         const val KEY_NATIVE_LOGIN = "native-login-shell"
+        const val DEFAULT_TERMINAL_TYPE = "xterm-256color"
+        const val ROOTLESS_SETUP_OPERATION = "ROOTLESS_SETUP"
+        val SUPPORTED_TERMINAL_TYPES = setOf("xterm-256color", "xterm", "screen-256color")
     }
+}
+
+internal fun runtimeWorkState(
+    runtimeState: RuntimeState,
+    runningSessionCount: Int,
+    guestReportedWorkActive: Boolean,
+    hostBackgroundWorkActive: Boolean,
+): RuntimeWakeController.GuestWorkState = when {
+    runtimeState is RuntimeState.Stopping || runtimeState is RuntimeState.Failed ->
+        RuntimeWakeController.GuestWorkState.STOPPED
+    hostBackgroundWorkActive -> RuntimeWakeController.GuestWorkState.ACTIVE
+    runtimeState is RuntimeState.Stopped -> RuntimeWakeController.GuestWorkState.STOPPED
+    runtimeState is RuntimeState.Suspended -> RuntimeWakeController.GuestWorkState.IDLE
+    runningSessionCount > 0 || guestReportedWorkActive -> RuntimeWakeController.GuestWorkState.ACTIVE
+    else -> RuntimeWakeController.GuestWorkState.IDLE
 }

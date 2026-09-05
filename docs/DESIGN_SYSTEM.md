@@ -2,13 +2,13 @@
 
 ## Direction
 
-Droid Terminal의 활성 Android UI는 Jetpack Compose와 안정 Material 3 컴포넌트로 구현한다. 앱 크롬은 시스템의 밝은/어두운 테마를 따르고 Android 12 이상에서는 동적 색상을 사용한다. 동적 색상을 사용할 수 없을 때는 민트 계열 primary와 중립 surface를 갖는 명시적 밝은/어두운 색상표를 적용한다.
+Droid Terminal의 활성 Android UI는 Jetpack Compose와 안정 Material 3 컴포넌트로 구현한다. 앱 크롬은 시스템 테마와 관계없이 민트 계열 primary와 중립 surface를 갖는 명시적 다크 색상표만 사용한다.
 
-터미널 캔버스는 예외다. `TerminalView`와 `TerminalAppearance`가 사용자 선택 팔레트, ANSI 색상, 커서, 선택 영역과 배경을 독립적으로 관리하며 Material 또는 동적 색상이 이를 덮어쓰지 않는다.
+터미널 캔버스는 예외다. `TerminalView`와 `TerminalAppearance`가 사용자 선택 팔레트, ANSI 색상, 커서, 선택 영역과 배경을 독립적으로 관리하며 Material 앱 색상표가 이를 덮어쓰지 않는다.
 
 ## Foundations
 
-- 색상은 `MaterialTheme.colorScheme`의 `primary`, `onPrimary`, `surface`, `surfaceContainer`, `onSurface`, `outline`, `error` 같은 의미 역할로만 사용한다.
+- 비동적 다크 색상표는 primary/secondary/tertiary, 모든 on/container, surface container 단계, inverse, outline, error, scrim 역할을 명시한다. 컴포넌트는 `MaterialTheme.colorScheme`의 의미 역할만 사용한다.
 - 앱 텍스트는 Material 3 type scale을 사용한다. 고정폭 글꼴은 터미널, extra key, 진단 및 크래시 payload에만 사용한다.
 - 간격은 4 dp 배수를 기본으로 하며 표준 Material shape를 사용한다.
 - 모든 일반 상호작용 대상은 최소 48 dp다. 두 줄 extra key도 각 셀의 전체 높이를 48 dp 이상 유지한다.
@@ -27,15 +27,15 @@ Droid Terminal의 활성 Android UI는 Jetpack Compose와 안정 Material 3 컴�
 2. `AndroidView`에 포함된 기존 `TerminalView`
 3. 각각 최소 48 dp인 두 줄 extra key
 
-선택 세션은 체크 표시와 “현재 세션” 텍스트를 함께 보여 색만으로 상태를 전달하지 않는다. 종료 아이콘은 확인 대화상자를 연 뒤에만 runtime의 명시적 terminate 명령을 보낸다. 새 세션과 Rootless 준비 상태는 Material 3 대화상자, 진행 표시기, 오류 텍스트, 재시도 및 닫기 동작을 사용한다.
+선택 세션은 체크 표시와 “현재 세션” 텍스트를 함께 보여 색만으로 상태를 전달하지 않는다. 종료 아이콘은 확인 대화상자를 연 뒤에만 runtime의 명시적 terminate 명령을 보낸다. 새 세션 선택은 추가 아이콘에 연결된 Material 3 드롭다운 메뉴를 사용하고, Rootless 준비 상태는 대화상자, 진행 표시기, 오류 텍스트, 재시도 및 닫기 동작을 사용한다.
 
-설정 개요와 상세는 공통 앱 바, `ListItem`, `Switch`, `OutlinedTextField`, 단일 선택 `AlertDialog`/`RadioButton`을 사용한다. boolean 행 전체가 한 번만 toggle되며 입력 오류는 supporting text로 설명한다. 진단과 크래시 payload는 선택 가능한 고정폭 텍스트로 유지한다. 크래시 화면에서는 복사를 primary action으로, 닫기를 낮은 강조 action으로 제공한다.
+설정 개요와 상세는 Android 설정 앱과 같은 섹션 제목, rounded surface, `ListItem`, supporting text와 trailing control 계층을 사용한다. 모든 일반 화면의 앱 바는 표준 Material 3 `TopAppBar`다. boolean 행 전체가 한 번만 toggle된다. 숫자·경로·단일 선택은 복원 가능한 입력 초안과 저장값을 분리하고, 대화상자의 **저장**에서 전체 값을 검증한 뒤에만 반영한다. Rootless 상태 행은 확인 중·설치 필요·준비됨·오류를 구분하고 각각 진행 표시, 설치, 다시 확인, 재시도 동작을 제공한다. 진단과 크래시 payload는 선택 가능한 고정폭 텍스트로 유지한다. 크래시 화면에서는 복사를 primary action으로, 닫기를 낮은 강조 action으로 제공한다.
 
 ## Insets and adaptive behavior
 
 모든 화면은 edge-to-edge다. 공통 앱 바와 터미널 chrome은 status bar inset을 적용하고, 하단 extra key는 navigation bar inset을 적용한다. 터미널 화면은 IME inset을 반영해 키보드가 terminal/extra key를 가리지 않게 한다. 목록 기반 화면은 고정 텍스트 높이를 사용하지 않고 스크롤한다.
 
-상태 표시줄과 탐색 표시줄 아이콘 명암은 현재 Compose 밝은/어두운 색상표에 맞춰 갱신한다. RTL에서는 start/end 기반 배치를 사용하되, 문자 셀 정확성이 필요한 터미널 렌더러 자체는 기존 방향 규칙을 유지한다.
+상태 표시줄과 탐색 표시줄은 투명한 다크 surface와 밝은 아이콘을 유지한다. RTL에서는 start/end 기반 배치를 사용하되, 문자 셀 정확성이 필요한 터미널 렌더러 자체는 기존 방향 규칙을 유지한다.
 
 ## Lifecycle boundary
 

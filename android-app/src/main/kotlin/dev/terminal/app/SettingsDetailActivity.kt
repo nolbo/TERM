@@ -12,24 +12,35 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.AppScaffold
+import dev.terminal.app.ui.RootlessSettingsState
+import dev.terminal.app.ui.RootlessSettingsStatus
 import dev.terminal.app.ui.TerminalActivity
+import dev.terminal.app.ui.parseRootlessSettingsState
+import dev.terminal.app.ui.validatedIntegerDraft
+import dev.terminal.app.ui.validatedShellDraft
 import dev.terminal.runtime.ipc.IRuntimeService
+import dev.terminal.runtime.ipc.IRuntimeStateListener
 import dev.terminal.runtime.lifecycle.VmRuntimeService
-import org.json.JSONObject
+import java.io.File
 
 class SettingsDetailActivity : TerminalActivity() {
     private val terminalPreferences by lazy { getSharedPreferences(TERMINAL_PREFERENCES, MODE_PRIVATE) }
@@ -39,9 +50,26 @@ class SettingsDetailActivity : TerminalActivity() {
     private var bound = false
     private var bindingRequested = false
     private var activityStarted = false
-    private var rootlessAvailable by mutableStateOf(false)
-    private var rootlessStatus by mutableStateOf("")
+    private var rootlessState by mutableStateOf(RootlessSettingsState(RootlessSettingsStatus.CHECKING, ""))
     private var wakePolicy by mutableStateOf(DEFAULT_WAKE_POLICY)
+
+    private val listener = object : IRuntimeStateListener.Stub() {
+        override fun onRuntimeStateChanged(state: String, detail: String) = Unit
+        override fun onSessionsChanged(sessionsJson: String) = Unit
+        override fun onTerminalOutput(sessionId: String, bytes: ByteArray) = Unit
+        override fun onSessionExited(sessionId: String, exitCode: Int) = Unit
+        override fun onRootlessProgress(phase: String, detail: String) = runOnUiThread {
+            rootlessState = RootlessSettingsState(
+                if (phase == getString(R.string.rootless_ready_phase)) RootlessSettingsStatus.READY else RootlessSettingsStatus.CHECKING,
+                detail,
+            )
+        }
+        override fun onOperationError(operation: String, message: String) = runOnUiThread {
+            if (operation == ROOTLESS_SETUP_OPERATION) {
+                rootlessState = RootlessSettingsState(RootlessSettingsStatus.ERROR, message)
+            }
+        }
+    }
 
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, service: IBinder) {
@@ -52,18 +80,21 @@ class SettingsDetailActivity : TerminalActivity() {
             }
             runtime = IRuntimeService.Stub.asInterface(service)
             bound = true
+            runCatching { runtime?.registerListener(listener) }
+            syncRuntimeSettings()
             refreshServiceState()
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
             runtime = null
             bound = false
+            rootlessState = RootlessSettingsState(RootlessSettingsStatus.ERROR, getString(R.string.runtime_disconnected))
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        rootlessStatus = getString(R.string.rootless_status_connecting)
+        rootlessState = RootlessSettingsState(RootlessSettingsStatus.CHECKING, getString(R.string.rootless_status_connecting))
         wakePolicy = runtimePreferences.getString(KEY_WAKE_POLICY, DEFAULT_WAKE_POLICY) ?: DEFAULT_WAKE_POLICY
         compose { DetailScreen() }
     }
@@ -74,11 +105,17 @@ class SettingsDetailActivity : TerminalActivity() {
         bindingRequested = runCatching {
             bindService(Intent(this, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE)
         }.getOrDefault(false)
+        if (!bindingRequested) {
+            rootlessState = RootlessSettingsState(RootlessSettingsStatus.ERROR, getString(R.string.runtime_disconnected))
+        }
     }
 
     override fun onStop() {
         activityStarted = false
-        if (bindingRequested) runCatching { unbindService(connection) }
+        if (bindingRequested) {
+            if (bound) runCatching { runtime?.unregisterListener(listener) }
+            runCatching { unbindService(connection) }
+        }
         bindingRequested = false
         bound = false
         runtime = null
@@ -86,13 +123,66 @@ class SettingsDetailActivity : TerminalActivity() {
     }
 
     private fun refreshServiceState() {
+        val service = runtime ?: run {
+            rootlessState = RootlessSettingsState(RootlessSettingsStatus.CHECKING, getString(R.string.rootless_status_connecting))
+            return
+        }
+        rootlessState = RootlessSettingsState(RootlessSettingsStatus.CHECKING, getString(R.string.rootless_checking_detail))
+        runCatching {
+            rootlessState = parseRootlessSettingsState(service.runtimeStatusJson)
+        }.onFailure {
+            rootlessState = RootlessSettingsState(RootlessSettingsStatus.ERROR, it.message.orEmpty())
+        }
+    }
+
+    private fun handleRootlessAction() {
+        when (rootlessState.status) {
+            RootlessSettingsStatus.SETUP_REQUIRED, RootlessSettingsStatus.ERROR -> prepareRootless()
+            RootlessSettingsStatus.CHECKING, RootlessSettingsStatus.READY -> refreshServiceState()
+        }
+    }
+
+    private fun prepareRootless() {
+        val service = runtime ?: run {
+            rootlessState = RootlessSettingsState(RootlessSettingsStatus.ERROR, getString(R.string.runtime_disconnected))
+            return
+        }
+        rootlessState = RootlessSettingsState(RootlessSettingsStatus.CHECKING, getString(R.string.rootless_install_detail))
+        runCatching { service.prepareRootless() }.onFailure {
+            rootlessState = RootlessSettingsState(RootlessSettingsStatus.ERROR, it.message.orEmpty())
+        }
+    }
+
+    private fun saveRuntimeInt(key: String, value: Int) {
+        runtimePreferences.edit().putInt(key, value).apply()
+        syncRuntimeSettings()
+    }
+
+    private fun saveRuntimeBoolean(key: String, value: Boolean) {
+        runtimePreferences.edit().putBoolean(key, value).apply()
+        syncRuntimeSettings()
+    }
+
+    private fun syncRuntimeSettings() {
         val service = runtime ?: return
         runCatching {
-            wakePolicy = service.wakePolicy
-            val rootless = JSONObject(service.runtimeStatusJson).optJSONObject("ROOTLESS")
-            rootlessAvailable = rootless?.optBoolean("available") == true
-            rootlessStatus = rootless?.optString("detail").orEmpty().ifBlank { getString(R.string.rootless_status_connecting) }
+            service.setAvfSettings(
+                runtimePreferences.getInt(KEY_AVF_MEMORY, 2048),
+                runtimePreferences.getInt(KEY_AVF_CPU, 2),
+                runtimePreferences.getBoolean(KEY_AVF_PROTECTED, false),
+                runtimePreferences.getBoolean(KEY_AVF_NETWORK, true),
+            )
+            service.setNativeSessionSettings(
+                runtimePreferences.getString(KEY_NATIVE_TERM, DEFAULT_TERMINAL_TYPE) ?: DEFAULT_TERMINAL_TYPE,
+                runtimePreferences.getBoolean(KEY_NATIVE_LOGIN, true),
+            )
+            service.setWakePolicy(runtimePreferences.getString(KEY_WAKE_POLICY, DEFAULT_WAKE_POLICY) ?: DEFAULT_WAKE_POLICY)
         }
+    }
+
+    private fun savedNativeShell(): String {
+        val stored = runtimePreferences.getString(KEY_NATIVE_SHELL, DEFAULT_NATIVE_SHELL) ?: DEFAULT_NATIVE_SHELL
+        return validatedShellDraft(stored) { path -> File(path).let { it.isFile && it.canExecute() } } ?: DEFAULT_NATIVE_SHELL
     }
 
     @Composable
@@ -133,7 +223,7 @@ class SettingsDetailActivity : TerminalActivity() {
     private fun androidx.compose.foundation.lazy.LazyListScope.appearanceItems() {
         item { SectionTitle(R.string.section_text) }
         item {
-            IntegerSetting(R.string.font_size, R.string.font_size_support, R.string.unit_sp, terminalPreferences.getInt(KEY_FONT_SIZE, 16), 8..72) {
+            IntegerSetting(KEY_FONT_SIZE, R.string.font_size, R.string.font_size_support, R.string.unit_sp, terminalPreferences.getInt(KEY_FONT_SIZE, 16), 8..72) {
                 terminalPreferences.edit().putInt(KEY_FONT_SIZE, it).apply()
             }
         }
@@ -164,23 +254,23 @@ class SettingsDetailActivity : TerminalActivity() {
     private fun androidx.compose.foundation.lazy.LazyListScope.avfItems() {
         item { SectionTitle(R.string.section_resources) }
         item {
-            IntegerSetting(R.string.memory, R.string.memory_support, R.string.unit_mib, runtimePreferences.getInt(KEY_AVF_MEMORY, 2048), 512..32768) {
-                runtimePreferences.edit().putInt(KEY_AVF_MEMORY, it).apply()
+            IntegerSetting(KEY_AVF_MEMORY, R.string.memory, R.string.memory_support, R.string.unit_mib, runtimePreferences.getInt(KEY_AVF_MEMORY, 2048), 512..32768) {
+                saveRuntimeInt(KEY_AVF_MEMORY, it)
             }
         }
         item {
-            IntegerSetting(R.string.virtual_cpu, R.string.virtual_cpu_support, R.string.unit_count, runtimePreferences.getInt(KEY_AVF_CPU, 2), 1..16) {
-                runtimePreferences.edit().putInt(KEY_AVF_CPU, it).apply()
+            IntegerSetting(KEY_AVF_CPU, R.string.virtual_cpu, R.string.virtual_cpu_support, R.string.unit_count, runtimePreferences.getInt(KEY_AVF_CPU, 2), 1..16) {
+                saveRuntimeInt(KEY_AVF_CPU, it)
             }
         }
         item {
             BooleanSetting(R.string.protected_vm, R.string.protected_vm_support, runtimePreferences.getBoolean(KEY_AVF_PROTECTED, false)) {
-                runtimePreferences.edit().putBoolean(KEY_AVF_PROTECTED, it).apply()
+                saveRuntimeBoolean(KEY_AVF_PROTECTED, it)
             }
         }
         item {
             BooleanSetting(R.string.guest_network, R.string.guest_network_support, runtimePreferences.getBoolean(KEY_AVF_NETWORK, true)) {
-                runtimePreferences.edit().putBoolean(KEY_AVF_NETWORK, it).apply()
+                saveRuntimeBoolean(KEY_AVF_NETWORK, it)
             }
         }
         item { SectionTitle(R.string.section_execution) }
@@ -196,14 +286,21 @@ class SettingsDetailActivity : TerminalActivity() {
                 runCatching { runtime?.setWakePolicy(it) }
             }
         }
-        item { ActionSetting(R.string.debian_image, R.string.debian_image_support) { startActivity(Intent(this@SettingsDetailActivity, SetupActivity::class.java)) } }
+        item {
+            ActionSetting(R.string.debian_image, R.string.debian_image_support) {
+                startActivity(
+                    Intent(this@SettingsDetailActivity, SetupActivity::class.java)
+                        .putExtra(SetupActivity.EXTRA_SHOW_SETUP, true),
+                )
+            }
+        }
         item { ActionSetting(R.string.diagnostics_title, R.string.diagnostics_support) { startActivity(Intent(this@SettingsDetailActivity, DiagnosticsActivity::class.java)) } }
     }
 
     private fun androidx.compose.foundation.lazy.LazyListScope.nativeItems() {
         item { SectionTitle(R.string.section_shell) }
         item {
-            TextSetting(R.string.default_shell, R.string.default_shell_support, runtimePreferences.getString(KEY_NATIVE_SHELL, "/system/bin/sh") ?: "/system/bin/sh") {
+            TextSetting(KEY_NATIVE_SHELL, R.string.default_shell, R.string.default_shell_support, savedNativeShell()) {
                 runtimePreferences.edit().putString(KEY_NATIVE_SHELL, it).apply()
             }
         }
@@ -213,16 +310,19 @@ class SettingsDetailActivity : TerminalActivity() {
                 R.string.terminal_type_support,
                 listOf(Choice(R.string.term_xterm_256, "xterm-256color"), Choice(R.string.term_xterm, "xterm"), Choice(R.string.term_screen_256, "screen-256color")),
                 runtimePreferences.getString(KEY_NATIVE_TERM, "xterm-256color") ?: "xterm-256color",
-            ) { runtimePreferences.edit().putString(KEY_NATIVE_TERM, it).apply() }
+            ) {
+                runtimePreferences.edit().putString(KEY_NATIVE_TERM, it).apply()
+                syncRuntimeSettings()
+            }
         }
         item {
             BooleanSetting(R.string.login_shell, R.string.login_shell_support, runtimePreferences.getBoolean(KEY_NATIVE_LOGIN, true)) {
-                runtimePreferences.edit().putBoolean(KEY_NATIVE_LOGIN, it).apply()
+                saveRuntimeBoolean(KEY_NATIVE_LOGIN, it)
             }
         }
         item { SectionTitle(R.string.section_history) }
         item {
-            IntegerSetting(R.string.scrollback, R.string.scrollback_support, R.string.unit_rows, terminalPreferences.getInt(KEY_SCROLLBACK, 10_000), 1_000..100_000) {
+            IntegerSetting(KEY_SCROLLBACK, R.string.scrollback, R.string.scrollback_support, R.string.unit_rows, terminalPreferences.getInt(KEY_SCROLLBACK, 10_000), 1_000..100_000) {
                 terminalPreferences.edit().putInt(KEY_SCROLLBACK, it).apply()
             }
         }
@@ -235,9 +335,7 @@ class SettingsDetailActivity : TerminalActivity() {
 
     private fun androidx.compose.foundation.lazy.LazyListScope.rootlessItems() {
         item { SectionTitle(R.string.section_status) }
-        item {
-            ActionSetting(if (rootlessAvailable) R.string.rootless_available else R.string.rootless_setup_required, null, rootlessStatus, ::refreshServiceState)
-        }
+        item { RootlessStatusSetting(rootlessState, ::handleRootlessAction) }
         item { SectionTitle(R.string.section_environment) }
         item { InfoSetting(R.string.shared_workspace, R.string.shared_workspace_support) }
         item { InfoSetting(R.string.rootless_limitations, R.string.rootless_limitations_support) }
@@ -249,63 +347,131 @@ class SettingsDetailActivity : TerminalActivity() {
     }
 
     @Composable
-    private fun IntegerSetting(@StringRes title: Int, @StringRes supporting: Int, @StringRes suffix: Int, initial: Int, range: IntRange, onValid: (Int) -> Unit) {
-        var value by remember { mutableStateOf(initial.toString()) }
-        val parsed = value.toIntOrNull()
-        val error = parsed == null || parsed !in range
-        OutlinedTextField(
-            value = value,
-            onValueChange = {
-                value = it
-                it.toIntOrNull()?.takeIf(range::contains)?.let(onValid)
-            },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(stringResource(title)) },
-            supportingText = { Text(if (error) stringResource(R.string.range_support, range.first, range.last) else stringResource(supporting)) },
-            trailingIcon = { Text(stringResource(suffix), Modifier.padding(end = 12.dp)) },
-            isError = error,
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-        )
+    private fun IntegerSetting(stateKey: String, @StringRes title: Int, @StringRes supporting: Int, @StringRes suffix: Int, initial: Int, range: IntRange, onSave: (Int) -> Unit) {
+        var committed by rememberSaveable(stateKey, "committed") { mutableIntStateOf(initial) }
+        var draft by rememberSaveable(stateKey, "draft") { mutableStateOf(initial.toString()) }
+        var dialogVisible by rememberSaveable(stateKey, "dialog") { mutableStateOf(false) }
+        val unit = stringResource(suffix)
+        PreferenceListItem(
+            title = title,
+            supporting = supporting,
+            trailing = { Text("$committed $unit", style = MaterialTheme.typography.labelLarge) },
+            role = Role.Button,
+        ) {
+            draft = committed.toString()
+            dialogVisible = true
+        }
+        if (dialogVisible) {
+            val parsed = validatedIntegerDraft(draft, range)
+            val focusManager = LocalFocusManager.current
+            val save = {
+                parsed?.let {
+                    committed = it
+                    onSave(it)
+                    focusManager.clearFocus()
+                    dialogVisible = false
+                }
+                Unit
+            }
+            AlertDialog(
+                onDismissRequest = { dialogVisible = false },
+                title = { Text(stringResource(title)) },
+                text = {
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { draft = it },
+                        label = { Text(stringResource(title)) },
+                        supportingText = {
+                            Text(if (parsed == null) stringResource(R.string.range_support, range.first, range.last) else stringResource(supporting))
+                        },
+                        trailingIcon = { Text(unit, Modifier.padding(end = 12.dp)) },
+                        isError = parsed == null,
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { save() }),
+                    )
+                },
+                confirmButton = { Button(onClick = save, enabled = parsed != null) { Text(stringResource(R.string.save)) } },
+                dismissButton = { TextButton(onClick = { dialogVisible = false }) { Text(stringResource(R.string.cancel)) } },
+            )
+        }
     }
 
     @Composable
-    private fun TextSetting(@StringRes title: Int, @StringRes supporting: Int, initial: String, onValid: (String) -> Unit) {
-        var value by remember { mutableStateOf(initial) }
-        val valid = value.startsWith("/") && value.length <= 256
-        OutlinedTextField(
-            value = value,
-            onValueChange = { value = it; if (it.startsWith("/") && it.length <= 256) onValid(it) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text(stringResource(title)) },
-            supportingText = { Text(if (valid) stringResource(supporting) else stringResource(R.string.absolute_path_error)) },
-            isError = !valid,
-            singleLine = true,
-        )
+    private fun TextSetting(stateKey: String, @StringRes title: Int, @StringRes supporting: Int, initial: String, onSave: (String) -> Unit) {
+        var committed by rememberSaveable(stateKey, "committed") { mutableStateOf(initial) }
+        var draft by rememberSaveable(stateKey, "draft") { mutableStateOf(initial) }
+        var dialogVisible by rememberSaveable(stateKey, "dialog") { mutableStateOf(false) }
+        PreferenceListItem(
+            title = title,
+            supporting = supporting,
+            trailing = { Text(committed, style = MaterialTheme.typography.labelLarge, maxLines = 1) },
+            role = Role.Button,
+        ) {
+            draft = committed
+            dialogVisible = true
+        }
+        if (dialogVisible) {
+            val validated = validatedShellDraft(draft) { path -> File(path).let { it.isFile && it.canExecute() } }
+            val focusManager = LocalFocusManager.current
+            val save = {
+                validated?.let {
+                    committed = it
+                    onSave(it)
+                    focusManager.clearFocus()
+                    dialogVisible = false
+                }
+                Unit
+            }
+            AlertDialog(
+                onDismissRequest = { dialogVisible = false },
+                title = { Text(stringResource(title)) },
+                text = {
+                    OutlinedTextField(
+                        value = draft,
+                        onValueChange = { draft = it },
+                        label = { Text(stringResource(title)) },
+                        supportingText = { Text(if (validated == null) stringResource(R.string.executable_path_error) else stringResource(supporting)) },
+                        isError = validated == null,
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(onDone = { save() }),
+                    )
+                },
+                confirmButton = { Button(onClick = save, enabled = validated != null) { Text(stringResource(R.string.save)) } },
+                dismissButton = { TextButton(onClick = { dialogVisible = false }) { Text(stringResource(R.string.cancel)) } },
+            )
+        }
     }
 
     @Composable
     private fun BooleanSetting(@StringRes title: Int, @StringRes supporting: Int, initial: Boolean, onChange: (Boolean) -> Unit) {
-        var checked by remember { mutableStateOf(initial) }
+        var checked by rememberSaveable { mutableStateOf(initial) }
         val toggle = { checked = !checked; onChange(checked) }
         ListItem(
             headlineContent = { Text(stringResource(title)) },
             supportingContent = { Text(stringResource(supporting)) },
             trailingContent = { Switch(checked = checked, onCheckedChange = null) },
-            modifier = Modifier.fillMaxWidth().clickable(role = Role.Switch, onClick = toggle),
+            colors = preferenceListItemColors(),
+            modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).clickable(role = Role.Switch, onClick = toggle),
         )
     }
 
     @Composable
     private fun ChoiceSetting(@StringRes title: Int, @StringRes supporting: Int, choices: List<Choice>, initial: String, onChange: (String) -> Unit) {
-        var selected by remember(initial) { mutableStateOf(initial) }
-        var dialogVisible by remember { mutableStateOf(false) }
+        var selected by rememberSaveable(initial) { mutableStateOf(initial) }
+        var draftSelected by rememberSaveable(initial, "draft") { mutableStateOf(initial) }
+        var dialogVisible by rememberSaveable(initial, "dialog") { mutableStateOf(false) }
         val selectedLabel = choices.firstOrNull { it.value == selected }?.label ?: choices.first().label
         ListItem(
             headlineContent = { Text(stringResource(title)) },
             supportingContent = { Text(stringResource(supporting)) },
             trailingContent = { Text(stringResource(selectedLabel), style = MaterialTheme.typography.labelLarge) },
-            modifier = Modifier.fillMaxWidth().clickable(role = Role.Button) { dialogVisible = true },
+            colors = preferenceListItemColors(),
+            modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).clickable(role = Role.Button) {
+                draftSelected = selected
+                dialogVisible = true
+            },
         )
         if (dialogVisible) {
             AlertDialog(
@@ -316,20 +482,25 @@ class SettingsDetailActivity : TerminalActivity() {
                         choices.forEach { choice ->
                             Row(
                                 Modifier.fillMaxWidth().clickable(role = Role.RadioButton) {
-                                    selected = choice.value
-                                    onChange(choice.value)
-                                    dialogVisible = false
+                                    draftSelected = choice.value
                                 }.heightIn(min = 48.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                RadioButton(selected = selected == choice.value, onClick = null)
+                                RadioButton(selected = draftSelected == choice.value, onClick = null)
                                 Spacer(Modifier.width(8.dp))
                                 Text(stringResource(choice.label))
                             }
                         }
                     }
                 },
-                confirmButton = { TextButton(onClick = { dialogVisible = false }) { Text(stringResource(R.string.cancel)) } },
+                confirmButton = {
+                    Button(onClick = {
+                        selected = draftSelected
+                        onChange(draftSelected)
+                        dialogVisible = false
+                    }) { Text(stringResource(R.string.save)) }
+                },
+                dismissButton = { TextButton(onClick = { dialogVisible = false }) { Text(stringResource(R.string.cancel)) } },
             )
         }
     }
@@ -340,7 +511,8 @@ class SettingsDetailActivity : TerminalActivity() {
             headlineContent = { Text(stringResource(title)) },
             supportingContent = { Text(supportingText ?: supporting?.let { stringResource(it) }.orEmpty()) },
             trailingContent = { Icon(Icons.Default.ChevronRight, null) },
-            modifier = Modifier.fillMaxWidth().clickable(role = Role.Button, onClick = action),
+            colors = preferenceListItemColors(),
+            modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).clickable(role = Role.Button, onClick = action),
         )
     }
 
@@ -349,7 +521,60 @@ class SettingsDetailActivity : TerminalActivity() {
         ListItem(
             headlineContent = { Text(stringResource(title)) },
             supportingContent = { Text(stringResource(supporting)) },
+            colors = preferenceListItemColors(),
             modifier = Modifier.fillMaxWidth(),
+        )
+    }
+
+    @Composable
+    private fun PreferenceListItem(
+        @StringRes title: Int,
+        @StringRes supporting: Int,
+        trailing: @Composable () -> Unit,
+        role: Role,
+        onClick: () -> Unit,
+    ) {
+        ListItem(
+            headlineContent = { Text(stringResource(title)) },
+            supportingContent = { Text(stringResource(supporting)) },
+            trailingContent = trailing,
+            colors = preferenceListItemColors(),
+            modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large).clickable(role = role, onClick = onClick),
+        )
+    }
+
+    @Composable
+    private fun preferenceListItemColors() = ListItemDefaults.colors(
+        containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+    )
+
+    @Composable
+    private fun RootlessStatusSetting(state: RootlessSettingsState, action: () -> Unit) {
+        val title = when (state.status) {
+            RootlessSettingsStatus.CHECKING -> R.string.rootless_checking
+            RootlessSettingsStatus.SETUP_REQUIRED -> R.string.rootless_setup_required
+            RootlessSettingsStatus.READY -> R.string.rootless_ready
+            RootlessSettingsStatus.ERROR -> R.string.rootless_error
+        }
+        val actionLabel = when (state.status) {
+            RootlessSettingsStatus.CHECKING -> null
+            RootlessSettingsStatus.READY -> R.string.check_again
+            RootlessSettingsStatus.SETUP_REQUIRED -> R.string.install
+            RootlessSettingsStatus.ERROR -> R.string.retry
+        }
+        ListItem(
+            headlineContent = { Text(stringResource(title)) },
+            supportingContent = { Text(state.detail.ifBlank { stringResource(R.string.rootless_status_connecting) }) },
+            leadingContent = {
+                if (state.status == RootlessSettingsStatus.CHECKING) {
+                    CircularProgressIndicator(Modifier.size(24.dp), strokeWidth = 2.dp)
+                }
+            },
+            trailingContent = {
+                actionLabel?.let { TextButton(onClick = action) { Text(stringResource(it)) } }
+            },
+            colors = preferenceListItemColors(),
+            modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.large),
         )
     }
 
@@ -376,6 +601,9 @@ class SettingsDetailActivity : TerminalActivity() {
         const val KEY_NATIVE_SHELL = "native-shell"
         const val KEY_NATIVE_TERM = "native-term"
         const val KEY_NATIVE_LOGIN = "native-login-shell"
+        private const val DEFAULT_NATIVE_SHELL = "/system/bin/sh"
+        private const val DEFAULT_TERMINAL_TYPE = "xterm-256color"
         private const val DEFAULT_WAKE_POLICY = "BATTERY_OPTIMIZED"
+        private const val ROOTLESS_SETUP_OPERATION = "ROOTLESS_SETUP"
     }
 }

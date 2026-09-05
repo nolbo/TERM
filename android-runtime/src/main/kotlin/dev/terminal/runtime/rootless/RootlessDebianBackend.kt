@@ -79,7 +79,8 @@ class RootlessDebianBackend(
     fun sessionController(): SessionController? = controller
     fun status(): RootlessStatus = when (val current = state.value) {
         RuntimeState.Ready, RuntimeState.Active, RuntimeState.Idle -> RootlessStatus.Ready
-        is RuntimeState.Failed -> RootlessStatus.SetupRequired(current.reason)
+        RuntimeState.Preparing, RuntimeState.Booting -> RootlessStatus.Checking
+        is RuntimeState.Failed -> RootlessStatus.Error(current.reason)
         else -> layout.validateInstalledRootfs().fold(
             onSuccess = {
                 executableLoader.resolvePackagedExecutable("proot").fold(
@@ -98,7 +99,9 @@ class RootlessDebianBackend(
 }
 
 sealed interface RootlessStatus {
+    data object Checking : RootlessStatus
     data object Ready : RootlessStatus
+    data class Error(val reason: String) : RootlessStatus
     data class SetupRequired(val reason: String) : RootlessStatus
 }
 
