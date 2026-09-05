@@ -29,7 +29,9 @@ library directory. Rootfs downloads are treated as untrusted data; neither a
 downloaded PRoot binary nor an arbitrary file selected through SAF is executed.
 The only downloaded Rootless artifact is a catalog-pinned Debian rootfs archive:
 the installer limits its size, verifies SHA-256 before extraction, rejects path
-escapes and unsafe links, and activates only a complete staging tree.
+escapes, symlink-parent traversal, unsupported special files and unsafe links,
+and activates only a complete staging tree. Catalog `/dev` placeholders are
+not materialized; PRoot binds the host-selected `/dev` separately.
 
 Rootless bind paths are constructed by the host from fixed app-owned paths.
 Guest-provided bind paths, arbitrary host file descriptors and the full app

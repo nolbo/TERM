@@ -17,6 +17,7 @@ terminate the VM or an existing guest shell.
 
 - Korean Material dark UI with initial setup, console, settings, and diagnostics
 - immediate stock-Android Native shell fallback with app-managed home and temp data
+- automatic Rootless Debian ARM64 bootstrap with an APK-packaged PRoot runtime
 - persistent `:vmhost` foreground runtime service behind `RuntimeBackend`
 - AVF product-driver seam, guest vsock session protocol, PTY session daemon
 - capability-controlled clipboard, URL, notification, storage, and port APIs
@@ -36,6 +37,10 @@ The debug APK is written to:
 ```text
 android-app/build/outputs/apk/debug/android-app-debug.apk
 ```
+
+The ARM64 PRoot executable and loader are checked, 16 KiB-aligned build
+artifacts with a pinned-source rebuild path in `tools/rootless`. Runtime setup
+downloads only the checksum-pinned Debian data rootfs; it never downloads code.
 
 ## Deployment boundaries
 

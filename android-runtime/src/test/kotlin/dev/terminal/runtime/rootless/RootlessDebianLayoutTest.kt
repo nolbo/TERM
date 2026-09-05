@@ -16,11 +16,27 @@ class RootlessDebianLayoutTest {
 
         File(layout.rootfs, "bin").mkdirs()
         File(layout.rootfs, "usr/bin").mkdirs()
-        File(layout.rootfs, "bin/sh").writeText("placeholder")
+        File(layout.rootfs, "bin/sh").apply {
+            writeText("placeholder")
+            setExecutable(true)
+        }
         assertTrue(layout.validateInstalledRootfs().isFailure)
 
-        File(layout.rootfs, "usr/bin/apt").writeText("placeholder")
+        File(layout.rootfs, "usr/bin/apt").apply {
+            writeText("placeholder")
+            setExecutable(true)
+        }
         assertTrue(layout.validateInstalledRootfs().isSuccess)
+    }
+
+    @Test fun rejectsRootfsWhoseShellLostItsExecutableMode() {
+        val layout = RootlessDebianLayout(File(temporary.root, "rootless/debian"))
+        File(layout.rootfs, "bin").mkdirs()
+        File(layout.rootfs, "usr/bin").mkdirs()
+        File(layout.rootfs, "bin/sh").writeText("not executable")
+        File(layout.rootfs, "usr/bin/apt").apply { writeText("apt"); setExecutable(true) }
+
+        assertTrue(layout.validateInstalledRootfs().isFailure)
     }
 
     @Test fun workspaceLivesOutsideTheDebianRootFilesystem() {

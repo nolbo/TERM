@@ -57,6 +57,14 @@ class MainActivity : TerminalActivity() {
             sessionExitCodes[sessionId] = exitCode
             terminalBackends[sessionId]?.exit(exitCode)
         }
+        override fun onRootlessProgress(phase: String, detail: String) = runOnUiThread {
+            rootlessSetupBinding?.apply {
+                setupStatus.text = phase
+                setupDetail.text = detail
+                setupProgress.visibility = android.view.View.VISIBLE
+                setupRetry.visibility = android.view.View.GONE
+            }
+        }
         override fun onOperationError(operation: String, message: String) = runOnUiThread {
             binding.terminalOutput.visibility = if (activeSessionId == null) android.view.View.VISIBLE else binding.terminalOutput.visibility
             binding.terminalOutput.text = "$ $operation 실패: $message"

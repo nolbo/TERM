@@ -12,14 +12,26 @@ interface NativeExecutableLoader {
 }
 
 class ApkNativeExecutableLoader(context: Context) : NativeExecutableLoader {
-    private val nativeLibraryDirectory = File(context.applicationInfo.nativeLibraryDir).canonicalFile
+    private val resolver = PackagedExecutableResolver(
+        File(context.applicationInfo.nativeLibraryDir),
+        supportedAbis = { android.os.Build.SUPPORTED_ABIS.toList() },
+    )
+
+    override fun resolvePackagedExecutable(name: String): Result<File> = resolver.resolvePackagedExecutable(name)
+}
+
+internal class PackagedExecutableResolver(
+    nativeLibraryDirectory: File,
+    private val supportedAbis: () -> List<String>,
+) : NativeExecutableLoader {
+    private val nativeLibraryDirectory = nativeLibraryDirectory.canonicalFile
 
     override fun resolvePackagedExecutable(name: String): Result<File> = runCatching {
         require(name in ALLOWED_EXECUTABLES) { "Native executable is not allow-listed" }
         val candidate = File(nativeLibraryDirectory, "lib$name.so").canonicalFile
         require(candidate.parentFile == nativeLibraryDirectory) { "Native executable escaped APK library directory" }
         require(candidate.isFile && candidate.canExecute()) {
-            "$name is not packaged for ${android.os.Build.SUPPORTED_ABIS.joinToString()}"
+            "$name is not packaged or executable for ${supportedAbis().joinToString()}"
         }
         candidate
     }

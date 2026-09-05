@@ -24,8 +24,11 @@ apt installation in the target runtime, never copying `/var/lib/dpkg`.
 
 ## Rootless bootstrap
 
-The ARM64 payload includes the allow-listed PRoot executable and loader. The
-first Rootless session downloads a pinned, SHA-256-verified Debian rootfs archive
+The ARM64 payload includes the allow-listed PRoot executable and loader. It is
+rebuilt from pinned Termux PRoot source and checksum-pinned talloc and
+libandroid-shmem artifacts; provenance, license notices, output hashes and the
+16 KiB alignment check live under `tools/rootless`. The first Rootless session
+downloads a pinned, SHA-256-verified Debian rootfs archive
 and then uses Debian's own `apt`/`dpkg`; this is not a second native package
 database. No user-provided PRoot binary or rootfs file is accepted. CI still
 needs to run `cat /etc/os-release`, `apt update`, and a small package install on

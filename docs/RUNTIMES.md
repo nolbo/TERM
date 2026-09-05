@@ -28,7 +28,9 @@ driver with the official NDK r28 sysroot and compiler runtime archives.
 `files/rootless/debian/rootfs`, including `/bin/sh` and `apt`, before creating a
 session. On the first Rootless selection, `RootlessBootstrapper` downloads the
 pinned Debian ARM64 archive over HTTPS, verifies its SHA-256, safely extracts it
-into a staging directory, and atomically activates it. Interrupted or corrupt
+into a staging directory while preserving executable modes, and atomically
+activates it. Stale downloads and staging trees are removed before a serialized
+retry. Interrupted or corrupt
 app-owned installs are replaced automatically on the next attempt; no file
 picker, ADB, root, or app-data reset is required. `RootlessSessionController`
 starts an APK-packaged, allow-listed PRoot and loader, binds only `/dev`,
@@ -37,6 +39,9 @@ across UI detach.
 
 The current PRoot payload and automatic Debian catalog target ARM64. Other
 ABIs fail clearly instead of silently redirecting a command to AVF.
+The payload is built from pinned Termux PRoot 5.1.107.92 source with pinned
+talloc and libandroid-shmem artifacts, and both executable ELFs use 16 KiB LOAD
+segment alignment. See `tools/rootless/README.md` for provenance and rebuilding.
 
 PRoot does not provide real root, namespaces, cgroups, kernel mounts, or a full
 systemd boot. Syscall and filesystem translation also add overhead.

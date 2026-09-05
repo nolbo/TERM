@@ -3,9 +3,9 @@ package dev.terminal.runtime.rootless
 import android.content.Context
 import android.os.StatFs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
-import org.apache.commons.compress.compressors.xz.XZCompressorInputStream
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.net.HttpURLConnection
@@ -13,62 +13,107 @@ import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
-import java.security.MessageDigest
+import java.util.Comparator
 import java.util.UUID
 
-/**
- * Installs the pinned Debian rootfs on demand. No file picker, ADB, root, or
- * user-supplied executable is involved: PRoot is packaged in the APK and the
- * archive is accepted only when its catalog checksum matches.
- */
+fun interface RootlessProgressReporter {
+    fun report(phase: RootlessPhase, detail: String)
+
+    companion object {
+        val NONE = RootlessProgressReporter { _, _ -> }
+    }
+}
+
+enum class RootlessPhase(val displayName: String) {
+    EXECUTABLE("실행 파일 확인"),
+    STORAGE("저장 공간 확인"),
+    DOWNLOAD("Debian 다운로드"),
+    CHECKSUM("무결성 검증"),
+    EXTRACT("안전한 압축 해제"),
+    ACTIVATE("설치 활성화"),
+    READY("Rootless 준비 완료"),
+}
+
+class RootlessSetupException(
+    val phase: RootlessPhase,
+    cause: Throwable,
+) : IllegalStateException("${phase.displayName} 실패: ${cause.message ?: cause.javaClass.simpleName}", cause)
+
+/** Installs only the catalog-pinned Debian data archive; executable code stays in the APK. */
 class RootlessBootstrapper(
     private val context: Context,
     private val layout: RootlessDebianLayout,
+    private val reporter: RootlessProgressReporter = RootlessProgressReporter.NONE,
 ) {
+    private val installMutex = Mutex()
+    private val extractor = RootlessArchiveExtractor(ARCHIVE_ROOT, MAX_EXTRACTED_BYTES)
+
     suspend fun installIfNeeded(): Result<Unit> = withContext(Dispatchers.IO) {
-        layout.validateInstalledRootfs().fold(
-            onSuccess = { Result.success(Unit) },
-            onFailure = { install() },
-        )
+        installMutex.withLock {
+            layout.validateInstalledRootfs().fold(
+                onSuccess = { Result.success(Unit) },
+                onFailure = { install() },
+            )
+        }
     }
 
     private fun install(): Result<Unit> = runCatching {
-        require(ANDROID_ARM64 in android.os.Build.SUPPORTED_ABIS) {
-            "Rootless Debian 자동 설치는 현재 ARM64 기기에서 지원됩니다"
-        }
         val rootfs = layout.rootfs.toPath()
-        // installIfNeeded() reaches here only after validation failed. This is
-        // therefore an incomplete/corrupt app-owned rootfs, never one that was
-        // successfully installed. Remove it so a transient interrupted download
-        // does not turn into a manual "clear app data" support step.
-        if (Files.exists(rootfs)) deleteTree(rootfs)
-        require(StatFs(context.filesDir.path).availableBytes >= MIN_FREE_BYTES) {
-            "Rootless Debian 설치에는 최소 700 MiB의 여유 공간이 필요합니다"
-        }
-
         val downloadDirectory = context.cacheDir.toPath().resolve("rootless-downloads")
         Files.createDirectories(downloadDirectory)
+        phase(RootlessPhase.STORAGE, "ARM64 지원과 설치 여유 공간을 확인하고 있습니다.") {
+            require(ANDROID_ARM64 in android.os.Build.SUPPORTED_ABIS) {
+                "지원되지 않는 ABI입니다: ${android.os.Build.SUPPORTED_ABIS.joinToString()} (필요: $ANDROID_ARM64)"
+            }
+            // installIfNeeded() reaches install() only for an invalid rootfs. Reclaim
+            // interrupted app-owned state before measuring free space for the retry.
+            cleanupIncompleteRootlessInstall(rootfs, downloadDirectory)
+            require(StatFs(context.filesDir.path).availableBytes >= MIN_FREE_BYTES) {
+                "최소 700 MiB의 여유 공간이 필요합니다"
+            }
+        }
+
         val archive = downloadDirectory.resolve("${RELEASE_ID}-${UUID.randomUUID()}.tar.xz")
         val staging = rootfs.parent.resolve(".rootfs-install-${UUID.randomUUID()}")
         try {
-            downloadPinnedArchive(archive)
-            require(sha256(archive) == ARCHIVE_SHA256) { "Debian archive integrity check failed" }
-            Files.createDirectory(staging)
-            extractArchive(archive, staging)
-            configureRootfs(staging)
-            require(Files.isRegularFile(staging.resolve("bin/sh"))) { "Debian archive does not contain /bin/sh" }
-            require(Files.isRegularFile(staging.resolve("usr/bin/apt")) || Files.isRegularFile(staging.resolve("usr/bin/apt-get"))) {
-                "Debian archive does not contain apt"
+            phase(RootlessPhase.DOWNLOAD, "고정된 Debian Trixie ARM64 이미지를 내려받고 있습니다.") {
+                downloadPinnedArchive(archive)
             }
-            try {
-                Files.move(staging, rootfs, StandardCopyOption.ATOMIC_MOVE)
-            } catch (_: AtomicMoveNotSupportedException) {
-                Files.move(staging, rootfs)
+            phase(RootlessPhase.CHECKSUM, "내려받은 이미지의 SHA-256을 검증하고 있습니다.") {
+                extractor.verifySha256(archive, ARCHIVE_SHA256)
             }
-            layout.validateInstalledRootfs().getOrThrow()
+            phase(RootlessPhase.EXTRACT, "검증된 이미지를 격리된 설치 디렉터리에 풀고 있습니다.") {
+                Files.createDirectory(staging)
+                extractor.extract(archive, staging)
+                configureRootfs(staging)
+                require(Files.isExecutable(staging.resolve("bin/sh"))) { "Debian archive does not contain an executable /bin/sh" }
+                require(Files.isExecutable(staging.resolve("usr/bin/apt")) || Files.isExecutable(staging.resolve("usr/bin/apt-get"))) {
+                    "Debian archive does not contain executable apt"
+                }
+            }
+            phase(RootlessPhase.ACTIVATE, "완성된 rootfs를 원자적으로 활성화하고 있습니다.") {
+                try {
+                    Files.move(staging, rootfs, StandardCopyOption.ATOMIC_MOVE)
+                } catch (_: AtomicMoveNotSupportedException) {
+                    Files.move(staging, rootfs)
+                }
+                layout.validateInstalledRootfs().getOrThrow()
+            }
+            reporter.report(RootlessPhase.READY, "Debian rootfs와 APK PRoot가 준비되었습니다.")
         } finally {
-            Files.deleteIfExists(archive)
-            if (Files.exists(staging)) deleteTree(staging)
+            runCatching { Files.deleteIfExists(archive) }
+            runCatching { if (Files.exists(staging)) deleteRootlessTree(staging) }
+        }
+    }
+
+    private inline fun <T> phase(phase: RootlessPhase, detail: String, block: () -> T): T {
+        reporter.report(phase, detail)
+        return try {
+            block()
+        } catch (error: RootlessSetupException) {
+            throw error
+        } catch (error: Throwable) {
+            throw RootlessSetupException(phase, error)
         }
     }
 
@@ -80,9 +125,10 @@ class RootlessBootstrapper(
             readTimeout = READ_TIMEOUT_MS
         }
         try {
-            require(connection.responseCode in 200..299) { "Debian archive download failed: HTTP ${connection.responseCode}" }
+            require(connection.responseCode in 200..299) { "HTTP ${connection.responseCode}" }
+            require(connection.url.protocol.equals("https", ignoreCase = true)) { "download redirected outside HTTPS" }
             require(connection.contentLengthLong < 0 || connection.contentLengthLong <= MAX_ARCHIVE_BYTES) {
-                "Debian archive is larger than the approved limit"
+                "archive is larger than the approved 128 MiB limit"
             }
             BufferedInputStream(connection.inputStream).use { input ->
                 BufferedOutputStream(Files.newOutputStream(destination)).use { output ->
@@ -92,39 +138,13 @@ class RootlessBootstrapper(
                         val count = input.read(buffer)
                         if (count < 0) break
                         total += count
-                        require(total <= MAX_ARCHIVE_BYTES) { "Debian archive is larger than the approved limit" }
+                        require(total <= MAX_ARCHIVE_BYTES) { "archive is larger than the approved 128 MiB limit" }
                         output.write(buffer, 0, count)
                     }
                 }
             }
         } finally {
             connection.disconnect()
-        }
-    }
-
-    private fun extractArchive(archive: Path, destination: Path) {
-        BufferedInputStream(Files.newInputStream(archive)).use { compressed ->
-            XZCompressorInputStream(compressed).use { xz ->
-                TarArchiveInputStream(xz).use { tar ->
-                    var extractedBytes = 0L
-                    while (true) {
-                        val entry = tar.nextTarEntry ?: break
-                        val target = safeTarget(destination, entry.name)
-                        when {
-                            entry.isDirectory -> Files.createDirectories(target)
-                            entry.isSymbolicLink -> createSafeSymbolicLink(destination, target, entry.linkName)
-                            entry.isLink -> createSafeHardLink(destination, target, entry.linkName)
-                            entry.isFile -> {
-                                require(entry.size in 0..MAX_EXTRACTED_BYTES) { "Invalid Debian archive entry size" }
-                                extractedBytes += entry.size
-                                require(extractedBytes <= MAX_EXTRACTED_BYTES) { "Debian rootfs exceeds the approved size" }
-                                Files.createDirectories(requireNotNull(target.parent))
-                                BufferedOutputStream(Files.newOutputStream(target)).use { output -> tar.copyTo(output) }
-                            }
-                        }
-                    }
-                }
-            }
         }
     }
 
@@ -141,60 +161,6 @@ class RootlessBootstrapper(
         }
     }
 
-    private fun safeTarget(root: Path, name: String): Path {
-        require(name == ARCHIVE_ROOT || name.startsWith("$ARCHIVE_ROOT/")) { "Unexpected Debian archive layout" }
-        val relative = Path.of(name.removePrefix(ARCHIVE_ROOT).removePrefix("/")).normalize()
-        require(!relative.isAbsolute && relative.none { it.toString() == ".." }) { "Debian archive contains an unsafe path" }
-        val target = root.resolve(relative).normalize()
-        require(target.startsWith(root)) { "Debian archive escaped its rootfs" }
-        return target
-    }
-
-    private fun createSafeSymbolicLink(root: Path, target: Path, linkName: String) {
-        val link = Path.of(linkName)
-        // Debian intentionally contains guest-root absolute links, such as
-        // /etc/alternatives/awk -> /usr/bin/mawk and /dev/fd -> /proc/self/fd.
-        // An extracted absolute link must not retain host-absolute semantics:
-        // resolve it under the staged guest root and store an equivalent
-        // relative link instead.
-        val resolved = if (link.isAbsolute) {
-            val guestRelative = Path.of(linkName.removePrefix("/")).normalize()
-            require(!guestRelative.isAbsolute && guestRelative.none { it.toString() == ".." }) {
-                "Debian archive contains an unsafe symbolic link"
-            }
-            root.resolve(guestRelative).normalize()
-        } else {
-            target.parent.resolve(link).normalize()
-        }
-        require(resolved.startsWith(root)) { "Debian archive contains an unsafe symbolic link" }
-        Files.createDirectories(requireNotNull(target.parent))
-        Files.deleteIfExists(target)
-        Files.createSymbolicLink(target, target.parent.relativize(resolved))
-    }
-
-    private fun createSafeHardLink(root: Path, target: Path, linkName: String) {
-        val source = safeTarget(root, linkName)
-        require(Files.isRegularFile(source)) { "Debian archive contains a forward or invalid hard link" }
-        Files.createDirectories(requireNotNull(target.parent))
-        Files.deleteIfExists(target)
-        Files.createLink(target, source)
-    }
-
-    private fun sha256(path: Path): String = Files.newInputStream(path).use { input ->
-        val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteArray(BUFFER_SIZE)
-        while (true) {
-            val count = input.read(buffer)
-            if (count < 0) break
-            digest.update(buffer, 0, count)
-        }
-        digest.digest().joinToString("") { "%02x".format(it) }
-    }
-
-    private fun deleteTree(root: Path) {
-        Files.walk(root).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
-    }
-
     private companion object {
         const val ANDROID_ARM64 = "arm64-v8a"
         const val RELEASE_ID = "debian-trixie-aarch64-pd-v4.29.0"
@@ -208,4 +174,22 @@ class RootlessBootstrapper(
         const val READ_TIMEOUT_MS = 30_000
         const val BUFFER_SIZE = 64 * 1024
     }
+}
+
+/** Removes only invalid/incomplete app-owned installation state before a retry. */
+internal fun cleanupIncompleteRootlessInstall(rootfs: Path, downloadDirectory: Path) {
+    if (Files.exists(rootfs)) deleteRootlessTree(rootfs)
+    Files.list(downloadDirectory).use { files -> files.forEach(::deleteRootlessTreeIfPresent) }
+    Files.list(rootfs.parent).use { files ->
+        files.filter { it.fileName.toString().startsWith(".rootfs-install-") }
+            .forEach(::deleteRootlessTreeIfPresent)
+    }
+}
+
+private fun deleteRootlessTreeIfPresent(path: Path) {
+    if (Files.isDirectory(path)) deleteRootlessTree(path) else Files.deleteIfExists(path)
+}
+
+private fun deleteRootlessTree(root: Path) {
+    Files.walk(root).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) }
 }

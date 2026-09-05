@@ -35,6 +35,8 @@ Rootless Debian uses a distinct rootfs and a host-owned shared workspace. The
 first Rootless selection automatically installs a checksum-pinned Debian
 archive into that rootfs. Its PRoot executable may only be resolved from `ApplicationInfo.nativeLibraryDir`;
 downloaded executable code under writable app data is rejected by design.
+The checked payload is staged into the APK as `libproot.so` and
+`libproot-loader.so`; a clean build does not depend on ignored local JNI files.
 
 ## Alternatives considered
 

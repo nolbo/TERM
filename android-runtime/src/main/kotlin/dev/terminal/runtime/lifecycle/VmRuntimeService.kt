@@ -8,6 +8,7 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.os.RemoteCallbackList
+import android.util.Log
 import dev.terminal.image.DebianImageVerifier
 import dev.terminal.image.BundledDebianImageCatalog
 import dev.terminal.bridge.AndroidCapabilityBroker
@@ -123,6 +124,7 @@ class VmRuntimeService : Service() {
         override fun createSession(runtimeType: String, shell: String, cwd: String, rows: Int, cols: Int) = launchRuntimeOperation {
             val requestedRuntime = SessionRuntime.fromWireName(runtimeType)
                 ?: throw IllegalArgumentException("알 수 없는 런타임: $runtimeType")
+            Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
             val client = ensureSessionRegistry()
                 ?: throw IllegalStateException("세션 런타임에 연결할 수 없습니다")
             if (!ensureRuntimeController(requestedRuntime, client)) {
@@ -142,7 +144,10 @@ class VmRuntimeService : Service() {
                 cols = cols.toUShortDimension(),
             )
             result.onSuccess { refreshSessions(client) }
-                .onFailure { notifyOperationError("세션 생성", it.userMessage()) }
+                .onFailure {
+                    Log.e(TAG, "session.create failed runtime=${requestedRuntime.wireName} cause=${it.javaClass.simpleName}: ${it.userMessage()}")
+                    notifyOperationError("세션 생성", it.userMessage())
+                }
         }
 
         override fun attachSession(sessionId: String) = launchRuntimeOperation {
@@ -227,7 +232,10 @@ class VmRuntimeService : Service() {
         wakePolicies = WakePolicyStore(applicationContext)
         capabilityGrants = SharedPreferencesCapabilityGrantStore(applicationContext)
         backend = resolveRuntimeBackend(applicationContext)
-        rootlessBackend = RootlessDebianBackend(applicationContext)
+        rootlessBackend = RootlessDebianBackend(applicationContext) { phase, detail ->
+            Log.i(TAG, "rootless phase=${phase.name}")
+            broadcast { it.onRootlessProgress(phase.displayName, detail) }
+        }
         scope.launch {
             backend.observeState().collect { state ->
                 latestState = state
@@ -585,6 +593,7 @@ class VmRuntimeService : Service() {
     }
 
     private companion object {
+        const val TAG = "VmRuntimeService"
         const val CHANNEL_ID = "linux_runtime"
         const val NOTIFICATION_ID = 1001
         const val FORCE_STOP = 1
