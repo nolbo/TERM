@@ -1,10 +1,12 @@
 package dev.terminal.runtime.native
 
+import android.util.Log
 import dev.terminal.protocol.SessionConnectionState
 import dev.terminal.protocol.SessionController
 import dev.terminal.protocol.SessionDescriptor
 import dev.terminal.protocol.SessionEvent
 import dev.terminal.protocol.SessionStatus
+import dev.terminal.runtime.session.pumpPtyOutput
 import com.termux.terminal.PtyProcess
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -71,15 +73,16 @@ class NativeSessionController(private val root: File) : SessionController {
         val descriptor = SessionDescriptor(id, "Native shell", command, home.absolutePath, System.currentTimeMillis(), rows, cols, SessionStatus.RUNNING)
         entries[id] = Entry(descriptor, process)
         scope.launch {
-            process.inputStream.use { input ->
-                val buffer = ByteArray(4096)
-                while (true) {
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    entries[id]?.append(buffer, count)
-                    output.emit(SessionEvent.Output(id, buffer.copyOf(count)))
-                }
-            }
+            pumpPtyOutput(
+                process.inputStream,
+                onOutput = { bytes ->
+                    entries[id]?.append(bytes, bytes.size)
+                    output.emit(SessionEvent.Output(id, bytes))
+                },
+                onReadFailure = { error ->
+                    if (entries.containsKey(id)) Log.w(TAG, "PTY output failed for $id", error)
+                },
+            )
         }
         scope.launch {
             val code = process.waitFor()
@@ -125,6 +128,7 @@ class NativeSessionController(private val root: File) : SessionController {
     }
 
     private companion object {
+        const val TAG = "NativeSessionController"
         const val SIGKILL = 9
         const val MAX_TRANSCRIPT_BYTES = 256 * 1024
     }

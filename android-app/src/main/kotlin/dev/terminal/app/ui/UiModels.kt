@@ -12,7 +12,10 @@ internal fun parseSessions(json: String): List<SessionUi> = runCatching {
             runtime = item.optString("runtime", "NATIVE"),
             title = item.optString("title"),
             state = item.optString("state", "UNKNOWN"),
-            exitCode = item.takeIf { it.has("exitCode") }?.optInt("exitCode"),
+            // The wire default -1 means "not exited" for live sessions, but
+            // means SIGHUP for EXITED sessions. State disambiguates the value.
+            exitCode = item.takeIf { it.optString("state") == "EXITED" && !it.isNull("exitCode") }
+                ?.getInt("exitCode"),
         )
     }
 }.getOrDefault(emptyList())

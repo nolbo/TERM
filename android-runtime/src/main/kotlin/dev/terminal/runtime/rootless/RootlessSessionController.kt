@@ -1,11 +1,13 @@
 package dev.terminal.runtime.rootless
 
+import android.util.Log
 import com.termux.terminal.PtyProcess
 import dev.terminal.protocol.SessionConnectionState
 import dev.terminal.protocol.SessionController
 import dev.terminal.protocol.SessionDescriptor
 import dev.terminal.protocol.SessionEvent
 import dev.terminal.protocol.SessionStatus
+import dev.terminal.runtime.session.pumpPtyOutput
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
@@ -69,14 +71,16 @@ class RootlessSessionController(
         val descriptor = SessionDescriptor(id, "Rootless Debian", launch.guestShell, launch.guestCwd, System.currentTimeMillis(), rows, cols, SessionStatus.RUNNING)
         entries[id] = Entry(descriptor, process)
         scope.launch {
-            process.inputStream.use { input ->
-                val buffer = ByteArray(4096)
-                while (true) {
-                    val count = input.read(buffer); if (count < 0) break
-                    entries[id]?.append(buffer, count)
-                    mutableEvents.emit(SessionEvent.Output(id, buffer.copyOf(count)))
-                }
-            }
+            pumpPtyOutput(
+                process.inputStream,
+                onOutput = { bytes ->
+                    entries[id]?.append(bytes, bytes.size)
+                    mutableEvents.emit(SessionEvent.Output(id, bytes))
+                },
+                onReadFailure = { error ->
+                    if (entries.containsKey(id)) Log.w(TAG, "PTY output failed for $id", error)
+                },
+            )
         }
         scope.launch {
             val code = process.waitFor()
@@ -114,6 +118,7 @@ class RootlessSessionController(
     }
 
     private companion object {
+        const val TAG = "RootlessSessionController"
         const val SIGKILL = 9
         const val MAX_TRANSCRIPT_BYTES = 256 * 1024
     }

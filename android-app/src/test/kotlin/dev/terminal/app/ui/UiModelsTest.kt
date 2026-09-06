@@ -10,6 +10,27 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UiModelsTest {
+    @Test fun liveSessionsDoNotInterpretTheWireSentinelAsSighup() {
+        for (runtime in listOf("NATIVE", "ROOTLESS", "AVF")) {
+            for (state in listOf("CREATED", "RUNNING")) {
+                val session = parseSessions("""[{"id":"session-1","runtime":"$runtime","state":"$state","exitCode":-1}]""").single()
+                assertEquals("$runtime $state must not finish the renderer", null, session.exitCode)
+            }
+        }
+    }
+
+    @Test fun realExitsRetainSuccessFailureAndSighup() {
+        for (code in listOf(0, 7, -1, -9)) {
+            val session = parseSessions("""[{"id":"session-1","state":"EXITED","exitCode":$code}]""").single()
+            assertEquals(code, session.exitCode)
+        }
+    }
+
+    @Test fun missingOrNullExitStatusDoesNotInventAnExit() {
+        assertEquals(null, parseSessions("""[{"id":"session-1","state":"EXITED"}]""").single().exitCode)
+        assertEquals(null, parseSessions("""[{"id":"session-1","state":"EXITED","exitCode":null}]""").single().exitCode)
+    }
+
     @Test fun sessionsRetainRuntimeStateAndExitCode() {
         val sessions = parseSessions("""[{"id":"rootless-1","runtime":"ROOTLESS","title":"apt","state":"EXITED","exitCode":7}]""")
         assertEquals(SessionUi("rootless-1", "ROOTLESS", "apt", "EXITED", 7), sessions.single())

@@ -112,15 +112,21 @@ impl SessionRegistry {
     }
 
     pub fn terminate(&mut self, id: &str, signal: Signal) -> Result<(), PtyError> {
-        {
+        let already_exited = {
             let session = self.sessions.get(id).ok_or(PtyError::SessionNotFound)?;
-            session.pty.as_ref().ok_or(PtyError::SessionNotStarted)?.terminate(signal)?;
-        }
+            let already_exited = matches!(session.state, SessionState::Exited(_));
+            if !already_exited {
+                session.pty.as_ref().ok_or(PtyError::SessionNotStarted)?.terminate(signal)?;
+            }
+            already_exited
+        };
         if let Some(mut removed) = self.sessions.remove(id) {
             if let Some(pty) = removed.pty.take() {
-                std::thread::spawn(move || {
-                    let _ = pty.wait_for_exit();
-                });
+                if !already_exited {
+                    std::thread::spawn(move || {
+                        let _ = pty.wait_for_exit();
+                    });
+                }
             }
         }
         Ok(())
@@ -166,5 +172,23 @@ mod tests {
         assert!(matches!(sessions.terminate(&ids[1], Signal::SIGKILL), Err(PtyError::SessionNotFound)));
         sessions.terminate(&ids[0], Signal::SIGKILL).unwrap();
         sessions.terminate(&ids[2], Signal::SIGKILL).unwrap();
+    }
+
+    #[test]
+    fn terminating_an_already_exited_session_removes_its_entry() {
+        let mut sessions = SessionRegistry::default();
+        let id = sessions.create_shell("/bin/true", "/", 24, 80).id.clone();
+        sessions.start_shell(&id, &[]).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        loop {
+            if sessions.poll_exit(&id).unwrap().is_some() { break; }
+            assert!(std::time::Instant::now() < deadline, "child did not exit before timeout");
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+
+        sessions.terminate(&id, Signal::SIGKILL).unwrap();
+
+        assert!(sessions.get(&id).is_none());
+        assert_eq!(sessions.list().count(), 0);
     }
 }

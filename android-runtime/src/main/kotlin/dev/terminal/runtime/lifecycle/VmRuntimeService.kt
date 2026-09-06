@@ -556,7 +556,9 @@ class VmRuntimeService : Service() {
             put("rows", session.rows.toInt())
             put("cols", session.cols.toInt())
             put("state", session.state.name)
-            session.exitCode?.let { put("exitCode", it) }
+            if (session.state == dev.terminal.protocol.SessionStatus.EXITED) {
+                put("exitCode", session.exitCode)
+            }
         }) }
     }.toString()
 

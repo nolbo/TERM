@@ -38,6 +38,7 @@ import com.termux.view.TerminalView
 import dev.terminal.app.ui.ExtraKeys
 import dev.terminal.app.ui.RootlessSetupDialog
 import dev.terminal.app.ui.RuntimeChoiceUi
+import dev.terminal.app.ui.RuntimeSessionAttachment
 import dev.terminal.app.ui.SessionUi
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.ui.TerminalChrome
@@ -47,7 +48,6 @@ import dev.terminal.app.ui.parseSessions
 import dev.terminal.app.ui.failSessionTermination
 import dev.terminal.app.ui.reconcileSessionTabs
 import dev.terminal.app.ui.requestSessionTermination
-import dev.terminal.app.ui.sessionIdsForUiDetach
 import dev.terminal.image.DebianImageInstaller
 import dev.terminal.image.DebianImageLayout
 import dev.terminal.image.ImageInstallResult
@@ -89,6 +89,7 @@ class MainActivity : TerminalActivity() {
     private var bindingGeneration = 0L
     private var lastSessionRevision = -1L
     private var listener: IRuntimeStateListener? = null
+    private val runtimeAttachment = RuntimeSessionAttachment()
     private val mainHandler by lazy { Handler(mainLooper) }
     private val terminalBackends = ConcurrentHashMap<String, RemoteTerminalBackend>()
     private val terminalSessions = mutableMapOf<String, TerminalSession>()
@@ -212,11 +213,12 @@ class MainActivity : TerminalActivity() {
         mainHandler.removeCallbacks(reconnectRuntime)
         if (bindingRequested) {
             if (bound) {
-                sessionIdsForUiDetach(sessions).forEach { id -> runCatching { runtime?.detachSession(id) } }
+                runtimeAttachment.detach()?.let { id -> runCatching { runtime?.detachSession(id) } }
                 listener?.let { current -> runCatching { runtime?.unregisterListener(current) } }
             }
             runCatching { unbindService(connection) }
         }
+        runtimeAttachment.reset()
         terminalBackends.values.forEach(RemoteTerminalBackend::close)
         terminalBackends.clear()
         terminalSessions.clear()
@@ -349,13 +351,15 @@ class MainActivity : TerminalActivity() {
         }
         val selected = activeSessionId
         if (selected == null) {
+            runtimeAttachment.reset()
             releaseTerminalFocus()
-        } else if (selected != displayedSessionId) {
+        } else if (selected != displayedSessionId || runtimeAttachment.sessionId != selected) {
             attach(selected)
         }
         removedSessionIds.forEach { id ->
             terminalBackends.remove(id)?.close()
             terminalSessions.remove(id)
+            runtimeAttachment.forget(id)
             if (displayedSessionId == id) displayedSessionId = null
         }
         runtime?.let { service -> runCatching { updateRuntimeChoices(service.runtimeStatusJson) } }
@@ -364,7 +368,6 @@ class MainActivity : TerminalActivity() {
     private fun attach(id: String) {
         if (id !in sessions.map { it.id }) return
         activeSessionId = id
-        val newlyAttached = id !in terminalSessions
         val session = terminalSessions.getOrPut(id) {
             TerminalSession(
                 defaultShell(),
@@ -382,7 +385,9 @@ class MainActivity : TerminalActivity() {
         sessionExitCodes[id]?.let { terminalBackends[id]?.exit(it) }
         displayedSessionId = id
         terminalView?.let(::attachRenderer)
-        if (newlyAttached) safeRuntimeCall { it.attachSession(id) }
+        runtimeAttachment.select(id)?.let { selectedId ->
+            safeRuntimeCall { it.attachSession(selectedId) }
+        }
     }
 
     private fun attachRenderer(view: TerminalView) {
@@ -526,6 +531,7 @@ class MainActivity : TerminalActivity() {
         bound = false
         runtime = null
         listener = null
+        runtimeAttachment.reset()
         runtimeMessage = getString(R.string.runtime_reconnecting_prompt)
         if (activityStarted) mainHandler.postDelayed(reconnectRuntime, RECONNECT_DELAY_MS)
     }

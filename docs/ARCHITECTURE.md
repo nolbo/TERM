@@ -31,6 +31,15 @@ write, resize, attach, detach, and terminate operations through the same API.
 Runtime selection is explicit. A failed Rootless or AVF request is never moved
 to another backend.
 
+The UI tracks runtime attachment separately from its cached terminal renderer.
+Selecting a cached tab still attaches that exact session to the runtime
+transport, while closing a background tab leaves the active attachment
+unchanged. UI unbinding detaches only the session actually attached to that
+client; it never iterates sessions as though every cached tab were attached.
+Closing one PTY may interrupt that PTY's blocking output read. Controllers
+contain this expected session-local I/O completion so it cannot escape a
+coroutine and terminate the shared `:vmhost` process or sibling sessions.
+
 Rootless Debian uses a distinct rootfs and a host-owned shared workspace. The
 first Rootless selection automatically installs a checksum-pinned Debian
 archive into that rootfs. Its PRoot executable may only be resolved from `ApplicationInfo.nativeLibraryDir`;

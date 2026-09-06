@@ -68,6 +68,14 @@ After a successful `Attach`, the connection receives `STREAM` frames with
 request ID `0`. Event `0x90` is raw PTY output (`session ID`, byte length,
 bytes); event `0x91` is process exit (`session ID`, exit code). Detaching or
 disconnecting removes only this output subscription—the guest PTY remains alive.
+
+Session descriptor exit codes are valid only when state is `EXITED`. The
+binary descriptor uses `-1` as the default for a session that has not exited;
+an exited local session can also have `-1` for a real SIGHUP. Consumers must
+check state rather than infer termination from this number. The Android AIDL
+session-list JSON omits `exitCode` for `CREATED` and `RUNNING` sessions, and the
+UI ignores that field for non-exited sessions even if an older producer sends
+it. Explicit process-exit events still carry the actual exit code.
 # Protocol
 
 ## Bridge service

@@ -75,7 +75,10 @@ impl PtyProcess {
     }
 
     pub fn terminate(&self, signal: Signal) -> Result<(), PtyError> {
-        kill(self.child, signal).map_err(PtyError::from)
+        match kill(self.child, signal) {
+            Ok(()) | Err(Errno::ESRCH) => Ok(()),
+            Err(error) => Err(PtyError::from(error)),
+        }
     }
 
     pub fn poll_exit(&self) -> Result<Option<i32>, PtyError> {
