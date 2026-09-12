@@ -537,8 +537,9 @@ The worktree may contain user or previous-session changes.
 - Do not use destructive Git operations.
 - Do not amend, rebase, force-push, create a PR, or push unless the current
   directive explicitly requests it.
-- If a commit is requested, include only task-owned changes and use a concise
-  descriptive message.
+- On completing an implementation, documentation, or configuration task, MUST
+  commit its task-owned changes with a concise descriptive message. Push only
+  when the current directive explicitly requests it.
 - Do not commit build outputs, credentials, tokens, local SDK paths, device
   identifiers, or captured private data.
 - Inspect the final diff before reporting completion.
