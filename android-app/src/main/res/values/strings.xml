@@ -168,6 +168,7 @@
     <string name="kitty_graphics_compatibility_support">이미지 지원을 감지하는 프로그램을 위해 새 세션에 고유한 KITTY_WINDOW_ID를 전달합니다. TERM과 기존 세션은 유지됩니다. 창 관리는 별도의 원격 제어 설정으로 허용합니다. Native에서는 공유 메모리 전송을 사용할 수 없습니다.</string>
     <string name="scrollback">스크롤백</string>
     <string name="scrollback_support">모든 실행 환경에서 새 터미널 화면이 보관할 최대 기록 행 수입니다.</string>
+    <string name="scroll_to_latest">최신 출력</string>
     <string name="android_permissions">Android 권한</string>
     <string name="android_permissions_support">알림과 파일 선택 등 시스템 권한을 확인합니다.</string>
     <string name="rootless_available">사용 가능</string>

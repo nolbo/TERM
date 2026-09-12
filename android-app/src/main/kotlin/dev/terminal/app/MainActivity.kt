@@ -17,6 +17,7 @@ import android.view.KeyEvent
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -25,6 +26,8 @@ import androidx.compose.foundation.background
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
@@ -38,7 +41,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -119,6 +124,7 @@ class MainActivity : TerminalActivity() {
     private var rootlessSessionsBeforeInstall = emptySet<String>()
     private var displayedSessionId: String? = null
     private var terminalView: TerminalView? = null
+    private var terminalFollowingLatest by mutableStateOf(true)
     private var keyboardRequested = false
     private var bindingGeneration = 0L
     private var lastSessionRevision = -1L
@@ -338,25 +344,38 @@ class MainActivity : TerminalActivity() {
             if (activeSessionId == null) {
                 TerminalEmptyState(runtimeMessage, ::showNewSessionSheet)
             } else {
-                AndroidView(
-                    factory = { context ->
-                        TerminalView(context, null).apply {
-                            isFocusable = true
-                            isFocusableInTouchMode = true
-                            terminalView = this
-                            setTerminalViewClient(terminalInputCallbacks)
-                            TerminalAppearance.apply(terminalPreferences(), this)
-                        }
-                    },
-                    update = { view -> attachRenderer(view) },
-                    onRelease = { view ->
-                        view.removeCallbacks(showTerminalKeyboard)
-                        if (terminalView === view) terminalView = null
-                    },
-                    modifier = Modifier.weight(1f).fillMaxWidth()
-                        .background(terminalBackgroundColor)
-                        .padding(terminalPaddingDp.dp),
-                )
+                Box(Modifier.weight(1f).fillMaxWidth()) {
+                    AndroidView(
+                        factory = { context ->
+                            TerminalView(context, null).apply {
+                                isFocusable = true
+                                isFocusableInTouchMode = true
+                                terminalView = this
+                                setTerminalViewClient(terminalInputCallbacks)
+                                setOnScrollStateChangedListener { following -> terminalFollowingLatest = following }
+                                TerminalAppearance.apply(terminalPreferences(), this)
+                            }
+                        },
+                        update = { view -> attachRenderer(view) },
+                        onRelease = { view ->
+                            view.removeCallbacks(showTerminalKeyboard)
+                            view.setOnScrollStateChangedListener(null)
+                            if (terminalView === view) terminalView = null
+                            terminalFollowingLatest = true
+                        },
+                        modifier = Modifier.fillMaxSize()
+                            .background(terminalBackgroundColor)
+                            .padding(terminalPaddingDp.dp),
+                    )
+                    if (!terminalFollowingLatest) {
+                        ExtendedFloatingActionButton(
+                            onClick = { terminalView?.scrollToLatest() },
+                            modifier = Modifier.align(Alignment.BottomEnd).padding(16.dp),
+                            icon = { Icon(painterResource(R.drawable.ic_material_symbol_arrow_downward_24), null) },
+                            text = { Text(stringResource(R.string.scroll_to_latest)) },
+                        )
+                    }
+                }
                 val toolbarSessionId = activeSessionId
                 androidx.compose.runtime.key(toolbarSessionId) { ExtraKeys(
                     layout = hotkeyLayout,

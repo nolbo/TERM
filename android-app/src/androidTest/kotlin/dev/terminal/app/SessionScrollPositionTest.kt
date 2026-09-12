@@ -10,6 +10,30 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SessionScrollPositionTest {
+    @Test fun latestOutputStateChangesOnlyWhenViewportLeavesOrReturnsToBottom() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val view = TerminalView(instrumentation.targetContext, null).apply {
+                setTerminalViewClient(TerminalInputCallbacks())
+                setTextSize(20)
+                layout(0, 0, 800, 600)
+            }
+            val backend = RemoteTerminalBackend(write = {}, resize = { _, _ -> })
+            val session = TerminalSession("", "/", emptyArray(), emptyArray(), 1000, TerminalCallbacks {}, backend)
+            try {
+                view.attachSession(session)
+                val states = mutableListOf<Boolean>()
+                view.setOnScrollStateChangedListener { states += it }
+                view.topRow = -1
+                view.topRow = -2
+                view.scrollToLatest()
+                assertEquals(listOf(true, false, true), states)
+            } finally {
+                backend.close()
+            }
+        }
+    }
+
     @Test fun petRefreshesPreserveHistoryAndNewLinesAnchorTheSameText() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {
