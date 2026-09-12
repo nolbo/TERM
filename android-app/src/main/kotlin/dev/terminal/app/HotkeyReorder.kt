@@ -24,13 +24,13 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.round
 import androidx.compose.ui.unit.sp
+import dev.terminal.app.ui.LocalTerminalHaptics
 
 private data class HotkeyDrag(
     val from: Int,
@@ -67,7 +67,7 @@ internal fun ReorderableHotkeyPreview(
     var drag by remember(layout) { mutableStateOf<HotkeyDrag?>(null) }
     val move by rememberUpdatedState(onMove)
     val viewport by rememberUpdatedState(viewportBounds)
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalTerminalHaptics.current
     val density = LocalDensity.current
     val targetColor = MaterialTheme.colorScheme.primary
     val edge = with(density) { 48.dp.toPx() }

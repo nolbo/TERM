@@ -6,6 +6,16 @@
     <string name="select_distribution">Select distribution</string>
     <string name="runtime_installable">Available after installation</string>
     <string name="section_terminal_layout">Layout</string>
+    <string name="section_haptics">Haptic feedback</string>
+    <string name="haptic_feedback">Use haptic feedback</string>
+    <string name="haptic_feedback_support">Turn tactile feedback for hotkeys, tabs, and completed actions on or off.</string>
+    <string name="haptic_density">Haptic density</string>
+    <string name="haptic_density_support">Low uses completion and long press only; standard covers primary controls; high also marks continuous adjustments.</string>
+    <string name="haptic_density_low">Low</string>
+    <string name="haptic_density_standard">Standard</string>
+    <string name="haptic_density_high">High</string>
+    <string name="haptic_scroll">Scroll haptics</string>
+    <string name="haptic_scroll_support">Provide tactile ticks at a density-dependent row interval while moving through scrollback.</string>
     <string name="terminal_padding">Terminal padding</string>
     <string name="terminal_padding_support">0–32 dp on each side; 4 dp by default. Applied when you return to the terminal.</string>
     <string name="app_name">TERM</string>

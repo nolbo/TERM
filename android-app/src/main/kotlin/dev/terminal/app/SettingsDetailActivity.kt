@@ -42,6 +42,8 @@ import dev.terminal.app.ui.RuntimeEnvironmentIcon
 import dev.terminal.app.ui.RootlessProgressIndicator
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
+import dev.terminal.app.ui.TerminalHapticDensity
+import dev.terminal.app.ui.TerminalHapticPreferences
 import dev.terminal.app.ui.TerminalStatusBlue
 import dev.terminal.app.ui.runtimeTitleResource
 import dev.terminal.app.ui.rootlessRuntimeIds
@@ -573,6 +575,39 @@ class SettingsDetailActivity : TerminalActivity() {
             SettingsSection(R.string.section_history) {
                 IntegerSetting(KEY_SCROLLBACK, R.string.scrollback, R.string.scrollback_support, R.string.unit_rows, terminalPreferences.getInt(KEY_SCROLLBACK, 10_000), 1_000..100_000) {
                     terminalPreferences.edit().putInt(KEY_SCROLLBACK, it).apply()
+                }
+            }
+        }
+        item {
+            SettingsSection(R.string.section_haptics) {
+                BooleanSetting(
+                    R.string.haptic_feedback,
+                    R.string.haptic_feedback_support,
+                    terminalPreferences.getBoolean(TerminalHapticPreferences.KEY_ENABLED, true),
+                ) {
+                    terminalPreferences.edit().putBoolean(TerminalHapticPreferences.KEY_ENABLED, it).apply()
+                }
+                SettingsDivider()
+                ChoiceSetting(
+                    R.string.haptic_density,
+                    R.string.haptic_density_support,
+                    listOf(
+                        Choice(R.string.haptic_density_low, TerminalHapticDensity.LOW.name),
+                        Choice(R.string.haptic_density_standard, TerminalHapticDensity.STANDARD.name),
+                        Choice(R.string.haptic_density_high, TerminalHapticDensity.HIGH.name),
+                    ),
+                    terminalPreferences.getString(TerminalHapticPreferences.KEY_DENSITY, TerminalHapticDensity.STANDARD.name)
+                        ?: TerminalHapticDensity.STANDARD.name,
+                ) {
+                    terminalPreferences.edit().putString(TerminalHapticPreferences.KEY_DENSITY, it).apply()
+                }
+                SettingsDivider()
+                BooleanSetting(
+                    R.string.haptic_scroll,
+                    R.string.haptic_scroll_support,
+                    terminalPreferences.getBoolean(TerminalHapticPreferences.KEY_SCROLL, false),
+                ) {
+                    terminalPreferences.edit().putBoolean(TerminalHapticPreferences.KEY_SCROLL, it).apply()
                 }
             }
         }

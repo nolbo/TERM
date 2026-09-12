@@ -6,6 +6,16 @@
     <string name="select_distribution">배포판 선택</string>
     <string name="runtime_installable">설치 후 사용 가능</string>
     <string name="section_terminal_layout">화면 배치</string>
+    <string name="section_haptics">햅틱 피드백</string>
+    <string name="haptic_feedback">햅틱 피드백 사용</string>
+    <string name="haptic_feedback_support">핫키, 탭, 완료 동작의 촉각 피드백을 켜거나 끕니다.</string>
+    <string name="haptic_density">햅틱 밀도</string>
+    <string name="haptic_density_support">낮음은 완료·길게 누름만, 표준은 주요 조작, 높음은 연속 조절도 안내합니다.</string>
+    <string name="haptic_density_low">낮음</string>
+    <string name="haptic_density_standard">표준</string>
+    <string name="haptic_density_high">높음</string>
+    <string name="haptic_scroll">스크롤 햅틱</string>
+    <string name="haptic_scroll_support">스크롤백을 이동할 때 밀도에 따라 일정 행마다 촉각 피드백을 제공합니다.</string>
     <string name="terminal_padding">쉘 화면 여백</string>
     <string name="terminal_padding_support">상하좌우 0~32dp · 기본 4dp. 터미널로 돌아가면 적용됩니다.</string>
     <string name="unit_dp">dp</string>

@@ -17,7 +17,6 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -28,6 +27,7 @@ import androidx.compose.ui.unit.sp
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalOnStatusBlueContainer
 import dev.terminal.app.ui.TerminalStatusBlueContainer
+import dev.terminal.app.ui.LocalTerminalHaptics
 import java.util.Locale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -46,7 +46,7 @@ internal fun HotkeyGrid(
     cellModifier: (Int) -> Modifier = { Modifier },
     onKey: (Int) -> Unit,
 ) {
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalTerminalHaptics.current
     // Honor compact heights in both the preview and the toolbar, including modifier keys.
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides layout.height.dp) {
         BoxWithConstraints(modifier.fillMaxWidth()) {
@@ -151,7 +151,7 @@ internal fun HotkeyGrid(
 
 @Composable
 internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) {
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalTerminalHaptics.current
     var saved by rememberSaveable { mutableStateOf(serializeHotkeyLayout(readHotkeyLayout(preferences))) }
     var draft by rememberSaveable { mutableStateOf(saved) }
     val layout = remember(draft) { parseHotkeyLayout(draft) }
@@ -245,9 +245,14 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
 
 @Composable
 private fun HotkeySizeControl(title: Int, value: Int, range: IntRange, onChange: (Int) -> Unit) {
+    val haptics = LocalTerminalHaptics.current
     val label = stringResource(title)
     Text("$label: $value", style = MaterialTheme.typography.labelLarge)
-    Slider(value = value.toFloat(), onValueChange = { onChange(kotlin.math.round(it).toInt()) },
+    Slider(value = value.toFloat(), onValueChange = {
+        val updated = kotlin.math.round(it).toInt()
+        if (updated != value) haptics.performDenseHapticFeedback(HapticFeedbackType.KeyboardTap)
+        onChange(updated)
+    },
         valueRange = range.first.toFloat()..range.last.toFloat(), steps = range.last - range.first - 1,
         modifier = Modifier.semantics { contentDescription = label })
 }
@@ -263,7 +268,7 @@ private fun HotkeyEditDialog(
     var showHelp by rememberSaveable(index) { mutableStateOf(false) }
     val hotkey = Hotkey(name.trim(), shortcut.trim().uppercase(Locale.ROOT), span)
     val valid = validHotkey(hotkey)
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalTerminalHaptics.current
     AlertDialog(
         modifier = Modifier.imePadding(),
         onDismissRequest = onDismiss,

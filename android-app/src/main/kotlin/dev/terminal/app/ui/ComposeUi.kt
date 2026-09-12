@@ -43,7 +43,6 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -353,7 +352,7 @@ fun TerminalChrome(
     onSettings: () -> Unit,
 ) {
     val selectedTabIndex = sessions.indexOfFirst { it.id == activeSessionId }
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalTerminalHaptics.current
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars)) {
             Box(Modifier.fillMaxWidth()) {
@@ -607,7 +606,7 @@ private fun RuntimeSelectionSheet(
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
     )
     val scope = rememberCoroutineScope()
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalTerminalHaptics.current
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -712,7 +711,7 @@ fun RenameSessionDialog(
     val validated = validatedSessionTitle(draft)
     val showError = draft.isNotEmpty() && validated == null
     val focusRequester = remember(session.id) { FocusRequester() }
-    val haptics = LocalHapticFeedback.current
+    val haptics = LocalTerminalHaptics.current
     val submit: () -> Unit = {
         validated?.let {
             haptics.performHapticFeedback(HapticFeedbackType.Confirm)

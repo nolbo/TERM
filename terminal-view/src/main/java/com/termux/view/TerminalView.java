@@ -100,6 +100,8 @@ public final class TerminalView extends View {
 
     /** What was left in from scrolling movement. */
     float mScrollRemainder;
+    private int mScrollHapticRowsPerTick;
+    private int mScrolledRowsSinceHaptic;
 
     /** If non-zero, this is the last unicode code point received if that was a combining character. */
     int mCombiningAccent;
@@ -173,6 +175,7 @@ public final class TerminalView extends View {
             @Override
             public boolean onUp(MotionEvent event) {
                 mScrollRemainder = 0.0f;
+                mScrolledRowsSinceHaptic = 0;
                 if (mEmulator != null && mEmulator.isMouseTrackingActive() && !event.isFromSource(InputDevice.SOURCE_MOUSE) && !isSelectingText() && !scrolledWithFinger) {
                     // Quick event processing when mouse tracking is active - do not wait for check of double tapping
                     // for zooming.
@@ -722,7 +725,23 @@ public final class TerminalView extends View {
             }
         } else {
             mTopRow = clampScrollRow(mTopRow, rowsDown, mEmulator.getScreen().getActiveTranscriptRows());
+            performScrollHaptic(amount);
             if (!awakenScrollBars()) invalidate();
+        }
+    }
+
+    /** Enables a CLOCK_TICK after this many ordinary scrollback rows; zero disables it. */
+    public void setScrollHapticFeedbackRows(int rowsPerTick) {
+        mScrollHapticRowsPerTick = Math.max(0, rowsPerTick);
+        mScrolledRowsSinceHaptic = 0;
+    }
+
+    private void performScrollHaptic(int rows) {
+        if (mScrollHapticRowsPerTick == 0) return;
+        mScrolledRowsSinceHaptic += rows;
+        if (mScrolledRowsSinceHaptic >= mScrollHapticRowsPerTick) {
+            performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+            mScrolledRowsSinceHaptic %= mScrollHapticRowsPerTick;
         }
     }
 

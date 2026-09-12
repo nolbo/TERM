@@ -60,6 +60,7 @@ import dev.terminal.app.ui.SessionUi
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.ui.TerminalChrome
 import dev.terminal.app.ui.TerminalEmptyState
+import dev.terminal.app.ui.TerminalHapticPreferences
 import dev.terminal.app.ui.TerminalToolbarKey
 import dev.terminal.app.ui.rootlessRuntimeIds
 import dev.terminal.app.ui.runtimeTitleResource
@@ -269,7 +270,11 @@ class MainActivity : TerminalActivity() {
         hotkeyLayout = readHotkeyLayout(preferences)
         terminalBackgroundColor = Color(TerminalAppearance.backgroundColor(preferences))
         terminalPaddingDp = TerminalAppearance.paddingDp(preferences)
-        terminalView?.let { TerminalAppearance.apply(preferences, it); applySessionFontSize(it) }
+        terminalView?.let {
+            TerminalAppearance.apply(preferences, it)
+            applySessionFontSize(it)
+            applyScrollHapticSettings(it, preferences)
+        }
     }
 
     override fun onPause() {
@@ -345,6 +350,7 @@ class MainActivity : TerminalActivity() {
                             isFocusableInTouchMode = true
                             terminalView = this
                             setTerminalViewClient(terminalInputCallbacks)
+                            applyScrollHapticSettings(this, terminalPreferences())
                             TerminalAppearance.apply(terminalPreferences(), this)
                         }
                     },
@@ -597,6 +603,10 @@ class MainActivity : TerminalActivity() {
             android.util.TypedValue.applyDimension(android.util.TypedValue.COMPLEX_UNIT_SP,
                 value, view.resources.displayMetrics)
         })
+    }
+
+    private fun applyScrollHapticSettings(view: TerminalView, preferences: android.content.SharedPreferences) {
+        view.setScrollHapticFeedbackRows(TerminalHapticPreferences.read(preferences).scrollRowsPerTick())
     }
 
     private fun scaleTerminalFont(scale: Float): Float {
