@@ -37,6 +37,7 @@ class TerminalLinksTest {
                 onToggleTerminalChrome = { doubles++ },
             ))
             view.setTextSize(20)
+            view.setSmoothScrollingEnabled(true)
             view.layout(0, 0, 800, 400)
             view.attachSession(session)
             val bytes = "https://example.com/path".toByteArray()

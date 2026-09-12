@@ -54,6 +54,7 @@ public final class TerminalRenderer {
     private Picture mPresentedFrame;
     private TerminalEmulator mPresentedEmulator;
     private int mPresentedTopRow, mPresentedColumns, mPresentedRows;
+    private float mPresentedScrollOffset;
     public void clearPresentedFrame() { mPresentedFrame = null; mPresentedEmulator = null; mImageBitmaps.clear(); }
 
     private final float[] asciiMeasures = new float[127];
@@ -97,9 +98,16 @@ public final class TerminalRenderer {
     /** Render graphics in the protocol's three layers around text backgrounds and glyphs. */
     public final void render(TerminalEmulator emulator, Canvas canvas, int topRow,
                              int selectionY1, int selectionY2, int selectionX1, int selectionX2) {
+        render(emulator, canvas, topRow, selectionY1, selectionY2, selectionX1, selectionX2, 0);
+    }
+
+    public final void render(TerminalEmulator emulator, Canvas canvas, int topRow,
+                             int selectionY1, int selectionY2, int selectionX1, int selectionX2,
+                             float scrollOffset) {
         boolean sameViewport = mPresentedEmulator == emulator && mPresentedFrame != null &&
             mPresentedFrame.getWidth() == canvas.getWidth() && mPresentedFrame.getHeight() == canvas.getHeight() &&
-            mPresentedColumns == emulator.mColumns && mPresentedRows == emulator.mRows && mPresentedTopRow == topRow;
+            mPresentedColumns == emulator.mColumns && mPresentedRows == emulator.mRows && mPresentedTopRow == topRow
+            && mPresentedScrollOffset == scrollOffset;
         // A user scroll/viewport change must remain visible during output batching.
         // Freeze only the viewport the presented frame actually represents.
         if (emulator.getSynchronizedOutputDelayMillis() > 0 &&
@@ -111,39 +119,42 @@ public final class TerminalRenderer {
         // expose a partially received synchronized update between PTY packets.
         Picture frame = new Picture();
         Canvas recording = frame.beginRecording(Math.max(1, canvas.getWidth()), Math.max(1, canvas.getHeight()));
-        try { renderFrame(emulator, recording, topRow, selectionY1, selectionY2, selectionX1, selectionX2); }
+        int visibleRows = emulator.mRows + (scrollOffset > 0 && topRow < 0 ? 1 : 0);
+        recording.translate(0, -scrollOffset * mFontLineSpacing);
+        try { renderFrame(emulator, recording, topRow, selectionY1, selectionY2, selectionX1, selectionX2, visibleRows); }
         finally { frame.endRecording(); }
         mPresentedFrame = frame;
         mPresentedEmulator = emulator;
         mPresentedColumns = emulator.mColumns; mPresentedRows = emulator.mRows; mPresentedTopRow = topRow;
+        mPresentedScrollOffset = scrollOffset;
         canvas.drawPicture(frame);
     }
 
     private void renderFrame(TerminalEmulator emulator, Canvas canvas, int topRow,
-                             int selectionY1, int selectionY2, int selectionX1, int selectionX2) {
+                             int selectionY1, int selectionY2, int selectionX1, int selectionX2, int visibleRows) {
         if (emulator.isReverseVideo())
             canvas.drawColor(emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_FOREGROUND], PorterDuff.Mode.SRC);
         List<TerminalGraphics.Placement> images = emulator.getGraphics().getRenderPlacements(
-            emulator.getScreen(), topRow, topRow + emulator.mRows, emulator.mColumns, System.nanoTime() / 1_000_000);
+            emulator.getScreen(), topRow, topRow + visibleRows, emulator.mColumns, System.nanoTime() / 1_000_000);
         Set<TerminalImage> visible = new HashSet<>();
         for (TerminalGraphics.Placement p : images)
-            if (p.row + p.clipBottom > topRow && p.row + p.clipTop < topRow + emulator.mRows) visible.add(p.image);
+            if (p.row + p.clipBottom > topRow && p.row + p.clipTop < topRow + visibleRows) visible.add(p.image);
         mImageBitmaps.keySet().retainAll(visible);
         try {
-            drawImages(canvas, images, emulator, topRow, Integer.MIN_VALUE, -1073741825);
+            drawImages(canvas, images, emulator, topRow, Integer.MIN_VALUE, -1073741825, visibleRows);
             mDrawPass = 1;
-            renderText(emulator, canvas, topRow, selectionY1, selectionY2, selectionX1, selectionX2);
-            drawImages(canvas, images, emulator, topRow, -1073741824, -1);
+            renderText(emulator, canvas, topRow, selectionY1, selectionY2, selectionX1, selectionX2, visibleRows);
+            drawImages(canvas, images, emulator, topRow, -1073741824, -1, visibleRows);
             mDrawPass = 2;
-            renderText(emulator, canvas, topRow, selectionY1, selectionY2, selectionX1, selectionX2);
-            drawImages(canvas, images, emulator, topRow, 0, Integer.MAX_VALUE);
+            renderText(emulator, canvas, topRow, selectionY1, selectionY2, selectionX1, selectionX2, visibleRows);
+            drawImages(canvas, images, emulator, topRow, 0, Integer.MAX_VALUE, visibleRows);
         } finally { mDrawPass = 0; }
     }
 
     private void renderText(TerminalEmulator mEmulator, Canvas canvas, int topRow,
-                            int selectionY1, int selectionY2, int selectionX1, int selectionX2) {
+                            int selectionY1, int selectionY2, int selectionX1, int selectionX2, int visibleRows) {
         final boolean reverseVideo = mEmulator.isReverseVideo();
-        final int endRow = topRow + mEmulator.mRows;
+        final int endRow = Math.min(mEmulator.mRows, topRow + visibleRows);
         final int columns = mEmulator.mColumns;
         final int cursorCol = mEmulator.getCursorCol();
         final int cursorRow = mEmulator.getCursorRow();
@@ -265,13 +276,13 @@ public final class TerminalRenderer {
     }
 
     private void drawImages(Canvas canvas, List<TerminalGraphics.Placement> images, TerminalEmulator emulator,
-                            int topRow, int minimumZ, int maximumZ) {
+                            int topRow, int minimumZ, int maximumZ, int visibleRows) {
         int save = canvas.save();
         canvas.clipRect(0, mFontLineSpacingAndAscent, emulator.mColumns * mFontWidth,
-            mFontLineSpacingAndAscent + emulator.mRows * mFontLineSpacing);
+            mFontLineSpacingAndAscent + visibleRows * mFontLineSpacing);
         for (TerminalGraphics.Placement p : images) {
             if (p.z < minimumZ || p.z > maximumZ || p.row + p.clipBottom <= topRow ||
-                p.row + p.clipTop >= topRow + emulator.mRows || p.sourceWidth <= 0 || p.sourceHeight <= 0) continue;
+                p.row + p.clipTop >= topRow + visibleRows || p.sourceWidth <= 0 || p.sourceHeight <= 0) continue;
             int imageSave = canvas.save();
             float left = p.column * mFontWidth;
             float top = mFontLineSpacingAndAscent + (p.row - topRow) * mFontLineSpacing;

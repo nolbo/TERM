@@ -7,6 +7,8 @@
     <string name="runtime_installable">설치 후 사용 가능</string>
     <string name="section_terminal_layout">화면 배치</string>
     <string name="section_haptics">햅틱 피드백</string>
+    <string name="smooth_scrolling">부드러운 스크롤</string>
+    <string name="smooth_scrolling_support">기록을 픽셀 단위로 이동하고 관성 스크롤을 부드럽게 표시합니다. 기본 꺼짐이며 터미널로 돌아오면 적용됩니다.</string>
     <string name="haptic_feedback">햅틱 피드백 사용</string>
     <string name="haptic_feedback_support">핫키, 탭, 완료 동작의 촉각 피드백을 켜거나 끕니다.</string>
     <string name="haptic_density">햅틱 밀도</string>

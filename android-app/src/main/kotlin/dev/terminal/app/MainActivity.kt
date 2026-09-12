@@ -273,7 +273,7 @@ class MainActivity : TerminalActivity() {
         terminalView?.let {
             TerminalAppearance.apply(preferences, it)
             applySessionFontSize(it)
-            applyScrollHapticSettings(it, preferences)
+            applyScrollSettings(it, preferences)
         }
     }
 
@@ -350,7 +350,7 @@ class MainActivity : TerminalActivity() {
                             isFocusableInTouchMode = true
                             terminalView = this
                             setTerminalViewClient(terminalInputCallbacks)
-                            applyScrollHapticSettings(this, terminalPreferences())
+                            applyScrollSettings(this, terminalPreferences())
                             TerminalAppearance.apply(terminalPreferences(), this)
                         }
                     },
@@ -605,7 +605,8 @@ class MainActivity : TerminalActivity() {
         })
     }
 
-    private fun applyScrollHapticSettings(view: TerminalView, preferences: android.content.SharedPreferences) {
+    private fun applyScrollSettings(view: TerminalView, preferences: android.content.SharedPreferences) {
+        view.setSmoothScrollingEnabled(preferences.getBoolean(SettingsDetailActivity.KEY_SMOOTH_SCROLLING, false))
         view.setScrollHapticFeedbackRows(TerminalHapticPreferences.read(preferences).scrollRowsPerTick())
     }
 

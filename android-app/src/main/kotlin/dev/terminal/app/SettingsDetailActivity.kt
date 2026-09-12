@@ -573,6 +573,14 @@ class SettingsDetailActivity : TerminalActivity() {
         }
         item {
             SettingsSection(R.string.section_history) {
+                BooleanSetting(
+                    R.string.smooth_scrolling,
+                    R.string.smooth_scrolling_support,
+                    terminalPreferences.getBoolean(KEY_SMOOTH_SCROLLING, false),
+                ) {
+                    terminalPreferences.edit().putBoolean(KEY_SMOOTH_SCROLLING, it).apply()
+                }
+                SettingsDivider()
                 IntegerSetting(KEY_SCROLLBACK, R.string.scrollback, R.string.scrollback_support, R.string.unit_rows, terminalPreferences.getInt(KEY_SCROLLBACK, 10_000), 1_000..100_000) {
                     terminalPreferences.edit().putInt(KEY_SCROLLBACK, it).apply()
                 }
@@ -1041,6 +1049,7 @@ class SettingsDetailActivity : TerminalActivity() {
         const val KEY_FIXED_WIDTH = "fixed-width"
         const val KEY_NATURAL_WIDE_GLYPHS = "natural-wide-glyphs"
         const val KEY_SCROLLBACK = "scrollback-rows"
+        const val KEY_SMOOTH_SCROLLING = "smooth-scrolling"
         const val KEY_AVF_MEMORY = "avf-memory-mib"
         const val KEY_AVF_CPU = "avf-cpu-count"
         const val KEY_AVF_PROTECTED = "avf-protected"
