@@ -8,6 +8,7 @@ mod pairing;
 mod lockdown_pairing;
 mod storage;
 #[cfg(test)] mod tests;
+#[cfg(test)] mod virtual_lockdown;
 
 use std::{io::{BufRead, BufReader, Read, Write}, os::fd::{AsRawFd, FromRawFd, OwnedFd}, path::PathBuf, sync::{Arc, Mutex, OnceLock, atomic::{AtomicBool, Ordering}}};
 use idevice::{IdeviceError, IdeviceService, lockdown::LockdownClient};

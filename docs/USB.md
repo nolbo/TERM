@@ -1,5 +1,10 @@
 # Native / Rootless USB access
 
+The [virtual iPhone test environment](../tests/usb/VIRTUAL_IPHONE.md) runs real
+Native/Rootless CLIs against test-only synthetic device responses, with real broker
+session authentication. A separate in-memory lockdown peer exercises pinned idevice
+Trust handling. This is not physical USB, RPPairing or installation validation.
+
 ## Failure safety
 
 Commands never automatically replay writes, reset a device, or undo an accepted
