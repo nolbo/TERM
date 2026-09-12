@@ -176,6 +176,13 @@ class MtpClient:
 
 
 def run_mtp(Broker, RawInterface, args):
+    # Reject incomplete commands before opening a device session.
+    if args.action in ("ls", "put") and args.storage is None:
+        raise ValueError("--storage is required")
+    if args.action in ("get", "put") and args.file is None:
+        raise ValueError("--file is required")
+    if args.action == "get" and args.handle is None:
+        raise ValueError("--handle is required")
     for value in (args.storage, args.parent, args.handle):
         if value is not None and (type(value) is not int or not 0 <= value <= 0xffffffff):
             raise ValueError("MTP IDs must be unsigned 32-bit integers")

@@ -1,5 +1,11 @@
 # Security
 
+USB failure containment closes uncertain Python broker streams and releases raw
+interfaces after host I/O exceptions; cleanup does not reset devices or replay
+commands. Tooling FAILED/CANCELED states have nonzero CLI exit status. This bounds
+additional effects of failure, not the effects of user-authorized raw/serial/ADB
+commands or operations already accepted by a peripheral. See USB.md failure safety.
+
 Trusted iPhone pairing diagnostics expose only stable stage/error codes and an
 allowlist of transport/store categories, never raw upstream error text. Only
 ENOENT permits new pairing; malformed or unreadable records fail closed without

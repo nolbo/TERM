@@ -52,8 +52,9 @@ fn download(broker: &mut Broker, device: &str, remote: &str, destination: &str) 
     broker.send(json!({"op":"iphone","action":"afc-get","device":device,"path":remote}))?;
     let start = broker.receive()?; let size = start["size"].as_u64().filter(|s| *s <= FILE_LIMIT).ok_or("Invalid download size")?;
     if start["event"] != "start" { return Err("Invalid download header".into()); }
-    let temporary = Temporary(destination.parent().ok_or("Missing parent")?.join(format!(".terminal-download-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos())));
-    let mut output = OpenOptions::new().write(true).create_new(true).mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(&temporary.0)?;
+    let path = destination.parent().ok_or("Missing parent")?.join(format!(".terminal-download-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos()));
+    let mut output = OpenOptions::new().write(true).create_new(true).mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(&path)?;
+    let temporary = Temporary(path); // Only delete a file this operation successfully created.
     let mut offset = 0;
     loop {
         let result = broker.receive()?;
@@ -96,6 +97,9 @@ fn checked_probe(value: Value) -> Result<Value> {
     }
     Ok(value)
 }
+fn result_exit_code(value: &Value) -> i32 {
+    match value["state"].as_str() { Some("FAILED") => 1, Some("CANCELED") => 130, _ => 0 }
+}
 fn run(args: &[String]) -> Result<Value> {
     let mut broker = Broker::new()?;
     match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
@@ -126,12 +130,17 @@ fn main() {
         println!("tooling start TOOL DEVICE | status/watch/cancel OPERATION | select OPERATION CHOICE_IDS\nLogin/2FA: open USB → host tool inputs in the app. No credentials in the terminal. Watch detaches without canceling; use cancel explicitly.");
         println!("terminal-usb list | diagnostics | tooling list | tooling check DEVICE\nterminal-usb iphone pair|info|unpair DEVICE\nterminal-usb iphone ls DEVICE [AFC_PATH]\nterminal-usb iphone get DEVICE AFC_PATH LOCAL_FILE\nterminal-usb iphone put DEVICE LOCAL_FILE [--name ASCII_NAME]\nEach device action requires separate approval in the app USB screen. No raw USB FD, pair records or usbmux endpoint enter the terminal."); return;
     }
-    match run(&args) { Ok(value) => println!("{value}"), Err(error) => { eprintln!("{error}\nReview USB approvals in TERM. Do not automatically retry writes."); std::process::exit(1); } }
+    match run(&args) { Ok(value) => { println!("{value}"); std::process::exit(result_exit_code(&value)); }, Err(error) => { eprintln!("{error}\nReview USB approvals in TERM. Do not automatically retry writes."); std::process::exit(1); } }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test] fn failed_or_canceled_operations_are_not_shell_success() {
+        for (state, code) in [("FAILED", 1), ("CANCELED", 130), ("RUNNING", 0), ("COMPLETED", 0)] {
+            assert_eq!(result_exit_code(&json!({"state":state})), code);
+        }
+    }
     #[test] fn check_rejects_installation_status_and_wrong_action() {
         assert!(checked_probe(json!({"tool":"isideload","state":"FAILED","error":"PAIRING_FAILED"})).is_err());
         let mut valid = json!({"tool":"idevice-check","completed":true,"privateConnector":true,"publicMuxSocket":false});

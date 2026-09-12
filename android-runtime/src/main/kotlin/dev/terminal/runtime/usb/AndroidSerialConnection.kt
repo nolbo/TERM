@@ -60,8 +60,11 @@ internal class SerialPortIo(private val port: UsbSerialPort, private val checkAc
     fun configure(baud: Int, bits: Int, stops: Int, parity: Int, dtr: Boolean, rts: Boolean) {
         UsbPolicy.lineCoding(baud, bits, stops, parity)
         checkActive()
-        port.setParameters(baud, bits, when (stops) { 0 -> UsbSerialPort.STOPBITS_1; 1 -> UsbSerialPort.STOPBITS_1_5; else -> UsbSerialPort.STOPBITS_2 }, parity)
         val supported = port.supportedControlLines
+        require(!dtr || UsbSerialPort.ControlLine.DTR in supported) { "DTR_UNSUPPORTED_USE_NO_DTR" }
+        require(!rts || UsbSerialPort.ControlLine.RTS in supported) { "RTS_UNSUPPORTED_USE_NO_RTS" }
+        checkActive()
+        port.setParameters(baud, bits, when (stops) { 0 -> UsbSerialPort.STOPBITS_1; 1 -> UsbSerialPort.STOPBITS_1_5; else -> UsbSerialPort.STOPBITS_2 }, parity)
         if (UsbSerialPort.ControlLine.DTR in supported) port.setDTR(dtr)
         else require(!dtr) { "DTR_UNSUPPORTED_USE_NO_DTR" }
         if (UsbSerialPort.ControlLine.RTS in supported) port.setRTS(rts)

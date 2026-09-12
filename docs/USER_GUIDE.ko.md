@@ -1,5 +1,13 @@
 # TERM 사용 가이드
 
+USB 명령 실패 시 자동 재전송·기기 초기화를 하지 않습니다. 응답 시간 초과나
+통신 오류가 난 연결은 재사용하지 마세요. `tooling` 작업이 FAILED이면 종료 코드
+1, CANCELED이면 130을 반환하므로 `&&`로 연결한 다음 명령은 실행되지 않습니다.
+단, `watch`에서 Ctrl-C는 관찰만 종료하며 호스트 작업은 계속됩니다.
+이미 기기가 수락한 쓰기·설치·설정 변경은 실패나 취소로 되돌릴 수 없고, 업로드
+중단 시 새 부분 파일이 남을 수 있습니다. 대상 상태를 확인한 뒤 재시도하세요.
+사용자 스크립트·raw·시리얼·ADB 명령 자체의 부작용까지 방지하는 기능은 아닙니다.
+
 Native와 Rootless에서 `terminal-usb list`, `iphone pair|info|ls|get|put`,
 `tooling list|check|start|status|watch|select|cancel`로 같은 iPhone 호스트 capability를 사용할 수 있습니다.
 각 작업은 USB 화면에서 별도 승인해야 합니다. 앱은 전용 SideStore/IPA 설치

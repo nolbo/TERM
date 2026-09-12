@@ -19,6 +19,65 @@ spec.loader.exec_module(client)
 
 
 class ClientTest(unittest.TestCase):
+    def test_partial_send_is_not_retried_and_closes_connection(self):
+        broker = client.Broker.__new__(client.Broker)
+        broker.socket, broker.token = MagicMock(), "test"
+        broker.socket.sendall.side_effect = socket.timeout()
+        with self.assertRaises(socket.timeout): broker.send("write", data="ff")
+        broker.socket.sendall.assert_called_once()
+        broker.socket.close.assert_called_once()
+
+    def test_failed_tooling_result_has_nonzero_exit_after_printing_json(self):
+        for action in ("status", "watch"):
+            for state, code in [("FAILED", 1), ("CANCELED", 130)]:
+                broker = MagicMock(); broker.call.return_value = {"state": state}
+                with patch.object(client, "Broker", return_value=broker), patch.object(sys, "argv", ["terminal-usb", "tooling", action, "operation"]), patch("sys.stdout", new=io.StringIO()) as output:
+                    with self.assertRaises(SystemExit) as error: client.main()
+                    self.assertEqual(code, error.exception.code)
+                    self.assertEqual(state, json.loads(output.getvalue())["state"])
+                broker.close.assert_called_once()
+
+    def test_invalid_mtp_arguments_do_not_open_usb(self):
+        from usb_mtp import run_mtp
+        from types import SimpleNamespace
+        for action in ["ls", "get", "put"]:
+            broker, raw = MagicMock(), MagicMock()
+            with self.assertRaises(ValueError):
+                run_mtp(broker, raw, SimpleNamespace(action=action, storage=None, file=None, handle=None))
+            broker.assert_not_called(); raw.assert_not_called()
+
+    def test_failed_receive_closes_stream_and_cannot_consume_late_response(self):
+        for failure in [socket.timeout(), RuntimeError("disconnected"), KeyboardInterrupt()]:
+            broker = client.Broker.__new__(client.Broker)
+            left, right = socket.socketpair()
+            broker.socket, broker.token = left, "test"
+            try:
+                with patch.object(broker, "read_exact", side_effect=failure):
+                    with self.assertRaises(type(failure)):
+                        broker.receive()
+                self.assertEqual(-1, left.fileno())
+                with self.assertRaises(OSError):
+                    broker.send("write", data="ff")
+                self.assertEqual(b"", right.recv(1))
+            finally:
+                left.close(); right.close()
+
+    def test_malformed_reply_closes_connection(self):
+        for value in [[], {"ok": 1, "result": {}}, {"ok": True, "result": []}]:
+            broker = client.Broker.__new__(client.Broker)
+            broker.socket = MagicMock()
+            data = json.dumps(value).encode()
+            with patch.object(broker, "read_exact", side_effect=[struct.pack(">I", len(data)), data]):
+                with self.assertRaises(RuntimeError): broker.receive()
+            broker.socket.close.assert_called_once()
+
+    def test_raw_cleanup_never_sends_device_or_protocol_commands(self):
+        raw = client.RawInterface.__new__(client.RawInterface)
+        raw.broker = MagicMock()
+        raw.close()
+        raw.broker.call.assert_not_called()
+        raw.broker.close.assert_called_once()
+
     def test_check_rejects_isideload_status_and_mismatched_action(self):
         good = {"tool": "idevice-check", "completed": True, "privateConnector": True, "publicMuxSocket": False}
         self.assertEqual(good, client.validate_tooling_reply("check", good))

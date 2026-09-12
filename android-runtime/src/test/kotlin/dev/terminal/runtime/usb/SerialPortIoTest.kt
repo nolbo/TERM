@@ -7,6 +7,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SerialPortIoTest {
+    @Test fun unsupportedControlLinesFailBeforeAnyMutation() {
+        for ((dtr, rts) in listOf(true to false, false to true)) {
+            val io = SerialPortIo(port { method, _ ->
+                check(method == "getSupportedControlLines") { "Unexpected mutation: $method" }
+                java.util.EnumSet.noneOf(UsbSerialPort.ControlLine::class.java)
+            }) {}
+            val error = runCatching { io.configure(115200, 8, 0, 0, dtr, rts) }.exceptionOrNull()
+            assertTrue(error is IllegalArgumentException)
+        }
+    }
     private fun port(call: (String, Array<out Any?>) -> Any?): UsbSerialPort = Proxy.newProxyInstance(
         UsbSerialPort::class.java.classLoader, arrayOf(UsbSerialPort::class.java)
     ) { _, method, args -> call(method.name, args ?: emptyArray()) } as UsbSerialPort

@@ -180,6 +180,32 @@ class IphoneToolingDeviceTest {
             } finally { child.destroyForcibly() }
         } }
     }
+    @Test fun nativeCliFailureStopsShellChainingWithoutReplayingRequests() {
+        val address = "tool-failure-test-${UUID.randomUUID()}"
+        LocalServerSocket(address).use { server ->
+            val child = ProcessBuilder(binary("terminal-usb"), "tooling", "watch", "operation").apply {
+                environment()["TERMINAL_USB_SOCKET"] = address
+                environment()["TERMINAL_USB_TOKEN"] = UUID.randomUUID().toString()
+            }.redirectErrorStream(true).start()
+            try {
+                ready(server)
+                server.accept().use { socket ->
+                    socket.soTimeout = 3000
+                    val input = DataInputStream(socket.inputStream)
+                    val size = input.readInt(); assertTrue(size in 1..49152)
+                    val request = JSONObject(String(ByteArray(size).also(input::readFully)))
+                    assertEquals("status", request.getString("action"))
+                    val reply = "{\"ok\":true,\"result\":{\"state\":\"FAILED\",\"error\":\"USB_DETACHED\"}}".toByteArray()
+                    DataOutputStream(socket.outputStream).apply { writeInt(reply.size); write(reply); flush() }
+                    assertTrue(child.waitFor(5, TimeUnit.SECONDS))
+                    assertEquals(1, child.exitValue())
+                    assertEquals("FAILED", JSONObject(child.inputStream.bufferedReader().readText()).getString("state"))
+                    assertEquals(-1, input.read())
+                }
+            } finally { child.destroyForcibly() }
+        }
+    }
+
     @Test fun trustedProbeRejectsArbitraryOperationWithoutUsb() {
         val child = ProcessBuilder(binary("iphone-tool-probe"), "ReadPairRecord").redirectErrorStream(true).start()
         try {

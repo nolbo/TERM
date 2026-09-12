@@ -31,6 +31,12 @@ def validate_tooling_reply(action, result):
     return result
 
 
+def tooling_exit(result):
+    # Preserve JSON diagnostics, but never let shell && continue after failure.
+    if result.get("state") in ("FAILED", "CANCELED"):
+        raise SystemExit(1 if result["state"] == "FAILED" else 130)
+
+
 class Broker:
     def __init__(self):
         self.token = os.environ.get("TERMINAL_USB_TOKEN")
@@ -39,7 +45,11 @@ class Broker:
             raise RuntimeError("Start a new Native or Rootless session in TERM to use USB")
         self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.socket.settimeout(10)
-        self.socket.connect("\0" + address)
+        try:
+            self.socket.connect("\0" + address)
+        except BaseException:
+            self.close()
+            raise
 
     def read_exact(self, count):
         result = bytearray()
@@ -55,15 +65,30 @@ class Broker:
         data = json.dumps(fields, separators=(",", ":")).encode()
         if len(data) > MAX_FRAME:
             raise ValueError("Request is too large")
-        self.socket.sendall(struct.pack(">I", len(data)) + data)
+        try:
+            self.socket.sendall(struct.pack(">I", len(data)) + data)
+        except BaseException:
+            self.close()  # Partial framing or delivery is uncertain; never reuse/replay.
+            raise
 
     def receive(self):
+        try:
+            return self._receive()
+        except BaseException:
+            self.close()  # A late response must not become the next command's result.
+            raise
+
+    def _receive(self):
         length = struct.unpack(">I", self.read_exact(4))[0]
         if not 0 < length <= MAX_FRAME:
             raise RuntimeError("Invalid broker frame")
         reply = json.loads(self.read_exact(length))
-        if not reply.get("ok"):
+        if not isinstance(reply, dict) or type(reply.get("ok")) is not bool:
+            raise RuntimeError("Invalid broker response")
+        if not reply["ok"]:
             raise RuntimeError(reply.get("error", "USB request failed"))
+        if not isinstance(reply.get("result"), dict):
+            raise RuntimeError("Invalid broker result")
         return reply["result"]
 
     def call(self, op, **fields):
@@ -223,12 +248,8 @@ class RawInterface:
         return self.control(0x21, 9, report_type << 8 | report_id, self.interface, data, timeout)
 
     def close(self):
-        try:
-            self.broker.call("close")
-        except (OSError, RuntimeError):
-            pass  # Cleanup must also work after detach/revocation.
-        finally:
-            self.broker.close()
+        # EOF releases ownership. Do not issue protocol commands during failure cleanup.
+        self.broker.close()
 
     def __enter__(self):
         return self
@@ -452,13 +473,17 @@ def main():
             if args.action == "watch":
                 try:
                     while True:
-                        result = broker.call("tooling", action="status", **fields)
+                        result = validate_tooling_reply("status", broker.call("tooling", action="status", **fields))
                         print(json.dumps(result), flush=True)
+                        tooling_exit(result)
                         if result.get("state") != "RUNNING": return
                         time.sleep(1)
                 except KeyboardInterrupt:
                     print("Watch detached. The host operation continues; use tooling cancel to stop it."); return
-            print(json.dumps(validate_tooling_reply(args.action, broker.call("tooling", action=args.action, **fields)), indent=2)); return
+            result = validate_tooling_reply(args.action, broker.call("tooling", action=args.action, **fields))
+            print(json.dumps(result, indent=2))
+            tooling_exit(result)
+            return
         if args.command == "configuration":
             print(json.dumps(broker.call("configuration", device=args.device, configuration=args.value), indent=2)); return
         if args.command == "list":
@@ -505,7 +530,9 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        pass
+        print("Interrupted; an accepted device write cannot be undone. Do not blindly retry.", file=sys.stderr)
+        sys.exit(130)
     except (OSError, ValueError, RuntimeError, KeyError) as error:
         print(str(error), file=sys.stderr)
+        print("No automatic retry. A device write may already have taken effect; inspect the target before retrying.", file=sys.stderr)
         sys.exit(1)

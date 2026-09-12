@@ -1,5 +1,29 @@
 # Native / Rootless USB access
 
+## Failure safety
+
+Commands never automatically replay writes, reset a device, or undo an accepted
+device operation. Python closes its broker stream on send/receive failure,
+including timeout, malformed replies and interruption; callers must not reuse it.
+Raw host I/O exceptions release that client's interface. `RawInterface.close()`
+uses EOF, without issuing an additional cleanup command. Pending IN polls are not
+failures and keep their documented semantics. Unsupported serial DTR/RTS requests
+are checked before changing line settings; driver initialization can still affect
+hardware. Incomplete MTP arguments are rejected before opening a device session.
+
+Both CLIs print tooling status JSON but exit 1 for FAILED and 130 for CANCELED,
+so shell `&&` does not continue after failure. Python Ctrl-C exits 130 except an
+intentional `tooling watch` detach, which leaves the host-owned task running.
+Native download cleanup is armed only after exclusive temporary-file creation.
+Complete downloads are published without overwriting an existing destination.
+
+These protections cannot guarantee harmless effects from arbitrary `run`/raw,
+serial or ADB commands, device firmware bugs, cable faults or power loss. An
+interrupted upload can leave a partial new file, and an accepted install, pairing,
+configuration or control-line change can remain applied even if its reply is lost.
+Inspect the target before retrying; do not assume failure means nothing happened.
+Cleanup never formats storage or deletes unrelated files to recover an operation.
+
 ## Shared iPhone CLI tool environment
 
 For pairing failures, collect `terminal-usb tooling list` from the same new
@@ -132,7 +156,7 @@ a late successful result. Revocation closes the connection and guest socket.
 CDC configuration comprises two separately bounded one-second control requests.
 Interrupt timeout closes its connection to prevent reuse of a pending request.
 Android bulk errors cannot distinguish idle timeout from all other I/O errors;
-the legacy raw caller must decide how to handle errors. `RawInterface.poll` keeps
+failed raw I/O releases the connection, without automatic reconnect. `RawInterface.poll` keeps
 an asynchronous IN request queued across idle polls: `None` means still pending,
 and the next poll must use the same endpoint and buffer length. This avoids
 discarding bytes between idle reads. An IN transfer or interrupt OUT cannot be

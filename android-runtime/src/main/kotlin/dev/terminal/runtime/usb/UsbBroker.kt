@@ -571,10 +571,10 @@ class UsbBroker(private val context: Context, bootstrapWorkChanged: (Int) -> Uni
             }
             return JSONObject().put("ok", true).put("result", result)
         } catch (error: Exception) {
-            if (op in setOf("open", "raw-open")) {
-                opened.finish()
-                synchronized(this) { connections.remove(opened); rawSockets.remove(opened); owner.connection = null }
-            }
+            // Failed I/O may leave protocol/device state uncertain. Release only this
+            // interface; never reset the device or reuse it for a subsequent request.
+            opened.finish()
+            synchronized(this) { connections.remove(opened); rawSockets.remove(opened); owner.connection = null }
             throw error
         }
     }
