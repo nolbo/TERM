@@ -36,7 +36,33 @@ int terminal_crypto_self_test(void);
 int terminal_afc_path_valid(const char *path);
 int terminal_afc_run(idevice_t device, lockdownd_client_t lockdown, const char *action, const char *path, unsigned size);
 int no_preflight = 1; /* Pairing is explicitly requested, never automatic. */
-static int queue_fds[2], owner_fd = -1, usb_enabled;
+static int queue_fds[2], owner_fd = -1, connector_fd = -1, test_connector_fd = -1, usb_enabled;
+
+/* This endpoint is one half of a host-created anonymous socketpair. Only the
+ * authenticated APK worker receives the other half; there is no listener. */
+static void connector_request(void)
+{
+    static unsigned requests;
+    char command;
+    if (recv(connector_fd, &command, 1, MSG_DONTWAIT) != 1 || command != 'M' || ++requests > 1024)
+        _exit(74);
+    int pair[2];
+    if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, pair)) _exit(75);
+    char marker = 'M';
+    union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(int))]; } control = {0};
+    struct iovec iov = { &marker, 1 };
+    struct msghdr message = { .msg_iov = &iov, .msg_iovlen = 1,
+        .msg_control = control.bytes, .msg_controllen = sizeof(control.bytes) };
+    struct cmsghdr *header = CMSG_FIRSTHDR(&message);
+    header->cmsg_level = SOL_SOCKET; header->cmsg_type = SCM_RIGHTS;
+    header->cmsg_len = CMSG_LEN(sizeof(int));
+    memcpy(CMSG_DATA(header), &pair[1], sizeof(int));
+    if (sendmsg(connector_fd, &message, MSG_NOSIGNAL | MSG_DONTWAIT) != 1) {
+        close(pair[0]); close(pair[1]); _exit(76);
+    }
+    close(pair[1]);
+    client_accept(pair[0]);
+}
 
 int terminal_mux_connect(const char *ignored)
 {
@@ -58,6 +84,7 @@ static void *mux_loop(void *ignored)
         fdlist_reset(&list);
         fdlist_add(&list, FD_LISTEN, queue_fds[0], POLLIN);
         if (owner_fd >= 0) fdlist_add(&list, FD_LISTEN, owner_fd, POLLIN);
+        if (connector_fd >= 0) fdlist_add(&list, FD_LISTEN, connector_fd, POLLIN);
         client_get_fds(&list);
         if (usb_enabled) usb_get_fds(&list);
         int ready = poll(list.fds, list.count, 10);
@@ -65,7 +92,9 @@ static void *mux_loop(void *ignored)
         for (int i = 0; ready > 0 && i < list.count; i++) {
             if (!list.fds[i].revents) continue;
             if (list.fds[i].fd == owner_fd) _exit(72); /* service death/revoke */
-            if (list.fds[i].fd == queue_fds[0]) {
+            if (list.fds[i].fd == connector_fd) {
+                connector_request();
+            } else if (list.fds[i].fd == queue_fds[0]) {
                 int fd;
                 if (recv(queue_fds[0], &fd, sizeof(fd), 0) == sizeof(fd)) client_accept(fd);
             } else if (list.owners[i] == FD_CLIENT) {
@@ -97,7 +126,7 @@ static int emit_lockdown_error(int status)
     }
 }
 
-static int receive_usb(const char *socket_name)
+static int receive_usb(const char *socket_name, int bootstrap)
 {
     struct sockaddr_un address = { .sun_family = AF_UNIX };
     size_t length = strlen(socket_name);
@@ -111,16 +140,17 @@ static int receive_usb(const char *socket_name)
     size_t count = strlen(token);
     if (count != 37 || token[36] != '\n' || send(owner_fd, token, count, MSG_NOSIGNAL) != (ssize_t)count) return -1;
     char marker;
-    union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(int))]; } control;
+    union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(int) * 2)]; } control;
     struct iovec iov = { &marker, 1 };
     struct msghdr message = { .msg_iov = &iov, .msg_iovlen = 1,
         .msg_control = control.bytes, .msg_controllen = sizeof(control.bytes) };
-    if (recvmsg(owner_fd, &message, MSG_CMSG_CLOEXEC) != 1 || marker != 'U' ||
+    if (recvmsg(owner_fd, &message, MSG_CMSG_CLOEXEC) != 1 || marker != (bootstrap ? 'B' : 'U') ||
         (message.msg_flags & (MSG_CTRUNC | MSG_TRUNC))) return -1;
     struct cmsghdr *header = CMSG_FIRSTHDR(&message);
     if (!header || header->cmsg_level != SOL_SOCKET || header->cmsg_type != SCM_RIGHTS ||
-        header->cmsg_len != CMSG_LEN(sizeof(int))) return -1;
+        header->cmsg_len != CMSG_LEN(sizeof(int) * (bootstrap ? 2 : 1)) || CMSG_NXTHDR(&message, header)) return -1;
     int fd; memcpy(&fd, CMSG_DATA(header), sizeof(fd));
+    if (bootstrap) memcpy(&connector_fd, (char *)CMSG_DATA(header) + sizeof(int), sizeof(int));
     return fd;
 }
 
@@ -188,6 +218,21 @@ static int run_operation(const char *operation, const char *path, unsigned size)
 
 static int self_test(void)
 {
+    for (int i = 0; i < 3; i++) {
+        char marker = 'M';
+        if (send(test_connector_fd, &marker, 1, MSG_NOSIGNAL) != 1) return emit_error("SELF_TEST_CONNECTOR_SEND", 0);
+        union { struct cmsghdr align; char bytes[CMSG_SPACE(sizeof(int))]; } control = {0};
+        struct iovec iov = { &marker, 1 };
+        struct msghdr message = { .msg_iov = &iov, .msg_iovlen = 1,
+            .msg_control = control.bytes, .msg_controllen = sizeof(control.bytes) };
+        if (recvmsg(test_connector_fd, &message, MSG_CMSG_CLOEXEC) != 1 || marker != 'M') return emit_error("SELF_TEST_CONNECTOR_RECEIVE", 0);
+        struct cmsghdr *header = CMSG_FIRSTHDR(&message);
+        if (!header || header->cmsg_level != SOL_SOCKET || header->cmsg_type != SCM_RIGHTS ||
+            header->cmsg_len != CMSG_LEN(sizeof(int))) return emit_error("SELF_TEST_CONNECTOR_FD", 0);
+        int fd; memcpy(&fd, CMSG_DATA(header), sizeof(fd));
+        if (!(fcntl(fd, F_GETFD) & FD_CLOEXEC)) return emit_error("SELF_TEST_CONNECTOR_CLOEXEC", 0);
+        close(fd);
+    }
     if (!terminal_afc_path_valid("/DCIM/100APPLE") || terminal_afc_path_valid("/../secret") ||
         terminal_afc_path_valid("/a//b") || terminal_afc_path_valid("/a\\b") ||
         !terminal_afc_lengths(48, 40, 40) || terminal_afc_lengths(UINT64_MAX, 40, 40) ||
@@ -221,15 +266,18 @@ int main(int argc, char **argv)
     prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0);
     struct rlimit files = { 256 * 1024, 256 * 1024 };
     struct rlimit core = { 0, 0 };
-    if (setrlimit(RLIMIT_FSIZE, &files) || setrlimit(RLIMIT_CORE, &core))
+    struct rlimit descriptors = { 256, 256 };
+    if (setrlimit(RLIMIT_FSIZE, &files) || setrlimit(RLIMIT_CORE, &core) || setrlimit(RLIMIT_NOFILE, &descriptors))
         return emit_error("WORKER_LIMITS_FAILED", 0);
     unsetenv("USBMUXD_SOCKET_ADDRESS");
     log_level = LL_FATAL;
     int test = argc == 3 && !strcmp(argv[1], "--self-test");
+    int bootstrap = argc == 5 && !strcmp(argv[1], "mux-owner");
     int afc = argc == 7 && (!strcmp(argv[1], "afc-list") || !strcmp(argv[1], "afc-get") || !strcmp(argv[1], "afc-put"));
-    if (!test && !afc && (argc != 5 || (strcmp(argv[1], "pair") && strcmp(argv[1], "info") && strcmp(argv[1], "unpair"))))
+    if (!test && !afc && !bootstrap && (argc != 5 || (strcmp(argv[1], "pair") && strcmp(argv[1], "info") && strcmp(argv[1], "unpair"))))
         return emit_error("INVALID_OPERATION", 0);
     unsigned size = 0;
+    if (bootstrap) alarm(1800);
     if (afc) {
         if (!terminal_afc_path_valid(argv[5]) || !*argv[6] || strlen(argv[6]) > 8 || strspn(argv[6], "0123456789") != strlen(argv[6]))
             return emit_error("INVALID_AFC_ARGUMENT", 0);
@@ -241,14 +289,23 @@ int main(int argc, char **argv)
     if (terminal_store_init(argv[2], test ? "terminal-self-test" : argv[4])) return emit_error("PAIR_STORE_UNAVAILABLE", 0);
     if (socketpair(AF_UNIX, SOCK_DGRAM | SOCK_CLOEXEC, 0, queue_fds)) return emit_error("MUX_QUEUE_FAILED", 0);
     client_init(); device_init();
+    if (test) {
+        int pair[2];
+        if (socketpair(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0, pair)) return emit_error("SELF_TEST_CONNECTOR", 0);
+        connector_fd = pair[0]; test_connector_fd = pair[1];
+    }
     if (!test) {
-        int fd = receive_usb(argv[3]);
+        int fd = receive_usb(argv[3], bootstrap);
         if (fd < 0) return emit_error("USB_FD_HANDOFF_FAILED", 0);
         if (terminal_usb_init(fd)) return emit_error("USB_MUX_INTERFACE_UNAVAILABLE", 0);
         usb_enabled = 1;
     }
     pthread_t thread;
     if (pthread_create(&thread, NULL, mux_loop, NULL)) return emit_error("MUX_THREAD_FAILED", 0);
+    if (bootstrap) {
+        puts("{\"ok\":true,\"result\":{\"muxReady\":true}}"); fflush(stdout);
+        for (;;) pause(); /* owner/connector closure exits through mux_loop */
+    }
     int result = test ? self_test() : run_operation(argv[1], afc ? argv[5] : "", size);
     fflush(stdout);
     /* Process exit closes all FDs and pending URBs; no thread/global state leaks

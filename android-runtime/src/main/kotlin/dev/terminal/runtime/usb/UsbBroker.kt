@@ -24,7 +24,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 /** Service-owned broker. UI may approve requests but never owns a connection. */
-class UsbBroker(private val context: Context) : AutoCloseable {
+class UsbBroker(private val context: Context, bootstrapWorkChanged: (Int) -> Unit = {}) : AutoCloseable {
     private val manager = context.getSystemService(UsbManager::class.java)
     private val supported = context.packageManager.hasSystemFeature(PackageManager.FEATURE_USB_HOST)
     private val socketName = "terminal-usb-${UUID.randomUUID()}"
@@ -38,7 +38,7 @@ class UsbBroker(private val context: Context) : AutoCloseable {
     private data class Device(val key: String, val usb: UsbDevice)
     private data class Grant(val session: String, val device: String, val interfaceId: Int, val serial: Boolean,
         val iphone: String = "", val scope: String = "", val driver: String = "", val port: Int = 0,
-        val configuration: Int = 0, val alternate: Int = 0)
+        val configuration: Int = 0, val alternate: Int = 0, val tool: String = "")
     private data class Pending(val id: String, val grant: Grant, val created: Long,
         var approved: Boolean = false, var permission: PendingIntent? = null)
     private val sessions = mutableMapOf<String, Session>()
@@ -47,6 +47,8 @@ class UsbBroker(private val context: Context) : AutoCloseable {
     private val pending = mutableMapOf<String, Pending>()
     private val connections = mutableMapOf<AndroidUsbConnection, Grant>()
     private val iphoneOperations = mutableMapOf<AndroidIphoneOperation, Grant>()
+    private val bootstrapReservations = mutableMapOf<String, () -> Unit>()
+    internal val iphoneTools = TrustedIphoneToolHost(context, this, bootstrapWorkChanged)
     private val serialConnections = mutableMapOf<AndroidSerialConnection, Grant>()
     private val configurationOperations = mutableMapOf<String, AutoCloseable>()
     private val recentErrors = ArrayDeque<String>()
@@ -69,7 +71,10 @@ class UsbBroker(private val context: Context) : AutoCloseable {
             @Suppress("DEPRECATION")
             val detached = intent.getParcelableExtra<UsbDevice>(UsbManager.EXTRA_DEVICE) ?: return
             synchronized(this@UsbBroker) {
-                devices.remove(detached.deviceName)?.let { removed -> revoke { it.device == removed.key } }
+                devices.remove(detached.deviceName)?.let { removed ->
+                    bootstrapReservations[removed.key]?.invoke()
+                    revoke { it.device == removed.key }
+                }
                 refresh()
             }
         }
@@ -151,7 +156,7 @@ class UsbBroker(private val context: Context) : AutoCloseable {
         }
         val attached = if (supported) manager?.deviceList.orEmpty() else emptyMap()
         devices.entries.filter { (name, _) -> name !in attached }.forEach { (name, device) ->
-            devices.remove(name); revoke { it.device == device.key }
+            devices.remove(name); bootstrapReservations[device.key]?.invoke(); revoke { it.device == device.key }
         }
         attached.forEach { (name, usb) -> devices.getOrPut(name) { Device(UUID.randomUUID().toString(), usb) } }
         val now = SystemClock.elapsedRealtime()
@@ -179,10 +184,11 @@ class UsbBroker(private val context: Context) : AutoCloseable {
         return JSONObject().put("session", grant.session).put("runtime", session?.runtime ?: "")
             .put("device", grant.device).put("interface", grant.interfaceId).put("serial", grant.serial)
             .put("iphone", grant.iphone)
+            .put("tool", grant.tool)
             .put("scope", grant.scope)
             .put("driver", grant.driver).put("port", grant.port)
             .put("configuration", grant.configuration).put("alternate", grant.alternate)
-            .put("active", connections.values.contains(grant) || serialConnections.values.contains(grant) ||
+            .put("active", (grant.tool.isNotEmpty() && grant.device in bootstrapReservations) || connections.values.contains(grant) || serialConnections.values.contains(grant) ||
                 iphoneOperations.values.contains(grant) || fileConnections.values.any { it.first == grant })
             .put("vendor", usb?.vendorId ?: 0).put("product", usb?.productId ?: 0)
     }
@@ -260,7 +266,7 @@ class UsbBroker(private val context: Context) : AutoCloseable {
             require(IphonePolicy.candidate(target.usb.vendorId, target.usb.productId)) { "NOT_SUPPORTED_IPHONE" }
             val grant = Grant(session.id, target.key, -1, false, action, scope)
             requireGrant(grant)
-            check(target.key !in configurationOperations) { "DEVICE_BUSY" }
+            check(target.key !in configurationOperations && target.key !in bootstrapReservations) { "DEVICE_BUSY" }
             check(manager.hasPermission(target.usb)) { "ANDROID_PERMISSION_REQUIRED" }
             check(connections.values.none { it.device == target.key } &&
                 serialConnections.values.none { it.device == target.key } &&
@@ -334,7 +340,7 @@ class UsbBroker(private val context: Context) : AutoCloseable {
                 val grant = Grant(session.id, target.key, isolatedInterface, true, driver = name, port = port)
                 requireGrant(grant)
                 check(manager.hasPermission(target.usb)) { "ANDROID_PERMISSION_REQUIRED" }
-                check(target.key !in configurationOperations && connections.values.none { it.accessScope().conflicts(grant.accessScope()) } &&
+                check(target.key !in configurationOperations && target.key !in bootstrapReservations && connections.values.none { it.accessScope().conflicts(grant.accessScope()) } &&
                     iphoneOperations.values.none { it.device == target.key } &&
                     serialConnections.values.none { it.accessScope().conflicts(grant.accessScope()) }) { "DEVICE_BUSY" }
                 AndroidSerialConnection(manager, target.usb, driver, port, socket).also {
@@ -506,7 +512,7 @@ class UsbBroker(private val context: Context) : AutoCloseable {
                 val grant = Grant(session.id, target.key, interfaceId, serial, configuration = configId, alternate = alt)
                 requireGrant(grant)
                 check(manager.hasPermission(target.usb)) { "ANDROID_PERMISSION_REQUIRED" }
-                check(target.key !in configurationOperations && iphoneOperations.values.none { it.device == target.key }) { "DEVICE_BUSY" }
+                check(target.key !in configurationOperations && target.key !in bootstrapReservations && iphoneOperations.values.none { it.device == target.key }) { "DEVICE_BUSY" }
                 check(serialConnections.values.none { it.accessScope().conflicts(grant.accessScope()) }) { "DEVICE_BUSY" }
                 check(connections.values.none { it.device == target.key && (it.serial || serial || it.interfaceId == interfaceId) }) { "INTERFACE_BUSY" }
                 AndroidUsbConnection(manager, target.usb, interfaceId, serial, configId, alt).also {
@@ -575,7 +581,7 @@ class UsbBroker(private val context: Context) : AutoCloseable {
             config = target.usb.configurations().singleOrNull { it.id == request.int("configuration") } ?: error("CONFIGURATION_NOT_FOUND")
             requireGrant(Grant(session.id, target.key, -1, false, driver = "configuration", configuration = config.id))
             check(target.key !in configurationOperations && connections.values.none { it.device == target.key } &&
-                serialConnections.values.none { it.device == target.key } && iphoneOperations.values.none { it.device == target.key }) { "DEVICE_BUSY" }
+                serialConnections.values.none { it.device == target.key } && iphoneOperations.values.none { it.device == target.key } && target.key !in bootstrapReservations) { "DEVICE_BUSY" }
             check(manager.hasPermission(target.usb)) { "ANDROID_PERMISSION_REQUIRED" }
             connection = manager.openDevice(target.usb) ?: error("USB_OPEN_FAILED")
             configurationOperations[target.key] = AutoCloseable { connection.close() }
@@ -619,7 +625,10 @@ class UsbBroker(private val context: Context) : AutoCloseable {
                         serial(socket, request)
                         return
                     }
-                    if (request.getString("op") == "iphone") {
+                    if (request.getString("op") == "tooling") {
+                        check(owner.connection == null) { "ALREADY_OPEN" }
+                        tooling(request, socket)
+                    } else if (request.getString("op") == "iphone") {
                         check(owner.connection == null) { "ALREADY_OPEN" }
                         iphone(request, socket)
                     } else raw(request, socket, owner)
@@ -644,6 +653,7 @@ class UsbBroker(private val context: Context) : AutoCloseable {
 
     @Synchronized override fun close() {
         closed = true
+        iphoneTools.close()
         if (active === this) active = null
         runCatching { context.unregisterReceiver(receiver) }
         runCatching { context.unregisterReceiver(storageReceiver) }
@@ -663,6 +673,59 @@ class UsbBroker(private val context: Context) : AutoCloseable {
     }
 
     companion object { @Volatile internal var active: UsbBroker? = null }
+
+    private fun tooling(request: JSONObject, socket: LocalSocket): JSONObject {
+        val action = request.getString("action")
+        var selectedGrant: Grant? = null
+        val deviceKey = synchronized(this) {
+            refresh()
+            val session = sessions[request.getString("token")] ?: error("SESSION_EXPIRED")
+            require(request.int("version") == 1) { "UNSUPPORTED_VERSION" }
+            TrustedIphoneToolPolicy.validateRequest(action, request.keys().asSequence().toSet())
+            if (action in setOf("status", "cancel", "select")) {
+                val id = request.getString("operation")
+                val result = when (action) {
+                    "status" -> iphoneTools.status(session.id, id)
+                    "cancel" -> iphoneTools.cancel(session.id, id)
+                    else -> iphoneTools.select(session.id, id, request.getString("choices"))
+                }
+                return JSONObject().put("ok", true).put("result", result)
+            }
+            if (action == "list") return JSONObject().put("ok", true).put("result", JSONObject()
+                .put("tools", JSONArray(listOf("idevice-check", "isideload"))).put("privateTransport", true).put("publicMuxSocket", false))
+            val tool = if (action == "start") request.getString("tool") else "idevice-check"
+            require(tool in if (action == "start") setOf("isideload") else setOf("idevice-check")) { "UNSUPPORTED_TOOL_OPERATION" }
+            check(supported && manager != null) { "USB_HOST_UNAVAILABLE" }
+            val target = device(request.getString("device"))
+            require(IphonePolicy.candidate(target.usb.vendorId, target.usb.productId)) { "UNSUPPORTED_USB_DEVICE" }
+            val grant = Grant(session.id, target.key, -1, false, tool = tool)
+            requireGrant(grant); selectedGrant = grant
+            check(manager.hasPermission(target.usb)) { "ANDROID_PERMISSION_REQUIRED" }
+            target.key
+        }
+        fun access() = synchronized(this) {
+            check(selectedGrant in grants && request.getString("token") in sessions && devices.values.any { it.key == deviceKey }) { "GRANT_REVOKED" }
+        }
+        val result = if (action == "start") iphoneTools.start(request.getString("tool"), deviceKey,
+            synchronized(this) { sessions[request.getString("token")]?.id ?: error("SESSION_EXPIRED") }, ::access)
+            else iphoneTools.check(deviceKey, socket, ::access)
+        return JSONObject().put("ok", true).put("result", result)
+    }
+
+    /** Host-only whole-device lease. Never returned through the guest protocol. */
+    @Synchronized internal fun reserveBootstrap(key: String, detached: () -> Unit): Pair<UsbManager, UsbDevice> {
+        refresh()
+        check(!closed && supported && manager != null) { "USB_HOST_UNAVAILABLE" }
+        val usb = devices.values.firstOrNull { it.key == key }?.usb ?: error("USB_DETACHED")
+        require(IphonePolicy.candidate(usb.vendorId, usb.productId)) { "UNSUPPORTED_USB_DEVICE" }
+        check(key !in bootstrapReservations && key !in configurationOperations &&
+            connections.values.none { it.device == key } && serialConnections.values.none { it.device == key } &&
+            iphoneOperations.values.none { it.device == key }) { "DEVICE_BUSY" }
+        bootstrapReservations[key] = detached
+        return manager to usb
+    }
+
+    @Synchronized internal fun releaseBootstrap(key: String) { bootstrapReservations.remove(key) }
 }
 
 private fun JSONObject.int(key: String): Int {

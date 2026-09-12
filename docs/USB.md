@@ -1,4 +1,24 @@
-# Rootless USB access
+# Native / Rootless USB access
+
+## Shared iPhone CLI tool environment
+
+Native and Rootless both support `terminal-usb list`, `iphone pair|info|unpair`,
+`iphone ls|get|put`, and `tooling list|check|start|status|watch|select|cancel`. Each selected-device action uses
+its own approved capability and Android USB permission. The `idevice-check`
+host tool proves fresh internal usbmux clients can be supplied through an
+anonymous connector while Android remains the physical owner. No USB FD,
+connector or pair record is returned to either terminal.
+
+This is tooling infrastructure, not an application SideStore/IPA installation
+screen or a public usbmuxd endpoint. The registered isideload recipe uses the
+generic **USB → Host tool inputs** screen for account/password/2FA, never the
+Rootless PTY. Team and explicit certificate choices can use that screen or the
+CLI. Async operations survive watch-client disconnect and UI navigation;
+explicit cancellation, grant/session revocation and detach terminate/reap them.
+Process death loses the operation and old temporary artifacts are removed on
+the next service start, without resuming secrets or device writes. See
+[IPHONE_TOOLING.md](IPHONE_TOOLING.md) and the
+[connector build guide](../tools/iphone/connector/README.md).
 
 ## Scope and ownership
 

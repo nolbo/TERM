@@ -1,5 +1,17 @@
 # Architecture
 
+## Native / Rootless iPhone tool environment
+
+The app provides a shared typed USB CLI capability, not a SideStore/IPA installer
+screen. Native's packaged Bionic CLI and Rootless's Python CLI call the same
+session-scoped broker. `:vmhost` leases the physical device and owns the USB/mux
+worker and registered host-tool processes independently of Activities. Only the
+trusted mux owner receives USB; a trusted tool receives a private anonymous
+multi-stream connector. Guests receive neither. Registered APK recipes now have
+session-scoped start/status/select/cancel operations. The pinned isideload recipe
+uses generic host-only secure input; there is no application install button. See
+[IPHONE_TOOLING.md](IPHONE_TOOLING.md) for the plan and extension rules.
+
 ## Phase 0 decision
 
 **Problem:** Android UI destruction must not terminate a Linux VM, a shell, or

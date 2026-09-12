@@ -32,6 +32,19 @@ class NativeExecutableLoaderTest {
         assertTrue(message.contains("executable"))
     }
 
+    @Test fun toolingIsPackagedOnlyAndNeverAUsbmuxDaemonOrDownloadedWorker() {
+        val directory = temporary.newFolder("bootstrap-lib")
+        val resolver = PackagedExecutableResolver(directory) { listOf("arm64-v8a") }
+        listOf("terminal-usb", "iphone-tool-probe", "isideload").forEach { name ->
+            assertTrue(resolver.resolvePackagedExecutable(name).isFailure)
+            val binary = File(directory, "lib$name.so").apply { writeText("test"); setExecutable(true) }
+            assertEquals(binary.canonicalFile, resolver.resolvePackagedExecutable(name).getOrThrow())
+        }
+        listOf("usbmuxd", "mux-owner", "../terminal-usb", "sidestore-bootstrap").forEach {
+            assertTrue(resolver.resolvePackagedExecutable(it).isFailure)
+        }
+    }
+
     @Test fun iphoneWorkerMustBeAnImmutablePackagedExecutable() {
         val directory = temporary.newFolder("iphone-lib")
         val resolver = PackagedExecutableResolver(directory) { listOf("arm64-v8a") }

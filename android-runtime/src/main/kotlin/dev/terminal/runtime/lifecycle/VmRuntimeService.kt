@@ -169,6 +169,14 @@ class VmRuntimeService : Service() {
 
     private val binder = object : IRuntimeService.Stub() {
         override fun getUsbStateJson(): String = usbBroker.state()
+        override fun getHostToolOperationsJson(): String { enforceHostToolUi(); return usbBroker.iphoneTools.hostState() }
+        override fun submitHostToolInput(operationId: String, promptNonce: String, values: Array<String>): String {
+            enforceHostToolUi()
+            return try { usbBroker.iphoneTools.hostInput(operationId, promptNonce, values); "" }
+            catch (failure: Exception) { failure.message?.takeIf { it.matches(Regex("[A-Z_]{1,80}")) } ?: "INVALID_TOOL_INPUT" }
+            finally { values.fill("") }
+        }
+        override fun cancelHostToolOperation(operationId: String) { enforceHostToolUi(); usbBroker.iphoneTools.hostCancel(operationId) }
         override fun approveUsbRequest(requestId: String): String = usbBroker.approve(requestId)
         override fun denyUsbRequest(requestId: String) = usbBroker.deny(requestId)
         override fun revokeUsbSession(sessionId: String) = usbBroker.revokeSession(sessionId)
@@ -429,8 +437,18 @@ class VmRuntimeService : Service() {
         portForwarder = LocalhostPortForwarder { port -> backend.openGuestPortForward(port) }
         wakePolicies = WakePolicyStore(applicationContext)
         capabilityGrants = SharedPreferencesCapabilityGrantStore(applicationContext)
-        usbBroker = dev.terminal.runtime.usb.UsbBroker(applicationContext)
+        usbBroker = dev.terminal.runtime.usb.UsbBroker(applicationContext) { delta ->
+            hostBackgroundOperationCount.addAndGet(delta)
+            updateServiceLifetime()
+        }
         backend = resolveRuntimeBackend(applicationContext)
+        (backend as? NativeBackend)?.configureUsbTooling({ id ->
+            usbBroker.register(id, SessionRuntime.NATIVE.wireName) +
+                dev.terminal.runtime.native.ApkNativeExecutableLoader(applicationContext)
+                    .resolvePackagedExecutable("terminal-usb").getOrNull()?.let {
+                        mapOf("TERMINAL_USB_CLIENT" to it.absolutePath)
+                    }.orEmpty()
+        }, usbBroker::unregister)
         rootlessBackends = RootlessDistribution.entries.associate { distribution ->
             distribution.runtime to RootlessDebianBackend(applicationContext, distribution = distribution, usbBroker = usbBroker) { phase, detail ->
                 Log.i(TAG, "rootless distribution=${distribution.directory} phase=${phase.name}")
@@ -463,6 +481,13 @@ class VmRuntimeService : Service() {
         return START_NOT_STICKY
     }
 
+    private fun enforceHostToolUi() {
+        val uid = android.os.Binder.getCallingUid(); val pid = android.os.Binder.getCallingPid()
+        val manager = getSystemService(android.content.Context.ACTIVITY_SERVICE) as android.app.ActivityManager
+        if (uid != android.os.Process.myUid() || manager.runningAppProcesses.orEmpty().none {
+            it.pid == pid && it.uid == uid && it.processName == packageName
+        }) throw SecurityException("UNAUTHORIZED")
+    }
     override fun onBind(intent: Intent?): IBinder = binder
 
     override fun onTaskRemoved(rootIntent: Intent?) {

@@ -42,6 +42,7 @@
         <activity android:name=".CrashReportActivity" android:exported="false" />
         <activity android:name=".DiagnosticsActivity" android:exported="false" />
         <activity android:name=".UsbDevicesActivity" android:exported="false" />
+        <activity android:name=".HostToolInputsActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity
             android:name=".ShareToLinuxActivity"
             android:exported="true">

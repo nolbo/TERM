@@ -92,6 +92,9 @@ class UsbDevicesActivity : TerminalActivity() {
                 LazyColumn(Modifier.padding(padding).padding(horizontal = 16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text(stringResource(R.string.usb_help)) }
+                    item { Button(onClick = { startActivity(Intent(this@UsbDevicesActivity, HostToolInputsActivity::class.java)) }) {
+                        Text(stringResource(R.string.host_tool_inputs_title))
+                    } }
                     if (state == null) item { Text(stringResource(R.string.usb_connecting)) }
                     if (state?.optBoolean("supported") == false) item { Text(stringResource(R.string.usb_unsupported)) }
                     if (error.isNotEmpty()) item { Text(error) }
@@ -196,6 +199,7 @@ class UsbDevicesActivity : TerminalActivity() {
                     title = { Text(stringResource(R.string.usb_approve)) },
                     text = { Text(requestLabel(request) + "\n\n" + getString(
                         if (request.optString("driver") == "configuration") R.string.usb_configuration_confirmation
+                        else if (request.optString("tool").isNotEmpty()) R.string.usb_tool_confirmation
                         else if (request.optString("driver").startsWith("storage-")) R.string.usb_storage_confirmation
                         else if (request.optString("iphone").isNotEmpty()) R.string.usb_iphone_confirmation
                         else R.string.usb_confirmation)) },
@@ -208,6 +212,9 @@ class UsbDevicesActivity : TerminalActivity() {
     }
 
     private fun requestLabel(value: JSONObject): String {
+        if (value.optString("tool").isNotEmpty()) return getString(R.string.usb_tool_request_label,
+            value.optString("runtime"), value.optString("session"), value.optString("tool"), value.optString("device")) + "\n\n" +
+            getString(if (value.optString("tool") == "isideload") R.string.host_tool_signing_scope else R.string.host_tool_probe_scope)
         if (value.optString("driver").startsWith("storage-")) return "${value.getString("runtime")} · ${value.getString("session")}\n" +
                 getString(if (value.optString("driver") == "storage-write") R.string.usb_storage_write_grant else R.string.usb_storage_read_grant) +
                 "\n${value.optString("scope")}"

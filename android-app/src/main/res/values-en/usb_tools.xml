@@ -1,0 +1,25 @@
+<resources>
+    <string name="host_tool_inputs_title">Host tool inputs</string>
+    <string name="host_tool_inputs_help">Input requests from approved APK tools started in your terminal. Account details, passwords and 2FA never enter the terminal or logs. Leaving this screen does not cancel work. Input drafts are cleared when you leave.</string>
+    <string name="host_tool_none">No running or recently completed tool operations.</string>
+    <string name="host_tool_account">Apple Account</string>
+    <string name="host_tool_password">Password</string>
+    <string name="host_tool_code">6-digit trusted-device 2FA code</string>
+    <string name="host_tool_advanced">Advanced connection settings</string>
+    <string name="host_tool_endpoint">Remote V3 anisette HTTPS server</string>
+    <string name="host_tool_endpoint_help">Host-controlled configuration. HTTPS only; the account password is not sent to anisette. Server failures are distinct from account failures.</string>
+    <string name="host_tool_team">Select one developer team.</string>
+    <string name="host_tool_revoke_warning">The certificate limit was reached. Explicitly select certificates to revoke. Revocation can affect other apps signed with those certificates. Cancel if you do not consent.</string>
+    <string name="host_tool_submit">Submit input / selection</string>
+    <string name="host_tool_cancel">Cancel this tool operation</string>
+    <string name="host_tool_completed">The tool completed. Your iPhone may still require Developer Mode and developer-profile trust. For SideStore, install and enable LocalDevVPN, open the app and perform its first refresh. Android cannot change protected iOS settings automatically.</string>
+    <string name="host_tool_error_device">Check the cable and Android USB permission, unlock the iPhone and accept Trust. Start a new operation from the terminal.</string>
+    <string name="host_tool_error_network">Network, anisette or pinned-download validation failed. Check connectivity and the host advanced settings.</string>
+    <string name="host_tool_error_login">Account authentication or 2FA was rejected, or input timed out. Check the trusted device and start a new operation.</string>
+    <string name="host_tool_error_developer">A developer-team, certificate, App ID or profile limit/verification failed. Check free-team limits. Certificates are never revoked without consent.</string>
+    <string name="host_tool_error_generic">A tool stage failed. Check the error code. Device writes are never automatically retried.</string>
+    <string name="usb_tool_confirmation">Allow this session to perform the registered APK tool workflow described below on the selected whole iPhone. Android owns USB; your terminal receives no raw FD, pairing data or keys. This is not permission for arbitrary programs or arbitrary IPA installation. Account input and certificate revocation require separate decisions.</string>
+    <string name="host_tool_signing_scope">isideload scope: download fixed official SideStore stable; manage developer-team device/App IDs/certificates/profiles; sign and install; generate pairing and place it in app Documents. Canceling does not roll back an installed app or an explicitly revoked certificate.</string>
+    <string name="host_tool_probe_scope">idevice-check scope: check private mux streams and device enumeration. No signing or app installation.</string>
+    <string name="usb_tool_request_label">%1$s · %2$s\nHost-native tool: %3$s\niPhone: %4$s\nOnly the registered tool receives a private mux connector. Your terminal receives no USB FD or pairing material.</string>
+</resources>

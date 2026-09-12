@@ -18,6 +18,13 @@ class NativeBackend(context: Context) : RuntimeBackend {
     private val state = MutableStateFlow<RuntimeState>(RuntimeState.Stopped)
     private val nativeRoot = File(appContext.filesDir, "native")
     private var sessions: NativeSessionController? = null
+    private var hostEnvironment: (String) -> Map<String, String> = { emptyMap() }
+    private var releaseHostCapabilities: (String) -> Unit = {}
+
+    fun configureUsbTooling(environment: (String) -> Map<String, String>, release: (String) -> Unit) {
+        check(sessions == null)
+        hostEnvironment = environment; releaseHostCapabilities = release
+    }
 
     override suspend fun prepare(config: RuntimeConfig): Result<Unit> = runCatching {
         state.value = RuntimeState.Preparing
@@ -34,7 +41,7 @@ class NativeBackend(context: Context) : RuntimeBackend {
             state.value = RuntimeState.Ready
             return@runCatching
         }
-        sessions = NativeSessionController(nativeRoot)
+        sessions = NativeSessionController(nativeRoot, hostEnvironment, releaseHostCapabilities)
         state.value = RuntimeState.Ready
     }.onFailure { state.value = RuntimeState.Failed(it.message ?: "Native shell startup failed") }
 

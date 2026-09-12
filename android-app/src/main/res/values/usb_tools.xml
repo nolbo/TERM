@@ -1,0 +1,25 @@
+<resources>
+    <string name="host_tool_inputs_title">호스트 도구 입력</string>
+    <string name="host_tool_inputs_help">터미널에서 시작한 승인된 APK 도구의 입력 요청입니다. 계정·암호·2FA는 터미널이나 로그에 전달하지 않습니다. 화면을 나가도 작업은 계속됩니다. 입력 초안은 화면을 떠나면 지워집니다.</string>
+    <string name="host_tool_none">진행 중이거나 최근 완료된 도구 작업이 없습니다.</string>
+    <string name="host_tool_account">Apple Account</string>
+    <string name="host_tool_password">암호</string>
+    <string name="host_tool_code">신뢰하는 기기의 6자리 2FA 코드</string>
+    <string name="host_tool_advanced">고급 연결 설정</string>
+    <string name="host_tool_endpoint">Remote V3 anisette HTTPS 서버</string>
+    <string name="host_tool_endpoint_help">호스트 설정입니다. HTTPS만 허용하며 계정 암호는 anisette 서버로 보내지 않습니다. 서버 장애는 계정 오류와 구분됩니다.</string>
+    <string name="host_tool_team">사용할 개발자 팀을 하나 선택하세요.</string>
+    <string name="host_tool_revoke_warning">인증서 한도에 도달했습니다. 폐기할 인증서를 직접 선택하세요. 폐기는 해당 인증서로 서명한 다른 앱에도 영향을 줄 수 있습니다. 동의하지 않으면 작업을 취소하세요.</string>
+    <string name="host_tool_submit">입력·선택 제출</string>
+    <string name="host_tool_cancel">이 도구 작업 취소</string>
+    <string name="host_tool_completed">도구 작업이 완료됐습니다. iPhone에서 개발자 모드와 개발자 프로파일 신뢰가 필요할 수 있습니다. SideStore를 사용할 때는 LocalDevVPN을 설치·활성화하고 앱을 열어 첫 갱신을 진행하세요. Android는 보호된 iOS 설정을 자동으로 변경하지 않습니다.</string>
+    <string name="host_tool_error_device">케이블과 Android USB 권한을 확인하고 iPhone을 잠금 해제하세요. 신뢰 요청을 허용한 뒤 터미널에서 새 작업을 시작하세요.</string>
+    <string name="host_tool_error_network">네트워크·anisette 서버 또는 고정 다운로드 검증에 실패했습니다. 연결과 호스트 고급 설정을 확인하세요.</string>
+    <string name="host_tool_error_login">계정 인증·2FA가 거부되었거나 입력 시간이 초과됐습니다. 신뢰하는 기기를 확인하고 새 작업을 시작하세요.</string>
+    <string name="host_tool_error_developer">개발자 팀·인증서·App ID·프로파일 한도 또는 검증에 실패했습니다. 무료 팀 제한을 확인하세요. 인증서는 동의 없이 폐기하지 않습니다.</string>
+    <string name="host_tool_error_generic">도구 단계가 실패했습니다. 오류 코드를 확인하세요. 기기 쓰기 작업은 자동 재시도하지 않습니다.</string>
+    <string name="usb_tool_confirmation">이 세션이 아래에 설명된 등록 APK 도구 작업을 선택한 iPhone 전체에서 수행하도록 허용합니다. USB는 Android가 소유하며, 터미널에는 원시 FD·페어링 데이터·키를 전달하지 않습니다. 임의 프로그램이나 임의 IPA 설치 권한은 아닙니다. 계정 입력과 인증서 폐기 선택은 별도로 확인합니다.</string>
+    <string name="host_tool_signing_scope">isideload 범위: 고정된 공식 SideStore stable 다운로드·개발자 팀의 기기/App ID/인증서/프로파일 관리·서명·설치·pairing 생성과 앱 Documents 배치. 이미 설치한 앱이나 동의 후 폐기한 인증서는 취소해도 되돌리지 않습니다.</string>
+    <string name="host_tool_probe_scope">idevice-check 범위: 비공개 mux 연결과 기기 열거 검사. 앱 설치·서명은 하지 않습니다.</string>
+    <string name="usb_tool_request_label">%1$s · %2$s\n호스트 Native 도구: %3$s\niPhone: %4$s\n등록된 도구만 비공개 mux connector를 받습니다. 터미널에는 USB FD나 페어링 데이터를 전달하지 않습니다.</string>
+</resources>

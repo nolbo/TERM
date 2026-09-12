@@ -29,7 +29,11 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
 /** Persistent Termux-style PTY sessions, owned by the runtime process rather than the Activity. */
-class NativeSessionController(private val root: File) : SessionController {
+class NativeSessionController(
+    private val root: File,
+    private val hostEnvironment: (String) -> Map<String, String> = { emptyMap() },
+    private val releaseHostCapabilities: (String) -> Unit = {},
+) : SessionController {
     private class Entry(
         @Volatile var descriptor: SessionDescriptor,
         val process: PtyProcess,
@@ -63,6 +67,7 @@ class NativeSessionController(private val root: File) : SessionController {
         val argv = dev.terminal.runtime.session.SessionCommand.decode(env)
         val command = argv?.first() ?: shell.takeIf { it.startsWith('/') && File(it).canExecute() } ?: "/system/bin/sh"
         val loginShell = env["DROID_LOGIN_SHELL"]?.toBooleanStrictOrNull() ?: true
+        val capabilities = hostEnvironment(id)
         val environment = buildList {
             add("HOME=${home.absolutePath}")
             add("TMPDIR=${File(root, "tmp").absolutePath}")
@@ -75,13 +80,14 @@ class NativeSessionController(private val root: File) : SessionController {
             // non-login shell, so it is the authoritative default prompt.
             add("ENV=${shellRc.absolutePath}")
             add("PS1=~ \\${'$'} ")
-            env.filterKeys { it != "DROID_LOGIN_SHELL" && it != dev.terminal.runtime.session.SessionCommand.KEY }.forEach { (key, value) -> add("$key=$value") }
+            env.filterKeys { it != "DROID_LOGIN_SHELL" && it != dev.terminal.runtime.session.SessionCommand.KEY && !it.startsWith("TERMINAL_USB_") }.forEach { (key, value) -> add("$key=$value") }
+            capabilities.forEach { (key, value) -> add("$key=$value") }
         }.toTypedArray()
         val workingDirectory = cwd.takeIf { it.startsWith('/') && File(it).isDirectory } ?: home.absolutePath
-        val process = PtyProcess.start(
+        val process = try { PtyProcess.start(
             command, workingDirectory, argv?.toTypedArray() ?: if (loginShell) arrayOf(command, "-l") else arrayOf(command), environment,
             rows.toInt(), cols.toInt(), 0, 0,
-        )
+        ) } catch (failure: Exception) { releaseHostCapabilities(id); throw failure }
         val descriptor = SessionDescriptor(id, "Native shell", command, workingDirectory, System.currentTimeMillis(), rows, cols, SessionStatus.RUNNING)
         entries[id] = Entry(descriptor, process)
         scope.launch {
@@ -116,6 +122,7 @@ class NativeSessionController(private val root: File) : SessionController {
         }
         scope.launch {
             val code = process.waitFor()
+            releaseHostCapabilities(id)
             entries[id]?.descriptor = entries[id]?.descriptor?.copy(state = SessionStatus.EXITED, exitCode = code) ?: return@launch
             output.emit(SessionEvent.Exited(id, code))
         }
@@ -153,12 +160,14 @@ class NativeSessionController(private val root: File) : SessionController {
     override suspend fun terminate(sessionId: String, signal: Int): Result<Unit> = runCatching {
         val entry = entries[sessionId] ?: error("Session not found")
         entry.process.terminate(signal)
+        releaseHostCapabilities(sessionId)
         entries.remove(sessionId, entry)
         entry.process.close()
     }
     override fun close() {
-        entries.values.forEach { entry ->
+        entries.forEach { (id, entry) ->
             entry.process.terminate(SIGKILL)
+            releaseHostCapabilities(id)
             entry.process.close()
         }
         entries.clear()
@@ -178,6 +187,10 @@ class NativeSessionController(private val root: File) : SessionController {
 internal fun prepareNativeShellRc(home: File): File = File(home, ".droid-shrc").apply {
     writeText(
         """
+        # The packaged Android client is an alias, not a writable-data executable.
+        if [ -n "${'$'}{TERMINAL_USB_CLIENT-}" ] && [ -x "${'$'}TERMINAL_USB_CLIENT" ]; then
+          alias terminal-usb='"${'$'}TERMINAL_USB_CLIENT"'
+        fi
         PS1='${'$'}(p=${'$'}PWD; h=${'$'}HOME
         case "${'$'}p" in
           "${'$'}h"|"${'$'}h"/*) ;;

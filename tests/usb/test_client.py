@@ -19,6 +19,29 @@ spec.loader.exec_module(client)
 
 
 class ClientTest(unittest.TestCase):
+    def test_tooling_lifecycle_and_choices_use_scoped_flat_requests(self):
+        cases = [(["start", "isideload", "phone"], {"action": "start", "tool": "isideload", "device": "phone"}),
+                 (["status", "operation"], {"action": "status", "operation": "operation"}),
+                 (["cancel", "operation"], {"action": "cancel", "operation": "operation"}),
+                 (["select", "operation", "A,B"], {"action": "select", "operation": "operation", "choices": "A,B"})]
+        for args, fields in cases:
+            broker = MagicMock(); broker.call.return_value = {"state": "RUNNING"}
+            with patch.object(client, "Broker", return_value=broker), patch.object(sys, "argv", ["terminal-usb", "tooling"] + args), patch("sys.stdout", new=io.StringIO()):
+                client.main()
+            broker.call.assert_called_once_with("tooling", **fields)
+    def test_watch_detaches_without_canceling_host_operation(self):
+        broker = MagicMock(); broker.call.return_value = {"state": "RUNNING"}
+        with patch.object(client, "Broker", return_value=broker), patch.object(sys, "argv", ["terminal-usb", "tooling", "watch", "operation"]), patch.object(client.time, "sleep", side_effect=KeyboardInterrupt), patch("sys.stdout", new=io.StringIO()):
+            client.main()
+        broker.call.assert_called_once_with("tooling", action="status", operation="operation")
+    def test_tooling_cli_uses_only_registered_host_action_without_fds_or_secrets(self):
+        broker = MagicMock()
+        broker.__enter__.return_value = broker
+        broker.call.return_value = {"completed": True, "publicMuxSocket": False}
+        with patch.object(client, "Broker", return_value=broker), patch.object(sys, "argv", ["terminal-usb", "tooling", "check", "opaque-phone"]), patch("sys.stdout", new=io.StringIO()):
+            client.main()
+        broker.call.assert_called_once_with("tooling", action="check", device="opaque-phone")
+
     def test_hid_helpers_use_interface_scoped_requests(self):
         broker = MagicMock()
         broker.call.side_effect = [{"opened": True}, {"count": 2, "data": "0501"}, {"count": 2}, {"closed": True}]

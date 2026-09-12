@@ -1,5 +1,30 @@
 # Protocol
 
+## Shared registered iPhone tools
+
+Native's packaged client and Rootless's Python client use the existing same-UID,
+session-token, version-1 length-prefixed USB protocol. A flat `op: "tooling"`
+request accepts these exact additional fields: `list`: none; `check`: device;
+`start`: tool/device; `status` and `cancel`: operation; `select`: operation/choices
+(comma-separated non-secret choice IDs). Every request has version/token/op/action.
+Only registered isideload can start; it needs a separate whole-device grant and
+OS USB permission. Arbitrary argv, ports, paths, payloads and credentials are
+not accepted. `watch` is client-side status polling, not a separate broker RPC.
+Operation status is validated metadata, stable errors/progress and non-secret
+choices; ownership is authenticated by the session as well as operation ID.
+No public response contains account/password/2FA or a secure prompt nonce.
+
+App-only typed Binder APIs getHostToolOperationsJson/submitHostToolInput/
+cancelHostToolOperation serve the generic host input screen. Input is a bounded
+String array, not diagnostic JSON; secret prompts need a one-use nonce and the
+verified main UI process. Terminal select is rejected for login and 2FA.
+
+Host-internal IPC is separate: same-UID + random stdin token, marker `B` with
+USB+connector FDs to `iphone-worker mux-owner`, and marker `M` with one connector
+FD to the trusted probe or isideload worker. Each private `M` request receives one fresh CLOEXEC
+stream FD. No descriptor is returned on the guest socket. Old USB operations
+remain compatible. See [IPHONE_TOOLING.md](IPHONE_TOOLING.md).
+
 ## Android runtime choice status
 
 The app-local `IRuntimeService.runtimeStatusJson` is separate from the guest wire

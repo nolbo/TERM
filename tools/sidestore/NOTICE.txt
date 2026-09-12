@@ -1,0 +1,27 @@
+SideStore Android bootstrap worker
+
+Local worker and connector code: MIT. iPhone USB/mux owner remains a separate
+GPLv3 iphone-worker process; no GPL objects are linked into the Rust worker.
+The existing iphone-worker corresponding-source bundle includes the connector
+changes. Distribute that bundle with the existing USB worker as required.
+
+isideload 0.3.17, source revision b6d111376657a59207ac26c8ef8be5cca8793cba,
+Copyright Nicholas Sharp, MIT. Local patch uses Android system CAs for verified
+HTTPS in a standalone native process without JavaVM and disables proxy discovery.
+
+idevice 0.1.65, Copyright Jackson Coxson, MIT. No fork is required: the existing
+IdeviceProvider trait and UsbmuxdConnection::new accept anonymous custom streams.
+
+iLoader pairing reference 348eefd7de78e9bc612c9d619b8b1e7a80ba3ba0,
+Copyright Nicholas Sharp and contributors, MIT.
+
+isideload-apple-codesign 0.29.11 and related Apple/cryptography crates are MPL-2.0.
+All crate versions and checksums are pinned in Cargo.lock. Their complete source
+and upstream license texts are included in sidestore-bootstrap-source.tar.gz.
+Ship that bundle with the APK; URLs alone are not corresponding source delivery.
+
+SideStore stable 0.6.4 IPA is downloaded from its official GitHub release and
+verified against the SHA-256 recorded in worker/src/artifact.rs. It is a data
+artifact for signing/installing on the selected iPhone, never Android executable
+code. SideStore is AGPL-3.0; preserve its embedded notices and distribute source
+as required by its license: https://github.com/SideStore/SideStore/tree/0.6.4.

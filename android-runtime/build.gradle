@@ -5,6 +5,31 @@ plugins {
 def rootlessPayloadSource = layout.projectDirectory.dir('src/main/rootless/arm64-v8a')
 def generatedRootlessJniDirectory = layout.buildDirectory.dir('generated/rootlessJniLibs')
 def iphoneBuildDirectory = layout.buildDirectory.dir('iphone-native')
+def sideStoreBuildDirectory = layout.buildDirectory.dir('sidestore-native')
+tasks.register('buildSideStoreBootstrap', Exec) {
+    description = 'Build pinned trusted isideload CLI recipe for APK packaging'
+    inputs.files(rootProject.fileTree('tools/sidestore'), rootProject.fileTree('tools/iphone/connector'), rootProject.file('tools/iphone/android-clang.sh'))
+    outputs.dir(sideStoreBuildDirectory.map { it.dir('jniLibs') })
+    outputs.dir(sideStoreBuildDirectory.map { it.dir('assets') })
+    outputs.file(sideStoreBuildDirectory.map { it.file('distributions/sidestore-bootstrap-source.tar.gz') })
+    doFirst {
+        def sdk = androidComponents.sdkComponents.sdkDirectory.get().asFile
+        commandLine 'bash', rootProject.file('tools/sidestore/build.sh'),
+            sideStoreBuildDirectory.get().asFile, new File(sdk, "ndk/${project.properties.ndkVersion}")
+    }
+}
+def iphoneToolsBuildDirectory = layout.buildDirectory.dir('iphone-tools')
+tasks.register('buildIphoneTools', Exec) {
+    inputs.files(rootProject.fileTree('tools/iphone/connector'), rootProject.file('tools/iphone/android-clang.sh'))
+    outputs.dir(iphoneToolsBuildDirectory.map { it.dir('jniLibs') })
+    outputs.dir(iphoneToolsBuildDirectory.map { it.dir('assets') })
+    outputs.file(iphoneToolsBuildDirectory.map { it.file('distributions/iphone-tools-source.tar.gz') })
+    doFirst {
+        def sdk = androidComponents.sdkComponents.sdkDirectory.get().asFile
+        commandLine 'bash', rootProject.file('tools/iphone/connector/build.sh'),
+            iphoneToolsBuildDirectory.get().asFile, new File(sdk, "ndk/${project.properties.ndkVersion}")
+    }
+}
 def serialBuildDirectory = layout.buildDirectory.dir('usb-serial')
 def usbClientAssets = layout.buildDirectory.dir('generated/usbClientAssets')
 tasks.register('buildUsbClient', Exec) {
@@ -103,14 +128,17 @@ android {
         unitTests.returnDefaultValues = true
     }
 
-    sourceSets.main.jniLibs.srcDirs = [generatedRootlessJniDirectory, iphoneBuildDirectory.get().dir('jniLibs').asFile]
+    sourceSets.main.jniLibs.srcDirs = [generatedRootlessJniDirectory, iphoneBuildDirectory.get().dir('jniLibs').asFile, iphoneToolsBuildDirectory.get().dir('jniLibs').asFile]
+    sourceSets.main.assets.srcDir(iphoneToolsBuildDirectory.get().dir('assets').asFile)
+    sourceSets.main.jniLibs.srcDir(sideStoreBuildDirectory.get().dir('jniLibs').asFile)
+    sourceSets.main.assets.srcDir(sideStoreBuildDirectory.get().dir('assets').asFile)
     sourceSets.main.assets.srcDir(iphoneBuildDirectory.get().dir('assets').asFile)
     sourceSets.main.java.srcDir(serialBuildDirectory.get().dir('java/java').asFile)
     sourceSets.main.assets.srcDir(serialBuildDirectory.get().dir('assets').asFile)
     sourceSets.main.assets.srcDir(usbClientAssets.get().asFile)
 }
 
-tasks.named('preBuild').configure { dependsOn('stageRootlessExecutables', 'verifyRootlessExecutables', 'bundleIphoneWorkerSources', 'prepareUsbSerial', 'buildUsbClient') }
+tasks.named('preBuild').configure { dependsOn('stageRootlessExecutables', 'verifyRootlessExecutables', 'bundleIphoneWorkerSources', 'prepareUsbSerial', 'buildUsbClient', 'buildIphoneTools', 'buildSideStoreBootstrap') }
 
 dependencies {
     api project(':protocol')

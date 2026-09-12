@@ -1,7 +1,7 @@
 <resources>
     <string name="usb_title">USB devices</string>
-    <string name="usb_summary">Manage USB requests and grants for Rootless sessions</string>
-    <string name="usb_help">Run terminal-usb list in Rootless, then serial, adb, mtp or raw. Approve its request here and run the command again. For mounted storage, choose a folder below. Python 3 is required.</string>
+    <string name="usb_summary">Manage Native iPhone and Rootless USB access</string>
+    <string name="usb_help">Native and Rootless support terminal-usb list, iphone and tooling commands. Rootless also provides serial, adb, mtp and raw (Python 3 required). Approve requests here, then rerun the command. Enter tool account/2FA only in Host tool inputs. For mounted storage, choose a folder below.</string>
     <string name="usb_connecting">Connecting to USB service…</string>
     <string name="usb_unsupported">This Android device does not support USB Host.</string>
     <string name="usb_no_devices">No USB devices are connected.</string>

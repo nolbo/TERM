@@ -1,5 +1,11 @@
 # Android usbmuxd worker
 
+The reusable Rust private connector and packaged Native CLI/probe are documented
+in [connector/README.md](connector/README.md). The C `mux-owner` mode keeps the
+physical Android USB owner alive while registered trusted tools request fresh
+anonymous streams; it is never a guest usbmux listener. The existing GPL
+corresponding-source bundle now includes these connector-owner changes.
+
 The port compiles upstream usbmuxd protocol/async transport, not its Linux
 daemon/main/udev/discovery entry point. `usb_android.c` wraps Android's granted
 FD, selects the strict Apple mux interface and reuses upstream transfer logic.

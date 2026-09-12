@@ -13,10 +13,16 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Install pinned Android Rust toolchain
+        run: rustup toolchain install 1.89.0 --profile minimal --target aarch64-linux-android
       - name: Build and test
         run: ./gradlew :android-app:assembleDebug :android-runtime:testDebugUnitTest :image:test --console=plain
       - name: Publish debug APK
         uses: actions/upload-artifact@v4
         with:
           name: droid-terminal-debug
-          path: android-app/build/outputs/apk/debug/android-app-debug.apk
+          path: |
+            android-app/build/outputs/apk/debug/android-app-debug.apk
+            android-runtime/build/distributions/iphone-worker-source.tar.gz
+            android-runtime/build/iphone-tools/distributions/iphone-tools-source.tar.gz
+            android-runtime/build/sidestore-native/distributions/sidestore-bootstrap-source.tar.gz

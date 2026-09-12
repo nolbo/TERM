@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rootless client for TERM's session-scoped Android USB broker (Python stdlib only)."""
+"""Client for TERM's session-scoped Android USB broker (Python stdlib only)."""
 import argparse
 import json
 import os
@@ -7,6 +7,7 @@ import select
 import socket
 import struct
 import sys
+import time
 import stat
 import tempfile
 import re
@@ -23,7 +24,7 @@ class Broker:
         self.token = os.environ.get("TERMINAL_USB_TOKEN")
         address = os.environ.get("TERMINAL_USB_SOCKET")
         if not self.token or not address:
-            raise RuntimeError("Start a new Rootless session in TERM to use USB")
+            raise RuntimeError("Start a new Native or Rootless session in TERM to use USB")
         self.socket = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         self.socket.settimeout(10)
         self.socket.connect("\0" + address)
@@ -328,6 +329,9 @@ def main():
     sub = parser.add_subparsers(dest="command", required=True)
     sub.add_parser("list", help="List device descriptors and this terminal session ID")
     sub.add_parser("diagnostics", help="Bounded broker status without credentials or payloads")
+    tooling = sub.add_parser("tooling", help="Registered host-native iPhone tools; never a guest usbmux endpoint")
+    tooling.add_argument("action", choices=("list", "check", "start", "status", "watch", "select", "cancel"))
+    tooling.add_argument("arguments", nargs="*", help="check DEVICE | start TOOL DEVICE | status/watch/cancel OPERATION | select OPERATION CHOICE_IDS")
     configure = sub.add_parser("configuration", help="Separately approve a device-wide USB configuration change")
     configure.add_argument("device")
     configure.add_argument("value", type=int)
@@ -424,6 +428,25 @@ def main():
     try:
         if args.command == "diagnostics":
             print(json.dumps(broker.call("diagnostics"), indent=2)); return
+        if args.command == "tooling":
+            expected = {"list": 0, "check": 1, "start": 2, "status": 1, "watch": 1, "select": 2, "cancel": 1}
+            if len(args.arguments) != expected[args.action]: parser.error("Invalid tooling arguments; secrets must be entered in the host UI, not the terminal")
+            fields = {}
+            if args.action == "check": fields = {"device": args.arguments[0]}
+            elif args.action == "start": fields = {"tool": args.arguments[0], "device": args.arguments[1]}
+            elif args.action != "list": fields = {"operation": args.arguments[0]}
+            if args.action == "select": fields["choices"] = args.arguments[1]
+            broker.socket.settimeout(30)
+            if args.action == "watch":
+                try:
+                    while True:
+                        result = broker.call("tooling", action="status", **fields)
+                        print(json.dumps(result), flush=True)
+                        if result.get("state") != "RUNNING": return
+                        time.sleep(1)
+                except KeyboardInterrupt:
+                    print("Watch detached. The host operation continues; use tooling cancel to stop it."); return
+            print(json.dumps(broker.call("tooling", action=args.action, **fields), indent=2)); return
         if args.command == "configuration":
             print(json.dumps(broker.call("configuration", device=args.device, configuration=args.value), indent=2)); return
         if args.command == "list":

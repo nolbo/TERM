@@ -1,5 +1,16 @@
 # TERM 사용 가이드
 
+Native와 Rootless에서 `terminal-usb list`, `iphone pair|info|ls|get|put`,
+`tooling list|check|start|status|watch|select|cancel`로 같은 iPhone 호스트 capability를 사용할 수 있습니다.
+각 작업은 USB 화면에서 별도 승인해야 합니다. 앱은 전용 SideStore/IPA 설치
+화면이 아닌 도구 실행 기반을 제공하며, USB FD·페어링·서명 비밀은 터미널에
+전달하지 않습니다. `tooling start isideload DEVICE_ID`는 고정된 SideStore stable
+작업을 수행하는 APK 도구를 호출합니다. 계정·암호·2FA는 **USB 디바이스 →
+호스트 도구 입력**에서만 입력하세요. `tooling watch OPERATION_ID`를 종료하거나
+화면을 나가도 작업은 계속되며, `tooling cancel OPERATION_ID`로 명시적으로
+취소합니다. 임의 IPA URL이나 일반 usbmuxd는 제공하지 않습니다. 실제 iPhone
+설치·첫 갱신은 아직 실기 검증하지 않았습니다. [iPhone 도구 환경](IPHONE_TOOLING.md)을 참고하세요.
+
 **TERM**은 **Terminal Environments with Runtime Multiplexing**의 약자입니다.
 
 USB Host 지원 기기에서는 새 Rootless 세션의 `terminal-usb` 명령으로 USB 장치를
