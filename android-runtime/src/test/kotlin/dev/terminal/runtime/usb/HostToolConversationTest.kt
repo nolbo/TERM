@@ -6,6 +6,28 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HostToolConversationTest {
+    @Test fun pairingStagesKeepSafeErrorDetailAndCancelAtEachBoundary() {
+        val steps = listOf("PAIRING", "CHECKING_PAIR_RECORD", "WAITING_FOR_TRUST", "SAVING_PAIR_RECORD", "VALIDATING_PAIRING", "READING_DEVICE_INFORMATION")
+        for (index in steps.indices) for (code in listOf("CANCELED", "USB_DETACHED")) {
+            val record = record()
+            steps.take(index + 1).forEach { phase(record, it) }
+            record.fail(code)
+            assertEquals(code, record.snapshot().getString("error"))
+            assertEquals(steps[index], record.snapshot().getString("phase"))
+        }
+        for (detail in listOf("IO_EOF", "credential-sentinel")) {
+            val record = record(); steps.take(4).forEach { phase(record, it) }
+            record.event(JSONObject().put("phase", "FAILED").put("error", "PAIR_RECORD_SAVE_FAILED").put("detail", detail))
+            val snapshot = record.snapshot()
+            assertEquals("SAVING_PAIR_RECORD", snapshot.getString("phase"))
+            assertEquals("PAIR_RECORD_SAVE_FAILED", snapshot.getString("error"))
+            assertEquals(2, snapshot.getInt("serviceRevision"))
+            assertEquals(detail == "IO_EOF", snapshot.has("detail"))
+            assertFalse(snapshot.toString().contains("credential-sentinel"))
+        }
+        val reused = record()
+        listOf("PAIRING", "CHECKING_PAIR_RECORD", "VALIDATING_PAIRING", "READING_DEVICE_INFORMATION").forEach { phase(reused, it) }
+    }
     private fun record() = HostToolConversation("operation", "isideload", "attachment")
     private fun phase(record: HostToolConversation, phase: String) { record.event(JSONObject().put("phase", phase)) }
     private fun login(record: HostToolConversation) {

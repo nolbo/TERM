@@ -4,11 +4,13 @@
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <inttypes.h>
 #include <stdio.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/random.h>
 #include <unistd.h>
 #include "conf.h"
 
@@ -70,7 +72,12 @@ static int save_record(const char *udid, char *data, uint64_t size)
 {
     char name[72], temp[96];
     if (filename(udid, name) || !data || !size || size > MAX_RECORD) return -EINVAL;
-    snprintf(temp, sizeof(temp), ".%s.%d", name, getpid());
+    /* A killed writer must not block a later writer when Android reuses its PID. */
+    uint64_t random;
+    ssize_t count;
+    do { count = getrandom(&random, sizeof(random), 0); } while (count < 0 && errno == EINTR);
+    if (count != sizeof(random)) return -EIO;
+    snprintf(temp, sizeof(temp), ".%s.%016" PRIx64, name, random);
     int fd = openat(directory, temp, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0600);
     if (fd < 0) return -errno;
     uint64_t used = 0;

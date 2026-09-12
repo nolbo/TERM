@@ -1,4 +1,8 @@
 <resources>
+    <string name="host_tool_error_pair_store">Android에서 페어링 기록을 읽거나 저장하지 못했습니다. 저장 공간을 확인하세요. 기존 기록은 자동 삭제하지 않습니다.</string>
+    <string name="host_tool_error_pair_record">페어링 기록이 손상되었거나 iPhone이 거부했습니다. 기존 신뢰 관계를 확인하세요. 페어링 해제 후 재생성은 별도 사용자 작업이 필요합니다.</string>
+    <string name="host_tool_error_pair_transport">페어링 중 연결이 끊겼거나 대기 시간이 지났습니다. iPhone을 잠금 해제하고 케이블 연결을 확인한 뒤 다시 시도하세요.</string>
+    <string name="host_tool_error_pair_response">iPhone의 페어링 응답 또는 세션 검증에 실패했습니다. 표시된 오류 코드와 iOS 버전으로 호환성을 확인해야 합니다.</string>
     <string name="host_tool_inputs_title">호스트 도구 입력</string>
     <string name="host_tool_inputs_help">터미널에서 시작한 승인된 APK 도구의 입력 요청입니다. 계정·암호·2FA는 터미널이나 로그에 전달하지 않습니다. 화면을 나가도 작업은 계속됩니다. 입력 초안은 화면을 떠나면 지워집니다.</string>
     <string name="host_tool_none">진행 중이거나 최근 완료된 도구 작업이 없습니다.</string>

@@ -28,6 +28,10 @@ pub struct Connector(Arc<Mutex<OwnedFd>>);
 impl Connector {
     pub fn new(fd: OwnedFd) -> Self { Self(Arc::new(Mutex::new(fd))) }
     pub async fn connection(&self) -> Result<UsbmuxdConnection, IdeviceError> {
+        Ok(UsbmuxdConnection::new(Box::new(self.stream().await?), 0))
+    }
+    /// Fresh trusted stream for bounded usbmux operations whose upstream API loses errno.
+    pub async fn stream(&self) -> Result<tokio::net::UnixStream, IdeviceError> {
         let this = self.clone();
         let fd = tokio::task::spawn_blocking(move || {
             let guard = this.0.lock().map_err(|_| io::Error::other("connector lock"))?;
@@ -36,7 +40,7 @@ impl Connector {
             receive_fd(guard.as_raw_fd(), b'M')
         }).await.map_err(|_| io::Error::other("connector task"))??;
         let stream = std::os::unix::net::UnixStream::from(fd); stream.set_nonblocking(true)?;
-        Ok(UsbmuxdConnection::new(Box::new(tokio::net::UnixStream::from_std(stream)?), 0))
+        Ok(tokio::net::UnixStream::from_std(stream)?)
     }
 }
 

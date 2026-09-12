@@ -48,6 +48,7 @@ compile() {
     signature=$({
         printf '%s\0' "${compiler[@]}" "${flags[@]}" "$@"
         sha256sum "$repo/tools/iphone/sources.lock"
+        if [[ "$group" == daemon ]]; then sha256sum "$repo/tools/iphone/mux-client.patch"; fi
         for source in "$@"; do [[ "$source" != *.c ]] || sha256sum "$source"; done
         if [[ "$group" != tls && "$group" != usb ]]; then sha256sum "$repo/tools/iphone/config.h" "$port"/*.h; fi
     } | sha256sum)
@@ -71,7 +72,9 @@ cp "${roots[limd]}/src/afc.c" "$build/patched/afc.c"
 patch --silent "$build/patched/afc.c" < "$repo/tools/iphone/afc.patch"
 compile afc "${inc[@]}" -DHAVE_CONFIG_H -I"${roots[limd]}/src" -include "$port/afc_limits.h" \
     "$build/patched/afc.c" "$port/afc_operations.c"
-compile daemon "${inc[@]}" -DHAVE_CONFIG_H \
+cp "${roots[usbmuxd]}/src/client.c" "$build/patched/terminal_mux_client.inc"
+patch --silent "$build/patched/terminal_mux_client.inc" < "$repo/tools/iphone/mux-client.patch"
+compile daemon "${inc[@]}" -I"$build/patched" -DHAVE_CONFIG_H \
     "${roots[usbmuxd]}"/src/{device,preflight,log,utils}.c \
     "$port/usb_android.c" "$port/mux_server.c" "$port/pair_store.c" "$port/worker.c" "$port/crypto_test.c"
 "${compiler[@]}" -pie -Wl,--gc-sections -Wl,-z,relro,-z,now,-z,noexecstack \

@@ -88,13 +88,21 @@ fn upload(broker: &mut Broker, device: &str, source: &str, name: &str) -> Result
     if result["completed"] != true || result["bytes"].as_u64() != Some(size) || before.len() != after.len() || before.mtime() != after.mtime() || before.mtime_nsec() != after.mtime_nsec() { return Err("Incomplete upload or changed source; remote partial data may remain".into()); }
     result["path"] = ready["path"].clone(); Ok(result)
 }
+fn checked_probe(value: Value) -> Result<Value> {
+    if value["tool"] != "idevice-check" || value["completed"] != true || value["privateConnector"] != true
+        || value["publicMuxSocket"] != false || value.get("operation").is_some() || value.get("state").is_some()
+        || value.get("requestAction").is_some_and(|action| action != "check") {
+        return Err("TOOL_RESPONSE_MISMATCH: check received an unexpected host-tool response".into());
+    }
+    Ok(value)
+}
 fn run(args: &[String]) -> Result<Value> {
     let mut broker = Broker::new()?;
     match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["list"] => broker.call(json!({"op":"list"})),
         ["diagnostics"] => broker.call(json!({"op":"diagnostics"})),
         ["tooling","list"] => broker.call(json!({"op":"tooling","action":"list"})),
-        ["tooling","check",device] => broker.call(json!({"op":"tooling","action":"check","device":device})),
+        ["tooling","check",device] => checked_probe(broker.call(json!({"op":"tooling","action":"check","device":device}))?),
         ["tooling","start",tool,device] => broker.call(json!({"op":"tooling","action":"start","tool":tool,"device":device})),
         ["tooling",action,operation] if ["status","cancel"].contains(action) => broker.call(json!({"op":"tooling","action":action,"operation":operation})),
         ["tooling","select",operation,choices] => broker.call(json!({"op":"tooling","action":"select","operation":operation,"choices":choices})),
@@ -119,4 +127,15 @@ fn main() {
         println!("terminal-usb list | diagnostics | tooling list | tooling check DEVICE\nterminal-usb iphone pair|info|unpair DEVICE\nterminal-usb iphone ls DEVICE [AFC_PATH]\nterminal-usb iphone get DEVICE AFC_PATH LOCAL_FILE\nterminal-usb iphone put DEVICE LOCAL_FILE [--name ASCII_NAME]\nEach device action requires separate approval in the app USB screen. No raw USB FD, pair records or usbmux endpoint enter the terminal."); return;
     }
     match run(&args) { Ok(value) => println!("{value}"), Err(error) => { eprintln!("{error}\nReview USB approvals in TERM. Do not automatically retry writes."); std::process::exit(1); } }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test] fn check_rejects_installation_status_and_wrong_action() {
+        assert!(checked_probe(json!({"tool":"isideload","state":"FAILED","error":"PAIRING_FAILED"})).is_err());
+        let mut valid = json!({"tool":"idevice-check","completed":true,"privateConnector":true,"publicMuxSocket":false});
+        assert!(checked_probe(valid.clone()).is_ok());
+        valid["requestAction"] = "start".into(); assert!(checked_probe(valid).is_err());
+    }
 }

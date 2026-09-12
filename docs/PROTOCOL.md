@@ -2,6 +2,14 @@
 
 ## Shared registered iPhone tools
 
+Service revision 2 adds `serviceRevision: 2`, `requestAction` and a random
+non-authorizing `requestId` to successful tooling results. `tooling list` also
+provides `workerSha256`, keyed by APK executable name (no host paths).
+Operation failures may include only a fixed allowlisted `detail` category.
+Pairing phases/errors are documented in [IPHONE_TOOLING.md](IPHONE_TOOLING.md).
+Request schemas and grants are unchanged; clients reject isideload status
+received as a `check` reply rather than interpreting it as probe output.
+
 Native's packaged client and Rootless's Python client use the existing same-UID,
 session-token, version-1 length-prefixed USB protocol. A flat `op: "tooling"`
 request accepts these exact additional fields: `list`: none; `check`: device;

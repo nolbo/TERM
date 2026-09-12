@@ -2,6 +2,28 @@
 
 ## Product direction
 
+Tooling service revision 2 separates `CHECKING_PAIR_RECORD`, `WAITING_FOR_TRUST`,
+`SAVING_PAIR_RECORD` and `VALIDATING_PAIRING`. Only a usbmux ENOENT response
+permits new pairing; unreadable/invalid records are preserved and reported.
+The Trust wait is bounded to 120 seconds and initial acquisition to 180 seconds.
+Upstream pending-dialog retries retain their key/HostID; disconnected Pair
+requests are not automatically replayed because acceptance may already have occurred.
+
+Failures identify record read/parse/save/rejection, transport, device response,
+timeout or session validation. `detail` contains only allowlisted categories
+such as `IO_EOF`, `IO_RESET`, `STORE_IO`, or `UNKNOWN_DEVICE_ERROR`, never raw
+upstream messages or pairing material. A store error after Trust is no longer
+reported as waiting for Trust. No iOS 27 beta compatibility claim is made.
+
+`tooling list` reports `serviceRevision`, `requestAction`, `requestId`, and
+SHA-256 hashes of the three installed APK workers in `workerSha256`. Successful
+tooling replies echo the action with a fresh host-generated response ID. These
+IDs/hashes are diagnostic metadata, not authentication tokens. A CLI archive
+hash alone does not identify the host-service/worker build. `check` returns
+`tool: idevice-check`, `completed: true`, connector flags and `ideviceVersion`;
+it never initiates Trust or an isideload operation. Both CLIs reject installation
+status returned for `check` as `TOOL_RESPONSE_MISMATCH` without replaying it.
+
 The terminal supplies the conditions for tools to implement iPhone workflows,
 not a product-owned SideStore/IPA installation screen. Native and Rootless use
 the same session-scoped Android USB capability protocol. Android `:vmhost`

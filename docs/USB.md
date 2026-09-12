@@ -2,6 +2,15 @@
 
 ## Shared iPhone CLI tool environment
 
+For pairing failures, collect `terminal-usb tooling list` from the same new
+session after updating the APK. Service revision 2 reports installed worker
+hashes and distinguishes record checking, Trust, saving and session validation.
+`check` only probes private usbmux and never starts isideload or Trust. Its
+successful result identifies `idevice-check`; mismatched installation output
+is rejected by the updated clients. Record read errors no longer trigger new
+pairing automatically. See [pairing diagnostics](IPHONE_TOOLING.md) for the
+bounded error detail format. Physical iOS 27 beta compatibility remains unverified.
+
 Native and Rootless both support `terminal-usb list`, `iphone pair|info|unpair`,
 `iphone ls|get|put`, and `tooling list|check|start|status|watch|select|cancel`. Each selected-device action uses
 its own approved capability and Android USB permission. The `idevice-check`

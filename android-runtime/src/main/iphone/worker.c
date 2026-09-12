@@ -216,7 +216,7 @@ static int run_operation(const char *operation, const char *path, unsigned size)
     return 0;
 }
 
-static int self_test(void)
+static int self_test(const char *directory)
 {
     for (int i = 0; i < 3; i++) {
         char marker = 'M';
@@ -245,14 +245,28 @@ static int self_test(void)
     if (usbmuxd_read_buid(&value) || !value || strcmp(value, "terminal-self-test")) return emit_error("SELF_TEST_BUID", 0);
     free(value);
     const char *id = "00000000-0000000000000000";
+    int test_dir = open(directory, O_RDONLY | O_DIRECTORY | O_CLOEXEC | O_NOFOLLOW);
+    if (test_dir < 0) return emit_error("SELF_TEST_DIRECTORY", 0);
+    char old_temp[96], saved[72];
+    snprintf(old_temp, sizeof(old_temp), ".%s.plist.%d", id, getpid());
+    snprintf(saved, sizeof(saved), "%s.plist", id);
+    int stale = openat(test_dir, old_temp, O_CREAT | O_EXCL | O_WRONLY | O_CLOEXEC, 0600);
+    if (stale < 0) return emit_error("SELF_TEST_STALE_TEMP", 0);
+    close(stale);
     char record[] = "<plist version=\"1.0\"><dict><key>HostID</key><string>test</string></dict></plist>";
     if (usbmuxd_save_pair_record(id, record, strlen(record))) return emit_error("SELF_TEST_SAVE", 0);
+    unlinkat(test_dir, old_temp, 0);
     uint32_t size = 0;
     if (usbmuxd_read_pair_record(id, &value, &size) || size != strlen(record) || memcmp(value, record, size))
         return emit_error("SELF_TEST_READ", 0);
     free(value);
+    if (fchmodat(test_dir, saved, 0644, 0) || usbmuxd_read_pair_record(id, &value, &size) != -EIO)
+        return emit_error("SELF_TEST_STORE_ERROR_NOT_MISSING", 0);
+    if (fchmodat(test_dir, saved, 0600, 0)) return emit_error("SELF_TEST_STORE_MODE", 0);
     if (usbmuxd_delete_pair_record(id) || config_set_device_record("../escape", record, strlen(record)) != -EINVAL)
         return emit_error("SELF_TEST_BOUNDARY", 0);
+    if (usbmuxd_read_pair_record(id, &value, &size) != -ENOENT) return emit_error("SELF_TEST_MISSING", 0);
+    close(test_dir);
     puts("{\"ok\":true,\"result\":{\"selfTest\":true,\"publicMuxSocket\":false}}");
     return 0;
 }
@@ -306,7 +320,7 @@ int main(int argc, char **argv)
         puts("{\"ok\":true,\"result\":{\"muxReady\":true}}"); fflush(stdout);
         for (;;) pause(); /* owner/connector closure exits through mux_loop */
     }
-    int result = test ? self_test() : run_operation(argv[1], afc ? argv[5] : "", size);
+    int result = test ? self_test(argv[2]) : run_operation(argv[1], afc ? argv[5] : "", size);
     fflush(stdout);
     /* Process exit closes all FDs and pending URBs; no thread/global state leaks
      * into another device or grant. Parent also has a hard deadline and revokes. */

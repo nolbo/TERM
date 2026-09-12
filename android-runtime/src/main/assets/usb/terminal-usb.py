@@ -19,6 +19,18 @@ FILE_LIMIT = 64 * 1024 * 1024
 FILE_CHUNK = 16 * 1024
 
 
+def validate_tooling_reply(action, result):
+    if not isinstance(result, dict) or result.get("requestAction", action) != action:
+        raise RuntimeError("TOOL_RESPONSE_MISMATCH: update the APK and start a new terminal session")
+    if action == "check" and not (
+        result.get("tool") == "idevice-check" and result.get("completed") is True
+        and result.get("privateConnector") is True and result.get("publicMuxSocket") is False
+        and "operation" not in result and "state" not in result
+    ):
+        raise RuntimeError("TOOL_RESPONSE_MISMATCH: check received an unexpected host-tool response")
+    return result
+
+
 class Broker:
     def __init__(self):
         self.token = os.environ.get("TERMINAL_USB_TOKEN")
@@ -446,7 +458,7 @@ def main():
                         time.sleep(1)
                 except KeyboardInterrupt:
                     print("Watch detached. The host operation continues; use tooling cancel to stop it."); return
-            print(json.dumps(broker.call("tooling", action=args.action, **fields), indent=2)); return
+            print(json.dumps(validate_tooling_reply(args.action, broker.call("tooling", action=args.action, **fields)), indent=2)); return
         if args.command == "configuration":
             print(json.dumps(broker.call("configuration", device=args.device, configuration=args.value), indent=2)); return
         if args.command == "list":

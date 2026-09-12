@@ -28,6 +28,22 @@ class UsbBroker(private val context: Context, bootstrapWorkChanged: (Int) -> Uni
     private val manager = context.getSystemService(UsbManager::class.java)
     private val supported = context.packageManager.hasSystemFeature(PackageManager.FEATURE_USB_HOST)
     private val socketName = "terminal-usb-${UUID.randomUUID()}"
+    private val toolBuilds by lazy {
+        val loader = dev.terminal.runtime.native.ApkNativeExecutableLoader(context)
+        JSONObject().also { result ->
+            for (name in listOf("iphone-worker", "iphone-tool-probe", "isideload")) {
+                val digest = runCatching {
+                    val hash = java.security.MessageDigest.getInstance("SHA-256")
+                    loader.resolvePackagedExecutable(name).getOrThrow().inputStream().use { input ->
+                        val buffer = ByteArray(32768)
+                        while (true) { val size = input.read(buffer); if (size < 0) break; hash.update(buffer, 0, size) }
+                    }
+                    hash.digest().joinToString("") { "%02x".format(it.toInt() and 255) }
+                }.getOrDefault("unavailable")
+                result.put(name, digest)
+            }
+        }
+    }
     private val server = LocalServerSocket(socketName)
     private val workers = Executors.newFixedThreadPool(UsbPolicy.MAX_CLIENTS)
     private val slots = Semaphore(UsbPolicy.MAX_CLIENTS)
@@ -676,6 +692,9 @@ class UsbBroker(private val context: Context, bootstrapWorkChanged: (Int) -> Uni
 
     private fun tooling(request: JSONObject, socket: LocalSocket): JSONObject {
         val action = request.getString("action")
+        fun reply(result: JSONObject): JSONObject = JSONObject().put("ok", true).put("result", result
+            .put("requestAction", action).put("requestId", UUID.randomUUID().toString())
+            .put("serviceRevision", TrustedIphoneToolPolicy.SERVICE_REVISION))
         var selectedGrant: Grant? = null
         val deviceKey = synchronized(this) {
             refresh()
@@ -689,10 +708,11 @@ class UsbBroker(private val context: Context, bootstrapWorkChanged: (Int) -> Uni
                     "cancel" -> iphoneTools.cancel(session.id, id)
                     else -> iphoneTools.select(session.id, id, request.getString("choices"))
                 }
-                return JSONObject().put("ok", true).put("result", result)
+                return reply(result)
             }
-            if (action == "list") return JSONObject().put("ok", true).put("result", JSONObject()
-                .put("tools", JSONArray(listOf("idevice-check", "isideload"))).put("privateTransport", true).put("publicMuxSocket", false))
+            if (action == "list") return reply(JSONObject()
+                .put("tools", JSONArray(listOf("idevice-check", "isideload"))).put("privateTransport", true).put("publicMuxSocket", false)
+                .put("workerSha256", JSONObject(toolBuilds.toString())))
             val tool = if (action == "start") request.getString("tool") else "idevice-check"
             require(tool in if (action == "start") setOf("isideload") else setOf("idevice-check")) { "UNSUPPORTED_TOOL_OPERATION" }
             check(supported && manager != null) { "USB_HOST_UNAVAILABLE" }
@@ -709,7 +729,7 @@ class UsbBroker(private val context: Context, bootstrapWorkChanged: (Int) -> Uni
         val result = if (action == "start") iphoneTools.start(request.getString("tool"), deviceKey,
             synchronized(this) { sessions[request.getString("token")]?.id ?: error("SESSION_EXPIRED") }, ::access)
             else iphoneTools.check(deviceKey, socket, ::access)
-        return JSONObject().put("ok", true).put("result", result)
+        return reply(result)
     }
 
     /** Host-only whole-device lease. Never returned through the guest protocol. */

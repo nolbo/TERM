@@ -11,6 +11,7 @@ internal class HostToolConversation(val id: String, val tool: String, val device
     private var phase = "CONNECTING"
     private var state = "RUNNING"
     private var error: String? = null
+    private var detail: String? = null
     private var progress: Double? = null
     private var information: JSONObject? = null
     private var prompt: JSONObject? = null
@@ -23,7 +24,10 @@ internal class HostToolConversation(val id: String, val tool: String, val device
         if (state != "RUNNING") return@synchronized
         val next = event.getString("phase")
         require(next in PHASES) { "WORKER_PROTOCOL" }
-        if (next == "FAILED") { fail(event.optString("error")); return@synchronized }
+        if (next == "FAILED") {
+            detail = event.optString("detail").takeIf { it in DETAILS }
+            fail(event.optString("error")); return@synchronized
+        }
         require(next in transitions(phase)) { "WORKER_PROTOCOL" }
         if (next == "COMPLETED") {
             result = JSONObject().also { dest ->
@@ -73,6 +77,8 @@ internal class HostToolConversation(val id: String, val tool: String, val device
     fun snapshot(host: Boolean = false): JSONObject = synchronized(monitor) {
         JSONObject().put("operation", id).put("tool", tool).put("device", device).put("state", state)
             .put("phase", phase).also { result ->
+                detail?.let { result.put("detail", it) }
+                result.put("serviceRevision", TrustedIphoneToolPolicy.SERVICE_REVISION)
                 error?.let { result.put("error", it) }; progress?.let { result.put("progress", it) }
                 information?.let { result.put("information", JSONObject(it.toString())) }
                 if (state == "COMPLETED") this.result?.let { result.put("result", JSONObject(it.toString())) }
@@ -129,13 +135,16 @@ internal class HostToolConversation(val id: String, val tool: String, val device
     }
     companion object {
         const val DEFAULT_ENDPOINT = "https://ani.sidestore.io"
-        val PHASES = setOf("PAIRING", "WAITING_FOR_TRUST", "READING_DEVICE_INFORMATION", "WAITING_FOR_LOGIN", "APPLE_LOGIN",
+        val PHASES = setOf("PAIRING", "CHECKING_PAIR_RECORD", "WAITING_FOR_TRUST", "SAVING_PAIR_RECORD", "VALIDATING_PAIRING", "READING_DEVICE_INFORMATION", "WAITING_FOR_LOGIN", "APPLE_LOGIN",
             "WAITING_FOR_2FA", "WAITING_FOR_TEAM_SELECTION", "WAITING_FOR_CERTIFICATE_REVOCATION", "REGISTERING_DEVICE",
             "DOWNLOADING_SIDESTORE", "SIGNING", "INSTALLING", "GENERATING_PAIRING", "PLACING_PAIRING", "COMPLETED", "FAILED")
         private fun transitions(phase: String): Set<String> = when (phase) {
             "CONNECTING" -> setOf("PAIRING")
-            "PAIRING" -> setOf("WAITING_FOR_TRUST", "READING_DEVICE_INFORMATION")
-            "WAITING_FOR_TRUST" -> setOf("READING_DEVICE_INFORMATION")
+            "PAIRING" -> setOf("CHECKING_PAIR_RECORD", "WAITING_FOR_TRUST", "READING_DEVICE_INFORMATION")
+            "CHECKING_PAIR_RECORD" -> setOf("WAITING_FOR_TRUST", "VALIDATING_PAIRING")
+            "WAITING_FOR_TRUST" -> setOf("SAVING_PAIR_RECORD", "READING_DEVICE_INFORMATION")
+            "SAVING_PAIR_RECORD" -> setOf("VALIDATING_PAIRING")
+            "VALIDATING_PAIRING" -> setOf("READING_DEVICE_INFORMATION")
             "READING_DEVICE_INFORMATION" -> setOf("WAITING_FOR_LOGIN")
             "WAITING_FOR_LOGIN" -> setOf("APPLE_LOGIN")
             "APPLE_LOGIN" -> setOf("WAITING_FOR_2FA", "WAITING_FOR_TEAM_SELECTION", "REGISTERING_DEVICE")
@@ -151,10 +160,14 @@ internal class HostToolConversation(val id: String, val tool: String, val device
             else -> emptySet()
         }
         val ERRORS = setOf("USB_HOST_UNAVAILABLE", "USB_PERMISSION_DENIED", "UNSUPPORTED_USB_DEVICE", "DEVICE_BUSY", "DEVICE_LOCKED",
+            "PAIR_RECORD_READ_FAILED", "PAIR_RECORD_INVALID", "PAIR_RECORD_SAVE_FAILED", "PAIR_RECORD_REJECTED",
+            "PAIRING_TRANSPORT", "PAIRING_RESPONSE", "PAIRING_TIMEOUT", "PAIR_SESSION_FAILED",
             "TRUST_DENIED", "PAIRING_FAILED", "UNSUPPORTED_IOS_PAIRING", "NETWORK", "ANISETTE", "APPLE_CREDENTIALS", "TWO_FACTOR",
             "NO_DEVELOPER_TEAM", "CERTIFICATE_LIMIT", "APP_ID_LIMIT", "PROVISIONING", "IOS_CERTIFICATE_REJECTED", "DOWNLOAD",
             "SIGNING", "INSTALLATION_PROXY", "RP_PAIRING", "WIFI_DEBUGGING", "AFC_PLACEMENT", "CANCELED", "USB_DETACHED",
             "WORKER_AUTHENTICATION", "WORKER_PROTOCOL", "INPUT_TIMEOUT", "TWO_FACTOR_TIMEOUT", "ARTIFACT_CLEANUP")
+        val DETAILS = setOf("IO_EOF", "IO_RESET", "IO_BROKEN_PIPE", "IO_TIMEOUT", "IO_OTHER", "UNEXPECTED_RESPONSE",
+            "UNKNOWN_DEVICE_ERROR", "INVALID_RECORD", "INVALID_HOST_ID", "DEVICE_ERROR", "STORE_PERMISSION", "STORE_IO", "STORE_RESPONSE")
         fun endpoint(value: String): Boolean = runCatching { URI(value).let {
             value.length <= 2048 && it.scheme == "https" && !it.host.isNullOrEmpty() && it.rawUserInfo == null &&
                 it.rawQuery == null && it.rawFragment == null && it.port in setOf(-1, 443)

@@ -5,11 +5,12 @@ mod android_tls;
 mod artifact;
 use terminal_iphone_connector as connector;
 mod pairing;
+mod lockdown_pairing;
 mod storage;
 #[cfg(test)] mod tests;
 
 use std::{io::{BufRead, BufReader, Read, Write}, os::fd::{AsRawFd, FromRawFd, OwnedFd}, path::PathBuf, sync::{Arc, Mutex, OnceLock, atomic::{AtomicBool, Ordering}}};
-use idevice::{IdeviceError, IdeviceService, lockdown::LockdownClient, provider::IdeviceProvider};
+use idevice::{IdeviceError, IdeviceService, lockdown::LockdownClient};
 use isideload::{anisette::{AnisetteProvider, AnisetteData, AnisetteClientInfo, remote_v3::RemoteV3AnisetteProvider},
     auth::{apple_account::{AppleAccount, TwoFactorCallbackResponse}, grandslam::GrandSlam},
     dev::{developer_session::DeveloperSession, teams::TeamsApi, devices::DevicesApi},
@@ -21,10 +22,18 @@ use zeroize::{Zeroize, Zeroizing};
 static INPUT: OnceLock<Mutex<BufReader<std::io::Stdin>>> = OnceLock::new();
 static OUTPUT: Mutex<()> = Mutex::new(());
 
-pub struct Failure { code: &'static str, _diagnostic: String }
+pub struct Failure { code: &'static str, _diagnostic: String, detail: Option<&'static str> }
+impl Failure {
+    fn with_detail(mut self, detail: &'static str) -> Self { self.detail = Some(detail); self }
+    fn event(&self) -> serde_json::Value {
+        let mut value = json!({"phase":"FAILED", "error":self.code});
+        if let Some(detail) = self.detail { value["detail"] = detail.into(); }
+        value
+    }
+}
 pub fn failure(code: &'static str, diagnostic: impl std::fmt::Display) -> Failure {
     // Diagnostics remain in worker memory only. Never forward upstream strings.
-    Failure { code, _diagnostic: diagnostic.to_string() }
+    Failure { code, _diagnostic: diagnostic.to_string(), detail: None }
 }
 pub fn event(value: serde_json::Value) {
     let _lock = OUTPUT.lock().unwrap();
@@ -132,16 +141,12 @@ async fn bootstrap(connector: connector::Connector, store: storage::HostStorage,
     if devices.len() != 1 { return Err(failure("UNSUPPORTED_USB_DEVICE", "expected exactly one physical device")); }
     let device = &devices[0];
     let provider = connector::PrivateProvider { connector, device_id: device.device_id, udid: device.udid.clone() };
-    if mux.get_pair_record(&device.udid).await.is_err() {
-        let mut lockdown = LockdownClient::connect(&provider).await.map_err(|e| failure(device_code(&e, "PAIRING_FAILED"), e))?;
-        phase("WAITING_FOR_TRUST");
-        let record = lockdown.pair(uuid::Uuid::new_v4().to_string(), mux.get_buid().await.map_err(|e| failure("PAIRING_FAILED", e))?, Some("terminal")).await
-            .map_err(|e| failure(device_code(&e, "PAIRING_FAILED"), e))?;
-        mux.save_pair_record(&device.udid, record.serialize().map_err(|e| failure("PAIRING_FAILED", e))?).await.map_err(|e| failure("PAIRING_FAILED", e))?;
-    }
+    drop(mux);
+    let pairing_record = tokio::time::timeout(std::time::Duration::from_secs(180), lockdown_pairing::acquire(&provider)).await
+        .map_err(|_| failure("PAIRING_TIMEOUT", "pairing stage timeout"))??;
     phase("READING_DEVICE_INFORMATION");
     let mut lockdown = LockdownClient::connect(&provider).await.map_err(|e| failure(device_code(&e, "PAIRING_FAILED"), e))?;
-    lockdown.start_session(&provider.get_pairing_file().await.map_err(|e| failure("PAIRING_FAILED", e))?).await.map_err(|e| failure(device_code(&e, "PAIRING_FAILED"), e))?;
+    lockdown.start_session(&pairing_record).await.map_err(|e| lockdown_pairing::device_failure(e, "PAIR_SESSION_FAILED"))?;
     let mut values = Vec::new();
     for key in ["DeviceName", "ProductType", "ProductVersion", "DeviceClass"] {
         let value = lockdown.get_value(Some(key), None).await.map_err(|e| failure(device_code(&e, "PAIRING_FAILED"), e))?;
@@ -239,5 +244,5 @@ async fn main() {
     let temp = std::env::var_os("TMPDIR").map(PathBuf::from).unwrap_or_default();
     if !temp.is_absolute() || temp == store.0 { event(json!({"phase":"FAILED","error":"PROVISIONING"})); return; }
     let result = tokio::time::timeout(std::time::Duration::from_secs(1800), bootstrap(connector::Connector::new(connector), store, temp)).await;
-    match result { Ok(Ok(())) => (), Ok(Err(error)) => event(json!({"phase":"FAILED","error":error.code})), Err(_) => event(json!({"phase":"FAILED","error":"NETWORK"})) }
+    match result { Ok(Ok(())) => (), Ok(Err(error)) => event(error.event()), Err(_) => event(json!({"phase":"FAILED","error":"NETWORK"})) }
 }

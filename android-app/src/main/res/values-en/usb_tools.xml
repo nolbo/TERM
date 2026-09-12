@@ -1,4 +1,8 @@
 <resources>
+    <string name="host_tool_error_pair_store">Android could not read or save the pairing record. Check available storage. Existing records are not automatically deleted.</string>
+    <string name="host_tool_error_pair_record">The pairing record is invalid or was rejected by the iPhone. Check the trust relationship. Unpairing and generating a replacement requires a separate user action.</string>
+    <string name="host_tool_error_pair_transport">The pairing connection closed or timed out. Unlock the iPhone, check the cable and retry.</string>
+    <string name="host_tool_error_pair_response">The iPhone pairing response or session validation failed. Use the displayed error code and iOS version to investigate compatibility.</string>
     <string name="host_tool_inputs_title">Host tool inputs</string>
     <string name="host_tool_inputs_help">Input requests from approved APK tools started in your terminal. Account details, passwords and 2FA never enter the terminal or logs. Leaving this screen does not cancel work. Input drafts are cleared when you leave.</string>
     <string name="host_tool_none">No running or recently completed tool operations.</string>

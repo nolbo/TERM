@@ -19,6 +19,13 @@ spec.loader.exec_module(client)
 
 
 class ClientTest(unittest.TestCase):
+    def test_check_rejects_isideload_status_and_mismatched_action(self):
+        good = {"tool": "idevice-check", "completed": True, "privateConnector": True, "publicMuxSocket": False}
+        self.assertEqual(good, client.validate_tooling_reply("check", good))
+        for value in [{"tool": "isideload", "state": "FAILED", "error": "PAIRING_FAILED"},
+                      dict(good, requestAction="start"), dict(good, operation="unexpected"), dict(good, completed=1)]:
+            with self.assertRaisesRegex(RuntimeError, "TOOL_RESPONSE_MISMATCH"):
+                client.validate_tooling_reply("check", value)
     def test_tooling_lifecycle_and_choices_use_scoped_flat_requests(self):
         cases = [(["start", "isideload", "phone"], {"action": "start", "tool": "isideload", "device": "phone"}),
                  (["status", "operation"], {"action": "status", "operation": "operation"}),
@@ -37,7 +44,7 @@ class ClientTest(unittest.TestCase):
     def test_tooling_cli_uses_only_registered_host_action_without_fds_or_secrets(self):
         broker = MagicMock()
         broker.__enter__.return_value = broker
-        broker.call.return_value = {"completed": True, "publicMuxSocket": False}
+        broker.call.return_value = {"tool": "idevice-check", "completed": True, "privateConnector": True, "publicMuxSocket": False}
         with patch.object(client, "Broker", return_value=broker), patch.object(sys, "argv", ["terminal-usb", "tooling", "check", "opaque-phone"]), patch("sys.stdout", new=io.StringIO()):
             client.main()
         broker.call.assert_called_once_with("tooling", action="check", device="opaque-phone")

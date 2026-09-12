@@ -1,5 +1,11 @@
 # Security
 
+Trusted iPhone pairing diagnostics expose only stable stage/error codes and an
+allowlist of transport/store categories, never raw upstream error text. Only
+ENOENT permits new pairing; malformed or unreadable records fail closed without
+deletion. APK worker hashes and tooling response IDs are non-secret build/request
+metadata and grant no capability. Initial Trust has a 120-second deadline.
+
 ## Registered iPhone host tools
 
 Native and Rootless have equivalent bounded USB tool capabilities, not raw

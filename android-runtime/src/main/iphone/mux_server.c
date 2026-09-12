@@ -7,4 +7,4 @@ static int terminal_accept(int fd, struct sockaddr *address, socklen_t *size)
     return fd; /* transferred from our internal socketpair queue, never listen() */
 }
 #define accept terminal_accept
-#include <client.c>
+#include <terminal_mux_client.inc>

@@ -6,6 +6,13 @@ physical Android USB owner alive while registered trusted tools request fresh
 anonymous streams; it is never a guest usbmux listener. The existing GPL
 corresponding-source bundle now includes these connector-owner changes.
 
+`mux-client.patch` preserves ReadPairRecord errno instead of converting every
+store error into ENOENT. It is applied to a generated copy of pinned client.c
+and included in the GPL corresponding-source bundle. Private record writes use
+random temporary names so PID reuse after a killed writer cannot block saving.
+The native self-test verifies stale PID files, unreadable records and ENOENT
+through real internal usbmux streams.
+
 The port compiles upstream usbmuxd protocol/async transport, not its Linux
 daemon/main/udev/discovery entry point. `usb_android.c` wraps Android's granted
 FD, selects the strict Apple mux interface and reuses upstream transfer logic.

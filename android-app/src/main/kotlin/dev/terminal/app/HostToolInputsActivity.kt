@@ -75,7 +75,8 @@ class HostToolInputsActivity : TerminalActivity() {
                                     Text(operation.getString("phase") + " · " + operation.getString("state"))
                                     operation.optJSONObject("information")?.let { Text("${it.optString("name")} · ${it.optString("model")} · iOS ${it.optString("ios")}") }
                                     if (operation.has("progress")) LinearProgressIndicator(progress = { operation.optDouble("progress").toFloat() }, modifier = Modifier.fillMaxWidth())
-                                    if (operation.has("error")) Text(getString(errorResource(operation.optString("error"))) + "\n" + operation.optString("error"))
+                                    if (operation.has("error")) Text(getString(errorResource(operation.optString("error"))) + "\n" + operation.optString("error") +
+                                        operation.optString("detail").let { if (it.isEmpty()) "" else " · $it" })
                                     if (operation.optString("state") == "COMPLETED") Text(stringResource(R.string.host_tool_completed))
                                     val prompt = operation.optJSONObject("prompt")
                                     if (prompt != null) Input(prompt) { values ->
@@ -127,6 +128,10 @@ class HostToolInputsActivity : TerminalActivity() {
         }
     }
     private fun errorResource(code: String): Int = when (code) {
+        "PAIR_RECORD_READ_FAILED", "PAIR_RECORD_SAVE_FAILED" -> R.string.host_tool_error_pair_store
+        "PAIR_RECORD_INVALID", "PAIR_RECORD_REJECTED" -> R.string.host_tool_error_pair_record
+        "PAIRING_TRANSPORT", "PAIRING_TIMEOUT" -> R.string.host_tool_error_pair_transport
+        "PAIRING_RESPONSE", "PAIR_SESSION_FAILED" -> R.string.host_tool_error_pair_response
         "DEVICE_LOCKED", "TRUST_DENIED", "PAIRING_FAILED", "USB_DETACHED", "USB_PERMISSION_DENIED" -> R.string.host_tool_error_device
         "NETWORK", "ANISETTE", "DOWNLOAD" -> R.string.host_tool_error_network
         "APPLE_CREDENTIALS", "TWO_FACTOR", "TWO_FACTOR_TIMEOUT", "INPUT_TIMEOUT" -> R.string.host_tool_error_login
