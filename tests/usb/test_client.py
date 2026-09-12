@@ -19,6 +19,13 @@ spec.loader.exec_module(client)
 
 
 class ClientTest(unittest.TestCase):
+    def test_iphone_worker_has_no_implicit_usb_configuration_or_reset(self):
+        root = Path(__file__).resolve().parents[2]
+        source = (root / "android-runtime/src/main/iphone/usb_android.c").read_text()
+        for forbidden in ("libusb_set_configuration(", "libusb_reset_device(", "libusb_set_auto_detach_kernel_driver("):
+            self.assertNotIn(forbidden, source)
+        worker = (root / "android-runtime/src/main/iphone/worker.c").read_text()
+        self.assertIn("USB_CONFIGURATION_REQUIRED", worker)
     def test_partial_send_is_not_retried_and_closes_connection(self):
         broker = client.Broker.__new__(client.Broker)
         broker.socket, broker.token = MagicMock(), "test"

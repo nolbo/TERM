@@ -1,5 +1,13 @@
 # TERM 사용 가이드
 
+iPhone 검사 중 USB 구성을 자동 변경하지 않습니다. `USB_CONFIGURATION_REQUIRED`가
+나오면 Native/Rootless의 `terminal-usb configuration DEVICE_ID VALUE`로 별도 승인을
+요청하고, 변경 후 다시 목록을 조회해 새 기기 ID를 사용하세요.
+호스트 도구 화면과 CLI의 `changes`는 실패·취소 후에도 설치·설정 변경이 남았는지
+표시합니다. `POSSIBLE`은 확인 필요, `CONFIRMED`는 완료 응답 확인, `UNCHANGED`는
+기존 설정 유지입니다. 자동 앱 삭제·신뢰 해제·설정 초기화는 하지 않습니다.
+페어링 파일은 임시 파일 검증 후 교체하며, 중단 시 임시 파일이 남을 수 있습니다.
+
 개발용 [가상 iPhone 테스트](../tests/usb/VIRTUAL_IPHONE.md)는 테스트 APK에서만
 연결 중단·Trust 거부·부분 전송 등을 재현합니다. 제품 앱에 가상 iPhone이나 권한
 우회 기능을 제공하지 않으며, 실제 iOS 설치 성공을 검증하는 환경은 아닙니다.

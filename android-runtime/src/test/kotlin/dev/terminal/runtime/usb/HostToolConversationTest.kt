@@ -21,7 +21,7 @@ class HostToolConversationTest {
             val snapshot = record.snapshot()
             assertEquals("SAVING_PAIR_RECORD", snapshot.getString("phase"))
             assertEquals("PAIR_RECORD_SAVE_FAILED", snapshot.getString("error"))
-            assertEquals(2, snapshot.getInt("serviceRevision"))
+            assertEquals(3, snapshot.getInt("serviceRevision"))
             assertEquals(detail == "IO_EOF", snapshot.has("detail"))
             assertFalse(snapshot.toString().contains("credential-sentinel"))
         }
@@ -29,6 +29,22 @@ class HostToolConversationTest {
         listOf("PAIRING", "CHECKING_PAIR_RECORD", "VALIDATING_PAIRING", "READING_DEVICE_INFORMATION").forEach { phase(reused, it) }
     }
     private fun record() = HostToolConversation("operation", "isideload", "attachment")
+    @Test fun residualChangesSurviveFailureAndCancellationWithoutSecretMetadata() {
+        for (error in listOf("CANCELED", "USB_DETACHED", "AFC_PLACEMENT")) {
+            val record = record(); login(record)
+            reply(record, arrayOf("account", "password", HostToolConversation.DEFAULT_ENDPOINT))
+            for (step in listOf("APPLE_LOGIN", "REGISTERING_DEVICE", "DOWNLOADING_SIDESTORE", "SIGNING", "INSTALLING", "GENERATING_PAIRING")) phase(record, step)
+            record.event(JSONObject().put("phase", "GENERATING_PAIRING").put("wifiDebugging", "UNCHANGED").put("secret", "sentinel"))
+            phase(record, "PLACING_PAIRING"); record.fail(error)
+            val snapshot = record.snapshot()
+            assertEquals("CONFIRMED", snapshot.getJSONObject("changes").getString("appInstallation"))
+            assertEquals("UNCHANGED", snapshot.getJSONObject("changes").getString("wifiDebugging"))
+            assertEquals("POSSIBLE", snapshot.getJSONObject("changes").getString("pairingFile"))
+            assertFalse(snapshot.toString().contains("sentinel"))
+        }
+        val record = record()
+        assertTrue(runCatching { record.event(JSONObject().put("phase", "GENERATING_PAIRING").put("wifiDebugging", "CONFIRMED")) }.isFailure)
+    }
     private fun phase(record: HostToolConversation, phase: String) { record.event(JSONObject().put("phase", phase)) }
     private fun login(record: HostToolConversation) {
         for (step in listOf("PAIRING", "WAITING_FOR_TRUST", "READING_DEVICE_INFORMATION", "WAITING_FOR_LOGIN")) phase(record, step)

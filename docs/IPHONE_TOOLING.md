@@ -2,6 +2,30 @@
 
 ## Product direction
 
+Service revision 3 adds a bounded `changes` dictionary to operation snapshots,
+including failed/canceled operations: `devicePairing`, `developerAccount`,
+`appInstallation`, `wifiDebugging`, `pairingFile`, with `POSSIBLE`, `CONFIRMED`, or
+`UNCHANGED` values. These describe acknowledged or possible effects, not rollback.
+Installation is confirmed only after the install call succeeds; an interrupted
+call remains possible. No automatic uninstall, unpair or settings reset is done.
+Snapshots are runtime-owned, not a durable recovery journal after process death.
+
+Wi-Fi debugging is read before writing. An already enabled value is unchanged;
+an unreadable/non-boolean value fails closed. A successfully enabled value remains
+enabled if later steps fail, and this is reported rather than silently resetting it.
+
+Pairing placement writes a host-randomized staging file in the same Documents
+directory, closes it, reads back and verifies it, then issues one AFC rename to
+the final filename and verifies again. The live file is never opened for writing
+or deleted to make rename succeed. If replacement is unsupported, fail without a
+destructive fallback. An ambiguous rename result is not replayed or rolled back.
+A staging file may remain after failure/cancellation; no cleanup is sent over an
+uncertain AFC stream. AFC has no exclusive-create primitive, so staging uses a
+random UUID plus fail-closed existence checking; this does not protect against a
+concurrently hostile app modifying its own Documents directory. Actual device
+rename/replacement behavior, including power loss, still requires hardware
+validation. This does not claim filesystem crash-atomicity on every iOS version.
+
 Tooling service revision 2 separates `CHECKING_PAIR_RECORD`, `WAITING_FOR_TRUST`,
 `SAVING_PAIR_RECORD` and `VALIDATING_PAIRING`. Only a usbmux ENOENT response
 permits new pairing; unreadable/invalid records are preserved and reported.

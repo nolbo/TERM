@@ -18,6 +18,7 @@ internal class HostToolConversation(val id: String, val tool: String, val device
     private var reply: Array<String>? = null
     private var completed = false
     private var result: JSONObject? = null
+    private val changes = JSONObject()
     private val monitor = java.lang.Object()
 
     fun event(event: JSONObject) = synchronized(monitor) {
@@ -28,7 +29,20 @@ internal class HostToolConversation(val id: String, val tool: String, val device
             detail = event.optString("detail").takeIf { it in DETAILS }
             fail(event.optString("error")); return@synchronized
         }
+        if (event.has("wifiDebugging")) {
+            require(phase == "GENERATING_PAIRING" && next == phase && event.getString("wifiDebugging") in setOf("UNCHANGED", "CONFIRMED")) { "WORKER_PROTOCOL" }
+            changes.put("wifiDebugging", event.getString("wifiDebugging"))
+            return@synchronized
+        }
         require(next in transitions(phase)) { "WORKER_PROTOCOL" }
+        when (next) {
+            "WAITING_FOR_TRUST" -> changes.put("devicePairing", "POSSIBLE")
+            "REGISTERING_DEVICE", "SIGNING" -> changes.put("developerAccount", "POSSIBLE")
+            "INSTALLING" -> if (!changes.has("appInstallation")) changes.put("appInstallation", "POSSIBLE")
+            "GENERATING_PAIRING" -> { changes.put("appInstallation", "CONFIRMED"); changes.put("wifiDebugging", "POSSIBLE") }
+            "PLACING_PAIRING" -> changes.put("pairingFile", "POSSIBLE")
+            "COMPLETED" -> changes.put("pairingFile", "CONFIRMED")
+        }
         if (next == "COMPLETED") {
             result = JSONObject().also { dest ->
                 if (event.has("bundleId")) {
@@ -79,6 +93,7 @@ internal class HostToolConversation(val id: String, val tool: String, val device
             .put("phase", phase).also { result ->
                 detail?.let { result.put("detail", it) }
                 result.put("serviceRevision", TrustedIphoneToolPolicy.SERVICE_REVISION)
+                if (changes.length() > 0) result.put("changes", JSONObject(changes.toString()))
                 error?.let { result.put("error", it) }; progress?.let { result.put("progress", it) }
                 information?.let { result.put("information", JSONObject(it.toString())) }
                 if (state == "COMPLETED") this.result?.let { result.put("result", JSONObject(it.toString())) }
@@ -159,7 +174,7 @@ internal class HostToolConversation(val id: String, val tool: String, val device
             "PLACING_PAIRING" -> setOf("COMPLETED")
             else -> emptySet()
         }
-        val ERRORS = setOf("USB_HOST_UNAVAILABLE", "USB_PERMISSION_DENIED", "UNSUPPORTED_USB_DEVICE", "DEVICE_BUSY", "DEVICE_LOCKED",
+        val ERRORS = setOf("USB_HOST_UNAVAILABLE", "USB_PERMISSION_DENIED", "UNSUPPORTED_USB_DEVICE", "USB_CONFIGURATION_REQUIRED", "DEVICE_BUSY", "DEVICE_LOCKED",
             "PAIR_RECORD_READ_FAILED", "PAIR_RECORD_INVALID", "PAIR_RECORD_SAVE_FAILED", "PAIR_RECORD_REJECTED",
             "PAIRING_TRANSPORT", "PAIRING_RESPONSE", "PAIRING_TIMEOUT", "PAIR_SESSION_FAILED",
             "TRUST_DENIED", "PAIRING_FAILED", "UNSUPPORTED_IOS_PAIRING", "NETWORK", "ANISETTE", "APPLE_CREDENTIALS", "TWO_FACTOR",

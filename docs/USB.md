@@ -434,9 +434,11 @@ not transactional: cancelling a reply cannot undo an already accepted iOS action
 
 The approved operation exclusively occupies that device; other devices and UI
 revocation remain responsive. Host settings use interface `-1` for this explicit
-device-level grant. The worker may select a USB configuration containing exactly
-one alternate-zero Apple 255/254/2 interface with bulk IN/OUT. It prefers the
-active configuration and never forcibly detaches kernel drivers. No automatic
+device-level grant. The worker only claims an interface in the active USB
+configuration. If the mux interface exists only in another configuration it returns
+`USB_CONFIGURATION_REQUIRED` without changing it. Use `terminal-usb configuration
+DEVICE_ID VALUE` (Native or Rootless), obtain separate approval, then list again
+and use the new attachment ID. It never forcibly detaches kernel drivers. No automatic
 Apple vendor mode switch, recovery/DFU, T2/Mac restore, tethering or video-mode
 control is provided. If no usable mux interface is exposed, it fails explicitly.
 A re-enumerated device always requires fresh approval, never reuse of an old FD.

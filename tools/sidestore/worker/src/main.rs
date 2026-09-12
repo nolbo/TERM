@@ -5,6 +5,7 @@ mod android_tls;
 mod artifact;
 use terminal_iphone_connector as connector;
 mod pairing;
+mod pairing_placement;
 mod lockdown_pairing;
 mod storage;
 #[cfg(test)] mod tests;

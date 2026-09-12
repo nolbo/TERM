@@ -2,6 +2,14 @@
 
 ## Native / Rootless iPhone tool environment
 
+The iPhone transport only claims the active USB configuration; changing it requires
+the separate device-wide broker capability, including for trusted tools. The host
+conversation retains bounded residual-effect metadata through failure/cancellation.
+SideStore pairing placement uses a verified staging file and one AFC rename, with
+no destructive replacement fallback or automatic uninstall/settings rollback.
+These are failure-containment measures, not an iOS transaction or crash-recovery
+journal; see IPHONE_TOOLING.md for protocol and physical-validation limitations.
+
 The app provides a shared typed USB CLI capability, not a SideStore/IPA installer
 screen. Native's packaged Bionic CLI and Rootless's Python CLI call the same
 session-scoped broker. `:vmhost` leases the physical device and owns the USB/mux

@@ -311,7 +311,8 @@ int main(int argc, char **argv)
     if (!test) {
         int fd = receive_usb(argv[3], bootstrap);
         if (fd < 0) return emit_error("USB_FD_HANDOFF_FAILED", 0);
-        if (terminal_usb_init(fd)) return emit_error("USB_MUX_INTERFACE_UNAVAILABLE", 0);
+        int initialized = terminal_usb_init(fd);
+        if (initialized) return emit_error(initialized == -2 ? "USB_CONFIGURATION_REQUIRED" : "USB_MUX_INTERFACE_UNAVAILABLE", 0);
         usb_enabled = 1;
     }
     pthread_t thread;

@@ -79,7 +79,7 @@ class UsbBrokerDeviceTest {
                 .put("op", "tooling").put("action", "list")
             val tools = call("", toolingRequest.toString()).getJSONObject("result")
             assertEquals("list", tools.getString("requestAction"))
-            assertEquals(2, tools.getInt("serviceRevision"))
+            assertEquals(3, tools.getInt("serviceRevision"))
             assertTrue(tools.getString("requestId").matches(Regex("[0-9a-f-]{36}")))
             for (name in listOf("iphone-worker", "iphone-tool-probe", "isideload"))
                 assertTrue(tools.getJSONObject("workerSha256").getString(name).matches(Regex("[0-9a-f]{64}")))

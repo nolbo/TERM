@@ -2,6 +2,12 @@
 
 ## Shared registered iPhone tools
 
+Current service revision is 3. Snapshots may contain `changes` with only fixed
+effect keys/statuses described in IPHONE_TOOLING.md. No paths, records or credentials
+are included. Both CLIs preserve this metadata in JSON. `USB_CONFIGURATION_REQUIRED`
+means the iPhone worker refused to change the active configuration; use the existing
+separately approved `configuration` request, also supported by the Native CLI.
+
 Service revision 2 adds `serviceRevision: 2`, `requestAction` and a random
 non-authorizing `requestId` to successful tooling results. `tooling list` also
 provides `workerSha256`, keyed by APK executable name (no host paths).

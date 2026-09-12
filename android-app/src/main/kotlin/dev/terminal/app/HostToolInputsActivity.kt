@@ -77,6 +77,18 @@ class HostToolInputsActivity : TerminalActivity() {
                                     if (operation.has("progress")) LinearProgressIndicator(progress = { operation.optDouble("progress").toFloat() }, modifier = Modifier.fillMaxWidth())
                                     if (operation.has("error")) Text(getString(errorResource(operation.optString("error"))) + "\n" + operation.optString("error") +
                                         operation.optString("detail").let { if (it.isEmpty()) "" else " · $it" })
+                                    operation.optJSONObject("changes")?.let { changes ->
+                                        Text(stringResource(R.string.host_tool_changes_notice))
+                                        for ((key, label) in listOf("devicePairing" to R.string.host_tool_change_pair,
+                                            "developerAccount" to R.string.host_tool_change_account, "appInstallation" to R.string.host_tool_change_install,
+                                            "wifiDebugging" to R.string.host_tool_change_wifi, "pairingFile" to R.string.host_tool_change_file)) {
+                                            if (changes.has(key)) Text(getString(label) + ": " + getString(when (changes.optString(key)) {
+                                                "CONFIRMED" -> R.string.host_tool_change_confirmed
+                                                "UNCHANGED" -> R.string.host_tool_change_unchanged
+                                                else -> R.string.host_tool_change_possible
+                                            }))
+                                        }
+                                    }
                                     if (operation.optString("state") == "COMPLETED") Text(stringResource(R.string.host_tool_completed))
                                     val prompt = operation.optJSONObject("prompt")
                                     if (prompt != null) Input(prompt) { values ->
@@ -128,6 +140,7 @@ class HostToolInputsActivity : TerminalActivity() {
         }
     }
     private fun errorResource(code: String): Int = when (code) {
+        "USB_CONFIGURATION_REQUIRED" -> R.string.host_tool_error_configuration
         "PAIR_RECORD_READ_FAILED", "PAIR_RECORD_SAVE_FAILED" -> R.string.host_tool_error_pair_store
         "PAIR_RECORD_INVALID", "PAIR_RECORD_REJECTED" -> R.string.host_tool_error_pair_record
         "PAIRING_TRANSPORT", "PAIRING_TIMEOUT" -> R.string.host_tool_error_pair_transport

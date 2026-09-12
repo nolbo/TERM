@@ -38,13 +38,25 @@ pub fn combine(lockdown: plist::Value, remote: Option<plist::Value>) -> Result<V
     Ok(bytes)
 }
 
+pub(crate) async fn enable_wifi(lockdown: &mut LockdownClient) -> Result<&'static str, crate::Failure> {
+    let previous = lockdown.get_value(Some("EnableWifiDebugging"), Some("com.apple.mobile.wireless_lockdown")).await
+        .map_err(|e| crate::failure("WIFI_DEBUGGING", e))?;
+    let enabled = previous.as_boolean().ok_or_else(|| crate::failure("WIFI_DEBUGGING", "unknown prior setting"))?;
+    // Never overwrite an unreadable setting or disable a user's pre-existing setting.
+    if !enabled {
+        lockdown.set_value("EnableWifiDebugging", true.into(), Some("com.apple.mobile.wireless_lockdown")).await
+            .map_err(|e| crate::failure("WIFI_DEBUGGING", e))?;
+    }
+    Ok(if enabled { "UNCHANGED" } else { "CONFIRMED" })
+}
+
 pub async fn generate(provider: &dyn IdeviceProvider, version: &str, udid: &str, storage: &dyn SideloadingStorage) -> Result<Vec<u8>, crate::Failure> {
     let mut record = provider.get_pairing_file().await.map_err(|e| crate::failure("PAIRING_FAILED", e))?;
     record.udid = Some(udid.into());
     let mut lockdown = LockdownClient::connect(provider).await.map_err(|e| crate::failure("PAIRING_FAILED", e))?;
     lockdown.start_session(&record).await.map_err(|e| crate::failure("PAIRING_FAILED", e))?;
-    lockdown.set_value("EnableWifiDebugging", true.into(), Some("com.apple.mobile.wireless_lockdown")).await
-        .map_err(|e| crate::failure("WIFI_DEBUGGING", e))?;
+    let wifi = enable_wifi(&mut lockdown).await?;
+    crate::event(serde_json::json!({"phase":"GENERATING_PAIRING", "wifiDebugging": wifi}));
     let legacy = plist::Value::from_reader(std::io::Cursor::new(record.serialize().map_err(|e| crate::failure("PAIRING_FAILED", e))?))
         .map_err(|e| crate::failure("PAIRING_FAILED", e))?;
     if !needs_remote(version).map_err(|e| crate::failure("UNSUPPORTED_IOS_PAIRING", e))? {
@@ -69,13 +81,5 @@ pub async fn place(provider: &dyn IdeviceProvider, signed_id: &str, bytes: &[u8]
         .filter(|id| *id == signed_id).collect();
     ensure!(matches.len() == 1, "installed SideStore identity not found");
     let mut afc = HouseArrestClient::connect(provider).await?.vend_documents(matches[0].to_owned()).await?;
-    let path = "/Documents/ALTPairingFile.mobiledevicepairing";
-    let mut file = afc.open(path, idevice::afc::opcode::AfcFopenMode::Wr).await?;
-    let written = file.write_entire(bytes).await; let closed = file.close().await;
-    written?; closed?;
-    let mut file = afc.open(path, idevice::afc::opcode::AfcFopenMode::RdOnly).await?;
-    let read = file.read_n(bytes.len() + 1).await; let closed = file.close().await;
-    let read = read?; closed?;
-    ensure!(read == bytes, "pairing file verification failed");
-    Ok(())
+    crate::pairing_placement::place(&mut afc, bytes).await
 }

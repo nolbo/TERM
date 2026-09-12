@@ -52,7 +52,9 @@ async fn serve(mut peer: DuplexStream, outcome: &'static str) {
 async fn pinned_pair_client_handles_pending_trust_accept_denial_lock_and_detach() {
     for (outcome, code) in [("accepted", None), ("UserDeniedPairing", Some("TRUST_DENIED")),
         ("PasswordProtected", Some("DEVICE_LOCKED")), ("detach", Some("PAIRING_TRANSPORT"))] {
-        tokio::time::timeout(Duration::from_secs(20), async {
+        // Real RSA generation can exceed 20s alongside ARM64 APK builds.
+        // Test watchdog only; production Trust deadlines are unchanged.
+        tokio::time::timeout(Duration::from_secs(60), async {
             let (stream, peer) = tokio::io::duplex(256 * 1024);
             let server = tokio::spawn(serve(peer, outcome));
             let mut client = LockdownClient::new(Idevice::new(Box::new(stream), "virtual-test"));
@@ -82,4 +84,32 @@ async fn canceled_silent_lockdown_peer_closes_without_cleanup_commands() {
     assert!(tokio::time::timeout(Duration::from_millis(50), client.get_value(Some("DeviceName"), None)).await.is_err());
     drop(client);
     tokio::time::timeout(Duration::from_secs(2), server).await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn wifi_preserves_enabled_setting_and_never_writes_unknown_state() {
+    for previous in [plist::Value::Boolean(true), plist::Value::Boolean(false), "unknown".into()] {
+        let (stream, mut peer) = tokio::io::duplex(4096);
+        let prior = previous.clone();
+        let server = tokio::spawn(async move {
+            let req = request(&mut peer).await;
+            assert_eq!(req.get("Key").and_then(|v| v.as_string()), Some("EnableWifiDebugging"));
+            reply(&mut peer, field("Value", prior.clone())).await;
+            if prior.as_boolean() == Some(false) {
+                let req = request(&mut peer).await;
+                assert_eq!(req.get("Request").and_then(|v| v.as_string()), Some("SetValue"));
+                assert_eq!(req.get("Value").and_then(|v| v.as_boolean()), Some(true));
+                reply(&mut peer, field("Request", "SetValue")).await;
+            }
+            let mut byte = [0]; assert_eq!(peer.read(&mut byte).await.unwrap(), 0);
+        });
+        let mut client = LockdownClient::new(Idevice::new(Box::new(stream), "virtual-test"));
+        let result = crate::pairing::enable_wifi(&mut client).await;
+        match previous.as_boolean() {
+            Some(true) => assert!(matches!(result, Ok("UNCHANGED"))),
+            Some(false) => assert!(matches!(result, Ok("CONFIRMED"))),
+            None => assert!(matches!(result, Err(crate::Failure { code: "WIFI_DEBUGGING", .. }))),
+        }
+        drop(client); tokio::time::timeout(Duration::from_secs(2), server).await.unwrap().unwrap();
+    }
 }

@@ -33,6 +33,7 @@ class IphoneToolingDeviceTest {
     }
     @Test fun nativeCliLifecycleCommandsMatchRootlessScopedRequests() {
         val cases = listOf(
+            listOf("configuration", "phone", "2") to mapOf("device" to "phone", "configuration" to "2"),
             listOf("start", "isideload", "phone") to mapOf("tool" to "isideload", "device" to "phone"),
             listOf("status", "operation") to mapOf("operation" to "operation"),
             listOf("watch", "operation") to mapOf("operation" to "operation"),
@@ -42,7 +43,8 @@ class IphoneToolingDeviceTest {
         for ((arguments, fields) in cases) {
             val address = "tool-life-test-${UUID.randomUUID()}"; val token = UUID.randomUUID().toString()
             LocalServerSocket(address).use { server ->
-                val child = ProcessBuilder(listOf(binary("terminal-usb"), "tooling") + arguments).apply {
+                val configuration = arguments[0] == "configuration"
+                val child = ProcessBuilder(listOf(binary("terminal-usb")) + (if (configuration) emptyList() else listOf("tooling")) + arguments).apply {
                     environment().clear(); environment()["TERMINAL_USB_SOCKET"] = address; environment()["TERMINAL_USB_TOKEN"] = token
                     redirectErrorStream(true)
                 }.start()
@@ -52,8 +54,9 @@ class IphoneToolingDeviceTest {
                         socket.soTimeout = 2000; val input = DataInputStream(socket.inputStream)
                         val size = input.readInt(); assertTrue(size in 1..49152)
                         val request = JSONObject(String(ByteArray(size).also(input::readFully)))
-                        assertEquals(if (arguments[0] == "watch") "status" else arguments[0], request.getString("action"))
-                        assertEquals(setOf("version", "token", "op", "action") + fields.keys, request.keys().asSequence().toSet())
+                        if (configuration) assertEquals("configuration", request.getString("op"))
+                        else assertEquals(if (arguments[0] == "watch") "status" else arguments[0], request.getString("action"))
+                        assertEquals(setOf("version", "token", "op") + (if (configuration) emptySet() else setOf("action")) + fields.keys, request.keys().asSequence().toSet())
                         fields.forEach { (key, value) -> assertEquals(value, request.getString(key)) }
                         val reply = "{\"ok\":true,\"result\":{\"state\":\"COMPLETED\"}}".toByteArray()
                         DataOutputStream(socket.outputStream).apply { writeInt(reply.size); write(reply); flush() }

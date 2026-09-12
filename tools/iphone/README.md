@@ -1,5 +1,10 @@
 # Android usbmuxd worker
 
+The port never calls `libusb_set_configuration`: it returns
+`USB_CONFIGURATION_REQUIRED` if only another configuration exposes a mux interface.
+Only the separate Android broker configuration capability may change it. This GPL
+port change is included by the existing corresponding-source bundle generation.
+
 The reusable Rust private connector and packaged Native CLI/probe are documented
 in [connector/README.md](connector/README.md). The C `mux-owner` mode keeps the
 physical Android USB owner alive while registered trusted tools request fresh

@@ -1,4 +1,14 @@
 <resources>
+    <string name="host_tool_error_configuration">The active USB configuration has no iPhone mux interface. It was not changed automatically. Inspect USB configurations, separately approve a configuration change, then retry with the new device ID.</string>
+    <string name="host_tool_changes_notice">Failure or cancellation does not undo these changes. No automatic uninstall or settings reset is attempted. Inspect the device before retrying. Interrupted pairing placement may leave a staging file.</string>
+    <string name="host_tool_change_pair">Device trust</string>
+    <string name="host_tool_change_account">Developer account/certificates</string>
+    <string name="host_tool_change_install">App installation</string>
+    <string name="host_tool_change_wifi">Wi-Fi debugging</string>
+    <string name="host_tool_change_file">Pairing file placement</string>
+    <string name="host_tool_change_confirmed">Completion acknowledged</string>
+    <string name="host_tool_change_unchanged">Existing setting preserved</string>
+    <string name="host_tool_change_possible">May have changed — inspect before retrying</string>
     <string name="host_tool_error_pair_store">Android could not read or save the pairing record. Check available storage. Existing records are not automatically deleted.</string>
     <string name="host_tool_error_pair_record">The pairing record is invalid or was rejected by the iPhone. Check the trust relationship. Unpairing and generating a replacement requires a separate user action.</string>
     <string name="host_tool_error_pair_transport">The pairing connection closed or timed out. Unlock the iPhone, check the cable and retry.</string>

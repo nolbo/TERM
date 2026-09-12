@@ -12,7 +12,7 @@ static int select_interface(libusb_device_handle *handle, struct usb_device *usb
     libusb_device *device = libusb_get_device(handle);
     int current = 0;
     if (libusb_get_configuration(handle, &current) != 0) return -1;
-    /* Prefer the active configuration; changing it can disrupt other functions. */
+    /* Read-only selection. Device-wide changes require the separate broker grant. */
     for (int pass = 0; pass < 2; pass++) {
         for (int i = 0; i < usbdev->devdesc.bNumConfigurations; i++) {
             struct libusb_config_descriptor *config = NULL;
@@ -47,7 +47,7 @@ static int select_interface(libusb_device_handle *handle, struct usb_device *usb
             int value = config->bConfigurationValue;
             libusb_free_config_descriptor(config);
             if (found != 1) continue;
-            if (value != current && libusb_set_configuration(handle, value) != 0) return -1;
+            if (value != current) return -2; /* Host must obtain a separate configuration grant. */
             return libusb_claim_interface(handle, usbdev->interface);
         }
     }
@@ -67,9 +67,11 @@ int terminal_usb_init(int fd)
     libusb_device *usb = libusb_get_device(dev->handle);
     if (libusb_get_device_descriptor(usb, &dev->devdesc) != 0 ||
         dev->devdesc.idVendor != VID_APPLE || dev->devdesc.idProduct < PID_RANGE_LOW ||
-        dev->devdesc.idProduct > PID_RANGE_MAX || select_interface(dev->handle, dev) != 0) {
+        dev->devdesc.idProduct > PID_RANGE_MAX) {
         libusb_close(dev->handle); free(dev); return -1;
     }
+    int selected = select_interface(dev->handle, dev);
+    if (selected) { libusb_close(dev->handle); free(dev); return selected; }
     int n = libusb_get_string_descriptor_ascii(dev->handle, dev->devdesc.iSerialNumber,
         (unsigned char *)dev->serial, sizeof(dev->serial) - 2);
     if (n <= 0) { libusb_release_interface(dev->handle, dev->interface); libusb_close(dev->handle); free(dev); return -1; }

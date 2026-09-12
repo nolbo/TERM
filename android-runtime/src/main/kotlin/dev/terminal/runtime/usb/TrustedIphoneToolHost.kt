@@ -189,7 +189,10 @@ internal class TrustedIphoneToolHost(
             mux.outputStream.use { it.write((token + "\n").toByteArray()); it.flush() }
             val owner = handshake(server, token)
             ParcelFileDescriptor.fromFd(usb.fileDescriptor).use { send(owner, arrayOf(it.fileDescriptor, endpoints[0].fileDescriptor), 'B') }
-            require(line(mux.inputStream) == "{\"ok\":true,\"result\":{\"muxReady\":true}}") { "WORKER_PROTOCOL" }
+            val ready = line(mux.inputStream)
+            if (ready != null && runCatching { JSONObject(ready).optString("error") == "USB_CONFIGURATION_REQUIRED" }.getOrDefault(false))
+                error("USB_CONFIGURATION_REQUIRED")
+            require(ready == "{\"ok\":true,\"result\":{\"muxReady\":true}}") { "WORKER_PROTOCOL" }
             if (conversation != null) {
                 state.transition(Phase.RUNNING)
                 runInteractive(loader, endpoints)

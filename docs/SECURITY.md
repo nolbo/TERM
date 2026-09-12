@@ -1,5 +1,12 @@
 # Security
 
+iPhone workers never change USB configurations, even for `check`; the existing
+device-wide configuration capability remains separate. Pairing-file placement
+stages/verifies then renames, never truncating or deleting the live file first.
+Failure snapshots disclose only fixed residual-change categories, not pairing data.
+No automatic uninstall or settings rollback is attempted, since these can destroy
+pre-existing app data or user settings. See IPHONE_TOOLING.md for limits and recovery.
+
 USB failure containment closes uncertain Python broker streams and releases raw
 interfaces after host I/O exceptions; cleanup does not reset devices or replay
 commands. Tooling FAILED/CANCELED states have nonzero CLI exit status. This bounds

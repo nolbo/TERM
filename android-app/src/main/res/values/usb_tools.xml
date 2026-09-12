@@ -1,4 +1,14 @@
 <resources>
+    <string name="host_tool_error_configuration">현재 USB 구성에 iPhone 연결 인터페이스가 없습니다. 자동 변경하지 않았습니다. USB 목록에서 구성을 확인하고 별도 구성 변경을 승인한 뒤 새 기기 ID로 다시 시도하세요.</string>
+    <string name="host_tool_changes_notice">실패·취소해도 아래 변경은 남을 수 있습니다. 앱 삭제·설정 초기화로 자동 복구하지 않습니다. 상태를 확인한 뒤 재시도하세요. 페어링 파일 전송 중단 시 임시 파일이 남을 수 있습니다.</string>
+    <string name="host_tool_change_pair">기기 신뢰 관계</string>
+    <string name="host_tool_change_account">개발자 계정·인증서</string>
+    <string name="host_tool_change_install">앱 설치</string>
+    <string name="host_tool_change_wifi">Wi-Fi 디버깅</string>
+    <string name="host_tool_change_file">페어링 파일 배치</string>
+    <string name="host_tool_change_confirmed">완료 응답 확인</string>
+    <string name="host_tool_change_unchanged">기존 설정 유지</string>
+    <string name="host_tool_change_possible">변경됐을 수 있음 — 확인 필요</string>
     <string name="host_tool_error_pair_store">Android에서 페어링 기록을 읽거나 저장하지 못했습니다. 저장 공간을 확인하세요. 기존 기록은 자동 삭제하지 않습니다.</string>
     <string name="host_tool_error_pair_record">페어링 기록이 손상되었거나 iPhone이 거부했습니다. 기존 신뢰 관계를 확인하세요. 페어링 해제 후 재생성은 별도 사용자 작업이 필요합니다.</string>
     <string name="host_tool_error_pair_transport">페어링 중 연결이 끊겼거나 대기 시간이 지났습니다. iPhone을 잠금 해제하고 케이블 연결을 확인한 뒤 다시 시도하세요.</string>

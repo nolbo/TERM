@@ -105,6 +105,11 @@ fn run(args: &[String]) -> Result<Value> {
     match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["list"] => broker.call(json!({"op":"list"})),
         ["diagnostics"] => broker.call(json!({"op":"diagnostics"})),
+        ["configuration",device,value] => {
+            let configuration: u8 = value.parse()?;
+            if configuration == 0 { return Err("Configuration must be 1..255".into()); }
+            broker.call(json!({"op":"configuration","device":device,"configuration":configuration}))
+        },
         ["tooling","list"] => broker.call(json!({"op":"tooling","action":"list"})),
         ["tooling","check",device] => checked_probe(broker.call(json!({"op":"tooling","action":"check","device":device}))?),
         ["tooling","start",tool,device] => broker.call(json!({"op":"tooling","action":"start","tool":tool,"device":device})),
@@ -127,6 +132,7 @@ fn run(args: &[String]) -> Result<Value> {
 fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.is_empty() || args == ["--help"] {
+        println!("terminal-usb configuration DEVICE VALUE — separate device-wide approval; list again afterward. Never automatic.");
         println!("tooling start TOOL DEVICE | status/watch/cancel OPERATION | select OPERATION CHOICE_IDS\nLogin/2FA: open USB → host tool inputs in the app. No credentials in the terminal. Watch detaches without canceling; use cancel explicitly.");
         println!("terminal-usb list | diagnostics | tooling list | tooling check DEVICE\nterminal-usb iphone pair|info|unpair DEVICE\nterminal-usb iphone ls DEVICE [AFC_PATH]\nterminal-usb iphone get DEVICE AFC_PATH LOCAL_FILE\nterminal-usb iphone put DEVICE LOCAL_FILE [--name ASCII_NAME]\nEach device action requires separate approval in the app USB screen. No raw USB FD, pair records or usbmux endpoint enter the terminal."); return;
     }
