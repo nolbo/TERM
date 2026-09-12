@@ -211,6 +211,8 @@ public final class TerminalView extends View {
                     // which we do not do for touch input, only mouse in onTouchEvent().
                     sendMouseEventCode(e, TerminalEmulator.MOUSE_LEFT_BUTTON_MOVED, true);
                 } else {
+                    // A fresh drag must take control immediately instead of competing with a fling.
+                    mScroller.abortAnimation();
                     scrolledWithFinger = true;
                     distanceY += mScrollRemainder;
                     int deltaRows = (int) (distanceY / mRenderer.mFontLineSpacing);
@@ -236,11 +238,13 @@ public final class TerminalView extends View {
 
                 final boolean mouseTrackingAtStartOfFling = mEmulator.isMouseTrackingActive();
                 final TerminalSession sessionAtStartOfFling = mTermSession;
-                float SCALE = 0.25f;
+                // Scroller coordinates are terminal rows, while the gesture velocity is pixels/sec.
+                // Converting between them prevents fast swipes from skipping large history ranges.
+                int velocityRows = Math.round(-velocityY / mRenderer.mFontLineSpacing);
                 if (mouseTrackingAtStartOfFling) {
-                    mScroller.fling(0, 0, 0, -(int) (velocityY * SCALE), 0, 0, -mEmulator.mRows / 2, mEmulator.mRows / 2);
+                    mScroller.fling(0, 0, 0, velocityRows, 0, 0, -mEmulator.mRows / 2, mEmulator.mRows / 2);
                 } else {
-                    mScroller.fling(0, mTopRow, 0, -(int) (velocityY * SCALE), 0, 0, -mEmulator.getScreen().getActiveTranscriptRows(), 0);
+                    mScroller.fling(0, mTopRow, 0, velocityRows, 0, 0, -mEmulator.getScreen().getActiveTranscriptRows(), 0);
                 }
 
                 post(new Runnable() {
@@ -259,7 +263,7 @@ public final class TerminalView extends View {
                         int diff = newY - mLastY;
                         doScroll(e2, diff);
                         mLastY = newY;
-                        if (more) post(this);
+                        if (more) postOnAnimation(this);
                     }
                 });
 
@@ -703,20 +707,28 @@ public final class TerminalView extends View {
 
     /** Perform a scroll, either from dragging the screen or by scrolling a mouse wheel. */
     void doScroll(MotionEvent event, int rowsDown) {
+        if (rowsDown == 0) return;
         boolean up = rowsDown < 0;
         int amount = Math.abs(rowsDown);
-        for (int i = 0; i < amount; i++) {
-            if (mEmulator.isMouseTrackingActive()) {
+        if (mEmulator.isMouseTrackingActive()) {
+            for (int i = 0; i < amount; i++) {
                 sendMouseEventCode(event, up ? TerminalEmulator.MOUSE_WHEELUP_BUTTON : TerminalEmulator.MOUSE_WHEELDOWN_BUTTON, true);
-            } else if (mEmulator.isAlternateBufferActive()) {
-                // Send up and down key events for scrolling, which is what some terminals do to make scroll work in
-                // e.g. less, which shifts to the alt screen without mouse handling.
-                handleKeyCode(up ? KeyEvent.KEYCODE_DPAD_UP : KeyEvent.KEYCODE_DPAD_DOWN, 0);
-            } else {
-                mTopRow = Math.min(0, Math.max(-(mEmulator.getScreen().getActiveTranscriptRows()), mTopRow + (up ? -1 : 1)));
-                if (!awakenScrollBars()) invalidate();
             }
+        } else if (mEmulator.isAlternateBufferActive()) {
+            // Send up and down key events for scrolling, which is what some terminals do to make scroll work in
+            // e.g. less, which shifts to the alt screen without mouse handling.
+            for (int i = 0; i < amount; i++) {
+                handleKeyCode(up ? KeyEvent.KEYCODE_DPAD_UP : KeyEvent.KEYCODE_DPAD_DOWN, 0);
+            }
+        } else {
+            mTopRow = clampScrollRow(mTopRow, rowsDown, mEmulator.getScreen().getActiveTranscriptRows());
+            if (!awakenScrollBars()) invalidate();
         }
+    }
+
+    /** Clamp one scroll update; avoids per-row loops during a fast fling. */
+    static int clampScrollRow(int topRow, int rowsDown, int transcriptRows) {
+        return Math.min(0, Math.max(-transcriptRows, topRow + rowsDown));
     }
 
     /** Overriding {@link View#onGenericMotionEvent(MotionEvent)}. */
