@@ -48,6 +48,16 @@ requirement, AVF dependency or automatic distribution package installation.
 
 ## Usage
 
+The USB settings screen groups **Connected devices**, **Access requests**,
+**Allowed access**, **Removable storage**, **Host tools**, and **Help & diagnostics**.
+Pending requests appear first. Tap a device to inspect its attachment ID and
+configuration/interface details; descriptors alone do not claim protocol compatibility
+or Android permission. Requests show their exact session and target scope.
+Android permission waiting disables duplicate approval, while denial remains available.
+Removing session access or a storage folder requires confirmation and does not terminate
+terminal sessions or delete stored files. Diagnostics show allowlisted connection counts,
+not raw JSON. Screen navigation or recreation does not revoke USB grants or cancel work.
+
 1. Use a USB Host-capable Android phone, a data-capable cable/OTG adapter and
    adequate power. Start a **new Rootless session** after updating the APK.
 2. Python 3 is required. If missing, install it through the distribution:
