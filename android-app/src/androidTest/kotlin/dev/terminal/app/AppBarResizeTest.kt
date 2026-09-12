@@ -13,6 +13,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
 import dev.terminal.app.ui.DroidTheme
+import dev.terminal.app.ui.TerminalHapticFeedbackProvider
 import dev.terminal.app.ui.TerminalChrome
 import org.junit.Assert.*
 import org.junit.Test
@@ -35,7 +36,7 @@ class AppBarResizeTest {
                 val session = TerminalSession("", "", emptyArray(), emptyArray(), 100, TerminalCallbacks {}, backend)
                 barHeight = (56 * activity.resources.displayMetrics.density).toInt()
                 activity.setContent {
-                    DroidTheme {
+                    DroidTheme { TerminalHapticFeedbackProvider {
                         Column(Modifier.fillMaxSize()) {
                             TerminalChrome(
                                 sessions = emptyList(), activeSessionId = null,
@@ -56,7 +57,7 @@ class AppBarResizeTest {
                                 }
                             }, modifier = Modifier.weight(1f).fillMaxWidth())
                         }
-                    }
+                    } }
                 }
             }
             fun settle() { SystemClock.sleep(1500); instrumentation.waitForIdleSync() }

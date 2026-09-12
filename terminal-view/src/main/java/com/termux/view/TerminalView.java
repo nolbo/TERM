@@ -1295,6 +1295,10 @@ public final class TerminalView extends View {
 
     @Override
     protected void onDraw(Canvas canvas) {
+        // Smooth scrolling translates a partial row above y=0. Keep terminal pixels in
+        // this view even when its Compose host is drawn after the app bar.
+        int viewClip = canvas.save();
+        canvas.clipRect(0, 0, getWidth(), getHeight());
         if (mEmulator == null) {
             canvas.drawColor(0XFF000000);
         } else {
@@ -1318,6 +1322,7 @@ public final class TerminalView extends View {
             drawComposingText(canvas);
             canvas.restore();
         }
+        canvas.restoreToCount(viewClip);
     }
 
     private void setComposingTextPreview(CharSequence text) {

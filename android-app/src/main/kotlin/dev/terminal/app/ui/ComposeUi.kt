@@ -36,6 +36,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -353,7 +354,10 @@ fun TerminalChrome(
 ) {
     val selectedTabIndex = sessions.indexOfFirst { it.id == activeSessionId }
     val haptics = LocalTerminalHaptics.current
-    Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
+    Surface(
+        modifier = Modifier.zIndex(1f),
+        color = MaterialTheme.colorScheme.surfaceContainer,
+    ) {
         Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars)) {
             Box(Modifier.fillMaxWidth()) {
                 androidx.compose.animation.AnimatedVisibility(
