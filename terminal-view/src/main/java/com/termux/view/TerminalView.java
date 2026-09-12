@@ -49,11 +49,6 @@ import java.util.WeakHashMap;
 
 /** View displaying and interacting with a {@link TerminalSession}. */
 public final class TerminalView extends View {
-    /** Observes whether this viewport follows the newest terminal output. */
-    public interface OnScrollStateChangedListener {
-        void onScrollStateChanged(boolean followingLatest);
-    }
-
     private final java.util.Set<Integer> mKittyPressedKeys = new java.util.HashSet<>();
 
     /** Longer than a normal animation frame so transient IME layout sizes are never applied. */
@@ -91,8 +86,6 @@ public final class TerminalView extends View {
     }
     private final WeakHashMap<TerminalSession, ScrollPosition> mSessionScrollPositions = new WeakHashMap<>();
     private long mLastTranscriptScroll;
-    @Nullable private OnScrollStateChangedListener mScrollStateChangedListener;
-    @Nullable private Boolean mLastReportedFollowingLatest;
     int[] mDefaultSelectors = new int[]{-1,-1,-1,-1};
 
     float mScaleFactor = 1.f;
@@ -359,7 +352,6 @@ public final class TerminalView extends View {
 
         // Wait with enabling the scrollbar until we have a terminal to get scroll position from.
         setVerticalScrollBarEnabled(true);
-        notifyScrollStateChanged();
 
         return true;
     }
@@ -578,7 +570,6 @@ public final class TerminalView extends View {
             }
         }
         anchorToTranscript();
-        notifyScrollStateChanged();
 
         mEmulator.clearScrollCounter();
 
@@ -591,23 +582,6 @@ public final class TerminalView extends View {
         mScroller.abortAnimation();
         if (mTopRow != 0) { mTopRow = 0; invalidate(); }
         if (mEmulator != null) mLastTranscriptScroll = mEmulator.getTranscriptScrollCounter();
-        notifyScrollStateChanged();
-    }
-
-    /** Sets a listener for the local viewport only; it never observes or owns the shell session. */
-    public void setOnScrollStateChangedListener(@Nullable OnScrollStateChangedListener listener) {
-        mScrollStateChangedListener = listener;
-        mLastReportedFollowingLatest = null;
-        notifyScrollStateChanged();
-    }
-
-    private void notifyScrollStateChanged() {
-        boolean followingLatest = mTopRow == 0;
-        if (mScrollStateChangedListener != null &&
-            (mLastReportedFollowingLatest == null || mLastReportedFollowingLatest != followingLatest)) {
-            mLastReportedFollowingLatest = followingLatest;
-            mScrollStateChangedListener.onScrollStateChanged(followingLatest);
-        }
     }
 
     private void anchorToTranscript() {
@@ -743,7 +717,6 @@ public final class TerminalView extends View {
                 if (!awakenScrollBars()) invalidate();
             }
         }
-        if (!mEmulator.isMouseTrackingActive() && !mEmulator.isAlternateBufferActive()) notifyScrollStateChanged();
     }
 
     /** Overriding {@link View#onGenericMotionEvent(MotionEvent)}. */
@@ -1219,7 +1192,6 @@ public final class TerminalView extends View {
             // History may have been cleared or an alternate screen entered while away.
             mTopRow = Math.min(0, Math.max(-mEmulator.getScreen().getActiveTranscriptRows(), mTopRow));
             scrollTo(0, 0);
-            notifyScrollStateChanged();
             invalidate();
         }
     }
@@ -1356,7 +1328,6 @@ public final class TerminalView extends View {
     public void setTopRow(int mTopRow) {
         this.mTopRow = mTopRow;
         if (mEmulator != null) mLastTranscriptScroll = mEmulator.getTranscriptScrollCounter();
-        notifyScrollStateChanged();
     }
 
 
