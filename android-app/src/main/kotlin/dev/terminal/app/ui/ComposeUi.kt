@@ -39,9 +39,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -351,6 +353,7 @@ fun TerminalChrome(
     onSettings: () -> Unit,
 ) {
     val selectedTabIndex = sessions.indexOfFirst { it.id == activeSessionId }
+    val haptics = LocalHapticFeedback.current
     Surface(color = MaterialTheme.colorScheme.surfaceContainer) {
         Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars)) {
             Box(Modifier.fillMaxWidth()) {
@@ -402,13 +405,17 @@ fun TerminalChrome(
                         val renameLabel = stringResource(R.string.rename_session_description, sessionTitle)
                         Tab(
                             selected = selected,
-                            onClick = { onSelect(session.id) },
+                            onClick = {
+                                haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                onSelect(session.id)
+                            },
                             modifier = Modifier
                                 .widthIn(max = 220.dp)
                                 .heightIn(min = 56.dp)
                                 .semantics {
                                     stateDescription = stateLabel
                                     onLongClick(label = renameLabel) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                         onRename(session)
                                         true
                                     }
@@ -442,6 +449,7 @@ fun TerminalChrome(
                                                     }
                                                 }
                                                 if (releasedOrMoved == null) {
+                                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                                     onRename(session)
                                                     do {
                                                         val event = awaitPointerEvent(PointerEventPass.Initial)
@@ -472,7 +480,10 @@ fun TerminalChrome(
                                     }
                                 }
                                 IconButton(
-                                    onClick = { onTerminate(session) },
+                                    onClick = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                        onTerminate(session)
+                                    },
                                     shapes = IconButtonDefaults.shapes(),
                                     enabled = session.id !in terminatingSessionIds,
                                 ) {
@@ -488,7 +499,10 @@ fun TerminalChrome(
                 var rootlessMenuExpanded by remember(newSessionMenuExpanded) { mutableStateOf(false) }
                 val menuChoices = groupedRuntimeChoices(runtimeChoices)
                 val distributions = selectableRuntimeChoices(runtimeChoices).filter { it.id in rootlessRuntimeIds }
-                IconButton(onClick = onNew, shapes = IconButtonDefaults.shapes()) {
+                IconButton(onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                    onNew()
+                }, shapes = IconButtonDefaults.shapes()) {
                     Icon(painterResource(R.drawable.ic_material_symbol_add_24), stringResource(R.string.new_session))
                 }
                 DropdownMenuPopup(
@@ -501,6 +515,9 @@ fun TerminalChrome(
                             Box {
                             DropdownMenuItem(
                                 onClick = {
+                                    haptics.performHapticFeedback(
+                                        if (choice.id == ROOTLESS_GROUP) HapticFeedbackType.KeyboardTap else HapticFeedbackType.Confirm,
+                                    )
                                     if (choice.id == ROOTLESS_GROUP) rootlessMenuExpanded = !rootlessMenuExpanded
                                     else onSelectRuntime(choice)
                                 },
@@ -523,7 +540,11 @@ fun TerminalChrome(
                                         distributions.forEachIndexed { childIndex, distribution ->
                                             DropdownMenuItem(
                                                 text = { Text(stringResource(runtimeTitleResource(distribution.id))) },
-                                                onClick = { rootlessMenuExpanded = false; onSelectRuntime(distribution) },
+                                                onClick = {
+                                                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                                                    rootlessMenuExpanded = false
+                                                    onSelectRuntime(distribution)
+                                                },
                                                 shape = MenuDefaults.itemShape(childIndex, distributions.size).shape,
                                                 leadingIcon = { RuntimeChoiceIcon(distribution) },
                                             )
@@ -536,7 +557,10 @@ fun TerminalChrome(
                     }
                 }
             }
-            IconButton(onClick = onSettings, shapes = IconButtonDefaults.shapes()) {
+            IconButton(onClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                onSettings()
+            }, shapes = IconButtonDefaults.shapes()) {
                 Icon(painterResource(R.drawable.ic_material_symbol_settings_24), stringResource(R.string.settings))
             }
                     }
@@ -583,6 +607,7 @@ private fun RuntimeSelectionSheet(
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
     )
     val scope = rememberCoroutineScope()
+    val haptics = LocalHapticFeedback.current
 
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -592,6 +617,7 @@ private fun RuntimeSelectionSheet(
             modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 24.dp),
         ) {
             if (distributionStage) TextButton(onClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                 scope.launch { sheetState.hide(); onBack() }
             }, shapes = ButtonDefaults.shapes()) {
                 Icon(painterResource(R.drawable.ic_material_symbol_arrow_back_24), null)
@@ -613,6 +639,9 @@ private fun RuntimeSelectionSheet(
                 )
                 ListItem(
                     onClick = {
+                        haptics.performHapticFeedback(
+                            if (choice.id == ROOTLESS_GROUP) HapticFeedbackType.KeyboardTap else HapticFeedbackType.Confirm,
+                        )
                         scope.launch {
                             sheetState.hide()
                             onSelectRuntime(choice)
@@ -683,7 +712,14 @@ fun RenameSessionDialog(
     val validated = validatedSessionTitle(draft)
     val showError = draft.isNotEmpty() && validated == null
     val focusRequester = remember(session.id) { FocusRequester() }
-    val submit: () -> Unit = { validated?.let(onRename); Unit }
+    val haptics = LocalHapticFeedback.current
+    val submit: () -> Unit = {
+        validated?.let {
+            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+            onRename(it)
+        }
+        Unit
+    }
 
     LaunchedEffect(session.id) { focusRequester.requestFocus() }
     AlertDialog(

@@ -16,6 +16,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -44,6 +46,7 @@ internal fun HotkeyGrid(
     cellModifier: (Int) -> Modifier = { Modifier },
     onKey: (Int) -> Unit,
 ) {
+    val haptics = LocalHapticFeedback.current
     // Honor compact heights in both the preview and the toolbar, including modifier keys.
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides layout.height.dp) {
         BoxWithConstraints(modifier.fillMaxWidth()) {
@@ -66,7 +69,10 @@ internal fun HotkeyGrid(
                                 FilledTonalToggleButton(
                                     enabled = enabled,
                                     checked = if (key.shortcut == "CTRL") control else alt,
-                                    onCheckedChange = { onKey(index) },
+                                    onCheckedChange = {
+                                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                        onKey(index)
+                                    },
                                     modifier = cell.semantics { contentDescription = description },
                                     shapes = ToggleButtonDefaults.shapesFor(ButtonDefaults.MinHeight)
                                         .copy(pressedShape = CircleShape, checkedShape = CircleShape),
@@ -118,7 +124,10 @@ internal fun HotkeyGrid(
                                         // Release can reach onClick before the interaction collector.
                                         // Cancel synchronously and don't append an extra key after a hold.
                                         repeatJob?.cancel()
-                                        if (!repeated) currentOnKey()
+                                        if (!repeated) {
+                                            haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                            currentOnKey()
+                                        }
                                         repeated = false
                                     },
                                     enabled = enabled,
@@ -142,6 +151,7 @@ internal fun HotkeyGrid(
 
 @Composable
 internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) {
+    val haptics = LocalHapticFeedback.current
     var saved by rememberSaveable { mutableStateOf(serializeHotkeyLayout(readHotkeyLayout(preferences))) }
     var draft by rememberSaveable { mutableStateOf(saved) }
     val layout = remember(draft) { parseHotkeyLayout(draft) }
@@ -173,7 +183,10 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
                     onMove = { from, to -> update(moveHotkey(layout, from, to)) },
                     onEdit = { editingIndex = it },
                 )
-                Button(onClick = { editingIndex = layout.keys.size }, enabled = layout.keys.size < MAX_HOTKEYS,
+                Button(onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                    editingIndex = layout.keys.size
+                }, enabled = layout.keys.size < MAX_HOTKEYS,
                     shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) {
                     Text(stringResource(R.string.hotkey_add))
                 }
@@ -186,6 +199,7 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
                     Text(stringResource(R.string.cancel))
                 }
                 Button(onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                     preferences.edit().putString(KEY_HOTKEYS, draft).apply()
                     saved = draft
                     onBack()
@@ -249,6 +263,7 @@ private fun HotkeyEditDialog(
     var showHelp by rememberSaveable(index) { mutableStateOf(false) }
     val hotkey = Hotkey(name.trim(), shortcut.trim().uppercase(Locale.ROOT), span)
     val valid = validHotkey(hotkey)
+    val haptics = LocalHapticFeedback.current
     AlertDialog(
         modifier = Modifier.imePadding(),
         onDismissRequest = onDismiss,
@@ -276,18 +291,30 @@ private fun HotkeyEditDialog(
                 HotkeySizeControl(R.string.hotkey_span, span, 1..4) { span = it }
                 if (index < count) {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = { onMove(hotkey, index - 1) }, enabled = valid && index > 0, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) {
+                        OutlinedButton(onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                            onMove(hotkey, index - 1)
+                        }, enabled = valid && index > 0, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) {
                             Text(stringResource(R.string.hotkey_move_before))
                         }
-                        OutlinedButton(onClick = { onMove(hotkey, index + 1) }, enabled = valid && index < count - 1, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) {
+                        OutlinedButton(onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                            onMove(hotkey, index + 1)
+                        }, enabled = valid && index < count - 1, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) {
                             Text(stringResource(R.string.hotkey_move_after))
                         }
                     }
-                    TextButton(onClick = onRemove, enabled = count > 1, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.hotkey_remove)) }
+                    TextButton(onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        onRemove()
+                    }, enabled = count > 1, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.hotkey_remove)) }
                 }
             }
         },
-        confirmButton = { Button(onClick = { onSave(hotkey) }, enabled = valid, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.save)) } },
+        confirmButton = { Button(onClick = {
+            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+            onSave(hotkey)
+        }, enabled = valid, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.save)) } },
         dismissButton = { TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } },
     )
 }
