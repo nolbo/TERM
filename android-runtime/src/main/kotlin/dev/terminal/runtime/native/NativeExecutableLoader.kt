@@ -37,6 +37,6 @@ internal class PackagedExecutableResolver(
     }
 
     private companion object {
-        val ALLOWED_EXECUTABLES = setOf("proot", "proot-loader")
+        val ALLOWED_EXECUTABLES = setOf("proot", "proot-loader", "iphone-worker")
     }
 }

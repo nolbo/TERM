@@ -19,12 +19,22 @@ interface IRuntimeService {
     void detachSession(String sessionId);
     void writeSessionInput(String sessionId, in byte[] bytes);
     void resizeSession(String sessionId, int rows, int cols);
+    void renameSession(String sessionId, String title);
     void terminateSession(String sessionId);
     void setWakePolicy(String policy);
     void setAvfSettings(int memoryMib, int cpuCount, boolean protectedVm, boolean enableNetwork);
     void setNativeSessionSettings(String terminalType, boolean loginShell);
-    void prepareRootless();
+    void prepareRootless(String runtimeType);
     void setCapabilityGrant(String capability, String grant);
     void registerListener(IRuntimeStateListener listener);
     void unregisterListener(IRuntimeStateListener listener);
+    void setKittyGraphicsCompatibility(boolean enabled);
+    void setKittyRemoteControl(boolean enabled);
+    void removeRootless(String runtimeType, boolean removeHome);
+    String getUsbStateJson();
+    String approveUsbRequest(String requestId);
+    void denyUsbRequest(String requestId);
+    void revokeUsbSession(String sessionId);
+    String addUsbStorageTree(String uri, int flags);
+    void removeUsbStorageTree(String id);
 }

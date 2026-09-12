@@ -1,6 +1,8 @@
 //! Serial v1 session dispatcher. Serial dispatch keeps the first transport
 //! spike simple; PTY output fan-out is added separately without changing it.
 
+use crate::graphics_transport::{GraphicsTransport, Output as GraphicsOutput};
+use std::collections::HashMap;
 use crate::protocol::{encode_error, ErrorCode, Frame, FrameKind, Service};
 use crate::pty::PtyError;
 use crate::session::SessionRegistry;
@@ -11,10 +13,11 @@ use crate::vsock::{VsockConnection, VsockError, VsockListener};
 
 pub struct SessionServer {
     sessions: SessionRegistry,
+    graphics: HashMap<String, GraphicsTransport>,
 }
 
 impl Default for SessionServer {
-    fn default() -> Self { Self { sessions: SessionRegistry::default() } }
+    fn default() -> Self { Self { sessions: SessionRegistry::default(), graphics: HashMap::new() } }
 }
 
 impl SessionServer {
@@ -88,6 +91,7 @@ impl SessionServer {
                 let environment: Vec<_> = env.into_iter().collect();
                 let id = self.sessions.create_shell(&shell, &cwd, rows, cols).id.clone();
                 self.sessions.start_shell(&id, &environment).map_err(DispatchError::from_pty)?;
+                self.graphics.insert(id.clone(), GraphicsTransport::default());
                 Ok(SessionResponse::Created(self.descriptor(&id)?))
             }
             SessionRequest::List => Ok(SessionResponse::Listed(
@@ -122,6 +126,7 @@ impl SessionServer {
                 let signal = nix::sys::signal::Signal::try_from(signal)
                     .map_err(|_| DispatchError::invalid("invalid POSIX signal"))?;
                 self.sessions.terminate(&session_id, signal).map_err(DispatchError::from_pty)?;
+                self.graphics.remove(&session_id);
                 if attached.as_deref() == Some(session_id.as_str()) {
                     *attached = None;
                 }
@@ -153,11 +158,14 @@ impl SessionServer {
         let session_id = match attached.clone() { Some(id) => id, None => return Ok(()) };
         let mut buffer = [0_u8; 8192];
         match self.sessions.read_output(&session_id, &mut buffer) {
-            Ok(size) if size > 0 => self.write_event(
-                connection,
-                SessionEvent::Output { session_id: &session_id, bytes: &buffer[..size] },
-            ),
+            Ok(size) if size > 0 => {
+                let resolved = self.graphics.entry(session_id.clone()).or_default().accept(&buffer[..size]);
+                self.write_graphics_output(connection, &session_id, resolved)
+            },
             Ok(_) | Err(PtyError::Nix(nix::errno::Errno::EIO)) => {
+                if let Some(mut graphics) = self.graphics.remove(&session_id) {
+                    self.write_graphics_output(connection, &session_id, graphics.finish())?;
+                }
                 let exit_code = self.sessions.poll_exit(&session_id)
                     .map_err(|_| std::io::Error::other("unable to inspect exited session"))?
                     .ok_or_else(|| std::io::Error::other("PTY closed before its child exit status was available"))?;
@@ -168,6 +176,19 @@ impl SessionServer {
             }
             Err(_) => Err(VsockError::Io(std::io::Error::other("unable to read PTY output"))),
         }
+    }
+
+    fn write_graphics_output(
+        &mut self, connection: &mut VsockConnection, session_id: &str, output: GraphicsOutput,
+    ) -> Result<(), VsockError> {
+        for reply in output.replies {
+            self.sessions.write_input(session_id, &reply)
+                .map_err(|_| std::io::Error::other("unable to deliver graphics response"))?;
+        }
+        for bytes in output.bytes {
+            self.write_event(connection, SessionEvent::Output { session_id, bytes: &bytes })?;
+        }
+        Ok(())
     }
 
     fn write_event(

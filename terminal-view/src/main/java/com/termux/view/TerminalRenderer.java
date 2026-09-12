@@ -1,15 +1,28 @@
 package com.termux.view;
 
+import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Picture;
 import android.graphics.PorterDuff;
+import android.graphics.Rect;
+import android.graphics.RectF;
 import android.graphics.Typeface;
 
 import com.termux.terminal.TerminalBuffer;
+import com.termux.terminal.TerminalGraphics;
+import com.termux.terminal.KittyPlaceholders;
+import com.termux.terminal.TerminalImage;
 import com.termux.terminal.TerminalEmulator;
 import com.termux.terminal.TerminalRow;
 import com.termux.terminal.TextStyle;
 import com.termux.terminal.WcWidth;
+
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.List;
+import java.util.Set;
 
 /**
  * Renderer of a {@link TerminalEmulator} into a {@link Canvas}.
@@ -22,7 +35,11 @@ public final class TerminalRenderer {
     final TerminalFontFamily mFontFamily;
     final Typeface mTypeface;
     final boolean mForceFixedWidth;
+    final TerminalGlyphRenderOptions mGlyphRenderOptions;
     private final Paint mTextPaint = new Paint();
+    private int mDrawPass; // 0: ordinary text, 1: backgrounds only, 2: glyphs/cursor only
+    // Cache only visible images, within the same pixel budget as one emulator screen.
+    private final Map<TerminalImage, Bitmap> mImageBitmaps = new LinkedHashMap<>();
 
     /** The width of a single mono spaced character obtained by {@link Paint#measureText(String)} on a single 'X'. */
     final float mFontWidth;
@@ -32,6 +49,12 @@ public final class TerminalRenderer {
     private final int mFontAscent;
     /** The {@link #mFontLineSpacing} + {@link #mFontAscent}. */
     final int mFontLineSpacingAndAscent;
+
+    // One presented display list, not a copy of scrollback or another PTY owner.
+    private Picture mPresentedFrame;
+    private TerminalEmulator mPresentedEmulator;
+    private int mPresentedTopRow, mPresentedColumns, mPresentedRows;
+    public void clearPresentedFrame() { mPresentedFrame = null; mPresentedEmulator = null; mImageBitmaps.clear(); }
 
     private final float[] asciiMeasures = new float[127];
 
@@ -44,10 +67,16 @@ public final class TerminalRenderer {
     }
 
     public TerminalRenderer(int textSize, TerminalFontFamily fontFamily, boolean forceFixedWidth) {
+        this(textSize, fontFamily, forceFixedWidth, TerminalGlyphRenderOptions.DEFAULT);
+    }
+
+    public TerminalRenderer(int textSize, TerminalFontFamily fontFamily, boolean forceFixedWidth,
+                            TerminalGlyphRenderOptions glyphRenderOptions) {
         mTextSize = textSize;
         mFontFamily = fontFamily == null ? new TerminalFontFamily(Typeface.MONOSPACE) : fontFamily;
         mTypeface = mFontFamily.getPrimaryTypeface();
         mForceFixedWidth = forceFixedWidth;
+        mGlyphRenderOptions = glyphRenderOptions == null ? TerminalGlyphRenderOptions.DEFAULT : glyphRenderOptions;
 
         mTextPaint.setTypeface(mTypeface);
         mTextPaint.setAntiAlias(true);
@@ -65,9 +94,54 @@ public final class TerminalRenderer {
         }
     }
 
-    /** Render the terminal to a canvas with at a specified row scroll, and an optional rectangular selection. */
-    public final void render(TerminalEmulator mEmulator, Canvas canvas, int topRow,
+    /** Render graphics in the protocol's three layers around text backgrounds and glyphs. */
+    public final void render(TerminalEmulator emulator, Canvas canvas, int topRow,
                              int selectionY1, int selectionY2, int selectionX1, int selectionX2) {
+        boolean sameViewport = mPresentedEmulator == emulator && mPresentedFrame != null &&
+            mPresentedFrame.getWidth() == canvas.getWidth() && mPresentedFrame.getHeight() == canvas.getHeight() &&
+            mPresentedColumns == emulator.mColumns && mPresentedRows == emulator.mRows && mPresentedTopRow == topRow;
+        // A user scroll/viewport change must remain visible during output batching.
+        // Freeze only the viewport the presented frame actually represents.
+        if (emulator.getSynchronizedOutputDelayMillis() > 0 &&
+                (sameViewport || mPresentedFrame == null || mPresentedEmulator != emulator)) {
+            if (sameViewport) canvas.drawPicture(mPresentedFrame);
+            return;
+        }
+        // Record a complete terminal frame so cursor/IME/system invalidations cannot
+        // expose a partially received synchronized update between PTY packets.
+        Picture frame = new Picture();
+        Canvas recording = frame.beginRecording(Math.max(1, canvas.getWidth()), Math.max(1, canvas.getHeight()));
+        try { renderFrame(emulator, recording, topRow, selectionY1, selectionY2, selectionX1, selectionX2); }
+        finally { frame.endRecording(); }
+        mPresentedFrame = frame;
+        mPresentedEmulator = emulator;
+        mPresentedColumns = emulator.mColumns; mPresentedRows = emulator.mRows; mPresentedTopRow = topRow;
+        canvas.drawPicture(frame);
+    }
+
+    private void renderFrame(TerminalEmulator emulator, Canvas canvas, int topRow,
+                             int selectionY1, int selectionY2, int selectionX1, int selectionX2) {
+        if (emulator.isReverseVideo())
+            canvas.drawColor(emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_FOREGROUND], PorterDuff.Mode.SRC);
+        List<TerminalGraphics.Placement> images = emulator.getGraphics().getRenderPlacements(
+            emulator.getScreen(), topRow, topRow + emulator.mRows, emulator.mColumns, System.nanoTime() / 1_000_000);
+        Set<TerminalImage> visible = new HashSet<>();
+        for (TerminalGraphics.Placement p : images)
+            if (p.row + p.clipBottom > topRow && p.row + p.clipTop < topRow + emulator.mRows) visible.add(p.image);
+        mImageBitmaps.keySet().retainAll(visible);
+        try {
+            drawImages(canvas, images, emulator, topRow, Integer.MIN_VALUE, -1073741825);
+            mDrawPass = 1;
+            renderText(emulator, canvas, topRow, selectionY1, selectionY2, selectionX1, selectionX2);
+            drawImages(canvas, images, emulator, topRow, -1073741824, -1);
+            mDrawPass = 2;
+            renderText(emulator, canvas, topRow, selectionY1, selectionY2, selectionX1, selectionX2);
+            drawImages(canvas, images, emulator, topRow, 0, Integer.MAX_VALUE);
+        } finally { mDrawPass = 0; }
+    }
+
+    private void renderText(TerminalEmulator mEmulator, Canvas canvas, int topRow,
+                            int selectionY1, int selectionY2, int selectionX1, int selectionX2) {
         final boolean reverseVideo = mEmulator.isReverseVideo();
         final int endRow = topRow + mEmulator.mRows;
         final int columns = mEmulator.mColumns;
@@ -78,9 +152,6 @@ public final class TerminalRenderer {
         final int[] palette = mEmulator.mColors.mCurrentColors;
         final int cursorShape = mEmulator.getCursorStyle();
 
-        if (reverseVideo)
-            canvas.drawColor(palette[TextStyle.COLOR_INDEX_FOREGROUND], PorterDuff.Mode.SRC);
-
         float heightOffset = mFontLineSpacingAndAscent;
         for (int row = topRow; row < endRow; row++) {
             heightOffset += mFontLineSpacing;
@@ -88,7 +159,7 @@ public final class TerminalRenderer {
             final int cursorX = (row == cursorRow && cursorVisible) ? cursorCol : -1;
             int selx1 = -1, selx2 = -1;
             if (row >= selectionY1 && row <= selectionY2) {
-                if (row == selectionY1) selx1 = selectionX1;
+                selx1 = (row == selectionY1) ? selectionX1 : 0;
                 selx2 = (row == selectionY2) ? selectionX2 : mEmulator.mColumns;
             }
 
@@ -102,6 +173,8 @@ public final class TerminalRenderer {
             int lastRunStartColumn = -1;
             int lastRunStartIndex = 0;
             boolean lastRunFontWidthMismatch = false;
+            boolean lastRunNaturalWideGlyph = false;
+            boolean lastRunPlaceholder = false;
             Typeface lastRunTypeface = null;
             int currentCharIndex = 0;
             float measuredWidthForRun = 0.f;
@@ -112,13 +185,15 @@ public final class TerminalRenderer {
                 int charsForCodePoint = charIsHighsurrogate ? 2 : 1;
                 final int codePoint = charIsHighsurrogate ? Character.toCodePoint(charAtIndex, line[currentCharIndex + 1]) : charAtIndex;
                 final int codePointWcWidth = WcWidth.width(codePoint);
+                final boolean placeholder = codePoint == KittyPlaceholders.CODE_POINT;
                 while (currentCharIndex + charsForCodePoint < charsUsedInLine &&
                     WcWidth.width(line, currentCharIndex + charsForCodePoint) <= 0) {
                     int combiningIndex = currentCharIndex + charsForCodePoint;
                     charsForCodePoint += Character.isHighSurrogate(line[combiningIndex]) ? 2 : 1;
                 }
                 final boolean insideCursor = (cursorX == column || (codePointWcWidth == 2 && cursorX == column + 1));
-                final boolean insideSelection = column >= selx1 && column <= selx2;
+                final boolean insideSelection = TerminalGlyphPlacement.intersectsSelection(
+                    column, codePointWcWidth, selx1, selx2);
                 final long style = lineObject.getStyle(column);
                 final int effect = TextStyle.decodeEffect(style);
                 final boolean bold = (effect & (TextStyle.CHARACTER_ATTRIBUTE_BOLD | TextStyle.CHARACTER_ATTRIBUTE_BLINK)) != 0;
@@ -134,12 +209,15 @@ public final class TerminalRenderer {
                 // If this is detected, we draw this code point scaled to match what wcwidth() expects.
                 final float measuredCodePointWidth = (!bold && !italic && typeface == mTypeface && charsForCodePoint == 1 && codePoint < asciiMeasures.length) ? asciiMeasures[codePoint] : mTextPaint.measureText(line,
                     currentCharIndex, charsForCodePoint);
-                final boolean fontWidthMismatch = mForceFixedWidth &&
+                final boolean naturalWideGlyph = mGlyphRenderOptions.naturalWideGlyphs() &&
+                    codePointWcWidth == 2;
+                final boolean fontWidthMismatch = !naturalWideGlyph && mForceFixedWidth &&
                     Math.abs(measuredCodePointWidth / mFontWidth - codePointWcWidth) > 0.01;
 
                 if (style != lastRunStyle || insideCursor != lastRunInsideCursor ||
                     insideSelection != lastRunInsideSelection || typeface != lastRunTypeface ||
-                    fontWidthMismatch || lastRunFontWidthMismatch) {
+                    fontWidthMismatch || lastRunFontWidthMismatch ||
+                    naturalWideGlyph || lastRunNaturalWideGlyph || placeholder || lastRunPlaceholder) {
                     if (column == 0) {
                         // Skip first column as there is nothing to draw, just record the current style.
                     } else {
@@ -153,7 +231,8 @@ public final class TerminalRenderer {
                         drawTextRun(canvas, line, palette, heightOffset, lastRunStartColumn, columnWidthSinceLastRun,
                             lastRunStartIndex, charsSinceLastRun, measuredWidthForRun,
                             cursorColor, cursorShape, lastRunTypeface, lastRunStyle,
-                            reverseVideo || invertCursorTextColor || lastRunInsideSelection);
+                            reverseVideo || invertCursorTextColor || lastRunInsideSelection,
+                            mForceFixedWidth || lastRunFontWidthMismatch, lastRunNaturalWideGlyph);
                     }
                     measuredWidthForRun = 0.f;
                     lastRunStyle = style;
@@ -162,6 +241,8 @@ public final class TerminalRenderer {
                     lastRunStartColumn = column;
                     lastRunStartIndex = currentCharIndex;
                     lastRunFontWidthMismatch = fontWidthMismatch;
+                    lastRunNaturalWideGlyph = naturalWideGlyph;
+                    lastRunPlaceholder = placeholder;
                     lastRunTypeface = typeface;
                 }
                 measuredWidthForRun += measuredCodePointWidth;
@@ -178,13 +259,45 @@ public final class TerminalRenderer {
             }
             drawTextRun(canvas, line, palette, heightOffset, lastRunStartColumn, columnWidthSinceLastRun, lastRunStartIndex, charsSinceLastRun,
                 measuredWidthForRun, cursorColor, cursorShape, lastRunTypeface, lastRunStyle,
-                reverseVideo || invertCursorTextColor || lastRunInsideSelection);
+                reverseVideo || invertCursorTextColor || lastRunInsideSelection,
+                mForceFixedWidth || lastRunFontWidthMismatch, lastRunNaturalWideGlyph);
         }
+    }
+
+    private void drawImages(Canvas canvas, List<TerminalGraphics.Placement> images, TerminalEmulator emulator,
+                            int topRow, int minimumZ, int maximumZ) {
+        int save = canvas.save();
+        canvas.clipRect(0, mFontLineSpacingAndAscent, emulator.mColumns * mFontWidth,
+            mFontLineSpacingAndAscent + emulator.mRows * mFontLineSpacing);
+        for (TerminalGraphics.Placement p : images) {
+            if (p.z < minimumZ || p.z > maximumZ || p.row + p.clipBottom <= topRow ||
+                p.row + p.clipTop >= topRow + emulator.mRows || p.sourceWidth <= 0 || p.sourceHeight <= 0) continue;
+            int imageSave = canvas.save();
+            float left = p.column * mFontWidth;
+            float top = mFontLineSpacingAndAscent + (p.row - topRow) * mFontLineSpacing;
+            canvas.clipRect(left + p.clipLeft * mFontWidth, top + p.clipTop * mFontLineSpacing,
+                left + p.clipRight * mFontWidth, top + p.clipBottom * mFontLineSpacing);
+            float width = p.widthCells * mFontWidth, height = p.heightCells * mFontLineSpacing;
+            float scale = Math.min(width / p.sourceWidth, height / p.sourceHeight);
+            float drawnWidth = p.sourceWidth * scale, drawnHeight = p.sourceHeight * scale;
+            left += p.offsetXCells * mFontWidth + (width - drawnWidth) / 2;
+            top += p.offsetYCells * mFontLineSpacing + (height - drawnHeight) / 2;
+            Bitmap bitmap = mImageBitmaps.get(p.image);
+            if (bitmap == null) {
+                bitmap = Bitmap.createBitmap(p.image.pixels, p.image.width, p.image.height, Bitmap.Config.ARGB_8888);
+                mImageBitmaps.put(p.image, bitmap);
+            }
+            canvas.drawBitmap(bitmap, new Rect(p.sourceX, p.sourceY, p.sourceX + p.sourceWidth, p.sourceY + p.sourceHeight),
+                new RectF(left, top, left + drawnWidth, top + drawnHeight), null);
+            canvas.restoreToCount(imageSave);
+        }
+        canvas.restoreToCount(save);
     }
 
     private void drawTextRun(Canvas canvas, char[] text, int[] palette, float y, int startColumn, int runWidthColumns,
                              int startCharIndex, int runWidthChars, float mes, int cursor, int cursorStyle,
-                             Typeface typeface, long textStyle, boolean reverseVideo) {
+                             Typeface typeface, long textStyle, boolean reverseVideo, boolean forceCellWidth,
+                             boolean naturalWideGlyph) {
         int foreColor = TextStyle.decodeForeColor(textStyle);
         final int effect = TextStyle.decodeEffect(textStyle);
         int backColor = TextStyle.decodeBackColor(textStyle);
@@ -214,29 +327,27 @@ public final class TerminalRenderer {
         float left = startColumn * mFontWidth;
         float right = left + runWidthColumns * mFontWidth;
 
-        mes = mes / mFontWidth;
-        boolean savedMatrix = false;
-        if (mForceFixedWidth && mes > 0 && Math.abs(mes - runWidthColumns) > 0.01) {
-            canvas.save();
-            canvas.scale(runWidthColumns / mes, 1.f);
-            left *= mes / runWidthColumns;
-            right *= mes / runWidthColumns;
-            savedMatrix = true;
-        }
-
-        if (backColor != palette[TextStyle.COLOR_INDEX_BACKGROUND]) {
+        if (mDrawPass != 2 && (backColor != palette[TextStyle.COLOR_INDEX_BACKGROUND] ||
+            TextStyle.decodeBackColor(textStyle) != TextStyle.COLOR_INDEX_BACKGROUND || reverseVideoHere)) {
             // Only draw non-default background.
             mTextPaint.setColor(backColor);
             canvas.drawRect(left, y - mFontLineSpacingAndAscent + mFontAscent, right, y, mTextPaint);
         }
 
+        if (mDrawPass == 1) return;
+
         if (cursor != 0) {
             mTextPaint.setColor(cursor);
             float cursorHeight = mFontLineSpacingAndAscent - mFontAscent;
+            float cursorRight = right;
             if (cursorStyle == TerminalEmulator.TERMINAL_CURSOR_STYLE_UNDERLINE) cursorHeight /= 4.;
-            else if (cursorStyle == TerminalEmulator.TERMINAL_CURSOR_STYLE_BAR) right -= ((right - left) * 3) / 4.;
-            canvas.drawRect(left, y - cursorHeight, right, y, mTextPaint);
+            else if (cursorStyle == TerminalEmulator.TERMINAL_CURSOR_STYLE_BAR)
+                cursorRight -= ((cursorRight - left) * 3) / 4.;
+            canvas.drawRect(left, y - cursorHeight, cursorRight, y, mTextPaint);
         }
+
+        if (runWidthChars > 0 && Character.codePointAt(text, startCharIndex, startCharIndex + runWidthChars) == KittyPlaceholders.CODE_POINT)
+            return; // Placeholder colors/combining marks are metadata, never visible glyphs.
 
         if ((effect & TextStyle.CHARACTER_ATTRIBUTE_INVISIBLE) == 0) {
             if (dim) {
@@ -253,16 +364,62 @@ public final class TerminalRenderer {
 
             mTextPaint.setTypeface(typeface == null ? mTypeface : typeface);
             mTextPaint.setFakeBoldText(false);
-            mTextPaint.setUnderlineText(underline);
             mTextPaint.setTextSkewX(0.f);
-            mTextPaint.setStrikeThruText(strikeThrough);
             mTextPaint.setColor(foreColor);
 
-            // The text alignment is the default Paint.Align.LEFT.
-            canvas.drawTextRun(text, startCharIndex, runWidthChars, startCharIndex, runWidthChars, left, y - mFontLineSpacingAndAscent, false, mTextPaint);
-        }
+            final float primaryBaseline = y - mFontLineSpacingAndAscent;
+            if (naturalWideGlyph) {
+                // Keep the cell geometry above untouched. Only the shaped glyph is transformed.
+                // Text bounds, rather than advance, account for left/right bearings when centering.
+                mTextPaint.setUnderlineText(false);
+                mTextPaint.setStrikeThruText(false);
+                Rect visualBounds = new Rect();
+                mTextPaint.getTextBounds(text, startCharIndex, runWidthChars, visualBounds);
+                TerminalGlyphPlacement.Result placement = TerminalGlyphPlacement.place(
+                    left, right - left, y - mFontLineSpacing, y, primaryBaseline,
+                    visualBounds.left, visualBounds.top, visualBounds.right, visualBounds.bottom, mes,
+                    mGlyphRenderOptions.fallbackScale() * mFontFamily.getScale(typeface),
+                    (mGlyphRenderOptions.fallbackBaselineOffsetEm() +
+                        mFontFamily.getBaselineOffsetEm(typeface)) * mTextSize);
 
-        if (savedMatrix) canvas.restore();
+                canvas.save();
+                canvas.translate(placement.originX, placement.baselineY);
+                canvas.scale(placement.scale, placement.scale);
+                canvas.drawTextRun(text, startCharIndex, runWidthChars, startCharIndex, runWidthChars,
+                    0.0f, 0.0f, false, mTextPaint);
+                canvas.restore();
+
+                if (underline) drawLogicalDecoration(canvas, left, right,
+                    placement.baselineY + placement.scale * mTextPaint.getUnderlinePosition(),
+                    placement.scale * mTextPaint.getUnderlineThickness());
+                if (strikeThrough) drawLogicalDecoration(canvas, left, right,
+                    placement.baselineY + placement.scale * mTextPaint.getStrikeThruPosition(),
+                    placement.scale * mTextPaint.getStrikeThruThickness());
+            } else {
+                mTextPaint.setUnderlineText(underline);
+                mTextPaint.setStrikeThruText(strikeThrough);
+                float measuredCellWidth = mes / mFontWidth;
+                if (forceCellWidth && measuredCellWidth > 0.0f &&
+                    Math.abs(measuredCellWidth - runWidthColumns) > 0.01) {
+                    canvas.save();
+                    canvas.scale(runWidthColumns / measuredCellWidth, 1.0f);
+                    float scaledLeft = left * measuredCellWidth / runWidthColumns;
+                    canvas.drawTextRun(text, startCharIndex, runWidthChars, startCharIndex, runWidthChars,
+                        scaledLeft, primaryBaseline, false, mTextPaint);
+                    canvas.restore();
+                } else {
+                    // The text alignment is the default Paint.Align.LEFT.
+                    canvas.drawTextRun(text, startCharIndex, runWidthChars, startCharIndex, runWidthChars,
+                        left, primaryBaseline, false, mTextPaint);
+                }
+            }
+        }
+    }
+
+    private void drawLogicalDecoration(Canvas canvas, float left, float right, float centerY,
+                                       float requestedThickness) {
+        float thickness = Math.max(1.0f, requestedThickness);
+        canvas.drawRect(left, centerY - thickness * 0.5f, right, centerY + thickness * 0.5f, mTextPaint);
     }
 
     /** Draw an underlined IME pre-edit buffer at the terminal cursor. */
@@ -319,8 +476,10 @@ public final class TerminalRenderer {
             mTextPaint.setFakeBoldText(false);
             mTextPaint.setTextSkewX(0.f);
             float measuredWidth = mTextPaint.measureText(text, charIndex, clusterChars);
+            boolean naturalWideGlyph = mGlyphRenderOptions.naturalWideGlyphs() && clusterColumns == 2;
             drawTextRun(canvas, text, palette, heightOffset, cursorCol + columnOffset, clusterColumns,
-                charIndex, clusterChars, measuredWidth, 0, 0, typeface, style, reverseVideo);
+                charIndex, clusterChars, measuredWidth, 0, 0, typeface, style, reverseVideo,
+                !naturalWideGlyph && mForceFixedWidth, naturalWideGlyph);
             columnOffset += clusterColumns;
             charIndex += clusterChars;
         }

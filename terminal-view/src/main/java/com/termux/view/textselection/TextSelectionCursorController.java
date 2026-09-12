@@ -136,12 +136,27 @@ public class TextSelectionCursorController implements CursorController {
                 switch (item.getItemId()) {
                     case ACTION_COPY:
                         String selectedText = getSelectedText();
-                        terminalView.mTermSession.onCopyTextToClipboard(selectedText);
+                        ClipboardManager copyClipboard = (ClipboardManager) terminalView.getContext()
+                            .getSystemService(Context.CLIPBOARD_SERVICE);
+                        // This is an explicit user action. Keep it separate from the session
+                        // callback also used by untrusted OSC 52 terminal output.
+                        if (copyClipboard != null) {
+                            copyClipboard.setPrimaryClip(ClipData.newPlainText("", selectedText));
+                        }
                         terminalView.stopTextSelectionMode();
                         break;
                     case ACTION_PASTE:
                         terminalView.stopTextSelectionMode();
-                        terminalView.mTermSession.onPasteTextFromClipboard();
+                        ClipboardManager pasteClipboard = (ClipboardManager) terminalView.getContext()
+                            .getSystemService(Context.CLIPBOARD_SERVICE);
+                        ClipData clip = pasteClipboard == null ? null : pasteClipboard.getPrimaryClip();
+                        if (clip != null && clip.getItemCount() > 0) {
+                            CharSequence text = clip.getItemAt(0).coerceToText(terminalView.getContext());
+                            if (text != null && terminalView.mEmulator != null) {
+                                terminalView.scrollToLatest();
+                                terminalView.mEmulator.paste(text.toString());
+                            }
+                        }
                         break;
                     case ACTION_MORE:
                         // We first store the selected text in case TerminalViewClient needs the

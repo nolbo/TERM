@@ -16,7 +16,7 @@ OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 
 ---
 
-The following icons used by Droid Terminal are derived from Feather:
+The following icons used by TERM are derived from Feather:
 arrow-left, chevron-right, plus, terminal, type, and x.
 
 The MIT License (MIT)

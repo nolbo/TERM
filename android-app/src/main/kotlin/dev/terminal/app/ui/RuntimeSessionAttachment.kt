@@ -5,11 +5,14 @@ internal class RuntimeSessionAttachment {
     var sessionId: String? = null
         private set
 
-    /** Returns the exact ID that must be attached, or null when it is already attached. */
-    fun select(selectedSessionId: String): String? {
+    /**
+     * Tracks the selected runtime session and requests a transcript replay only when the UI does
+     * not already hold a live local terminal for it.
+     */
+    fun select(selectedSessionId: String, replayTranscript: Boolean = true): String? {
         if (sessionId == selectedSessionId) return null
         sessionId = selectedSessionId
-        return selectedSessionId
+        return selectedSessionId.takeIf { replayTranscript }
     }
 
     /** Returns the one attached ID to detach and clears the local binding state. */

@@ -10,6 +10,14 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UiModelsTest {
+    @Test fun explicitTitleKeepsLiveAutomaticTitleAsSubtitle() {
+        val session = parseSessions("""[{"id":"native-1","title":"Work","explicitTitle":true,"initialTitle":"Native shell","state":"RUNNING"}]""").single()
+        assertEquals("Work", sessionWithDisplayTitles(session, "vim").title)
+        assertEquals("vim", sessionWithDisplayTitles(session, "vim").subtitle)
+        assertEquals("build", sessionWithDisplayTitles(session, "build").subtitle)
+        assertEquals("Native shell", sessionWithDisplayTitles(session, "").subtitle)
+        assertEquals(null, sessionWithDisplayTitles(session.copy(hasExplicitTabTitle = false), "vim").subtitle)
+    }
     @Test fun liveSessionsDoNotInterpretTheWireSentinelAsSighup() {
         for (runtime in listOf("NATIVE", "ROOTLESS", "AVF")) {
             for (state in listOf("CREATED", "RUNNING")) {
@@ -101,6 +109,20 @@ class UiModelsTest {
         assertEquals("", parseSessions("""[{"id":"native-1","runtime":"NATIVE","state":"RUNNING"}]""").single().title)
     }
 
+    @Test fun tabTitlePrefersExplicitThenApplicationThenInitialTitle() {
+        val initial = SessionUi("native-1", "NATIVE", "Native shell", "RUNNING")
+        assertEquals("vim", resolvedSessionTitle(initial, "vim"))
+        assertEquals("Native shell", resolvedSessionTitle(initial, " "))
+
+        val explicit = initial.copy(title = "Build logs", hasExplicitTabTitle = true)
+        assertEquals("Build logs", resolvedSessionTitle(explicit, "vim"))
+    }
+
+    @Test fun explicitTabTitleIsReadFromSessionSnapshot() {
+        val session = parseSessions("""[{"id":"native-1","title":"Build logs","explicitTitle":true,"state":"RUNNING"}]""").single()
+        assertTrue(session.hasExplicitTabTitle)
+    }
+
     @Test fun runtimeAvailabilityNeverInventsAvfSupport() {
         val choices = parseRuntimeChoices("""{"NATIVE":{"available":true,"detail":"ready"},"ROOTLESS":{"available":false,"detail":"setup"}}""")
         assertTrue(choices.single { it.id == "NATIVE" }.available)
@@ -108,8 +130,43 @@ class UiModelsTest {
         assertFalse(choices.single { it.id == "AVF" }.available)
     }
 
+    @Test fun sessionChoicesKeepInstallableDistributionsAndHideBlockedRuntimes() {
+        val choices = parseRuntimeChoices("""{
+            "NATIVE":{"available":true},
+            "ROOTLESS":{"available":false,"installable":true},
+            "ROOTLESS_UBUNTU":{"available":true},
+            "ROOTLESS_ARCH":{"available":false,"installable":false},
+            "AVF":{"available":false,"detail":"permission denied"}
+        }""")
+        assertEquals(listOf("NATIVE", "ROOTLESS", "ROOTLESS_UBUNTU"), selectableRuntimeChoices(choices).map { it.id })
+        assertEquals(listOf("NATIVE", ROOTLESS_GROUP), groupedRuntimeChoices(choices).map { it.id })
+        assertEquals(listOf("NATIVE"), groupedRuntimeChoices(parseRuntimeChoices("{}")).map { it.id })
+    }
+
+    @Test fun runtimeSelectionCreatesAvailableAndRoutesUnavailableSetup() {
+        assertEquals(
+            RuntimeSelectionAction.CREATE,
+            runtimeSelectionAction(RuntimeChoiceUi("ROOTLESS", available = true, detail = "ready")),
+        )
+        assertEquals(
+            RuntimeSelectionAction.INSTALL,
+            runtimeSelectionAction(RuntimeChoiceUi("ROOTLESS", available = false, detail = "install")),
+        )
+        assertEquals(
+            RuntimeSelectionAction.SETTINGS,
+            runtimeSelectionAction(RuntimeChoiceUi("AVF", available = false, detail = "unsupported")),
+        )
+        assertEquals(
+            RuntimeSelectionAction.SETTINGS,
+            runtimeSelectionAction(RuntimeChoiceUi("NATIVE", available = false, detail = "unavailable")),
+        )
+    }
+
     @Test fun darkSchemeMeetsTextContrastTargets() {
         assertTextContrast(TerminalDarkColors)
+        assertEquals(Color(0xFFF1F3F5), TerminalDarkColors.primary)
+        assertTrue(contrast(TerminalStatusBlue, TerminalDarkColors.surface) >= 4.5f)
+        assertTrue(contrast(TerminalStatusBlueContainer, TerminalOnStatusBlueContainer) >= 4.5f)
     }
 
     @Test fun integerDraftIsCommittedOnlyWhenTheWholeValueIsValid() {
@@ -122,6 +179,19 @@ class UiModelsTest {
         assertEquals("/system/bin/sh", validatedShellDraft(" /system/bin/sh ") { it in executable })
         assertEquals(null, validatedShellDraft("/missing") { it in executable })
         assertEquals(null, validatedShellDraft("bin/sh") { true })
+    }
+
+    @Test fun sessionTitleIsTrimmedAndBounded() {
+        assertEquals("빌드 로그", validatedSessionTitle("  빌드 로그  "))
+        assertEquals(null, validatedSessionTitle(" "))
+        assertEquals(null, validatedSessionTitle("a".repeat(65)))
+        assertEquals(null, validatedSessionTitle("line\nbreak"))
+    }
+
+    @Test fun sessionBadgeColorsDistinguishEveryWireState() {
+        val colors = listOf("CREATED", "RUNNING", "EXITED", "UNKNOWN").map(::sessionStateBadgeColor)
+
+        assertEquals(colors.size, colors.toSet().size)
     }
 
     @Test fun fontSizeSpUsesThePlatformSpConverter() {

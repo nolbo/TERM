@@ -18,7 +18,7 @@ android-app (UI process / renderer)
 android-runtime :vmhost (session owner)
         │ UnifiedSessionRegistry
         ├── NativeSessionController ── Bionic PTY
-        ├── RootlessSessionController ── packaged PRoot + Debian rootfs
+        ├── RootlessSessionController ── packaged PRoot + selected distribution rootfs
         └── ProtocolSessionClient ── vsock ── droid-sessiond (AVF PTY owner)
 ```
 
@@ -40,9 +40,12 @@ Closing one PTY may interrupt that PTY's blocking output read. Controllers
 contain this expected session-local I/O completion so it cannot escape a
 coroutine and terminate the shared `:vmhost` process or sibling sessions.
 
-Rootless Debian uses a distinct rootfs and a host-owned shared workspace. The
-first Rootless selection automatically installs a checksum-pinned Debian
-archive into that rootfs. Its PRoot executable may only be resolved from `ApplicationInfo.nativeLibraryDir`;
+Rootless Debian, Ubuntu and Arch Linux ARM each use a distinct rootfs and home,
+and share a host-owned workspace. The service owns one backend/controller per
+distribution and the registry routes by the explicit host-local selection. The
+first selection automatically installs that distribution's checksum-pinned
+archive into its rootfs. Debian's existing paths and wire identity are unchanged.
+See `ROOTLESS_DISTRIBUTIONS.md` for catalog details. Its PRoot executable may only be resolved from `ApplicationInfo.nativeLibraryDir`;
 downloaded executable code under writable app data is rejected by design.
 The checked payload is staged into the APK as `libproot.so` and
 `libproot-loader.so`; a clean build does not depend on ignored local JNI files.
@@ -122,3 +125,33 @@ allow legacy commands to bypass the capability model.
 Android share intents are imported by a short-lived UI entry activity into the
 VM-specific shared inbox. The activity then requests the foreground runtime but
 does not bind to, stop, or otherwise own its VM/session lifecycle.
+
+## Rootless USB
+
+`VmRuntimeService` owns `UsbBroker`. New Rootless PTYs receive host-selected
+local socket credentials and the bundled Python CLI. The settings Activity only
+approves/revokes requests through AIDL; it never owns connections. See
+[USB.md](USB.md) for raw/HID transport, pinned USB serial drivers, explicit port
+selection, lifecycle and same-UID isolation limits. Serial driver I/O runs outside
+the shared broker lock; device-level driver grants never become a raw FD tunnel.
+iPhone pair/info/unpair operations use a service-owned APK native worker with
+private in-process usbmuxd sockets; Rootless never receives USB FDs or pair records.
+
+## Terminal image rendering
+
+The shared emulator and view implement bounded SIXEL and kitty graphics,
+including animation, Unicode and relative placements. Runtime PTY owners resolve
+local media into direct image bytes before UI transport; rendering never opens
+guest paths. Native/Rootless retain the resolved bytes in bounded replay, while
+AVF resolves media inside the guest session daemon. See
+[TERMINAL_GRAPHICS.md](TERMINAL_GRAPHICS.md) for ownership, bounds and compatibility limitations.
+
+## Kitty keyboard and remote window control
+
+The emulator/view own negotiated keyboard encoding. `UnifiedSessionRegistry`
+extracts live PTY remote-control frames and dispatches them through a bounded
+worker; transcript replay never executes them. `VmRuntimeService` authorizes
+the source PTY, restricts targets to the same runtime and uses existing session
+operations. Android focus requests only select tabs. UI-created sessions receive
+a grant only when the host setting is enabled; remote-created sessions do not.
+See [KITTY_PROTOCOL.md](KITTY_PROTOCOL.md) for commands, bounds and desktop limits.

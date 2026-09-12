@@ -11,9 +11,49 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionSnapshotPipelineTest {
+    @Test fun creationAndProfileTitlesAreFallbacksUntilAnExplicitRename() = runBlocking {
+        val controller = DelayedListController().also { it.releaseFirstList.complete(Unit) }
+        val pipeline = SessionSnapshotPipeline {}
+        assertTrue(pipeline.refresh(controller).getOrThrow().explicitTitleIds.isEmpty())
+        pipeline.setInitialTitle("native-a", "Profile").getOrThrow()
+        val refreshed = pipeline.refresh(controller).getOrThrow()
+        assertEquals("Profile", refreshed.sessions.first().title)
+        assertTrue(refreshed.explicitTitleIds.isEmpty())
+        // Even choosing the identical label explicitly must pin the tab.
+        assertEquals(setOf("native-a"), pipeline.rename("native-a", "Profile").getOrThrow().explicitTitleIds)
+        pipeline.setInitialTitle("native-a", "Other profile").getOrThrow()
+        assertEquals("Profile", pipeline.refresh(controller).getOrThrow().sessions.first().title)
+    }
+
+    @Test fun renamedTitleIsPublishedAndSurvivesControllerRefresh() = runBlocking {
+        val controller = DelayedListController().also { it.releaseFirstList.complete(Unit) }
+        val published = mutableListOf<SessionSnapshot>()
+        val pipeline = SessionSnapshotPipeline(published::add)
+        pipeline.refresh(controller).getOrThrow()
+
+        val renamed = pipeline.rename("native-a", "  Build logs  ").getOrThrow()
+        val refreshed = pipeline.refresh(controller).getOrThrow()
+
+        assertEquals("Build logs", renamed.sessions.first { it.id == "native-a" }.title)
+        assertEquals(setOf("native-a"), renamed.explicitTitleIds)
+        assertEquals("Build logs", refreshed.sessions.first { it.id == "native-a" }.title)
+        assertEquals("native-a", refreshed.initialTitles["native-a"])
+        assertEquals(setOf("native-a"), refreshed.explicitTitleIds)
+        assertEquals("native-b", refreshed.sessions.first { it.id == "native-b" }.title)
+        assertTrue(pipeline.rename("missing", "name").isFailure)
+    }
+
+    @Test fun sessionTitleValidationRejectsBlankLongAndControlText() {
+        assertEquals("한글 작업", normalizedSessionTitle("  한글 작업  "))
+        assertTrue(runCatching { normalizedSessionTitle(" ") }.isFailure)
+        assertTrue(runCatching { normalizedSessionTitle("a".repeat(65)) }.isFailure)
+        assertTrue(runCatching { normalizedSessionTitle("line\nbreak") }.isFailure)
+    }
+
     @Test fun delayedOlderRefreshCannotOverwritePostTerminationSnapshot() = runBlocking {
         val controller = DelayedListController()
         val published = mutableListOf<SessionSnapshot>()

@@ -298,13 +298,17 @@ public final class TerminalBuffer {
 
                 int currentOldCol = 0;
                 long styleAtCol = 0;
+                int underlineAtCol = TextStyle.COLOR_INDEX_FOREGROUND;
                 for (int i = 0; i < lastNonSpaceIndex; i++) {
                     // Note that looping over java character, not cells.
                     char c = oldLine.mText[i];
                     int codePoint = (Character.isHighSurrogate(c)) ? Character.toCodePoint(c, oldLine.mText[++i]) : c;
                     int displayWidth = WcWidth.width(codePoint);
                     // Use the last style if this is a zero-width character:
-                    if (displayWidth > 0) styleAtCol = oldLine.getStyle(currentOldCol);
+                    if (displayWidth > 0) {
+                        styleAtCol = oldLine.getStyle(currentOldCol);
+                        underlineAtCol = oldLine.getUnderlineColor(currentOldCol);
+                    }
 
                     // Line wrap as necessary:
                     if (currentOutputExternalColumn + displayWidth > mColumns) {
@@ -320,7 +324,7 @@ public final class TerminalBuffer {
 
                     int offsetDueToCombiningChar = ((displayWidth <= 0 && currentOutputExternalColumn > 0) ? 1 : 0);
                     int outputColumn = currentOutputExternalColumn - offsetDueToCombiningChar;
-                    setChar(outputColumn, currentOutputExternalRow, codePoint, styleAtCol);
+                    setChar(outputColumn, currentOutputExternalRow, codePoint, styleAtCol, underlineAtCol);
 
                     if (displayWidth > 0) {
                         if (oldCursorRow == externalOldRow && oldCursorColumn == currentOldCol) {
@@ -449,10 +453,14 @@ public final class TerminalBuffer {
     }
 
     public void setChar(int column, int row, int codePoint, long style) {
+        setChar(column, row, codePoint, style, TextStyle.COLOR_INDEX_FOREGROUND);
+    }
+
+    public void setChar(int column, int row, int codePoint, long style, int underlineColor) {
         if (row  < 0 || row >= mScreenRows || column < 0 || column >= mColumns)
             throw new IllegalArgumentException("TerminalBuffer.setChar(): row=" + row + ", column=" + column + ", mScreenRows=" + mScreenRows + ", mColumns=" + mColumns);
         row = externalToInternalRow(row);
-        allocateFullLineIfNecessary(row).setChar(column, codePoint, style);
+        allocateFullLineIfNecessary(row).setChar(column, codePoint, style, underlineColor);
     }
 
     public long getStyleAt(int externalRow, int column) {

@@ -9,6 +9,16 @@ public class WcWidthTest extends TestCase {
 		assertEquals(expectedWidth, wcWidth);
 	}
 
+	private static void assertStringWidthIs(int expectedWidth, String text) {
+		int width = 0;
+		for (int index = 0; index < text.length(); ) {
+			int codePoint = text.codePointAt(index);
+			width += Math.max(0, WcWidth.width(codePoint));
+			index += Character.charCount(codePoint);
+		}
+		assertEquals(expectedWidth, width);
+	}
+
 	public void testPrintableAscii() {
 		for (int i = 0x20; i <= 0x7E; i++) {
 			assertWidthIs(1, i);
@@ -70,6 +80,11 @@ public class WcWidthTest extends TestCase {
 
 	public void testHangul() {
 		assertWidthIs(1, 0x11A3);
+		assertWidthIs(2, '가');
+		assertStringWidthIs(1, "A");
+		assertStringWidthIs(2, "가");
+		assertStringWidthIs(4, "A가B");
+		assertStringWidthIs(3, "가\u0302A");
 	}
 
 	public void testEmojis() {

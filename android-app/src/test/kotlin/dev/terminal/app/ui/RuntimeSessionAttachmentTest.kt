@@ -5,15 +5,22 @@ import org.junit.Assert.assertNull
 import org.junit.Test
 
 class RuntimeSessionAttachmentTest {
-    @Test fun selectingCachedReplacementStillAttachesItsExactRuntimeSession() {
+    @Test fun selectingCachedReplacementDoesNotReplayItsTranscript() {
         val attachment = RuntimeSessionAttachment()
         val cachedRenderers = mapOf("native-a" to Any(), "native-b" to Any())
 
         assertEquals("native-a", attachment.select("native-a"))
         assertNull(attachment.select("native-a"))
         assertEquals("native-b", cachedRenderers.keys.last())
-        assertEquals("native-b", attachment.select("native-b"))
+        assertNull(attachment.select("native-b", replayTranscript = false))
         assertEquals("native-b", attachment.sessionId)
+    }
+
+    @Test fun selectingUncachedSessionRequestsOneTranscriptReplay() {
+        val attachment = RuntimeSessionAttachment()
+
+        assertEquals("rootless-new", attachment.select("rootless-new", replayTranscript = true))
+        assertNull(attachment.select("rootless-new", replayTranscript = true))
     }
 
     @Test fun closingBackgroundSessionDoesNotReattachTheActiveRuntimeSession() {

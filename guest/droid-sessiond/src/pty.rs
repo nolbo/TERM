@@ -25,6 +25,7 @@ impl From<Errno> for PtyError {
     fn from(error: Errno) -> Self { Self::Nix(error) }
 }
 
+#[derive(Debug)]
 pub struct PtyProcess {
     master: OwnedFd,
     child: Pid,
@@ -57,7 +58,7 @@ impl PtyProcess {
     }
 
     pub fn read_output(&self, buffer: &mut [u8]) -> Result<usize, PtyError> {
-        read(&self.master, buffer).map_err(PtyError::from)
+        read(self.master.as_raw_fd(), buffer).map_err(PtyError::from)
     }
 
     pub fn write_input(&self, bytes: &[u8]) -> Result<usize, PtyError> {
@@ -122,12 +123,61 @@ impl PtyLaunch {
             CString::new(cwd).map_err(|_| PtyError::InvalidCommand)?,
         ];
         for (key, value) in environment {
+            if key == "DROID_SESSION_ARGV" { continue; }
             arguments.push(CString::new(format!("{key}={value}")).map_err(|_| PtyError::InvalidEnvironment)?);
         }
-        arguments.push(CString::new(shell).map_err(|_| PtyError::InvalidCommand)?);
+        if let Some((_, encoded)) = environment.iter().find(|(key, _)| key == "DROID_SESSION_ARGV") {
+            for arg in decode_command(encoded)? {
+                arguments.push(CString::new(arg).map_err(|_| PtyError::InvalidCommand)?);
+            }
+        } else {
+            arguments.push(CString::new(shell).map_err(|_| PtyError::InvalidCommand)?);
+        }
         let mut argv = arguments.iter().map(|argument| argument.as_ptr()).collect::<Vec<_>>();
         argv.push(ptr::null());
         Ok(Self { executable, _arguments: arguments, argv })
+    }
+}
+
+// Same length-prefixed UTF-8 envelope as the Android SessionCommand encoder.
+fn decode_command(encoded: &str) -> Result<Vec<&str>, PtyError> {
+    if encoded.len() > 4096 { return Err(PtyError::InvalidCommand); }
+    fn number<'a>(rest: &mut &'a str) -> Result<usize, PtyError> {
+        let (digits, tail) = rest.split_once(':').ok_or(PtyError::InvalidCommand)?;
+        if digits.is_empty() || digits.len() > 5 || !digits.bytes().all(|b| b.is_ascii_digit()) {
+            return Err(PtyError::InvalidCommand);
+        }
+        let value = digits.parse().map_err(|_| PtyError::InvalidCommand)?;
+        *rest = tail;
+        Ok(value)
+    }
+    let mut rest = encoded;
+    let count = number(&mut rest)?;
+    if count == 0 || count > 64 { return Err(PtyError::InvalidCommand); }
+    let mut result = Vec::with_capacity(count);
+    for _ in 0..count {
+        let size = number(&mut rest)?;
+        if size > rest.len() || !rest.is_char_boundary(size) { return Err(PtyError::InvalidCommand); }
+        let (arg, tail) = rest.split_at(size);
+        if arg.as_bytes().contains(&0) { return Err(PtyError::InvalidCommand); }
+        result.push(arg);
+        rest = tail;
+    }
+    if !rest.is_empty() || result[0].is_empty() || result[0].starts_with('-') || result[0].contains('=') {
+        return Err(PtyError::InvalidCommand);
+    }
+    Ok(result)
+}
+
+#[cfg(test)]
+mod command_tests {
+    use super::decode_command;
+    #[test]
+    fn preserves_arguments_and_rejects_truncation() {
+        assert_eq!(decode_command("3:4:echo3:a b6:한글").unwrap(), vec!["echo", "a b", "한글"]);
+        for invalid in ["0:", "1:9:a", "1:0:", "1:1:한", "1:6:--help", "1:3:A=B", "1:1:aextra"] {
+            assert!(decode_command(invalid).is_err(), "{invalid}");
+        }
     }
 }
 

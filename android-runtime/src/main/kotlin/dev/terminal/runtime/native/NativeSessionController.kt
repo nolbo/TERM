@@ -8,9 +8,15 @@ import dev.terminal.protocol.SessionEvent
 import dev.terminal.protocol.SessionStatus
 import dev.terminal.runtime.session.pumpPtyOutput
 import com.termux.terminal.PtyProcess
+import com.termux.terminal.TerminalReplayBuffer
+import com.termux.terminal.KittyGraphicsTransport
+import dev.terminal.runtime.session.GraphicsMediaResolver
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -19,7 +25,6 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.io.File
-import java.io.ByteArrayOutputStream
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
@@ -29,18 +34,11 @@ class NativeSessionController(private val root: File) : SessionController {
         @Volatile var descriptor: SessionDescriptor,
         val process: PtyProcess,
     ) {
-        private val transcript = ByteArrayOutputStream()
-
-        fun append(bytes: ByteArray, count: Int) = synchronized(transcript) {
-            transcript.write(bytes, 0, count)
-            if (transcript.size() > MAX_TRANSCRIPT_BYTES) {
-                val retained = transcript.toByteArray().takeLast(MAX_TRANSCRIPT_BYTES).toByteArray()
-                transcript.reset()
-                transcript.write(retained)
-            }
-        }
-
-        fun snapshot(): ByteArray = synchronized(transcript) { transcript.toByteArray() }
+        val outputMutex = Mutex()
+        val inputMutex = Mutex()
+        private val transcript = TerminalReplayBuffer(MAX_TRANSCRIPT_BYTES)
+        fun append(bytes: ByteArray, count: Int) = transcript.append(bytes, count)
+        fun snapshot(): ByteArray = transcript.snapshot()
     }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val entries = ConcurrentHashMap<String, Entry>()
@@ -52,7 +50,18 @@ class NativeSessionController(private val root: File) : SessionController {
     override suspend fun create(shell: String, cwd: String, env: Map<String, String>, rows: UShort, cols: UShort): Result<SessionDescriptor> = runCatching {
         val id = "native-${UUID.randomUUID()}"
         val home = File(root, "home").apply { mkdirs() }
-        val command = shell.takeIf { it.startsWith('/') && File(it).canExecute() } ?: "/system/bin/sh"
+        val shellRc = prepareNativeShellRc(home)
+        val temporary = File(root, "tmp").apply { mkdirs() }
+        val media = GraphicsMediaResolver(
+            listOf(
+                GraphicsMediaResolver.Mapping(root.absolutePath, root.canonicalFile),
+                GraphicsMediaResolver.Mapping(root.canonicalPath, root.canonicalFile),
+            ),
+            setOf(temporary.absolutePath, temporary.canonicalPath),
+        )
+        val transport = KittyGraphicsTransport(media)
+        val argv = dev.terminal.runtime.session.SessionCommand.decode(env)
+        val command = argv?.first() ?: shell.takeIf { it.startsWith('/') && File(it).canExecute() } ?: "/system/bin/sh"
         val loginShell = env["DROID_LOGIN_SHELL"]?.toBooleanStrictOrNull() ?: true
         val environment = buildList {
             add("HOME=${home.absolutePath}")
@@ -61,28 +70,49 @@ class NativeSessionController(private val root: File) : SessionController {
             add("SHELL=$command")
             add("TERM=xterm-256color")
             add("COLORTERM=truecolor")
-            // \w renders the home directory as ~ while preserving real
-            // subdirectories, matching the conventional Termux prompt.
-            add("PS1=\\w \\${'$'} ")
-            env.filterKeys { it != "DROID_LOGIN_SHELL" }.forEach { (key, value) -> add("$key=$value") }
+            // Android's mksh resets PS1 from /system/etc/mkshrc. ENV is read
+            // after that startup file for every interactive shell, including a
+            // non-login shell, so it is the authoritative default prompt.
+            add("ENV=${shellRc.absolutePath}")
+            add("PS1=~ \\${'$'} ")
+            env.filterKeys { it != "DROID_LOGIN_SHELL" && it != dev.terminal.runtime.session.SessionCommand.KEY }.forEach { (key, value) -> add("$key=$value") }
         }.toTypedArray()
+        val workingDirectory = cwd.takeIf { it.startsWith('/') && File(it).isDirectory } ?: home.absolutePath
         val process = PtyProcess.start(
-            command, home.absolutePath, if (loginShell) arrayOf(command, "-l") else arrayOf(command), environment,
+            command, workingDirectory, argv?.toTypedArray() ?: if (loginShell) arrayOf(command, "-l") else arrayOf(command), environment,
             rows.toInt(), cols.toInt(), 0, 0,
         )
-        val descriptor = SessionDescriptor(id, "Native shell", command, home.absolutePath, System.currentTimeMillis(), rows, cols, SessionStatus.RUNNING)
+        val descriptor = SessionDescriptor(id, "Native shell", command, workingDirectory, System.currentTimeMillis(), rows, cols, SessionStatus.RUNNING)
         entries[id] = Entry(descriptor, process)
         scope.launch {
             pumpPtyOutput(
                 process.inputStream,
                 onOutput = { bytes ->
-                    entries[id]?.append(bytes, bytes.size)
-                    output.emit(SessionEvent.Output(id, bytes))
+                    entries[id]?.let { entry ->
+                        entry.outputMutex.withLock {
+                            val resolved = transport.accept(bytes)
+                            entry.inputMutex.withLock {
+                                resolved.replies.forEach { process.outputStream.write(it) }
+                            }
+                            resolved.bytes.forEach { frame ->
+                                entry.append(frame, frame.size)
+                                output.emit(SessionEvent.Output(id, frame))
+                            }
+                        }
+                    }
                 },
                 onReadFailure = { error ->
                     if (entries.containsKey(id)) Log.w(TAG, "PTY output failed for $id", error)
                 },
             )
+            entries[id]?.let { entry ->
+                entry.outputMutex.withLock {
+                    transport.finish().bytes.forEach { frame ->
+                        entry.append(frame, frame.size)
+                        output.emit(SessionEvent.Output(id, frame))
+                    }
+                }
+            }
         }
         scope.launch {
             val code = process.waitFor()
@@ -95,8 +125,14 @@ class NativeSessionController(private val root: File) : SessionController {
     override suspend fun list(): Result<List<SessionDescriptor>> = Result.success(entries.values.map { it.descriptor })
     override suspend fun attach(sessionId: String): Result<SessionDescriptor> = runCatching {
         val entry = entries[sessionId] ?: error("Session not found")
-        entry.snapshot().takeIf { it.isNotEmpty() }?.let { output.emit(SessionEvent.Output(sessionId, it)) }
-        entry.descriptor
+        entry.outputMutex.withLock {
+            val snapshot = entry.snapshot()
+            for (offset in snapshot.indices step REPLAY_FRAME_BYTES) {
+                output.emit(SessionEvent.Output(sessionId,
+                    snapshot.copyOfRange(offset, minOf(offset + REPLAY_FRAME_BYTES, snapshot.size)), replay = true))
+            }
+            entry.descriptor
+        }
     }
     override suspend fun detach(sessionId: String): Result<Unit> = if (entries.containsKey(sessionId)) Result.success(Unit) else Result.failure(NoSuchElementException("Session not found"))
     override suspend fun resize(sessionId: String, rows: UShort, cols: UShort): Result<SessionDescriptor> = runCatching {
@@ -107,10 +143,12 @@ class NativeSessionController(private val root: File) : SessionController {
         resized
     }
     override suspend fun write(sessionId: String, bytes: ByteArray): Result<Int> = runCatching {
-        val process = entries[sessionId]?.process ?: error("Session not found")
-        process.outputStream.write(bytes)
-        process.outputStream.flush()
-        bytes.size
+        val entry = entries[sessionId] ?: error("Session not found")
+        entry.inputMutex.withLock {
+            entry.process.outputStream.write(bytes)
+            entry.process.outputStream.flush()
+            bytes.size
+        }
     }
     override suspend fun terminate(sessionId: String, signal: Int): Result<Unit> = runCatching {
         val entry = entries[sessionId] ?: error("Session not found")
@@ -125,11 +163,56 @@ class NativeSessionController(private val root: File) : SessionController {
         }
         entries.clear()
         connection.value = SessionConnectionState.DISCONNECTED
+        scope.cancel()
     }
 
     private companion object {
         const val TAG = "NativeSessionController"
         const val SIGKILL = 9
-        const val MAX_TRANSCRIPT_BYTES = 256 * 1024
+        const val MAX_TRANSCRIPT_BYTES = 8 * 1024 * 1024
+        const val REPLAY_FRAME_BYTES = 32 * 1024
     }
+}
+
+/** Writes the app-owned interactive-shell defaults without modifying a user's profile. */
+internal fun prepareNativeShellRc(home: File): File = File(home, ".droid-shrc").apply {
+    writeText(
+        """
+        PS1='${'$'}(p=${'$'}PWD; h=${'$'}HOME
+        case "${'$'}p" in
+          "${'$'}h"|"${'$'}h"/*) ;;
+          *) p=${'$'}(pwd -P); h=${'$'}(cd -- "${'$'}HOME" && pwd -P) || h=${'$'}HOME ;;
+        esac
+        case "${'$'}p" in
+          "${'$'}h") printf "%s" "~" ;;
+          "${'$'}h"/*) printf "%s" "~/${'$'}{p#"${'$'}h"/}" ;;
+          *) printf "%s" "${'$'}PWD" ;;
+        esac)'
+        # mksh needs non-printing delimiters so ANSI codes do not shift the input cursor.
+        # Only the Android mksh prompt uses this encoding; other shells keep plain text.
+        if [ -z "${'$'}{NO_COLOR-}" ] && [ "${'$'}{TERM-dumb}" != dumb ]; then
+          if [ -n "${'$'}{KSH_VERSION-}" ]; then
+            droid_mark=${'$'}(printf '\001')
+            droid_cr=${'$'}(printf '\r')
+            droid_esc=${'$'}(printf '\033')
+            PS1="${'$'}droid_mark${'$'}droid_cr${'$'}droid_mark${'$'}droid_esc[0;32m${'$'}droid_mark${'$'}PS1${'$'}droid_mark${'$'}droid_esc[0m${'$'}droid_mark \${'$'} "
+            PS2="${'$'}droid_mark${'$'}droid_cr${'$'}droid_mark${'$'}droid_esc[1;33m${'$'}droid_mark> ${'$'}droid_mark${'$'}droid_esc[0m${'$'}droid_mark"
+            unset droid_mark droid_cr droid_esc
+          else
+            PS1="${'$'}PS1 \${'$'} "
+          fi
+          # Probe the installed tools: Android versions and user-provided binaries differ.
+          # auto keeps redirected output and pipelines free of colour escapes.
+          if command ls --color=auto -d / >/dev/null 2>&1; then
+            alias ls='ls --color=auto'
+          fi
+          command grep --color=auto x /dev/null >/dev/null 2>&1
+          if [ "${'$'}?" -le 1 ]; then
+            alias grep='grep --color=auto'
+          fi
+        else
+          PS1="${'$'}PS1 \${'$'} "
+        fi
+        """.trimIndent() + System.lineSeparator(),
+    )
 }

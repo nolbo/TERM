@@ -28,6 +28,15 @@ public interface TerminalViewClient {
      */
     void onSingleTapUp(MotionEvent e);
 
+    /** Handle a visible HTTP(S) link after a confirmed single tap. */
+    default boolean onOpenLink(String url) { return false; }
+
+    /**
+     * On a double tap on the terminal when terminal mouse reporting is not enabled.
+     * Return true when the client handled the gesture.
+     */
+    boolean onDoubleTap(MotionEvent e);
+
     boolean shouldBackButtonBeMappedToEscape();
 
     boolean shouldEnforceCharBasedInput();

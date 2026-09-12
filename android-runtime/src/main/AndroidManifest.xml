@@ -1,11 +1,13 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-feature android:name="android.hardware.usb.host" android:required="false" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application>
+        <receiver android:name=".usb.UsbPermissionReceiver" android:exported="false" android:process=":vmhost" />
         <!--
           This service deliberately lives outside the UI process. stopWithTask is
           false because task removal must detach the UI, never terminate a VM.

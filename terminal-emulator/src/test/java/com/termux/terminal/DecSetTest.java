@@ -15,6 +15,15 @@ package com.termux.terminal;
  */
 public class DecSetTest extends TerminalTestCase {
 
+    public void testMultilinePastePreservesContinuationAndNormalizesCrLf() {
+        withTerminalSized(80, 24);
+        mTerminal.paste("echo one\\\r\n two\necho three");
+        assertEquals("echo one\\\r two\recho three", mOutput.getOutputAndClear());
+        enterString("\033[?2004h");
+        mTerminal.paste("echo one\\\r\n two\necho three");
+        assertEquals("\033[200~echo one\\\r two\recho three\033[201~", mOutput.getOutputAndClear());
+    }
+
 	/** DECSET 25, DECTCEM, controls visibility of the cursor. */
 	public void testEnableDisableCursor() {
 		withTerminalSized(3, 3);

@@ -9,7 +9,51 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class RootlessLaunchSpecTest {
+    @Test fun usbCredentialsAndClientBindAreHostSelected() {
+        val layout = RootlessDebianLayout(File(temporary.root, "rootless/debian"))
+        val client = File(temporary.root, "usb-client.py")
+        fun spec(hostEnv: Map<String, String> = emptyMap(), script: File? = null) = buildRootlessLaunchSpec(
+            layout, File("/proot"), File("/loader"), "/bin/sh", "/root",
+            mapOf("TERMINAL_USB_TOKEN" to "guest-forged", "TERMINAL_USB_SOCKET" to "guest-socket"),
+            usbClientFile = script, usbEnvironment = hostEnv,
+        ).arguments.toList()
+        assertFalse(spec().any { it.startsWith("TERMINAL_USB_") })
+        val enabled = spec(mapOf("TERMINAL_USB_TOKEN" to "host-token", "TERMINAL_USB_SOCKET" to "host-socket"), client)
+        assertTrue(enabled.contains("TERMINAL_USB_TOKEN=host-token"))
+        assertTrue(enabled.contains("${client.absolutePath}:/usr/local/bin/terminal-usb"))
+        assertFalse(enabled.any { it.contains("guest-forged") || it.contains("guest-socket") })
+    }
     @get:Rule val temporary = TemporaryFolder()
+
+    @Test fun sharedStorageIsOptInAndCannotBeEnabledByGuestEnvironment() {
+        val layout = RootlessDebianLayout(File(temporary.root, "rootless/debian"))
+        val proot = temporary.newFile("proot")
+        val loader = temporary.newFile("loader")
+        val storage = File("/storage/emulated/0")
+        val env = mapOf("EXTERNAL_STORAGE" to storage.path, "SHARED_STORAGE" to storage.path)
+        fun launch(grantedPath: File? = null) = buildRootlessLaunchSpec(
+            layout, proot, loader, "/bin/sh", "/root", env, grantedPath,
+        ).arguments.toList().windowed(2).filter { it.first() == "-b" }.map { it.last() }
+
+        val denied = launch()
+        assertFalse(denied.any { it.contains("/sdcard") || it.contains(storage.path) })
+        assertEquals(denied + "${storage.path}:/sdcard", launch(storage))
+        assertEquals(denied, launch(null)) // A later session after revocation has no bind.
+        assertTrue(denied.contains("${layout.workspace.absolutePath}:/workspace"))
+        assertFalse(launch(storage).contains(layout.root.parentFile.parentFile.absolutePath))
+    }
+
+    @Test fun remoteArgvPreservesLiteralArgumentsAndRemovesInternalEnvelope() {
+        val argv = listOf("/bin/printf", "%s", "a b", "\$(touch nope)", "한글", "")
+        val launch = buildRootlessLaunchSpec(
+            RootlessDebianLayout(File(temporary.root, "rootless/debian")),
+            temporary.newFile("proot"), temporary.newFile("loader"), "/bin/bash", "/workspace",
+            mapOf(dev.terminal.runtime.session.SessionCommand.KEY to dev.terminal.runtime.session.SessionCommand.encode(argv)),
+        )
+        assertEquals(argv, launch.arguments.takeLast(argv.size))
+        assertFalse(launch.arguments.any { it.startsWith("DROID_SESSION_ARGV=") })
+        assertFalse(launch.arguments.contains("-l"))
+    }
 
     @Test fun suppliesExecArgvLoaderBindingsAndSanitizedGuestEnvironment() {
         val layout = RootlessDebianLayout(File(temporary.root, "rootless/debian"))

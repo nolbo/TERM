@@ -44,10 +44,10 @@ public class DeviceControlStringTest extends TerminalTestCase {
 		for (int i = 0; i < 10000; i++) {
 			enterString("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
 		}
-		// The terminal should ignore the overlong DCS sequence and continue printing "aaa." and fill at least the first two lines with
-		// them:
-		assertLineIs(0, "aaa");
-		assertLineIs(1, "aaa");
+        // Payload must never escape onto the screen, even when the string is rejected.
+        assertLineIs(0, "   ");
+        enterString("\033\\OK");
+        assertLineIs(0, "OK ");
 	}
 
 }

@@ -1,10 +1,45 @@
 plugins {
     id 'com.android.library'
-    id 'org.jetbrains.kotlin.android'
 }
 
 def rootlessPayloadSource = layout.projectDirectory.dir('src/main/rootless/arm64-v8a')
 def generatedRootlessJniDirectory = layout.buildDirectory.dir('generated/rootlessJniLibs')
+def iphoneBuildDirectory = layout.buildDirectory.dir('iphone-native')
+def serialBuildDirectory = layout.buildDirectory.dir('usb-serial')
+def usbClientAssets = layout.buildDirectory.dir('generated/usbClientAssets')
+tasks.register('buildUsbClient', Exec) {
+    inputs.files(fileTree('src/main/assets/usb'), rootProject.file('tools/usb/build_client.py'))
+    outputs.file(usbClientAssets.map { it.file('usb/terminal-usb.pyz') })
+    commandLine 'python3', rootProject.file('tools/usb/build_client.py'), file('src/main/assets/usb'),
+        usbClientAssets.get().file('usb/terminal-usb.pyz').asFile
+}
+
+tasks.register('prepareUsbSerial', Exec) {
+    inputs.file(rootProject.file('tools/usb-serial/prepare.sh'))
+    outputs.dir(serialBuildDirectory.map { it.dir('java') })
+    outputs.dir(serialBuildDirectory.map { it.dir('assets') })
+    commandLine 'bash', rootProject.file('tools/usb-serial/prepare.sh'), serialBuildDirectory.get().asFile
+}
+
+tasks.register('buildIphoneWorker', Exec) {
+    inputs.files(rootProject.fileTree('tools/iphone'), fileTree('src/main/iphone'))
+    outputs.dir(iphoneBuildDirectory.map { it.dir('jniLibs') })
+    outputs.dir(iphoneBuildDirectory.map { it.dir('assets') })
+    doFirst {
+        def sdk = androidComponents.sdkComponents.sdkDirectory.get().asFile
+        commandLine 'bash', rootProject.file('tools/iphone/build.sh'),
+            iphoneBuildDirectory.get().asFile, new File(sdk, "ndk/${project.properties.ndkVersion}")
+    }
+}
+
+tasks.register('bundleIphoneWorkerSources', Exec) {
+    dependsOn('buildIphoneWorker')
+    inputs.files(rootProject.fileTree('tools/iphone'), fileTree('src/main/iphone'))
+    def archive = layout.buildDirectory.file('distributions/iphone-worker-source.tar.gz')
+    outputs.file(archive)
+    commandLine 'bash', rootProject.file('tools/iphone/bundle-sources.sh'),
+        iphoneBuildDirectory.get().asFile, archive.get().asFile
+}
 
 tasks.register('stageRootlessExecutables', Sync) {
     into generatedRootlessJniDirectory.map { it.dir('arm64-v8a') }
@@ -64,18 +99,18 @@ android {
         targetCompatibility JavaVersion.VERSION_17
     }
 
-    kotlinOptions {
-        jvmTarget = '17'
-    }
-
     testOptions {
         unitTests.returnDefaultValues = true
     }
 
-    sourceSets.main.jniLibs.srcDirs = [generatedRootlessJniDirectory]
+    sourceSets.main.jniLibs.srcDirs = [generatedRootlessJniDirectory, iphoneBuildDirectory.get().dir('jniLibs').asFile]
+    sourceSets.main.assets.srcDir(iphoneBuildDirectory.get().dir('assets').asFile)
+    sourceSets.main.java.srcDir(serialBuildDirectory.get().dir('java/java').asFile)
+    sourceSets.main.assets.srcDir(serialBuildDirectory.get().dir('assets').asFile)
+    sourceSets.main.assets.srcDir(usbClientAssets.get().asFile)
 }
 
-tasks.named('preBuild').configure { dependsOn('stageRootlessExecutables', 'verifyRootlessExecutables') }
+tasks.named('preBuild').configure { dependsOn('stageRootlessExecutables', 'verifyRootlessExecutables', 'bundleIphoneWorkerSources', 'prepareUsbSerial', 'buildUsbClient') }
 
 dependencies {
     api project(':protocol')
@@ -93,4 +128,5 @@ dependencies {
     implementation 'org.tukaani:xz:1.10'
 
     testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
 }

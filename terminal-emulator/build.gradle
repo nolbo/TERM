@@ -6,6 +6,7 @@ def generatedJniDirectory = layout.buildDirectory.dir('generated/jniLibs')
 
 android {
     namespace "com.termux.terminal"
+    enableKotlin = false
     compileSdkVersion project.properties.compileSdkVersion.toInteger()
     ndkVersion project.properties.ndkVersion
 
@@ -36,7 +37,7 @@ android {
     buildTypes {
         release {
             minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 
@@ -58,7 +59,8 @@ if (isArm64BuildHost) {
     // Google's Linux NDK host tools are x86_64-only. On an ARM64 CI host, use the
     // installed native clang driver with the official NDK sysroot and runtimes.
     // This produces the same Android targets without trying to execute x86 code.
-    def ndkRoot = file("${android.sdkDirectory}/ndk/${android.ndkVersion}")
+    def sdkRoot = androidComponents.sdkComponents.sdkDirectory.get().asFile
+    def ndkRoot = file("${sdkRoot}/ndk/${project.properties.ndkVersion}")
     def llvmDataRoot = file("${ndkRoot}/toolchains/llvm/prebuilt/linux-x86_64")
     def clangResourceDirectory = file("${llvmDataRoot}/lib/clang/19")
     def androidApi = project.properties.minSdkVersion.toString()

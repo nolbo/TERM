@@ -10,12 +10,44 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.async
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UnifiedSessionRegistryTest {
+    @Test fun maintenanceBlocksSameRuntimeCreationButNotSiblingOperations() = runBlocking {
+        val registry = UnifiedSessionRegistry()
+        registry.register(SessionRuntime.ROOTLESS_UBUNTU, FakeController("ubuntu-live"))
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val maintenance = kotlinx.coroutines.CoroutineScope(coroutineContext).launch {
+            registry.removeIfIdle(SessionRuntime.ROOTLESS) {
+                entered.complete(Unit)
+                release.await()
+            }
+        }
+        entered.await()
+        val creation = kotlinx.coroutines.CoroutineScope(coroutineContext).async {
+            registry.create(SessionRuntime.ROOTLESS, "/bin/sh", "/", rows = 24u, cols = 80u)
+        }
+        try {
+            kotlinx.coroutines.yield()
+            assertFalse(creation.isCompleted)
+            kotlinx.coroutines.withTimeout(1000) {
+                assertEquals(listOf("ubuntu-live"), registry.list().getOrThrow().map { it.id })
+                assertTrue(registry.create(SessionRuntime.ROOTLESS_UBUNTU, "/bin/sh", "/", rows = 24u, cols = 80u).isSuccess)
+            }
+        } finally {
+            release.complete(Unit)
+            maintenance.join()
+            registry.close()
+        }
+        assertTrue(creation.await().isFailure)
+    }
+
     @Test fun routesOperationsToOwningRuntimeAndDetachDoesNotCloseController() = runBlocking {
         val native = FakeController("native-one")
         val rootless = FakeController("rootless-one")
@@ -130,6 +162,53 @@ class UnifiedSessionRegistryTest {
         assertEquals(SessionRuntime.NATIVE, registry.runtimeOf("native-a"))
         assertEquals(listOf("native-a", "native-b"), registry.list().getOrThrow().map { it.id })
         assertFalse(native.closed)
+        registry.close()
+    }
+
+    @Test fun distributionSessionsRemainIndependentAcrossDetachAndTerminate() = runBlocking {
+        val registry = UnifiedSessionRegistry()
+        val runtimes = listOf(SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH)
+        val controllers = runtimes.associateWith { FakeController(it.idPrefix + "test") }
+        controllers.forEach { (runtime, controller) -> registry.register(runtime, controller) }
+        val sessions = runtimes.map { registry.create(it, "/bin/bash", "/root", rows = 24u, cols = 80u).getOrThrow() }
+        registry.detach(sessions[1].id).getOrThrow()
+        registry.write(sessions[2].id, "pacman -V\n".encodeToByteArray()).getOrThrow()
+        registry.terminate(sessions[1].id, 9).getOrThrow()
+        assertEquals(setOf(sessions[0].id, sessions[2].id), registry.list().getOrThrow().map { it.id }.toSet())
+        assertEquals(1, controllers.getValue(SessionRuntime.ROOTLESS_ARCH).writeCount)
+        assertEquals(0, controllers.getValue(SessionRuntime.ROOTLESS).writeCount)
+        assertTrue(controllers.values.none { it.closed })
+        registry.close()
+    }
+
+    @Test fun removalRejectsLiveSessionsAndUnknownSessionState() = runBlocking {
+        val registry = UnifiedSessionRegistry()
+        val controller = FakeController("rootless-live")
+        registry.register(SessionRuntime.ROOTLESS, controller)
+        var removed = false
+        assertTrue(runCatching { registry.removeIfIdle(SessionRuntime.ROOTLESS) { removed = true } }.isFailure)
+        controller.failList = true
+        assertTrue(runCatching { registry.removeIfIdle(SessionRuntime.ROOTLESS) { removed = true } }.isFailure)
+        assertFalse(removed)
+        assertTrue(registry.isRegistered(SessionRuntime.ROOTLESS))
+        assertFalse(controller.closed)
+        registry.close()
+    }
+
+    @Test fun removalUnregistersOnlyIdleDistributionAndAllowsReinstallation() = runBlocking {
+        val registry = UnifiedSessionRegistry()
+        val controller = FakeController("rootless-idle")
+        val sibling = FakeController("ubuntu-live")
+        registry.register(SessionRuntime.ROOTLESS, controller)
+        registry.register(SessionRuntime.ROOTLESS_UBUNTU, sibling)
+        registry.terminate("rootless-idle", 9).getOrThrow()
+        registry.removeIfIdle(SessionRuntime.ROOTLESS) { controller.close() }
+        assertFalse(registry.isRegistered(SessionRuntime.ROOTLESS))
+        assertTrue(registry.create(SessionRuntime.ROOTLESS, "/bin/sh", "/", rows = 24u, cols = 80u).isFailure)
+        assertEquals(listOf("ubuntu-live"), registry.list().getOrThrow().map { it.id })
+        assertFalse(sibling.closed)
+        registry.register(SessionRuntime.ROOTLESS, FakeController("rootless-new"))
+        assertTrue(registry.create(SessionRuntime.ROOTLESS, "/bin/sh", "/", rows = 24u, cols = 80u).isSuccess)
         registry.close()
     }
 

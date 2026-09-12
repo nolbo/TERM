@@ -1,0 +1,46 @@
+--- afc.c
++++ afc.c
+@@ -227,6 +227,7 @@
+ 	}
+ 
+ 	/* first, read the AFC header */
++	memset(&header, 0, sizeof(header));
+ 	service_receive(client->parent, (char*)&header, sizeof(AFCPacket), &recv_len);
+ 	AFCPacket_from_LE(&header);
+ 	if (recv_len == 0) {
+@@ -243,6 +244,10 @@
+ 	/* check if it's a valid AFC header */
+ 	if (strncmp(header.magic, AFC_MAGIC, AFC_MAGIC_LEN) != 0) {
+ 		debug_info("Invalid AFC packet received (magic != " AFC_MAGIC ")!");
++		return AFC_E_OP_HEADER_INVALID;
++	}
++	if (!terminal_afc_lengths(header.entire_length, header.this_length, sizeof(AFCPacket))) {
++		return AFC_E_TOO_MUCH_DATA;
+ 	}
+ 
+ 	/* check if it has the correct packet number */
+@@ -271,6 +277,7 @@
+ 	this_len = (uint32_t)header.this_length - sizeof(AFCPacket);
+ 
+ 	buf = (char*)malloc(entire_len);
++	if (!buf) return AFC_E_NO_MEM;
+ 	if (this_len > 0) {
+ 		recv_len = 0;
+ 		service_receive(client->parent, buf, this_len, &recv_len);
+@@ -307,6 +314,8 @@
+ 		}
+ 		if (current_count < entire_len) {
+ 			debug_info("WARNING: could not receive full packet (read %s, size %d)", current_count, entire_len);
++			free(buf);
++			return AFC_E_NOT_ENOUGH_DATA;
+ 		}
+ 	}
+ 
+@@ -393,6 +402,7 @@
+ 
+ 	nulls = count_nullspaces(tokens, length);
+ 	list = (char **) malloc(sizeof(char *) * (nulls + 1));
++	if (!list) return NULL;
+ 	for (i = 0; i < nulls; i++) {
+ 		list[i] = strdup(tokens + j);
+ 		j += strlen(list[i]) + 1;

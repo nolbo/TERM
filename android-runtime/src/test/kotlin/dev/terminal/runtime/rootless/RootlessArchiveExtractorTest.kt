@@ -11,6 +11,7 @@ import org.apache.commons.compress.compressors.xz.XZCompressorOutputStream
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Assume.assumeTrue
 import org.junit.Rule
 import org.junit.Test
@@ -34,8 +35,13 @@ class RootlessArchiveExtractorTest {
             MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { "%02x".format(it) }
         }
 
-        extractor.verifySha256(archive, digest)
-        extractor.extract(archive, destination)
+        val verified = mutableListOf<Pair<Long, Long>>()
+        val extracted = mutableListOf<Pair<Int, Long>>()
+        extractor.verifySha256(archive, digest) { read, total -> verified += read to total }
+        extractor.extract(archive, destination) { entries, bytes -> extracted += entries to bytes }
+        assertEquals(Files.size(archive) to Files.size(archive), verified.last())
+        assertEquals(5L, extracted.last().second)
+        assertTrue(extracted.zipWithNext().all { (before, after) -> before.first < after.first && before.second <= after.second })
 
         assertTrue(Files.isExecutable(destination.resolve("bin/sh")))
         assertArrayEquals("shell".encodeToByteArray(), Files.readAllBytes(destination.resolve("usr/bin/sh")))

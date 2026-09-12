@@ -1,6 +1,8 @@
-# Droid Terminal
+# TERM
 
-Droid Terminal is an Android Linux runtime with a Termux-like terminal UI and
+**TERM** stands for **Terminal Environments with Runtime Multiplexing**.
+
+TERM is an Android Linux runtime with a Termux-like terminal UI and
 a real Debian ARM64 guest when deployed in an Android Virtualization Framework
 (AVF) capable system image.
 
@@ -17,7 +19,7 @@ terminate the VM or an existing guest shell.
 
 - Korean Material dark UI with initial setup, console, settings, and diagnostics
 - immediate stock-Android Native shell fallback with app-managed home and temp data
-- automatic Rootless Debian ARM64 bootstrap with an APK-packaged PRoot runtime
+- automatic Debian, Ubuntu 24.04 LTS and Arch Linux ARM bootstrap with an APK-packaged PRoot runtime
 - persistent `:vmhost` foreground runtime service behind `RuntimeBackend`
 - AVF product-driver seam, guest vsock session protocol, PTY session daemon
 - capability-controlled clipboard, URL, notification, storage, and port APIs
@@ -40,7 +42,8 @@ android-app/build/outputs/apk/debug/android-app-debug.apk
 
 The ARM64 PRoot executable and loader are checked, 16 KiB-aligned build
 artifacts with a pinned-source rebuild path in `tools/rootless`. Runtime setup
-downloads only the checksum-pinned Debian data rootfs; it never downloads code.
+downloads only checksum-pinned distribution rootfs archives; the host PRoot and
+loader remain immutable APK payloads. See [Rootless distributions](docs/ROOTLESS_DISTRIBUTIONS.md).
 
 ## Deployment boundaries
 

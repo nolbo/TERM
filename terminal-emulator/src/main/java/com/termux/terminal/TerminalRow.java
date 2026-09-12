@@ -47,6 +47,8 @@ public final class TerminalRow {
     boolean mLineWrap;
     /** The style bits of each cell in the row. See {@link TextStyle}. */
     final long[] mStyle;
+    /** Lazily allocated SGR 58 colors, also used as kitty placeholder placement IDs. */
+    private int[] mUnderlineColors;
     /** If this row might contain chars with width != 1, used for deactivating fast path */
     boolean mHasNonOneWidthOrSurrogateChars;
 
@@ -64,6 +66,8 @@ public final class TerminalRow {
         final int x1 = line.findStartOfColumn(sourceX1);
         final int x2 = line.findStartOfColumn(sourceX2);
         boolean startingFromSecondHalfOfWideChar = (sourceX1 > 0 && line.wideDisplayCharacterStartingAt(sourceX1 - 1));
+        final int[] sourceUnderline = line.mUnderlineColors == null ? null : line.mUnderlineColors.clone();
+        final long[] sourceStyles = this == line ? line.mStyle.clone() : line.mStyle;
         final char[] sourceChars = (this == line) ? Arrays.copyOf(line.mText, line.mText.length) : line.mText;
         int latestNonCombiningWidth = 0;
         for (int i = x1; i < x2; i++) {
@@ -80,7 +84,8 @@ public final class TerminalRow {
                 sourceX1 += latestNonCombiningWidth;
                 latestNonCombiningWidth = w;
             }
-            setChar(destinationX, codePoint, line.getStyle(sourceX1));
+            setChar(destinationX, codePoint, sourceStyles[sourceX1],
+                sourceUnderline == null ? TextStyle.COLOR_INDEX_FOREGROUND : sourceUnderline[sourceX1]);
         }
     }
 
@@ -144,16 +149,30 @@ public final class TerminalRow {
     public void clear(long style) {
         Arrays.fill(mText, ' ');
         Arrays.fill(mStyle, style);
+        if (mUnderlineColors != null) Arrays.fill(mUnderlineColors, TextStyle.COLOR_INDEX_FOREGROUND);
         mSpaceUsed = (short) mColumns;
         mHasNonOneWidthOrSurrogateChars = false;
     }
 
     // https://github.com/steven676/Android-Terminal-Emulator/commit/9a47042620bec87617f0b4f5d50568535668fe26
     public void setChar(int columnToSet, int codePoint, long style) {
+        setChar(columnToSet, codePoint, style, TextStyle.COLOR_INDEX_FOREGROUND);
+    }
+
+    public int getUnderlineColor(int column) {
+        return mUnderlineColors == null ? TextStyle.COLOR_INDEX_FOREGROUND : mUnderlineColors[column];
+    }
+
+    public void setChar(int columnToSet, int codePoint, long style, int underlineColor) {
         if (columnToSet  < 0 || columnToSet >= mStyle.length)
             throw new IllegalArgumentException("TerminalRow.setChar(): columnToSet=" + columnToSet + ", codePoint=" + codePoint + ", style=" + style);
 
         mStyle[columnToSet] = style;
+        if (mUnderlineColors == null && underlineColor != TextStyle.COLOR_INDEX_FOREGROUND) {
+            mUnderlineColors = new int[mColumns];
+            Arrays.fill(mUnderlineColors, TextStyle.COLOR_INDEX_FOREGROUND);
+        }
+        if (mUnderlineColors != null) mUnderlineColors[columnToSet] = underlineColor;
 
         final int newCodePointDisplayWidth = WcWidth.width(codePoint);
 

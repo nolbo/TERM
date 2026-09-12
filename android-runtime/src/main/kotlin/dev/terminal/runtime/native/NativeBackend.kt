@@ -24,7 +24,7 @@ class NativeBackend(context: Context) : RuntimeBackend {
         File(nativeRoot, "home").mkdirs()
         File(nativeRoot, "tmp").mkdirs()
         File(nativeRoot, "README.txt").writeText(
-            "Droid Terminal Native mode. This is an Android userspace shell; AVF Debian is available on privileged builds.\n",
+            "TERM Native mode. This is an Android userspace shell; AVF Debian is available on privileged builds.\n",
         )
         state.value = RuntimeState.Stopped
     }.onFailure { state.value = RuntimeState.Failed(it.message ?: "Native userspace setup failed") }

@@ -6,7 +6,8 @@ import java.nio.ByteOrder
 
 /** Events carried in `FrameKind.STREAM` frames after a session is attached. */
 sealed interface SessionEvent {
-    data class Output(val sessionId: String, val bytes: ByteArray) : SessionEvent
+    /** replay is host-local metadata; it is not part of the guest wire format. */
+    data class Output(val sessionId: String, val bytes: ByteArray, val replay: Boolean = false) : SessionEvent
     data class Exited(val sessionId: String, val exitCode: Int) : SessionEvent
 }
 
@@ -17,6 +18,7 @@ object SessionEventCodec {
     fun encode(event: SessionEvent): ByteArray = EventWriter().apply {
         when (event) {
             is SessionEvent.Output -> {
+                require(!event.replay) { "Transcript replay is a host-local event" }
                 require(event.bytes.size <= Protocol.MAX_PAYLOAD_BYTES) { "Output exceeds protocol limit" }
                 byte(OUTPUT); string(event.sessionId); i32(event.bytes.size); raw(event.bytes)
             }

@@ -152,8 +152,8 @@ mod tests {
     #[test]
     fn creating_session_metadata_does_not_require_a_ui_client() {
         let mut sessions = SessionRegistry::default();
-        let session = sessions.create_shell("/bin/bash", "/home/user", 24, 80);
-        assert_eq!(sessions.get(&session.id).unwrap().state, SessionState::Created);
+        let id = sessions.create_shell("/bin/bash", "/home/user", 24, 80).id.clone();
+        assert_eq!(sessions.get(&id).unwrap().state, SessionState::Created);
         assert_eq!(sessions.list().count(), 1);
     }
 

@@ -99,6 +99,13 @@ public class UnicodeInputTest extends TerminalTestCase {
 		enterString("a").assertLinesAre(" 枝", "a  ");
 	}
 
+	public void testMixedLatinAndHangulWrapByLogicalCells() throws Exception {
+		withTerminalSized(5, 2).enterString("A가BC")
+			.assertLinesAre("A가BC", "     ")
+			.assertCursorAt(0, 4);
+		enterString("D").assertLinesAre("A가BC", "D    ").assertCursorAt(1, 1);
+	}
+
 	public void testWideCharacterDeletion() throws Exception {
 		// CSI Ps D Cursor Backward Ps Times
 		withTerminalSized(3, 2).enterString("枝\033[Da").assertLinesAre(" a ", "   ");

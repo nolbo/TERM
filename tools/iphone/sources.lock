@@ -1,0 +1,8 @@
+# name archive-root sha256 URL (official source archives; never floating branches)
+usbmuxd usbmuxd-3ded00c9985a5108cfc7591a309f9a23d57a8cba fe4d04223b85add8bef6a2dd6452ef6f9bb1c0eb52ba036564c9aa8d1dd9dee2 https://codeload.github.com/libimobiledevice/usbmuxd/tar.gz/3ded00c9985a5108cfc7591a309f9a23d57a8cba
+libusb libusb-1.0.29 7c2dd39c0b2589236e48c93247c986ae272e27570942b4163cb00a060fcf1b74 https://codeload.github.com/libusb/libusb/tar.gz/refs/tags/v1.0.29
+libplist libplist-2.7.0 66fa17a29270cb25ceaf189430ea38037c066652c2989b58d7ef6120b1a208d3 https://codeload.github.com/libimobiledevice/libplist/tar.gz/refs/tags/2.7.0
+glue libimobiledevice-glue-1.3.2 1f780f40797e84ee60840a47d828f390071a0fb30501cb9ea092c2e8be6a874d https://codeload.github.com/libimobiledevice/libimobiledevice-glue/tar.gz/refs/tags/1.3.2
+libusbmuxd libusbmuxd-2.1.1 bcc185615a0f4ba80b617696235a084c64b68a1bf546a1dedd85da6b62b8cfbe https://codeload.github.com/libimobiledevice/libusbmuxd/tar.gz/refs/tags/2.1.1
+limd libimobiledevice-1.4.0 99e042acc1513815c36816723de52e0d0892e081f36ec29672531ce99ed59ccd https://codeload.github.com/libimobiledevice/libimobiledevice/tar.gz/refs/tags/1.4.0
+mbedtls mbedtls-3.6.7 7312b70b067b6a271961c8d36c3b8f9ba3e86fe6b26f18af13cd70430ee52ed1 https://codeload.github.com/Mbed-TLS/mbedtls/tar.gz/refs/tags/v3.6.7

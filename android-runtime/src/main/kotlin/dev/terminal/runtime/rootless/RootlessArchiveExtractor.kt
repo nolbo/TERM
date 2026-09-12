@@ -18,7 +18,9 @@ internal class RootlessArchiveExtractor(
     private val maxExtractedBytes: Long,
     private val maxEntries: Int = DEFAULT_MAX_ENTRIES,
 ) {
-    fun verifySha256(archive: Path, expected: String) {
+    fun verifySha256(archive: Path, expected: String, progress: (Long, Long) -> Unit = { _, _ -> }) {
+        val total = Files.size(archive)
+        var completed = 0L
         val actual = Files.newInputStream(archive).use { input ->
             val digest = MessageDigest.getInstance("SHA-256")
             val buffer = ByteArray(BUFFER_SIZE)
@@ -26,13 +28,15 @@ internal class RootlessArchiveExtractor(
                 val count = input.read(buffer)
                 if (count < 0) break
                 digest.update(buffer, 0, count)
+                completed += count
+                progress(completed, total)
             }
             digest.digest().joinToString("") { "%02x".format(it) }
         }
-        require(actual == expected) { "Debian archive SHA-256 mismatch" }
+        require(actual == expected) { "Rootless archive SHA-256 mismatch" }
     }
 
-    fun extract(archive: Path, destination: Path) {
+    fun extract(archive: Path, destination: Path, progress: (Int, Long) -> Unit = { _, _ -> }) {
         val directoryModes = linkedMapOf<Path, Int>()
         val pendingHardLinks = mutableListOf<PendingHardLink>()
         var extractedBytes = 0L
@@ -43,8 +47,8 @@ internal class RootlessArchiveExtractor(
                     while (true) {
                         val entry = tar.nextEntry ?: break
                         entryCount++
-                        require(entryCount <= maxEntries) { "Debian archive contains too many entries" }
-                        require(entry.name.length <= MAX_PATH_CHARACTERS) { "Debian archive path is too long" }
+                        require(entryCount <= maxEntries) { "Rootless archive contains too many entries" }
+                        require(entry.name.length <= MAX_PATH_CHARACTERS) { "Rootless archive path is too long" }
                         val target = safeTarget(destination, entry.name)
                         when {
                             entry.isCharacterDevice && isGuestDevPath(destination, target) -> {
@@ -52,18 +56,19 @@ internal class RootlessArchiveExtractor(
                                 // explicitly bound by PRoot, so never materialize archive device nodes.
                             }
                             entry.isBlockDevice || entry.isFIFO || entry.isCharacterDevice ->
-                                error("Debian archive contains an unsupported special file: ${entry.name}")
+                                error("Rootless archive contains an unsupported special file: ${entry.name}")
                             entry.isDirectory -> createDirectory(destination, target, entry.mode, directoryModes)
                             entry.isSymbolicLink -> createSafeSymbolicLink(destination, target, entry.linkName)
                             entry.isLink -> pendingHardLinks += PendingHardLink(target, safeTarget(destination, entry.linkName))
                             entry.isFile -> {
-                                require(entry.size in 0..maxExtractedBytes) { "Invalid Debian archive entry size" }
+                                require(entry.size in 0..maxExtractedBytes) { "Invalid Rootless archive entry size" }
                                 extractedBytes += entry.size
-                                require(extractedBytes <= maxExtractedBytes) { "Debian rootfs exceeds the approved size" }
+                                require(extractedBytes <= maxExtractedBytes) { "Rootless rootfs exceeds the approved size" }
                                 createFile(destination, target, entry, tar)
                             }
-                            else -> error("Debian archive contains an unsupported special file: ${entry.name}")
+                            else -> error("Rootless archive contains an unsupported special file: ${entry.name}")
                         }
+                        progress(entryCount, extractedBytes)
                     }
                 }
             }
@@ -76,7 +81,7 @@ internal class RootlessArchiveExtractor(
     private fun createDirectory(root: Path, target: Path, mode: Int, modes: MutableMap<Path, Int>) {
         ensureNoSymlinkAncestors(root, target)
         if (Files.exists(target, NOFOLLOW_LINKS)) {
-            require(Files.isDirectory(target, NOFOLLOW_LINKS)) { "Duplicate Debian archive path" }
+            require(Files.isDirectory(target, NOFOLLOW_LINKS)) { "Duplicate Rootless archive path" }
         } else {
             Files.createDirectories(target)
         }
@@ -84,20 +89,20 @@ internal class RootlessArchiveExtractor(
     }
 
     private fun createFile(root: Path, target: Path, entry: TarArchiveEntry, tar: TarArchiveInputStream) {
-        require(!Files.exists(target, NOFOLLOW_LINKS)) { "Duplicate Debian archive path" }
+        require(!Files.exists(target, NOFOLLOW_LINKS)) { "Duplicate Rootless archive path" }
         val parent = requireNotNull(target.parent)
         ensureNoSymlinkAncestors(root, parent)
         Files.createDirectories(parent)
         BufferedOutputStream(Files.newOutputStream(target, CREATE_NEW)).use { output ->
             val copied = tar.copyTo(output)
-            require(copied == entry.size) { "Truncated Debian archive entry" }
+            require(copied == entry.size) { "Truncated Rootless archive entry" }
         }
         setPermissions(target, entry.mode)
     }
 
     private fun createSafeSymbolicLink(root: Path, target: Path, linkName: String) {
-        require(!Files.exists(target, NOFOLLOW_LINKS)) { "Duplicate Debian archive path" }
-        require(linkName.isNotEmpty()) { "Debian archive contains an empty symbolic link" }
+        require(!Files.exists(target, NOFOLLOW_LINKS)) { "Duplicate Rootless archive path" }
+        require(linkName.isNotEmpty()) { "Rootless archive contains an empty symbolic link" }
         val parent = requireNotNull(target.parent)
         ensureNoSymlinkAncestors(root, parent)
         val link = Path.of(linkName)
@@ -106,7 +111,7 @@ internal class RootlessArchiveExtractor(
         } else {
             parent.resolve(link).normalize()
         }
-        require(resolved.startsWith(root)) { "Debian archive contains an unsafe symbolic link" }
+        require(resolved.startsWith(root)) { "Rootless archive contains an unsafe symbolic link" }
         Files.createDirectories(parent)
         Files.createSymbolicLink(target, parent.relativize(resolved))
     }
@@ -118,7 +123,7 @@ internal class RootlessArchiveExtractor(
             while (iterator.hasNext()) {
                 val link = iterator.next()
                 if (!Files.isRegularFile(link.source, NOFOLLOW_LINKS)) continue
-                require(!Files.exists(link.target, NOFOLLOW_LINKS)) { "Duplicate Debian archive path" }
+                require(!Files.exists(link.target, NOFOLLOW_LINKS)) { "Duplicate Rootless archive path" }
                 val parent = requireNotNull(link.target.parent)
                 ensureNoSymlinkAncestors(root, parent)
                 Files.createDirectories(parent)
@@ -126,16 +131,16 @@ internal class RootlessArchiveExtractor(
                 iterator.remove()
                 progress = true
             }
-            require(progress) { "Debian archive contains an unresolved hard link" }
+            require(progress) { "Rootless archive contains an unresolved hard link" }
         }
     }
 
     private fun safeTarget(root: Path, name: String): Path {
-        require(name == archiveRoot || name.startsWith("$archiveRoot/")) { "Unexpected Debian archive layout" }
+        require(name == archiveRoot || name.startsWith("$archiveRoot/")) { "Unexpected Rootless archive layout" }
         val relativeText = name.removePrefix(archiveRoot).removePrefix("/")
         val relative = checkedRelative(relativeText, "path")
         val target = root.resolve(relative).normalize()
-        require(target.startsWith(root)) { "Debian archive escaped its rootfs" }
+        require(target.startsWith(root)) { "Rootless archive escaped its rootfs" }
         return target
     }
 
@@ -144,16 +149,16 @@ internal class RootlessArchiveExtractor(
 
     private fun checkedRelative(value: String, kind: String): Path {
         val path = Path.of(value)
-        require(!path.isAbsolute && path.none { it.toString() == ".." }) { "Debian archive contains an unsafe $kind" }
+        require(!path.isAbsolute && path.none { it.toString() == ".." }) { "Rootless archive contains an unsafe $kind" }
         return path.normalize()
     }
 
     private fun ensureNoSymlinkAncestors(root: Path, target: Path) {
-        require(target.normalize().startsWith(root)) { "Debian archive escaped its rootfs" }
+        require(target.normalize().startsWith(root)) { "Rootless archive escaped its rootfs" }
         var current = root
         root.relativize(target).forEach { part ->
             current = current.resolve(part)
-            require(!Files.isSymbolicLink(current)) { "Debian archive path traverses a symbolic link" }
+            require(!Files.isSymbolicLink(current)) { "Rootless archive path traverses a symbolic link" }
         }
     }
 

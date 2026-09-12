@@ -4,6 +4,8 @@ package dev.terminal.runtime.session
 enum class SessionRuntime(val wireName: String, val idPrefix: String) {
     NATIVE("NATIVE", "native-"),
     ROOTLESS("ROOTLESS", "rootless-"),
+    ROOTLESS_UBUNTU("ROOTLESS_UBUNTU", "ubuntu-"),
+    ROOTLESS_ARCH("ROOTLESS_ARCH", "archlinux-"),
     AVF("AVF", "avf-"),
     ;
 

@@ -17,6 +17,11 @@ public interface TerminalSessionBackend {
          */
         void onOutput(byte[] data, int offset, int count);
 
+        /** Restore historical output without sending terminal replies or repeating side effects. */
+        default void onReplayOutput(byte[] data, int offset, int count) {
+            throw new UnsupportedOperationException("Transcript replay is not supported by this receiver");
+        }
+
         /** Report that the remote process, rather than just its transport, has exited. */
         void onExit(int exitCode);
     }

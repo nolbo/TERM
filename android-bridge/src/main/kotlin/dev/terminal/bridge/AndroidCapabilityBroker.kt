@@ -42,7 +42,7 @@ class AndroidCapabilityBroker(
         }
         val clipboard = appContext.getSystemService(ClipboardManager::class.java)
             ?: return@withGrant BridgeResult.Unavailable("Android clipboard service is unavailable")
-        clipboard.setPrimaryClip(ClipData.newPlainText("Droid Terminal", text))
+        clipboard.setPrimaryClip(ClipData.newPlainText("TERM", text))
         BridgeResult.Success(Unit)
     }
 

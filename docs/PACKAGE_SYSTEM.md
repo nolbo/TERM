@@ -17,10 +17,24 @@ not executable code. This deliberately limits dynamic Native package breadth.
 
 ## Rootless and AVF packages
 
-Both Debian environments use official `apt` and `dpkg`, but their databases are
-independent. A future `packages.lock` contains requested package names such as
+Rootless Debian, Rootless Ubuntu and AVF Debian use official `apt` and `dpkg`;
+Rootless Arch Linux ARM uses `pacman`. Every environment has an independent
+package database and home. A future `packages.lock` contains requested package names such as
 `git`, `neovim`, `python3`, and `clang`; reproducing an environment means normal
 apt installation in the target runtime, never copying `/var/lib/dpkg`.
+
+## Optional USB client
+
+An APK-bundled deterministic Python zipapp is bound as one file into new Rootless sessions at
+`/usr/local/bin/terminal-usb`. It uses Python's standard library; users install
+Python through the selected distribution if missing. The explicit PyUSB backend
+additionally uses distribution `python3-usb`; ADB integration reuses distribution
+`adb` with localfilesystem/--one-device support. Neither is automatically installed.
+MTP/PTP, storage, PTY and profile helpers use the Python standard library. Raw/CDC need no ELF. iPhone
+operations use the APK-built `libiphone-worker.so`, selected exclusively by
+`NativeExecutableLoader`; no host executable is downloaded at runtime. Pinned
+source dependencies are built by `tools/iphone/build.sh`. USB drivers run on
+Android rather than distribution `udev`/`systemd`. See [USB.md](USB.md).
 
 ## Rootless bootstrap
 
@@ -28,8 +42,12 @@ The ARM64 payload includes the allow-listed PRoot executable and loader. It is
 rebuilt from pinned Termux PRoot source and checksum-pinned talloc and
 libandroid-shmem artifacts; provenance, license notices, output hashes and the
 16 KiB alignment check live under `tools/rootless`. The first Rootless session
-downloads a pinned, SHA-256-verified Debian rootfs archive
-and then uses Debian's own `apt`/`dpkg`; this is not a second native package
-database. No user-provided PRoot binary or rootfs file is accepted. CI still
-needs to run `cat /etc/os-release`, `apt update`, and a small package install on
-every supported ABI.
+downloads the selected pinned, SHA-256-verified rootfs archive
+and installs that distribution's official default selection before reporting ready:
+Debian standard priorities, Ubuntu minimal/standard/server metapackages, or Arch
+`base` with a full upgrade. There is no shared app-curated development bundle.
+Existing installations complete this versioned preparation in place; ready shell
+startup does not run network updates. This is not a second native package database. No user-provided PRoot binary or rootfs file is accepted. The device check `RootlessDistributionsTest` exercises Ubuntu and Arch install,
+identity, PTY, detach/attach and session isolation. Its optional
+`rootlessPackages=true` mode additionally updates packages and installs `hello` (Ubuntu) or `jq` (Arch).
+See `ROOTLESS_DISTRIBUTIONS.md` for the catalog and commands.

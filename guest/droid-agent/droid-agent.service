@@ -1,5 +1,5 @@
 [Unit]
-Description=Droid Terminal Android capability agent
+Description=TERM Android capability agent
 After=network.target
 
 [Service]

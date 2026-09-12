@@ -26,13 +26,29 @@ import kotlinx.coroutines.sync.withLock
  */
 class UnifiedSessionRegistry(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val remoteCommand: (suspend (String, String) -> ByteArray?)? = null,
 ) : SessionController {
     private data class Registration(val controller: SessionController, val jobs: List<Job>)
+
+    private val controlStreams = ConcurrentHashMap<String, com.termux.terminal.KittyControlStream>()
+    private val keyboardFlags = ConcurrentHashMap<String, Int>()
+    private val commands = kotlinx.coroutines.channels.Channel<Pair<String, String>>(64)
+    init {
+        scope.launch {
+            for ((source, command) in commands) {
+                val reply = remoteCommand?.invoke(source, command)
+                    ?: if (remoteCommand == null) "\u001bP@kitty-cmd{\"ok\":false,\"error\":\"Remote control disabled\"}\u001b\\".toByteArray() else null
+                if (reply != null) write(source, reply)
+            }
+        }
+    }
+    fun keyboardFlags(sessionId: String): Int = keyboardFlags[sessionId] ?: 0
 
     private val registrations = ConcurrentHashMap<SessionRuntime, Registration>()
     private val owners = ConcurrentHashMap<String, SessionRuntime>()
     private val lastKnownSessions = ConcurrentHashMap<SessionRuntime, List<SessionDescriptor>>()
     private val listMutex = Mutex()
+    private val mutationMutexes = SessionRuntime.entries.associateWith { Mutex() }
     private val mutableEvents = MutableSharedFlow<SessionEvent>(extraBufferCapacity = 128)
     private val mutableConnection = MutableStateFlow(SessionConnectionState.CONNECTED)
 
@@ -48,7 +64,23 @@ class UnifiedSessionRegistry(
                     is SessionEvent.Exited -> event.sessionId
                 }
                 owners.putIfAbsent(sessionId, runtime)
-                mutableEvents.emit(event)
+                if (event is SessionEvent.Output && !event.replay) {
+                    val stream = controlStreams.getOrPut(sessionId) { com.termux.terminal.KittyControlStream() }
+                    val parts = stream.accept(event.bytes)
+                    keyboardFlags[sessionId] = stream.keyboard().flags()
+                    for (part in parts) {
+                        if (part.bytes != null) mutableEvents.emit(SessionEvent.Output(sessionId, part.bytes))
+                        else commands.trySend(sessionId to part.command) // Bounded queue; overload cannot stall PTY draining.
+                    }
+                } else {
+                    if (event is SessionEvent.Exited) {
+                        controlStreams.remove(sessionId)?.finish()?.takeIf { it.isNotEmpty() }?.let {
+                            mutableEvents.emit(SessionEvent.Output(sessionId, it))
+                        }
+                        keyboardFlags.remove(sessionId)
+                    }
+                    mutableEvents.emit(event)
+                }
             }
         }
         val stateJob = scope.launch {
@@ -63,6 +95,20 @@ class UnifiedSessionRegistry(
 
     fun isRegistered(runtime: SessionRuntime): Boolean = registrations.containsKey(runtime)
 
+    suspend fun removeIfIdle(runtime: SessionRuntime, remove: suspend () -> Unit) = mutationMutexes.getValue(runtime).withLock {
+        listMutex.withLock {
+            val registration = registrations[runtime]
+            check(registration?.controller?.list()?.getOrThrow().orEmpty().isEmpty()) {
+                "이 배포판의 모든 세션을 종료한 뒤 제거 또는 환경 보완을 실행하세요."
+            }
+            registrations.remove(runtime)?.jobs?.forEach(Job::cancel)
+            owners.entries.removeAll { it.value == runtime }
+            lastKnownSessions.remove(runtime)
+        }
+        // Long filesystem/package work must not block listing other runtimes' sessions.
+        remove()
+    }
+
     suspend fun create(
         runtime: SessionRuntime,
         shell: String,
@@ -70,13 +116,15 @@ class UnifiedSessionRegistry(
         env: Map<String, String> = emptyMap(),
         rows: UShort,
         cols: UShort,
-    ): Result<SessionDescriptor> = controller(runtime).fold(
-        onSuccess = { controller -> controller.create(shell, cwd, env, rows, cols).onSuccess { created ->
-            owners[created.id] = runtime
-            lastKnownSessions.compute(runtime) { _, sessions -> sessions.orEmpty().filterNot { it.id == created.id } + created }
-        } },
-        onFailure = { Result.failure(it) },
-    )
+    ): Result<SessionDescriptor> = mutationMutexes.getValue(runtime).withLock {
+        controller(runtime).fold(
+            onSuccess = { controller -> controller.create(shell, cwd, env, rows, cols).onSuccess { created ->
+                owners[created.id] = runtime
+                lastKnownSessions.compute(runtime) { _, sessions -> sessions.orEmpty().filterNot { it.id == created.id } + created }
+            } },
+            onFailure = { Result.failure(it) },
+        )
+    }
 
     override suspend fun create(
         shell: String,
@@ -119,6 +167,8 @@ class UnifiedSessionRegistry(
         ).onSuccess {
             lastKnownSessions.computeIfPresent(runtime) { _, sessions -> sessions.filterNot { it.id == sessionId } }
             owners.remove(sessionId, runtime)
+            controlStreams.remove(sessionId)
+            keyboardFlags.remove(sessionId)
         }
     }
 
@@ -129,6 +179,9 @@ class UnifiedSessionRegistry(
             registration.jobs.forEach(Job::cancel)
             registration.controller.close()
         }
+        commands.close()
+        controlStreams.clear()
+        keyboardFlags.clear()
         registrations.clear()
         owners.clear()
         lastKnownSessions.clear()

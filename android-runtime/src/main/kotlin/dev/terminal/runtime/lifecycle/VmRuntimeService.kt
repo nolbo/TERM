@@ -27,6 +27,7 @@ import dev.terminal.runtime.api.connectSessionClient
 import dev.terminal.runtime.api.RuntimeBackend
 import dev.terminal.runtime.native.NativeBackend
 import dev.terminal.runtime.rootless.RootlessDebianBackend
+import dev.terminal.runtime.rootless.RootlessDistribution
 import dev.terminal.runtime.rootless.RootlessStatus
 import dev.terminal.runtime.session.SessionRuntime
 import dev.terminal.runtime.session.UnifiedSessionRegistry
@@ -45,6 +46,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -57,17 +59,30 @@ import dev.terminal.protocol.SessionEvent
 import dev.terminal.protocol.GuestWorkEvent
 import java.nio.file.Paths
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.ConcurrentHashMap
 
 /** Owns the runtime in :vmhost; activities only bind, observe, and unbind. */
 class VmRuntimeService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var foreground = false // Accessed only on the main dispatcher.
+    private var notificationUpdateJob: Job? = null
+    private var lastNotificationContent: Pair<Int, String>? = null
     private val listeners = RemoteCallbackList<IRuntimeStateListener>()
     private val listenerLock = Any()
     private lateinit var backend: RuntimeBackend
-    private lateinit var rootlessBackend: RootlessDebianBackend
+    private lateinit var rootlessBackends: Map<SessionRuntime, RootlessDebianBackend>
     private val sessionClientMutex = Mutex()
     private val runtimeControllerMutex = Mutex()
+    private val sessionResizeMutex = Mutex()
+    private val latestResizeRequests = LatestSessionResizeRequests()
     private var sessionClient: SessionController? = null
+    private val orderedSessionInput = OrderedSessionInput(scope) { id, bytes ->
+        runCatching {
+            val client = sessionClient ?: error("세션 런타임에 연결되어 있지 않습니다")
+            client.write(id, bytes).getOrThrow()
+        }.onFailure { notifyOperationError("입력 전송", it.userMessage()) }
+    }
     private var reconnectJob: Job? = null
     private var bridgeJob: Job? = null
     private var portAgentJob: Job? = null
@@ -75,6 +90,7 @@ class VmRuntimeService : Service() {
     private lateinit var wakeController: RuntimeWakeController
     private lateinit var wakePolicies: WakePolicyStore
     private lateinit var capabilityGrants: SharedPreferencesCapabilityGrantStore
+    private lateinit var usbBroker: dev.terminal.runtime.usb.UsbBroker
     private var guestReportedWorkActive = false
     private val portRegistry = PortForwardRegistry()
     private lateinit var portForwarder: LocalhostPortForwarder
@@ -83,7 +99,81 @@ class VmRuntimeService : Service() {
     private val hostBackgroundOperationCount = AtomicInteger(0)
     @Volatile private var latestState: RuntimeState = RuntimeState.Stopped
 
+    private val kittyIdentities = java.util.concurrent.ConcurrentHashMap<String, Int>()
+    private val kittyGrants = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
+    @Volatile private var focusedSession: String? = null
+    private fun nextKittyId(): Int = dev.terminal.runtime.session.KittyWindowIds(
+        getSharedPreferences("kitty-window-identities", MODE_PRIVATE),
+    ).allocate().toInt()
+    private val kittyRemote by lazy {
+        dev.terminal.runtime.session.KittyRemoteControl(object : dev.terminal.runtime.session.KittyRemoteControl.Host {
+            override fun allowed(source: String) = source in kittyGrants &&
+                getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE).getBoolean(KEY_KITTY_REMOTE, false)
+            override fun focused() = focusedSession
+            override suspend fun windows(): List<dev.terminal.runtime.session.KittyRemoteControl.Window> {
+                val registry = sessionClient as? UnifiedSessionRegistry ?: return emptyList()
+                return registry.list().getOrThrow().mapNotNull { session ->
+                    val runtime = registry.runtimeOf(session.id) ?: return@mapNotNull null
+                    val id = kittyIdentities.getOrPut(session.id) { nextKittyId() }
+                    dev.terminal.runtime.session.KittyRemoteControl.Window(id, runtime,
+                        session.copy(title = kittyTitles[session.id] ?: session.title))
+                }
+            }
+            override suspend fun launch(source: dev.terminal.runtime.session.KittyRemoteControl.Window, args: List<String>, cwd: String, env: Map<String, String>, title: String): dev.terminal.runtime.session.KittyRemoteControl.Window {
+                val registry = sessionClient as? UnifiedSessionRegistry ?: error("Runtime unavailable")
+                val id = nextKittyId()
+                val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
+                val childEnv = env.toMutableMap().apply {
+                    put("TERM", preferences.getString(KEY_NATIVE_TERM, "xterm-256color").orEmpty())
+                    put("DROID_LOGIN_SHELL", preferences.getBoolean(KEY_NATIVE_LOGIN, true).toString())
+                    put("KITTY_WINDOW_ID", id.toString())
+                    if (args.isNotEmpty()) put("DROID_SESSION_ARGV", dev.terminal.runtime.session.SessionCommand.encode(args))
+                }
+                val result = sessionSnapshots.mutateAndRefresh(registry) {
+                    registry.create(source.runtime, if (source.runtime == SessionRuntime.NATIVE) "/system/bin/sh" else "/bin/sh",
+                        cwd, childEnv, source.session.rows, source.session.cols).onSuccess { kittyIdentities[it.id] = id }
+                }.operation.getOrThrow()
+                // Remote-created children never receive a remote-control grant.
+                val child = dev.terminal.runtime.session.KittyRemoteControl.Window(id, source.runtime, result)
+                sessionSnapshots.setInitialTitle(result.id, title).getOrThrow()
+                kittyTitles[result.id] = title
+                return child
+            }
+            override suspend fun focus(window: dev.terminal.runtime.session.KittyRemoteControl.Window) {
+                focusedSession = window.session.id
+                broadcast { it.onSessionFocusRequested(window.session.id) }
+            }
+            override suspend fun title(window: dev.terminal.runtime.session.KittyRemoteControl.Window, title: String) {
+                sessionSnapshots.rename(window.session.id, title).getOrThrow()
+                kittyTitles[window.session.id] = title
+            }
+            override suspend fun close(window: dev.terminal.runtime.session.KittyRemoteControl.Window) {
+                val client = sessionClient ?: error("Runtime unavailable")
+                sessionSnapshots.mutateAndRefresh(client) { client.terminate(window.session.id, SIGKILL) }.operation.getOrThrow()
+                kittyGrants.remove(window.session.id)
+                kittyIdentities.remove(window.session.id)
+                kittyTitles.remove(window.session.id)
+            }
+            override suspend fun resize(window: dev.terminal.runtime.session.KittyRemoteControl.Window, rows: Int, cols: Int) {
+                val client = sessionClient ?: error("Runtime unavailable")
+                sessionSnapshots.mutateAndRefresh(client) { client.resize(window.session.id, rows.toUShort(), cols.toUShort()) }.operation.getOrThrow()
+            }
+            override suspend fun write(window: dev.terminal.runtime.session.KittyRemoteControl.Window, bytes: ByteArray) {
+                (sessionClient ?: error("Runtime unavailable")).write(window.session.id, bytes).getOrThrow()
+            }
+            override fun keys(window: dev.terminal.runtime.session.KittyRemoteControl.Window, keys: List<String>) =
+                dev.terminal.runtime.session.KittyRemoteKeys.encode(keys, (sessionClient as? UnifiedSessionRegistry)?.keyboardFlags(window.session.id) ?: 0)
+        })
+    }
+    private val kittyTitles = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     private val binder = object : IRuntimeService.Stub() {
+        override fun getUsbStateJson(): String = usbBroker.state()
+        override fun approveUsbRequest(requestId: String): String = usbBroker.approve(requestId)
+        override fun denyUsbRequest(requestId: String) = usbBroker.deny(requestId)
+        override fun revokeUsbSession(sessionId: String) = usbBroker.revokeSession(sessionId)
+        override fun addUsbStorageTree(uri: String, flags: Int): String = usbBroker.addStorageTree(uri, flags)
+        override fun removeUsbStorageTree(id: String) = usbBroker.removeStorageTree(id)
         override fun getState(): String = latestState.wireName
 
         override fun getDetail(): String = latestState.detail()
@@ -120,39 +210,56 @@ class VmRuntimeService : Service() {
             backend.stop(if (mode == FORCE_STOP) StopMode.FORCE else StopMode.GRACEFUL)
         }
 
-        override fun createSession(runtimeType: String, shell: String, cwd: String, rows: Int, cols: Int) = launchRuntimeOperation(trackAsWork = true) {
+        override fun createSession(runtimeType: String, shell: String, cwd: String, rows: Int, cols: Int) = launchRuntimeOperation(trackAsWork = true, errorOperation = "세션 생성:$runtimeType") {
             val requestedRuntime = SessionRuntime.fromWireName(runtimeType)
                 ?: throw IllegalArgumentException("알 수 없는 런타임: $runtimeType")
             Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
             val client = ensureSessionRegistry()
                 ?: throw IllegalStateException("세션 런타임에 연결할 수 없습니다")
             if (!ensureRuntimeController(requestedRuntime, client)) {
-                notifyOperationError("세션 생성", runtimeUnavailableReason(requestedRuntime))
+                notifyOperationError("세션 생성:${requestedRuntime.wireName}", runtimeUnavailableReason(requestedRuntime))
                 return@launchRuntimeOperation
             }
             val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
+            val kittyId = nextKittyId()
+            val grantKitty = preferences.getBoolean(KEY_KITTY_REMOTE, false)
             val result = sessionSnapshots.mutateAndRefresh(client) {
                 client.create(
                     requestedRuntime,
                     shell,
                     cwd,
-                    env = mapOf(
-                        "TERM" to preferences.getString(KEY_NATIVE_TERM, "xterm-256color").orEmpty(),
-                        "DROID_LOGIN_SHELL" to preferences.getBoolean(KEY_NATIVE_LOGIN, true).toString(),
-                    ),
+                    env = buildMap {
+                        put("TERM", preferences.getString(KEY_NATIVE_TERM, "xterm-256color").orEmpty())
+                        put("DROID_LOGIN_SHELL", preferences.getBoolean(KEY_NATIVE_LOGIN, true).toString())
+                        if (preferences.getBoolean(KEY_KITTY_GRAPHICS, false) || grantKitty) {
+                            put("KITTY_WINDOW_ID", kittyId.toString())
+                        }
+                    },
                     rows = rows.toUShortDimension(),
                     cols = cols.toUShortDimension(),
-                )
+                ).onSuccess {
+                    kittyIdentities[it.id] = kittyId
+                    if (grantKitty && preferences.getBoolean(KEY_KITTY_REMOTE, false)) kittyGrants.add(it.id)
+                }
             }
             result.operation
+                .onSuccess { created ->
+                    // Publish the new session before requesting focus so the UI
+                    // can attach its renderer and move keyboard input to it.
+                    if (result.snapshot?.isSuccess == true) {
+                        focusedSession = created.id
+                        broadcast { it.onSessionFocusRequested(created.id) }
+                    }
+                }
                 .onFailure {
                     Log.e(TAG, "session.create failed runtime=${requestedRuntime.wireName} cause=${it.javaClass.simpleName}: ${it.userMessage()}")
-                    notifyOperationError("세션 생성", it.userMessage())
+                    notifyOperationError("세션 생성:${requestedRuntime.wireName}", it.userMessage())
                 }
             result.snapshot?.onFailure { notifyOperationError("세션 목록 새로고침", it.userMessage()) }
         }
 
         override fun attachSession(sessionId: String) = launchRuntimeOperation {
+            focusedSession = sessionId
             val client = ensureSessionClient()
                 ?: throw IllegalStateException("세션 런타임에 연결할 수 없습니다")
             val result = sessionSnapshots.mutateAndRefresh(client) { client.attach(sessionId) }
@@ -170,18 +277,29 @@ class VmRuntimeService : Service() {
             result.snapshot?.onFailure { notifyOperationError("세션 목록 새로고침", it.userMessage()) }
         }
 
-        override fun writeSessionInput(sessionId: String, bytes: ByteArray) = launchRuntimeOperation {
-            val client = sessionClient
-                ?: throw IllegalStateException("세션 런타임에 연결되어 있지 않습니다")
-            client.write(sessionId, bytes)
-                .onFailure { notifyOperationError("입력 전송", it.userMessage()) }
+        override fun writeSessionInput(sessionId: String, bytes: ByteArray) {
+            if (!orderedSessionInput.offer(sessionId, bytes)) {
+                notifyOperationError("입력 전송", "입력 대기열이 가득 찼거나 런타임이 종료되었습니다")
+            }
         }
 
-        override fun resizeSession(sessionId: String, rows: Int, cols: Int) = launchRuntimeOperation {
-            val client = sessionClient
-                ?: throw IllegalStateException("세션 런타임에 연결되어 있지 않습니다")
-            client.resize(sessionId, rows.toUShortDimension(), cols.toUShortDimension())
-                .onFailure { notifyOperationError("터미널 크기 변경", it.userMessage()) }
+        override fun resizeSession(sessionId: String, rows: Int, cols: Int) {
+            val request = latestResizeRequests.record(sessionId, rows, cols)
+            launchRuntimeOperation {
+                sessionResizeMutex.withLock {
+                    if (!latestResizeRequests.isLatest(request)) return@withLock
+                    val client = sessionClient
+                        ?: throw IllegalStateException("세션 런타임에 연결되어 있지 않습니다")
+                    client.resize(sessionId, rows.toUShortDimension(), cols.toUShortDimension())
+                        .onFailure { notifyOperationError("터미널 크기 변경", it.userMessage()) }
+                }
+            }
+        }
+
+        override fun renameSession(sessionId: String, title: String) = launchRuntimeOperation {
+            sessionSnapshots.rename(sessionId, title)
+                .onSuccess { kittyTitles[sessionId] = title }
+                .onFailure { notifyOperationError("세션 이름 변경", it.userMessage()) }
         }
 
         override fun terminateSession(sessionId: String) = launchRuntimeOperation {
@@ -195,6 +313,10 @@ class VmRuntimeService : Service() {
             val result = sessionSnapshots.mutateAndRefresh(client) { client.terminate(sessionId, SIGKILL) }
             result.operation
                 .onSuccess {
+                    kittyGrants.remove(sessionId)
+                    kittyIdentities.remove(sessionId)
+                    kittyTitles.remove(sessionId)
+                    latestResizeRequests.forget(sessionId)
                     val snapshot = result.snapshot?.getOrNull()
                     Log.i(TAG, "session.terminate success id=$sessionId runtime=$runtime revision=${snapshot?.revision} count=${snapshot?.sessions?.size}")
                 }
@@ -228,10 +350,52 @@ class VmRuntimeService : Service() {
                 .apply()
         }
 
-        override fun prepareRootless() = launchRuntimeOperation(trackAsWork = true) {
-            val root = filesDir.toPath().resolve("rootless/debian")
-            rootlessBackend.prepare(RuntimeConfig(imageDirectory = root.toString()))
-                .onFailure { notifyOperationError(ROOTLESS_SETUP_OPERATION, it.userMessage()) }
+        override fun setKittyGraphicsCompatibility(enabled: Boolean) {
+            getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE).edit()
+                .putBoolean(KEY_KITTY_GRAPHICS, enabled).apply()
+        }
+
+        override fun setKittyRemoteControl(enabled: Boolean) {
+            getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE).edit().putBoolean(KEY_KITTY_REMOTE, enabled).apply()
+            if (!enabled) kittyGrants.clear()
+        }
+
+        override fun prepareRootless(runtimeType: String) = launchRuntimeOperation(trackAsWork = true, errorOperation = "$ROOTLESS_SETUP_OPERATION:$runtimeType") {
+            val selected = SessionRuntime.fromWireName(runtimeType)
+            val rootless = rootlessBackends[selected]
+                ?: throw IllegalArgumentException("알 수 없는 Rootless 환경: $runtimeType")
+            if (runtimeControllerMutex.isLocked && rootless.status() !is RootlessStatus.Ready) rootless.reportPreparationWaiting()
+            runtimeControllerMutex.withLock {
+                try {
+                    val registry = sessionClient as? UnifiedSessionRegistry
+                    if (registry != null && rootless.status() !is RootlessStatus.Ready) {
+                        registry.removeIfIdle(requireNotNull(selected)) { rootless.prepare().getOrThrow() }
+                    } else rootless.prepare().getOrThrow()
+                } finally {
+                    rootless.clearPreparationWaiting()
+                    notifyClients(latestState)
+                }
+            }
+        }
+
+        override fun removeRootless(runtimeType: String, removeHome: Boolean) = launchRuntimeOperation(trackAsWork = true, errorOperation = "ROOTLESS_REMOVE:$runtimeType") {
+            val selected = SessionRuntime.fromWireName(runtimeType)
+            val rootless = rootlessBackends[selected]
+                ?: throw IllegalArgumentException("알 수 없는 Rootless 환경: $runtimeType")
+            runtimeControllerMutex.withLock {
+                try {
+                    // Image management must work before the primary runtime has started.
+                    // The backend also checks its PTY owner when there is no registry.
+                    val registry = sessionClient as? UnifiedSessionRegistry
+                    if (registry != null) {
+                        registry.removeIfIdle(requireNotNull(selected)) { rootless.remove(removeHome).getOrThrow() }
+                    } else {
+                        rootless.remove(removeHome).getOrThrow()
+                    }
+                } finally {
+                    notifyClients(latestState)
+                }
+            }
         }
 
         override fun setCapabilityGrant(capability: String, grant: String) = launchRuntimeOperation {
@@ -247,6 +411,7 @@ class VmRuntimeService : Service() {
                 runCatching {
                     listener.onRuntimeStateChanged(latestState.wireName, latestState.detail())
                     listener.onSessionsChanged(snapshot.revision, snapshot.json)
+                    focusedSession?.let { listener.onSessionFocusRequested(it) }
                 }
             }
         }
@@ -264,16 +429,19 @@ class VmRuntimeService : Service() {
         portForwarder = LocalhostPortForwarder { port -> backend.openGuestPortForward(port) }
         wakePolicies = WakePolicyStore(applicationContext)
         capabilityGrants = SharedPreferencesCapabilityGrantStore(applicationContext)
+        usbBroker = dev.terminal.runtime.usb.UsbBroker(applicationContext)
         backend = resolveRuntimeBackend(applicationContext)
-        rootlessBackend = RootlessDebianBackend(applicationContext) { phase, detail ->
-            Log.i(TAG, "rootless phase=${phase.name}")
-            broadcast { it.onRootlessProgress(phase.displayName, detail) }
+        rootlessBackends = RootlessDistribution.entries.associate { distribution ->
+            distribution.runtime to RootlessDebianBackend(applicationContext, distribution = distribution, usbBroker = usbBroker) { phase, detail ->
+                Log.i(TAG, "rootless distribution=${distribution.directory} phase=${phase.name}")
+                broadcast { it.onRootlessProgress(distribution.runtime.wireName, phase.displayName, detail) }
+            }
         }
         scope.launch {
             backend.observeState().collect { state ->
                 latestState = state
                 updateWakeState()
-                updateNotification(state)
+                updateServiceLifetime()
                 notifyClients(state)
                 if (state is RuntimeState.Ready) {
                     scheduleGuestReconnect()
@@ -289,9 +457,10 @@ class VmRuntimeService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Start foreground immediately: a VM runtime is an explicit persistent operation.
-        startForeground(NOTIFICATION_ID, notification(latestState))
-        return START_STICKY
+        if (intent?.action == ACTION_TERMINATE_ALL_SESSIONS) terminateAllSessions()
+        updateServiceLifetime()
+        // A killed PTY owner cannot restore sessions by restarting an empty service.
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder = binder
@@ -302,6 +471,8 @@ class VmRuntimeService : Service() {
     }
 
     override fun onDestroy() {
+        usbBroker.close()
+        stopForeground(STOP_FOREGROUND_REMOVE)
         listeners.kill()
         closeSessionClient()
         portRegistry.clear()
@@ -336,22 +507,46 @@ class VmRuntimeService : Service() {
         backend.start().getOrThrow()
     }
 
-    private fun launchRuntimeOperation(trackAsWork: Boolean = false, block: suspend () -> Unit) {
-        scope.launch {
+    private fun launchRuntimeOperation(trackAsWork: Boolean = false, errorOperation: String = "런타임 작업", block: suspend () -> Unit) {
+        scope.launch(Dispatchers.Main.immediate) {
             if (trackAsWork) {
                 hostBackgroundOperationCount.incrementAndGet()
                 updateWakeState()
             }
             try {
-                runCatching { block() }
-                    .onFailure { notifyOperationError("런타임 작업", it.userMessage()) }
+                if (trackAsWork) updateServiceLifetime()
+                runCatching { withContext(Dispatchers.Default) { block() } }
+                    .onFailure { notifyOperationError(errorOperation, it.userMessage()) }
             } finally {
                 if (trackAsWork) {
                     hostBackgroundOperationCount.decrementAndGet()
                     updateWakeState()
                 }
+                if (trackAsWork) updateServiceLifetime()
             }
         }
+    }
+
+    private fun terminateAllSessions() = launchRuntimeOperation(trackAsWork = true) {
+        // The service remains alive until the whole batch and its snapshot finish,
+        // including when no Activity is bound. Never stop a backend to close tabs.
+        val client = sessionClient ?: return@launchRuntimeOperation
+        val result = sessionSnapshots.mutateAndRefresh(client) {
+            val sessions = client.list().getOrThrow()
+            sessions.filter { it.state != dev.terminal.protocol.SessionStatus.EXITED }.forEach { session ->
+                runCatching { client.terminate(session.id, SIGKILL).getOrThrow() }
+                    .onSuccess { latestResizeRequests.forget(session.id) }
+                    .onFailure {
+                        Log.w(TAG, "session.terminateAll failed id=${session.id}", it)
+                        notifySessionTerminationFailed(session.id, it.userMessage())
+                    }
+            }
+            // Refresh even if one termination failed; surviving sessions retain
+            // their notification and may be retried with the same action.
+            Result.success(Unit)
+        }
+        result.operation.onFailure { notifyOperationError("모든 세션 종료", it.userMessage()) }
+        result.snapshot?.onFailure { notifyOperationError("세션 목록 새로고침", it.userMessage()) }
     }
 
     private fun notifyClients(state: RuntimeState) {
@@ -366,7 +561,7 @@ class VmRuntimeService : Service() {
             else -> selectedBackend.connectSessionClient().getOrNull()
         }
         client?.let { primaryController ->
-            val registry = UnifiedSessionRegistry()
+            val registry = UnifiedSessionRegistry(remoteCommand = { source, command -> kittyRemote.execute(source, command) })
             registry.register(
                 if (selectedBackend is NativeBackend) SessionRuntime.NATIVE else SessionRuntime.AVF,
                 primaryController,
@@ -375,8 +570,9 @@ class VmRuntimeService : Service() {
             scope.launch {
                 registry.events.collect { event ->
                     when (event) {
-                        is SessionEvent.Output -> notifyTerminalOutput(event.sessionId, event.bytes)
+                        is SessionEvent.Output -> notifyTerminalOutput(event.sessionId, event.bytes, event.replay)
                         is SessionEvent.Exited -> {
+                            kittyGrants.remove(event.sessionId)
                             broadcast { it.onSessionExited(event.sessionId, event.exitCode) }
                             refreshSessions(registry)
                         }
@@ -400,25 +596,36 @@ class VmRuntimeService : Service() {
 
     private suspend fun ensureSessionClient(): SessionController? = ensureSessionRegistry()
 
-    private suspend fun ensureRuntimeController(runtime: SessionRuntime, registry: UnifiedSessionRegistry): Boolean =
-        runtimeControllerMutex.withLock {
-            if (registry.isRegistered(runtime)) return@withLock true
-            when (runtime) {
-                SessionRuntime.ROOTLESS -> {
-                    val root = filesDir.toPath().resolve("rootless/debian")
-                    val prepared = rootlessBackend.prepare(RuntimeConfig(imageDirectory = root.toString()))
-                    val started = prepared.isSuccess && rootlessBackend.start().isSuccess
-                    if (started) rootlessBackend.sessionController()?.let { registry.register(runtime, it) }
-                    started && registry.isRegistered(runtime)
-                }
-                SessionRuntime.NATIVE -> backend is NativeBackend && (backend as NativeBackend).sessionController()?.let {
-                    registry.register(runtime, it); true
-                } == true
-                SessionRuntime.AVF -> backend !is NativeBackend && backend.connectSessionClient().getOrNull()?.let {
-                    registry.register(runtime, it); true
-                } == true
-            }
+    private suspend fun ensureRuntimeController(runtime: SessionRuntime, registry: UnifiedSessionRegistry): Boolean {
+        val selectedRootless = rootlessBackends[runtime]
+        if (runtimeControllerMutex.isLocked && selectedRootless?.status() !is RootlessStatus.Ready) {
+            selectedRootless?.reportPreparationWaiting()
         }
+        return try {
+            runtimeControllerMutex.withLock {
+                if (registry.isRegistered(runtime)) {
+                    val rootless = rootlessBackends[runtime]
+                    if (rootless == null || rootless.status() is RootlessStatus.Ready) return@withLock true
+                    registry.removeIfIdle(runtime) { rootless.prepare().getOrThrow() }
+                }
+                when (runtime) {
+                    SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH -> {
+                        val rootlessBackend = rootlessBackends.getValue(runtime)
+                        val prepared = rootlessBackend.prepare()
+                        val started = prepared.isSuccess && rootlessBackend.start().isSuccess
+                        if (started) rootlessBackend.sessionController()?.let { registry.register(runtime, it) }
+                        started && registry.isRegistered(runtime)
+                    }
+                    SessionRuntime.NATIVE -> backend is NativeBackend && (backend as NativeBackend).sessionController()?.let {
+                        registry.register(runtime, it); true
+                    } == true
+                    SessionRuntime.AVF -> backend !is NativeBackend && backend.connectSessionClient().getOrNull()?.let {
+                        registry.register(runtime, it); true
+                    } == true
+                }
+            }
+        } finally { selectedRootless?.clearPreparationWaiting() }
+    }
 
     private fun scheduleGuestReconnect() {
         if (reconnectJob?.isActive == true || sessionClient != null) return
@@ -474,7 +681,7 @@ class VmRuntimeService : Service() {
     }
 
     private fun publishSessionSnapshot(snapshot: SessionSnapshot) {
-        val json = snapshot.sessions.toJson()
+        val json = snapshot.sessions.toJson(snapshot.explicitTitleIds, snapshot.initialTitles)
         val published = PublishedSessions(
             revision = snapshot.revision,
             json = json,
@@ -482,13 +689,13 @@ class VmRuntimeService : Service() {
         )
         publishedSessions = published
         updateWakeState()
-        updateNotification(latestState)
+        updateServiceLifetime()
         Log.d(TAG, "session.snapshot revision=${published.revision} count=${snapshot.sessions.size}")
         broadcast { it.onSessionsChanged(published.revision, published.json) }
     }
 
-    private fun notifyTerminalOutput(sessionId: String, bytes: ByteArray) {
-        broadcast { it.onTerminalOutput(sessionId, bytes) }
+    private fun notifyTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) {
+        broadcast { it.onTerminalOutput(sessionId, bytes, replay) }
     }
 
     private fun notifyOperationError(operation: String, message: String) {
@@ -508,6 +715,10 @@ class VmRuntimeService : Service() {
     }
 
     private fun closeSessionClient() {
+        kittyGrants.clear()
+        kittyIdentities.clear()
+        kittyTitles.clear()
+        focusedSession = null
         reconnectJob?.cancel()
         reconnectJob = null
         bridgeJob?.cancel()
@@ -525,7 +736,9 @@ class VmRuntimeService : Service() {
 
     private fun updateWakeState() = wakeController.update(
         wakePolicies.get(),
-        runtimeWorkState(
+        if (publishedSessions.runningCount == 0 && hostBackgroundOperationCount.get() == 0) {
+            RuntimeWakeController.GuestWorkState.STOPPED
+        } else runtimeWorkState(
             latestState,
             publishedSessions.runningCount,
             guestReportedWorkActive,
@@ -544,13 +757,15 @@ class VmRuntimeService : Service() {
         } else verification.reason
     }
 
-    private fun List<SessionDescriptor>.toJson(): String = JSONArray().apply {
+    private fun List<SessionDescriptor>.toJson(explicitTitleIds: Set<String> = emptySet(), initialTitles: Map<String, String> = emptyMap()): String = JSONArray().apply {
         forEach { session -> put(JSONObject().apply {
             put("id", session.id)
             put("runtime", (sessionClient as? UnifiedSessionRegistry)?.runtimeOf(session.id)?.wireName
                 ?: SessionRuntime.fromSessionId(session.id)?.wireName
                 ?: if (backend is NativeBackend) SessionRuntime.NATIVE.wireName else SessionRuntime.AVF.wireName)
             put("title", session.title)
+            put("explicitTitle", session.id in explicitTitleIds)
+            put("initialTitle", initialTitles[session.id] ?: session.title)
             put("command", session.command)
             put("cwd", session.cwd)
             put("rows", session.rows.toInt())
@@ -567,22 +782,41 @@ class VmRuntimeService : Service() {
             put("available", backend is NativeBackend)
             put("detail", if (backend is NativeBackend) "즉시 사용 가능" else "이 제품 변형은 Native 컨트롤러를 제공하지 않습니다")
         })
-        val rootless = rootlessBackend.status()
-        put(SessionRuntime.ROOTLESS.wireName, JSONObject().apply {
-            put("available", rootless is RootlessStatus.Ready)
-            put("state", when (rootless) {
-                RootlessStatus.Checking -> "CHECKING"
-                RootlessStatus.Ready -> "READY"
-                is RootlessStatus.Error -> "ERROR"
-                is RootlessStatus.SetupRequired -> "SETUP_REQUIRED"
+        RootlessDistribution.entries.forEach { distribution ->
+            val rootlessBackend = rootlessBackends.getValue(distribution.runtime)
+            val rootless = rootlessBackend.status()
+            val progress = rootlessBackend.installProgress()
+            put(distribution.runtime.wireName, JSONObject().apply {
+                put("available", rootless is RootlessStatus.Ready)
+                put("installed", rootlessBackends.getValue(distribution.runtime).hasInstalledImage())
+                put("installable", rootlessBackends.getValue(distribution.runtime).canInstall())
+                put("state", when (rootless) {
+                    RootlessStatus.Checking -> "CHECKING"
+                    RootlessStatus.Ready -> "READY"
+                    is RootlessStatus.Error -> "ERROR"
+                    is RootlessStatus.SetupRequired -> "SETUP_REQUIRED"
+                    is RootlessStatus.EnvironmentRequired -> "ENVIRONMENT_REQUIRED"
+                })
+                put("detail", when (rootless) {
+                    RootlessStatus.Checking -> progress?.update?.detail ?: "${distribution.displayName} 상태를 확인하고 있습니다"
+                    RootlessStatus.Ready -> "${distribution.displayName} 기본 구성과 셸 실행 확인 완료"
+                    is RootlessStatus.Error -> rootless.reason
+                    is RootlessStatus.SetupRequired -> rootless.reason
+                    is RootlessStatus.EnvironmentRequired -> rootless.reason
+                })
+                if (progress != null) put("progress", JSONObject().apply {
+                    put("phase", progress.update.phase.name)
+                    put("label", progress.update.phase.displayName)
+                    put("detail", progress.update.detail)
+                    put("fraction", progress.update.fraction)
+                    put("completedBytes", progress.update.completedBytes)
+                    put("totalBytes", progress.update.totalBytes)
+                    put("startedAtElapsedMs", progress.startedAtElapsedMs)
+                    put("updatedAtElapsedMs", progress.updatedAtElapsedMs)
+                    put("finishedAtElapsedMs", progress.finishedAtElapsedMs)
+                })
             })
-            put("detail", when (rootless) {
-                RootlessStatus.Checking -> "Rootless Debian 상태를 확인하고 있습니다"
-                RootlessStatus.Ready -> "Debian rootfs와 APK PRoot 준비됨"
-                is RootlessStatus.Error -> rootless.reason
-                is RootlessStatus.SetupRequired -> rootless.reason
-            })
-        })
+        }
         put(SessionRuntime.AVF.wireName, JSONObject().apply {
             put("available", backend !is NativeBackend && latestState is RuntimeState.Ready)
             put("detail", if (backend is NativeBackend) "특권 AVF 제품 빌드가 필요합니다" else latestState.detail())
@@ -591,11 +825,12 @@ class VmRuntimeService : Service() {
 
     private fun runtimeUnavailableReason(runtime: SessionRuntime): String = when (runtime) {
         SessionRuntime.NATIVE -> "Native 런타임이 이 제품 변형에서 준비되지 않았습니다"
-        SessionRuntime.ROOTLESS -> when (val status = rootlessBackend.status()) {
-            RootlessStatus.Checking -> "Rootless Debian을 준비하고 있습니다"
-            RootlessStatus.Ready -> "Rootless Debian 세션을 시작할 수 없습니다"
+        SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH -> when (val status = rootlessBackends.getValue(runtime).status()) {
+            RootlessStatus.Checking -> "선택한 Rootless 환경을 준비하고 있습니다"
+            RootlessStatus.Ready -> "선택한 Rootless 세션을 시작할 수 없습니다"
             is RootlessStatus.Error -> status.reason
             is RootlessStatus.SetupRequired -> status.reason
+            is RootlessStatus.EnvironmentRequired -> status.reason
         }
         SessionRuntime.AVF -> "AVF는 지원 기기, 특권 권한, 시스템 SDK 드라이버가 필요합니다"
     }
@@ -605,9 +840,46 @@ class VmRuntimeService : Service() {
         return toUShort()
     }
 
-    private fun updateNotification(state: RuntimeState) {
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.notify(NOTIFICATION_ID, notification(state))
+    private fun updateServiceLifetime() {
+        scope.launch(Dispatchers.Main.immediate) {
+            // Read current state here, not a captured snapshot from a worker thread.
+            val keepAlive = publishedSessions.runningCount > 0 || hostBackgroundOperationCount.get() > 0
+            if (keepAlive) {
+                if (!foreground) {
+                    // Binding alone must not own a live PTY after the Activity detaches.
+                    startService(Intent(this@VmRuntimeService, VmRuntimeService::class.java))
+                    startForeground(NOTIFICATION_ID, notification(latestState))
+                    lastNotificationContent = notificationContent()
+                    foreground = true
+                } else if (notificationUpdateJob?.isActive != true) {
+                    // Coalesce bursts of snapshots/operation completion. Android
+                    // otherwise drops updates when the enqueue rate is exceeded.
+                    notificationUpdateJob = scope.launch(Dispatchers.Main.immediate) {
+                        delay(500)
+                        val content = notificationContent()
+                        if (foreground && content != lastNotificationContent) {
+                            getSystemService(NotificationManager::class.java)
+                                .notify(NOTIFICATION_ID, notification(latestState))
+                            lastNotificationContent = content
+                        }
+                    }
+                }
+            } else {
+                notificationUpdateJob?.cancel()
+                notificationUpdateJob = null
+                lastNotificationContent = null
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                foreground = false
+                wakeController.release()
+                // A visible bound UI can still create the next session. Once it
+                // unbinds Android destroys this idle service normally.
+                stopSelf()
+            }
+        }
+    }
+
+    private fun notificationContent(): Pair<Int, String> = publishedSessions.runningCount.let { count ->
+        count to if (count > 0) "" else latestState.detail()
     }
 
     private fun createNotificationChannel() {
@@ -627,19 +899,34 @@ class VmRuntimeService : Service() {
             )
         }
         return Notification.Builder(this, CHANNEL_ID)
-        .setSmallIcon(android.R.drawable.stat_sys_warning)
+        .setSmallIcon(R.drawable.ic_notification_terminal)
         .setContentTitle(
-            if (publishedSessions.runningCount > 0) "Droid Terminal · 실행 중인 세션 ${publishedSessions.runningCount}개"
-            else "Droid Terminal · 세션 없음",
+            if (publishedSessions.runningCount > 0) "TERM · 실행 중인 세션 ${publishedSessions.runningCount}개"
+            else "TERM · 런타임 준비 중",
         )
         .setContentText(
             if (publishedSessions.runningCount > 0) "터미널을 닫아도 세션은 백그라운드에서 계속 실행됩니다."
             else state.detail(),
         )
-        // A live shell is a user-visible persistent operation. Do not allow
-        // this notification to be dismissed while at least one PTY is alive.
-        .setOngoing(publishedSessions.runningCount > 0)
+        .setOngoing(true)
+        .setOnlyAlertOnce(true)
         .setContentIntent(contentIntent)
+        .apply {
+            if (publishedSessions.runningCount > 0) {
+                val terminateIntent = PendingIntent.getService(
+                    this@VmRuntimeService,
+                    1,
+                    Intent(this@VmRuntimeService, VmRuntimeService::class.java)
+                        .setAction(ACTION_TERMINATE_ALL_SESSIONS),
+                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+                )
+                addAction(Notification.Action.Builder(
+                    android.graphics.drawable.Icon.createWithResource(this@VmRuntimeService, android.R.drawable.ic_menu_close_clear_cancel),
+                    "모든 세션 종료",
+                    terminateIntent,
+                ).build())
+            }
+        }
         .build()
     }
 
@@ -657,6 +944,7 @@ class VmRuntimeService : Service() {
 
     private companion object {
         const val TAG = "VmRuntimeService"
+        const val ACTION_TERMINATE_ALL_SESSIONS = "dev.terminal.runtime.action.TERMINATE_ALL_SESSIONS"
         const val CHANNEL_ID = "linux_runtime"
         const val NOTIFICATION_ID = 1001
         const val FORCE_STOP = 1
@@ -672,6 +960,8 @@ class VmRuntimeService : Service() {
         const val KEY_AVF_NETWORK = "avf-network"
         const val KEY_NATIVE_TERM = "native-term"
         const val KEY_NATIVE_LOGIN = "native-login-shell"
+        const val KEY_KITTY_REMOTE = "kitty-remote-control"
+        const val KEY_KITTY_GRAPHICS = "kitty-graphics-compatibility"
         const val DEFAULT_TERMINAL_TYPE = "xterm-256color"
         const val ROOTLESS_SETUP_OPERATION = "ROOTLESS_SETUP"
         val SUPPORTED_TERMINAL_TYPES = setOf("xterm-256color", "xterm", "screen-256color")
@@ -682,6 +972,30 @@ class VmRuntimeService : Service() {
         val json: String,
         val runningCount: Int,
     )
+}
+
+internal data class SessionResizeRequest(
+    val sessionId: String,
+    val rows: Int,
+    val cols: Int,
+    val sequence: Long,
+)
+
+/** Keeps stale asynchronous Binder resize calls from overriding the newest terminal geometry. */
+internal class LatestSessionResizeRequests {
+    private val sequence = AtomicLong()
+    private val latest = ConcurrentHashMap<String, SessionResizeRequest>()
+
+    fun record(sessionId: String, rows: Int, cols: Int): SessionResizeRequest =
+        SessionResizeRequest(sessionId, rows, cols, sequence.incrementAndGet()).also {
+            latest[sessionId] = it
+        }
+
+    fun isLatest(request: SessionResizeRequest): Boolean = latest[request.sessionId] == request
+
+    fun forget(sessionId: String) {
+        latest.remove(sessionId)
+    }
 }
 
 internal fun runtimeWorkState(

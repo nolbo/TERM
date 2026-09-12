@@ -1,5 +1,7 @@
 #include <dirent.h>
 #include <fcntl.h>
+#include <errno.h>
+#include <sys/stat.h>
 #include <jni.h>
 #include <signal.h>
 #include <stdio.h>
@@ -217,4 +219,90 @@ JNIEXPORT jint JNICALL Java_com_termux_terminal_JNI_waitFor(JNIEnv* TERMUX_UNUSE
 JNIEXPORT void JNICALL Java_com_termux_terminal_JNI_close(JNIEnv* TERMUX_UNUSED(env), jclass TERMUX_UNUSED(clazz), jint fileDescriptor)
 {
     close(fileDescriptor);
+}
+
+/* Graphics media is resolved by the runtime, never by the Android renderer.
+ * Open every component relative to pinned directory descriptors. This prevents
+ * a guest racing a checked path into another runtime's files via symlinks. */
+static void graphics_io_error(JNIEnv* env, const char* message) {
+    jclass exception = (*env)->FindClass(env, "java/io/IOException");
+    if (exception) (*env)->ThrowNew(env, exception, message);
+}
+
+static char* graphics_path(JNIEnv* env, jbyteArray bytes) {
+    jsize size = (*env)->GetArrayLength(env, bytes);
+    if (size <= 0 || size > 4096) { graphics_io_error(env, "EINVAL: media path"); return NULL; }
+    char* path = malloc((size_t) size + 1);
+    if (!path) { graphics_io_error(env, "ENOSPC: media path"); return NULL; }
+    (*env)->GetByteArrayRegion(env, bytes, 0, size, (jbyte*) path);
+    if ((*env)->ExceptionCheck(env)) { free(path); return NULL; }
+    path[size] = 0;
+    if (memchr(path, 0, (size_t) size)) { free(path); graphics_io_error(env, "EINVAL: media path"); return NULL; }
+    return path;
+}
+
+JNIEXPORT jbyteArray JNICALL
+Java_com_termux_terminal_GraphicsFileReader_readBelow(JNIEnv* env, jclass TERMUX_UNUSED(clazz),
+        jbyteArray root_bytes, jbyteArray relative_bytes, jlong offset, jlong size, jboolean unlink_file, jint maximum) {
+    char* root = graphics_path(env, root_bytes);
+    if (!root) return NULL;
+    char* relative = graphics_path(env, relative_bytes);
+    if (!relative) { free(root); return NULL; }
+    int directory = -1, file = -1;
+    unsigned char* data = NULL;
+    jbyteArray result = NULL;
+    const char* error = "EACCES: media path";
+    if (root[0] != '/' || relative[0] == '/' || offset < 0 || size < 0 || maximum <= 0 || maximum > 6 * 1024 * 1024) goto done;
+    directory = open("/", O_PATH | O_DIRECTORY | O_CLOEXEC);
+    if (directory < 0) goto done;
+    char* save = NULL;
+    for (char* part = strtok_r(root, "/", &save); part; part = strtok_r(NULL, "/", &save)) {
+        if (!strcmp(part, ".") || !strcmp(part, "..")) goto done;
+        int next = openat(directory, part, O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (next < 0) goto done;
+        close(directory); directory = next;
+    }
+    char* name = relative;
+    while (1) {
+        char* slash = strchr(name, '/');
+        if (!slash) break;
+        *slash = 0;
+        if (!name[0] || !strcmp(name, ".") || !strcmp(name, "..")) goto done;
+        int next = openat(directory, name, O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (next < 0) goto done;
+        close(directory); directory = next; name = slash + 1;
+    }
+    if (!name[0] || !strcmp(name, ".") || !strcmp(name, "..")) goto done;
+    /* O_NONBLOCK prevents a FIFO from blocking before fstat rejects it. */
+    file = openat(directory, name, O_RDONLY | O_NONBLOCK | O_NOFOLLOW | O_CLOEXEC);
+    if (file < 0) { error = "ENOENT: media file"; goto done; }
+    struct stat metadata;
+    if (fstat(file, &metadata) < 0 || !S_ISREG(metadata.st_mode)) { error = "EACCES: regular files only"; goto done; }
+    if (offset > metadata.st_size) { error = "EINVAL: media offset"; goto done; }
+    jlong length = size ? size : metadata.st_size - offset;
+    if (length > maximum) { error = "E2BIG: media size"; goto done; }
+    if (length > metadata.st_size - offset) { error = "EINVAL: media size"; goto done; }
+    data = malloc(length ? (size_t) length : 1);
+    if (!data) { error = "ENOSPC: media data"; goto done; }
+    for (jlong at = 0; at < length;) {
+        ssize_t n = pread(file, data + at, (size_t) (length - at), (off_t) (offset + at));
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) { error = "EIO: media read"; goto done; }
+        at += n;
+    }
+    if (unlink_file) {
+        struct stat current;
+        if (fstatat(directory, name, &current, AT_SYMLINK_NOFOLLOW) == 0 &&
+                current.st_dev == metadata.st_dev && current.st_ino == metadata.st_ino &&
+                unlinkat(directory, name, 0) != 0) { error = "EIO: media unlink"; goto done; }
+    }
+    result = (*env)->NewByteArray(env, (jsize) length);
+    if (result && length) (*env)->SetByteArrayRegion(env, result, 0, (jsize) length, (jbyte*) data);
+    error = NULL;
+done:
+    if (file >= 0) close(file);
+    if (directory >= 0) close(directory);
+    free(data); free(root); free(relative);
+    if (error) graphics_io_error(env, error);
+    return result;
 }

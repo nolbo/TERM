@@ -1,3 +1,4 @@
+mod graphics_transport;
 mod protocol;
 mod pty;
 mod session;

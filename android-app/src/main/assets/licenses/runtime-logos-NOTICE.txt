@@ -1,0 +1,19 @@
+Debian Open Use Logo (without wordmark)
+Copyright (c) 1999 Software in the Public Interest, Inc.
+Original design: Raul Silva.
+Source: https://www.debian.org/logos/openlogo-nd.svg
+License: Creative Commons Attribution-ShareAlike 3.0 Unported
+https://creativecommons.org/licenses/by-sa/3.0/
+Terms and attribution: https://www.debian.org/logos/
+Adaptation: original path geometry converted to Android VectorDrawable,
+uniformly sized and centered in a square viewport, with a monochrome UI tint.
+The adapted Debian icon is distributed under the same CC-BY-SA-3.0 license.
+
+Ubuntu Circle of Friends (2022)
+Copyright Canonical Ltd.
+Source: https://assets.ubuntu.com/v1/ce518a18-CoF-2022_solid+O.svg
+Brand resources: https://design.ubuntu.com/resources
+Adaptation: original circle/path geometry converted to Android VectorDrawable,
+uniformly sized and centered in a square viewport, with a monochrome UI tint.
+Ubuntu and Circle of Friends are trademarks of Canonical Ltd.
+Used to identify the Ubuntu runtime; no endorsement is implied.

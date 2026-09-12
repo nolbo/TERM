@@ -1,5 +1,5 @@
 [Unit]
-Description=Droid Terminal guest port reporter
+Description=TERM guest port reporter
 After=network.target
 
 [Service]

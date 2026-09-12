@@ -81,12 +81,11 @@ public final class TerminalEmulator {
     private static final int ESC_CSI_EXCLAMATION = 19;
     /** Escape processing: "ESC _" or Application Program Command (APC). */
     private static final int ESC_APC = 20;
-    /** Escape processing: "ESC _" or Application Program Command (APC), followed by Escape. */
-    private static final int ESC_APC_ESCAPE = 21;
     /** Escape processing: ESC [ <parameter bytes> */
     private static final int ESC_CSI_UNSUPPORTED_PARAMETER_BYTE = 22;
     /** Escape processing: ESC [ <parameter bytes> <intermediate bytes> */
     private static final int ESC_CSI_UNSUPPORTED_INTERMEDIATE_BYTE = 23;
+    private static final int ESC_CSI_KITTY_SET = 24, ESC_CSI_KITTY_POP = 25;
 
     /** The number of parameter arguments including colon separated sub-parameters. */
     private static final int MAX_ESCAPE_PARAMETERS = 32;
@@ -172,9 +171,24 @@ public final class TerminalEmulator {
     final TerminalBuffer mAltBuffer;
     /** The current screen buffer, pointing at either {@link #mMainBuffer} or {@link #mAltBuffer}. */
     private TerminalBuffer mScreen;
+    private final TerminalGraphics mMainGraphics = new TerminalGraphics();
+    private final TerminalGraphics mAltGraphics = new TerminalGraphics();
+    private final KittyKeyboard mMainKeyboard = new KittyKeyboard(), mAltKeyboard = new KittyKeyboard();
+    public KittyKeyboard getKeyboard() { return isAlternateBufferActive() ? mAltKeyboard : mMainKeyboard; }
+    private final StringBuilder mGraphicsString = new StringBuilder();
+    private boolean mGraphicsStringEscape, mGraphicsStringOverflow, mSixelDisplayMode;
+
+    public TerminalGraphics getGraphics() {
+        TerminalGraphics graphics = isAlternateBufferActive() ? mAltGraphics : mMainGraphics;
+        graphics.setTextScreen(mScreen, mRows, mColumns);
+        return graphics;
+    }
 
     /** The terminal session this emulator is bound to. */
     private final TerminalOutput mSession;
+    private boolean mReplaying;
+    private final SynchronizedOutput mSynchronizedOutput = new SynchronizedOutput();
+    public long getSynchronizedOutputDelayMillis() { return mSynchronizedOutput.remainingMillis(); }
 
     TerminalSessionClient mClient;
 
@@ -261,6 +275,10 @@ public final class TerminalEmulator {
      * with the scrolling text.
      */
     private int mScrollCounter = 0;
+    // Monotonic output-driven movement of history, including eviction at capacity.
+    // Unlike selection's scroll counter, horizontal-region edits do not advance it.
+    private long mTranscriptScrollCounter;
+    public long getTranscriptScrollCounter() { return mTranscriptScrollCounter; }
 
     private byte mUtf8ToFollow, mUtf8Index;
     private final byte[] mUtf8InputBuffer = new byte[4];
@@ -323,7 +341,37 @@ public final class TerminalEmulator {
     }
 
     public TerminalEmulator(TerminalOutput session, int columns, int rows, int cellWidthPixels, int cellHeightPixels, Integer transcriptRows, TerminalSessionClient client) {
-        mSession = session;
+        mSession = new TerminalOutput() {
+            @Override
+            public void write(byte[] data, int offset, int count) {
+                if (!mReplaying) session.write(data, offset, count);
+            }
+
+            @Override
+            public void titleChanged(String oldTitle, String newTitle) {
+                session.titleChanged(oldTitle, newTitle);
+            }
+
+            @Override
+            public void onCopyTextToClipboard(String text) {
+                if (!mReplaying) session.onCopyTextToClipboard(text);
+            }
+
+            @Override
+            public void onPasteTextFromClipboard() {
+                if (!mReplaying) session.onPasteTextFromClipboard();
+            }
+
+            @Override
+            public void onBell() {
+                if (!mReplaying) session.onBell();
+            }
+
+            @Override
+            public void onColorsChanged() {
+                session.onColorsChanged();
+            }
+        };
         mScreen = mMainBuffer = new TerminalBuffer(columns, getTerminalTranscriptRows(transcriptRows), rows);
         mAltBuffer = new TerminalBuffer(columns, rows, rows);
         mClient = client;
@@ -381,6 +429,7 @@ public final class TerminalEmulator {
     }
 
     public void resize(int columns, int rows, int cellWidthPixels, int cellHeightPixels) {
+        mSynchronizedOutput.end();
         this.mCellWidthPixels = cellWidthPixels;
         this.mCellHeightPixels = cellHeightPixels;
 
@@ -414,6 +463,7 @@ public final class TerminalEmulator {
         final int[] cursor = {mCursorCol, mCursorRow};
         int newTotalRows = (mScreen == mAltBuffer) ? mRows : mMainBuffer.mTotalRows;
         mScreen.resize(mColumns, mRows, newTotalRows, cursor, getStyle(), isAlternateBufferActive());
+        getGraphics().resize(cursor[1] - mCursorRow, mColumns, mRows, mScreen.getActiveTranscriptRows());
         mCursorCol = cursor[0];
         mCursorRow = cursor[1];
     }
@@ -499,6 +549,17 @@ public final class TerminalEmulator {
             processByte(buffer[i]);
     }
 
+    /** Restore a transcript's screen state, without answering historical queries to the live PTY. */
+    public void appendReplay(byte[] buffer, int length) {
+        boolean previous = mReplaying;
+        mReplaying = true;
+        try {
+            append(buffer, length);
+        } finally {
+            mReplaying = previous;
+        }
+    }
+
     private void processByte(byte byteToProcess) {
         if (mUtf8ToFollow > 0) {
             if ((byteToProcess & 0b11000000) == 0b10000000) {
@@ -565,12 +626,10 @@ public final class TerminalEmulator {
     }
 
     public void processCodePoint(int b) {
-        // The Application Program-Control (APC) string might be arbitrary non-printable characters, so handle that early.
-        if (mEscapeState == ESC_APC) {
-            doApc(b);
-            return;
-        } else if (mEscapeState == ESC_APC_ESCAPE) {
-            doApcEscape(b);
+        // DCS/APC payloads may contain controls and span any number of PTY reads.
+        // Always drain oversized or unsupported strings through ST, never display their tail as text.
+        if (mEscapeState == ESC_P || mEscapeState == ESC_APC) {
+            consumeGraphicsString(b);
             return;
         }
 
@@ -675,6 +734,14 @@ public final class TerminalEmulator {
                         break;
                     case ESC_CSI_BIGGERTHAN:
                         doCsiBiggerThan(b);
+                        break;
+                    case ESC_CSI_KITTY_SET:
+                        if (b == 'u') getKeyboard().set(getArg0(0), getArg(1, 1, false));
+                        else parseArg(b);
+                        break;
+                    case ESC_CSI_KITTY_POP:
+                        if (b == 'u') getKeyboard().pop(getArg(0, 1, false));
+                        else parseArg(b);
                         break;
                     case ESC_CSI_DOLLAR:
                         boolean originMode = isDecsetInternalBitSet(DECSET_BIT_ORIGIN_MODE);
@@ -848,7 +915,9 @@ public final class TerminalEmulator {
                             // Request DEC private mode (DECRQM).
                             int mode = getArg0(0);
                             int value;
-                            if (mode == 47 || mode == 1047 || mode == 1049) {
+                            if (mode == 2026) {
+                                value = getSynchronizedOutputDelayMillis() > 0 ? 1 : 2;
+                            } else if (mode == 47 || mode == 1047 || mode == 1049) {
                                 // This state is carried by mScreen pointer.
                                 value = (mScreen == mAltBuffer) ? 1 : 2;
                             } else {
@@ -909,6 +978,76 @@ public final class TerminalEmulator {
                 if (!mContinueSequence) mEscapeState = ESC_NONE;
                 break;
         }
+    }
+
+    private void startGraphicsString() {
+        mGraphicsString.setLength(0);
+        if (mGraphicsString.capacity() > 8192) mGraphicsString.trimToSize();
+        mGraphicsStringEscape = mGraphicsStringOverflow = false;
+    }
+
+    private void consumeGraphicsString(int b) {
+        if (b == 24 || b == 26) {
+            startGraphicsString();
+            getGraphics().cancelTransfer();
+            finishSequence();
+            return;
+        }
+        if ((mGraphicsStringEscape && b == '\\') || b == 0x9c) {
+            int type = mEscapeState;
+            String data = mGraphicsStringOverflow ? null : mGraphicsString.toString();
+            startGraphicsString();
+            finishSequence();
+            if (data == null) { getGraphics().cancelTransfer(); return; }
+            if (type == ESC_APC) {
+                if (data.startsWith("G")) {
+                    TerminalGraphics.Result result = getGraphics().kitty(data.substring(1), mCursorCol, mCursorRow,
+                        mCellWidthPixels, mCellHeightPixels);
+                    if (result.placement != null && result.moveCursor) advanceImageCursor(result.placement, false);
+                    if (result.response != null) mSession.write(result.response);
+                }
+            } else {
+                int q = data.indexOf('q');
+                if (q >= 0 && q <= 64 && data.substring(0, q).matches("[0-9;]*")) {
+                    try {
+                        String[] args = data.substring(0, q).split(";", 4);
+                        int background = args.length > 1 && args[1].equals("1") ? 0 : ((mBackColor & 0xff000000) == 0xff000000 ? mBackColor : mColors.mCurrentColors[mBackColor]);
+                        TerminalGraphics.Placement placement = getGraphics().sixel(data.substring(q + 1), background,
+                            mSixelDisplayMode ? 0 : mCursorCol, mSixelDisplayMode ? 0 : mCursorRow,
+                            mCellWidthPixels, mCellHeightPixels);
+                        if (!mSixelDisplayMode) advanceImageCursor(placement, true);
+                    } catch (IllegalArgumentException ignored) {
+                        // SIXEL has no error reply. The bounded sequence is discarded atomically.
+                    }
+                } else if (data.length() <= MAX_OSC_STRING_LENGTH && (data.startsWith("$q") || data.startsWith("+q"))) {
+                    mOSCOrDeviceControlArgs.setLength(0);
+                    mOSCOrDeviceControlArgs.append(data);
+                    doDeviceControl('\\');
+                }
+            }
+            return;
+        }
+        if (mGraphicsStringEscape) appendGraphicsCharacter(27);
+        mGraphicsStringEscape = b == 27;
+        if (!mGraphicsStringEscape) appendGraphicsCharacter(b);
+    }
+
+    private void appendGraphicsCharacter(int b) {
+        int limit = mEscapeState == ESC_APC ? 5120 : TerminalGraphics.MAX_TRANSFER_BYTES;
+        if (!mGraphicsStringOverflow) {
+            if (mGraphicsString.length() >= limit) {
+                mGraphicsString.setLength(0);
+                mGraphicsStringOverflow = true;
+            } else mGraphicsString.appendCodePoint(b);
+        }
+    }
+
+    private void advanceImageCursor(TerminalGraphics.Placement placement, boolean sixel) {
+        int lines = placement.rows;
+        // Placement dimensions are bounded, so this cannot cause unbounded scrolling work.
+        for (int i = 0; i < lines; i++) doLinefeed();
+        setCursorCol(sixel ? mLeftMargin : Math.min(mColumns - 1, placement.column + placement.columns));
+        mAboutToAutoWrap = false;
     }
 
     /** When in {@link #ESC_P} ("device control") sequence. */
@@ -1034,30 +1173,6 @@ public final class TerminalEmulator {
         }
     }
 
-    /**
-     * When in {@link #ESC_APC} (APC, Application Program Command) sequence.
-     */
-    private void doApc(int b) {
-        if (b == 27) {
-            continueSequence(ESC_APC_ESCAPE);
-        }
-        // Eat APC sequences silently for now.
-    }
-
-    /**
-     * When in {@link #ESC_APC} (APC, Application Program Command) sequence.
-     */
-    private void doApcEscape(int b) {
-        if (b == '\\') {
-            // A String Terminator (ST), ending the APC escape sequence.
-            finishSequence();
-        } else {
-            // The Escape character was not the start of a String Terminator (ST),
-            // but instead just data inside of the APC escape sequence.
-            continueSequence(ESC_APC);
-        }
-    }
-
     private int nextTabStop(int numTabs) {
         for (int i = mCursorCol + 1; i < mColumns; i++)
             if (mTabStop[i] && --numTabs == 0) return Math.min(i, mRightMargin);
@@ -1098,6 +1213,9 @@ public final class TerminalEmulator {
     /** Process byte while in the {@link #ESC_CSI_QUESTIONMARK} escape state. */
     private void doCsiQuestionMark(int b) {
         switch (b) {
+            case 'u':
+                mSession.write("\033[?" + getKeyboard().flags() + "u");
+                break;
             case 'J': // Selective erase in display (DECSED) - http://www.vt100.net/docs/vt510-rm/DECSED.
             case 'K': // Selective erase in line (DECSEL) - http://vt100.net/docs/vt510-rm/DECSEL.
                 mAboutToAutoWrap = false;
@@ -1186,6 +1304,10 @@ public final class TerminalEmulator {
             setDecsetinternalBit(internalBit, setting);
         }
         switch (externalBit) {
+            case 2026:
+                if (setting && !mReplaying) mSynchronizedOutput.begin();
+                else mSynchronizedOutput.end();
+                break;
             case 1: // Application Cursor Keys (DECCKM).
                 break;
             case 3: // Set: 132 column mode (. Reset: 80 column mode. ANSI name: DECCOLM.
@@ -1237,6 +1359,9 @@ public final class TerminalEmulator {
             case 1015:
             case 1034: // Interpret "meta" key, sets eighth bit.
                 break;
+            case 80: // DECSDM: draw at the top left without advancing the cursor.
+                mSixelDisplayMode = setting;
+                break;
             case 1048: // Set: Save cursor as in DECSC. Reset: Restore cursor as in DECRC.
                 if (setting)
                     saveCursor();
@@ -1253,6 +1378,7 @@ public final class TerminalEmulator {
                     boolean resized = !(newScreen.mColumns == mColumns && newScreen.mScreenRows == mRows);
                     if (setting) saveCursor();
                     mScreen = newScreen;
+                    if (setting) mAltGraphics.reset();
                     if (!setting) {
                         int col = mSavedStateMain.mSavedCursorCol;
                         int row = mSavedStateMain.mSavedCursorRow;
@@ -1282,6 +1408,9 @@ public final class TerminalEmulator {
 
     private void doCsiBiggerThan(int b) {
         switch (b) {
+            case 'u':
+                getKeyboard().push(getArg0(0));
+                break;
             case 'c': // "${CSI}>c" or "${CSI}>c". Secondary Device Attributes (DA2).
                 // Originally this was used for the terminal to respond with "identification code, firmware version level,
                 // and hardware options" (http://vt100.net/docs/vt510-rm/DA2), with the first "41" meaning the VT420
@@ -1459,6 +1588,7 @@ public final class TerminalEmulator {
                 // http://www.vt100.net/docs/vt100-ug/chapter3.html: "Move the active position to the same horizontal
                 // position on the preceding line. If the active position is at the top margin, a scroll down is performed".
                 if (mCursorRow <= mTopMargin) {
+                    getGraphics().scroll(mTopMargin, mBottomMargin, mLeftMargin, mRightMargin, 1, 0);
                     mScreen.blockCopy(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin, mBottomMargin - (mTopMargin + 1), mLeftMargin, mTopMargin + 1);
                     blockClear(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin);
                 } else {
@@ -1469,6 +1599,7 @@ public final class TerminalEmulator {
             case '0': // SS3, ignore.
                 break;
             case 'P': // Device control string
+                startGraphicsString();
                 mOSCOrDeviceControlArgs.setLength(0);
                 continueSequence(ESC_P);
                 break;
@@ -1486,6 +1617,7 @@ public final class TerminalEmulator {
                 setDecsetinternalBit(DECSET_BIT_APPLICATION_KEYPAD, false);
                 break;
             case '_': // APC - Application Program Command.
+                startGraphicsString();
                 continueSequence(ESC_APC);
                 break;
             default:
@@ -1502,6 +1634,7 @@ public final class TerminalEmulator {
         state.mSavedEffect = mEffect;
         state.mSavedForeColor = mForeColor;
         state.mSavedBackColor = mBackColor;
+        state.mSavedUnderlineColor = mUnderlineColor;
         state.mSavedDecFlags = mCurrentDecSetFlags;
         state.mUseLineDrawingG0 = mUseLineDrawingG0;
         state.mUseLineDrawingG1 = mUseLineDrawingG1;
@@ -1515,6 +1648,7 @@ public final class TerminalEmulator {
         mEffect = state.mSavedEffect;
         mForeColor = state.mSavedForeColor;
         mBackColor = state.mSavedBackColor;
+        mUnderlineColor = state.mSavedUnderlineColor;
         int mask = (DECSET_BIT_AUTOWRAP | DECSET_BIT_ORIGIN_MODE);
         mCurrentDecSetFlags = (mCurrentDecSetFlags & ~mask) | (state.mSavedDecFlags & mask);
         mUseLineDrawingG0 = state.mUseLineDrawingG0;
@@ -1592,9 +1726,11 @@ public final class TerminalEmulator {
                         break;
                     case 2: // Erase all of the display - all lines are erased, changed to single-width, and the cursor does not
                         // move..
+                        getGraphics().erase(0, 0, mColumns, mRows);
                         blockClear(0, 0, mColumns, mRows);
                         break;
                     case 3: // Delete all lines saved in the scrollback buffer (xterm etc)
+                        mMainGraphics.erase(0, -mMainBuffer.mTotalRows, mColumns, mMainBuffer.mTotalRows);
                         mMainBuffer.clearTranscript();
                         break;
                     default:
@@ -1625,6 +1761,7 @@ public final class TerminalEmulator {
                 int linesAfterCursor = mBottomMargin - mCursorRow;
                 int linesToInsert = Math.min(getArg0(1), linesAfterCursor);
                 int linesToMove = linesAfterCursor - linesToInsert;
+                getGraphics().scroll(mCursorRow, mBottomMargin, 0, mColumns, linesToInsert, 0);
                 mScreen.blockCopy(0, mCursorRow, mColumns, linesToMove, 0, mCursorRow + linesToInsert);
                 blockClear(0, mCursorRow, mColumns, linesToInsert);
             }
@@ -1635,6 +1772,7 @@ public final class TerminalEmulator {
                 int linesAfterCursor = mBottomMargin - mCursorRow;
                 int linesToDelete = Math.min(getArg0(1), linesAfterCursor);
                 int linesToMove = linesAfterCursor - linesToDelete;
+                getGraphics().scroll(mCursorRow, mBottomMargin, 0, mColumns, -linesToDelete, 0);
                 mScreen.blockCopy(0, mCursorRow + linesToDelete, mColumns, linesToMove, 0, mCursorRow);
                 blockClear(0, mCursorRow + linesToMove, mColumns, linesToDelete);
             }
@@ -1669,6 +1807,7 @@ public final class TerminalEmulator {
                     final int linesToScrollArg = getArg0(1);
                     final int linesBetweenTopAndBottomMargins = mBottomMargin - mTopMargin;
                     final int linesToScroll = Math.min(linesBetweenTopAndBottomMargins, linesToScrollArg);
+                    getGraphics().scroll(mTopMargin, mBottomMargin, mLeftMargin, mRightMargin, linesToScroll, 0);
                     mScreen.blockCopy(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin, linesBetweenTopAndBottomMargins - linesToScroll, mLeftMargin, mTopMargin + linesToScroll);
                     blockClear(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin, linesToScroll);
                 } else {
@@ -1699,8 +1838,10 @@ public final class TerminalEmulator {
                 continueSequence(ESC_CSI_BIGGERTHAN);
                 break;
             case '<': // "Esc [ <" -- start of a private parameter byte
+                continueSequence(ESC_CSI_KITTY_POP);
+                break;
             case '=': // "Esc [ =" -- start of a private parameter byte
-                continueSequence(ESC_CSI_UNSUPPORTED_PARAMETER_BYTE);
+                continueSequence(ESC_CSI_KITTY_SET);
                 break;
             case '`': // Horizontal position absolute (HPA - http://www.vt100.net/docs/vt510-rm/HPA).
                 setCursorColRespectingOriginMode(getArg0(1) - 1);
@@ -1714,7 +1855,7 @@ public final class TerminalEmulator {
                 // The important part that may still be used by some (tmux stores this value but does not currently use it)
                 // is the first response parameter identifying the terminal service class, where we send 64 for "vt420".
                 // This is followed by a list of attributes which is probably unused by applications. Send like xterm.
-                if (getArg0(0) == 0) mSession.write("\033[?64;1;2;6;9;15;18;21;22c");
+                if (getArg0(0) == 0) mSession.write("\033[?64;1;2;4;6;9;15;18;21;22c");
                 break;
             case 'd': // ESC [ Pn d - Vert Position Absolute
                 setCursorRow(Math.min(Math.max(1, getArg0(1)), mRows) - 1);
@@ -1868,6 +2009,7 @@ public final class TerminalEmulator {
             }
             if (code == 0) { // reset
                 mForeColor = TextStyle.COLOR_INDEX_FOREGROUND;
+                mUnderlineColor = TextStyle.COLOR_INDEX_FOREGROUND;
                 mBackColor = TextStyle.COLOR_INDEX_BACKGROUND;
                 mEffect = 0;
             } else if (code == 1) {
@@ -1925,6 +2067,9 @@ public final class TerminalEmulator {
                 if (i + 2 > mArgIndex) continue;
                 int firstArg = mArgs[i + 1];
                 if (firstArg == 2) {
+                    if (i + 5 <= mArgIndex && (mArgsSubParamsBitSet & (1 << (i + 5))) != 0 && getArg(i + 2, 0, false) == 0) {
+                        i++; // Skip the color-space slot; component indexing below stays shared.
+                    }
                     if (i + 4 > mArgIndex) {
                         Logger.logWarn(mClient, LOG_TAG, "Too few CSI" + code + ";2 RGB arguments");
                     } else {
@@ -2157,6 +2302,7 @@ public final class TerminalEmulator {
     }
 
     private void blockClear(int sx, int sy, int w, int h) {
+        getGraphics().eraseText(sx, sy, w, h);
         mScreen.blockSet(sx, sy, w, h, ' ', getStyle());
     }
 
@@ -2202,6 +2348,9 @@ public final class TerminalEmulator {
 
     private void scrollDownOneLine() {
         mScrollCounter++;
+        getGraphics().scroll(mTopMargin, mBottomMargin, mLeftMargin, mRightMargin, -1,
+            !isAlternateBufferActive() && mTopMargin == 0 && mBottomMargin == mRows && mLeftMargin == 0 && mRightMargin == mColumns
+                ? mMainBuffer.mTotalRows - mRows : 0);
         long currentStyle = getStyle();
         if (mLeftMargin != 0 || mRightMargin != mColumns) {
             // Horizontal margin: Do not put anything into scroll history, just non-margin part of screen up.
@@ -2209,6 +2358,7 @@ public final class TerminalEmulator {
             // .. and blank bottom row between margins:
             mScreen.blockSet(mLeftMargin, mBottomMargin - 1, mRightMargin - mLeftMargin, 1, ' ', currentStyle);
         } else {
+            if (mScreen.mTotalRows > mRows) mTranscriptScrollCounter++;
             mScreen.scrollDownOneLine(mTopMargin, mBottomMargin, currentStyle);
         }
     }
@@ -2484,7 +2634,7 @@ public final class TerminalEmulator {
         // so was mCursorCol changed after the offsetDueToCombiningChar conditional by another thread?
         // TODO: Check if there are thread synchronization issues with mCursorCol and mCursorRow, possibly causing others bugs too.
         if (column < 0) column = 0;
-        mScreen.setChar(column, mCursorRow, codePoint, getStyle());
+        mScreen.setChar(column, mCursorRow, codePoint, getStyle(), mUnderlineColor);
 
         if (autoWrap && displayWidth > 0)
             mAboutToAutoWrap = (mCursorCol == mRightMargin - displayWidth);
@@ -2524,6 +2674,13 @@ public final class TerminalEmulator {
 
     /** Reset terminal state so user can interact with it regardless of present state. */
     public void reset() {
+        mSynchronizedOutput.end();
+        mMainGraphics.reset();
+        mAltGraphics.reset();
+        mMainKeyboard.reset();
+        mAltKeyboard.reset();
+        startGraphicsString();
+        mSixelDisplayMode = false;
         setCursorStyle();
         mArgIndex = 0;
         mContinueSequence = false;
@@ -2533,6 +2690,7 @@ public final class TerminalEmulator {
         mBottomMargin = mRows;
         mRightMargin = mColumns;
         mAboutToAutoWrap = false;
+        mUnderlineColor = mSavedStateMain.mSavedUnderlineColor = mSavedStateAlt.mSavedUnderlineColor = TextStyle.COLOR_INDEX_FOREGROUND;
         mForeColor = mSavedStateMain.mSavedForeColor = mSavedStateAlt.mSavedForeColor = TextStyle.COLOR_INDEX_FOREGROUND;
         mBackColor = mSavedStateMain.mSavedBackColor = mSavedStateAlt.mSavedBackColor = TextStyle.COLOR_INDEX_BACKGROUND;
         setDefaultTabStops();
@@ -2582,16 +2740,15 @@ public final class TerminalEmulator {
 
         // Then: Implement bracketed paste mode if enabled:
         boolean bracketed = isDecsetInternalBitSet(DECSET_BIT_BRACKETED_PASTE_MODE);
-        if (bracketed) mSession.write("\033[200~");
-        mSession.write(text);
-        if (bracketed) mSession.write("\033[201~");
+        // Keep the paste envelope and payload in one transport write.
+        mSession.write(bracketed ? "\033[200~" + text + "\033[201~" : text);
     }
 
     /** http://www.vt100.net/docs/vt510-rm/DECSC */
     static final class SavedScreenState {
         /** Saved state of the cursor position, Used to implement the save/restore cursor position escape sequences. */
         int mSavedCursorRow, mSavedCursorCol;
-        int mSavedEffect, mSavedForeColor, mSavedBackColor;
+        int mSavedEffect, mSavedForeColor, mSavedBackColor, mSavedUnderlineColor;
         int mSavedDecFlags;
         boolean mUseLineDrawingG0, mUseLineDrawingG1, mUseLineDrawingUsesG0 = true;
     }

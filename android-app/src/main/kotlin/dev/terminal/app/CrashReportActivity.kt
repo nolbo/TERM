@@ -14,7 +14,7 @@ class CrashReportActivity : TerminalActivity() {
         val report = preferences.getString("report", getString(R.string.crash_report_empty)).orEmpty()
         compose { CrashScreen({ finish() }, report, onCopy = {
             (getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                .setPrimaryClip(ClipData.newPlainText("Droid Terminal crash", report))
+                .setPrimaryClip(ClipData.newPlainText("TERM crash", report))
         }, onClose = { preferences.edit().remove("report").apply(); finish() }) }
     }
 }

@@ -31,6 +31,7 @@ import java.util.UUID;
 public final class TerminalSession extends TerminalOutput {
 
     private static final int MSG_NEW_INPUT = 1;
+    private static final int MSG_REPLAY_INPUT = 3;
     private static final int MSG_PROCESS_EXITED = 4;
     private static final int PROCESS_IO_BUFFER_SIZE = 4096;
 
@@ -142,6 +143,12 @@ public final class TerminalSession extends TerminalOutput {
         if (mBackend != null) {
             mBackendStarted = true;
             mBackend.start(columns, rows, cellWidthPixels, cellHeightPixels, new TerminalSessionBackend.Callback() {
+                @Override
+                public void onReplayOutput(byte[] data, int offset, int count) {
+                    byte[] snapshot = java.util.Arrays.copyOfRange(data, offset, offset + count);
+                    mMainThreadHandler.sendMessage(mMainThreadHandler.obtainMessage(MSG_REPLAY_INPUT, snapshot));
+                }
+
                 @Override
                 public void onOutput(byte[] data, int offset, int count) {
                     // A backend frame may be much larger than ByteQueue. Post a drain message after
@@ -392,6 +399,12 @@ public final class TerminalSession extends TerminalOutput {
 
         @Override
         public void handleMessage(Message msg) {
+            if (msg.what == MSG_REPLAY_INPUT) {
+                byte[] snapshot = (byte[]) msg.obj;
+                mEmulator.appendReplay(snapshot, snapshot.length);
+                notifyScreenUpdate();
+                return;
+            }
             int bytesRead = mProcessToTerminalIOQueue.read(mReceiveBuffer, false);
             if (bytesRead > 0) {
                 mEmulator.append(mReceiveBuffer, bytesRead);

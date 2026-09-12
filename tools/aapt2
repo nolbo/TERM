@@ -1,4 +1,30 @@
 #!/bin/sh
 set -eu
+
+aapt2_version=9.3.0-15703166
+aapt2_cache=/home/dev/.gradle/caches/modules-2/files-2.1/com.android.tools.build/aapt2/$aapt2_version
+aapt2_archive=
+for candidate in "$aapt2_cache"/*/aapt2-$aapt2_version-linux.jar; do
+  if [ -f "$candidate" ]; then
+    aapt2_archive=$candidate
+    break
+  fi
+done
+
+if [ -z "$aapt2_archive" ]; then
+  echo "AAPT2 $aapt2_version Maven artifact was not found in $aapt2_cache" >&2
+  exit 1
+fi
+
+aapt2_tools=/home/dev/src/terminal/build/host-tools
+aapt2_binary=$aapt2_tools/aapt2-$aapt2_version
+if [ ! -x "$aapt2_binary" ]; then
+  mkdir -p "$aapt2_tools"
+  temporary_binary=$aapt2_binary.$$
+  unzip -p "$aapt2_archive" aapt2 > "$temporary_binary"
+  chmod 755 "$temporary_binary"
+  mv "$temporary_binary" "$aapt2_binary"
+fi
+
 exec /usr/bin/qemu-amd64-static -L /home/dev/src/terminal/.amd64-root \
-  /home/dev/.gradle/caches/8.13/transforms/601b704c970a7b6da4fc3167f52cba2c/transformed/aapt2-8.11.1-12782657-linux/aapt2 "$@"
+  "$aapt2_binary" "$@"

@@ -40,12 +40,19 @@ import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 
 import com.termux.terminal.KeyHandler;
+import com.termux.terminal.KittyKeyboard;
 import com.termux.terminal.TerminalEmulator;
 import com.termux.terminal.TerminalSession;
 import com.termux.view.textselection.TextSelectionCursorController;
 
+import java.util.WeakHashMap;
+
 /** View displaying and interacting with a {@link TerminalSession}. */
 public final class TerminalView extends View {
+    private final java.util.Set<Integer> mKittyPressedKeys = new java.util.HashSet<>();
+
+    /** Longer than a normal animation frame so transient IME layout sizes are never applied. */
+    private static final long LAYOUT_RESIZE_SETTLE_DELAY_MILLIS = 120;
 
     /** Log terminal view key and IME events. */
     private static boolean TERMINAL_VIEW_KEY_LOGGING_ENABLED = false;
@@ -70,6 +77,15 @@ public final class TerminalView extends View {
 
     /** The top row of text to display. Ranges from -activeTranscriptRows to 0. */
     int mTopRow;
+
+    // View state only: do not keep closed sessions (or their processes) alive.
+    private static final class ScrollPosition {
+        final int row;
+        final long transcriptScroll;
+        ScrollPosition(int row, long transcriptScroll) { this.row = row; this.transcriptScroll = transcriptScroll; }
+    }
+    private final WeakHashMap<TerminalSession, ScrollPosition> mSessionScrollPositions = new WeakHashMap<>();
+    private long mLastTranscriptScroll;
     int[] mDefaultSelectors = new int[]{-1,-1,-1,-1};
 
     float mScaleFactor = 1.f;
@@ -133,10 +149,23 @@ public final class TerminalView extends View {
 
     private final boolean mAccessibilityEnabled;
 
+    private final StableResizeScheduler mLayoutResizeScheduler;
+
     private static final String LOG_TAG = "TerminalView";
 
     public TerminalView(Context context, AttributeSet attributes) { // NO_UCD (unused code)
         super(context, attributes);
+        mLayoutResizeScheduler = new StableResizeScheduler(new StableResizeScheduler.CallbackQueue() {
+            @Override
+            public void removeCallbacks(Runnable callback) {
+                TerminalView.this.removeCallbacks(callback);
+            }
+
+            @Override
+            public boolean postDelayed(Runnable callback, long delayMillis) {
+                return TerminalView.this.postDelayed(callback, delayMillis);
+            }
+        }, this::applySize, LAYOUT_RESIZE_SETTLE_DELAY_MILLIS);
         mGestureRecognizer = new GestureAndScaleRecognizer(context, new GestureAndScaleRecognizer.Listener() {
 
             boolean scrolledWithFinger;
@@ -164,6 +193,10 @@ public final class TerminalView extends View {
                     return true;
                 }
                 requestFocus();
+                if (!mEmulator.isMouseTrackingActive()) {
+                    String link = getWebLinkAt(event.getX(), event.getY());
+                    if (link != null && mClient.onOpenLink(link)) return true;
+                }
                 mClient.onSingleTapUp(event);
                 return true;
             }
@@ -202,6 +235,7 @@ public final class TerminalView extends View {
                 if (!mScroller.isFinished()) return true;
 
                 final boolean mouseTrackingAtStartOfFling = mEmulator.isMouseTrackingActive();
+                final TerminalSession sessionAtStartOfFling = mTermSession;
                 float SCALE = 0.25f;
                 if (mouseTrackingAtStartOfFling) {
                     mScroller.fling(0, 0, 0, -(int) (velocityY * SCALE), 0, 0, -mEmulator.mRows / 2, mEmulator.mRows / 2);
@@ -210,10 +244,11 @@ public final class TerminalView extends View {
                 }
 
                 post(new Runnable() {
-                    private int mLastY = 0;
+                    private int mLastY = mouseTrackingAtStartOfFling ? 0 : mTopRow;
 
                     @Override
                     public void run() {
+                        if (sessionAtStartOfFling != mTermSession) return;
                         if (mouseTrackingAtStartOfFling != mEmulator.isMouseTrackingActive()) {
                             mScroller.abortAnimation();
                             return;
@@ -221,7 +256,7 @@ public final class TerminalView extends View {
                         if (mScroller.isFinished()) return;
                         boolean more = mScroller.computeScrollOffset();
                         int newY = mScroller.getCurrY();
-                        int diff = mouseTrackingAtStartOfFling ? (newY - mLastY) : (newY - mTopRow);
+                        int diff = newY - mLastY;
                         doScroll(e2, diff);
                         mLastY = newY;
                         if (more) post(this);
@@ -244,8 +279,8 @@ public final class TerminalView extends View {
 
             @Override
             public boolean onDoubleTap(MotionEvent event) {
-                // Do not treat is as a single confirmed tap - it may be followed by zoom.
-                return false;
+                if (mEmulator == null || isSelectingText()) return false;
+                return mClient.onDoubleTap(event);
             }
 
             @Override
@@ -290,8 +325,17 @@ public final class TerminalView extends View {
      * @param session The {@link TerminalSession} this view will be displaying.
      */
     public boolean attachSession(TerminalSession session) {
+        if (session != mTermSession) mKittyPressedKeys.clear();
         if (session == mTermSession) return false;
-        mTopRow = 0;
+        mScaleFactor = 1.f;
+        if (mRenderer != null) mRenderer.clearPresentedFrame();
+        mScroller.abortAnimation();
+        stopTextSelectionMode();
+        if (mTermSession != null && mEmulator != null)
+            mSessionScrollPositions.put(mTermSession, new ScrollPosition(mTopRow, mEmulator.getTranscriptScrollCounter()));
+        ScrollPosition savedPosition = mSessionScrollPositions.get(session);
+        mTopRow = savedPosition == null ? 0 : savedPosition.row;
+        mLastTranscriptScroll = savedPosition == null ? 0 : savedPosition.transcriptScroll;
 
         mTermSession = session;
         mEmulator = null;
@@ -299,6 +343,12 @@ public final class TerminalView extends View {
         mComposingText = null;
 
         updateSize();
+
+        if (mEmulator != null) {
+            if (savedPosition != null && mTopRow < 0) anchorToTranscript();
+            else mLastTranscriptScroll = mEmulator.getTranscriptScrollCounter();
+            mEmulator.clearScrollCounter();
+        }
 
         // Wait with enabling the scrollbar until we have a terminal to get scroll position from.
         setVerticalScrollBarEnabled(true);
@@ -414,8 +464,20 @@ public final class TerminalView extends View {
             }
 
             void sendTextToTerminal(CharSequence text) {
+                if (text.length() != 0) scrollToLatest();
                 stopTextSelectionMode();
+                // IME clipboard commits bypass the selection menu. Preserve multiline pastes
+                // as a unit, including shell line continuations and bracketed-paste framing.
+                if (text.length() > 1 && (TextUtils.indexOf(text, '\n') >= 0 ||
+                    TextUtils.indexOf(text, '\r') >= 0)) {
+                    mEmulator.paste(text.toString());
+                    return;
+                }
                 final int textLengthInChars = text.length();
+                if (!mClient.readControlKey() && !mClient.readAltKey()) {
+                    String committed = mEmulator.getKeyboard().committedText(text.toString());
+                    if (committed != null) { mTermSession.write(committed); return; }
+                }
                 for (int i = 0; i < textLengthInChars; i++) {
                     char firstChar = text.charAt(i);
                     int codePoint;
@@ -435,6 +497,10 @@ public final class TerminalView extends View {
                         codePoint = Character.toUpperCase(codePoint);
 
                     boolean ctrlHeld = false;
+                    if (mEmulator.getKeyboard().flags() != 0 && (codePoint == '\n' || codePoint == '\r' || codePoint == '\t' || codePoint == 127)) {
+                        handleKeyCode(codePoint == '\t' ? KeyEvent.KEYCODE_TAB : codePoint == 127 ? KeyEvent.KEYCODE_DEL : KeyEvent.KEYCODE_ENTER, 0);
+                        continue;
+                    }
                     if (codePoint <= 31 && codePoint != 27) {
                         if (codePoint == '\n') {
                             // The AOSP keyboard and descendants seems to send \n as text when the enter key is pressed,
@@ -493,38 +559,38 @@ public final class TerminalView extends View {
         if (mEmulator == null) return;
 
         int rowsInHistory = mEmulator.getScreen().getActiveTranscriptRows();
-        if (mTopRow < -rowsInHistory) mTopRow = -rowsInHistory;
-
-        boolean skipScrolling = false;
         if (isSelectingText()) {
-            // Do not scroll when selecting text.
             int rowShift = mEmulator.getScrollCounter();
-            if (-mTopRow + rowShift > rowsInHistory) {
-                // .. unless we're hitting the end of history transcript, in which
-                // case we abort text selection and scroll to end.
-                stopTextSelectionMode();
-            } else {
-                skipScrolling = true;
+            if (-(long) mTopRow + rowShift > rowsInHistory) stopTextSelectionMode();
+            else {
                 mTopRow -= rowShift;
                 decrementYTextSelectionCursors(rowShift);
+                // Selection already accounted for the output movement.
+                mLastTranscriptScroll = mEmulator.getTranscriptScrollCounter();
             }
         }
-
-        if (!skipScrolling && mTopRow != 0) {
-            // Scroll down if not already there.
-            if (mTopRow < -3) {
-                // Awaken scroll bars only if scrolling a noticeable amount
-                // - we do not want visible scroll bars during normal typing
-                // of one row at a time.
-                awakenScrollBars();
-            }
-            mTopRow = 0;
-        }
+        anchorToTranscript();
 
         mEmulator.clearScrollCounter();
 
         invalidate();
         if (mAccessibilityEnabled) setContentDescription(getText());
+    }
+
+    /** An explicit local input resumes following the prompt; passive output never does. */
+    public void scrollToLatest() {
+        mScroller.abortAnimation();
+        if (mTopRow != 0) { mTopRow = 0; invalidate(); }
+        if (mEmulator != null) mLastTranscriptScroll = mEmulator.getTranscriptScrollCounter();
+    }
+
+    private void anchorToTranscript() {
+        long current = mEmulator.getTranscriptScrollCounter();
+        long advanced = Math.max(0, current - mLastTranscriptScroll);
+        if (mTopRow < 0) {
+            mTopRow = (int) Math.max(-mEmulator.getScreen().getActiveTranscriptRows(), (long) mTopRow - advanced);
+        }
+        mLastTranscriptScroll = current;
     }
 
     /** This must be called by the hosting activity in {@link Activity#onContextMenuClosed(Menu)}
@@ -542,19 +608,21 @@ public final class TerminalView extends View {
      */
     public void setTextSize(int textSize) {
         mRenderer = mRenderer == null ? new TerminalRenderer(textSize, Typeface.MONOSPACE)
-            : new TerminalRenderer(textSize, mRenderer.mFontFamily, mRenderer.mForceFixedWidth);
+            : new TerminalRenderer(textSize, mRenderer.mFontFamily, mRenderer.mForceFixedWidth,
+                mRenderer.mGlyphRenderOptions);
         updateSize();
     }
 
     public void setTypeface(Typeface newTypeface) {
         mRenderer = new TerminalRenderer(mRenderer.mTextSize, new TerminalFontFamily(newTypeface),
-            mRenderer.mForceFixedWidth);
+            mRenderer.mForceFixedWidth, mRenderer.mGlyphRenderOptions);
         updateSize();
         invalidate();
     }
 
     public void setTypefaceFamily(TerminalFontFamily fontFamily) {
-        mRenderer = new TerminalRenderer(mRenderer.mTextSize, fontFamily, mRenderer.mForceFixedWidth);
+        mRenderer = new TerminalRenderer(mRenderer.mTextSize, fontFamily, mRenderer.mForceFixedWidth,
+            mRenderer.mGlyphRenderOptions);
         updateSize();
         invalidate();
     }
@@ -562,8 +630,26 @@ public final class TerminalView extends View {
     /** Force every rendered glyph run to the width assigned by the terminal cell grid. */
     public void setForceFixedWidth(boolean forceFixedWidth) {
         if (mRenderer == null || mRenderer.mForceFixedWidth == forceFixedWidth) return;
-        mRenderer = new TerminalRenderer(mRenderer.mTextSize, mRenderer.mFontFamily, forceFixedWidth);
+        mRenderer = new TerminalRenderer(mRenderer.mTextSize, mRenderer.mFontFamily, forceFixedWidth,
+            mRenderer.mGlyphRenderOptions);
         updateSize();
+        invalidate();
+    }
+
+    /**
+     * Center two-cell glyphs at their natural aspect ratio without changing terminal-cell geometry.
+     */
+    public void setNaturalWideGlyphRendering(boolean enabled) {
+        if (mRenderer == null || mRenderer.mGlyphRenderOptions.naturalWideGlyphs() == enabled) return;
+        setGlyphRenderOptions(mRenderer.mGlyphRenderOptions.withNaturalWideGlyphs(enabled));
+    }
+
+    /** Set drawing-only wide-glyph scale and baseline adjustments. */
+    public void setGlyphRenderOptions(TerminalGlyphRenderOptions options) {
+        if (mRenderer == null) return;
+        TerminalGlyphRenderOptions resolved = options == null ? TerminalGlyphRenderOptions.DEFAULT : options;
+        mRenderer = new TerminalRenderer(mRenderer.mTextSize, mRenderer.mFontFamily,
+            mRenderer.mForceFixedWidth, resolved);
         invalidate();
     }
 
@@ -667,7 +753,7 @@ public final class TerminalView extends View {
                     ClipData.Item clipItem = clipData.getItemAt(0);
                     if (clipItem != null) {
                         CharSequence text = clipItem.coerceToText(getContext());
-                        if (!TextUtils.isEmpty(text)) mEmulator.paste(text.toString());
+                        if (!TextUtils.isEmpty(text)) { scrollToLatest(); mEmulator.paste(text.toString()); }
                     }
                 }
             } else if (mEmulator.isMouseTrackingActive()) { // BUTTON_PRIMARY.
@@ -828,15 +914,30 @@ public final class TerminalView extends View {
         } else if (event.isSystem() && (!mClient.shouldBackButtonBeMappedToEscape() || keyCode != KeyEvent.KEYCODE_BACK)) {
             return super.onKeyDown(keyCode, event);
         } else if (event.getAction() == KeyEvent.ACTION_MULTIPLE && keyCode == KeyEvent.KEYCODE_UNKNOWN) {
-            mTermSession.write(event.getCharacters());
+            scrollToLatest();
+            String committed = mEmulator.getKeyboard().committedText(event.getCharacters());
+            mTermSession.write(committed == null ? event.getCharacters() : committed);
             return true;
         }
 
+        if (!KeyEvent.isModifierKey(keyCode)) scrollToLatest();
         final int metaState = event.getMetaState();
         final boolean controlDown = event.isCtrlPressed() || mClient.readControlKey();
         final boolean leftAltDown = (metaState & KeyEvent.META_ALT_LEFT_ON) != 0 || mClient.readAltKey();
         final boolean shiftDown = event.isShiftPressed() || mClient.readShiftKey();
         final boolean rightAltDownFromEvent = (metaState & KeyEvent.META_ALT_RIGHT_ON) != 0;
+
+        if (mEmulator.getKeyboard().flags() != 0 && !event.isFunctionPressed()) {
+            String encoded = KittyKeyEvent.encode(mEmulator.getKeyboard(), event, controlDown, leftAltDown, shiftDown);
+            if (encoded != null) {
+                int cp = event.getUnicodeChar(0);
+                if (cp > 0 && mClient.onCodePoint(cp, controlDown, mTermSession)) return true;
+                mKittyPressedKeys.add(keyCode);
+                mTermSession.write(encoded);
+                mEmulator.setCursorBlinkState(true);
+                return true;
+            }
+        }
 
         int keyMod = 0;
         if (controlDown) keyMod |= KeyHandler.KEYMOD_CTRL;
@@ -896,6 +997,7 @@ public final class TerminalView extends View {
         }
 
         if (mTermSession == null) return;
+        scrollToLatest();
         // Literal extra-key input can arrive here without an onKeyDown callback.
         finalizeComposingIfActive();
 
@@ -907,6 +1009,19 @@ public final class TerminalView extends View {
         final boolean altDown = leftAltDownFromEvent || mClient.readAltKey();
 
         if (mClient.onCodePoint(codePoint, controlDown, mTermSession)) return;
+
+        if (mEmulator != null && mEmulator.getKeyboard().flags() != 0 && codePoint >= 32) {
+            int mods = (controlDown ? KittyKeyboard.CTRL : 0) | (altDown ? KittyKeyboard.ALT : 0) |
+                (Character.isUpperCase(codePoint) ? KittyKeyboard.SHIFT : 0);
+            KittyKeyboard.Key key = KittyKeyboard.Key.text(Character.toLowerCase(codePoint));
+            String text = controlDown || altDown ? "" : new String(Character.toChars(codePoint));
+            String encoded = mEmulator.getKeyboard().encode(key, mods, KittyKeyboard.PRESS, codePoint, 0, text);
+            if (encoded != null) {
+                mTermSession.write(encoded);
+                mTermSession.write(mEmulator.getKeyboard().encode(key, mods, KittyKeyboard.RELEASE, codePoint, 0, text));
+                return;
+            }
+        }
 
         if (controlDown) {
             if (codePoint >= 'a' && codePoint <= 'z') {
@@ -959,6 +1074,16 @@ public final class TerminalView extends View {
         if (mEmulator != null)
             mEmulator.setCursorBlinkState(true);
 
+        if (mEmulator != null && mEmulator.getKeyboard().flags() != 0) {
+            KittyKeyboard.Key key = KittyKeyEvent.functional(keyCode);
+            int mods = KittyKeyEvent.legacyModifiers(keyMod);
+            String encoded = mEmulator.getKeyboard().encode(key, mods, KittyKeyboard.PRESS, 0, 0, "");
+            if (encoded != null) {
+                mTermSession.write(encoded);
+                mTermSession.write(mEmulator.getKeyboard().encode(key, mods, KittyKeyboard.RELEASE, 0, 0, ""));
+                return true;
+            }
+        }
         if (handleKeyCodeAction(keyCode, keyMod))
             return true;
 
@@ -1013,6 +1138,11 @@ public final class TerminalView extends View {
             return super.onKeyUp(keyCode, event);
         }
 
+        if (mEmulator != null && mKittyPressedKeys.remove(keyCode)) {
+            String encoded = KittyKeyEvent.encode(mEmulator.getKeyboard(), event, false, false, false);
+            if (encoded != null) mTermSession.write(encoded);
+        }
+
         return true;
     }
 
@@ -1022,11 +1152,25 @@ public final class TerminalView extends View {
      */
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
-        updateSize();
+        super.onSizeChanged(w, h, oldw, oldh);
+
+        // The initial size must be available before a shell starts. Later layout changes can arrive
+        // on every frame of an IME animation, so only apply the final stable size to the emulator
+        // and PTY. Otherwise carriage-return progress output (for example apt) is reflowed into
+        // scrollback once per intermediate row count and appears duplicated across many lines.
+        if (oldw == 0 || oldh == 0 || mEmulator == null) {
+            updateSize();
+        } else {
+            mLayoutResizeScheduler.scheduleAfterLayoutSettles();
+        }
     }
 
     /** Check if the terminal size in rows and columns should be updated. */
     public void updateSize() {
+        mLayoutResizeScheduler.applyImmediately();
+    }
+
+    private void applySize() {
         int viewWidth = getWidth();
         int viewHeight = getHeight();
         if (viewWidth == 0 || viewHeight == 0 || mTermSession == null) return;
@@ -1044,7 +1188,9 @@ public final class TerminalView extends View {
             if (mTerminalCursorBlinkerRunnable != null)
                 mTerminalCursorBlinkerRunnable.setEmulator(mEmulator);
 
-            mTopRow = 0;
+            // Attachment and keyboard layout changes must not discard the tab's viewport.
+            // History may have been cleared or an alternate screen entered while away.
+            mTopRow = Math.min(0, Math.max(-mEmulator.getScreen().getActiveTranscriptRows(), mTopRow));
             scrollTo(0, 0);
             invalidate();
         }
@@ -1061,7 +1207,10 @@ public final class TerminalView extends View {
                 mTextSelectionCursorController.getSelectors(sel);
             }
 
+            long syncDelay = mEmulator.getSynchronizedOutputDelayMillis();
             mRenderer.render(mEmulator, canvas, mTopRow, sel[0], sel[1], sel[2], sel[3]);
+            long graphicsDelay = syncDelay > 0 ? syncDelay : mEmulator.getGraphics().getAnimationDelayMillis();
+            if (graphicsDelay >= 0) postInvalidateDelayed(Math.max(16, graphicsDelay));
 
             // render the text selection handles
             renderTextSelection();
@@ -1127,6 +1276,36 @@ public final class TerminalView extends View {
         return (int) (x / mRenderer.mFontWidth);
     }
 
+    /** Match only visible web URLs, using terminal columns rather than UTF-16 offsets. */
+    public String getWebLinkAt(float x, float y) {
+        if (mEmulator == null || mRenderer == null || x < 0 || y < 0) return null;
+        int column = (int) (x / mRenderer.mFontWidth);
+        int screenRow = (int) Math.floor((y - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing);
+        if (column >= mEmulator.mColumns || screenRow < 0 || screenRow >= mEmulator.mRows) return null;
+        int row = screenRow + mTopRow;
+        com.termux.terminal.TerminalBuffer buffer = mEmulator.getScreen();
+        int first = row, last = row;
+        while (first > -buffer.getActiveTranscriptRows() && row - first < 32 && buffer.getLineWrap(first - 1)) first--;
+        while (last < mEmulator.mRows - 1 && last - row < 32 && buffer.getLineWrap(last)) last++;
+        // Never launch a truncated URL when a wrapped logical line exceeds our bound.
+        if ((first > -buffer.getActiveTranscriptRows() && buffer.getLineWrap(first - 1))
+            || (last < mEmulator.mRows - 1 && buffer.getLineWrap(last))) return null;
+        StringBuilder text = new StringBuilder();
+        int offset = -1;
+        for (int r = first; r <= last; r++) {
+            com.termux.terminal.TerminalRow line = buffer.allocateFullLineIfNecessary(buffer.externalToInternalRow(r));
+            if (r == row) offset = text.length() + line.findStartOfColumn(column);
+            text.append(line.mText, 0, line.getSpaceUsed());
+        }
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("https?://[^\\s<>\\\"']+", java.util.regex.Pattern.CASE_INSENSITIVE).matcher(text);
+        while (matcher.find()) {
+            int end = matcher.end();
+            while (end > matcher.start() && ".,;:!?)]}".indexOf(text.charAt(end - 1)) >= 0) end--;
+            if (offset >= matcher.start() && offset < end) return text.substring(matcher.start(), end);
+        }
+        return null;
+    }
+
     public int getCursorY(float y) {
         return (int) (((y - 40) / mRenderer.mFontLineSpacing) + mTopRow);
     }
@@ -1148,6 +1327,7 @@ public final class TerminalView extends View {
 
     public void setTopRow(int mTopRow) {
         this.mTopRow = mTopRow;
+        if (mEmulator != null) mLastTranscriptScroll = mEmulator.getTranscriptScrollCounter();
     }
 
 
@@ -1533,7 +1713,10 @@ public final class TerminalView extends View {
 
     @Override
     protected void onDetachedFromWindow() {
+        if (mRenderer != null) mRenderer.clearPresentedFrame();
         super.onDetachedFromWindow();
+
+        mLayoutResizeScheduler.cancel();
 
         if (mTextSelectionCursorController != null) {
             // Might solve the following exception

@@ -1,5 +1,5 @@
 [Unit]
-Description=Droid Terminal persistent session daemon
+Description=TERM persistent session daemon
 After=network.target
 
 [Service]
