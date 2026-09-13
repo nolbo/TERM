@@ -6,7 +6,17 @@ import java.io.OutputStream
 import java.security.MessageDigest
 
 internal const val UPDATE_REPOSITORY = "nolbo/TERM"
-internal const val UPDATE_MANIFEST_URL = "https://github.com/$UPDATE_REPOSITORY/releases/latest/download/update.json"
+internal enum class UpdateChannel(val wireName: String) {
+    MAIN("main"), DEV("dev");
+
+    val manifestUrl: String get() = "https://github.com/$UPDATE_REPOSITORY/releases/" +
+        if (this == MAIN) "latest/download/update.json" else "download/dev-latest/update.json"
+
+    companion object {
+        fun fromWire(value: String): UpdateChannel = entries.firstOrNull { it.wireName == value }
+            ?: throw IllegalArgumentException("Unknown update channel")
+    }
+}
 internal const val MAX_UPDATE_APK_BYTES = 128L * 1024 * 1024
 internal const val MAX_UPDATE_MANIFEST_BYTES = 16 * 1024
 
@@ -17,11 +27,12 @@ internal data class AppUpdateManifest(
     val size: Long,
     val sha256: String,
     val minSdk: Int,
+    val channel: UpdateChannel = UpdateChannel.MAIN,
 ) {
-    val apkUrl: String get() = "https://github.com/$UPDATE_REPOSITORY/releases/download/main-$commit/TERM.apk"
+    val apkUrl: String get() = "https://github.com/$UPDATE_REPOSITORY/releases/download/${channel.wireName}-$commit/TERM.apk"
 
     companion object {
-        fun parse(text: String): AppUpdateManifest {
+        fun parse(text: String, expectedChannel: UpdateChannel = UpdateChannel.MAIN): AppUpdateManifest {
             require(text.toByteArray(Charsets.UTF_8).size <= MAX_UPDATE_MANIFEST_BYTES)
             val json = JSONObject(text)
             fun integer(key: String): Long {
@@ -31,27 +42,30 @@ internal data class AppUpdateManifest(
             }
             require(integer("schemaVersion") == 1L)
             require(json.get("applicationId") == "dev.terminal.app")
+            val channel = UpdateChannel.fromWire(json.optString("channel", "main"))
+            require(channel == expectedChannel)
             val commit = json.getString("commit")
             require(commit.matches(Regex("[0-9a-f]{40}")))
             val code = integer("versionCode")
             require(code in 1..Int.MAX_VALUE.toLong())
             val name = json.getString("versionName")
-            require(name.length <= 96 && name.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+\\+main\\.$code\\.${commit.take(12)}")))
+            require(name.length <= 96 && name.matches(Regex("[0-9]+\\.[0-9]+\\.[0-9]+\\+${channel.wireName}\\.$code\\.${commit.take(12)}")))
             val size = integer("size")
             require(size in 1..MAX_UPDATE_APK_BYTES)
             val sha256 = json.getString("sha256")
             require(sha256.matches(Regex("[0-9a-f]{64}")))
             val minSdk = integer("minSdk")
             require(minSdk in 1..1000)
-            return AppUpdateManifest(commit, code.toInt(), name, size, sha256, minSdk.toInt())
+            return AppUpdateManifest(commit, code.toInt(), name, size, sha256, minSdk.toInt(), channel)
         }
     }
 }
 
-internal enum class UpdateAvailability { CURRENT, AVAILABLE, INCOMPATIBLE, NON_FORWARD }
+internal enum class UpdateAvailability { CURRENT, AVAILABLE, OLDER, INCOMPATIBLE, NON_FORWARD }
 
 internal fun updateAvailability(installedCode: Int, installedCommit: String, deviceSdk: Int, update: AppUpdateManifest): UpdateAvailability = when {
-    update.versionCode < installedCode || update.commit == installedCommit -> UpdateAvailability.CURRENT
+    update.versionCode < installedCode -> UpdateAvailability.OLDER
+    update.versionCode == installedCode && update.commit == installedCommit -> UpdateAvailability.CURRENT
     update.versionCode == installedCode -> UpdateAvailability.NON_FORWARD
     update.minSdk > deviceSdk -> UpdateAvailability.INCOMPATIBLE
     else -> UpdateAvailability.AVAILABLE

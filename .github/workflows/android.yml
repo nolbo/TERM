@@ -13,15 +13,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          # versionCode is derived from origin/main's complete history.
+          # Pin the selected update branch to the checked-out event commit.
           fetch-depth: 0
-      - name: Fetch mainline update revision
+      - name: Select update revision and version
         run: |
-          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
-          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
-            # A newer push can arrive while this job is queued. Version this
-            # APK from the main commit actually checked out for this event.
-            git update-ref refs/remotes/origin/main "$GITHUB_SHA"
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main +refs/heads/dev:refs/remotes/origin/dev
+          if [ "$GITHUB_EVENT_NAME" = push ] && { [ "$GITHUB_REF" = refs/heads/main ] || [ "$GITHUB_REF" = refs/heads/dev ]; }; then
+            terminal_update_channel=${GITHUB_REF#refs/heads/}
+            git update-ref "refs/remotes/origin/$terminal_update_channel" "$GITHUB_SHA"
+            echo "TERMINAL_UPDATE_CHANNEL=$terminal_update_channel" >> "$GITHUB_ENV"
+            # Shared sequence across main/dev; retries retain their code. The
+            # epoch exceeds legacy commit-count versions without relying on clocks.
+            echo "TERMINAL_UPDATE_VERSION_CODE=$((1000000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
           fi
       - name: Use Maven AAPT2 on the CI host
         # The checked-in override is for the local ARM64/QEMU host only.
@@ -58,13 +61,13 @@ jobs:
       - name: Use JDK 21 for release lint
         # AGP 9.3's lint parser calls List.removeLast(), unavailable on JDK 17.
         # Verification above and explicit compilation toolchains remain on 17.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
-      - name: Build signed mainline update
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Build signed channel update
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
         env:
           TERMINAL_SIGNING_KEYSTORE_BASE64: ${{ secrets.TERMINAL_SIGNING_KEYSTORE_BASE64 }}
           TERMINAL_SIGNING_STORE_PASSWORD: ${{ secrets.TERMINAL_SIGNING_STORE_PASSWORD }}
@@ -84,22 +87,22 @@ jobs:
           python3 tools/updates/create-manifest.py \
             --apk android-app/build/outputs/apk/release/android-app-release.apk \
             --metadata android-app/build/outputs/apk/release/output-metadata.json \
-            --commit "$GITHUB_SHA" --output android-app/build/update/update.json
+            --commit "$GITHUB_SHA" --channel "$TERMINAL_UPDATE_CHANNEL" --output android-app/build/update/update.json
           cp android-app/build/outputs/apk/release/android-app-release.apk android-app/build/update/TERM.apk
           cp android-runtime/build/distributions/iphone-worker-source.tar.gz \
             android-runtime/build/iphone-tools/distributions/iphone-tools-source.tar.gz \
             android-runtime/build/sidestore-native/distributions/sidestore-bootstrap-source.tar.gz android-app/build/update/
       - name: Publish signed update APK
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
         uses: actions/upload-artifact@v4
         with:
-          name: terminal-main-update
+          name: terminal-${{ github.ref_name }}-update
           if-no-files-found: error
           path: android-app/build/update/
 
-  publish-main-update:
+  publish-update:
     needs: build-and-unit-test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
     runs-on: ubuntu-latest
     concurrency:
       group: term-public-release
@@ -108,7 +111,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          name: terminal-main-update
+          name: terminal-${{ github.ref_name }}-update
           path: update
       - name: Publish verified update to TERM
         env:

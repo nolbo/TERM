@@ -17,7 +17,10 @@ if args[0] == "api":
     if error:
         print(error, file=sys.stderr)
         sys.exit(1)
-    print(json.dumps({"name": os.environ["LATEST_NAME"]}))
+    print(json.dumps({"name": os.environ["LATEST_NAME"], "draft": os.environ["POINTER_DRAFT"] == "true"}))
+elif args[:3] == ["release", "upload", "dev-latest"] and os.environ.get("POINTER_UPLOAD_ERROR"):
+    print("metadata upload failed", file=sys.stderr)
+    sys.exit(1)
 elif args[:2] == ["release", "view"]:
     state = os.environ["RELEASE_STATE"]
     if state == "missing":
@@ -27,7 +30,8 @@ elif args[:2] == ["release", "view"]:
 
 
 class PublishTest(unittest.TestCase):
-    def run_publisher(self, latest="0.1.0+main.31.111111111111", state="missing", error=None):
+    def run_publisher(self, latest="0.1.0+main.31.111111111111", state="missing", error=None,
+                      channel="main", pointer_draft=False, pointer_upload_error=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             gh = root / "gh"
@@ -37,15 +41,18 @@ class PublishTest(unittest.TestCase):
             artifact.mkdir()
             (artifact / "TERM.apk").write_bytes(b"fixture")
             (artifact / "update.json").write_text(json.dumps(dict(
-                commit="2" * 40, versionCode=32, versionName="0.1.0+main.32.222222222222")))
+                commit="2" * 40, versionCode=32, channel=channel, versionName=f"0.1.0+{channel}.32.222222222222")))
             calls = root / "calls"
             env = dict(os.environ, PATH=f"{root}:{os.environ['PATH']}", GH_TOKEN="test-fixture",
-                       GH_CALLS=str(calls), LATEST_NAME=latest, RELEASE_STATE=state)
+                       GH_CALLS=str(calls), LATEST_NAME=latest, RELEASE_STATE=state,
+                       POINTER_DRAFT=str(pointer_draft).lower())
             if error:
                 env["LATEST_ERROR"] = error
+            if pointer_upload_error:
+                env["POINTER_UPLOAD_ERROR"] = "true"
             script = Path(__file__).resolve().parents[2] / "tools/updates/publish.sh"
             result = subprocess.run(["bash", str(script), str(artifact)], env=env, capture_output=True, text=True)
-            return result, [json.loads(line) for line in calls.read_text().splitlines()]
+            return result, [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
 
     def test_first_release_and_forward_release_become_latest_only_after_upload(self):
         for error in [None, "gh: Not Found (HTTP 404)"]:
@@ -78,3 +85,46 @@ class PublishTest(unittest.TestCase):
                 result, calls = self.run_publisher(**kwargs)
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(len(calls), 1)
+
+    def test_first_dev_release_is_prerelease_and_only_metadata_goes_in_its_pointer(self):
+        result, calls = self.run_publisher(channel="dev", error="gh: Not Found (HTTP 404)")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls[0], ["api", "repos/nolbo/TERM/releases/tags/dev-latest"])
+        self.assertIn("--prerelease=true", calls[2])
+        pointer = calls[-2]
+        self.assertEqual(pointer[:3], ["release", "create", "dev-latest"])
+        self.assertTrue(pointer[-1].endswith("/update.json"))
+        self.assertFalse(any("--latest=true" in call for call in calls))
+
+    def test_new_dev_metadata_advances_without_replacing_published_apks(self):
+        result, calls = self.run_publisher(channel="dev", latest="0.1.0+dev.31.111111111111", state="published")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls[-2][:3], ["release", "upload", "dev-latest"])
+        uploads = [call for call in calls if call[:2] == ["release", "upload"]]
+        self.assertEqual(len(uploads), 1)
+        self.assertTrue(uploads[0][5].endswith("/update.json"))
+
+    def test_late_dev_build_cannot_move_the_pointer_backwards(self):
+        result, calls = self.run_publisher(channel="dev", latest="0.1.0+dev.33.333333333333", state="published")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(calls), 2)
+
+    def test_dev_pointer_upload_failure_can_retry_without_mutating_the_apk(self):
+        kwargs = dict(channel="dev", latest="0.1.0+dev.31.111111111111", state="published")
+        failed, calls = self.run_publisher(**kwargs, pointer_upload_error=True)
+        self.assertNotEqual(failed.returncode, 0)
+        self.assertEqual(calls[-1][:3], ["release", "upload", "dev-latest"])
+        retried, calls = self.run_publisher(**kwargs)
+        self.assertEqual(retried.returncode, 0, retried.stderr)
+        self.assertEqual(calls[-1][:3], ["release", "edit", "dev-latest"])
+
+    def test_draft_pointer_can_complete_on_retry_of_the_same_version(self):
+        result, calls = self.run_publisher(channel="dev", latest="0.1.0+dev.32.222222222222",
+                                           state="published", pointer_draft=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(calls[-1][:3], ["release", "edit", "dev-latest"])
+
+    def test_unknown_channel_fails_before_any_github_call(self):
+        result, calls = self.run_publisher(channel="other")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(calls, [])

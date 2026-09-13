@@ -3,7 +3,11 @@
 ## Application update channel
 
 TERM reads public `nolbo/TERM` release metadata without credentials. The app
-constructs fixed, commit-specific HTTPS APK URLs; bounds manifest/download
+keeps main/stable and dev/prerelease discovery separate, validates the manifest's
+channel against the user's selection, and never downgrades across channels.
+The dev-latest manifest is a mutable pointer to an immutable dev commit APK;
+it cannot provide an arbitrary download URL or bypass signing verification.
+The app constructs fixed, commit-specific HTTPS APK URLs; bounds manifest/download
 sizes, redirects and transfer time; and requires exact SHA-256/bytes plus the
 installed app's package/version and current signing certificates before offering
 installation. The system package installer independently validates the APK.

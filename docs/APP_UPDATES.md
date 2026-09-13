@@ -6,16 +6,39 @@ The application is **TERM**. Its public distribution repository is
 [nolbo/TERM](https://github.com/nolbo/TERM). The source repository can remain
 private: installed apps read only public release assets, with no GitHub token.
 
-Android `versionCode` is the full commit count of `origin/main`; `versionName`
-is `<base>+main.<count>.<12-character SHA>`. Git history must be complete and
-append-only for monotonically increasing Android updates. A same-count rewrite
-is not treated as an installable forward update. Native and Rootless remain
-independent of update availability; an update error never selects a runtime.
+There are two explicit channels: **main → stable** and **dev → development**.
+Both use application ID `dev.terminal.app` and the persistent release key.
+The update screen stores the selected channel; its initial default comes from
+the installed APK. A switch resets stale availability/installation state, and
+is disabled while checking/downloading. It never changes runtime selection.
 
-For main push events, CI pins its local `origin/main` ref to the event's checked
-out `GITHUB_SHA`. A newer push arriving during an older build cannot give that
-older APK a newer revision's identity. Branch and PR APKs retain the version of
-their target mainline and are not published as app updates.
+### Version ordering and compatibility
+
+Independent branch commit counts can collide or make returning from dev to
+main impossible until main catches up. Commit timestamps also allow collisions
+and clock regressions. Published CI APKs therefore use
+`versionCode = 1000000 + GITHUB_RUN_NUMBER`, shared by both branches of the
+existing Android workflow. GitHub's [workflow run number](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)
+increments on new executions and is retained by retries. The epoch exceeds
+legacy main commit-count codes. Do not reset/recreate this workflow or lower
+the epoch; any future sequence migration must exceed all published codes.
+
+The version name is `<base>+<main|dev>.<code>.<12-character source SHA>`.
+Legacy schema-1 main manifests without a channel remain readable, and legacy
+stable clients can consume new main manifests/names. Development metadata is
+never accepted when checking the stable channel, or vice versa. A higher code
+can update across channels; an older channel reports that a newer release is
+needed, rather than claiming the installed app is up to date. No uninstall or
+downgrade is attempted. A same-code different commit is rejected as non-forward.
+
+Local builds use `origin/dev` on the dev branch, otherwise `origin/main`, unless
+`TERMINAL_UPDATE_CHANNEL` overrides it. Their fallback code is the selected
+ref's full commit count, so they cannot replace a newer CI APK; an explicitly
+supplied `TERMINAL_UPDATE_VERSION_CODE` must be a positive Android integer.
+Complete Git history is still required. No local count-based build is published
+automatically. For main/dev push events, CI pins the selected remote ref to
+the event's checked-out `GITHUB_SHA`; it never labels older checked-out source
+with a newer queued revision. Other branches and PRs are verified, not published.
 
 ## Publishing
 
@@ -25,7 +48,7 @@ derives size/hash and version information from that built APK and its Gradle
 metadata, rejecting a commit/version mismatch. The artifact contains:
 
 - `TERM.apk`
-- `update.json` (schema 1, application ID, main commit, code/name, minimum SDK,
+- `update.json` (schema 1, application ID, channel, source commit, code/name, minimum SDK,
   exact bytes and SHA-256)
 - the existing native corresponding-source bundles
 
@@ -37,11 +60,19 @@ on the local JDK 21 host. Explicit Java/Kotlin compilation targets and JVM
 module toolchains remain 17. Release lint stays enabled; no Android SDK, Gradle
 or library upgrade is needed for this runtime compatibility fix.
 
-`tools/updates/publish.sh` creates `main-<full source SHA>` releases in the
+`tools/updates/publish.sh` creates `main-<full source SHA>` stable releases and
+`dev-<full source SHA>` prereleases in the
 distribution repository. This is a distribution tag, not a Git object imported
 from the private source repository. Uploads remain drafts until complete;
-published assets are never overwritten. The publication job is serialized and
-compares version codes so a slower old build cannot become the latest release.
+published APK/source assets are never overwritten. The publication job is
+serialized and compares codes so a slower old build cannot become latest.
+Dev prereleases always set `latest=false`, leaving stable `/releases/latest`
+untouched. A separate **dev-latest** prerelease holds only the mutable
+`update.json` discovery pointer, never an APK. Newer dev builds upload that
+manifest after the commit-specific prerelease is complete, then update its
+title/code. Retrying after a pointer upload failure preserves the published APK
+and completes only the pointer. First-pointer uploads stay drafts until ready.
+Only this discovery manifest is an exception to release asset immutability.
 
 The source repository needs these GitHub Actions secrets:
 
@@ -63,13 +94,15 @@ gh secret set TERMINAL_UPDATES_TOKEN --repo nolbo/terminal
 The existing source repository `GITHUB_TOKEN` cannot publish to another
 repository. No publisher token is compiled into an APK, sent to the app, or
 included in artifacts. Missing publication credentials fail that job. Until
-the publisher is configured and these changes reach main, no public release
-is available. Repository creation alone does not publish an APK.
+the publisher is configured and these changes reach the respective branch, no
+new channel release is published. Repository creation alone does not publish an APK.
 
 ## App behavior and boundaries
 
-**Settings → App updates → Check for updates** retrieves
-`https://github.com/nolbo/TERM/releases/latest/download/update.json`.
+**Settings → App updates → Update channel → Check for updates** retrieves
+`https://github.com/nolbo/TERM/releases/latest/download/update.json` for stable,
+or `https://github.com/nolbo/TERM/releases/download/dev-latest/update.json` for
+development. Development releases show an instability warning.
 The first-release 404 is shown as “No updates have been published yet,” not as
 an up-to-date claim. Newer supported versions can be downloaded; older versions
 are not offered. APK URLs are constructed from validated commit IDs and fixed

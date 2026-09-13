@@ -59,6 +59,17 @@ class ManifestTest(unittest.TestCase):
             with self.subTest(size=size), self.assertRaises(ValueError):
                 module.create_manifest(self.apk, self.metadata, self.commit)
 
+    def test_dev_release_is_bound_to_the_selected_channel(self):
+        metadata = copy.deepcopy(self.metadata)
+        metadata["elements"][0]["versionName"] = f"0.1.0+dev.32.{self.commit[:12]}"
+        self.assertEqual(module.create_manifest(self.apk, metadata, self.commit, "dev")["channel"], "dev")
+        with self.assertRaises(ValueError):
+            module.create_manifest(self.apk, metadata, self.commit)
+        with self.assertRaises(ValueError):
+            module.create_manifest(self.apk, self.metadata, self.commit, "dev")
+        with self.assertRaises(ValueError):
+            module.create_manifest(self.apk, metadata, self.commit, "other")
+
 
 if __name__ == "__main__":
     unittest.main()
