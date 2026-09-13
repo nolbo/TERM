@@ -9,6 +9,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          # versionCode is derived from origin/main's complete history.
+          fetch-depth: 0
+      - name: Fetch mainline update revision
+        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
       - uses: actions/setup-java@v4
         with:
           distribution: temurin

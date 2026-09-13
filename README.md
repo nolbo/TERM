@@ -40,6 +40,16 @@ The debug APK is written to:
 android-app/build/outputs/apk/debug/android-app-debug.apk
 ```
 
+## Update versions
+
+Every APK derives its Android `versionCode` from the complete commit count of
+`origin/main`, and its `versionName` includes that mainline revision's short
+SHA. A newly advanced `origin/main` is therefore a new app update; builds from
+other branches retain the version of the `origin/main` revision they target.
+The build deliberately fails when that ref is unavailable, rather than
+producing an APK that Android could mistake for an update. CI fetches the full
+mainline history before building.
+
 The ARM64 PRoot executable and loader are checked, 16 KiB-aligned build
 artifacts with a pinned-source rebuild path in `tools/rootless`. Runtime setup
 downloads only checksum-pinned distribution rootfs archives; the host PRoot and

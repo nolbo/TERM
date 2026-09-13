@@ -3,6 +3,27 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+/**
+ * An APK update is identified by the commit that `origin/main` points to, not
+ * by the branch used to build it.  This keeps development builds from being
+ * mistaken for a distributable update and makes Android's versionCode advance
+ * once for every mainline update.
+ */
+def gitOutput = { List<String> arguments ->
+    providers.exec {
+        workingDir rootProject.projectDir
+        commandLine(['git'] + arguments)
+    }.standardOutput.asText.get().trim()
+}
+
+def mainRevision = gitOutput(['rev-parse', '--verify', 'origin/main'])
+def mainRevisionCount = gitOutput(['rev-list', '--count', 'origin/main']).toInteger()
+if (mainRevisionCount <= 0) {
+    throw new GradleException('origin/main must have a positive commit count.')
+}
+def appBaseVersion = project.properties.appBaseVersion
+def appVersionName = "${appBaseVersion}+main.${mainRevisionCount}.${mainRevision.take(12)}"
+
 android {
     namespace 'dev.terminal.app'
     compileSdk project.properties.compileSdkVersion.toInteger()
@@ -11,8 +32,8 @@ android {
         applicationId 'dev.terminal.app'
         minSdk project.properties.minSdkVersion.toInteger()
         targetSdk project.properties.targetSdkVersion.toInteger()
-        versionCode 1
-        versionName '0.1.0-spike'
+        versionCode mainRevisionCount
+        versionName appVersionName
 
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
