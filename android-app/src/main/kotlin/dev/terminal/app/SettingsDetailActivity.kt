@@ -15,6 +15,7 @@ import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
@@ -848,7 +849,11 @@ class SettingsDetailActivity : TerminalActivity() {
         var foreground by rememberSaveable { mutableStateOf(initial.foreground) }
         var background by rememberSaveable { mutableStateOf(initial.background) }
         var cursor by rememberSaveable { mutableStateOf(initial.cursor) }
-        val valid = TerminalAppearance.isHexColor(foreground) && TerminalAppearance.isHexColor(background) && TerminalAppearance.isHexColor(cursor)
+        val ansi = remember(initial) { mutableStateListOf<String>().apply { addAll(initial.ansi) } }
+        val valid = TerminalAppearance.isHexColor(foreground) &&
+            TerminalAppearance.isHexColor(background) &&
+            TerminalAppearance.isHexColor(cursor) &&
+            ansi.all(TerminalAppearance::isHexColor)
         AlertDialog(
             onDismissRequest = onDismiss,
             title = { Text(stringResource(R.string.customize_palette)) },
@@ -858,9 +863,12 @@ class SettingsDetailActivity : TerminalActivity() {
                     PaletteColorField(R.string.palette_foreground, foreground) { foreground = it }
                     PaletteColorField(R.string.palette_background, background) { background = it }
                     PaletteColorField(R.string.palette_cursor, cursor) { cursor = it }
+                    ansi.forEachIndexed { index, color ->
+                        PaletteColorField(ansiColorLabel(index), color) { ansi[index] = it }
+                    }
                 }
             },
-            confirmButton = { Button(onClick = { onSave(TerminalAppearance.PaletteColors(foreground, background, cursor)) }, shapes = ButtonDefaults.shapes(), enabled = valid) { Text(stringResource(R.string.save)) } },
+            confirmButton = { Button(onClick = { onSave(TerminalAppearance.PaletteColors(foreground, background, cursor, ansi.toList())) }, shapes = ButtonDefaults.shapes(), enabled = valid) { Text(stringResource(R.string.save)) } },
             dismissButton = { TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } },
         )
     }
@@ -872,8 +880,34 @@ class SettingsDetailActivity : TerminalActivity() {
             supportingText = { Text(stringResource(R.string.palette_hex_support)) },
             isError = !TerminalAppearance.isHexColor(value), singleLine = true,
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+            trailingIcon = if (TerminalAppearance.isHexColor(value)) {
+                { Box(Modifier.size(20.dp).background(Color(android.graphics.Color.parseColor(value)))) }
+            } else {
+                null
+            },
             modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
         )
+    }
+
+    @StringRes
+    private fun ansiColorLabel(index: Int): Int = when (index) {
+        0 -> R.string.palette_ansi_black
+        1 -> R.string.palette_ansi_red
+        2 -> R.string.palette_ansi_green
+        3 -> R.string.palette_ansi_yellow
+        4 -> R.string.palette_ansi_blue
+        5 -> R.string.palette_ansi_magenta
+        6 -> R.string.palette_ansi_cyan
+        7 -> R.string.palette_ansi_white
+        8 -> R.string.palette_ansi_bright_black
+        9 -> R.string.palette_ansi_bright_red
+        10 -> R.string.palette_ansi_bright_green
+        11 -> R.string.palette_ansi_bright_yellow
+        12 -> R.string.palette_ansi_bright_blue
+        13 -> R.string.palette_ansi_bright_magenta
+        14 -> R.string.palette_ansi_bright_cyan
+        15 -> R.string.palette_ansi_bright_white
+        else -> error("Unsupported ANSI color index: $index")
     }
 
     @Composable
