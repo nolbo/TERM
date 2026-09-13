@@ -1,6 +1,7 @@
 package dev.terminal.app
 
 import android.content.pm.PackageManager
+import dev.terminal.app.update.updateStagingFile
 import androidx.core.content.FileProvider
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
@@ -39,5 +40,23 @@ class AppUpdateDeviceTest {
             scenario.recreate()
             scenario.onActivity { assertSame(controller, (it.application as TerminalApplication).appUpdates) }
         }
+    }
+
+    @Suppress("DEPRECATION")
+    @Test fun protectedDownloadStagingIsParseableButNotExposedByTheInstallerProvider() {
+        val staging = updateStagingFile(context)
+        assertTrue(staging.canonicalPath.startsWith(context.filesDir.canonicalPath + File.separator))
+        assertFalse(staging.canonicalPath.startsWith(context.cacheDir.canonicalPath + File.separator))
+        val fixture = File(staging.parentFile!!, "parser-test.pending.apk")
+        fixture.parentFile!!.mkdirs()
+        try {
+            File(context.applicationInfo.sourceDir).copyTo(fixture, overwrite = true)
+            val archive = context.packageManager.getPackageArchiveInfo(fixture.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)!!
+            assertEquals(context.packageName, archive.packageName)
+            assertTrue(archive.signingInfo!!.apkContentsSigners.isNotEmpty())
+            assertThrows(IllegalArgumentException::class.java) {
+                FileProvider.getUriForFile(context, "${context.packageName}.app-updates", fixture)
+            }
+        } finally { fixture.delete() }
     }
 }

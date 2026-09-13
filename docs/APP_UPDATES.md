@@ -91,6 +91,11 @@ key or an explicit first migration; the app never uninstalls it automatically.
 Verified APKs stay in a dedicated app cache directory. The non-exported
 FileProvider exposes only that directory, using a temporary URI read grant to
 Android's installer. No broad storage permission or guest capability is added.
+In-progress downloads use a bounded private `filesDir/app-update-download`
+staging APK, outside the provider's paths. Android can evict cache files even
+while a stream has them open; staging therefore moves into the installation
+cache only after hash, package and signing verification. Failed staging is
+deleted and an interrupted download is overwritten on retry.
 Same-UID Native/PRoot processes are not an OS security sandbox; Android's own
 package installer remains authoritative for signature validation at install.
 

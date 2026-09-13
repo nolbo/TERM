@@ -29,6 +29,10 @@ internal sealed interface AppUpdateState {
     data class Failed(val message: Int) : AppUpdateState
 }
 
+/** Android may purge cache files even while a download holds them open. */
+internal fun updateStagingFile(context: Context): File =
+    File(context.filesDir, "app-update-download/TERM.pending.apk")
+
 /** Application-owned update operation; screens only observe state and issue commands. */
 internal class AppUpdateController(context: Context) {
     private val app = context.applicationContext
@@ -81,9 +85,10 @@ internal class AppUpdateController(context: Context) {
         state = AppUpdateState.Downloading(manifest, 0)
         worker.execute {
             val directory = File(app.cacheDir, "app-updates")
-            val staging = File(directory, "TERM.apk.part")
+            val staging = updateStagingFile(app)
             try {
-                if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Cannot create update cache")
+                val stagingDirectory = staging.parentFile!!
+                if (!stagingDirectory.isDirectory && !stagingDirectory.mkdirs()) throw IOException("Cannot create download staging")
                 val connection = open(manifest.apkUrl)
                 try {
                     if (connection.responseCode != 200) throw IOException("APK response rejected")
@@ -103,6 +108,7 @@ internal class AppUpdateController(context: Context) {
                     }
                 } finally { connection.disconnect() }
                 validateApk(staging, manifest)
+                if (!directory.isDirectory && !directory.mkdirs()) throw IOException("Cannot create update cache")
                 val apk = File(directory, "TERM.apk")
                 if (!staging.renameTo(apk)) throw IOException("Cannot activate verified APK")
                 publish(AppUpdateState.Ready(manifest, apk))
