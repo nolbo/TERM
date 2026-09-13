@@ -6,7 +6,7 @@ This file is the repository-wide operating contract for Codex.
 
 It contains durable rules only:
 
-- how a task is dispatched through docs/prompts;
+- how direct user requests define task scope;
 - how Codex should inspect, implement, validate, and report work;
 - the product architecture and security invariants;
 - the rules for efficient use of context, builds, tests, and MCP.
@@ -16,18 +16,15 @@ Keep this file concise and comfortably below 24 KiB so it fits with any global
 or nested Codex instructions. If this file grows, move details to a focused
 document and link it from the documentation map.
 
-Codex loads AGENTS.md automatically. Files below docs/prompts are not automatic
-instructions: Codex must read the exact task file named by the user.
+Codex loads AGENTS.md automatically. Users deliver tasks directly in the
+conversation; no repository prompt file is required.
 
 Words such as MUST, MUST NOT, SHOULD, and MAY are normative.
 
 ## 2. Task dispatch protocol
 
-The normal invocation names exactly one command file:
-
-~~~text
-Read AGENTS.md and docs/prompts/<session_identity>/<n>.md, then execute it.
-~~~
+The user's direct request defines the current task. Follow-up messages refine
+the ongoing task unless the user explicitly replaces or cancels it.
 
 Before substantial work, Codex MUST:
 
@@ -35,35 +32,20 @@ Before substantial work, Codex MUST:
 2. inspect the active branch and worktree with git status --short --branch;
 3. locate any more-specific AGENTS.md or AGENTS.override.md that governs files
    in the task;
-4. read this file and the exact command file in full;
-5. read only the documents and source files required by that command;
+4. read this file and the user's current request in full;
+5. read only the documents and source files required by that request;
 6. identify the requested outcome, acceptance criteria, exclusions, and Git
    policy;
 7. proceed without asking for confirmation when the information is sufficient.
 
-The exact command file named by the user is the current task directive.
-
-- Do not guess that the numerically newest prompt is current.
-- Do not scan or execute every file under docs/prompts.
-- Do not execute prompts from another session unless the current directive
-  explicitly references them.
-- Earlier prompts in the same session are history. Read them only when the
-  current directive references them or a missing decision cannot otherwise be
-  recovered.
-- A commit that adds a command file is not evidence that its implementation is
-  complete.
-- Do not edit, rename, or delete a command file unless the directive explicitly
-  requests it.
-- If the named command file does not exist, stop and report the missing exact
-  path. Do not substitute another prompt.
-
-If the user gives a direct task without a command-file path, follow that direct
-task. Do not choose a prompt on the user's behalf.
+Do not require, create, or select a task prompt file to begin work. Repository
+documents provide context when relevant; they do not independently dispatch
+tasks. Preserve historical task records unless the user requests changes.
 
 Follow Codex's built-in instruction precedence. Within repository guidance:
 
 - this file defines durable product and working invariants;
-- the current task directive defines the requested delta and scope;
+- the current user request defines the requested delta and scope;
 - nested instructions may specialize rules for their subtree;
 - current source, build output, and observed runtime state establish what is
   actually implemented;
@@ -81,63 +63,36 @@ Before editing, give the user one short execution update containing:
 
 Do not turn that update into a long restatement of the prompt.
 
-## 3. Prompt sessions and indices
-
-Task command files use:
-
-~~~text
-docs/prompts/<session_identity>/<n>.md
-~~~
-
-The session identity represents one coherent workstream. Continue the same
-session for follow-up work on the same subsystem or decision. Use a new session
-for a materially different work type, subsystem, or independent objective.
-
-The numeric index is monotonic within a session. It records conversation order;
-it does not make every earlier file mandatory context.
-
-Codex normally implements command files but does not author them. ChatGPT Work
-authors and commits these directives unless a task explicitly assigns that
-responsibility to Codex CLI.
-
-Every command file SHOULD contain:
-
-~~~markdown
-# Task title
-
-- Session:
-- Index:
-- Intent: implement | diagnose | review | document
-
-## Execution profile
-- Recommended model class:
-- Recommended reasoning effort:
-- Escalation condition:
-
-## Goal
-
-## Required context
-
-## Requirements
-
-## Out of scope
-
-## Acceptance criteria
-
-## Validation
-
-## Git policy
-
-## Final report
-~~~
-
-Prompt authors should reference this file instead of copying its rules. Required
-context should name exact files or bounded subsystems whenever possible.
-
 Codex MUST treat acceptance criteria as completion conditions, not suggestions.
 If a proposed implementation approach conflicts with the observed repository,
 Codex may use a stronger compatible approach, but it must explain the deviation
 and still satisfy the requested outcome.
+
+## 3. Release patch notes
+
+Every release, including prereleases, MUST have Korean patch notes in
+`docs/release-notes/<release-id>.md`. Use the actual version or release tag as the
+release ID, including any prerelease suffix. Create the directory when preparing
+the first release under this policy.
+
+When preparing a release, Codex MUST:
+
+1. review the changes since the preceding release of the same artifact, or the
+   included scope for an initial release;
+2. write the patch notes before completing release preparation or publishing;
+3. include the release ID, release date, and affected artifacts or runtimes;
+4. describe user-visible additions, changes, fixes, and any security changes;
+5. document required upgrade or migration steps, compatibility changes, and
+   known limitations when applicable;
+6. state validation results and distinguish checks not run from checks passed;
+7. commit the patch notes with the task-owned release changes and include their
+   path in the final report.
+
+Patch notes MUST describe changes actually included in the release, not planned
+work or an unfiltered commit log. Preserve notes for previous releases; correct
+them only when needed for accuracy. A release task is incomplete without its
+patch notes. This requirement does not itself authorize tagging, pushing, or
+publishing; the Git policy and user-requested scope still apply.
 
 ## 4. Context and usage-limit discipline
 
@@ -177,7 +132,7 @@ long-running, cross-module, security-sensitive, or migration task.
 
 Do not spend a separate turn producing a plan when the directive asks for
 implementation and the next safe action is clear. Do not repeatedly ask the
-user to confirm choices already fixed by AGENTS.md, the task directive, or the
+user to confirm choices already fixed by AGENTS.md, the user request, or the
 existing architecture.
 
 Ask only when:
@@ -213,11 +168,11 @@ Never hide a failed check. Distinguish:
 ## 5. Model and reasoning budget
 
 Model and reasoning effort are selected by the operator before a Codex CLI run.
-AGENTS.md cannot switch the active model. The execution profile in a command
-file is an operator recommendation, not a reason for Codex to refuse work if
+AGENTS.md cannot switch the active model. Any execution profile supplied by the
+operator is a recommendation, not a reason for Codex to refuse work if
 the launched profile differs.
 
-Use these default classes when authoring or interpreting task directives:
+Use these default classes when interpreting tasks:
 
 | Task class | Model class | Reasoning effort |
 | --- | --- | --- |
@@ -226,9 +181,7 @@ Use these default classes when authoring or interpreting task directives:
 | lifecycle, architecture, protocol, security, difficult root cause, broad refactor | strongest available coding model | high |
 | unresolved high-risk problem after a high-effort attempt | strongest available coding model | maximum only when justified |
 
-Do not hard-code a model name in this durable file; availability changes. The
-ChatGPT handoff prompt should name the current recommended model and reasoning
-effort.
+Do not hard-code a model name in this durable file; availability changes.
 
 Do not use maximum reasoning for routine discovery, formatting, ordinary
 compilation errors, or straightforward documentation. Escalate only when the
@@ -253,7 +206,7 @@ At the start of a Codex session:
 
 1. inspect the exposed MCP tools/resources and their schemas once;
 2. make a small use/skip decision for each relevant server;
-3. reuse discovered capabilities for later prompts in the same session;
+3. reuse discovered capabilities for later tasks in the same session;
 4. do not repeatedly enumerate the same tools unless configuration changed.
 
 Never claim an MCP server was used when it was not.
@@ -561,6 +514,7 @@ Read only the documents relevant to the task:
 | AVF platform and image constraints | docs/AVF_NOTES.md |
 | privileged deployment | docs/DEPLOYMENT.md |
 | image publication | docs/IMAGE_RELEASE.md |
+| per-release patch notes | `docs/release-notes/` (one `<release-id>.md` per release) |
 | UI tokens and interaction rules | docs/DESIGN_SYSTEM.md |
 | Korean user behavior | docs/USER_GUIDE.ko.md |
 | long-form AVF design history | docs/avf-terminal-integration-design.md |
@@ -582,7 +536,8 @@ A task is complete only when:
 - acceptance criteria are satisfied;
 - appropriate validation has passed or an evidenced limitation is stated;
 - the diff contains no accidental or unrelated changes;
-- relevant documentation is consistent.
+- relevant documentation is consistent;
+- for a release task, patch notes exist and match the released scope.
 
 Report in Korean unless the user asks for another language. Lead with the
 outcome and keep the report compact:
