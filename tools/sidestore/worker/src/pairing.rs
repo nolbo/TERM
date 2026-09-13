@@ -13,21 +13,42 @@ pub fn needs_remote(version: &str) -> Result<bool, Report> {
     Ok(parts[0] > 17 || (parts[0] == 17 && parts.get(1).copied().unwrap_or(0) >= 4))
 }
 
-async fn remote(provider: &dyn IdeviceProvider) -> Result<RpPairingFile, IdeviceError> {
+async fn remote(provider: &dyn IdeviceProvider, saved: Option<RpPairingFile>) -> Result<RpPairingFile, IdeviceError> {
     let proxy = CoreDeviceProxy::connect(provider).await?;
     let rsd_port = proxy.tunnel_info().server_rsd_port;
     let mut adapter = proxy.create_software_tunnel()?.to_async_handle();
     let handshake = RsdHandshake::new(adapter.connect(rsd_port).await?).await?;
     let port = handshake.services.get("com.apple.internal.dt.coredevice.untrusted.tunnelservice")
         .ok_or_else(|| IdeviceError::UnexpectedResponse("missing untrusted tunnel service".into()))?.port;
-    let mut file = RpPairingFile::generate("terminal");
+    let validating = saved.is_some();
+    let mut file = saved.unwrap_or_else(|| RpPairingFile::generate("terminal"));
     // Use the new identity twice as iLoader does, ensuring device keychain commit.
-    for _ in 0..2 {
+    for _ in 0..if validating { 1 } else { 2 } {
         let mut xpc = RemoteXpcClient::new(adapter.connect(port).await?).await?;
         xpc.do_handshake().await?; let _ = xpc.recv_root().await;
-        RemotePairingClient::new(xpc, "terminal").connect(&mut file, async || "000000".to_string()).await?;
+        let mut client = RemotePairingClient::new(xpc, "terminal");
+        if validating {
+            // connect() silently falls back to pairing on ANY verify failure.
+            // Cached identities must only be verified, never regenerated here.
+            client.attempt_pair_verify().await?;
+            client.validate_pairing(&mut file).await?;
+        } else {
+            client.connect(&mut file, async || "000000".to_string()).await?;
+        }
     }
     Ok(file)
+}
+
+async fn resolve_remote<V, VF, N, NF>(cached: Option<Vec<u8>>, validate: V, create: N) -> Result<Vec<u8>, IdeviceError>
+where V: FnOnce(RpPairingFile) -> VF, VF: std::future::Future<Output = Result<RpPairingFile, IdeviceError>>,
+      N: FnOnce() -> NF, NF: std::future::Future<Output = Result<RpPairingFile, IdeviceError>> {
+    if let Some(bytes) = cached {
+        let file = RpPairingFile::from_bytes(&bytes)?;
+        validate(file).await?;
+        Ok(bytes)
+    } else {
+        Ok(create().await?.to_bytes())
+    }
 }
 
 pub fn combine(lockdown: plist::Value, remote: Option<plist::Value>) -> Result<Vec<u8>, Report> {
@@ -64,12 +85,12 @@ pub async fn generate(provider: &dyn IdeviceProvider, version: &str, udid: &str,
     }
     let key = format!("rppairing_file_{udid}");
     let cached = storage.retrieve_data(&key).map_err(|e| crate::failure("RP_PAIRING", e))?;
-    let data = if let Some(bytes) = cached.filter(|bytes| RpPairingFile::from_bytes(bytes).is_ok()) { bytes }
-        else {
-            let bytes = remote(provider).await.map_err(|e| crate::failure("RP_PAIRING", e))?.to_bytes();
-            storage.store_data(&key, &bytes).map_err(|e| crate::failure("RP_PAIRING", e))?;
-            bytes
-        };
+    let new_record = cached.is_none();
+    let data = tokio::time::timeout(std::time::Duration::from_secs(60),
+        resolve_remote(cached, |file| remote(provider, Some(file)), || remote(provider, None))).await
+        .map_err(|_| crate::failure("RP_PAIRING", "remote verification deadline"))?
+        .map_err(|e| crate::failure("RP_PAIRING", e))?;
+    if new_record { storage.store_data(&key, &data).map_err(|e| crate::failure("RP_PAIRING", e))?; }
     let remote = plist::Value::from_reader(std::io::Cursor::new(data)).map_err(|e| crate::failure("RP_PAIRING", e))?;
     combine(legacy, Some(remote)).map_err(|e| crate::failure("RP_PAIRING", e))
 }
@@ -82,4 +103,29 @@ pub async fn place(provider: &dyn IdeviceProvider, signed_id: &str, bytes: &[u8]
     ensure!(matches.len() == 1, "installed SideStore identity not found");
     let mut afc = HouseArrestClient::connect(provider).await?.vend_documents(matches[0].to_owned()).await?;
     crate::pairing_placement::place(&mut afc, bytes).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn cached_remote_identity_requires_validation_and_never_falls_back() {
+        let saved = RpPairingFile::generate("test").to_bytes();
+        let reused = resolve_remote(Some(saved.clone()), |file| async { Ok(file) },
+            || async { panic!("cached identity must not trigger pairing") }).await.unwrap();
+        assert_eq!(reused, saved);
+        let rejected = resolve_remote(Some(saved.clone()), |_| async { Err(IdeviceError::Timeout) },
+            || async { panic!("failed verification must not trigger pairing") }).await;
+        assert!(matches!(rejected, Err(IdeviceError::Timeout)));
+        let corrupt = resolve_remote(Some(b"broken".to_vec()), |_| async { panic!("invalid cache") },
+            || async { panic!("corrupt record must be preserved") }).await;
+        assert!(corrupt.is_err());
+        let canceled = tokio::time::timeout(std::time::Duration::from_millis(20),
+            resolve_remote(Some(saved), |_| std::future::pending(),
+                || async { panic!("timeout must not trigger pairing") })).await;
+        assert!(canceled.is_err());
+        let created = resolve_remote(None, |_| async { panic!("no cached identity") },
+            || async { Ok(RpPairingFile::generate("new")) }).await.unwrap();
+        assert!(RpPairingFile::from_bytes(&created).is_ok());
+    }
 }

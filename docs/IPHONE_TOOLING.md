@@ -2,6 +2,17 @@
 
 ## Product direction
 
+The pinned idevice 0.1.65 crate receives a minimal parser bounds patch (see
+tools/iphone/connector/README.md). Private connector acquisition is nonblocking,
+deadline-bounded and poisoned after interruption, with no replay. Cached
+RPPairing requires live pair-verify over the selected iPhone's private CoreDevice/
+RSD tunnel before reuse. Verification/parse failure or a 60-second remote pairing
+deadline yields `RP_PAIRING`, preserves the saved record and stops before pairing
+placement; it never silently falls back to re-pairing. An app may already have
+been installed or Wi-Fi debugging enabled at this stage. No new guest record
+management endpoint is provided; stale identity recovery requires a deliberate
+host-side recovery decision, not repeated automatic installs.
+
 Service revision 3 adds a bounded `changes` dictionary to operation snapshots,
 including failed/canceled operations: `devicePairing`, `developerAccount`,
 `appInstallation`, `wifiDebugging`, `pairingFile`, with `POSSIBLE`, `CONFIRMED`, or
@@ -102,7 +113,7 @@ killed/reaped before its device lease is released.
 
 The reusable Rust `terminal-iphone-connector` crate implements
 `idevice::IdeviceProvider` using `UsbmuxdConnection::new` and fresh streams.
-No idevice fork is needed. The probe opens two independent logical clients and
+No transport API fork is needed (the parser bounds patch is separate). The probe opens two independent logical clients and
 queries enumeration and BUID; it returns only capability-check flags, never a
 UDID, pair record or BUID.
 

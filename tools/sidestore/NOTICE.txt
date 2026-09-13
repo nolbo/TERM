@@ -9,7 +9,10 @@ isideload 0.3.17, source revision b6d111376657a59207ac26c8ef8be5cca8793cba,
 Copyright Nicholas Sharp, MIT. Local patch uses Android system CAs for verified
 HTTPS in a standalone native process without JavaVM and disables proxy discovery.
 
-idevice 0.1.65, Copyright Jackson Coxson, MIT. No fork is required: the existing
+idevice 0.1.65, Copyright Jackson Coxson, MIT. A local parser bounds patch is
+applied to its SHA-256-verified crate (tools/iphone/connector/idevice). Original
+archive, patch, patched source and license are included in the source bundle.
+No transport API fork is required: the existing
 IdeviceProvider trait and UsbmuxdConnection::new accept anonymous custom streams.
 The host-only ReadPairRecord adapter uses upstream RawPacket encoding with
 bounded frame validation to preserve store errno hidden by get_pair_record.

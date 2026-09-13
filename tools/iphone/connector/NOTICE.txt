@@ -1,5 +1,10 @@
 terminal-iphone-connector / terminal-usb / iphone-tool-probe: MIT.
 idevice 0.1.65: MIT, copyright Jackson Coxson and contributors.
+Local modification: bounded plist/usbmux/AFC frame lengths and AFC read counts.
+Original crate SHA-256 and patch: connector/idevice/prepare.sh and bounds.patch.
+The source bundle contains both original archive and patched idevice source.
+idevice/LICENSE.txt is copied verbatim from upstream revision
+2bc6a05c80daaf8583884cf7f2d2563be17e6c2d (crate .cargo_vcs_info.json).
 Rust 1.89.0; dependencies and checksums pinned in Cargo.lock.
 Full crate sources and license files: iphone-tools-source.tar.gz.
 

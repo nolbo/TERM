@@ -5,6 +5,9 @@ edition = "2024"
 license = "MIT"
 rust-version = "1.89"
 
+[patch.crates-io]
+idevice = { path = "../idevice" }
+
 [dependencies]
 terminal-iphone-connector = { path = "../connector" }
 isideload = { path = "../upstream/isideload/isideload", default-features = false, features = ["install", "tokio-mt"] }

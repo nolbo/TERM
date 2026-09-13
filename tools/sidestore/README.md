@@ -10,7 +10,9 @@ Pins:
 
 - isideload **0.3.17**, **b6d111376657a59207ac26c8ef8be5cca8793cba**;
   immutable archive/digest in sources.lock.
-- idevice **0.1.65** exact locked crate, reusable tools/iphone/connector provider.
+- idevice **0.1.65** SHA-256-pinned crate with local parser bounds patch;
+  reusable tools/iphone/connector provider. Original archive and patched source
+  are included in the corresponding source bundle.
 - iLoader pairing reference **348eefd7de78e9bc612c9d619b8b1e7a80ba3ba0**.
 - Official SideStore stable **0.6.4**, exact 27,609,918-byte IPA, bundle
   `com.SideStore.SideStore`, SHA-256

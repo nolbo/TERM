@@ -9,7 +9,13 @@ mkdir -p "$build"
 build=$(CDPATH= cd -- "$build" && pwd)
 mkdir -p "$build/connector" "$build/jniLibs/arm64-v8a" "$build/assets/licenses/iphone-tools"
 cp -R "$repo/tools/iphone/connector/." "$build/connector/"
+bash "$repo/tools/iphone/connector/idevice/prepare.sh" "$build"
 export CARGO_TARGET_DIR="$build/target"
+if [[ ${3:-} == --update-lock ]]; then
+    "$cargo" +1.89.0 update --offline --manifest-path "$build/connector/Cargo.toml" -p idevice
+    cp "$build/connector/Cargo.lock" "$repo/tools/iphone/connector/Cargo.lock"
+    exit
+fi
 if [[ ${3:-} == --test ]]; then
     "$cargo" +1.89.0 test --locked --manifest-path "$build/connector/Cargo.toml"
     exit
@@ -33,6 +39,7 @@ for directory in "$build/vendor/"*; do
 done
 cp "$repo/tools/iphone/connector/NOTICE.txt" "$build/assets/licenses/iphone-tools/NOTICE.txt"
 cp "$repo/tools/iphone/connector/LICENSE" "$build/assets/licenses/iphone-tools/LICENSE.txt"
+cp "$build/idevice/LICENSE.txt" "$build/assets/licenses/iphone-tools/idevice-LICENSE.txt"
 mkdir -p "$build/distributions"
 tar -czf "$build/distributions/iphone-tools-source.tar.gz" -C "$repo" tools/iphone/connector tools/iphone/android-clang.sh \
-    -C "$build" vendor vendor-config.toml
+    -C "$build" idevice sources vendor vendor-config.toml

@@ -1,5 +1,11 @@
 # Security
 
+Pinned idevice plist/usbmux/AFC readers reject invalid or oversized declared
+lengths before subtraction/allocation. Private connector FD reception uses
+nonblocking I/O and a deadline; cancellation poisons the channel to reject late
+responses/replay. Cached RPPairing is live-verified without auto-repair fallback.
+These controls do not certify all upstream parsers or physical iOS behavior.
+
 The repeatable [device-safety gate and physical acceptance process](../tests/usb/DEVICE_SAFETY.md)
 separates automated regression results from hardware evidence. Skips and missing
 physical tests must never be presented as proof of device safety.

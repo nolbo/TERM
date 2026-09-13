@@ -10,6 +10,7 @@ mod lockdown_pairing;
 mod storage;
 #[cfg(test)] mod tests;
 #[cfg(test)] mod virtual_lockdown;
+#[cfg(test)] mod transport_bounds;
 
 use std::{io::{BufRead, BufReader, Read, Write}, os::fd::{AsRawFd, FromRawFd, OwnedFd}, path::PathBuf, sync::{Arc, Mutex, OnceLock, atomic::{AtomicBool, Ordering}}};
 use idevice::{IdeviceError, IdeviceService, lockdown::LockdownClient};
@@ -245,6 +246,10 @@ async fn main() {
     std::thread::spawn(move || { let mut byte = 0u8; unsafe { libc::recv(owner.as_raw_fd(), &mut byte as *mut _ as _, 1, 0); libc::_exit(1); } });
     let temp = std::env::var_os("TMPDIR").map(PathBuf::from).unwrap_or_default();
     if !temp.is_absolute() || temp == store.0 { event(json!({"phase":"FAILED","error":"PROVISIONING"})); return; }
-    let result = tokio::time::timeout(std::time::Duration::from_secs(1800), bootstrap(connector::Connector::new(connector), store, temp)).await;
+    let connector = match connector::Connector::new(connector) {
+        Ok(connector) => connector,
+        Err(_) => { event(json!({"phase":"FAILED","error":"PAIRING_TRANSPORT"})); return; }
+    };
+    let result = tokio::time::timeout(std::time::Duration::from_secs(1800), bootstrap(connector, store, temp)).await;
     match result { Ok(Ok(())) => (), Ok(Err(error)) => event(error.event()), Err(_) => event(json!({"phase":"FAILED","error":"NETWORK"})) }
 }

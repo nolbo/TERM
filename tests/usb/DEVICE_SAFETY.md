@@ -12,7 +12,7 @@ python3 tests/usb/safety_gate.py --scope host --ndk "$TERMINAL_ANDROID_NDK"
 ```
 
 Use the repository's existing JDK/Cargo/NDK setup. The host scope runs Python
-client and gate tests, current USB runtime JUnit tests, and the pinned Rust worker
+client and gate tests, USB runtime JUnit tests, Rust connector tests and the pinned Rust worker
 tests. Source downloads/builds may occur on the build host. It does not install
 anything on Android, open USB, contact Apple, or issue restore/reset commands.
 JSON contains commit, worktree dirty-state, scope, counts and statuses, not raw

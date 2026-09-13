@@ -1,7 +1,8 @@
 # Android-native iPhone tool substrate
 
 `terminal-iphone-connector` supplies fresh private streams through
-`idevice = 0.1.65`'s IdeviceProvider/UsbmuxdConnection APIs. No fork, USB discovery
+`idevice = 0.1.65`'s IdeviceProvider/UsbmuxdConnection APIs. A minimal parser bounds
+patch is applied to the pinned crate; no transport API fork, USB discovery
 or public usbmux endpoint is needed. Only a trusted APK process receives the
 connector; Native and Rootless clients receive bounded capability results.
 
@@ -51,3 +52,25 @@ addresses/tokens/FDs to either terminal or make the provider a general guest RPC
 Register bounded host tasks instead. The pinned tools/sidestore worker is now
 packaged as isideload, behind the shared asynchronous host-tool operations and
 generic main-process-only secure input. No arbitrary guest stdin relay exists.
+
+Connector requests use nonblocking Tokio readiness (including recvmsg/SCM_RIGHTS)
+with a 5-second deadline covering lock acquisition, send and receive. No detached
+spawn_blocking receiver remains after cancellation. Interrupted/malformed requests
+poison the connector; subsequent requests fail without sending/replaying anything.
+Startup authentication socket I/O also has 5-second kernel deadlines.
+
+`idevice/prepare.sh` verifies the original 0.1.65 crate SHA-256
+`7484b3a39a089068167a8ab0b3da6a05b5f6f8969daf1a893da1c7087cb2e09a`, extracts only
+into the build directory and applies `idevice/bounds.patch` (no shared Cargo cache
+mutation). Both top-level manifests patch crates.io to the same source for direct
+and isideload transitive dependencies. Lockfiles retain 0.1.65; its registry
+checksum moves to the preparation script because Cargo records a path dependency.
+No other dependency versions change.
+
+Wire limits are 256 KiB for usbmux, 32 MiB for plist and 16 MiB for AFC, with
+ordered AFC lengths checked before subtraction/allocation. AFC read responses
+cannot exceed the requested chunk. Invalid frames return errors, not truncation
+or retry. These are per-frame limits, not a bound on all recursive XPC/RSD parsing
+or total operation memory. The limits cover this app's one-device mux and bounded
+bootstrap use, not every upstream use case. Both source bundles contain original
+archive, patch and patched `idevice/` tree, with its MIT license in APK notices.

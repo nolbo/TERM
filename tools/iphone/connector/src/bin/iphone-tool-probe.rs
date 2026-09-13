@@ -12,7 +12,10 @@ async fn main() {
     let result = std::str::from_utf8(&token).ok().and_then(|token| authenticate_host(&args[2], token).ok()); token.fill(0);
     let Some((owner, fd)) = result else { println!("{{\"error\":\"WORKER_AUTHENTICATION\"}}"); std::process::exit(1); };
     std::thread::spawn(move || { let mut byte = 0u8; unsafe { libc::recv(owner.as_raw_fd(), &mut byte as *mut _ as _, 1, 0); libc::_exit(1); } });
-    let connector = Connector::new(fd);
+    let connector = match Connector::new(fd) {
+        Ok(connector) => connector,
+        Err(_) => { println!("{{\"error\":\"WORKER_PROTOCOL\"}}"); std::process::exit(1); }
+    };
     let result = tokio::time::timeout(std::time::Duration::from_secs(15), async {
         // Independent streams prove the owner can supply multiple logical clients.
         let mut first = connector.connection().await?;

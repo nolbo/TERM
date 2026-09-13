@@ -6,6 +6,9 @@ rust-version = "1.89"
 license = "MIT"
 description = "Private Android-owned usbmux streams for trusted APK-packaged iPhone tools"
 
+[patch.crates-io]
+idevice = { path = "../idevice" }
+
 [dependencies]
 idevice = { version = "=0.1.65", default-features = false, features = ["ring", "usbmuxd"] }
 tokio = { version = "=1.53.1", features = ["net", "rt", "sync", "macros", "rt-multi-thread", "time"] }

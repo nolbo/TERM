@@ -11,6 +11,7 @@ build=$(CDPATH= cd -- "$build" && pwd)
 mkdir -p "$build/upstream/isideload" "$build/worker" "$build/sources" "$build/jniLibs/arm64-v8a" "$build/assets/licenses/sidestore"
 mkdir -p "$build/connector"
 cp -R "$repo/tools/iphone/connector/." "$build/connector/"
+bash "$repo/tools/iphone/connector/idevice/prepare.sh" "$build"
 while read -r name revision digest url; do
     [[ -z "$name" || "$name" == \#* ]] && continue
     archive="$build/sources/$name.tar.gz"
@@ -27,7 +28,7 @@ cp -R "$repo/tools/sidestore/worker/." "$build/worker/"
 cp "$repo/tools/sidestore/worker/src/android_tls.rs" "$build/upstream/isideload/isideload/src/util/android_tls.rs"
 export CARGO_TARGET_DIR="$build/target"
 if [[ ${3:-} == --update-lock ]]; then
-    "$cargo" +1.89.0 generate-lockfile --manifest-path "$build/worker/Cargo.toml"
+    "$cargo" +1.89.0 update --offline --manifest-path "$build/worker/Cargo.toml" -p idevice
     cp "$build/worker/Cargo.lock" "$repo/tools/sidestore/worker/Cargo.lock"
     exit
 fi
@@ -55,6 +56,7 @@ for directory in "$build/vendor/"*; do
 done
 cp "$build/upstream/isideload/LICENSE" "$build/assets/licenses/sidestore/isideload-LICENSE.txt"
 cp "$repo/tools/sidestore/NOTICE.txt" "$build/assets/licenses/sidestore/NOTICE.txt"
+cp "$build/idevice/LICENSE.txt" "$build/assets/licenses/sidestore/idevice-LICENSE.txt"
 mkdir -p "$build/distributions"
 tar -czf "$build/distributions/sidestore-bootstrap-source.tar.gz" -C "$repo" tools/sidestore tools/iphone/connector tools/iphone/android-clang.sh \
-    -C "$build" sources vendor vendor-config.toml
+    -C "$build" idevice sources vendor vendor-config.toml

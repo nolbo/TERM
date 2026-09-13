@@ -122,6 +122,10 @@ def main():
         if not args.ndk or not Path(args.ndk).is_dir():
             layers["rust"] = {"status": "INCOMPLETE", "reason": "NDK_REQUIRED"}
         else:
+            print("Safety gate: Rust connector tests", file=sys.stderr, flush=True)
+            connector_build = str(Path(args.rust_build).parent / "device-safety-connector")
+            status, output = execute(["bash", "tools/iphone/connector/build.sh", connector_build, args.ndk, "--test"], 1800)
+            layers["connector"] = text_result("rust", status, output)
             print("Safety gate: Rust worker tests", file=sys.stderr, flush=True)
             status, output = execute(["bash", "tools/sidestore/build.sh", args.rust_build, args.ndk, "--test"], 1800)
             layers["rust"] = text_result("rust", status, output)

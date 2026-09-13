@@ -1,0 +1,46 @@
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -1,2 +1,5 @@
+-            let len = u32::from_be_bytes(buf);
+-            let mut buf = vec![0; len as usize];
++            let len = u32::from_be_bytes(buf);
++            if len == 0 || len > 32 * 1024 * 1024 {
++                return Err(IdeviceError::UnexpectedResponse("plist frame size invalid".into()));
++            }
++            let mut buf = vec![0; len as usize];
+--- a/src/usbmuxd/mod.rs
++++ b/src/usbmuxd/mod.rs
+@@ -1,1 +1,5 @@
+-        let packet_size = u32::from_le_bytes(header_buffer[..4].try_into().unwrap()) - 16;
++        let frame_size = u32::from_le_bytes(header_buffer[..4].try_into().unwrap());
++        if !(16..=256 * 1024).contains(&frame_size) {
++            return Err(IdeviceError::UnexpectedResponse("usbmux frame size invalid".into()));
++        }
++        let packet_size = frame_size - 16;
+--- a/src/services/afc/packet.rs
++++ b/src/services/afc/packet.rs
+@@ -1,2 +1,8 @@
+-        let header = AfcPacketHeader::read(reader).await?;
+-        debug!("afc header: {header:?}");
++        let header = AfcPacketHeader::read(reader).await?;
++        if header.header_payload_len < AfcPacketHeader::LEN
++            || header.entire_len < header.header_payload_len
++            || header.entire_len > 16 * 1024 * 1024
++        {
++            return Err(IdeviceError::UnexpectedResponse("AFC frame size invalid".into()));
++        }
++        debug!("afc header: {header:?}");
+--- a/src/services/afc/inner_file.rs
++++ b/src/services/afc/inner_file.rs
+@@ -1,4 +1,7 @@
+-            if res.payload.is_empty() {
+-                break;
+-            }
+-            collected_bytes.extend(res.payload);
++            if res.payload.len() > chunk {
++                return Err(IdeviceError::UnexpectedResponse("AFC read exceeds requested size".into()));
++            }
++            if res.payload.is_empty() {
++                break;
++            }
++            collected_bytes.extend(res.payload);
