@@ -1,5 +1,20 @@
 # Security
 
+## Application update channel
+
+TERM reads public `nolbo/TERM` release metadata without credentials. The app
+constructs fixed, commit-specific HTTPS APK URLs; bounds manifest/download
+sizes, redirects and transfer time; and requires exact SHA-256/bytes plus the
+installed app's package/version and current signing certificates before offering
+installation. The system package installer independently validates the APK.
+Signing and cross-repository publisher secrets stay in CI, never in APKs.
+A non-exported FileProvider exposes only the dedicated update cache with a
+temporary read grant; the user must grant unknown-app installation and confirm
+the system installer. The app never uninstalls a conflicting debug build or
+terminates sessions itself. APK replacement may kill runtime processes, so the
+installation confirmation explains that live work can be interrupted. See
+[APP_UPDATES.md](APP_UPDATES.md) for limits and publisher setup.
+
 Pinned idevice plist/usbmux/AFC readers reject invalid or oversized declared
 lengths before subtraction/allocation. Private connector FD reception uses
 nonblocking I/O and a deadline; cancellation poisons the channel to reject late

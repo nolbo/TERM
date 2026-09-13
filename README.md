@@ -85,9 +85,15 @@ gh secret set TERMINAL_SIGNING_STORE_PASSWORD --repo nolbo/terminal
 ```
 
 After verification, main push builds upload a signed `terminal-main-update`
-Actions artifact with the native corresponding-source bundles. Fork PRs and
-other branches do not receive signing secrets. This is an Actions artifact,
-not yet a public download endpoint or an in-app update installer.
+Actions artifact with integrity metadata and native corresponding-source
+bundles, then publish it to the public [TERM distribution repository](https://github.com/nolbo/TERM).
+Cross-repository publishing requires a separate `TERMINAL_UPDATES_TOKEN` secret,
+restricted to that repository with `Contents: write`. Fork PRs and other
+branches do not receive signing or publication secrets.
+**Settings → App updates** checks the public release, downloads the APK, verifies
+its size, SHA-256, package/version and installed signing identity, and opens
+Android's installer only after explicit confirmation. See [App updates](docs/APP_UPDATES.md)
+for publisher setup, version history rules and lifecycle limitations.
 An existing debug-signed installation cannot be replaced by this release key
 without a supported signing-key migration or a reinstall with data handling.
 

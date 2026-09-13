@@ -882,6 +882,7 @@ fun SettingsOverview(onBack: () -> Unit, onOpen: (String) -> Unit) {
         SettingsDestination("rootless", stringResource(R.string.runtime_rootless_title), stringResource(R.string.settings_rootless_summary), R.drawable.ic_runtime_rootless_group),
         SettingsDestination("avf", stringResource(R.string.settings_avf_title), stringResource(R.string.settings_avf_summary), R.drawable.ic_material_symbol_memory_24),
         SettingsDestination("native", stringResource(R.string.settings_native_title), stringResource(R.string.settings_native_summary), R.drawable.ic_runtime_native),
+        SettingsDestination("updates", stringResource(R.string.app_updates), stringResource(R.string.update_settings_summary), R.drawable.ic_material_symbol_download_24),
     )
     var query by rememberSaveable { mutableStateOf("") }
     val normalizedQuery = query.trim()

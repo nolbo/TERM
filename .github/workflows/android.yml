@@ -16,7 +16,13 @@ jobs:
           # versionCode is derived from origin/main's complete history.
           fetch-depth: 0
       - name: Fetch mainline update revision
-        run: git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main
+          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF" = refs/heads/main ]; then
+            # A newer push can arrive while this job is queued. Version this
+            # APK from the main commit actually checked out for this event.
+            git update-ref refs/remotes/origin/main "$GITHUB_SHA"
+          fi
       - name: Use Maven AAPT2 on the CI host
         # The checked-in override is for the local ARM64/QEMU host only.
         run: sed -i '/^android.aapt2FromMavenOverride=/d' gradle.properties
@@ -27,7 +33,9 @@ jobs:
       - name: Install pinned Android Rust toolchain
         run: rustup toolchain install 1.89.0 --profile minimal --target aarch64-linux-android
       - name: Build and test
-        run: ./gradlew :android-app:assembleDebug :android-runtime:testDebugUnitTest :image:test --console=plain
+        run: |
+          ./gradlew :android-app:assembleDebug :android-app:testDebugUnitTest :android-runtime:testDebugUnitTest :image:test --console=plain
+          python3 -m unittest discover -s tests/updates -p 'test_*.py'
       - name: USB host safety regression gate (not physical validation)
         run: |
           terminal_ndk_version=$(sed -n 's/^ndkVersion=//p' gradle.properties)
@@ -64,14 +72,37 @@ jobs:
           printf '%s' "$TERMINAL_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$TERMINAL_SIGNING_STORE_FILE"
           unset TERMINAL_SIGNING_KEYSTORE_BASE64
           bash tools/build-release.sh
+          mkdir -p android-app/build/update
+          python3 tools/updates/create-manifest.py \
+            --apk android-app/build/outputs/apk/release/android-app-release.apk \
+            --metadata android-app/build/outputs/apk/release/output-metadata.json \
+            --commit "$GITHUB_SHA" --output android-app/build/update/update.json
+          cp android-app/build/outputs/apk/release/android-app-release.apk android-app/build/update/TERM.apk
+          cp android-runtime/build/distributions/iphone-worker-source.tar.gz \
+            android-runtime/build/iphone-tools/distributions/iphone-tools-source.tar.gz \
+            android-runtime/build/sidestore-native/distributions/sidestore-bootstrap-source.tar.gz android-app/build/update/
       - name: Publish signed update APK
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@v4
         with:
           name: terminal-main-update
           if-no-files-found: error
-          path: |
-            android-app/build/outputs/apk/release/android-app-release.apk
-            android-runtime/build/distributions/iphone-worker-source.tar.gz
-            android-runtime/build/iphone-tools/distributions/iphone-tools-source.tar.gz
-            android-runtime/build/sidestore-native/distributions/sidestore-bootstrap-source.tar.gz
+          path: android-app/build/update/
+
+  publish-main-update:
+    needs: build-and-unit-test
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    concurrency:
+      group: term-public-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: terminal-main-update
+          path: update
+      - name: Publish verified update to TERM
+        env:
+          GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
+        run: bash tools/updates/publish.sh update

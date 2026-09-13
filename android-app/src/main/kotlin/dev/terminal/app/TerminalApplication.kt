@@ -5,6 +5,8 @@ import java.io.PrintWriter
 import java.io.StringWriter
 
 class TerminalApplication : Application() {
+    internal val appUpdates by lazy { dev.terminal.app.update.AppUpdateController(this) }
+
     override fun onCreate() {
         super.onCreate()
         val previous = Thread.getDefaultUncaughtExceptionHandler()

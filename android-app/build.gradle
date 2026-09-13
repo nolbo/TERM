@@ -17,6 +17,9 @@ def gitOutput = { List<String> arguments ->
 }
 
 def mainRevision = gitOutput(['rev-parse', '--verify', 'origin/main'])
+if (gitOutput(['rev-parse', '--is-shallow-repository']) != 'false') {
+    throw new GradleException('Full Git history is required for update versions. Run git fetch --unshallow before building.')
+}
 def mainRevisionCount = gitOutput(['rev-list', '--count', 'origin/main']).toInteger()
 if (mainRevisionCount <= 0) {
     throw new GradleException('origin/main must have a positive commit count.')
@@ -60,6 +63,7 @@ android {
         targetSdk project.properties.targetSdkVersion.toInteger()
         versionCode mainRevisionCount
         versionName appVersionName
+        buildConfigField 'String', 'MAIN_REVISION', "\"${mainRevision}\""
 
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
