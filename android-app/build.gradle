@@ -24,6 +24,32 @@ if (mainRevisionCount <= 0) {
 def appBaseVersion = project.properties.appBaseVersion
 def appVersionName = "${appBaseVersion}+main.${mainRevisionCount}.${mainRevision.take(12)}"
 
+// Keep private signing material outside the worktree. PKCS12 uses the store
+// password for its key unless a separate key password is explicitly supplied.
+def releaseStoreFile = providers.environmentVariable('TERMINAL_SIGNING_STORE_FILE')
+    .orElse(new File(System.getProperty('user.home'), '.local/share/terminal-signing/terminal-release.p12').path).get()
+def releaseStorePassword = providers.environmentVariable('TERMINAL_SIGNING_STORE_PASSWORD').orNull
+def releaseKeyPassword = providers.environmentVariable('TERMINAL_SIGNING_KEY_PASSWORD').orElse(
+    providers.environmentVariable('TERMINAL_SIGNING_STORE_PASSWORD')).orNull
+def releaseKeyAlias = providers.environmentVariable('TERMINAL_SIGNING_KEY_ALIAS').orElse('terminal').get()
+
+def checkReleaseSigning = tasks.register('checkReleaseSigning') {
+    doLast {
+        if (!releaseStorePassword || !releaseKeyPassword) {
+            throw new GradleException('Release signing requires TERMINAL_SIGNING_STORE_PASSWORD. Use bash tools/build-release.sh for an interactive build.')
+        }
+        if (!file(releaseStoreFile).isFile()) {
+            throw new GradleException('Release keystore not found. Set TERMINAL_SIGNING_STORE_FILE to your existing keystore.')
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name == 'packageRelease' || name == 'validateSigningRelease') {
+        dependsOn checkReleaseSigning
+    }
+}
+
 android {
     namespace 'dev.terminal.app'
     compileSdk project.properties.compileSdkVersion.toInteger()
@@ -36,6 +62,21 @@ android {
         versionName appVersionName
 
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    signingConfigs {
+        release {
+            storeFile file(releaseStoreFile)
+            storePassword releaseStorePassword
+            keyAlias releaseKeyAlias
+            keyPassword releaseKeyPassword
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+        }
     }
 
     buildFeatures {

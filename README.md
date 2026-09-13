@@ -50,6 +50,47 @@ The build deliberately fails when that ref is unavailable, rather than
 producing an APK that Android could mistake for an update. CI fetches the full
 mainline history before building.
 
+### Signed APKs outside a store
+
+Generate a private PKCS12 keystore once with `keytool`, using alias `terminal`,
+and keep it at `~/.local/share/terminal-signing/terminal-release.p12` (or set
+`TERMINAL_SIGNING_STORE_FILE` to another location). Back up the keystore and
+password outside Git; every update must use the same signing identity.
+
+```sh
+bash tools/build-release.sh
+```
+
+The script prompts for the password without echoing it. The resulting signed
+APK is `android-app/build/outputs/apk/release/android-app-release.apk`.
+For non-interactive builds, supply `TERMINAL_SIGNING_STORE_PASSWORD` through
+the environment. Optional `TERMINAL_SIGNING_KEY_ALIAS` and
+`TERMINAL_SIGNING_KEY_PASSWORD` support other existing keystores.
+Missing credentials fail release packaging instead of generating an unsigned
+update. Debug builds continue to use their separate debug signing identity.
+
+For CI, add these repository secrets under **Settings → Secrets and variables
+→ Actions** using GitHub's web UI or interactive `gh secret set`:
+
+- `TERMINAL_SIGNING_KEYSTORE_BASE64`: Base64 encoding of the same `.p12` file.
+- `TERMINAL_SIGNING_STORE_PASSWORD`: The keystore password.
+
+With an authenticated GitHub CLI, register the file without printing its
+contents, then enter the password at the second command's hidden prompt:
+
+```sh
+base64 -w 0 "$HOME/.local/share/terminal-signing/terminal-release.p12" \
+  | gh secret set TERMINAL_SIGNING_KEYSTORE_BASE64 --repo nolbo/terminal
+gh secret set TERMINAL_SIGNING_STORE_PASSWORD --repo nolbo/terminal
+```
+
+After verification, main push builds upload a signed `terminal-main-update`
+Actions artifact with the native corresponding-source bundles. Fork PRs and
+other branches do not receive signing secrets. This is an Actions artifact,
+not yet a public download endpoint or an in-app update installer.
+An existing debug-signed installation cannot be replaced by this release key
+without a supported signing-key migration or a reinstall with data handling.
+
 The ARM64 PRoot executable and loader are checked, 16 KiB-aligned build
 artifacts with a pinned-source rebuild path in `tools/rootless`. Runtime setup
 downloads only checksum-pinned distribution rootfs archives; the host PRoot and
