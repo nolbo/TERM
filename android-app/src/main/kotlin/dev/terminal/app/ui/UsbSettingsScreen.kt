@@ -49,7 +49,8 @@ internal fun UsbSettingsScreen(
             if (state == null) item {
                 UsbSection(R.string.usb_section_devices) {
                     ListItem(colors = usbListColors(), leadingContent = { LoadingIndicator(Modifier.size(32.dp)) },
-                        supportingContent = { Text(stringResource(R.string.usb_connecting_hint)) }) { Text(stringResource(R.string.usb_connecting)) }
+                        supportingContent = { Text(stringResource(R.string.usb_connecting_hint)) },
+                        verticalAlignment = Alignment.CenterVertically) { Text(stringResource(R.string.usb_connecting)) }
                 }
             }
             if (state != null) {
@@ -109,7 +110,7 @@ internal fun UsbSettingsScreen(
                                 root.writable -> R.string.usb_storage_writable
                                 else -> R.string.usb_storage_readonly
                             }), color = if (root.available) TerminalStatusBlue else MaterialTheme.colorScheme.onSurfaceVariant)
-                        }) { Text(root.name.ifEmpty { stringResource(R.string.usb_storage_folder) }) }
+                        }, verticalAlignment = Alignment.CenterVertically) { Text(root.name.ifEmpty { stringResource(R.string.usb_storage_folder) }) }
                         TextButton(onClick = { confirm = UsbSettingsCommand(UsbSettingsAction.REMOVE_STORAGE, root.id) },
                             enabled = connected && !busy, shapes = ButtonDefaults.shapes(), modifier = Modifier.padding(horizontal = 8.dp)) {
                             Text(stringResource(R.string.usb_remove_storage))
@@ -121,8 +122,8 @@ internal fun UsbSettingsScreen(
             }
             item {
                 UsbSection(R.string.usb_section_tools) {
-                    ListItem(onClick = onHostInputs, leadingContent = { UsbIcon(R.drawable.ic_material_symbol_terminal_24) },
-                        supportingContent = { Text(stringResource(R.string.usb_host_inputs_hint)) }, trailingContent = { UsbIcon(R.drawable.ic_material_symbol_chevron_right_24) },
+                    ListItem(onClick = onHostInputs, supportingContent = { Text(stringResource(R.string.usb_host_inputs_hint)) },
+                        trailingContent = { UsbIcon(R.drawable.ic_material_symbol_chevron_right_24) },
                         verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes(), colors = usbListColors()) {
                         Text(stringResource(R.string.host_tool_inputs_title))
                     }
@@ -227,7 +228,7 @@ private fun AccessRow(access: UsbAccessUi, state: UsbSettingsSnapshot, pending: 
             if (!pending) Text(stringResource(if (access.active) R.string.usb_connection_active else R.string.usb_grant_idle),
                 color = if (access.active) TerminalStatusBlue else MaterialTheme.colorScheme.onSurfaceVariant)
         }
-    }) { Text(accessTitle(access)) }
+    }, verticalAlignment = Alignment.CenterVertically) { Text(accessTitle(access)) }
 }
 
 @Composable
@@ -285,7 +286,8 @@ private fun UsbSection(@StringRes title: Int, count: Int? = null, content: @Comp
 }
 @Composable
 private fun UsbEmpty(@StringRes title: Int, @StringRes hint: Int) {
-    ListItem(colors = usbListColors(), supportingContent = { Text(stringResource(hint)) }) { Text(stringResource(title)) }
+    ListItem(colors = usbListColors(), supportingContent = { Text(stringResource(hint)) },
+        verticalAlignment = Alignment.CenterVertically) { Text(stringResource(title)) }
 }
 @Composable
 private fun UsbDivider() { HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant) }
