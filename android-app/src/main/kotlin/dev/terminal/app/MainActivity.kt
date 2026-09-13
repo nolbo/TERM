@@ -272,7 +272,10 @@ class MainActivity : TerminalActivity() {
         terminalBackgroundColor = Color(TerminalAppearance.backgroundColor(preferences))
         terminalPaddingDp = TerminalAppearance.paddingDp(preferences)
         terminalView?.let {
-            TerminalAppearance.apply(preferences, it)
+            val paletteChanged = TerminalAppearance.apply(preferences, it)
+            if (paletteChanged) terminalSessions.values.forEach { session ->
+                session.emulator?.mColors?.reset()
+            }
             applySessionFontSize(it)
             applyScrollSettings(it, preferences)
             it.refresh()

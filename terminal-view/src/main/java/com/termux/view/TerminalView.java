@@ -624,6 +624,12 @@ public final class TerminalView extends View {
         postInvalidateOnAnimation();
     }
 
+    /** Reapply the global default palette without changing this session's process state. */
+    public void resetColorsToDefault() {
+        if (mEmulator != null) mEmulator.mColors.reset();
+        refresh();
+    }
+
     private void anchorToTranscript() {
         long current = mEmulator.getTranscriptScrollCounter();
         long advanced = Math.max(0, current - mLastTranscriptScroll);

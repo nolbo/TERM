@@ -152,6 +152,13 @@
     <string name="palette_neutral_dark">Neutral Dark</string>
     <string name="palette_solarized_dark">Solarized Dark</string>
     <string name="palette_amoled">AMOLED Black</string>
+    <string name="palette_custom">사용자 지정</string>
+    <string name="customize_palette">팔레트 색상 편집</string>
+    <string name="customize_palette_support">전경, 배경, 커서 색상을 #RRGGBB 형식으로 직접 설정합니다.</string>
+    <string name="palette_foreground">전경</string>
+    <string name="palette_background">배경</string>
+    <string name="palette_cursor">커서</string>
+    <string name="palette_hex_support">예: #F1F3F5</string>
     <string name="memory">메모리</string>
     <string name="memory_support">다음 AVF 시작부터 게스트에 할당합니다.</string>
     <string name="virtual_cpu">가상 CPU</string>

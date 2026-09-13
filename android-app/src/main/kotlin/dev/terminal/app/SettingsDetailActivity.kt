@@ -15,6 +15,8 @@ import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.selection.toggleable
@@ -450,13 +452,28 @@ class SettingsDetailActivity : TerminalActivity() {
             }
         }
         item {
+            var paletteEditorVisible by rememberSaveable { mutableStateOf(false) }
             SettingsSection(R.string.section_palette) {
                 ChoiceSetting(
                     R.string.color_palette,
                     R.string.color_palette_support,
-                    listOf(Choice(R.string.palette_neutral_dark, "DROID_DARK"), Choice(R.string.palette_solarized_dark, "SOLARIZED_DARK"), Choice(R.string.palette_amoled, "AMOLED")),
+                    listOf(
+                        Choice(R.string.palette_neutral_dark, "DROID_DARK"),
+                        Choice(R.string.palette_solarized_dark, "SOLARIZED_DARK"),
+                        Choice(R.string.palette_amoled, "AMOLED"),
+                        Choice(R.string.palette_custom, TerminalAppearance.CUSTOM_PALETTE),
+                    ),
                     terminalPreferences.getString(KEY_PALETTE, "DROID_DARK") ?: "DROID_DARK",
                 ) { terminalPreferences.edit().putString(KEY_PALETTE, it).apply() }
+                SettingsDivider()
+                ActionSetting(R.string.customize_palette, R.string.customize_palette_support) { paletteEditorVisible = true }
+            }
+            if (paletteEditorVisible) {
+                PaletteEditorDialog(
+                    initial = TerminalAppearance.paletteColors(terminalPreferences),
+                    onSave = { colors -> TerminalAppearance.saveCustomPalette(terminalPreferences, colors); paletteEditorVisible = false },
+                    onDismiss = { paletteEditorVisible = false },
+                )
             }
         }
     }
@@ -824,6 +841,39 @@ class SettingsDetailActivity : TerminalActivity() {
                 dismissButton = { TextButton(onClick = { dialogVisible = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } },
             )
         }
+    }
+
+    @Composable
+    private fun PaletteEditorDialog(initial: TerminalAppearance.PaletteColors, onSave: (TerminalAppearance.PaletteColors) -> Unit, onDismiss: () -> Unit) {
+        var foreground by rememberSaveable { mutableStateOf(initial.foreground) }
+        var background by rememberSaveable { mutableStateOf(initial.background) }
+        var cursor by rememberSaveable { mutableStateOf(initial.cursor) }
+        val valid = TerminalAppearance.isHexColor(foreground) && TerminalAppearance.isHexColor(background) && TerminalAppearance.isHexColor(cursor)
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = { Text(stringResource(R.string.customize_palette)) },
+            text = {
+                Column(Modifier.heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
+                    Text(stringResource(R.string.customize_palette_support))
+                    PaletteColorField(R.string.palette_foreground, foreground) { foreground = it }
+                    PaletteColorField(R.string.palette_background, background) { background = it }
+                    PaletteColorField(R.string.palette_cursor, cursor) { cursor = it }
+                }
+            },
+            confirmButton = { Button(onClick = { onSave(TerminalAppearance.PaletteColors(foreground, background, cursor)) }, shapes = ButtonDefaults.shapes(), enabled = valid) { Text(stringResource(R.string.save)) } },
+            dismissButton = { TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } },
+        )
+    }
+
+    @Composable
+    private fun PaletteColorField(@StringRes label: Int, value: String, onValueChange: (String) -> Unit) {
+        OutlinedTextField(
+            value = value, onValueChange = onValueChange, label = { Text(stringResource(label)) },
+            supportingText = { Text(stringResource(R.string.palette_hex_support)) },
+            isError = !TerminalAppearance.isHexColor(value), singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii),
+            modifier = Modifier.fillMaxWidth().padding(top = 12.dp),
+        )
     }
 
     @Composable

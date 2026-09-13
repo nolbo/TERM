@@ -18,11 +18,26 @@ object TerminalAppearance {
     const val DEFAULT_PADDING_DP = 4
     val PADDING_RANGE = 0..32
     const val DEFAULT_FONT_SIZE_SP = 10
+    const val KEY_PALETTE = "palette"
+    const val CUSTOM_PALETTE = "CUSTOM"
+    private const val KEY_CUSTOM_FOREGROUND = "custom-palette-foreground"
+    private const val KEY_CUSTOM_BACKGROUND = "custom-palette-background"
+    private const val KEY_CUSTOM_CURSOR = "custom-palette-cursor"
+
+    data class PaletteColors(val foreground: String, val background: String, val cursor: String) {
+        fun asProperties(): Properties = Properties().apply {
+            setProperty("foreground", foreground)
+            setProperty("background", background)
+            setProperty("cursor", cursor)
+        }
+    }
+
+    private var appliedPalette: PaletteColors? = null
 
     fun paddingDp(preferences: SharedPreferences): Int =
         preferences.getInt(KEY_PADDING, DEFAULT_PADDING_DP).coerceIn(PADDING_RANGE)
 
-    fun apply(preferences: SharedPreferences, terminalView: com.termux.view.TerminalView) {
+    fun apply(preferences: SharedPreferences, terminalView: com.termux.view.TerminalView): Boolean {
         terminalView.setTextSize(
             fontSizeSpToPx(preferences.getInt(KEY_FONT_SIZE, DEFAULT_FONT_SIZE_SP)) { value ->
                 TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, terminalView.resources.displayMetrics)
@@ -31,25 +46,46 @@ object TerminalAppearance {
         terminalView.setTypefaceFamily(fontFamily(preferences, terminalView))
         terminalView.setForceFixedWidth(preferences.getBoolean(KEY_FIXED_WIDTH, true))
         terminalView.setNaturalWideGlyphRendering(preferences.getBoolean(KEY_NATURAL_WIDE_GLYPHS, false))
-        TerminalColors.COLOR_SCHEME.updateWith(palette(preferences.getString(KEY_PALETTE, "DROID_DARK")))
+        val colors = paletteColors(preferences)
+        TerminalColors.COLOR_SCHEME.updateWith(colors.asProperties())
+        val paletteChanged = colors != appliedPalette
+        if (paletteChanged) {
+            terminalView.resetColorsToDefault()
+            appliedPalette = colors
+        }
         terminalView.setBackgroundColor(backgroundColor(preferences))
+        return paletteChanged
     }
 
     fun backgroundColor(preferences: SharedPreferences): Int =
-        Color.parseColor(background(preferences.getString(KEY_PALETTE, "DROID_DARK")))
+        Color.parseColor(paletteColors(preferences).background)
 
-    private fun palette(value: String?): Properties = Properties().apply {
-        when (value) {
-            "SOLARIZED_DARK" -> { setProperty("background", "#002b36"); setProperty("foreground", "#839496"); setProperty("cursor", "#93a1a1") }
-            "AMOLED" -> { setProperty("background", "#000000"); setProperty("foreground", "#e6e6e6"); setProperty("cursor", "#ffffff") }
-            else -> { setProperty("background", "#000000"); setProperty("foreground", "#f1f3f5"); setProperty("cursor", "#ffffff") }
-        }
+    fun paletteColors(preferences: SharedPreferences): PaletteColors {
+        val base = presetPalette(preferences.getString(KEY_PALETTE, "DROID_DARK"))
+        if (preferences.getString(KEY_PALETTE, "DROID_DARK") != CUSTOM_PALETTE) return base
+        return PaletteColors(
+            preferences.getString(KEY_CUSTOM_FOREGROUND, base.foreground).orEmpty().takeIf(::isHexColor) ?: base.foreground,
+            preferences.getString(KEY_CUSTOM_BACKGROUND, base.background).orEmpty().takeIf(::isHexColor) ?: base.background,
+            preferences.getString(KEY_CUSTOM_CURSOR, base.cursor).orEmpty().takeIf(::isHexColor) ?: base.cursor,
+        )
     }
 
-    private fun background(value: String?): String = when (value) {
-        "SOLARIZED_DARK" -> "#002b36"
-        "AMOLED" -> "#000000"
-        else -> "#000000"
+    fun saveCustomPalette(preferences: SharedPreferences, colors: PaletteColors) {
+        require(isHexColor(colors.foreground) && isHexColor(colors.background) && isHexColor(colors.cursor))
+        preferences.edit()
+            .putString(KEY_CUSTOM_FOREGROUND, colors.foreground.uppercase())
+            .putString(KEY_CUSTOM_BACKGROUND, colors.background.uppercase())
+            .putString(KEY_CUSTOM_CURSOR, colors.cursor.uppercase())
+            .putString(KEY_PALETTE, CUSTOM_PALETTE)
+            .apply()
+    }
+
+    fun isHexColor(value: String): Boolean = value.matches(Regex("#[0-9a-fA-F]{6}"))
+
+    private fun presetPalette(value: String?): PaletteColors = when (value) {
+        "SOLARIZED_DARK" -> PaletteColors("#839496", "#002B36", "#93A1A1")
+        "AMOLED" -> PaletteColors("#E6E6E6", "#000000", "#FFFFFF")
+        else -> PaletteColors("#F1F3F5", "#000000", "#FFFFFF")
     }
 
     /**
@@ -98,7 +134,6 @@ object TerminalAppearance {
 
     private const val KEY_FONT_SIZE = "font-size-sp"
     private const val KEY_FONT_FAMILY = "font-family"
-    private const val KEY_PALETTE = "palette"
     private const val KEY_FIXED_WIDTH = "fixed-width"
     private const val KEY_NATURAL_WIDE_GLYPHS = "natural-wide-glyphs"
 }
