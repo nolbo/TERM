@@ -275,6 +275,7 @@ class MainActivity : TerminalActivity() {
             TerminalAppearance.apply(preferences, it)
             applySessionFontSize(it)
             applyScrollSettings(it, preferences)
+            it.refresh()
         }
     }
 
@@ -285,8 +286,18 @@ class MainActivity : TerminalActivity() {
 
     override fun onStop() {
         activityStarted = false
-        bindingGeneration++
         keyboardRequested = false
+        terminalView?.removeCallbacks(showTerminalKeyboard)
+        mainHandler.removeCallbacks(reconnectRuntime)
+        // Keep the transport and local emulator alive while another Activity or app is in
+        // front. Recreating them here forces a full scrollback replay on every return.
+        super.onStop()
+    }
+
+    override fun onDestroy() {
+        // The Activity is no longer a valid Binder callback target. Runtime processes remain
+        // service-owned; this only releases the UI-side mirror and its listener.
+        bindingGeneration++
         terminalView?.removeCallbacks(showTerminalKeyboard)
         mainHandler.removeCallbacks(reconnectRuntime)
         if (bindingRequested) {
@@ -307,7 +318,7 @@ class MainActivity : TerminalActivity() {
         bound = false
         runtime = null
         listener = null
-        super.onStop()
+        super.onDestroy()
     }
 
     @Composable
@@ -828,6 +839,9 @@ class MainActivity : TerminalActivity() {
         runtime = null
         listener = null
         runtimeAttachment.reset()
+        // A disconnected service can have missed output. Force a transcript replay after
+        // the next bind instead of treating the retained UI emulator as current.
+        initializedRuntimeTerminals.clear()
         runtimeMessage = getString(R.string.runtime_reconnecting_prompt)
         if (activityStarted) mainHandler.postDelayed(reconnectRuntime, RECONNECT_DELAY_MS)
     }

@@ -618,6 +618,12 @@ public final class TerminalView extends View {
         if (mEmulator != null) mLastTranscriptScroll = mEmulator.getTranscriptScrollCounter();
     }
 
+    /** Drop a cached display list and schedule the latest emulator state for the next frame. */
+    public void refresh() {
+        if (mRenderer != null) mRenderer.clearPresentedFrame();
+        postInvalidateOnAnimation();
+    }
+
     private void anchorToTranscript() {
         long current = mEmulator.getTranscriptScrollCounter();
         long advanced = Math.max(0, current - mLastTranscriptScroll);
