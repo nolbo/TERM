@@ -3,13 +3,20 @@
 **Terminal Environments with Runtime Multiplexing**
 
 Public Android APK distribution for TERM. App versions follow the source
-mainline commit history. The mainline commit is recorded in each release's
+main/development branches. The source commit and channel are recorded in each release's
 `update.json`; this repository's Git history contains distribution information.
 
 Download **TERM.apk** from [Releases](https://github.com/nolbo/TERM/releases).
 The first release will appear after the publisher is configured and a mainline
 build passes verification. The app also checks releases under **Settings →
 App updates**, without requiring a GitHub account.
+
+Stable updates follow **origin/main**. Development updates follow **origin/dev**
+and appear as prereleases. The app offers an explicit Stable/Development channel
+selector; development releases may be unstable. CI version codes share one
+workflow sequence, and an older channel cannot downgrade an installed app.
+The **dev-latest** prerelease contains discovery metadata only; download APKs
+from their commit-specific releases. No developer token is required in the app.
 
 Each APK is signed with the same app signing key. Android asks for confirmation
 before installation; a debug-signed app cannot be replaced with a different

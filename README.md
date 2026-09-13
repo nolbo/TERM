@@ -42,13 +42,17 @@ android-app/build/outputs/apk/debug/android-app-debug.apk
 
 ## Update versions
 
-Every APK derives its Android `versionCode` from the complete commit count of
-`origin/main`, and its `versionName` includes that mainline revision's short
-SHA. A newly advanced `origin/main` is therefore a new app update; builds from
-other branches retain the version of the `origin/main` revision they target.
-The build deliberately fails when that ref is unavailable, rather than
-producing an APK that Android could mistake for an update. CI fetches the full
-mainline history before building.
+`origin/main` advances provide stable updates; `origin/dev` advances provide
+development prereleases. Settings → App updates selects either channel, with
+the installed APK's channel as the initial default. Both use the same app ID
+and release signing key. CI uses `1000000 + GITHUB_RUN_NUMBER` as a shared Android
+`versionCode`, avoiding branch-count collisions; the name is
+`<base>+<main|dev>.<code>.<12-character source SHA>`. An older channel cannot
+downgrade the installed app. Local builds default to the checked-out dev branch
+or main, identify that remote ref, and use its commit count unless
+`TERMINAL_UPDATE_VERSION_CODE` is supplied. Set `TERMINAL_UPDATE_CHANNEL=main|dev`
+to override the local channel. Local count-based APKs do not replace newer CI
+APKs. Missing refs or shallow Git history fail the build.
 
 ### Signed APKs outside a store
 
@@ -84,12 +88,12 @@ base64 -w 0 "$HOME/.local/share/terminal-signing/terminal-release.p12" \
 gh secret set TERMINAL_SIGNING_STORE_PASSWORD --repo nolbo/terminal
 ```
 
-After verification, main push builds upload a signed `terminal-main-update`
+After verification, main/dev push builds upload a signed `terminal-<channel>-update`
 Actions artifact with integrity metadata and native corresponding-source
 bundles, then publish it to the public [TERM distribution repository](https://github.com/nolbo/TERM).
 Cross-repository publishing requires a separate `TERMINAL_UPDATES_TOKEN` secret,
 restricted to that repository with `Contents: write`. Fork PRs and other
-branches do not receive signing or publication secrets.
+branches other than main/dev do not receive signing or publication secrets.
 **Settings → App updates** checks the public release, downloads the APK, verifies
 its size, SHA-256, package/version and installed signing identity, and opens
 Android's installer only after explicit confirmation. See [App updates](docs/APP_UPDATES.md)

@@ -38,16 +38,30 @@ internal class AppUpdateController(context: Context) {
     private val app = context.applicationContext
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
+    private val preferences = app.getSharedPreferences("app-updates", Context.MODE_PRIVATE)
+    var channel: UpdateChannel by mutableStateOf(
+        UpdateChannel.entries.firstOrNull { it.wireName == preferences.getString("channel", BuildConfig.UPDATE_CHANNEL) }
+            ?: UpdateChannel.fromWire(BuildConfig.UPDATE_CHANNEL)
+    )
+        private set
     var state: AppUpdateState by mutableStateOf(AppUpdateState.Idle)
         private set
-    private val busy: Boolean get() = state is AppUpdateState.Checking || state is AppUpdateState.Downloading
+    val busy: Boolean get() = state is AppUpdateState.Checking || state is AppUpdateState.Downloading
+
+    fun selectChannel(value: UpdateChannel) {
+        if (busy || value == channel) return
+        preferences.edit().putString("channel", value.wireName).apply()
+        channel = value
+        state = AppUpdateState.Idle
+    }
 
     fun check() {
         if (busy) return
+        val requestedChannel = channel
         state = AppUpdateState.Checking
         worker.execute {
             try {
-                val connection = open(UPDATE_MANIFEST_URL)
+                val connection = open(requestedChannel.manifestUrl)
                 val manifest = try {
                     if (connection.responseCode == 404) null
                     else {
@@ -64,14 +78,15 @@ internal class AppUpdateController(context: Context) {
                                 bytes.write(buffer, 0, count)
                             }
                         }
-                        AppUpdateManifest.parse(bytes.toString("UTF-8"))
+                        AppUpdateManifest.parse(bytes.toString("UTF-8"), requestedChannel)
                     }
                 } finally { connection.disconnect() }
                 val result = if (manifest == null) AppUpdateState.NoRelease else when (
-                    updateAvailability(BuildConfig.VERSION_CODE, BuildConfig.MAIN_REVISION, Build.VERSION.SDK_INT, manifest)
+                    updateAvailability(BuildConfig.VERSION_CODE, BuildConfig.UPDATE_REVISION, Build.VERSION.SDK_INT, manifest)
                 ) {
                     UpdateAvailability.CURRENT -> AppUpdateState.Current
                     UpdateAvailability.AVAILABLE -> AppUpdateState.Available(manifest)
+                    UpdateAvailability.OLDER -> AppUpdateState.Failed(R.string.update_channel_older)
                     UpdateAvailability.INCOMPATIBLE -> AppUpdateState.Failed(R.string.update_incompatible)
                     UpdateAvailability.NON_FORWARD -> AppUpdateState.Failed(R.string.update_non_forward)
                 }

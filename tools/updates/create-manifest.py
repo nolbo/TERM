@@ -9,9 +9,11 @@ import re
 MAX_APK_BYTES = 128 * 1024 * 1024
 
 
-def create_manifest(apk: Path, metadata: dict, commit: str) -> dict:
+def create_manifest(apk: Path, metadata: dict, commit: str, channel: str = "main") -> dict:
+    if channel not in ("main", "dev"):
+        raise ValueError("Invalid update channel")
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
-        raise ValueError("Invalid main commit")
+        raise ValueError("Invalid source commit")
     if metadata.get("applicationId") != "dev.terminal.app" or len(metadata.get("elements", [])) != 1:
         raise ValueError("Expected one TERM APK")
     element = metadata["elements"][0]
@@ -20,9 +22,9 @@ def create_manifest(apk: Path, metadata: dict, commit: str) -> dict:
         raise ValueError("Invalid version code")
     name = element["versionName"]
     if not isinstance(name, str) or len(name) > 96 or not re.fullmatch(
-        rf"[0-9]+\.[0-9]+\.[0-9]+\+main\.{code}\.{commit[:12]}", name
+        rf"[0-9]+\.[0-9]+\.[0-9]+\+{channel}\.{code}\.{commit[:12]}", name
     ):
-        raise ValueError("APK version does not match the main commit")
+        raise ValueError("APK version does not match the channel/source commit")
     if element.get("outputFile") != apk.name:
         raise ValueError("APK does not match build metadata")
     min_sdk = metadata["minSdkVersionForDexing"]
@@ -35,7 +37,7 @@ def create_manifest(apk: Path, metadata: dict, commit: str) -> dict:
     with apk.open("rb") as stream:
         for chunk in iter(lambda: stream.read(64 * 1024), b""):
             digest.update(chunk)
-    return dict(schemaVersion=1, applicationId="dev.terminal.app", commit=commit,
+    return dict(schemaVersion=1, applicationId="dev.terminal.app", commit=commit, channel=channel,
                 versionCode=code, versionName=name, minSdk=min_sdk, size=size,
                 sha256=digest.hexdigest())
 
@@ -45,7 +47,8 @@ if __name__ == "__main__":
     parser.add_argument("--apk", required=True, type=Path)
     parser.add_argument("--metadata", required=True, type=Path)
     parser.add_argument("--commit", required=True)
+    parser.add_argument("--channel", choices=["main", "dev"], default="main")
     parser.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
-    manifest = create_manifest(args.apk, json.loads(args.metadata.read_text()), args.commit)
+    manifest = create_manifest(args.apk, json.loads(args.metadata.read_text()), args.commit, args.channel)
     args.output.write_text(json.dumps(manifest, indent=2) + "\n")

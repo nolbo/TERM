@@ -4,10 +4,8 @@ plugins {
 }
 
 /**
- * An APK update is identified by the commit that `origin/main` points to, not
- * by the branch used to build it.  This keeps development builds from being
- * mistaken for a distributable update and makes Android's versionCode advance
- * once for every mainline update.
+ * main and dev are separate update channels. CI pins the selected remote ref
+ * to the event commit and supplies a shared workflow sequence versionCode.
  */
 def gitOutput = { List<String> arguments ->
     providers.exec {
@@ -16,16 +14,21 @@ def gitOutput = { List<String> arguments ->
     }.standardOutput.asText.get().trim()
 }
 
-def mainRevision = gitOutput(['rev-parse', '--verify', 'origin/main'])
+def updateChannel = providers.environmentVariable('TERMINAL_UPDATE_CHANNEL')
+    .orElse(gitOutput(['branch', '--show-current']) == 'dev' ? 'dev' : 'main').get()
+if (!(updateChannel in ['main', 'dev'])) throw new GradleException('Update channel must be main or dev.')
+def updateRevision = gitOutput(['rev-parse', '--verify', "origin/${updateChannel}"])
 if (gitOutput(['rev-parse', '--is-shallow-repository']) != 'false') {
     throw new GradleException('Full Git history is required for update versions. Run git fetch --unshallow before building.')
 }
-def mainRevisionCount = gitOutput(['rev-list', '--count', 'origin/main']).toInteger()
-if (mainRevisionCount <= 0) {
-    throw new GradleException('origin/main must have a positive commit count.')
+def revisionCount = gitOutput(['rev-list', '--count', "origin/${updateChannel}"]).toInteger()
+def updateCodeText = providers.environmentVariable('TERMINAL_UPDATE_VERSION_CODE').orElse(revisionCount.toString()).get()
+if (!updateCodeText.matches('[0-9]+') || updateCodeText.toBigInteger() < 1 || updateCodeText.toBigInteger() > Integer.MAX_VALUE) {
+    throw new GradleException('Update versionCode must be a positive Android integer.')
 }
+def updateVersionCode = updateCodeText.toInteger()
 def appBaseVersion = project.properties.appBaseVersion
-def appVersionName = "${appBaseVersion}+main.${mainRevisionCount}.${mainRevision.take(12)}"
+def appVersionName = "${appBaseVersion}+${updateChannel}.${updateVersionCode}.${updateRevision.take(12)}"
 
 // Keep private signing material outside the worktree. PKCS12 uses the store
 // password for its key unless a separate key password is explicitly supplied.
@@ -61,9 +64,10 @@ android {
         applicationId 'dev.terminal.app'
         minSdk project.properties.minSdkVersion.toInteger()
         targetSdk project.properties.targetSdkVersion.toInteger()
-        versionCode mainRevisionCount
+        versionCode updateVersionCode
         versionName appVersionName
-        buildConfigField 'String', 'MAIN_REVISION', "\"${mainRevision}\""
+        buildConfigField 'String', 'UPDATE_REVISION', "\"${updateRevision}\""
+        buildConfigField 'String', 'UPDATE_CHANNEL', "\"${updateChannel}\""
 
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }

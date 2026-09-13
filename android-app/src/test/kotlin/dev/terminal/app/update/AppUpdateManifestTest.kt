@@ -37,7 +37,7 @@ class AppUpdateManifestTest {
     @Test fun newerMainIsAvailableWithoutOfferingOlderOrDivergentVersions() {
         assertEquals(UpdateAvailability.AVAILABLE, updateAvailability(31, "2".repeat(40), 35, manifest()))
         assertEquals(UpdateAvailability.CURRENT, updateAvailability(32, commit, 35, manifest()))
-        assertEquals(UpdateAvailability.CURRENT, updateAvailability(33, "2".repeat(40), 35, manifest()))
+        assertEquals(UpdateAvailability.OLDER, updateAvailability(33, "2".repeat(40), 35, manifest()))
         assertEquals(UpdateAvailability.NON_FORWARD, updateAvailability(32, "2".repeat(40), 35, manifest()))
         assertEquals(UpdateAvailability.INCOMPATIBLE, updateAvailability(31, "2".repeat(40), 30, manifest()))
     }
@@ -66,5 +66,24 @@ class AppUpdateManifestTest {
         assertThrows(UpdateRejected::class.java) { validateUpdateIdentity(update, "other.app", 32, update.versionName, setOf("trusted"), setOf("trusted")) }
         assertThrows(UpdateRejected::class.java) { validateUpdateIdentity(update, "dev.terminal.app", 31, update.versionName, setOf("trusted"), setOf("trusted")) }
         assertThrows(UpdateRejected::class.java) { validateUpdateIdentity(update, "dev.terminal.app", 32, "spoofed", setOf("trusted"), setOf("trusted")) }
+    }
+
+    @Test fun developmentManifestCannotLeakIntoTheStableChannelOrUseAnotherEndpoint() {
+        val dev = json().put("channel", "dev").put("versionName", "0.1.0+dev.32.${commit.take(12)}").toString()
+        val update = AppUpdateManifest.parse(dev, UpdateChannel.DEV)
+        assertEquals("https://github.com/nolbo/TERM/releases/download/dev-$commit/TERM.apk", update.apkUrl)
+        assertEquals("https://github.com/nolbo/TERM/releases/download/dev-latest/update.json", update.channel.manifestUrl)
+        assertThrows(IllegalArgumentException::class.java) { AppUpdateManifest.parse(dev) }
+        assertThrows(IllegalArgumentException::class.java) { AppUpdateManifest.parse(json().toString(), UpdateChannel.DEV) }
+        assertThrows(IllegalArgumentException::class.java) { AppUpdateManifest.parse(json().put("channel", "../latest").toString()) }
+    }
+
+    @Test fun legacyStableManifestsRemainReadableAndSharedCiCodesAllowChannelTransitions() {
+        assertEquals(UpdateChannel.MAIN, manifest().channel)
+        val dev = manifest().copy(channel = UpdateChannel.DEV, versionCode = 1000004)
+        val main = manifest().copy(versionCode = 1000005)
+        assertEquals(UpdateAvailability.AVAILABLE, updateAvailability(36, commit, 35, dev))
+        assertEquals(UpdateAvailability.AVAILABLE, updateAvailability(dev.versionCode, commit, 35, main))
+        assertEquals(UpdateAvailability.OLDER, updateAvailability(dev.versionCode, commit, 35, manifest()))
     }
 }

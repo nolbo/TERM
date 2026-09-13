@@ -21,6 +21,7 @@ import androidx.core.content.FileProvider
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.update.AppUpdateState
+import dev.terminal.app.update.UpdateChannel
 import java.util.Locale
 
 /** Dedicated subclass follows FileProvider's device compatibility contract. */
@@ -34,10 +35,21 @@ class AppUpdatesActivity : TerminalActivity() {
         compose {
             val state = updates.state
             var installConfirmation by rememberSaveable { mutableStateOf(false) }
+            LaunchedEffect(updates.channel) { installConfirmation = false }
             SettingsPageScaffold(stringResource(R.string.app_updates), { finish() }) { padding ->
                 Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     Text(stringResource(R.string.update_description), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(stringResource(R.string.update_channel_label), style = MaterialTheme.typography.labelLarge)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        UpdateChannel.entries.forEach { channel ->
+                            FilterChip(selected = updates.channel == channel, enabled = !updates.busy,
+                                onClick = { updates.selectChannel(channel) },
+                                label = { Text(stringResource(if (channel == UpdateChannel.MAIN) R.string.update_channel_main else R.string.update_channel_dev)) })
+                        }
+                    }
+                    if (updates.channel == UpdateChannel.DEV) Text(stringResource(R.string.update_dev_warning),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Card(shape = MaterialTheme.shapes.extraLarge, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(stringResource(R.string.update_installed_version, BuildConfig.VERSION_NAME), style = MaterialTheme.typography.titleMedium)
