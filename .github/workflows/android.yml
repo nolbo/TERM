@@ -55,6 +55,14 @@ jobs:
             android-runtime/build/distributions/iphone-worker-source.tar.gz
             android-runtime/build/iphone-tools/distributions/iphone-tools-source.tar.gz
             android-runtime/build/sidestore-native/distributions/sidestore-bootstrap-source.tar.gz
+      - name: Use JDK 21 for release lint
+        # AGP 9.3's lint parser calls List.removeLast(), unavailable on JDK 17.
+        # Verification above and explicit compilation toolchains remain on 17.
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
       - name: Build signed mainline update
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         env:

@@ -29,6 +29,14 @@ metadata, rejecting a commit/version mismatch. The artifact contains:
   exact bytes and SHA-256)
 - the existing native corresponding-source bundles
 
+CI verification uses JDK 17. The signed release step switches only its Gradle
+runtime to JDK 21: AGP 9.3's bundled lint parser crashed on JDK 17 with
+`NoSuchMethodError: java.util.List.removeLast()` in the first main publication
+run. That Java API was introduced in 21; release packaging had already passed
+on the local JDK 21 host. Explicit Java/Kotlin compilation targets and JVM
+module toolchains remain 17. Release lint stays enabled; no Android SDK, Gradle
+or library upgrade is needed for this runtime compatibility fix.
+
 `tools/updates/publish.sh` creates `main-<full source SHA>` releases in the
 distribution repository. This is a distribution tag, not a Git object imported
 from the private source repository. Uploads remain drafts until complete;
