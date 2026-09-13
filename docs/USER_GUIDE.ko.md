@@ -1,5 +1,9 @@
 # TERM 사용 가이드
 
+USB 안전성은 [자동 검사와 실기기 검증 절차](../tests/usb/DEVICE_SAFETY.md)로 나누어
+확인합니다. 가상 테스트 통과는 실기기 무손상을 보장하지 않습니다. 실기기 검사에서는
+작업 전후 설정·데이터·다른 세션·재연결을 비교하며, 예상 밖 변화가 있으면 중단합니다.
+
 iPhone 검사 중 USB 구성을 자동 변경하지 않습니다. `USB_CONFIGURATION_REQUIRED`가
 나오면 Native/Rootless의 `terminal-usb configuration DEVICE_ID VALUE`로 별도 승인을
 요청하고, 변경 후 다시 목록을 조회해 새 기기 ID를 사용하세요.

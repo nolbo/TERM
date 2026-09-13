@@ -1,5 +1,8 @@
 # Virtual iPhone verification
 
+For regression gates, pre/post-device comparisons and stop/release criteria, see
+[DEVICE_SAFETY.md](DEVICE_SAFETY.md). Virtual success never completes that physical gate.
+
 This is a fault-injection test environment, not an iOS virtual machine. No real
 Apple Account, iPhone identity, pairing record, certificate or IPA is needed.
 

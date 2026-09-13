@@ -1,5 +1,9 @@
 # Security
 
+The repeatable [device-safety gate and physical acceptance process](../tests/usb/DEVICE_SAFETY.md)
+separates automated regression results from hardware evidence. Skips and missing
+physical tests must never be presented as proof of device safety.
+
 iPhone workers never change USB configurations, even for `check`; the existing
 device-wide configuration capability remains separate. Pairing-file placement
 stages/verifies then renames, never truncating or deleting the live file first.

@@ -17,6 +17,16 @@ jobs:
         run: rustup toolchain install 1.89.0 --profile minimal --target aarch64-linux-android
       - name: Build and test
         run: ./gradlew :android-app:assembleDebug :android-runtime:testDebugUnitTest :image:test --console=plain
+      - name: USB host safety regression gate (not physical validation)
+        run: |
+          terminal_ndk_version=$(sed -n 's/^ndkVersion=//p' gradle.properties)
+          python3 tests/usb/safety_gate.py --scope host --ndk "$ANDROID_HOME/ndk/$terminal_ndk_version" > "${{ runner.temp }}/usb-safety-report.json"
+      - name: Publish safety scope report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: usb-safety-report
+          path: ${{ runner.temp }}/usb-safety-report.json
       - name: Publish debug APK
         uses: actions/upload-artifact@v4
         with:
