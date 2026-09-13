@@ -3,6 +3,56 @@ plugins {
     id 'org.jetbrains.kotlin.plugin.compose'
 }
 
+/**
+ * An APK update is identified by the commit that `origin/main` points to, not
+ * by the branch used to build it.  This keeps development builds from being
+ * mistaken for a distributable update and makes Android's versionCode advance
+ * once for every mainline update.
+ */
+def gitOutput = { List<String> arguments ->
+    providers.exec {
+        workingDir rootProject.projectDir
+        commandLine(['git'] + arguments)
+    }.standardOutput.asText.get().trim()
+}
+
+def mainRevision = gitOutput(['rev-parse', '--verify', 'origin/main'])
+if (gitOutput(['rev-parse', '--is-shallow-repository']) != 'false') {
+    throw new GradleException('Full Git history is required for update versions. Run git fetch --unshallow before building.')
+}
+def mainRevisionCount = gitOutput(['rev-list', '--count', 'origin/main']).toInteger()
+if (mainRevisionCount <= 0) {
+    throw new GradleException('origin/main must have a positive commit count.')
+}
+def appBaseVersion = project.properties.appBaseVersion
+def appVersionName = "${appBaseVersion}+main.${mainRevisionCount}.${mainRevision.take(12)}"
+
+// Keep private signing material outside the worktree. PKCS12 uses the store
+// password for its key unless a separate key password is explicitly supplied.
+def releaseStoreFile = providers.environmentVariable('TERMINAL_SIGNING_STORE_FILE')
+    .orElse(new File(System.getProperty('user.home'), '.local/share/terminal-signing/terminal-release.p12').path).get()
+def releaseStorePassword = providers.environmentVariable('TERMINAL_SIGNING_STORE_PASSWORD').orNull
+def releaseKeyPassword = providers.environmentVariable('TERMINAL_SIGNING_KEY_PASSWORD').orElse(
+    providers.environmentVariable('TERMINAL_SIGNING_STORE_PASSWORD')).orNull
+def releaseKeyAlias = providers.environmentVariable('TERMINAL_SIGNING_KEY_ALIAS').orElse('terminal').get()
+
+def checkReleaseSigning = tasks.register('checkReleaseSigning') {
+    doLast {
+        if (!releaseStorePassword || !releaseKeyPassword) {
+            throw new GradleException('Release signing requires TERMINAL_SIGNING_STORE_PASSWORD. Use bash tools/build-release.sh for an interactive build.')
+        }
+        if (!file(releaseStoreFile).isFile()) {
+            throw new GradleException('Release keystore not found. Set TERMINAL_SIGNING_STORE_FILE to your existing keystore.')
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name == 'packageRelease' || name == 'validateSigningRelease') {
+        dependsOn checkReleaseSigning
+    }
+}
+
 android {
     namespace 'dev.terminal.app'
     compileSdk project.properties.compileSdkVersion.toInteger()
@@ -11,10 +61,26 @@ android {
         applicationId 'dev.terminal.app'
         minSdk project.properties.minSdkVersion.toInteger()
         targetSdk project.properties.targetSdkVersion.toInteger()
-        versionCode 1
-        versionName '0.1.0-spike'
+        versionCode mainRevisionCount
+        versionName appVersionName
+        buildConfigField 'String', 'MAIN_REVISION', "\"${mainRevision}\""
 
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    signingConfigs {
+        release {
+            storeFile file(releaseStoreFile)
+            storePassword releaseStorePassword
+            keyAlias releaseKeyAlias
+            keyPassword releaseKeyPassword
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+        }
     }
 
     buildFeatures {

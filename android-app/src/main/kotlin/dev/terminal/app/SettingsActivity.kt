@@ -12,6 +12,9 @@ class SettingsActivity : TerminalActivity() {
         compose { SettingsOverview({ finish() }, ::open) }
     }
 
-    private fun open(category: String) = startActivity(Intent(this, SettingsDetailActivity::class.java)
-        .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, category))
+    private fun open(category: String) {
+        if (category == "updates") startActivity(Intent(this, AppUpdatesActivity::class.java))
+        else startActivity(Intent(this, SettingsDetailActivity::class.java)
+            .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, category))
+    }
 }
