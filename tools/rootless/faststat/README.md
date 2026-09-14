@@ -142,7 +142,7 @@ fake_id0와 같은 소유자 보정을 수행한다. 절대 경로와 AT_FDCWD�
 반환 추적은 유지한다. 모드 1의 namespace syscall 차단은 모드 2에 적용하지
 않고 기존 PRoot 동작을 따른다. 이것이 새 namespace 기능을 제공하지는 않는다.
 
-l2s 내부 backing 이름, 호스트 /proc·/sys·/dev, 비정규 객체, 해석 실패는 기존
+검증되지 않은 l2s 내부 이름, 호스트 /proc·/sys·/dev, 비정규 객체, 해석 실패는 기존
 syscall로 돌아간다. 이 경우 상태 조회 비용이 추가되어 느려질 수 있다.
 경로 스냅샷과 커널 조회 사이의 rename 경쟁, 내부 FD와 다른 스레드의 FD 조작
 경쟁까지 원자적으로 해결한 구현은 아니다. 기본 앱에는 활성화하지 않는다.
@@ -156,9 +156,9 @@ syscall로 돌아간다. 이 경우 상태 조회 비용이 추가되어 느려�
 추가 검증은 cwd/fchdir, bind 별칭, fork 후 서로 다른 real/effective/saved
 UID/GID, 잘못된 요청 크기·포인터·NUL 없는 패킷을 포함한다. 잘못된 포인터
 시험의 PRoot `ptrace(PEEKDATA): I/O error` 경고는 의도한 EFAULT 검증이다.
-모드 1 재검증, seccomp 끔, 호스트 fallback도 통과했다. 하드링크 전환 이후
-thread 조회는 대부분 fallback이므로 이 시험을 동시 고속 조회의 증거로
-해석하지 않는다.
+모드 1 재검증, seccomp 끔, 호스트 fallback도 통과했다. 최초 모드 2에서는
+하드링크 전환 이후 thread 조회가 대부분 fallback이었다. 아래 후속 구현은
+이 객체도 가속하며 thread 조회의 hit 수를 별도로 검증한다.
 
 Debian에서 `-0 --link2symlink`, /dev·/proc·/sys·/root·/workspace bind를
 유지하고 7회 번갈아 측정했다. 회차마다 순서를 반전했고 warm-up 100회 후
@@ -181,6 +181,63 @@ Clang -Wall -Wextra -Werror와 호스트 fallback 검증을 통과했다. 일반
 재빌드는 기존 payload digest와 일치했고, 실험 재빌드도 다음 SHA-256으로
 재현되었다: `998253f4f4ace6c49d34bd7ab6f60c3d4650a3024ea079a34abfad07ab46d4e7`.
 
+## 모드 2 후속: l2s 하드링크 조회
+
+가상 링크 수를 매 호출의 경로 응답에 추가했다. 실행 옵션은 계속
+`PROOT_FASTSTAT=2`이며 프로토콜 버전은 3, 패킷 크기는 4,128바이트다.
+구버전 tracer와 새 DSO의 조합은 handshake 불일치로 비활성화된다.
+구버전 DSO도 새 tracer의 버전 3을 지원하지 않아 비활성화된다.
+
+link2symlink가 활성화되어 있고 변환된 경로의 마지막 이름이 `.l2s.`로
+시작하며 유효한 `.NNNN` 접미사를 가진 경우에만 가속한다. 내부 경로의
+조상 디렉터리 이름, 알 수 없는 형식, 0 링크 수는 기존 경로로 돌아간다.
+커널 fstat가 일반 파일임을 확인한 뒤 스냅샷의 가상 링크 수를 적용한다.
+실제 하드링크로 변환하거나 저장 형식을 바꾸는 migration은 수행하지 않는다.
+
+검증 중 fork에 따라 fake_id0와 link2symlink의 callback 순서가 뒤집히는
+기존 동작을 확인했다. l2s는 stat 전체를 덮어쓰므로 그 뒤에 fake_id0가
+실행되는 경우에만 소유자 보정이 남는다. 새 dispatcher는 현재 tracee의
+실제 순서를 반영한다. 기존 PRoot의 이 일관성 문제 자체를 고친 것은 아니다.
+
+추가 C 검증은 다음을 포함한다.
+
+- stat/lstat의 전체 메타데이터와 errno를 기존 syscall과 비교
+- 링크 생성·삭제에 따른 링크 수 3→2→1 확인
+- 하드링크를 4-thread로 800회 조회하고 **800회 모두 hit** 확인
+- 부모·자식·손자 및 UID/GID 변경 이후 소유자 비교
+- 확장 옵션 순서를 반대로 지정한 경우와 fake-root 없는 경우
+- 구버전 tracer, seccomp 끔, 모드 1, 호스트 fallback 회귀 검증
+
+API 35 ARM64 redroid의 Debian/Ubuntu에서 C 검증과 `perf-guest.py`를 통과했다.
+잘못된 요청 포인터의 의도적인 EFAULT 경고 이외 최종 테스트 실패는 없었다.
+
+`bench-hard 3000`은 링크 두 개를 가진 파일을 조회한다. Debian에서 기존
+모드 2 측정과 같은 fake-root·기본 bind, warm-up 100회, 카운터 끔 조건으로
+7회 측정하고 실행 순서를 매 회차 반전했다. 같은 최신 tracer/DSO에서
+DISABLE만 바꾼 결과다.
+
+| 조건 | 중앙값 | 최소–최대 |
+| --- | ---: | ---: |
+| 고속 끔 | 291.330 ms | 280.318–300.803 ms |
+| 하드링크 가속 | 245.811 ms | 241.244–248.782 ms |
+
+소요 시간 **15.6% 감소**, 매 실행 hits=3000/fallbacks=0이었다. 이는 이전
+시제품의 실패 후 fallback 비용까지 비교한 수치나 전체 작업 성능 수치가 아니다.
+일반 파일의 추가 3회 확인에서는 고속 켬 137.163 ms, 끔 178.187 ms 중앙값으로
+기존 가속 효과가 유지됐다. 이 확인의 표본 수는 위 7회 측정과 다르다.
+
+하드링크 bench 0→3000 진단에서 enter_stop=178→3178, exit_stop=50→50이었다.
+canon_lstat=1501→43501로 **조회당 경로 확인 14회가 여전히 남는다**.
+링크 수를 캐시하지 않으므로 경로 변환 후 링크 변경·rename과의 경쟁을
+원자적으로 해결하지 않는다. close_range 등 내부 FD 경쟁과 일반 Android
+보안 정책 검증도 계속 남는다.
+
+최종 Clang 경고 검사, 호스트 fallback, 표준 Gradle 검증(138 tasks 중
+137 up-to-date)을 통과했다. 실험 PRoot 재빌드는 SHA-256
+`cb7d53b3f979a850678b512b61a62448b030bae616aec50d661447dde584e2bc`로
+재현됐다. 제품 payload는 교체하지 않았다. Android MCP의 incremental 설치는
+거부되어 streamed 설치로 성공했다. 검증 뒤 전용 APK와 임시 파일을 제거했다.
+
 ## 제품 적용 전에 남은 일
 
 장비는 SELinux unconfined, 기존 앱 seccomp 필터 없음으로 확인된 redroid다.
@@ -192,6 +249,6 @@ fallback과 다르므로 먼저 독립적인 테스트 프로세스에서 검사
 기존 PRoot 경로를 사용한다. 전체 가상 파일시스템 의미, 특수 /proc 객체,
 guest가 전달받은 외부 FD, raw clone/fork 또는 다른 스레드의 close_range와
 일시적 내부 FD의 경쟁까지 호환성을 보장하는 완성된 runtime이 아니다.
-후속 단계에서 FD 소유권과 하드링크 상태를 처리하고, 검증 가능한 상태 공유로
+후속 단계에서 FD 소유권과 동시 경로 변경을 처리하고, 검증 가능한 상태 공유로
 모드 2에 남은 호출당 tracer 진입을 제거해야 한다. 이 조건이 충족되기 전에는 기본 실행에
 넣지 않으며 기본 `-0 --link2symlink` 옵션을 제거해서 가속하지 않는다.

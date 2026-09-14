@@ -5,7 +5,7 @@
 /* Experimental AArch64 ABI. Never enable this as a security boundary. */
 #define PROOT_FASTSTAT_QUERY 0x50525346
 #define PROOT_FASTSTAT_VERSION 1
-#define PROOT_FASTSTAT_CONTEXT_VERSION 2
+#define PROOT_FASTSTAT_CONTEXT_VERSION 3
 #define PROOT_FASTSTAT_RESOLVE 0x50525347
 #include <stdint.h>
 
@@ -17,9 +17,10 @@ struct proot_faststat_context {
     uint32_t host_uid, host_gid;
     uint32_t guest_uid, guest_gid;
     uint32_t fake_root;
+    uint32_t emulated_nlink; /* Zero: ordinary object; otherwise fresh l2s count. */
     char path[4096];
 };
-_Static_assert(sizeof(struct proot_faststat_context) == 4124, "faststat protocol ABI");
+_Static_assert(sizeof(struct proot_faststat_context) == 4128, "faststat protocol ABI");
 /* PRoot reserves 0x20... for its loader, 0x30... for ELF, 0x3f... for ld.so. */
 #define PROOT_FASTSTAT_ADDRESS 0x4000000000ULL
 /* AArch64 seccomp sees the PC immediately following SVC. */

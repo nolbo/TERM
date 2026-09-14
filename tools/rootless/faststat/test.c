@@ -37,6 +37,8 @@ static void compare(int fd, const char *path, int flags)
     if (a == 0) {
         CHECK(actual.st_dev == expected.st_dev && actual.st_ino == expected.st_ino);
         CHECK(actual.st_mode == expected.st_mode && actual.st_nlink == expected.st_nlink);
+        if (actual.st_uid != expected.st_uid || actual.st_gid != expected.st_gid)
+            fprintf(stderr, "ownership path=%s flags=%d actual=%u:%u expected=%u:%u\n", path, flags, actual.st_uid, actual.st_gid, expected.st_uid, expected.st_gid);
         CHECK(actual.st_uid == expected.st_uid && actual.st_gid == expected.st_gid);
         CHECK(actual.st_size == expected.st_size && actual.st_blocks == expected.st_blocks);
         CHECK(actual.st_rdev == expected.st_rdev && actual.st_blksize == expected.st_blksize);
@@ -98,11 +100,12 @@ int main(int argc, char **argv)
     directory_fd = open(".", O_PATH | O_DIRECTORY);
     CHECK(directory_fd >= 0);
 
-    if (strcmp(argv[2], "bench") == 0 || strcmp(argv[2], "bench-cwd") == 0) {
+    if (strcmp(argv[2], "bench") == 0 || strcmp(argv[2], "bench-cwd") == 0 || strcmp(argv[2], "bench-hard") == 0) {
         CHECK(argc == 4);
         long count = parse_count(argv[3]);
         CHECK(count >= 0 && count <= 10000000);
         struct stat result;
+        if (strcmp(argv[2], "bench-hard") == 0) CHECK(link("file", "bench-hard") == 0);
         int bench_fd = strcmp(argv[2], "bench-cwd") == 0 ? AT_FDCWD : directory_fd;
         for (int i = 0; i < 100; i++) CHECK(test_statat(bench_fd, "file", &result, 0) == 0);
         unsigned long start_hits = hits(), start_fallbacks = fallbacks();
@@ -112,6 +115,7 @@ int main(int argc, char **argv)
         printf("{\"enabled\":%d,\"iterations\":%ld,\"ms\":%.3f,\"hits\":%lu,\"fallbacks\":%lu}\n",
                enabled(), count, elapsed, hits() - start_hits, fallbacks() - start_fallbacks);
         CHECK(hits() - start_hits == (enabled() ? (unsigned long)count : 0));
+        if (strcmp(argv[2], "bench-hard") == 0) CHECK(unlink("bench-hard") == 0);
     } else {
         CHECK(strcmp(argv[2], "test") == 0);
         int directory = open(".", O_PATH | O_DIRECTORY);
@@ -128,21 +132,31 @@ int main(int argc, char **argv)
         compare(AT_FDCWD, (const char *)1, 0);
         if (mode && mode() == PROOT_FASTSTAT_CONTEXT_VERSION) {
             errno = 0;
-            CHECK(syscall(SYS_prctl, PROOT_FASTSTAT_RESOLVE, 1, sizeof(struct proot_faststat_context), 2, 0) == -1 && errno == EFAULT);
+            CHECK(syscall(SYS_prctl, PROOT_FASTSTAT_RESOLVE, 1, sizeof(struct proot_faststat_context), PROOT_FASTSTAT_CONTEXT_VERSION, 0) == -1 && errno == EFAULT);
             errno = 0;
-            CHECK(syscall(SYS_prctl, PROOT_FASTSTAT_RESOLVE, 1, 1, 2, 0) == -1 && errno == EOPNOTSUPP);
+            CHECK(syscall(SYS_prctl, PROOT_FASTSTAT_RESOLVE, 1, 1, PROOT_FASTSTAT_CONTEXT_VERSION, 0) == -1 && errno == EOPNOTSUPP);
             struct proot_faststat_context malformed;
             memset(&malformed, 'x', sizeof(malformed));
             malformed.dirfd = directory;
             malformed.flags = 0;
             errno = 0;
-            CHECK(syscall(SYS_prctl, PROOT_FASTSTAT_RESOLVE, &malformed, sizeof(malformed), 2, 0) == -1 && errno == EOPNOTSUPP);
+            CHECK(syscall(SYS_prctl, PROOT_FASTSTAT_RESOLVE, &malformed, sizeof(malformed), PROOT_FASTSTAT_CONTEXT_VERSION, 0) == -1 && errno == EOPNOTSUPP);
         }
         struct stat *invalid = (struct stat *)1;
         errno = 0;
         CHECK(test_statat(directory, "file", invalid, 0) == -1 && errno == EFAULT);
         CHECK(link("file", "hard") == 0);
+        unsigned long link_hits = hits();
         compare(directory, "hard", 0);
+        compare(directory, "hard", AT_SYMLINK_NOFOLLOW);
+        CHECK(!enabled() || mode() != PROOT_FASTSTAT_CONTEXT_VERSION || hits() == link_hits + 2);
+        CHECK(link("hard", "third") == 0);
+        compare(directory, "file", 0);
+        struct stat linked;
+        CHECK(test_statat(directory, "file", &linked, 0) == 0 && linked.st_nlink == 3);
+        CHECK(unlink("third") == 0);
+        compare(directory, "file", 0);
+        CHECK(test_statat(directory, "file", &linked, 0) == 0 && linked.st_nlink == 2);
         CHECK(symlink("file", "relative") == 0);
         CHECK(symlink("missing", "dangling") == 0);
         char absolute[PATH_MAX], cwd[PATH_MAX];
@@ -191,17 +205,28 @@ int main(int argc, char **argv)
         compare(directory, memory + page - 5, 0);
         CHECK(munmap(memory, (size_t)page * 2) == 0);
 
+        unsigned long thread_hits = hits();
         pthread_t threads[4];
         for (int i = 0; i < 4; i++) CHECK(pthread_create(&threads[i], NULL, thread_test, NULL) == 0);
         for (int i = 0; i < 4; i++) CHECK(pthread_join(threads[i], NULL) == 0);
+        CHECK(!enabled() || mode() != PROOT_FASTSTAT_CONTEXT_VERSION || hits() == thread_hits + 800);
         pid_t child = fork();
         CHECK(child >= 0);
-        if (child == 0) { compare(directory, "file", 0); _exit(0); }
+        if (child == 0) {
+            compare(directory, "file", 0);
+            pid_t grandchild = fork();
+            CHECK(grandchild >= 0);
+            if (grandchild == 0) { compare(directory, "file", AT_SYMLINK_NOFOLLOW); _exit(0); }
+            int status;
+            CHECK(waitpid(grandchild, &status, 0) == grandchild);
+            CHECK(WIFEXITED(status) && WEXITSTATUS(status) == 0);
+            _exit(0);
+        }
         int child_status;
         CHECK(waitpid(child, &child_status, 0) == child);
         CHECK(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0);
 
-        if (mode && mode() == 2 && getuid() == 0) {
+        if (mode && mode() == PROOT_FASTSTAT_CONTEXT_VERSION && getuid() == 0) {
             child = fork();
             CHECK(child >= 0);
             if (child == 0) {
@@ -213,6 +238,7 @@ int main(int argc, char **argv)
                 compare(directory, "nested/file", 0);
                 CHECK(!enabled() || hits() > before);
                 compare(AT_FDCWD, "nested/file", 0);
+                compare(directory, "hard", 0);
                 _exit(0);
             }
             CHECK(waitpid(child, &child_status, 0) == child);
@@ -265,6 +291,8 @@ int main(int argc, char **argv)
         CHECK(setrlimit(RLIMIT_NOFILE, &limit) == 0);
 
         CHECK(unlink("hard") == 0 && unlink("relative") == 0);
+        compare(directory, "file", 0);
+        CHECK(test_statat(directory, "file", &linked, 0) == 0 && linked.st_nlink == 1);
         CHECK(unlink("absolute") == 0 && unlink("dangling") == 0);
         CHECK(unlink("nested/up") == 0 && unlink("nested/file") == 0 && rmdir("nested") == 0);
         CHECK(close(directory) == 0);

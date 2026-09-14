@@ -144,6 +144,10 @@ int fstatat(int dirfd, const char *path, struct stat *output, int flags)
     fast_syscall(SYS_close, fd, 0, 0, 0);
     if (status < 0) goto slow;
     if (!S_ISREG(result.st_mode) && !S_ISDIR(result.st_mode)) goto slow;
+    if (execution_mode == PROOT_FASTSTAT_CONTEXT_VERSION && context.emulated_nlink) {
+        if (!S_ISREG(result.st_mode)) goto slow;
+        result.st_nlink = context.emulated_nlink;
+    }
     if (execution_mode == PROOT_FASTSTAT_CONTEXT_VERSION && context.fake_root) {
         if (result.st_uid == context.host_uid) result.st_uid = context.guest_uid;
         if (result.st_gid == context.host_gid) result.st_gid = context.guest_gid;

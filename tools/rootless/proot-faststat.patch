@@ -71,7 +71,7 @@
  
  /* Older kernel headers may lack these. */
  #ifndef CLONE_NEWTIME
-@@ -1814,6 +1817,54 @@
+@@ -1814,6 +1817,78 @@
   * -errno if an error occured from the tracee's point-of-view (EFAULT
   * for instance), otherwise 0.
   */
@@ -96,11 +96,25 @@
 +	status = translate_path(tracee, translated, context.dirfd, context.path,
 +		context.flags != AT_SYMLINK_NOFOLLOW);
 +	if (status < 0) return status;
-+	/* l2s backing files require its complete nlink/inode postprocessing.
-+	 * The regular-file dispatcher must never expose that representation.
-+	 * Special kernel pseudo files also retain the full compatibility path. */
-+	if (strstr(translated, "/.l2s.") || strstr(translated, "/.proot.l2s.") ||
-+	    strcmp(translated, "/proc") == 0 || strncmp(translated, "/proc/", 6) == 0 ||
++	/* Match l2s's validated backing basename (.NNNN suffix). Do not cache:
++	 * link/unlink renames the backing object as its virtual count changes. */
++	context.emulated_nlink = 0;
++	const char *hidden = strstr(translated, "/.l2s.");
++	if (strstr(translated, "/.proot.l2s.")) return -EOPNOTSUPP;
++	if (hidden != NULL) {
++		if (get_extension(tracee, link2symlink_callback) == NULL ||
++		    hidden != strrchr(translated, '/')) return -EOPNOTSUPP;
++		size_t length = strlen(hidden);
++		if (length < sizeof("/.l2s.") - 1 + 5 || hidden[length - 5] != '.')
++			return -EOPNOTSUPP;
++		for (size_t i = length - 4; i < length; i++) {
++			if (hidden[i] < '0' || hidden[i] > '9') return -EOPNOTSUPP;
++			context.emulated_nlink = context.emulated_nlink * 10 + hidden[i] - '0';
++		}
++		if (context.emulated_nlink == 0) return -EOPNOTSUPP;
++	}
++	/* Special kernel pseudo files retain the full compatibility path. */
++	if (strcmp(translated, "/proc") == 0 || strncmp(translated, "/proc/", 6) == 0 ||
 +	    strcmp(translated, "/sys") == 0 || strncmp(translated, "/sys/", 5) == 0 ||
 +	    strcmp(translated, "/dev") == 0 || strncmp(translated, "/dev/", 5) == 0)
 +		return -EOPNOTSUPP;
@@ -115,6 +129,16 @@
 +	if (identity != NULL) {
 +		Config *config = (Config *)identity->config;
 +		context.fake_root = 1;
++		if (context.emulated_nlink) {
++			/* Extension inheritance can reverse callback order. l2s
++			 * overwrites all fields, so only a later fake_id0 survives. */
++			Extension *extension;
++			context.fake_root = 0;
++			LIST_FOREACH(extension, tracee->extensions, link) {
++				if (extension == identity) break;
++				if (extension->callback == link2symlink_callback) context.fake_root = 1;
++			}
++		}
 +		context.guest_uid = config->suid;
 +		context.guest_gid = config->sgid;
 +	}
@@ -126,7 +150,7 @@
  int translate_syscall_enter(Tracee *tracee)
  {
  	int flags;
-@@ -1839,6 +1890,48 @@
+@@ -1839,6 +1914,48 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
