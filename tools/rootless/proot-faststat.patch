@@ -61,17 +61,18 @@
  	for (i = 0; i < nb_archs; i++) {
 --- a/src/syscall/enter.c
 +++ b/src/syscall/enter.c
-@@ -79,6 +79,9 @@
+@@ -79,6 +79,10 @@
  #include "path/binding.h"
  #include "path/temp.h"
  #include "arch.h"
 +#include "tracee/faststat.h"
++#include "tracee/faststat-path.h"
 +#include "extension/fake_id0/config.h"
 +#include <stdlib.h>
  
  /* Older kernel headers may lack these. */
  #ifndef CLONE_NEWTIME
-@@ -1814,6 +1817,78 @@
+@@ -1814,6 +1818,84 @@
   * -errno if an error occured from the tracee's point-of-view (EFAULT
   * for instance), otherwise 0.
   */
@@ -93,8 +94,14 @@
 +	if (!memchr(context.path, '\0', sizeof(context.path)) || !context.path[0] ||
 +	    (context.flags != 0 && context.flags != AT_SYMLINK_NOFOLLOW))
 +		return -EOPNOTSUPP;
++	struct faststat_path_cache cache;
++	cache.count = 0;
++	/* Diagnostic A/B switch; the default is request-local reuse. */
++	const char *reuse = getenv("PROOT_FASTSTAT_PATH_REUSE");
++	tracee->faststat_path_cache = reuse && strcmp(reuse, "0") == 0 ? NULL : &cache;
 +	status = translate_path(tracee, translated, context.dirfd, context.path,
 +		context.flags != AT_SYMLINK_NOFOLLOW);
++	tracee->faststat_path_cache = NULL;
 +	if (status < 0) return status;
 +	/* Match l2s's validated backing basename (.NNNN suffix). Do not cache:
 +	 * link/unlink renames the backing object as its virtual count changes. */
@@ -150,7 +157,7 @@
  int translate_syscall_enter(Tracee *tracee)
  {
  	int flags;
-@@ -1839,6 +1914,48 @@
+@@ -1839,6 +1921,48 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
@@ -219,3 +226,66 @@
  	if (proot_path_fastpath_enabled && stat_call &&
  	    tracee->checked_path_not_symlink &&
  	    strcmp(tracee->checked_path, translated_path) == 0) {
+--- a/src/path/canon.c
++++ b/src/path/canon.c
+@@ -34,6 +34,7 @@
+ #include "path/path.h"
+ #include "path/binding.h"
+ #include "tracee/perf.h"
++#include "tracee/faststat-path.h"
+ #include "path/glue.h"
+ #include "path/proc.h"
+ #include "path/f2fs-bug.h"
+@@ -157,8 +158,27 @@
+ 	if (should_skip_file_access_due_to_f2fs_bug(tracee, host_path)) {
+ 		status = -ENOENT;
+ 	} else {
+-		proot_perf_count(PERF_CANON_LSTAT);
+-		status = lstat(host_path, &statl);
++		struct faststat_path_cache *cache = tracee->faststat_path_cache;
++		bool reused = false;
++		if (cache != NULL && tracee->glue_type == 0) {
++			for (unsigned int i = 0; i < cache->count; i++) {
++				if (strcmp(cache->directories[i], host_path) == 0) {
++					statl.st_mode = S_IFDIR;
++					status = 0;
++					reused = true;
++					break;
++				}
++			}
++		}
++		if (!reused) {
++			proot_perf_count(PERF_CANON_LSTAT);
++			status = lstat(host_path, &statl);
++			/* Never remember failures, symlinks, or file metadata. The
++			 * dispatcher checks the final path with NO_SYMLINKS again. */
++			if (cache != NULL && tracee->glue_type == 0 && status == 0 &&
++			    S_ISDIR(statl.st_mode) && cache->count < 16)
++				strcpy(cache->directories[cache->count++], host_path);
++		}
+ 		/* /linkerconfig directory is present and accessible on Android,
+ 		 * but cannot be stat()'d, use hardcoded stat if access was denied
+ 		 *
+--- a/src/tracee/tracee.h
++++ b/src/tracee/tracee.h
+@@ -90,6 +90,7 @@
+ 	/* Valid only inside one translate_path(), never across a kernel call. */
+ 	char checked_path[PATH_MAX];
+ 	bool checked_path_not_symlink;
++	struct faststat_path_cache *faststat_path_cache;
+ 
+ 	/* Is it currently running or not?  */
+ 	bool running;
+--- /dev/null
++++ b/src/tracee/faststat-path.h
+@@ -0,0 +1,10 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef PROOT_FASTSTAT_PATH_H
++#define PROOT_FASTSTAT_PATH_H
++#include <limits.h>
++/* Stack-owned by one synchronous RESOLVE request, never shared across calls. */
++struct faststat_path_cache {
++    unsigned int count;
++    char directories[16][PATH_MAX];
++};
++#endif

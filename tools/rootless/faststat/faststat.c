@@ -9,6 +9,7 @@
 #include <linux/openat2.h>
 #include <stdint.h>
 #include <stdatomic.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -29,6 +30,7 @@ _Static_assert(__builtin_offsetof(struct stat, st_uid) == 24, "stat uid ABI");
 static int enabled;
 static int initialization_status;
 static int execution_mode;
+static int report_on_exit;
 static _Atomic unsigned long hits;
 static _Atomic unsigned long fallbacks;
 
@@ -50,6 +52,8 @@ static long fast_syscall(long nr, long a, long b, long c, long d)
 __attribute__((constructor)) static void initialize_faststat(void)
 {
     int saved_errno = errno;
+    const char *report = getenv("PROOT_FASTSTAT_REPORT");
+    report_on_exit = report && strcmp(report, "1") == 0;
     const char *disabled = getenv("PROOT_FASTSTAT_DISABLE");
     if (disabled && strcmp(disabled, "1") == 0) { initialization_status = 2; goto out; }
     /* Requires the matching experimental tracer, seccomp acceleration,
@@ -98,6 +102,18 @@ int proot_faststat_mode(void) { return execution_mode; }
 int proot_faststat_initialization_status(void) { return initialization_status; }
 unsigned long proot_faststat_hits(void) { return atomic_load_explicit(&hits, memory_order_relaxed); }
 unsigned long proot_faststat_fallbacks(void) { return atomic_load_explicit(&fallbacks, memory_order_relaxed); }
+
+/* Diagnostic only: keep this off during speed measurements. */
+__attribute__((destructor)) static void report_faststat(void)
+{
+    if (!report_on_exit) return;
+    char buffer[192];
+    int length = snprintf(buffer, sizeof(buffer),
+        "{\"faststat\":{\"enabled\":%d,\"hits\":%lu,\"fallbacks\":%lu}}\n",
+        enabled, proot_faststat_hits(), proot_faststat_fallbacks());
+    if (length > 0 && (size_t)length < sizeof(buffer))
+        (void)syscall(SYS_write, STDERR_FILENO, buffer, (size_t)length);
+}
 
 static int copy_path(char output[PATH_MAX], const char *input)
 {

@@ -191,6 +191,28 @@ int main(int argc, char **argv)
         compare(directory, "file", 0);
         CHECK(fchdir(directory) == 0);
         compare(AT_FDCWD, "file", 0);
+        /* A request-local directory observation must not survive replacement. */
+        CHECK(symlink("nested", "prefix") == 0);
+        compare(directory, "prefix/file", 0);
+        CHECK(unlink("prefix") == 0 && symlink(".", "prefix") == 0);
+        compare(directory, "prefix/file", 0);
+        CHECK(unlink("prefix") == 0);
+        /* Exceed the walk's bounded directory table, then recurse via a link. */
+        char deep[PATH_MAX] = "", deep_link[PATH_MAX];
+        for (int i = 0; i < 20; i++) {
+            strcat(deep, i ? "/d" : "d");
+            CHECK(mkdir(deep, 0700) == 0);
+        }
+        CHECK(snprintf(deep_link, sizeof(deep_link), "%s/end", deep) < PATH_MAX);
+        CHECK(symlink(absolute, deep_link) == 0);
+        compare(directory, deep_link, 0);
+        CHECK(unlink(deep_link) == 0);
+        for (;;) {
+            CHECK(rmdir(deep) == 0);
+            char *slash = strrchr(deep, '/');
+            if (!slash) break;
+            *slash = 0;
+        }
         CHECK(rename("file", "renamed") == 0);
         compare(directory, "renamed", 0);
         compare(directory, "relative", 0);

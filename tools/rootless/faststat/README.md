@@ -238,6 +238,77 @@ canon_lstat=1501→43501로 **조회당 경로 확인 14회가 여전히 남는�
 재현됐다. 제품 payload는 교체하지 않았다. Android MCP의 incremental 설치는
 거부되어 streamed 설치로 성공했다. 검증 뒤 전용 APK와 임시 파일을 제거했다.
 
+## 후속: 한 요청 안의 디렉터리 확인 재사용과 실제 작업 측정
+
+모드 2의 RESOLVE 한 번 안에서 이미 확인한 디렉터리 경로를 최대 16개까지
+재사용한다. 저장 공간은 tracer 스택에 있고, translate_path가 반환하면 즉시
+참조를 지운다. 다른 요청·프로세스의 상태를 캐시하지 않는다. 실패와 심볼릭
+링크는 저장하지 않고 HOST_PATH 확장 처리는 계속 수행한다. 마지막 openat2의
+NO_SYMLINKS 검사도 유지한다. 관찰한 디렉터리가 심볼릭 링크나 파일로 바뀌어
+커널 조회가 실패하면 기존 경로를 사용한다. 완전한 원자적 namespace 해석을
+구현한 것은 아니다. 진단용 `PROOT_FASTSTAT_PATH_REUSE=0`으로 재사용만 끈다.
+
+Debian/Ubuntu 회귀 검증, 모드 1, seccomp 끔, 재사용 끔 검증을 통과했다.
+테스트에 경로 접두사의 symlink 교체 및 20단계 디렉터리를 추가해 이전 요청의
+정보가 남지 않고 저장 공간의 상한을 넘는 경우도 처리하는지 확인했다.
+
+하드링크 조회 3,000회(100회 warm-up)를 7회씩 순서를 반전해 비교했다.
+같은 최신 PRoot/DSO에서 옵션만 전환했고 속도 측정 시 진단 출력은 껐다.
+
+| 조건 | 중앙값 |
+| --- | ---: |
+| DSO 가속 끔 | 289.453 ms |
+| 하드링크 가속, 디렉터리 재사용 끔 | 242.617 ms |
+| 하드링크 가속, 디렉터리 재사용 켬 | 224.675 ms |
+
+디렉터리 재사용으로 기존 가속 대비 **추가 7.4%**, 전체 가속 끔 대비 **22.4%**
+시간이 감소했다. 진단에서는 추가 3,000회의 canon_lstat가 42,000→24,000으로,
+**호출당 14→8회**가 됐다. tracer 진입 1회는 여전히 남는다.
+
+[`workloads.py`](../workloads.py)는 자체 임시 입력을 만들고 준비·정리 밖의
+전체 작업 시간을 측정한다. 사용자 저장소와 package DB는 수정하지 않는다.
+Git 환경 변수도 제거해 외부 GIT_DIR로 작업이 넘어가지 않게 한다. 다음처럼
+선택한 guest에서 실행한다. 기본 case에는 git-status도 포함되어 있으며
+필요한 도구가 없으면 명시적으로 실패한다.
+
+```sh
+python3 -B /tmp/terminal-walk/workloads.py --count 1000 --rounds 1 \
+  --case metadata --case mutations --case python-import --case tar-extract
+```
+
+DSO 환경을 유지하며 위 실행과 `PROOT_FASTSTAT_DISABLE=1` 실행을 번갈아
+비교한다. `--coverage`는 자식에 PROOT_FASTSTAT_REPORT=1을 전달한다. 이 DSO
+옵션은 정상 종료 시 공개 함수의 hit/fallback 수를 stderr JSON으로 출력한다.
+원시 syscall과 libc 내부 미연결 호출은 세지 않으며, _exit로 종료한 자식도
+보고하지 않는다. 속도 측정 때는 사용하지 않는다. parent 카운터는 측정 구간의
+차이이고 child_reports는 보고한 자식의 시작부터 종료까지 합계다.
+`guest_cpu_ms`는 guest와 자식의 CPU 시간으로 **tracer CPU는 제외**한다.
+
+Debian에서 파일 1,000개, 고정 stdlib import 집합, warm 입력으로 7회씩
+실행했다. pair마다 켬/끔 순서를 반전했으며 각 실행의 case 순서는 동일했다.
+파일 크기·추출 내용·명령 성공을 검증했다. 중앙값은 다음과 같다.
+
+| 실제 작업 | 가속 끔 | 가속 켬 | 시간 변화 |
+| --- | ---: | ---: | ---: |
+| 서로 다른 파일 정보 조회 | 65.384 ms | 50.921 ms | 22.1% 감소 |
+| 생성·rename·삭제 | 373.869 ms | 370.123 ms | 1.0% 감소 |
+| 새 Python 프로세스의 stdlib import | 198.633 ms | 198.112 ms | 0.3% 감소 |
+| Python tarfile 압축 없는 tar 추출 | 902.811 ms | 909.565 ms | 0.7% 증가 |
+
+뒤의 세 작업에서 유의미한 전체 성능 개선은 입증되지 않았다. 별도 적용률
+진단에서 Python 자식은 hits=535/fallbacks=87, 생성·rename·삭제는 둘 다 0이었다.
+공개 stat 함수 연결만으로는 open 및 쓰기 연산의 추적 비용을 줄이지 못한다.
+7쌍의 [원본 측정값](results/path-reuse-2026-09-14.json)을 보존한다.
+
+기기에 Git이 없어 git-status는 실행되지 않았다. 호스트에서는 5개 case와
+외부 GIT_DIR/WORK_TREE/INDEX_FILE 격리 검증을 통과했으며 이는 guest Git 성능의
+증거가 아니다. 10만 파일, cold cache, 4-worker 전체 작업, 오프라인 dpkg,
+Git checkout 및 incremental build 측정은 아직 남아 있다.
+
+표준 Gradle 검증과 실험 PRoot 재현 빌드가 통과했다. 실험 PRoot SHA-256은
+`ff02af823e3bb032eb97ab142c9b446a3878c889ccea50aaa431198b31dbbb45`다.
+Android MCP의 별도 APK로 검증했으며 기존 앱 payload와 세션은 교체하지 않았다.
+
 ## 제품 적용 전에 남은 일
 
 장비는 SELinux unconfined, 기존 앱 seccomp 필터 없음으로 확인된 redroid다.
