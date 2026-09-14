@@ -8,6 +8,7 @@
 #include <linux/seccomp.h>
 #include <pthread.h>
 #include <stdint.h>
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,7 +24,7 @@
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL line %d: %s errno=%d\n", __LINE__, #x, errno); exit(1); } } while (0)
 static int (*test_statat)(int, const char *, struct stat *, int);
-static unsigned long (*hits)(void), (*fallbacks)(void);
+static unsigned long (*hits)(void), (*fallbacks)(void), (*negative_hits)(void);
 static int directory_fd;
 
 static void compare(int fd, const char *path, int flags)
@@ -85,6 +86,7 @@ int main(int argc, char **argv)
     test_statat = dlsym(RTLD_DEFAULT, "fstatat");
     hits = dlsym(RTLD_DEFAULT, "proot_faststat_hits");
     fallbacks = dlsym(RTLD_DEFAULT, "proot_faststat_fallbacks");
+    negative_hits = dlsym(RTLD_DEFAULT, "proot_faststat_negative_hits");
     CHECK(enabled && test_statat && hits && fallbacks);
     if (enabled() != atoi(argv[1])) {
         int (*status)(void) = dlsym(RTLD_DEFAULT, "proot_faststat_initialization_status");
@@ -100,21 +102,27 @@ int main(int argc, char **argv)
     directory_fd = open(".", O_PATH | O_DIRECTORY);
     CHECK(directory_fd >= 0);
 
-    if (strcmp(argv[2], "bench") == 0 || strcmp(argv[2], "bench-cwd") == 0 || strcmp(argv[2], "bench-hard") == 0) {
+    const char *negative = getenv("PROOT_FASTSTAT_NEGATIVE");
+    int fast_negative = enabled() && mode && mode() == PROOT_FASTSTAT_CONTEXT_VERSION &&
+        !(negative && strcmp(negative, "0") == 0);
+    CHECK(!fast_negative || negative_hits);
+    if (strcmp(argv[2], "bench") == 0 || strcmp(argv[2], "bench-cwd") == 0 || strcmp(argv[2], "bench-hard") == 0 || strcmp(argv[2], "bench-missing") == 0) {
         CHECK(argc == 4);
         long count = parse_count(argv[3]);
         CHECK(count >= 0 && count <= 10000000);
         struct stat result;
         if (strcmp(argv[2], "bench-hard") == 0) CHECK(link("file", "bench-hard") == 0);
+        int missing = strcmp(argv[2], "bench-missing") == 0;
+        const char *bench_path = missing ? "missing" : "file";
         int bench_fd = strcmp(argv[2], "bench-cwd") == 0 ? AT_FDCWD : directory_fd;
-        for (int i = 0; i < 100; i++) CHECK(test_statat(bench_fd, "file", &result, 0) == 0);
+        for (int i = 0; i < 100; i++) CHECK(test_statat(bench_fd, bench_path, &result, 0) == (missing ? -1 : 0) && (!missing || errno == ENOENT));
         unsigned long start_hits = hits(), start_fallbacks = fallbacks();
         double start = now();
-        for (long i = 0; i < count; i++) CHECK(test_statat(bench_fd, "file", &result, 0) == 0);
+        for (long i = 0; i < count; i++) CHECK(test_statat(bench_fd, bench_path, &result, 0) == (missing ? -1 : 0) && (!missing || errno == ENOENT));
         double elapsed = now() - start;
         printf("{\"enabled\":%d,\"iterations\":%ld,\"ms\":%.3f,\"hits\":%lu,\"fallbacks\":%lu}\n",
                enabled(), count, elapsed, hits() - start_hits, fallbacks() - start_fallbacks);
-        CHECK(hits() - start_hits == (enabled() ? (unsigned long)count : 0));
+        CHECK(hits() - start_hits == (enabled() && (!missing || fast_negative) ? (unsigned long)count : 0));
         if (strcmp(argv[2], "bench-hard") == 0) CHECK(unlink("bench-hard") == 0);
     } else {
         CHECK(strcmp(argv[2], "test") == 0);
@@ -125,7 +133,22 @@ int main(int argc, char **argv)
         compare(file, "", AT_EMPTY_PATH);
         compare(-123, "file", 0);
         compare(AT_FDCWD, "file/", 0);
+        unsigned long before_negative = negative_hits ? negative_hits() : 0;
         compare(AT_FDCWD, "missing", 0);
+        struct stat untouched, sentinel;
+        memset(&sentinel, 0x5a, sizeof(sentinel));
+        untouched = sentinel;
+        CHECK(test_statat(directory, "missing", &untouched, AT_SYMLINK_NOFOLLOW) == -1 && errno == ENOENT);
+        CHECK(memcmp(&untouched, &sentinel, sizeof(sentinel)) == 0);
+        CHECK(test_statat(directory, "missing", (struct stat *)1, 0) == -1 && errno == ENOENT);
+        CHECK(syscall(SYS_newfstatat, directory, "missing", 1, 0) == -1 && errno == ENOENT);
+        if (fast_negative) CHECK(negative_hits() == before_negative + 3);
+        int appeared = open("missing", O_CREAT | O_EXCL | O_WRONLY, 0600);
+        CHECK(appeared >= 0 && close(appeared) == 0);
+        compare(directory, "missing", 0);
+        CHECK(unlink("missing") == 0);
+        compare(directory, "missing", 0);
+        if (fast_negative) CHECK(negative_hits() == before_negative + 4);
         compare(AT_FDCWD, "file", 0x40000000);
         compare(AT_FDCWD, "", 0);
         compare(AT_FDCWD, NULL, 0);
@@ -277,27 +300,53 @@ int main(int argc, char **argv)
         CHECK(waitpid(child, &child_status, 0) == child);
         CHECK(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0);
 
-        /* An inherited/additional kernel restriction must outrank our ALLOW
-         * site. Probe in a child because seccomp filters cannot be removed. */
-        child = fork();
-        CHECK(child >= 0);
-        if (child == 0) {
-            struct sock_filter filter[] = {
-                BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 0),
-                BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_openat2, 0, 1),
-                BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
-                BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
-            };
-            struct sock_fprog program = { .len = 4, .filter = filter };
-            CHECK(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0);
-            CHECK(prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) == 0);
-            unsigned long before = hits();
-            compare(directory, "file", 0);
-            CHECK(hits() == before);
-            _exit(0);
+        /* A filter can invent ENOENT for openat2 on an existing file. Its
+         * errno must never be mistaken for a terminal path observation. */
+        const int injected_errors[] = { EPERM, ENOENT };
+        for (unsigned int error = 0; error < 2; error++) {
+            child = fork();
+            CHECK(child >= 0);
+            if (child == 0) {
+                struct sock_filter filter[] = {
+                    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 0),
+                    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_openat2, 0, 1),
+                    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | injected_errors[error]),
+                    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+                };
+                struct sock_fprog program = { .len = 4, .filter = filter };
+                CHECK(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0);
+                CHECK(prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) == 0);
+                unsigned long before = hits();
+                compare(directory, "nested/file", 0);
+                CHECK(hits() == before);
+                _exit(0);
+            }
+            CHECK(waitpid(child, &child_status, 0) == child);
+            CHECK(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0);
         }
-        CHECK(waitpid(child, &child_status, 0) == child);
-        CHECK(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0);
+        if (enabled() && mode && mode() == PROOT_FASTSTAT_CONTEXT_VERSION) {
+            child = fork();
+            CHECK(child >= 0);
+            if (child == 0) {
+                struct sock_filter filter[] = {
+                    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, 0),
+                    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_prctl, 0, 3),
+                    BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args)),
+                    BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, PROOT_FASTSTAT_RESOLVE, 0, 1),
+                    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO), /* Success, no reply. */
+                    BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+                };
+                struct sock_fprog program = { .len = 6, .filter = filter };
+                CHECK(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0);
+                CHECK(prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) == 0);
+                unsigned long before = hits();
+                compare(AT_FDCWD, absolute, 0);
+                CHECK(hits() == before);
+                _exit(0);
+            }
+            CHECK(waitpid(child, &child_status, 0) == child);
+            CHECK(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0);
+        }
 
         /* O_PATH needs an extra FD; exhaustion must still fall back to stat. */
         struct rlimit limit, reduced;

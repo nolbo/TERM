@@ -184,7 +184,7 @@ Clang -Wall -Wextra -Werror와 호스트 fallback 검증을 통과했다. 일반
 ## 모드 2 후속: l2s 하드링크 조회
 
 가상 링크 수를 매 호출의 경로 응답에 추가했다. 실행 옵션은 계속
-`PROOT_FASTSTAT=2`이며 프로토콜 버전은 3, 패킷 크기는 4,128바이트다.
+`PROOT_FASTSTAT=2`이며 이 단계의 프로토콜 버전은 3, 패킷 크기는 4,128바이트다.
 구버전 tracer와 새 DSO의 조합은 handshake 불일치로 비활성화된다.
 구버전 DSO도 새 tracer의 버전 3을 지원하지 않아 비활성화된다.
 
@@ -308,6 +308,58 @@ Git checkout 및 incremental build 측정은 아직 남아 있다.
 표준 Gradle 검증과 실험 PRoot 재현 빌드가 통과했다. 실험 PRoot SHA-256은
 `ff02af823e3bb032eb97ab142c9b446a3878c889ccea50aaa431198b31dbbb45`다.
 Android MCP의 별도 APK로 검증했으며 기존 앱 payload와 세션은 교체하지 않았다.
+
+## 후속: 확인된 마지막 파일 부재의 직접 응답
+
+현재 프로토콜은 버전 4, 패킷은 4,132바이트다. tracer가 이번 경로 해석에서
+마지막 host 경로를 lstat하여 ENOENT를 확인했고, 최종 변환 경로도 정확히
+동일할 때만 오류를 응답에 포함한다. l2s backing 파일과 특수 경로는 제외한다.
+이 관찰은 한 요청 동안만 존재하며 다음 요청에 재사용하지 않는다. 게스트는
+출력 stat 버퍼를 건드리지 않고 ENOENT를 반환한다. 중간 경로 오류, 다른 errno,
+unsupported 응답은 계속 기존 syscall을 사용한다.
+
+`openat2`의 ENOENT를 직접 반환하지 않는다. 추가 seccomp 필터가 존재하는
+파일에도 그 오류를 만들 수 있기 때문이다. 요청의 result_errno는 -1로
+초기화하며, 유효한 응답이 0 또는 ENOENT로 바꾼 경우에만 사용한다. 필터가
+private prctl을 응답 없이 성공 처리해도 원래 guest 절대 경로를 host 경로로
+오인하지 않고 기존 syscall로 돌아간다. 진단용 `PROOT_FASTSTAT_NEGATIVE=0`은
+이 오류 응답만 끈다. 구버전 tracer/DSO 조합은 버전 불일치로 비활성화된다.
+
+negative_hits는 전체 hits의 부분집합이며, 파일 부재를 고속 경로에서 처리한
+횟수다. PROOT_FASTSTAT_REPORT=1의 JSON에도 포함된다. `bench-missing 3000`은
+100회 warm-up 뒤 없는 파일을 3,000회 조회하고 errno 및 처리 횟수를 검사한다.
+
+같은 최신 PRoot/DSO, fake-root·기본 bind, 진단 출력 끔 조건으로 7회씩
+순서를 반전하여 측정했다. [원본 결과](results/negative-reply-2026-09-14.json)를
+보존한다. 중앙값은 다음과 같다.
+
+| 조건 | 없는 파일 3,000회 | 고정 Python import |
+| --- | ---: | ---: |
+| DSO 가속 끔 | 145.877 ms | 197.301 ms |
+| 가속 켬, 오류 응답 끔 | 282.875 ms | 199.754 ms |
+| 가속 켬, 오류 응답 켬 | 122.277 ms | 195.842 ms |
+
+오류 조회는 기존 실험의 중복 fallback보다 **2.31배**, 전체 가속 끔보다 시간
+**16.2% 감소**다. 기존 실험의 실패 조회가 일반 경로보다 훨씬 느렸다는 것도
+측정으로 확인됐다. Python 전체 시간은 기존 실험 대비 약 2%, 전체 가속 끔
+대비 약 0.7% 감소하여 큰 전체 성능 향상은 아직 입증되지 않았다.
+
+별도 Python 적용률 진단은 hits=617/fallbacks=5/negative_hits=82였다. 이전
+535/87에서 마지막 파일 부재 82회를 직접 처리하게 됐다. bench 0→3000 진단은
+enter_stop=176→3176, exit_stop=48→48로 반환 정지 증가가 없었다. 경로 해석 및
+요청당 tracer 진입, l2s의 실패 readlink 확인은 여전히 남는다.
+
+Debian/Ubuntu C 및 Python 회귀 검증을 통과했다. C 검증에는 존재하지 않는
+파일의 출력 버퍼 보존·잘못된 출력 포인터와 errno 순서, 파일 생성·삭제 직후의
+조회, openat2에 EPERM/ENOENT를 주입하는 seccomp 필터, private 요청을 응답 없이
+성공 처리하는 필터를 포함했다. 모드 1, 오류 응답 끔, 디렉터리 재사용 끔,
+구버전 tracer, 호스트 fallback도 통과했다. 포인터 오류 주입의 PRoot 경고는
+의도한 EFAULT 검증이다.
+
+최종 Clang -Wall -Wextra -Werror, 표준 Gradle 검증 및 실험 재현 빌드를
+통과했다. 실험 PRoot SHA-256은
+`b7c961c8ac24140491653711d177d835c8f733b8cb815b4b8abf59809c7aca77`이다.
+기본 앱 payload는 교체하지 않았다. 일반 Android 앱 정책 검증은 계속 남는다.
 
 ## 제품 적용 전에 남은 일
 

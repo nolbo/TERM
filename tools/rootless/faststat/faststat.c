@@ -33,6 +33,7 @@ static int execution_mode;
 static int report_on_exit;
 static _Atomic unsigned long hits;
 static _Atomic unsigned long fallbacks;
+static _Atomic unsigned long negative_hits;
 
 static long fast_syscall(long nr, long a, long b, long c, long d)
 {
@@ -103,14 +104,16 @@ int proot_faststat_initialization_status(void) { return initialization_status; }
 unsigned long proot_faststat_hits(void) { return atomic_load_explicit(&hits, memory_order_relaxed); }
 unsigned long proot_faststat_fallbacks(void) { return atomic_load_explicit(&fallbacks, memory_order_relaxed); }
 
+unsigned long proot_faststat_negative_hits(void) { return atomic_load_explicit(&negative_hits, memory_order_relaxed); }
+
 /* Diagnostic only: keep this off during speed measurements. */
 __attribute__((destructor)) static void report_faststat(void)
 {
     if (!report_on_exit) return;
     char buffer[192];
     int length = snprintf(buffer, sizeof(buffer),
-        "{\"faststat\":{\"enabled\":%d,\"hits\":%lu,\"fallbacks\":%lu}}\n",
-        enabled, proot_faststat_hits(), proot_faststat_fallbacks());
+        "{\"faststat\":{\"enabled\":%d,\"hits\":%lu,\"fallbacks\":%lu,\"negative_hits\":%lu}}\n",
+        enabled, proot_faststat_hits(), proot_faststat_fallbacks(), proot_faststat_negative_hits());
     if (length > 0 && (size_t)length < sizeof(buffer))
         (void)syscall(SYS_write, STDERR_FILENO, buffer, (size_t)length);
 }
@@ -138,12 +141,22 @@ int fstatat(int dirfd, const char *path, struct stat *output, int flags)
     const char *kernel_path = copied;
     int kernel_dirfd = dirfd;
     if (execution_mode == PROOT_FASTSTAT_CONTEXT_VERSION) {
+        context.result_errno = -1; /* Detect a filtered request with no reply. */
         context.dirfd = dirfd;
         context.flags = flags;
         strcpy(context.path, copied);
         if (syscall(SYS_prctl, PROOT_FASTSTAT_RESOLVE, &context, sizeof(context),
                     PROOT_FASTSTAT_CONTEXT_VERSION, 0) != 0) goto slow;
         if (context.path[0] != '/' || !memchr(context.path, '\0', sizeof(context.path))) goto slow;
+        if (context.result_errno == ENOENT && !context.emulated_nlink) {
+            /* The tracer observed the missing final path in this request.
+             * Never promote openat2 errors: a guest filter can invent those. */
+            atomic_fetch_add_explicit(&negative_hits, 1, memory_order_relaxed);
+            atomic_fetch_add_explicit(&hits, 1, memory_order_relaxed);
+            errno = ENOENT;
+            return -1;
+        }
+        if (context.result_errno != 0) goto slow;
         kernel_path = context.path;
         kernel_dirfd = AT_FDCWD; /* Resolved absolute host path, not virtual cwd. */
     } else if (dirfd < 0 || copied[0] == '/') goto slow;
