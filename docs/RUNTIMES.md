@@ -77,6 +77,11 @@ stat-family paths while retaining fresh metadata checks and link emulation.
 See [ROOTLESS_PERFORMANCE.md](ROOTLESS_PERFORMANCE.md) for measurements,
 diagnostic controls and validation limits.
 
+[ROOTLESS_FILESYSTEM_REDESIGN.md](ROOTLESS_FILESYSTEM_REDESIGN.md) proposes
+in-process filesystem translation with PRoot compatibility handling. This
+redesign is not implemented; its platform probes and performance targets remain
+to be validated.
+
 ## AVF Debian
 
 AVF needs device support, privileged permissions and the product-only AOSP

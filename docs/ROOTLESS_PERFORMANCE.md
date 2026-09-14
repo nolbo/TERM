@@ -94,6 +94,11 @@ Android 15/API 35 ARM64 redroid, 기존 Debian rootfs에서 각 조건을 7회
 stat/lstat/open은 같은 파일을 100회 warm-up 후 3,000회 처리했다.
 다음은 중앙값이며 실제 휴대폰 또는 Native 대비 결과는 아니다.
 
+후속 관찰에서 이 redroid 장비의 앱과 runtime 서비스 프로세스도 SELinux
+`unconfined`, `Seccomp: 0`이었다. 일반 Android 앱 정책을 재현하지 않는
+환경이므로, 새 syscall/코드 매핑 방식의 무권한 배포 가능성은 이 측정으로
+판단할 수 없다. PRoot 내부 회귀 검증과 이 환경의 상대 성능 결과로 해석한다.
+
 | 작업 | 기존 PRoot | 변경 PRoot | 변경 PRoot 최적화 끔 |
 | --- | ---: | ---: | ---: |
 | stat 3,000회 | 159.736 ms | 154.626 ms | 158.608 ms |
