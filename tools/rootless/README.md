@@ -17,10 +17,21 @@ compatibility fixes, makes the upstream awk generator work with Ubuntu `mawk`,
 and applies 16 KiB ELF alignment to the freestanding loader. The main executable
 uses the same alignment flags.
 
+`proot-perf.patch` adds opt-in aggregate counters and avoids a redundant failed
+hard-link `readlink` for ordinary stat-family paths. It reuses the final component
+type only within one path translation, checks the exact host path, and retains
+fresh post-syscall metadata checks. Symlinks, recursive resolution and mismatches
+use the existing path. See [ROOTLESS_PERFORMANCE.md](../../docs/ROOTLESS_PERFORMANCE.md)
+for the measurement limits and regression procedure.
+
+`PROOT_DOWNLOAD_CACHE` optionally names a directory containing the five upstream
+input files under their URL basenames. Cached inputs must pass the same pinned
+SHA-256 checks; mismatches fail rather than silently fetching replacements.
+
 Expected outputs:
 
 ```text
-1374f8c067c3b2674144bf85f33bdce2fb1860c103e814b11ed21bf406d484d9  proot
+9edb5ff81998a990b014797c9acc05f31b9eb5d84cb16105d4e8c1179d7d382b  proot
 2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237  proot-loader
 ```
 

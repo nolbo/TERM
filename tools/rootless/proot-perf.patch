@@ -1,0 +1,331 @@
+--- a/src/GNUmakefile
++++ b/src/GNUmakefile
+@@ -52,6 +52,7 @@
+ 	syscall/pipe_shadow.o	\
+ 	tracee/tracee.o		\
+ 	tracee/mem.o		\
++	tracee/perf.o		\
+ 	tracee/reg.o		\
+ 	tracee/event.o		\
+ 	tracee/seccomp.o        \
+--- a/src/cli/cli.c
++++ b/src/cli/cli.c
+@@ -47,6 +47,7 @@
+ #include <extension/extension.h>
+ #include <extension/sysvipc/sysvipc.h>
+ 
++#include "tracee/perf.h"
+ #include "build.h"
+ 
+ /**
+@@ -484,6 +485,9 @@
+ 	if (NULL == getenv("PROOT_NO_MOUNTINFO"))
+ 		initialize_extension(tracee, mountinfo_callback, NULL);
+ 
++	/* Diagnostics belong to the tracer, never to the UI or guest. */
++	proot_perf_init();
++
+ 	/* Start the first tracee.  */
+ 	status = launch_process(tracee, &argv[status]);
+ 	if (status < 0) {
+--- a/src/extension/link2symlink/link2symlink.c
++++ b/src/extension/link2symlink/link2symlink.c
+@@ -13,6 +13,7 @@
+ #include <talloc.h>    /* talloc_*, */
+ 
+ #include "cli/note.h"
++#include "tracee/perf.h"
+ #include "extension/extension.h"
+ #include "tracee/tracee.h"
+ #include "tracee/mem.h"
+@@ -290,6 +291,7 @@
+ 	if (l2s_entry(symlink, &dir_fd, &name) < 0)
+ 		return -errno;
+ 
++	proot_perf_count(PERF_L2S_READLINK);
+ 	size = (dir_fd < 0)
+ 		? readlink(symlink, value, PATH_MAX)
+ 		: readlinkat(dir_fd, name, value, PATH_MAX);
+@@ -833,7 +835,8 @@
+ 		else
+ 			name++;
+ 
+-		/* Check if it is a link */
++		/* Keep fresh metadata: another process may have changed this path. */
++		proot_perf_count(PERF_L2S_LSTAT);
+ 		status = lstat(original, &statl);
+ 
+ 		if (strncmp(name, PREFIX, strlen(PREFIX)) == 0) {
+@@ -1003,6 +1006,20 @@
+ 	if (is_open_syscall(sysnum))
+ 		remember_opened_link(extension, translated_path);
+ 
++	/* canonicalize() has just checked this exact final host path.  An
++	 * ordinary stat path needs no second, inevitably failing readlink.
++	 * Restrict this to stat calls: open's descriptor bookkeeping and all
++	 * post-kernel metadata checks retain their existing fresh lookups. */
++	bool stat_call = sysnum == PR_stat || sysnum == PR_stat64 ||
++		sysnum == PR_lstat || sysnum == PR_lstat64 ||
++		sysnum == PR_newfstatat || sysnum == PR_fstatat64;
++	if (proot_path_fastpath_enabled && stat_call &&
++	    tracee->checked_path_not_symlink &&
++	    strcmp(tracee->checked_path, translated_path) == 0) {
++		proot_perf_count(PERF_PATH_HIT);
++		return;
++	}
++	if (stat_call) proot_perf_count(PERF_PATH_MISS);
+ 	if (resolve_faked_hard_link(translated_path, final) < 0)
+ 		return;
+ 
+--- a/src/path/canon.c
++++ b/src/path/canon.c
+@@ -33,6 +33,7 @@
+ #include "path/canon.h"
+ #include "path/path.h"
+ #include "path/binding.h"
++#include "tracee/perf.h"
+ #include "path/glue.h"
+ #include "path/proc.h"
+ #include "path/f2fs-bug.h"
+@@ -156,6 +157,7 @@
+ 	if (should_skip_file_access_due_to_f2fs_bug(tracee, host_path)) {
+ 		status = -ENOENT;
+ 	} else {
++		proot_perf_count(PERF_CANON_LSTAT);
+ 		status = lstat(host_path, &statl);
+ 		/* /linkerconfig directory is present and accessible on Android,
+ 		 * but cannot be stat()'d, use hardcoded stat if access was denied
+@@ -174,6 +176,12 @@
+ 		statl.st_mode = build_glue(tracee, guest_path, host_path, finality);
+ 		if (statl.st_mode == 0)
+ 			status = -1;
++	}
++
++	if (tracee != NULL && proot_path_fastpath_enabled &&
++	    IS_FINAL(finality) && recursion_level == 0 && status == 0) {
++		strcpy(tracee->checked_path, host_path);
++		tracee->checked_path_not_symlink = !S_ISLNK(statl.st_mode);
+ 	}
+ 
+ 	/* Return an error if a non-final component isn't a
+--- a/src/path/path.c
++++ b/src/path/path.c
+@@ -35,6 +35,7 @@
+ 
+ #include "path/path.h"
+ #include "path/binding.h"
++#include "tracee/perf.h"
+ #include "path/canon.h"
+ #include "path/proc.h"
+ #include "extension/extension.h"
+@@ -321,6 +322,8 @@
+ 	char guest_path[PATH_MAX];
+ 	int status;
+ 
++	if (tracee != NULL) tracee->checked_path_not_symlink = false;
++
+ 	/* Use "/" as the base if it is an absolute guest path. */
+ 	if (user_path[0] == '/') {
+ 		strcpy(result, "/");
+@@ -370,6 +373,7 @@
+ 	strcpy(result, "/");
+ 
+ 	/* Canonicalize regarding the new root. */
++	proot_perf_count(PERF_PATH_TRANSLATION);
+ 	status = canonicalize(tracee, guest_path, deref_final, result, 0);
+ 	if (status < 0)
+ 		return status;
+@@ -386,6 +390,7 @@
+ 		tracee != NULL ? tracee->vpid : 0, result);
+ 
+ 	status = notify_extensions(tracee, TRANSLATED_PATH, (intptr_t) result, 0);
++	if (tracee != NULL) tracee->checked_path_not_symlink = false;
+ 	if (status < 0)
+ 		return status;
+ 
+--- a/src/syscall/syscall.c
++++ b/src/syscall/syscall.c
+@@ -32,6 +32,7 @@
+ #include "tracee/reg.h"
+ #include "tracee/mem.h"
+ #include "cli/note.h"
++#include "tracee/perf.h"
+ 
+ /**
+  * Copy in @path a C string (PATH_MAX bytes max.) from the @tracee's
+@@ -150,6 +151,7 @@
+ 
+ 	int suppressed_syscall_status = 0;
+ 
++	proot_perf_count(is_enter_stage ? PERF_ENTER_STOP : PERF_EXIT_STOP);
+ 	if (is_enter_stage) {
+ 		/* Never restore original register values at the end
+ 		 * of this stage.  */
+--- a/src/tracee/mem.c
++++ b/src/tracee/mem.c
+@@ -35,6 +35,7 @@
+ #include <sys/mman.h>   /* mmap(2), munmap(2), MAP_*, */
+ 
+ #include "tracee/mem.h"
++#include "tracee/perf.h"
+ #include "tracee/abi.h"
+ #include "syscall/heap.h"
+ #include "arch.h"            /* word_t, NO_MISALIGNED_ACCESS */
+@@ -238,9 +239,11 @@
+ 	remote.iov_base = dest;
+ 	remote.iov_len  = size;
+ 
++	proot_perf_count(PERF_VM_WRITE);
+ 	status = process_vm_writev(tracee->pid, &local, 1, &remote, 1, 0);
+ 	if ((size_t) status == size)
+ 		return 0;
++	proot_perf_count(PERF_VM_FALLBACK);
+ 	/* Fallback to ptrace if something went wrong.  */
+ 
+ #endif /* HAVE_PROCESS_VM */
+@@ -311,6 +314,7 @@
+ 	remote.iov_base = (word_t *)dest_tracee;
+ 	remote.iov_len  = size;
+ 
++	proot_perf_count(PERF_VM_WRITE);
+ 	status = process_vm_writev(tracee->pid, src_tracer, src_tracer_count, &remote, 1, 0);
+ 	if ((size_t) status == size)
+ 		return 0;
+@@ -358,9 +362,11 @@
+ 	remote.iov_base = src;
+ 	remote.iov_len  = size;
+ 
++	proot_perf_count(PERF_VM_READ);
+ 	status = process_vm_readv(tracee->pid, &local, 1, &remote, 1, 0);
+ 	if ((size_t) status == size)
+ 		return 0;
++	proot_perf_count(PERF_VM_FALLBACK);
+ 	/* Fallback to ptrace if something went wrong.  */
+ 
+ #endif /* HAVE_PROCESS_VM */
+@@ -411,6 +417,7 @@
+  */
+ int read_string(const Tracee *tracee, char *dest_tracer, word_t src_tracee, word_t max_size)
+ {
++	proot_perf_count(PERF_READ_STRING);
+ 	word_t *src  = (word_t *)src_tracee;
+ 	word_t *dest = (word_t *)dest_tracer;
+ 
+@@ -476,6 +483,7 @@
+ 		remote.iov_base = (uint8_t *)src + offset;
+ 		remote.iov_len  = size;
+ 
++		proot_perf_count(PERF_VM_READ);
+ 		status = process_vm_readv(tracee->pid, &local, 1, &remote, 1, 0);
+ 		if ((size_t) status != size)
+ 			goto fallback;
+@@ -493,6 +501,7 @@
+ 
+ 	/* Fallback to ptrace if something went wrong.  */
+ fallback:
++	proot_perf_count(PERF_VM_FALLBACK);
+ #endif /* HAVE_PROCESS_VM */
+ 
+ 	nb_trailing_bytes = max_size % sizeof(word_t);
+@@ -556,9 +565,11 @@
+ 	remote.iov_len  = sizeof_word(tracee);
+ 
+ 	errno = 0;
++	proot_perf_count(PERF_VM_READ);
+ 	status = process_vm_readv(tracee->pid, &local, 1, &remote, 1, 0);
+ 	if (status > 0)
+ 		return result;
++	proot_perf_count(PERF_VM_FALLBACK);
+ 	/* Fallback to ptrace if something went wrong.  */
+ #endif
+ 	errno = 0;
+@@ -601,9 +612,11 @@
+ 	remote.iov_len  = sizeof_word(tracee);
+ 
+ 	errno = 0;
++	proot_perf_count(PERF_VM_WRITE);
+ 	status = process_vm_writev(tracee->pid, &local, 1, &remote, 1, 0);
+ 	if (status > 0)
+ 		return;
++	proot_perf_count(PERF_VM_FALLBACK);
+ 	/* Fallback to ptrace if something went wrong.  */
+ #endif
+ 	/* Don't overwrite the 32 MSB when running a 32-bit process on
+--- /dev/null
++++ b/src/tracee/perf.c
+@@ -0,0 +1,32 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#include <inttypes.h>
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++#include "tracee/perf.h"
++bool proot_perf_enabled;
++bool proot_path_fastpath_enabled = true;
++uint64_t proot_perf_counters[PERF_COUNT];
++static pid_t owner;
++static void report(void)
++{
++	static const char *names[PERF_COUNT] = {
++		"enter_stop", "exit_stop", "path_translation", "canon_lstat",
++		"l2s_exit_lstat", "l2s_readlink", "read_string", "vm_read", "vm_write", "vm_fallback",
++		"path_fast_hit", "path_fast_miss"
++	};
++	if (!proot_perf_enabled || getpid() != owner) return;
++	fprintf(stderr, "proot-perf:");
++	for (int i = 0; i < PERF_COUNT; i++)
++		fprintf(stderr, " %s=%" PRIu64, names[i], proot_perf_counters[i]);
++	fputc('\n', stderr);
++}
++void proot_perf_init(void)
++{
++	const char *value = getenv("PROOT_PERF");
++	proot_perf_enabled = value != NULL && strcmp(value, "1") == 0;
++	proot_path_fastpath_enabled = getenv("PROOT_NO_PATH_FASTPATH") == NULL;
++	owner = getpid();
++	if (proot_perf_enabled) atexit(report);
++}
+--- /dev/null
++++ b/src/tracee/perf.h
+@@ -0,0 +1,19 @@
++/* SPDX-License-Identifier: GPL-2.0-or-later */
++#ifndef PROOT_PERF_H
++#define PROOT_PERF_H
++#include <stdbool.h>
++#include <stdint.h>
++typedef enum {
++	PERF_ENTER_STOP, PERF_EXIT_STOP, PERF_PATH_TRANSLATION, PERF_CANON_LSTAT,
++	PERF_L2S_LSTAT, PERF_L2S_READLINK, PERF_READ_STRING, PERF_VM_READ, PERF_VM_WRITE,
++	PERF_VM_FALLBACK, PERF_PATH_HIT, PERF_PATH_MISS, PERF_COUNT
++} ProotPerfCounter;
++extern bool proot_perf_enabled;
++extern bool proot_path_fastpath_enabled;
++extern uint64_t proot_perf_counters[PERF_COUNT];
++void proot_perf_init(void);
++static inline void proot_perf_count(ProotPerfCounter counter)
++{
++	if (proot_perf_enabled) proot_perf_counters[counter]++;
++}
++#endif
+--- a/src/tracee/tracee.h
++++ b/src/tracee/tracee.h
+@@ -29,6 +29,7 @@
+ #include <sys/queue.h> /* LIST_*, */
+ #include <sys/ptrace.h>/* enum __ptrace_request */
+ #include <talloc.h>    /* talloc_*, */
++#include <limits.h>
+ #include <stdint.h>    /* *int*_t, */
+ 
+ #include "arch.h" /* word_t, user_regs_struct, HAS_POKEDATA_WORKAROUND */
+@@ -85,6 +86,10 @@
+ 
+ 	/* Unique tracee identifier. */
+ 	uint64_t vpid;
++
++	/* Valid only inside one translate_path(), never across a kernel call. */
++	char checked_path[PATH_MAX];
++	bool checked_path_not_symlink;
+ 
+ 	/* Is it currently running or not?  */
+ 	bool running;

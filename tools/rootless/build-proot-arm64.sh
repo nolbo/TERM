@@ -27,7 +27,14 @@ mkdir -p "$downloads" "$prefix" "$output_directory"
 
 download() {
     local url=$1 sha256=$2 destination=$3
-    curl -fsSL --retry 3 --max-redirs 10 -o "$destination" "$url"
+    # Reuse explicitly supplied inputs only after checking their pinned digest.
+    local cached="${PROOT_DOWNLOAD_CACHE:-}/$(basename -- "$url")"
+    if [[ -n ${PROOT_DOWNLOAD_CACHE:-} && -f "$cached" ]]; then
+        printf '%s  %s\n' "$sha256" "$cached" | sha256sum -c -
+        cp -- "$cached" "$destination"
+    else
+        curl -fsSL --retry 3 --max-redirs 10 -o "$destination" "$url"
+    fi
     printf '%s  %s\n' "$sha256" "$destination" | sha256sum -c -
 }
 
@@ -57,6 +64,7 @@ for package in libtalloc libtalloc-static libandroid-shmem libandroid-shmem-stat
     dpkg-deb -x "$downloads/$package.deb" "$prefix"
 done
 patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-android.patch"
+patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-perf.patch"
 
 termux_prefix="$prefix/data/data/com.termux/files/usr"
 source_directory="$build_directory/proot-5.1.107.92/src"
@@ -76,7 +84,7 @@ llvm-strip -o "$output_directory/proot-loader" "$source_directory/loader/loader"
 chmod 0755 "$output_directory/proot" "$output_directory/proot-loader"
 
 printf '%s  %s\n' \
-    "1374f8c067c3b2674144bf85f33bdce2fb1860c103e814b11ed21bf406d484d9" "$output_directory/proot" \
+    "9edb5ff81998a990b014797c9acc05f31b9eb5d84cb16105d4e8c1179d7d382b" "$output_directory/proot" \
     "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237" "$output_directory/proot-loader" | sha256sum -c -
 readelf -lW "$output_directory/proot" "$output_directory/proot-loader" |
     awk '$1 == "LOAD" && $NF != "0x4000" { bad = 1 } END { exit bad }'

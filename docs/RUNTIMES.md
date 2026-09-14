@@ -72,6 +72,10 @@ segment alignment. See `tools/rootless/README.md` for provenance and rebuilding.
 
 PRoot does not provide real root, namespaces, cgroups, kernel mounts, or a full
 systemd boot. Syscall and filesystem translation also add overhead.
+The packaged PRoot avoids a redundant failed hard-link lookup for ordinary
+stat-family paths while retaining fresh metadata checks and link emulation.
+See [ROOTLESS_PERFORMANCE.md](ROOTLESS_PERFORMANCE.md) for measurements,
+diagnostic controls and validation limits.
 
 ## AVF Debian
 
