@@ -1,9 +1,9 @@
-# PRoot 내부 파일 조회의 첫 실행 시제품
+# PRoot 내부 파일 조회 실험
 
 상태: 개발용 실험. 기본 앱에 포함하거나 활성화하지 않는다.
 전체 목표는 [재설계안](../../../docs/ROOTLESS_FILESYSTEM_REDESIGN.md)에 있다.
 
-## 구현한 범위
+## 공통 구조와 모드 1
 
 - `proot-faststat.patch`: 최초 seccomp 필터에 ARM64 전용 syscall 실행 주소를
   추가한다. 정확한 PC에서의 openat2/fstat/close만 PRoot의 추적을 생략한다.
@@ -22,9 +22,8 @@
 
 PRoot의 chdir/fchdir는 가상 cwd만 바꾸고 커널 cwd를 바꾸지 않는다.
 따라서 AT_FDCWD를 무조건 직접 호출하면 잘못된 파일을 조회할 수 있다.
-이번 시제품에서 이 경로는 의도적으로 가속하지 않는다. glibc 내부 syscall
-명령어 수정, 정적 ELF, fake-root 상태 동기화와 가상 bind 처리는 아직 구현하지 않았다.
-현재 제품의 `-0 --link2symlink` 세션은 이 시제품으로 가속되지 않는다.
+모드 1에서는 이 경로를 가속하지 않는다. 모드 2는 아래의 별도 상태 조회로
+처리한다. glibc 내부 syscall 명령어 수정과 정적 ELF 가속은 구현하지 않았다.
 
 trampoline은 PRoot loader/ELF/ld.so의 예약 주소와 별도의 16 KiB 영역을
 MAP_FIXED_NOREPLACE로 확보한다. 충돌 시 기존 매핑을 덮어쓰지 않는다.
@@ -70,7 +69,8 @@ export PROOT_FASTSTAT=1 PROOT_NO_MOUNTINFO=1
 테스트 프로그램의 첫 인수는 예상 enabled 값이며 불일치 시 실패한다.
 `PROOT_FASTSTAT_DISABLE=1`을 guest 환경에 추가하면 같은 DSO의 고속 경로를
 끄고 첫 인수를 0으로 비교할 수 있다. 기존 PRoot, `PROOT_FASTSTAT=0`,
-`PROOT_NO_SECCOMP=1`, `-0`, `--link2symlink`, 추가 `-b`도 예상 값 0이다.
+`PROOT_NO_SECCOMP=1`도 예상 값 0이다. 모드 1에서는 `-0`,
+`--link2symlink`, 추가 `-b`도 비활성화 조건이다.
 속도 비교에서는 `PROOT_PERF`를 끈다. 별도 계측에서는 이를 1로 설정하고
 stderr도 수집하여 bench 0과 bench 3000의 tracer 카운터 차이를 비교한다.
 
@@ -79,7 +79,7 @@ unshare/setns가 EOPNOTSUPP로 거부된다. 초기 매핑 조건이 바뀌는 �
 지원하지 않기 때문이다. DSO의 DISABLE은 이 tracer 제한을 해제하지 않는다.
 일반 동작으로 돌아가려면 새 실행에서 tracer의 PROOT_FASTSTAT을 끈다.
 
-## 검증과 측정: 2026-09-14
+## 모드 1 검증과 측정: 2026-09-14
 
 Android MCP로 별도 테스트 APK를 사용해 API 35 ARM64 redroid의 기존
 Debian/Ubuntu rootfs에서 시험했다. 앱 업데이트나 살아 있는 사용자 세션의
@@ -129,6 +129,58 @@ APK incremental 설치는 기기에서 거부되어 도구가 streamed 설치로
 검증 후 별도 테스트 APK, 기기에 전송한 두 파일과 두 배포판의 실험용 임시
 디렉터리를 제거했다. 기존 앱과 사용자 세션은 교체하거나 종료하지 않았다.
 
+## 모드 2: 현재 cwd·bind·fake-root 반영
+
+`PROOT_FASTSTAT=2`는 `-0 --link2symlink`와 추가 bind를 유지한 채 일반 파일과
+디렉터리의 stat/lstat/fstatat 및 64-bit 대응 함수를 처리한다. 호출마다 전용
+prctl로 현재 tracee의 경로 변환 결과와 fake-root의 saved UID/GID를 받는다.
+이후 같은 프로세스의 openat2(NO_SYMLINKS) → fstat → close로 조회하고 기존
+fake_id0와 같은 소유자 보정을 수행한다. 절대 경로와 AT_FDCWD도 지원한다.
+
+상태를 캐시하지 않으므로 chdir/fchdir, bind, fork 이후 UID/GID 변경을 다음
+조회에 반영한다. 전용 요청만 seccomp 진입 단계에서 완료하며 일반 prctl의
+반환 추적은 유지한다. 모드 1의 namespace syscall 차단은 모드 2에 적용하지
+않고 기존 PRoot 동작을 따른다. 이것이 새 namespace 기능을 제공하지는 않는다.
+
+l2s 내부 backing 이름, 호스트 /proc·/sys·/dev, 비정규 객체, 해석 실패는 기존
+syscall로 돌아간다. 이 경우 상태 조회 비용이 추가되어 느려질 수 있다.
+경로 스냅샷과 커널 조회 사이의 rename 경쟁, 내부 FD와 다른 스레드의 FD 조작
+경쟁까지 원자적으로 해결한 구현은 아니다. 기본 앱에는 활성화하지 않는다.
+
+위 실행 예제에서 PROOT_FASTSTAT=2와 `-0 --link2symlink`, 필요한 `-b`를
+지정한다. `bench-cwd 3000`은 AT_FDCWD를 측정한다.
+`FASTSTAT_TEST_BIND`에 테스트용 bind 아래의 읽을 수 있는 파일 경로를 주면
+절대/상대 경로와 symlink를 통한 bind 접근을 원래 syscall과 비교한다.
+
+동일 redroid의 Debian/Ubuntu에서 C 회귀 검증과 `perf-guest.py`를 통과했다.
+추가 검증은 cwd/fchdir, bind 별칭, fork 후 서로 다른 real/effective/saved
+UID/GID, 잘못된 요청 크기·포인터·NUL 없는 패킷을 포함한다. 잘못된 포인터
+시험의 PRoot `ptrace(PEEKDATA): I/O error` 경고는 의도한 EFAULT 검증이다.
+모드 1 재검증, seccomp 끔, 호스트 fallback도 통과했다. 하드링크 전환 이후
+thread 조회는 대부분 fallback이므로 이 시험을 동시 고속 조회의 증거로
+해석하지 않는다.
+
+Debian에서 `-0 --link2symlink`, /dev·/proc·/sys·/root·/workspace bind를
+유지하고 7회 번갈아 측정했다. 회차마다 순서를 반전했고 warm-up 100회 후
+일반 파일 3,000회를 조회했다. 카운터는 껐으며 같은 실험 PRoot와 DSO에서
+DISABLE만 전환했다. 다음은 중앙값과 최소–최대다.
+
+| 조회 | 고속 끔 | 모드 2 | 시간 감소 |
+| --- | ---: | ---: | ---: |
+| dirfd 상대 경로 | 177.806 ms (168.981–182.140) | 139.265 ms (134.888–141.360) | 21.7% |
+| AT_FDCWD | 163.388 ms (159.626–166.140) | 126.631 ms (126.208–128.517) | 22.5% |
+
+각 고속 측정은 hits=3000, fallbacks=0이었다. 별도 PROOT_PERF 진단에서
+bench 0→3000의 enter_stop은 176→3176, exit_stop은 48→48이었다.
+**호출당 tracer 진입 1회는 남고 반환 정지가 제거**되었다. 경로 canonicalization도
+계속 필요하다. 모드 1의 7.18배 수치와 조건이 다르며, 패키지 설치나 전체
+Rootless 성능 개선을 입증한 수치가 아니다.
+
+표준 Gradle 검증은 BUILD SUCCESSFUL(138 tasks, 137 up-to-date), 게스트 C는
+Clang -Wall -Wextra -Werror와 호스트 fallback 검증을 통과했다. 일반 PRoot
+재빌드는 기존 payload digest와 일치했고, 실험 재빌드도 다음 SHA-256으로
+재현되었다: `998253f4f4ace6c49d34bd7ab6f60c3d4650a3024ea079a34abfad07ab46d4e7`.
+
 ## 제품 적용 전에 남은 일
 
 장비는 SELinux unconfined, 기존 앱 seccomp 필터 없음으로 확인된 redroid다.
@@ -140,6 +192,6 @@ fallback과 다르므로 먼저 독립적인 테스트 프로세스에서 검사
 기존 PRoot 경로를 사용한다. 전체 가상 파일시스템 의미, 특수 /proc 객체,
 guest가 전달받은 외부 FD, raw clone/fork 또는 다른 스레드의 close_range와
 일시적 내부 FD의 경쟁까지 호환성을 보장하는 완성된 runtime이 아니다.
-후속 단계에서 FD 소유권과 가상 cwd, fake-root/하드링크 상태, bind 경계를
-공유하는 dispatcher를 구현해야 한다. 이 조건이 충족되기 전에는 기본 실행에
+후속 단계에서 FD 소유권과 하드링크 상태를 처리하고, 검증 가능한 상태 공유로
+모드 2에 남은 호출당 tracer 진입을 제거해야 한다. 이 조건이 충족되기 전에는 기본 실행에
 넣지 않으며 기본 `-0 --link2symlink` 옵션을 제거해서 가속하지 않는다.

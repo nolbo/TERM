@@ -10,7 +10,7 @@
  #include "cli/note.h"
  
  #include "compat.h"
-@@ -263,6 +266,31 @@
+@@ -263,6 +266,48 @@
  	status = new_program_filter(&program);
  	if (status < 0)
  		goto end;
@@ -20,7 +20,24 @@
 +	 * and only its three internal read-only-stat plumbing syscalls.
 +	 * This is a compatibility optimization, never a sandbox boundary. */
 +	const char *faststat = getenv("PROOT_FASTSTAT");
-+	if (faststat != NULL && strcmp(faststat, "1") == 0) {
++	if (faststat != NULL && (strcmp(faststat, "1") == 0 || strcmp(faststat, "2") == 0)) {
++		/* These private requests are fully answered at entry. Normal
++		 * prctl (notably PR_SET_KEEPCAPS) keeps extension exit tracking. */
++		if (strcmp(faststat, "2") == 0) {
++			struct sock_filter requests[] = {
++				BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
++				BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 7),
++				BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
++				BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 167 /* prctl */, 0, 5),
++				BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, args)),
++				BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, PROOT_FASTSTAT_QUERY, 2, 0),
++				BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, PROOT_FASTSTAT_RESOLVE, 1, 0),
++				BPF_STMT(BPF_JMP+BPF_JA+BPF_K, 1),
++				BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++			};
++			status = add_statements(&program, sizeof(requests)/sizeof(requests[0]), requests);
++			if (status < 0) goto end;
++		}
 +		struct sock_filter fast[] = {
 +			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
 +			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 10),
@@ -44,29 +61,94 @@
  	for (i = 0; i < nb_archs; i++) {
 --- a/src/syscall/enter.c
 +++ b/src/syscall/enter.c
-@@ -79,6 +79,8 @@
+@@ -79,6 +79,9 @@
  #include "path/binding.h"
  #include "path/temp.h"
  #include "arch.h"
 +#include "tracee/faststat.h"
++#include "extension/fake_id0/config.h"
 +#include <stdlib.h>
  
  /* Older kernel headers may lack these. */
  #ifndef CLONE_NEWTIME
-@@ -1839,6 +1841,35 @@
+@@ -1814,6 +1817,54 @@
+  * -errno if an error occured from the tracee's point-of-view (EFAULT
+  * for instance), otherwise 0.
+  */
++#if defined(__aarch64__)
++/* Context mode preserves PRoot's current cwd/bind/identity decisions. A
++ * request is read once and its output is bounded; no guest state is cached. */
++static int faststat_resolve(Tracee *tracee)
++{
++	struct proot_faststat_context context;
++	word_t address = peek_reg(tracee, CURRENT, SYSARG_2);
++	char translated[PATH_MAX];
++	int status;
++	if (tracee->seccomp != ENABLED ||
++	    peek_reg(tracee, CURRENT, SYSARG_3) != sizeof(context) ||
++	    peek_reg(tracee, CURRENT, SYSARG_4) != PROOT_FASTSTAT_CONTEXT_VERSION)
++		return -EOPNOTSUPP;
++	status = read_data(tracee, &context, address, sizeof(context));
++	if (status < 0) return status;
++	if (!memchr(context.path, '\0', sizeof(context.path)) || !context.path[0] ||
++	    (context.flags != 0 && context.flags != AT_SYMLINK_NOFOLLOW))
++		return -EOPNOTSUPP;
++	status = translate_path(tracee, translated, context.dirfd, context.path,
++		context.flags != AT_SYMLINK_NOFOLLOW);
++	if (status < 0) return status;
++	/* l2s backing files require its complete nlink/inode postprocessing.
++	 * The regular-file dispatcher must never expose that representation.
++	 * Special kernel pseudo files also retain the full compatibility path. */
++	if (strstr(translated, "/.l2s.") || strstr(translated, "/.proot.l2s.") ||
++	    strcmp(translated, "/proc") == 0 || strncmp(translated, "/proc/", 6) == 0 ||
++	    strcmp(translated, "/sys") == 0 || strncmp(translated, "/sys/", 5) == 0 ||
++	    strcmp(translated, "/dev") == 0 || strncmp(translated, "/dev/", 5) == 0)
++		return -EOPNOTSUPP;
++	memset(context.path, 0, sizeof(context.path));
++	strcpy(context.path, translated);
++	context.host_uid = getuid();
++	context.host_gid = getgid();
++	context.guest_uid = context.host_uid;
++	context.guest_gid = context.host_gid;
++	context.fake_root = 0;
++	Extension *identity = get_extension(tracee, fake_id0_callback);
++	if (identity != NULL) {
++		Config *config = (Config *)identity->config;
++		context.fake_root = 1;
++		context.guest_uid = config->suid;
++		context.guest_gid = config->sgid;
++	}
++	return write_data(tracee, address, &context,
++		offsetof(struct proot_faststat_context, path) + strlen(context.path) + 1);
++}
++#endif
++
+ int translate_syscall_enter(Tracee *tracee)
+ {
+ 	int flags;
+@@ -1839,6 +1890,48 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
 +#if defined(__aarch64__)
 +	const char *faststat = getenv("PROOT_FASTSTAT");
-+	if (faststat != NULL && strcmp(faststat, "1") == 0) {
++	if (faststat != NULL && (strcmp(faststat, "1") == 0 || strcmp(faststat, "2") == 0)) {
 +		/* The first prototype supports a fixed, root-only mapping. Never
 +		 * silently retain that assumption across guest namespace changes. */
-+		if (syscall_number == PR_mount || syscall_number == PR_umount ||
++		if (strcmp(faststat, "1") == 0 && (syscall_number == PR_mount || syscall_number == PR_umount ||
 +		    syscall_number == PR_umount2 || syscall_number == PR_pivot_root ||
 +		    syscall_number == PR_chroot || syscall_number == PR_unshare ||
-+		    syscall_number == PR_setns) {
++		    syscall_number == PR_setns)) {
 +			status = -EOPNOTSUPP;
++			goto end;
++		}
++		if (strcmp(faststat, "2") == 0 && syscall_number == PR_prctl &&
++		    peek_reg(tracee, CURRENT, SYSARG_1) == PROOT_FASTSTAT_RESOLVE) {
++			status = faststat_resolve(tracee);
++			if (status == 0) {
++				poke_reg(tracee, SYSARG_RESULT, 0);
++				set_sysnum(tracee, PR_void);
++			}
 +			goto end;
 +		}
 +		if (syscall_number == PR_prctl &&
@@ -78,8 +160,12 @@
 +			CIRCLEQ_FOREACH(binding, tracee->fs->bindings.guest, link.guest) {
 +				if (strcmp(binding->guest.path, "/") != 0) compatible = false;
 +			}
-+			poke_reg(tracee, SYSARG_RESULT,
-+				compatible ? PROOT_FASTSTAT_VERSION : 0);
++			int version = compatible ? PROOT_FASTSTAT_VERSION : 0;
++#ifndef USERLAND
++			if (strcmp(faststat, "2") == 0 && tracee->seccomp == ENABLED)
++				version = PROOT_FASTSTAT_CONTEXT_VERSION;
++#endif
++			poke_reg(tracee, SYSARG_RESULT, version);
 +			set_sysnum(tracee, PR_void);
 +			status = 0;
 +			goto end;
@@ -89,3 +175,23 @@
  	switch (syscall_number) {
  	default:
  		/* Nothing to do. */
+--- a/src/extension/link2symlink/link2symlink.c
++++ b/src/extension/link2symlink/link2symlink.c
+@@ -14,6 +14,7 @@
+ 
+ #include "cli/note.h"
+ #include "tracee/perf.h"
++#include "tracee/faststat.h"
+ #include "extension/extension.h"
+ #include "tracee/tracee.h"
+ #include "tracee/mem.h"
+@@ -1012,7 +1013,8 @@
+ 	 * post-kernel metadata checks retain their existing fresh lookups. */
+ 	bool stat_call = sysnum == PR_stat || sysnum == PR_stat64 ||
+ 		sysnum == PR_lstat || sysnum == PR_lstat64 ||
+-		sysnum == PR_newfstatat || sysnum == PR_fstatat64;
++		sysnum == PR_newfstatat || sysnum == PR_fstatat64 ||
++		(sysnum == PR_prctl && peek_reg(tracee, ORIGINAL, SYSARG_1) == PROOT_FASTSTAT_RESOLVE);
+ 	if (proot_path_fastpath_enabled && stat_call &&
+ 	    tracee->checked_path_not_symlink &&
+ 	    strcmp(tracee->checked_path, translated_path) == 0) {

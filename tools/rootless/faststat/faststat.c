@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later
- * Experimental glibc/AArch64 dirfd-relative stat dispatcher. Unsupported cases
+ * Experimental glibc/AArch64 stat dispatcher. Unsupported cases
  * execute the original syscall at an ordinary (PRoot-traced) call site.
  */
 #define _GNU_SOURCE
@@ -28,6 +28,7 @@ _Static_assert(__builtin_offsetof(struct stat, st_uid) == 24, "stat uid ABI");
 /* Initialized before guest main/threads; no mutable metadata or FD cache. */
 static int enabled;
 static int initialization_status;
+static int execution_mode;
 static _Atomic unsigned long hits;
 static _Atomic unsigned long fallbacks;
 
@@ -52,10 +53,11 @@ __attribute__((constructor)) static void initialize_faststat(void)
     const char *disabled = getenv("PROOT_FASTSTAT_DISABLE");
     if (disabled && strcmp(disabled, "1") == 0) { initialization_status = 2; goto out; }
     /* Requires the matching experimental tracer, seccomp acceleration,
-     * no fake-root/link2symlink, and exactly the root binding. */
+     * mode 1 has only a root binding; mode 2 resolves fresh tracer context. */
     long version = syscall(SYS_prctl, PROOT_FASTSTAT_QUERY, 0, 0, 0, 0);
     initialization_status = version < 0 ? -errno : 3;
-    if (version != PROOT_FASTSTAT_VERSION) goto out;
+    if (version != PROOT_FASTSTAT_VERSION && version != PROOT_FASTSTAT_CONTEXT_VERSION) goto out;
+    execution_mode = (int)version;
     initialization_status = 4;
     void *page = mmap((void *)PROOT_FASTSTAT_ADDRESS, PROOT_FASTSTAT_MAPPING_SIZE,
                      PROT_READ | PROT_WRITE,
@@ -92,6 +94,7 @@ out:
 
 /* Exported for the test driver; not an application-facing runtime API. */
 int proot_faststat_enabled(void) { return enabled; }
+int proot_faststat_mode(void) { return execution_mode; }
 int proot_faststat_initialization_status(void) { return initialization_status; }
 unsigned long proot_faststat_hits(void) { return atomic_load_explicit(&hits, memory_order_relaxed); }
 unsigned long proot_faststat_fallbacks(void) { return atomic_load_explicit(&fallbacks, memory_order_relaxed); }
@@ -111,21 +114,40 @@ int fstatat(int dirfd, const char *path, struct stat *output, int flags)
     int saved_errno = errno;
     char copied[PATH_MAX];
     struct stat result;
-    /* PRoot emulates cwd without changing the kernel's cwd. A real directory
-     * FD is mandatory; AT_FDCWD must never reach our raw openat2. */
-    if (!enabled || dirfd < 0 || (flags != 0 && flags != AT_SYMLINK_NOFOLLOW)) goto slow;
-    if (!copy_path(copied, path) || !copied[0] || copied[0] == '/') goto slow;
+    /* PRoot's cwd is virtual. Mode 1 requires a real directory FD;
+     * mode 2 obtains an absolute host path before issuing raw openat2. */
+    if (!enabled || (flags != 0 && flags != AT_SYMLINK_NOFOLLOW)) goto slow;
+    if (!copy_path(copied, path) || !copied[0]) goto slow;
+    struct proot_faststat_context context = {0};
+    const char *kernel_path = copied;
+    int kernel_dirfd = dirfd;
+    if (execution_mode == PROOT_FASTSTAT_CONTEXT_VERSION) {
+        context.dirfd = dirfd;
+        context.flags = flags;
+        strcpy(context.path, copied);
+        if (syscall(SYS_prctl, PROOT_FASTSTAT_RESOLVE, &context, sizeof(context),
+                    PROOT_FASTSTAT_CONTEXT_VERSION, 0) != 0) goto slow;
+        if (context.path[0] != '/' || !memchr(context.path, '\0', sizeof(context.path))) goto slow;
+        kernel_path = context.path;
+        kernel_dirfd = AT_FDCWD; /* Resolved absolute host path, not virtual cwd. */
+    } else if (dirfd < 0 || copied[0] == '/') goto slow;
 
     /* Every component is checked by the kernel at resolution time. Reject
-     * all symlinks (including a link2symlink object), and escape via '..'.
+     * symlinks; mode 1 additionally rejects escape from its directory FD.
      * Rejections fall back; they are never exposed as new guest errors. */
     struct open_how how = { .flags = O_PATH | O_CLOEXEC,
-        .resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS };
-    long fd = fast_syscall(SYS_openat2, dirfd, (long)copied, (long)&how, sizeof(how));
+        .resolve = RESOLVE_NO_SYMLINKS |
+            (execution_mode == PROOT_FASTSTAT_VERSION ? RESOLVE_BENEATH : 0) };
+    long fd = fast_syscall(SYS_openat2, kernel_dirfd, (long)kernel_path, (long)&how, sizeof(how));
     if (fd < 0) goto slow;
     long status = fast_syscall(SYS_fstat, fd, (long)&result, 0, 0);
     fast_syscall(SYS_close, fd, 0, 0, 0);
     if (status < 0) goto slow;
+    if (!S_ISREG(result.st_mode) && !S_ISDIR(result.st_mode)) goto slow;
+    if (execution_mode == PROOT_FASTSTAT_CONTEXT_VERSION && context.fake_root) {
+        if (result.st_uid == context.host_uid) result.st_uid = context.guest_uid;
+        if (result.st_gid == context.host_gid) result.st_gid = context.guest_gid;
+    }
     struct iovec local = { &result, sizeof(result) };
     struct iovec remote = { output, sizeof(result) };
     if (syscall(SYS_process_vm_writev, getpid(), &local, 1, &remote, 1, 0)

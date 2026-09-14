@@ -19,6 +19,7 @@
 #include <sys/wait.h>
 #include <time.h>
 #include <unistd.h>
+#include "protocol.h"
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "FAIL line %d: %s errno=%d\n", __LINE__, #x, errno); exit(1); } } while (0)
 static int (*test_statat)(int, const char *, struct stat *, int);
@@ -78,6 +79,7 @@ int main(int argc, char **argv)
 {
     CHECK(argc == 3 || argc == 4);
     int (*enabled)(void) = dlsym(RTLD_DEFAULT, "proot_faststat_enabled");
+    int (*mode)(void) = dlsym(RTLD_DEFAULT, "proot_faststat_mode");
     test_statat = dlsym(RTLD_DEFAULT, "fstatat");
     hits = dlsym(RTLD_DEFAULT, "proot_faststat_hits");
     fallbacks = dlsym(RTLD_DEFAULT, "proot_faststat_fallbacks");
@@ -96,15 +98,16 @@ int main(int argc, char **argv)
     directory_fd = open(".", O_PATH | O_DIRECTORY);
     CHECK(directory_fd >= 0);
 
-    if (strcmp(argv[2], "bench") == 0) {
+    if (strcmp(argv[2], "bench") == 0 || strcmp(argv[2], "bench-cwd") == 0) {
         CHECK(argc == 4);
         long count = parse_count(argv[3]);
         CHECK(count >= 0 && count <= 10000000);
         struct stat result;
-        for (int i = 0; i < 100; i++) CHECK(test_statat(directory_fd, "file", &result, 0) == 0);
+        int bench_fd = strcmp(argv[2], "bench-cwd") == 0 ? AT_FDCWD : directory_fd;
+        for (int i = 0; i < 100; i++) CHECK(test_statat(bench_fd, "file", &result, 0) == 0);
         unsigned long start_hits = hits(), start_fallbacks = fallbacks();
         double start = now();
-        for (long i = 0; i < count; i++) CHECK(test_statat(directory_fd, "file", &result, 0) == 0);
+        for (long i = 0; i < count; i++) CHECK(test_statat(bench_fd, "file", &result, 0) == 0);
         double elapsed = now() - start;
         printf("{\"enabled\":%d,\"iterations\":%ld,\"ms\":%.3f,\"hits\":%lu,\"fallbacks\":%lu}\n",
                enabled(), count, elapsed, hits() - start_hits, fallbacks() - start_fallbacks);
@@ -123,6 +126,18 @@ int main(int argc, char **argv)
         compare(AT_FDCWD, "", 0);
         compare(AT_FDCWD, NULL, 0);
         compare(AT_FDCWD, (const char *)1, 0);
+        if (mode && mode() == PROOT_FASTSTAT_CONTEXT_VERSION) {
+            errno = 0;
+            CHECK(syscall(SYS_prctl, PROOT_FASTSTAT_RESOLVE, 1, sizeof(struct proot_faststat_context), 2, 0) == -1 && errno == EFAULT);
+            errno = 0;
+            CHECK(syscall(SYS_prctl, PROOT_FASTSTAT_RESOLVE, 1, 1, 2, 0) == -1 && errno == EOPNOTSUPP);
+            struct proot_faststat_context malformed;
+            memset(&malformed, 'x', sizeof(malformed));
+            malformed.dirfd = directory;
+            malformed.flags = 0;
+            errno = 0;
+            CHECK(syscall(SYS_prctl, PROOT_FASTSTAT_RESOLVE, &malformed, sizeof(malformed), 2, 0) == -1 && errno == EOPNOTSUPP);
+        }
         struct stat *invalid = (struct stat *)1;
         errno = 0;
         CHECK(test_statat(directory, "file", invalid, 0) == -1 && errno == EFAULT);
@@ -144,6 +159,24 @@ int main(int argc, char **argv)
         CHECK(mkdir("nested", 0700) == 0);
         CHECK(symlink("..", "nested/up") == 0);
         compare(directory, "nested/up/file", 0);
+        const char *bound_path = getenv("FASTSTAT_TEST_BIND");
+        if (bound_path) {
+            compare(AT_FDCWD, bound_path, 0);
+            compare(parent, "alias/file", 0);
+            CHECK(symlink(bound_path, "cross-bind") == 0);
+            compare(directory, "cross-bind", 0);
+            compare(directory, "cross-bind", AT_SYMLINK_NOFOLLOW);
+            CHECK(unlink("cross-bind") == 0);
+            compare(AT_FDCWD, "/proc/self/status", 0);
+            compare(AT_FDCWD, "/dev/null", 0);
+        }
+        int nested_file = open("nested/file", O_CREAT | O_WRONLY | O_EXCL, 0600);
+        CHECK(nested_file >= 0 && write(nested_file, "different-directory", 19) == 19);
+        CHECK(close(nested_file) == 0 && chdir("nested") == 0);
+        compare(AT_FDCWD, "file", 0);
+        compare(directory, "file", 0);
+        CHECK(fchdir(directory) == 0);
+        compare(AT_FDCWD, "file", 0);
         CHECK(rename("file", "renamed") == 0);
         compare(directory, "renamed", 0);
         compare(directory, "relative", 0);
@@ -167,6 +200,25 @@ int main(int argc, char **argv)
         int child_status;
         CHECK(waitpid(child, &child_status, 0) == child);
         CHECK(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0);
+
+        if (mode && mode() == 2 && getuid() == 0) {
+            child = fork();
+            CHECK(child >= 0);
+            if (child == 0) {
+                /* Raw syscalls deliberately bypass libc UID wrappers. */
+                CHECK(syscall(SYS_setresgid, 1201, 1202, 1203) == 0);
+                CHECK(syscall(SYS_setresuid, 1301, 1302, 1303) == 0);
+                /* Ordinary file avoids l2s fallback masking stale identity. */
+                unsigned long before = hits();
+                compare(directory, "nested/file", 0);
+                CHECK(!enabled() || hits() > before);
+                compare(AT_FDCWD, "nested/file", 0);
+                _exit(0);
+            }
+            CHECK(waitpid(child, &child_status, 0) == child);
+            CHECK(WIFEXITED(child_status) && WEXITSTATUS(child_status) == 0);
+            compare(directory, "nested/file", 0);
+        }
 
         child = fork();
         CHECK(child >= 0);
@@ -214,7 +266,7 @@ int main(int argc, char **argv)
 
         CHECK(unlink("hard") == 0 && unlink("relative") == 0);
         CHECK(unlink("absolute") == 0 && unlink("dangling") == 0);
-        CHECK(unlink("nested/up") == 0 && rmdir("nested") == 0);
+        CHECK(unlink("nested/up") == 0 && unlink("nested/file") == 0 && rmdir("nested") == 0);
         CHECK(close(directory) == 0);
         printf("PASS enabled=%d hits=%lu fallbacks=%lu\n", enabled(), hits(), fallbacks());
         CHECK(!enabled() || hits() > 0);

@@ -1,14 +1,15 @@
 # Rootless 파일 작업 가속 재설계안
 
-작성일: 2026-09-14. 상태: **전체 재설계 제안, dirfd 기반 첫 시제품 검증 완료**.
+작성일: 2026-09-14. 상태: **전체 재설계 제안, dirfd 및 cwd·fake-root 대응 시제품 검증 완료**.
 기존에 구현한 작은 최적화와 측정은
 [ROOTLESS_PERFORMANCE.md](ROOTLESS_PERFORMANCE.md)에 기록한다.
 
 후속 구현으로 [faststat 실험](../tools/rootless/faststat/README.md)을 추가했다.
 별도 PRoot 필터와 glibc DSO가 실제 dirfd 기반 상대 fstatat를 프로세스 내부에서
 처리한다. 제한된 반복 조회에서 추가 tracer 정지 0회와 약 7.18배 개선을
-확인했다. 가상 cwd, fake-root, link2symlink, 추가 bind는 가속하지 않으며
-기본 앱에는 적용하지 않는다. 아래의 전체 구조와 승격 기준은 계속 제안 상태다.
+확인했다. 후속 모드 2는 현재 cwd·bind·fake-root를 매 호출에 반영하고
+일반 파일 조회 시간을 약 22% 줄였다. 모드 2는 호출당 tracer 진입 1회가 남으며
+l2s 하드링크 객체는 기존 경로를 사용한다. 두 실험 모두 기본 앱에는 적용하지 않는다. 아래의 전체 구조와 승격 기준은 계속 제안 상태다.
 
 ## 결론과 범위
 
