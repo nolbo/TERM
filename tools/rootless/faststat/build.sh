@@ -10,3 +10,5 @@ clang -O2 -Wall -Wextra -Werror -fPIC -shared \
     "$source_directory/faststat.c" -o "$output_directory/libproot-faststat.so"
 clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/test.c" -ldl -pthread -o "$output_directory/faststat-test"
+clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
+    "$source_directory/open-test.c" -pthread -o "$output_directory/open-test"

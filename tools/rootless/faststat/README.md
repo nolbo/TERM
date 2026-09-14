@@ -1,7 +1,8 @@
 # PRoot 내부 파일 조회 실험
 
 상태: 개발용 실험. 기본 앱에 포함하거나 활성화하지 않는다.
-전체 목표는 [재설계안](../../../docs/ROOTLESS_FILESYSTEM_REDESIGN.md)에 있다.
+전체 설계는 [재설계안](../../../docs/ROOTLESS_FILESYSTEM_REDESIGN.md), 실측에 따른
+현재 목표와 한계는 [실현 가능성 평가](../../../docs/ROOTLESS_FEASIBILITY.md)에 있다.
 
 ## 공통 구조와 모드 1
 
@@ -375,3 +376,36 @@ guest가 전달받은 외부 FD, raw clone/fork 또는 다른 스레드의 close
 후속 단계에서 FD 소유권과 동시 경로 변경을 처리하고, 검증 가능한 상태 공유로
 모드 2에 남은 호출당 tracer 진입을 제거해야 한다. 이 조건이 충족되기 전에는 기본 실행에
 넣지 않으며 기본 `-0 --link2symlink` 옵션을 제거해서 가속하지 않는다.
+
+## open 경로 중복 제거: 2026-09-14
+
+실험 PRoot core에서 open/openat/openat2 처리 중 자신이 방금 주입한 경로의
+정확한 주소와 문자열을 한 syscall entry 동안만 재사용한다. 원래 guest
+포인터와 다음 호출에는 적용하지 않는다. l2s의 FD 기록을 먼저 수행한 뒤
+canonicalize가 방금 확인한 일반 파일의 중복 readlink도 생략한다.
+`PROOT_FASTSTAT_OPEN=0`으로 두 변경을 끌 수 있다. DSO와 무관하게 적용되며
+일반 빌드에는 포함하지 않는다. 커널 open, libc 취소 지점, syscall 추적 수는
+그대로다. 전체 프로그램의 경쟁 조건 호환성을 증명하는 변경은 아니다.
+
+`build.sh`가 추가로 만드는 `open-test`는 raw openat의 flags/오류/링크,
+dup, fork와 SCM_RIGHTS 전달, libc FIFO open 취소를 확인한다. ARM64 호스트와
+Android MCP의 Debian/Ubuntu에서 통과했다. 같은 소스의 정적 ELF도 두
+배포판에서 DSO 없이 통과했다. 기존 stat 및 Python 회귀도 통과했다.
+
+[원본 결과](results/open-path-2026-09-14.json)의 7쌍 중앙값은 raw
+openat/pread/close 3,000회 170.642 → 164.287 ms였다. 최종 통합 가속은
+metadata 65.857 → 50.129 ms, mutations 375.664 → 373.338 ms,
+Python import 200.391 → 193.509 ms, tar 추출 904.534 → 896.644 ms다.
+미세한 차이를 확실한 전체 작업 개선으로 해석하지 않는다. 최초 5배/2배는
+미달성이며 목표 변경의 근거와 남은 재설계는 실현 가능성 평가에 기록했다.
+
+Clang `-Wall -Wextra -Werror`, 호스트 open 시험, 표준 Gradle 명령
+(`:android-app:assembleDebug :android-runtime:testDebugUnitTest :image:test
+--console=plain`, JDK 17)은 통과했다. Gradle은 138 tasks 중 137 up-to-date였다.
+실험 재현 빌드는 측정 payload와 동일한 SHA-256
+`8b7abd9c555a0246f6aeea7a9fe0c457a17c07a552e0cd6ede6c7b0de534d932`였다.
+loader는 기존 digest와 일치했다. 기본 앱 payload는 교체하지 않았다.
+최종 stat 재실행은 처음에 필수 인자를 누락해 실패했으며, `1 test`로
+수정한 실행은 두 배포판에서 `PASS enabled=1 hits=831 fallbacks=11`이었다.
+이는 코드 회귀가 아닌 시험 호출 오류다. 검증 후 전용 APK와 이번 임시
+파일을 제거했다. stock 정책 및 UI 시험을 통과했다고 주장하지 않는다.

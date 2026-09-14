@@ -163,10 +163,22 @@
  int translate_syscall_enter(Tracee *tracee)
  {
  	int flags;
-@@ -1839,6 +1927,48 @@
+@@ -1831,6 +1919,8 @@
+ 	word_t syscall_number;
+ 	bool special = false;
+ 
++	tracee->reuse_open_path = false;
++	tracee->rewritten_open_path_address = 0;
+ 	status = notify_extensions(tracee, SYSCALL_ENTER_START, 0, 0);
+ 	if (status < 0)
+ 		goto end;
+@@ -1839,6 +1929,51 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
++	const char *open_fast = getenv("PROOT_FASTSTAT_OPEN");
++	tracee->reuse_open_path = !(open_fast && strcmp(open_fast, "0") == 0) &&
++		(syscall_number == PR_open || syscall_number == PR_openat || syscall_number == PR_openat2);
 +#if defined(__aarch64__)
 +	const char *faststat = getenv("PROOT_FASTSTAT");
 +	if (faststat != NULL && (strcmp(faststat, "1") == 0 || strcmp(faststat, "2") == 0)) {
@@ -212,6 +224,14 @@
  	switch (syscall_number) {
  	default:
  		/* Nothing to do. */
+@@ -2868,5 +3003,7 @@
+ 	if (status2 < 0)
+ 		status = status2;
+ 
++	tracee->reuse_open_path = false;
++	tracee->rewritten_open_path_address = 0;
+ 	return status;
+ }
 --- a/src/extension/link2symlink/link2symlink.c
 +++ b/src/extension/link2symlink/link2symlink.c
 @@ -14,6 +14,7 @@
@@ -222,16 +242,36 @@
  #include "extension/extension.h"
  #include "tracee/tracee.h"
  #include "tracee/mem.h"
-@@ -1012,7 +1013,8 @@
+@@ -1008,18 +1009,25 @@
+ 
+ 	/* canonicalize() has just checked this exact final host path.  An
+ 	 * ordinary stat path needs no second, inevitably failing readlink.
+-	 * Restrict this to stat calls: open's descriptor bookkeeping and all
++	 * Descriptor bookkeeping has already run for open calls; all
  	 * post-kernel metadata checks retain their existing fresh lookups. */
  	bool stat_call = sysnum == PR_stat || sysnum == PR_stat64 ||
  		sysnum == PR_lstat || sysnum == PR_lstat64 ||
 -		sysnum == PR_newfstatat || sysnum == PR_fstatat64;
+-	if (proot_path_fastpath_enabled && stat_call &&
 +		sysnum == PR_newfstatat || sysnum == PR_fstatat64 ||
 +		(sysnum == PR_prctl && peek_reg(tracee, ORIGINAL, SYSARG_1) == PROOT_FASTSTAT_RESOLVE);
- 	if (proot_path_fastpath_enabled && stat_call &&
++	/* Open's pending-link bookkeeping above must run before this shortcut.
++	 * Ordinary final files cannot be l2s symlinks; retain the real open and
++	 * its kernel FD allocation, flags, errors and libc cancellation path. */
++	const char *open_fast = getenv("PROOT_FASTSTAT_OPEN");
++	bool checked_call = stat_call || (is_open_syscall(sysnum) &&
++		!(open_fast && strcmp(open_fast, "0") == 0));
++	if (proot_path_fastpath_enabled && checked_call &&
  	    tracee->checked_path_not_symlink &&
  	    strcmp(tracee->checked_path, translated_path) == 0) {
+ 		proot_perf_count(PERF_PATH_HIT);
+ 		return;
+ 	}
+-	if (stat_call) proot_perf_count(PERF_PATH_MISS);
++	if (checked_call) proot_perf_count(PERF_PATH_MISS);
+ 	if (resolve_faked_hard_link(translated_path, final) < 0)
+ 		return;
+ 
 --- a/src/path/canon.c
 +++ b/src/path/canon.c
 @@ -34,6 +34,7 @@
@@ -282,11 +322,14 @@
  		 *
 --- a/src/tracee/tracee.h
 +++ b/src/tracee/tracee.h
-@@ -90,6 +90,7 @@
+@@ -90,6 +90,10 @@
  	/* Valid only inside one translate_path(), never across a kernel call. */
  	char checked_path[PATH_MAX];
  	bool checked_path_not_symlink;
 +	struct faststat_path_cache *faststat_path_cache;
++	bool reuse_open_path;
++	word_t rewritten_open_path_address;
++	char rewritten_open_path[PATH_MAX];
  
  	/* Is it currently running or not?  */
  	bool running;
@@ -305,3 +348,42 @@
 +    char directories[16][PATH_MAX];
 +};
 +#endif
+--- a/src/syscall/syscall.c
++++ b/src/syscall/syscall.c
+@@ -98,7 +98,18 @@
+  */
+ int set_sysarg_path(Tracee *tracee, const char path[PATH_MAX], Reg reg)
+ {
+-	return set_sysarg_data(tracee, path, strlen(path) + 1, reg);
++	size_t length = strlen(path) + 1;
++	int status = set_sysarg_data(tracee, path, length, reg);
++	/* Reuse only the exact string PRoot just injected while this tracee
++	 * remains stopped at open entry. Original guest pointers are not cached. */
++	if (tracee->reuse_open_path) {
++		tracee->rewritten_open_path_address = 0;
++		if (status == 0 && length <= sizeof(tracee->rewritten_open_path)) {
++			memcpy(tracee->rewritten_open_path, path, length);
++			tracee->rewritten_open_path_address = peek_reg(tracee, CURRENT, reg);
++		}
++	}
++	return status;
+ }
+ 
+ /**
+--- a/src/tracee/mem.c
++++ b/src/tracee/mem.c
+@@ -417,6 +417,14 @@
+  */
+ int read_string(const Tracee *tracee, char *dest_tracer, word_t src_tracee, word_t max_size)
+ {
++	if (tracee->reuse_open_path && src_tracee != 0 &&
++	    src_tracee == tracee->rewritten_open_path_address) {
++		size_t length = strlen(tracee->rewritten_open_path) + 1;
++		if (length <= max_size) {
++			memcpy(dest_tracer, tracee->rewritten_open_path, length);
++			return length;
++		}
++	}
+ 	proot_perf_count(PERF_READ_STRING);
+ 	word_t *src  = (word_t *)src_tracee;
+ 	word_t *dest = (word_t *)dest_tracer;
