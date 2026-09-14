@@ -1,8 +1,14 @@
 # Rootless 파일 작업 가속 재설계안
 
-작성일: 2026-09-14. 상태: **제안, 구현·성능 검증 전**.
+작성일: 2026-09-14. 상태: **전체 재설계 제안, dirfd 기반 첫 시제품 검증 완료**.
 기존에 구현한 작은 최적화와 측정은
 [ROOTLESS_PERFORMANCE.md](ROOTLESS_PERFORMANCE.md)에 기록한다.
+
+후속 구현으로 [faststat 실험](../tools/rootless/faststat/README.md)을 추가했다.
+별도 PRoot 필터와 glibc DSO가 실제 dirfd 기반 상대 fstatat를 프로세스 내부에서
+처리한다. 제한된 반복 조회에서 추가 tracer 정지 0회와 약 7.18배 개선을
+확인했다. 가상 cwd, fake-root, link2symlink, 추가 bind는 가속하지 않으며
+기본 앱에는 적용하지 않는다. 아래의 전체 구조와 승격 기준은 계속 제안 상태다.
 
 ## 결론과 범위
 
@@ -304,7 +310,8 @@ ptrace/filesystem 한계를 보완했고, 커널·Linux 인터페이스 문서�
 실제 프로세스 관찰, Linux 공식 인터페이스를 사용했다. stock 앱 정책의
 syscall allowlist를 그 조회로 확인했다고 주장하지 않는다.
 
-새 dispatcher, BPF 주소 예외, openat2/linkat/SIGSYS 시제품은 구현·실행하지
-않았다. 이 문서는 설계 변경만 하므로 Android 빌드와 성능 시험을 다시
-실행하지 않았다. 다음 산출물은 stock 앱 정책 probe와 한 glibc의 stat
-혼합 시제품이며, 구현 가능성과 0-stop 여부를 먼저 판단한다.
+최초 분석 시점에는 새 dispatcher와 BPF 주소 예외를 구현하지 않았다.
+이후 dirfd/openat2의 제한된 실행 시제품과 검증을 위 실험 문서에 기록했다.
+linkat backend와 SIGSYS 모드, stock 앱 정책 probe, 전체 glibc syscall 연결은
+아직 구현하지 않았다. 다음 단계는 가상 cwd와 fake-root/FD 상태를 정확하게
+공유하여 제품의 기존 실행 조건에서도 고속 경로를 사용할 수 있게 하는 것이다.

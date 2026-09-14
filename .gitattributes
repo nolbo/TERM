@@ -5,3 +5,4 @@
 *.sh        text eol=lf
 # Unified diff context deliberately prefixes tabbed and blank source lines.
 tools/rootless/proot-perf.patch whitespace=-blank-at-eol,-space-before-tab
+tools/rootless/proot-faststat.patch whitespace=-blank-at-eol,-space-before-tab

@@ -65,6 +65,10 @@ for package in libtalloc libtalloc-static libandroid-shmem libandroid-shmem-stat
 done
 patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-android.patch"
 patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-perf.patch"
+if [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]]; then
+    cp "$repository_root/tools/rootless/faststat/protocol.h" "$build_directory/proot-5.1.107.92/src/tracee/faststat.h"
+    patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-faststat.patch"
+fi
 
 termux_prefix="$prefix/data/data/com.termux/files/usr"
 source_directory="$build_directory/proot-5.1.107.92/src"
@@ -83,9 +87,15 @@ llvm-strip -o "$output_directory/proot" "$source_directory/proot"
 llvm-strip -o "$output_directory/proot-loader" "$source_directory/loader/loader"
 chmod 0755 "$output_directory/proot" "$output_directory/proot-loader"
 
-printf '%s  %s\n' \
+if [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]]; then
+    echo "Experimental faststat payload; not the production APK input."
+    sha256sum "$output_directory/proot" "$output_directory/proot-loader"
+    printf '%s  %s\n' "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237" "$output_directory/proot-loader" | sha256sum -c -
+else
+    printf '%s  %s\n' \
     "9edb5ff81998a990b014797c9acc05f31b9eb5d84cb16105d4e8c1179d7d382b" "$output_directory/proot" \
     "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237" "$output_directory/proot-loader" | sha256sum -c -
+fi
 readelf -lW "$output_directory/proot" "$output_directory/proot-loader" |
     awk '$1 == "LOAD" && $NF != "0x4000" { bad = 1 } END { exit bad }'
-echo "Built verified ARM64 PRoot payloads in $output_directory"
+echo "Built ARM64 PRoot payloads with verified inputs and 16 KiB alignment in $output_directory"

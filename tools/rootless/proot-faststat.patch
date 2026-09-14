@@ -1,0 +1,91 @@
+--- a/src/syscall/seccomp.c
++++ b/src/syscall/seccomp.c
+@@ -44,6 +44,9 @@
+ #include "syscall/syscall.h"
+ #include "syscall/sysnum.h"
+ #include "extension/extension.h"
++#include "tracee/faststat.h"
++#include <stdlib.h>
++#include <string.h>
+ #include "cli/note.h"
+ 
+ #include "compat.h"
+@@ -263,6 +266,31 @@
+ 	status = new_program_filter(&program);
+ 	if (status < 0)
+ 		goto end;
++
++#if defined(__aarch64__)
++	/* Experimental dispatcher: exact architecture, exact SVC return PC,
++	 * and only its three internal read-only-stat plumbing syscalls.
++	 * This is a compatibility optimization, never a sandbox boundary. */
++	const char *faststat = getenv("PROOT_FASTSTAT");
++	if (faststat != NULL && strcmp(faststat, "1") == 0) {
++		struct sock_filter fast[] = {
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 10),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)+4),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, (uint32_t)(PROOT_FASTSTAT_PC >> 32), 0, 8),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, (uint32_t)PROOT_FASTSTAT_PC, 0, 6),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 437 /* openat2 */, 3, 0),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 80 /* fstat */, 2, 0),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 57 /* close */, 1, 0),
++			BPF_STMT(BPF_JMP+BPF_JA+BPF_K, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_ALLOW),
++		};
++		status = add_statements(&program, sizeof(fast)/sizeof(fast[0]), fast);
++		if (status < 0) goto end;
++	}
++#endif
+ 
+ 	/* For each handled architectures */
+ 	for (i = 0; i < nb_archs; i++) {
+--- a/src/syscall/enter.c
++++ b/src/syscall/enter.c
+@@ -79,6 +79,8 @@
+ #include "path/binding.h"
+ #include "path/temp.h"
+ #include "arch.h"
++#include "tracee/faststat.h"
++#include <stdlib.h>
+ 
+ /* Older kernel headers may lack these. */
+ #ifndef CLONE_NEWTIME
+@@ -1839,6 +1841,35 @@
+ 
+ 	/* Translate input arguments. */
+ 	syscall_number = get_sysnum(tracee, ORIGINAL);
++#if defined(__aarch64__)
++	const char *faststat = getenv("PROOT_FASTSTAT");
++	if (faststat != NULL && strcmp(faststat, "1") == 0) {
++		/* The first prototype supports a fixed, root-only mapping. Never
++		 * silently retain that assumption across guest namespace changes. */
++		if (syscall_number == PR_mount || syscall_number == PR_umount ||
++		    syscall_number == PR_umount2 || syscall_number == PR_pivot_root ||
++		    syscall_number == PR_chroot || syscall_number == PR_unshare ||
++		    syscall_number == PR_setns) {
++			status = -EOPNOTSUPP;
++			goto end;
++		}
++		if (syscall_number == PR_prctl &&
++		    peek_reg(tracee, CURRENT, SYSARG_1) == PROOT_FASTSTAT_QUERY) {
++			bool compatible = tracee->seccomp == ENABLED &&
++				get_extension(tracee, fake_id0_callback) == NULL &&
++				get_extension(tracee, link2symlink_callback) == NULL;
++			Binding *binding;
++			CIRCLEQ_FOREACH(binding, tracee->fs->bindings.guest, link.guest) {
++				if (strcmp(binding->guest.path, "/") != 0) compatible = false;
++			}
++			poke_reg(tracee, SYSARG_RESULT,
++				compatible ? PROOT_FASTSTAT_VERSION : 0);
++			set_sysnum(tracee, PR_void);
++			status = 0;
++			goto end;
++		}
++	}
++#endif
+ 	switch (syscall_number) {
+ 	default:
+ 		/* Nothing to do. */

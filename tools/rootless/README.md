@@ -1,5 +1,8 @@
 # Rootless PRoot payload provenance
 
+The optional [faststat experiment](faststat/README.md) adds a separate development
+build and guest dispatcher. It is not included in the production payloads below.
+
 The stock ARM64 APK embeds `proot` and its matching loader as immutable JNI
 payloads. They are never downloaded or replaced at runtime.
 

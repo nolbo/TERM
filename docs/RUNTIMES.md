@@ -79,8 +79,8 @@ diagnostic controls and validation limits.
 
 [ROOTLESS_FILESYSTEM_REDESIGN.md](ROOTLESS_FILESYSTEM_REDESIGN.md) proposes
 in-process filesystem translation with PRoot compatibility handling. This
-redesign is not implemented; its platform probes and performance targets remain
-to be validated.
+redesign has a separate experimental dirfd-stat prototype; it is not enabled in
+the application. Stock-device probes and whole-workload targets remain to be validated.
 
 ## AVF Debian
 
