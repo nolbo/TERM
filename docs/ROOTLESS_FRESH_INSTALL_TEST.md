@@ -25,7 +25,7 @@ Codex는 설치·실행·로그 관찰에 Android MCP를 사용한다. 위 명�
 공식 기본 패키지 구성, 환경 검증과 실제 하드링크의 unlink 후 내용 보존을
 확인한다. finally에서 소유한 임시 트리만 정리하며 사용자 앱의 세션이나
 패키지 데이터베이스를 사용하지 않는다. APK의 PRoot는 기본 payload다.
-실험 kernel-stat payload로 전체 설치를 검증한 시험은 아직 아니다.
+기본 실행과 실험 payload 실행의 결과를 아래에서 구분한다.
 
 ## 2026-09-15 결과
 
@@ -47,5 +47,36 @@ Codex는 설치·실행·로그 관찰에 Android MCP를 사용한다. 위 명�
   별도 instrumentation 결과 파일에서 성공을 확인했다.
 
 이 결과는 ARM64/API 35 redroid의 앱 UID에서 얻었다. stock Android 정책,
-Ubuntu/Arch 새 설치, 실험 kernel-stat payload의 전체 설치는 미검증이다.
+Ubuntu/Arch 새 설치는 미검증이다.
 89.251초는 이번 시험 전체 시간이며 기존 대비 성능 비교 수치가 아니다.
+
+## 실험 kernel-stat payload의 새 설치
+
+같은 시험 APK에서 `lib/arm64-v8a/libproot.so`만 실험 빌드로 교체하고 debug
+서명한 별도 APK를 사용했다. 사용자 앱이나 저장소의 기본 payload는 교체하지
+않았다. 설치 시험 인자로 다음을 추가한다:
+
+```sh
+-e rootlessStatKernel true \
+-e rootlessProotSha256 511529bff26b6c68a0d467af494594b897fc33bd274e25064f35ad1577f28832
+```
+
+시험은 APK에서 추출한 실제 PRoot의 digest가 일치해야 진행한다.
+RootlessEnvironmentSetup 및 마지막 하드링크 검증 프로세스에만
+`PROOT_STAT_ENTRY=1 PROOT_STAT_KERNEL=1`을 전달한다. 일반 실행의 기본값은
+꺼짐이다. 집중 단위 시험은 옵션을 켠 프로세스에 두 값이 전달되고, 이어서
+실행한 일반 프로세스에는 전달되지 않음을 확인했다.
+
+2026-09-15 ARM64/API 35 redroid 결과:
+
+- 실험 APK 재서명 검증과 Android MCP 설치 성공. incremental 설치가 거부되어
+  도구가 streamed 설치로 전환했다.
+- 새 Debian 이미지 설치, 공식 기본 패키지 설치·환경 구성, 하드링크 검증
+  **통과**: `OK (1 test)`, 90.722초. 임시 rootfs는 자동 정리되었다.
+- 표준 Gradle 검증과 시험 APK 빌드 통과(170 tasks, 15 executed).
+- 추가 RootlessSetupCommandTest 집중 검증 통과(52 tasks, 3 executed).
+
+기본 payload 시험 89.251초와 실험 시험 90.722초는 네트워크와 패키지 서버를
+포함하는 각각 한 번의 실행이다. 성능 배속 계산에 사용하지 않는다. 이 결과는
+가속 옵션을 켠 설치의 정상성 증거이며 전체 작업 2배 또는 stock 기기의
+seccomp/SELinux 정책 지원을 증명하지 않는다.

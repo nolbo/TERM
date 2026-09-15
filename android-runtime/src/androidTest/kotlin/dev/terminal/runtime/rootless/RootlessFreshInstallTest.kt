@@ -7,6 +7,7 @@ import dev.terminal.runtime.native.ApkNativeExecutableLoader
 import java.io.File
 import java.nio.file.Files
 import java.util.Locale
+import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
@@ -40,11 +41,20 @@ class RootlessFreshInstallTest {
             val loader = ApkNativeExecutableLoader(context)
             val proot = loader.resolvePackagedExecutable("proot").getOrThrow()
             val guestLoader = loader.resolvePackagedExecutable("proot-loader").getOrThrow()
+            val statKernel = arguments.getString("rootlessStatKernel") == "true"
+            if (statKernel) {
+                val expected = requireNotNull(arguments.getString("rootlessProotSha256"))
+                require(expected.matches(Regex("[0-9a-f]{64}")))
+                val actual = MessageDigest.getInstance("SHA-256").digest(proot.readBytes())
+                    .joinToString("") { "%02x".format(it) }
+                assertEquals("Experimental PRoot digest", expected, actual)
+                Log.i("RootlessFreshInstall", "STAT_KERNEL=1 proot=$actual")
+            }
             RootlessBootstrapper(context, layout, reporter).installIfNeeded().getOrThrow()
             assertTrue(RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath()))
             val launch = buildRootlessLaunchSpec(layout, proot, guestLoader, "/bin/sh", "/", emptyMap())
             assertFalse(launch.arguments.contains("--link2symlink"))
-            RootlessEnvironmentSetup(context, layout, proot, guestLoader, reporter).prepare()
+            RootlessEnvironmentSetup(context, layout, proot, guestLoader, reporter, statKernel).prepare()
             RootlessEnvironmentProfile.validate(layout).getOrThrow()
             val check = runRootlessSetupCommand(layout, proot, guestLoader, listOf("/bin/sh", "-c", """
                 set -eu
@@ -58,7 +68,7 @@ class RootlessFreshInstallTest {
                 rm "${'$'}work/a"
                 test "${'$'}(cat "${'$'}work/b")" = 'native link'
                 printf 'PASS fresh distribution native links\n'
-            """.trimIndent()))
+            """.trimIndent()), statKernelAcceleration = statKernel)
             assertEquals(check.output, 0, check.exitCode)
             assertTrue(check.output.contains("PASS fresh distribution native links"))
             Log.i("RootlessFreshInstall", "${distribution.name}: VERIFIED")

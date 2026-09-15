@@ -458,5 +458,5 @@ path translation 5,513 → 3,257회를 기록했다. 이 수치는 입력 준비
 커널 안의 경로 탐색 비용이 사라졌다는 의미가 아니다.
 Clang 경고 검사, 독립 Android 시험 APK 빌드와 표준 Gradle 검증을 통과했다.
 공간 확보와 JUnit 시험 반환형 수정 후 기본 payload의 Debian 새 설치 시험은
-통과했다(`OK (1 test)`, 89.251초). 실험 가속 payload의 전체 설치 검증은
-아직 남아 있다. [절차와 결과](../../../docs/ROOTLESS_FRESH_INSTALL_TEST.md)를 참조한다.
+통과했다(`OK (1 test)`, 89.251초). 같은 해시의 실험 가속 payload로도 새 Debian 설치 시험을
+통과했다(`OK (1 test)`, 90.722초). 두 설치 시간은 단일 실행으로 배속 비교가 아니다. [절차와 결과](../../../docs/ROOTLESS_FRESH_INSTALL_TEST.md)를 참조한다.
