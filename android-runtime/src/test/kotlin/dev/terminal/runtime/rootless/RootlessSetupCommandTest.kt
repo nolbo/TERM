@@ -15,15 +15,15 @@ class RootlessSetupCommandTest {
     private fun executable(script: String) = temporary.newFile().apply { writeText("#!/bin/sh\n$script\n"); setExecutable(true) }
 
     @Test fun experimentalStatModeReachesOnlyExplicitlyEnabledSetupProcesses() = runBlocking {
-        val fakeProot = executable("printf '%s:%s:%s' \"\${PROOT_STAT_ENTRY-unset}\" \"\${PROOT_STAT_KERNEL-unset}\" \"\${PROOT_PATH_KERNEL-unset}\"")
+        val fakeProot = executable("printf '%s:%s:%s:%s' \"\${PROOT_STAT_ENTRY-unset}\" \"\${PROOT_STAT_KERNEL-unset}\" \"\${PROOT_PATH_KERNEL-unset}\" \"\${PROOT_MUTATION_ENTRY-unset}\"")
         val current = layout()
         val accelerated = runRootlessSetupCommand(current, fakeProot, fakeProot, listOf("/bin/true"),
-            statKernelAcceleration = true, pathKernelAcceleration = true)
+            statKernelAcceleration = true, pathKernelAcceleration = true, mutationEntryAcceleration = true)
         assertEquals(0, accelerated.exitCode)
-        assertEquals("1:1:1", accelerated.output)
+        assertEquals("1:1:1:1", accelerated.output)
         val ordinary = runRootlessSetupCommand(current, fakeProot, fakeProot, listOf("/bin/true"))
         assertEquals(0, ordinary.exitCode)
-        assertEquals("unset:unset:unset", ordinary.output)
+        assertEquals("unset:unset:unset:unset", ordinary.output)
     }
 
     @Test fun packageOutputIsBoundedAndExitFailuresRemainVisible() = runBlocking {

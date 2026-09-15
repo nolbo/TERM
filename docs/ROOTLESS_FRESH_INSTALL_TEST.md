@@ -99,3 +99,21 @@ seccomp/SELinux 정책 지원을 증명하지 않는다.
 
 이번 설치 시간도 배속 비교에 사용하지 않는다. 변경한 기본 앱 payload는 없으며,
 stock Android와 F2FS 정책·특이 동작 검증은 남아 있다.
+
+## rename 진입 완료를 추가한 설치
+
+2026-09-15 최종 PRoot
+`e7f7f3e6cbebb90d121a7c0ad4ad0b4e10a655e30e30e47d0239602ac7ea5a9c`를 시험 APK에
+패키징하고, 앞의 flags와 함께 `-e rootlessMutationEntry true`를 전달했다.
+digest 검증을 요구하는 stat 모드도 켜야 하며, 일반 실행 기본값은 꺼짐이다.
+
+- Android MCP 새 Debian 설치·기본 패키지·환경·하드링크 검증 통과:
+  `OK (1 test)`, 88.048초. 임시 rootfs는 정리되었다.
+- 표준 Gradle 검증 및 시험 APK 빌드 통과(170 tasks, 15 executed).
+  네 가속 환경 변수가 명시적으로 선택한 프로세스에만 전달되는 단위 시험 포함.
+- APK 서명 검증 성공. incremental 설치 미지원은 streamed 설치로 해결했다.
+
+기본 앱 payload는 교체하지 않았다. 단일 설치 시간으로 성능 배속을 계산하지
+않으며, 일반 Android 기기·F2FS 정책/특이 동작 검증은 남아 있다.
+
+최종 rename 경로 길이 검사 보완 뒤 동일 절차를 재실행한 결과다.

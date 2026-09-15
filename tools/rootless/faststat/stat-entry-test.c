@@ -8,6 +8,7 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/stat.h>
@@ -51,6 +52,34 @@ int main(int argc, char **argv)
     CHECK(S_ISREG(result.st_mode) && result.st_size == 4 && result.st_uid == 0);
     CHECK(linkat(dir, "file", dir, "hard", 0) == 0);
     CHECK(query(dir, "hard", &result, 0) == 0 && result.st_nlink == 2);
+    CHECK(syscall(SYS_linkat, dir, "file", dir, "extra", 0) == 0);
+    CHECK(syscall(SYS_linkat, dir, "file", dir, "extra", 0) == -1 && errno == EEXIST);
+    CHECK(syscall(SYS_renameat, dir, "extra", dir, "renamed") == 0);
+    CHECK(syscall(SYS_renameat2, dir, "renamed", dir, "extra", 0) == 0);
+    CHECK(syscall(SYS_renameat, dir, "extra", dir, "renamed") == 0);
+    CHECK(mkdirat(dir, "occupied", 0700) == 0);
+    CHECK(syscall(SYS_renameat, dir, "renamed", dir, "occupied") == -1 && errno == EISDIR);
+    CHECK(unlinkat(dir, "occupied", AT_REMOVEDIR) == 0);
+    CHECK(syscall(SYS_unlinkat, dir, "renamed", 0) == 0);
+    CHECK(syscall(SYS_unlinkat, dir, "renamed", 0) == -1 && errno == ENOENT);
+    CHECK(syscall(SYS_unlinkat, dir, "file", 0x40000000) == -1 && errno == EINVAL);
+    CHECK(syscall(SYS_linkat, dir, (const char *)1, dir, "bad", 0) == -1 && errno == EFAULT);
+    char oversized[PATH_MAX + 1];
+    memset(oversized, 'a', sizeof(oversized) - 1);
+    oversized[0] = '/';
+    oversized[sizeof(oversized) - 1] = '\0';
+    CHECK(syscall(SYS_renameat, dir, "file", dir, oversized) == -1 && errno == ENAMETOOLONG);
+    CHECK(syscall(SYS_renameat, dir, oversized, dir, "bad") == -1 && errno == ENAMETOOLONG);
+    CHECK(syscall(SYS_renameat2, dir, "file", dir, "hard", 1 /* NOREPLACE */) == -1 && errno == EEXIST);
+    CHECK(mkdirat(dir, "cwd-old", 0700) == 0);
+    int saved_cwd = open(".", O_RDONLY | O_DIRECTORY);
+    CHECK(saved_cwd >= 0 && fchdir(dir) == 0 && chdir("cwd-old") == 0);
+    CHECK(syscall(SYS_renameat, dir, "cwd-old", dir, "cwd-new") == 0);
+    char renamed_cwd[PATH_MAX];
+    CHECK(getcwd(renamed_cwd, sizeof(renamed_cwd)) != NULL);
+    CHECK(strstr(renamed_cwd, "/cwd-new") != NULL);
+    CHECK(fchdir(saved_cwd) == 0 && close(saved_cwd) == 0);
+    CHECK(unlinkat(dir, "cwd-new", AT_REMOVEDIR) == 0);
     CHECK(symlinkat("file", dir, "sym") == 0);
     CHECK(query(dir, "sym", &result, AT_SYMLINK_NOFOLLOW) == 0 && S_ISLNK(result.st_mode));
     CHECK(query(dir, "sym", &result, 0) == 0 && result.st_size == 4);
@@ -81,18 +110,31 @@ int main(int argc, char **argv)
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_newfstatat, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_unlinkat, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_linkat, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_renameat, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_renameat2, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
         };
         struct sock_fprog program = { .len = sizeof(filter) / sizeof(filter[0]), .filter = filter };
         CHECK(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0);
         CHECK(prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) == 0);
         CHECK(query(dir, "file", &result, 0) == -1 && errno == EPERM);
+        CHECK(query(AT_FDCWD, absolute, &result, 0) == -1 && errno == EPERM);
+        CHECK(syscall(SYS_unlinkat, dir, "file", 0) == -1 && errno == EPERM);
+        CHECK(syscall(SYS_linkat, dir, "file", dir, "denied", 0) == -1 && errno == EPERM);
+        CHECK(syscall(SYS_renameat, dir, "file", dir, "denied") == -1 && errno == EPERM);
+        CHECK(syscall(SYS_renameat2, dir, "file", dir, "denied", 0) == -1 && errno == EPERM);
         _exit(0);
     }
     int status; CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
     CHECK(query(dir, "file", &result, 0) == 0 && result.st_uid == 0);
     CHECK(unlinkat(dir, "sym", 0) == 0 && unlinkat(dir, "hard", 0) == 0 && unlinkat(dir, "file", 0) == 0);
     CHECK(close(file) == 0 && close(dir) == 0 && rmdir(root) == 0);
-    puts("PASS raw stat entry, links, flags, pointers, identity and seccomp");
+    puts("PASS raw stat/mutation entry, cwd, links, flags, pointers, identity and seccomp");
     return 0;
 }

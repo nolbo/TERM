@@ -21,6 +21,7 @@ internal class RootlessEnvironmentSetup(
     private val reporter: RootlessProgressReporter,
     private val statKernelAcceleration: Boolean = false,
     private val pathKernelAcceleration: Boolean = false,
+    private val mutationEntryAcceleration: Boolean = false,
 ) {
     suspend fun prepare() {
         // An older successful marker must not survive a failed repair of missing defaults.
@@ -43,7 +44,8 @@ internal class RootlessEnvironmentSetup(
         try {
             val result = runRootlessSetupCommand(layout, proot, loader, listOf("/bin/sh", "-c", script, "terminal-setup") + arguments,
                 onOutputLine = progress::line, statKernelAcceleration = statKernelAcceleration,
-                pathKernelAcceleration = pathKernelAcceleration)
+                pathKernelAcceleration = pathKernelAcceleration,
+                mutationEntryAcceleration = mutationEntryAcceleration)
             check(result.exitCode == 0) { "종료 코드 ${result.exitCode}\n${result.errorContext.ifBlank { result.output.takeLast(2000) }}" }
         } catch (error: TimeoutCancellationException) {
             throw RootlessSetupException(progress.currentPhase,
@@ -63,6 +65,7 @@ internal suspend fun runRootlessSetupCommand(
     onOutputLine: (String) -> Unit = {},
     statKernelAcceleration: Boolean = false,
     pathKernelAcceleration: Boolean = false,
+    mutationEntryAcceleration: Boolean = false,
 ): RootlessCommandResult = withContext(Dispatchers.IO) {
     File(layout.tmp, "graphics-shm").mkdirs()
     val spec = buildRootlessLaunchSpec(layout, proot, loader, "/bin/sh", "/", mapOf(
@@ -81,6 +84,7 @@ internal suspend fun runRootlessSetupCommand(
             environment()["PROOT_STAT_KERNEL"] = "1"
         }
         if (pathKernelAcceleration) environment()["PROOT_PATH_KERNEL"] = "1"
+        if (mutationEntryAcceleration) environment()["PROOT_MUTATION_ENTRY"] = "1"
     }.start()
     process.outputStream.close() // Installers must never wait for UI input.
     try {

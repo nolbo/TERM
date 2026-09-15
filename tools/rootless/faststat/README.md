@@ -478,3 +478,20 @@ STAT_ENTRY/STAT_KERNEL과 함께 `PROOT_PATH_KERNEL=1`을 주면 일반 open·�
 metadata 2.59배, 파일 변경 1.16배, import 1.12배, tar 1.23배이며
 전체 목표는 미달성이다. [5단계 결과](../../../docs/ROOTLESS_2X_PROGRESS.md)에
 검증 범위와 남는 제한을 기록했다.
+
+## rename 진입 시 완료 실험: 2026-09-15
+
+`PROOT_MUTATION_ENTRY=1`은 일반 파일의 renameat/renameat2(flags=0)를 tracer에서
+완료하고 종료 정지를 생략한다. 디렉터리와 다른 flags는 기존 처리를 사용한다.
+unlink/link는 기존에 종료 정지가 없어 이 가속에서 제외했다. 기본값은 꺼짐이다.
+
+최종 PRoot digest는
+`e7f7f3e6cbebb90d121a7c0ad4ad0b4e10a655e30e30e47d0239602ac7ea5a9c`다.
+[측정](results/mutation-entry-2026-09-15.json)에서 파일 변경은 기존 대비
+1.19배, 이전 경로 가속 대비 약 5.7% 시간 단축이었다. 다른 작업의 추가
+향상은 확인되지 않았다. [계측](results/mutation-entry-counters-2026-09-15.json)에서
+종료 정지 1,000회가 줄었다. 전체 2배 목표는 남아 있다.
+
+확장한 stat-entry-test는 이동 오류·cwd·seccomp 거부를 검사하며 Debian/Ubuntu와
+seccomp 가속 끔에서 통과했다. 동일 payload의 새 Debian 설치도 통과했다.
+[설치 절차](../../../docs/ROOTLESS_FRESH_INSTALL_TEST.md)를 참조한다.

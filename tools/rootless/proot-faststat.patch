@@ -10,12 +10,26 @@
  #include "cli/note.h"
  
  #include "compat.h"
-@@ -263,6 +266,64 @@
+@@ -263,6 +266,78 @@
  	status = new_program_filter(&program);
  	if (status < 0)
  		goto end;
 +
 +#if defined(__aarch64__)
++	const char *mutation_entry = getenv("PROOT_MUTATION_ENTRY");
++	if (mutation_entry && strcmp(mutation_entry, "1") == 0) {
++		struct sock_filter entry[] = {
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 5),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 38 /* renameat */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 276 /* renameat2 */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++		};
++		status = add_statements(&program, sizeof(entry)/sizeof(entry[0]), entry);
++		if (status < 0) goto end;
++	}
 +	/* Entry-side metadata completion requests exit dynamically on fallback. */
 +	const char *stat_entry = getenv("PROOT_STAT_ENTRY");
 +	if (stat_entry && strcmp(stat_entry, "1") == 0) {
@@ -90,7 +104,7 @@
  
  /* Older kernel headers may lack these. */
  #ifndef CLONE_NEWTIME
-@@ -1814,6 +1820,204 @@
+@@ -1814,6 +1820,251 @@
   * -errno if an error occured from the tracee's point-of-view (EFAULT
   * for instance), otherwise 0.
   */
@@ -235,6 +249,53 @@
 +	return true;
 +}
 +
++static bool mutation_entry_enabled(Tracee *tracee)
++{
++	const char *setting = getenv("PROOT_MUTATION_ENTRY");
++	if (!setting || strcmp(setting, "1") != 0 || tracee->seccomp != ENABLED ||
++	    is_32on64_mode(tracee)) return false;
++	switch (get_sysnum(tracee, ORIGINAL)) {
++	case PR_renameat: case PR_renameat2: return true;
++	default: return false;
++	}
++}
++
++/* Only calls without returned FDs or user-memory writes are completed here.
++ * Directory renames retain the existing syscall exit processing. */
++static bool complete_mutation_entry(Tracee *tracee)
++{
++	if (!mutation_entry_enabled(tracee)) return false;
++	word_t number = get_sysnum(tracee, ORIGINAL);
++	if (get_sysnum(tracee, CURRENT) != number) return false;
++	if (tracee->extensions) {
++		Extension *extension;
++		LIST_FOREACH(extension, tracee->extensions, link)
++			if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback)
++				return false;
++	}
++	if (number == PR_renameat2 && peek_reg(tracee, CURRENT, SYSARG_5) != 0) return false;
++	char oldpath[PATH_MAX], newpath[PATH_MAX];
++	if (read_path(tracee, oldpath, peek_reg(tracee, CURRENT, SYSARG_2)) <= 0 ||
++	    oldpath[0] != '/' || stat_entry_special(oldpath)) return false;
++	if (read_path(tracee, newpath, peek_reg(tracee, CURRENT, SYSARG_4)) <= 0 ||
++	    newpath[0] != '/' || stat_entry_special(newpath)) return false;
++	struct stat metadata;
++	if (lstat(oldpath, &metadata) != 0 || !S_ISREG(metadata.st_mode)) return false;
++	int result;
++	switch (number) {
++	case PR_renameat: result = renameat(AT_FDCWD, oldpath, AT_FDCWD, newpath); break;
++	case PR_renameat2: result = syscall(276, AT_FDCWD, oldpath, AT_FDCWD, newpath, 0); break;
++	default: return false;
++	}
++	/* After executing once, errors are results too: never retry a mutation. */
++	int status = result < 0 ? -errno : result;
++	poke_reg(tracee, SYSARG_RESULT, (word_t)status);
++	set_sysnum(tracee, PR_void);
++	tracee->sysexit_pending = false;
++	tracee->restart_how = PTRACE_CONT;
++	return true;
++}
++
 +static bool complete_stat_entry(Tracee *tracee)
 +{
 +	if (!stat_entry_eligible(tracee)) return false;
@@ -295,7 +356,7 @@
  int translate_syscall_enter(Tracee *tracee)
  {
  	int flags;
-@@ -1831,6 +2035,8 @@
+@@ -1831,6 +2082,8 @@
  	word_t syscall_number;
  	bool special = false;
  
@@ -304,11 +365,15 @@
  	status = notify_extensions(tracee, SYSCALL_ENTER_START, 0, 0);
  	if (status < 0)
  		goto end;
-@@ -1839,6 +2045,64 @@
+@@ -1839,6 +2092,68 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
 +#if defined(__aarch64__)
++	if (mutation_entry_enabled(tracee)) {
++		tracee->sysexit_pending = true;
++		tracee->restart_how = PTRACE_SYSCALL;
++	}
 +	/* BPF marks native newfstatat entry-only. Every unhandled case must
 +	 * restore the regular exit callbacks, including invalid pointers/flags. */
 +	if ((syscall_number == PR_newfstatat || syscall_number == PR_fstatat64) &&
@@ -369,12 +434,15 @@
  	switch (syscall_number) {
  	default:
  		/* Nothing to do. */
-@@ -2868,5 +3132,11 @@
+@@ -2868,5 +3183,14 @@
  	if (status2 < 0)
  		status = status2;
  
 +#if defined(__aarch64__)
-+	if (status >= 0) (void) complete_stat_entry(tracee);
++	if (status >= 0) {
++		(void) complete_stat_entry(tracee);
++		(void) complete_mutation_entry(tracee);
++	}
 +#endif
 +
 +	tracee->reuse_open_path = false;

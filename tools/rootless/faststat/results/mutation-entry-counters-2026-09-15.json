@@ -1,0 +1,5 @@
+{
+  "scope": "Same final PRoot, native links and stat/path acceleration; mutation count=1000 including startup/preparation, PROOT_PERF=1. Only MUTATION_ENTRY toggled; diagnostics separate from timed sweep.",
+  "off": "proot-perf: enter_stop=14012 exit_stop=5389 path_translation=98 canon_lstat=450 l2s_exit_lstat=0 l2s_readlink=0 read_string=9654 vm_read=17205 vm_write=13051 vm_fallback=0 path_fast_hit=7158 path_fast_miss=0",
+  "on": "proot-perf: enter_stop=14012 exit_stop=4389 path_translation=98 canon_lstat=450 l2s_exit_lstat=0 l2s_readlink=0 read_string=10654 vm_read=18209 vm_write=13051 vm_fallback=0 path_fast_hit=7158 path_fast_miss=0"
+}

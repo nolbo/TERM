@@ -189,3 +189,52 @@ seccomp 가속 끔을 확인했다. 회귀 시험에서 부모 0500→0700, 파�
 (`OK (1 test)`, 87.349초). 표준 Gradle 검증 및 옵션 격리 단위 시험이 통과했다.
 [설치 절차와 결과](ROOTLESS_FRESH_INSTALL_TEST.md)에 기본·stat·일반 경로
 가속 시험을 구분했다. 설치 시간은 단일 네트워크 포함 실행으로 배속 비교가 아니다.
+
+## 6단계: 일반 파일 rename의 진입 시 완료
+
+`PROOT_MUTATION_ENTRY=1`은 native ARM64 renameat 및 flags=0 renameat2의
+일반 파일 이동을 경로 변환·권한 보정 후 tracer에서 한 번 실행한다. 성공과
+실패 모두 syscall 결과로 반환하고 원래 guest 호출은 취소한다. 실행 뒤
+실패를 이유로 같은 변경을 재실행하지 않는다. 디렉터리·특수 파일·다른 flags,
+다른 확장 및 seccomp 가속 끔은 기존 syscall 경로를 사용한다.
+
+초기 구현은 unlink/link도 처리했으나 이 호출은 기존에 종료 정지가 없어서
+오히려 fallback 비용이 늘었다. 최종 구현에서는 제외했다. renameat 디렉터리
+이동의 기존 cwd 갱신을 건너뛰지 않도록 일반 파일만 처리한다.
+
+[7회 교대 3종 측정](../tools/rootless/faststat/results/mutation-entry-2026-09-15.json):
+
+| 작업 | 기존(ms) | 경로 가속(ms) | rename 가속 추가(ms) | 기존 대비 배속 |
+| --- | ---: | ---: | ---: | ---: |
+| metadata | 64.399 | 25.273 | 24.686 | 2.61 |
+| 파일 변경 | 371.561 | 330.192 | 311.286 | 1.19 |
+| Python import | 199.289 | 174.178 | 172.703 | 1.15 |
+| tar 추출 | 896.222 | 738.834 | 738.796 | 1.21 |
+
+새 단계의 추가 효과는 파일 변경의 약 5.7% 시간 단축이다. 다른 작업에
+추가 향상을 주장하지 않는다. [별도 계측](../tools/rootless/faststat/results/mutation-entry-counters-2026-09-15.json)은
+진입 14,012회를 유지하면서 종료 5,389 → 4,389회를 확인했다. 대신 변환한
+경로를 읽는 비용이 늘었다. 준비·시작을 포함하는 수치다.
+
+정적 raw syscall 시험에 renameat/renameat2 성공, EISDIR, EEXIST,
+잘못된 포인터·flags, renameat 디렉터리 이동 후 cwd, guest seccomp의
+stat/unlink/link/rename/renameat2 거부를 추가했다. Debian, Ubuntu workspace,
+seccomp 가속 끔에서 통과했다. 셸의 권한·변경·링크 회귀도 통과했다.
+시험 코드의 누락된 string.h는 수정 후 경고를 오류로 처리하는 빌드에 성공했다.
+
+최종 실험 SHA-256은
+`e7f7f3e6cbebb90d121a7c0ad4ad0b4e10a655e30e30e47d0239602ac7ea5a9c`다.
+표준 Gradle 검증·옵션 격리 단위 시험·시험 APK 빌드가 통과했고 같은 해시로
+새 Debian 설치·기본 패키지·환경·하드링크 검증도 통과했다(88.048초).
+이 설치 시간은 단일 네트워크 포함 실행이므로 배속 비교에 쓰지 않는다.
+
+**전체 2배 목표는 미달성**이다. 기본 앱 payload 적용, stock Android/F2FS
+검증도 남아 있다. 다음 성능 과제는 open 등 FD를 반환하는 호출과 남은
+진입 정지 비용이며, 현재 방식만 더 넓혀 충분한 개선이 날 것으로 단정하지 않는다.
+
+최종 검토에서 변환한 이동 경로를 다시 읽을 때 read_path의 길이 검사를
+재사용하도록 보완하고 ENAMETOOLONG 회귀를 추가했다. 이후 측정 7회와
+새 설치를 다시 실행했으며 위 표·결과 파일은 보완 후 최종 바이너리 기준이다.
+현재 시험 커널(6.17.0-1020-oracle)은 seccomp actions_avail에 user_notif를
+열거한다. 이는 다음 FD 전달 실험의 단서이며 앱 UID에서 listener/ADDFD가
+동작한다는 증거는 아직 아니다.
