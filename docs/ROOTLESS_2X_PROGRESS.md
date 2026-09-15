@@ -50,3 +50,47 @@ PRoot의 l2s 옵션만 교대했다. 공개 함수 DSO 가속은 사용하지 �
 새 배포판 설치, 패키지·개발 도구 동작, 정의된 대표 작업의 기존 대비 2배를
 함께 검증해야 한다. Git/패키지/빌드 등 전체 작업과 큰 입력의 기준선을
 확보하고 개선 적용률을 확인하는 작업도 남아 있다.
+
+## 2단계: stat 종료 정지 제거(실험)
+
+`PROOT_BUILD_FASTSTAT=1` 빌드에 `PROOT_STAT_ENTRY=1`을 주면 ARM64 stat을
+진입 시 처리한다. PRoot의 경로 변환 뒤 tracer가 새 lstat 결과를 읽고
+fake-root 소유자를 적용해 guest에 전달한다. 일반 파일·디렉터리만 처리하며
+가속할 수 없는 경우에는 원래 syscall과 종료 처리를 유지한다. BPF는
+ARM64 번호 79를 다루며 내부 이름은 `PR_fstatat64`임을 확인했다.
+
+preload가 필요 없어 정적 ELF와 libc 내부의 해당 syscall에도 적용된다.
+진입 정지와 경로 해석은 남아 있으며 0-stop 구현은 아니다. 기본 mountinfo
+확장은 경로 변환만 하므로 허용하고, l2s 등 다른 확장이 있으면 가속하지 않는다.
+결과 쓰기는 읽기 전용 mapping을 우회하지 않는 process_vm_writev를 사용한다.
+
+[최종 7쌍 측정](../tools/rootless/faststat/results/stat-entry-2026-09-15.json):
+
+| 작업 | 기존 PRoot+l2s(ms) | 새 실험+실제 링크(ms) | 배속 |
+| --- | ---: | ---: | ---: |
+| metadata | 63.830 | 40.700 | 1.57 |
+| 파일 변경 | 367.987 | 335.262 | 1.10 |
+| Python import | 197.622 | 181.702 | 1.09 |
+| tar 추출 | 886.949 | 787.361 | 1.13 |
+
+[별도 계측](../tools/rootless/faststat/results/stat-entry-counters-2026-09-15.json)은
+동일 native-link 실험 빌드에서 STAT_ENTRY만 비교했다. 입력 준비와 Python
+시작을 포함해 진입 9,009회는 같고, 종료 정지는 4,677 → 2,386회였다.
+이 숫자는 timed stat 1,000회만의 카운터가 아니다.
+
+Debian/Ubuntu의 정적 raw-syscall 시험이 파일 종류·크기·소유자·하드링크,
+심볼릭 링크, AT_EMPTY_PATH, 잘못된 flags/FD/pointer, 읽기 전용 출력 메모리,
+fork와 UID 변경, guest seccomp의 EPERM을 검증했다. seccomp 가속 끔과
+mountinfo 확장 끔에서도 통과했다. 독립 dpkg root/database에서 설치·업그레이드·
+제거도 통과했다. 사용자 앱과 기존 package DB는 교체하지 않았다.
+
+초기 구현에는 내부 syscall 이름 불일치와 비활성화 조건 오류가 있었다.
+이때 나온 tar 1.68배 등 수치는 채택하지 않았으며 결과 파일은 최종 빌드
+측정으로 교체했다. l2s를 켠 시험의 fork 후 소유자 검사는 기존 바이너리와
+실험 바이너리 양쪽에서 실패했다. 새 시험은 native-link 모드의 요구를 검증하며
+이 l2s 동작을 통과했다고 주장하지 않는다.
+
+**2배 목표는 여전히 미달성**이다. 다음 병목은 진입마다 반복하는 경로 해석이다.
+커널이 경로를 한 번에 확인할 수 있는 일반 경로 처리를 검토하고, 기존의
+바인딩·특수 파일 처리와 조합해야 한다. 전체 배포판 설치 및 실제 기기의
+정책 검증도 계속 남아 있다. 제품 기본 payload에는 아직 이 실험을 넣지 않았다.

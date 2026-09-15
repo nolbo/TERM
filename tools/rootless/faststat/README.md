@@ -409,3 +409,29 @@ loader는 기존 digest와 일치했다. 기본 앱 payload는 교체하지 않�
 수정한 실행은 두 배포판에서 `PASS enabled=1 hits=831 fallbacks=11`이었다.
 이는 코드 회귀가 아닌 시험 호출 오류다. 검증 후 전용 APK와 이번 임시
 파일을 제거했다. stock 정책 및 UI 시험을 통과했다고 주장하지 않는다.
+
+## Native-link stat entry 실험: 2026-09-15
+
+`PROOT_STAT_ENTRY=1`은 실험 PRoot core에서 ARM64 `fstatat64`(커널 번호 79)를
+진입 시 완성한다. `PROOT_FASTSTAT`나 DSO preload를 요구하지 않는다.
+`-0`과 일반 bind를 유지하되 l2s 확장이 없는 새 저장 방식을 대상으로 한다.
+성공 시 종료 정지를 생략하고, 미지원 flags/객체/확장 및 메모리 쓰기 실패는
+기존 kernel syscall과 종료 callback을 수행한다. 일반 커널 경로 해석과
+진입 정지는 남는다. 실제 앱 payload에는 적용하지 않았다.
+
+`build.sh`의 정적 `stat-entry-test`를 `-0`, l2s 없는 guest에서 실행한다.
+Debian/Ubuntu, seccomp 가속 끔, mountinfo 끔의 회귀가 통과했다. 기존 l2s의
+fork 후 소유자 동작은 이 native-link 시험의 기대와 달라 양쪽 비교에서
+실패했으므로 지원 범위를 혼동하지 않는다. 상세 결과·수정 이력·미완료 목표는
+[2배 목표 진행 기록](../../../docs/ROOTLESS_2X_PROGRESS.md)에 있다.
+
+최종 빌드 SHA-256은
+`ac32b09ebefbb3497616239949d0de67fe3e5a3d507d5c1f81c575bcb3fae2eb`다.
+최종 측정 원본은 [stat-entry](results/stat-entry-2026-09-15.json), tracer
+정지와 원격 메모리 계측은 [counters](results/stat-entry-counters-2026-09-15.json)다.
+초기 오류 빌드의 속도 수치는 최종 결과에 포함하지 않았다.
+재현 빌드는 같은 digest였고 loader digest도 기존 값과 일치했다. Clang 경고
+검사와 표준 Gradle 명령(JDK 17, 138 tasks 중 137 up-to-date)이 통과했다.
+Android MCP로 검증한 뒤 별도 APK와 이번 임시 파일을 제거했다. 시험 바이너리
+전송은 자동 검토에서 한 번 거부되었고 사용자의 명시적 승인 후 성공했다.
+APK incremental 설치가 지원되지 않아 도구의 streamed 설치로 성공했다.
