@@ -55,6 +55,16 @@ starts an APK-packaged, allow-listed PRoot and loader, binds only `/dev`,
 `/proc`, `/sys`, the rootless home and `/workspace` by default, and owns the
 resulting PTY across UI detach.
 
+New installations probe kernel hardlink support in unpublished staging and record
+`native-hardlinks-1` in `.terminal-storage-format`. Their sessions omit PRoot's
+`--link2symlink` extension while retaining fake-root and the selected binds.
+This avoids link emulation on ordinary file operations. Unsupported storage fails
+before activation. Existing unmarked user images are not converted automatically;
+they retain their previous launch mode. A fresh installation is the supported path
+to the new storage format. This is one step toward the current 2x performance goal,
+not evidence that the goal has been reached. See
+[the ongoing performance work](ROOTLESS_2X_PROGRESS.md).
+
 Ubuntu 24.04 LTS and Arch Linux ARM have separate `files/rootless/ubuntu` and
 `files/rootless/archlinux` roots, homes, temporary files and download caches.
 Debian/Ubuntu validate apt; Arch validates pacman. Only `/workspace` is shared

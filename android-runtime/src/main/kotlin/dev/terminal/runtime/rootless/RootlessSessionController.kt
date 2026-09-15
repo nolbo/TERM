@@ -198,7 +198,8 @@ internal fun buildRootlessLaunchSpec(
     val arguments = buildList {
         // PtyProcess passes this array directly to execvp(), so argv[0] is explicit.
         add(proot.absolutePath)
-        addAll(listOf("--link2symlink", "-0", "-r", layout.rootfs.absolutePath))
+        if (!RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath())) add("--link2symlink")
+        addAll(listOf("-0", "-r", layout.rootfs.absolutePath))
         addAll(listOf("-b", "/dev", "-b", "/proc", "-b", "/sys"))
         addAll(listOf("-b", "${File(layout.tmp, "graphics-shm").absolutePath}:/dev/shm"))
         addAll(listOf("-b", "${layout.home.absolutePath}:/root"))

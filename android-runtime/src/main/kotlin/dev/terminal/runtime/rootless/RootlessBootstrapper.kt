@@ -127,6 +127,7 @@ class RootlessBootstrapper(
                         "파일 $entries 개 처리 · ${bytes / (1024 * 1024)} MiB 압축 해제"))
                 }
                 configureRootlessRootfs(staging, distribution)
+                RootlessStorageFormat.prepareNewInstallation(staging)
                 require(Files.isExecutable(staging.resolve("bin/sh"))) { "${distribution.displayName} archive does not contain an executable /bin/sh" }
                 require(distribution.packageExecutables.any { Files.isExecutable(staging.resolve(it)) }) {
                     "${distribution.displayName} archive does not contain its package manager"
