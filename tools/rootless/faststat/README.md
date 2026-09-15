@@ -435,3 +435,28 @@ fork 후 소유자 동작은 이 native-link 시험의 기대와 달라 양쪽 �
 Android MCP로 검증한 뒤 별도 APK와 이번 임시 파일을 제거했다. 시험 바이너리
 전송은 자동 검토에서 한 번 거부되었고 사용자의 명시적 승인 후 성공했다.
 APK incremental 설치가 지원되지 않아 도구의 streamed 설치로 성공했다.
+
+## Kernel path stat 실험: 2026-09-15
+
+STAT_ENTRY에 `PROOT_STAT_KERNEL=1`을 더하면 일반 경로의 구성 요소별
+PRoot 조회를 kernel openat2(NO_SYMLINKS)로 대체한다. 성공한 O_PATH FD에
+fstat을 수행한 뒤 닫고 stat entry 결과를 전달한다. 미지원 경로는 기존
+처리를 유지한다. DSO를 요구하지 않으며 기본 앱에서는 켜지 않는다.
+
+상위 symlink를 숨길 수 있는 중첩 binding은 가속에서 제외한다. 최상위
+binding, absolute/cwd 경로, 링크 fallback과 readonly output, UID 변화,
+guest seccomp는 정적 회귀 시험으로 확인했다. `stat-entry-test /workspace`는
+별도의 임시 디렉터리로 binding 경로를 시험한다.
+
+[측정](results/stat-kernel-2026-09-15.json)의 metadata는 2.61배였고,
+나머지 작업은 1.08~1.17배였다. 전체 목표 달성을 주장하지 않는다.
+최종 실험 SHA-256은
+`511529bff26b6c68a0d467af494594b897fc33bd274e25064f35ad1577f28832`다.
+재현 빌드에서 같은 digest를 확인했다. [별도 계측](results/stat-kernel-counters-2026-09-15.json)은
+stat entry만 사용한 경우와 비교해 canonical lstat 24,036 → 14,118회,
+path translation 5,513 → 3,257회를 기록했다. 이 수치는 입력 준비까지 포함하며
+커널 안의 경로 탐색 비용이 사라졌다는 의미가 아니다.
+Clang 경고 검사, 독립 Android 시험 APK 빌드와 표준 Gradle 검증을 통과했다.
+공간 확보와 JUnit 시험 반환형 수정 후 기본 payload의 Debian 새 설치 시험은
+통과했다(`OK (1 test)`, 89.251초). 실험 가속 payload의 전체 설치 검증은
+아직 남아 있다. [절차와 결과](../../../docs/ROOTLESS_FRESH_INSTALL_TEST.md)를 참조한다.

@@ -128,6 +128,11 @@ android {
         unitTests.returnDefaultValues = true
     }
 
+    // Standalone instrumentation must execute the APK-owned PRoot files too.
+    packagingOptions {
+        jniLibs.useLegacyPackaging = true
+    }
+
     sourceSets.main.jniLibs.srcDirs = [generatedRootlessJniDirectory, iphoneBuildDirectory.get().dir('jniLibs').asFile, iphoneToolsBuildDirectory.get().dir('jniLibs').asFile]
     sourceSets.main.assets.srcDir(iphoneToolsBuildDirectory.get().dir('assets').asFile)
     sourceSets.main.jniLibs.srcDir(sideStoreBuildDirectory.get().dir('jniLibs').asFile)
@@ -157,4 +162,7 @@ dependencies {
 
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'
+    androidTestImplementation 'androidx.test:core:1.7.0'
+    androidTestImplementation 'androidx.test:runner:1.7.0'
+    androidTestImplementation 'androidx.test.ext:junit:1.3.0'
 }

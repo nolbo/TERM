@@ -90,7 +90,7 @@
  
  /* Older kernel headers may lack these. */
  #ifndef CLONE_NEWTIME
-@@ -1814,6 +1820,144 @@
+@@ -1814,6 +1820,204 @@
   * -errno if an error occured from the tracee's point-of-view (EFAULT
   * for instance), otherwise 0.
   */
@@ -182,7 +182,7 @@
 +/* Native-link experiment: complete ordinary metadata in the tracer's app UID.
 + * A guest seccomp ERRNO/KILL filter takes precedence over the TRACE event.
 + * Pseudo objects, alternate ABIs and extensions retain the kernel/exit path. */
-+static bool complete_stat_entry(Tracee *tracee)
++static bool stat_entry_eligible(Tracee *tracee)
 +{
 +	if (tracee->seccomp != ENABLED || is_32on64_mode(tracee) ||
 +	    (get_sysnum(tracee, ORIGINAL) != PR_newfstatat &&
@@ -199,30 +199,34 @@
 +	}
 +	word_t flags = peek_reg(tracee, ORIGINAL, SYSARG_4);
 +	if (flags != 0 && flags != AT_SYMLINK_NOFOLLOW) return false;
-+	char path[PATH_MAX];
-+	if (read_string(tracee, path, peek_reg(tracee, CURRENT, SYSARG_2), sizeof(path)) <= 0 ||
-+	    path[0] != '/')
-+		return false;
-+	if (strcmp(path, "/proc") == 0 || strncmp(path, "/proc/", 6) == 0 ||
++	return true;
++}
++
++static bool stat_entry_special(const char *path)
++{
++	return strcmp(path, "/proc") == 0 || strncmp(path, "/proc/", 6) == 0 ||
 +	    strcmp(path, "/sys") == 0 || strncmp(path, "/sys/", 5) == 0 ||
-+	    strcmp(path, "/dev") == 0 || strncmp(path, "/dev/", 5) == 0) return false;
-+	struct stat result = {0};
-+	_Static_assert(sizeof(result) == 128, "AArch64 guest stat ABI");
++	    strcmp(path, "/dev") == 0 || strncmp(path, "/dev/", 5) == 0;
++}
++
++static bool emit_stat_entry(Tracee *tracee, struct stat *result)
++{
++	_Static_assert(sizeof(*result) == 128, "AArch64 guest stat ABI");
 +	_Static_assert(offsetof(struct stat, st_uid) == 24, "AArch64 guest uid ABI");
-+	if (lstat(path, &result) != 0 || (!S_ISREG(result.st_mode) && !S_ISDIR(result.st_mode)))
++	if (!S_ISREG(result->st_mode) && !S_ISDIR(result->st_mode))
 +		return false;
 +	Extension *identity = get_extension(tracee, fake_id0_callback);
 +	if (identity) {
 +		Config *config = (Config *)identity->config;
-+		if (result.st_uid == getuid()) result.st_uid = config->suid;
-+		if (result.st_gid == getgid()) result.st_gid = config->sgid;
++		if (result->st_uid == getuid()) result->st_uid = config->suid;
++		if (result->st_gid == getgid()) result->st_gid = config->sgid;
 +	}
 +	/* PTRACE_POKEDATA can write a read-only guest mapping. A syscall result
 +	 * must instead respect its protections and fall back on short writes. */
-+	struct iovec local = { &result, sizeof(result) };
-+	struct iovec remote = { (void *)peek_reg(tracee, ORIGINAL, SYSARG_3), sizeof(result) };
++	struct iovec local = { result, sizeof(*result) };
++	struct iovec remote = { (void *)peek_reg(tracee, ORIGINAL, SYSARG_3), sizeof(*result) };
 +	proot_perf_count(PERF_VM_WRITE);
-+	if (process_vm_writev(tracee->pid, &local, 1, &remote, 1, 0) != sizeof(result))
++	if (process_vm_writev(tracee->pid, &local, 1, &remote, 1, 0) != sizeof(*result))
 +		return false;
 +	poke_reg(tracee, SYSARG_RESULT, 0);
 +	set_sysnum(tracee, PR_void);
@@ -230,12 +234,68 @@
 +	tracee->restart_how = PTRACE_CONT;
 +	return true;
 +}
++
++static bool complete_stat_entry(Tracee *tracee)
++{
++	if (!stat_entry_eligible(tracee)) return false;
++	char path[PATH_MAX];
++	if (read_string(tracee, path, peek_reg(tracee, CURRENT, SYSARG_2), sizeof(path)) <= 0 ||
++	    path[0] != '/' || stat_entry_special(path)) return false;
++	struct stat result = {0};
++	if (lstat(path, &result) != 0) return false;
++	return emit_stat_entry(tracee, &result);
++}
++
++/* Resolve a plain lexical binding once, then let the kernel check every
++ * component. No filesystem metadata or cwd/binding state survives this call. */
++static bool kernel_stat_entry(Tracee *tracee)
++{
++	const char *setting = getenv("PROOT_STAT_KERNEL");
++	if (!setting || strcmp(setting, "1") != 0 || !stat_entry_eligible(tracee)) return false;
++	char input[PATH_MAX], path[PATH_MAX], cwd[PATH_MAX];
++	if (get_sysarg_path(tracee, input, SYSARG_2) <= 0) return false;
++	if (input[0] == '/') strcpy(path, input);
++	else {
++		if ((int)peek_reg(tracee, ORIGINAL, SYSARG_1) != AT_FDCWD ||
++		    getcwd2(tracee, cwd) < 0 || join_paths(2, path, cwd, input) < 0) return false;
++	}
++	/* Bind selection must see the same lexical components as the kernel.
++	 * Dot components, duplicate slashes and symlinks use PRoot's resolver. */
++	for (const char *part = path + 1; *part;) {
++		const char *slash = strchr(part, '/');
++		size_t length = slash ? (size_t)(slash - part) : strlen(part);
++		if (length == 0 || (length == 1 && part[0] == '.') ||
++		    (length == 2 && part[0] == '.' && part[1] == '.')) return false;
++		if (!slash) break;
++		part = slash + 1;
++	}
++	/* A nested binding can hide a symlink in its guest-side ancestors.
++	 * The full resolver must decide those cases before applying the bind. */
++	Binding *binding;
++	CIRCLEQ_FOREACH(binding, tracee->fs->bindings.guest, link.guest) {
++		if (strchr(binding->guest.path + 1, '/') != NULL) {
++			Comparison relation = compare_paths(binding->guest.path, path);
++			if (relation == PATHS_ARE_EQUAL || relation == PATH1_IS_PREFIX) return false;
++		}
++	}
++	if (stat_entry_special(path) || substitute_binding(tracee, GUEST, path) < 0 ||
++	    stat_entry_special(path)) return false;
++	struct proot_open_how how = { .flags = O_PATH | O_CLOEXEC,
++		.resolve = 0x04 /* RESOLVE_NO_SYMLINKS */ };
++	int fd = syscall(437 /* AArch64 openat2 */, AT_FDCWD, path, &how, sizeof(how));
++	if (fd < 0) return false;
++	struct stat result = {0};
++	int status = fstat(fd, &result);
++	close(fd);
++	if (status < 0) return false;
++	return emit_stat_entry(tracee, &result);
++}
 +#endif
 +
  int translate_syscall_enter(Tracee *tracee)
  {
  	int flags;
-@@ -1831,6 +1975,8 @@
+@@ -1831,6 +2035,8 @@
  	word_t syscall_number;
  	bool special = false;
  
@@ -244,7 +304,7 @@
  	status = notify_extensions(tracee, SYSCALL_ENTER_START, 0, 0);
  	if (status < 0)
  		goto end;
-@@ -1839,6 +1985,63 @@
+@@ -1839,6 +2045,64 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
@@ -258,6 +318,7 @@
 +			tracee->sysexit_pending = true;
 +			tracee->restart_how = PTRACE_SYSCALL;
 +		}
++		if (kernel_stat_entry(tracee)) return 0;
 +	}
 +#endif
 +	const char *open_fast = getenv("PROOT_FASTSTAT_OPEN");
@@ -308,7 +369,7 @@
  	switch (syscall_number) {
  	default:
  		/* Nothing to do. */
-@@ -2868,5 +3071,11 @@
+@@ -2868,5 +3132,11 @@
  	if (status2 < 0)
  		status = status2;
  

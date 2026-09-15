@@ -1,0 +1,5 @@
+{
+  "scope": "Same final experimental PRoot, native links, STAT_ENTRY=1, no DSO; toggle STAT_KERNEL only; metadata count 1000 including startup/fixture work. Diagnostics separate from speed sweep.",
+  "off": "proot-perf: enter_stop=9010 exit_stop=2387 path_translation=5513 canon_lstat=24036 l2s_exit_lstat=0 l2s_readlink=0 read_string=7836 vm_read=10411 vm_write=10308 vm_fallback=0 path_fast_hit=0 path_fast_miss=0",
+  "on": "proot-perf: enter_stop=9010 exit_stop=2387 path_translation=3257 canon_lstat=14118 l2s_exit_lstat=0 l2s_readlink=0 read_string=5655 vm_read=8226 vm_write=8052 vm_fallback=0 path_fast_hit=0 path_fast_miss=0"
+}

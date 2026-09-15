@@ -94,3 +94,46 @@ mountinfo 확장 끔에서도 통과했다. 독립 dpkg root/database에서 설�
 커널이 경로를 한 번에 확인할 수 있는 일반 경로 처리를 검토하고, 기존의
 바인딩·특수 파일 처리와 조합해야 한다. 전체 배포판 설치 및 실제 기기의
 정책 검증도 계속 남아 있다. 제품 기본 payload에는 아직 이 실험을 넣지 않았다.
+
+## 3단계: 일반 stat 경로의 커널 확인
+
+`PROOT_STAT_ENTRY=1 PROOT_STAT_KERNEL=1`에서 일반 절대 경로와 현재 작업
+디렉터리 기준 경로를 현재 binding으로 치환하고, tracer의 openat2
+`RESOLVE_NO_SYMLINKS`와 fstat으로 확인한다. 성공한 파일·디렉터리는 결과를
+바로 전달한다. 이 호출이 소유한 host FD는 반환 전에 닫고 guest에 노출하지
+않는다. 파일 정보나 cwd/binding을 호출 사이에 캐시하지 않는다.
+
+심볼릭 링크, 점 경로 구성 요소, 중복 슬래시, 특수 파일, 상대 dirfd 경로,
+지원하지 않는 flags, 커널 거부는 기존 해석으로 돌아간다. 중첩 binding은
+guest 쪽 상위 심볼릭 링크를 먼저 해석해야 할 수 있으므로 기존 경로를
+사용한다. 기본 /root·/workspace 같은 최상위 binding은 가속할 수 있다.
+
+[최종 7쌍 측정](../tools/rootless/faststat/results/stat-kernel-2026-09-15.json):
+
+| 작업 | 기존 PRoot+l2s(ms) | 새 실험(ms) | 배속 |
+| --- | ---: | ---: | ---: |
+| metadata 1,000개 | 64.248 | 24.594 | **2.61** |
+| 파일 변경 | 365.323 | 339.213 | 1.08 |
+| Python import | 194.548 | 173.650 | 1.12 |
+| tar 추출 | 894.918 | 763.562 | 1.17 |
+
+조회 작업은 2배를 넘었지만 **전체 목표는 미달성**이다. 새 배포판 전체 설치와
+대표 전체 작업의 2배를 이 제한된 warm 조회 측정으로 대신하지 않는다.
+PRoot 진입 정지는 여전히 호출마다 필요하며 stat 외의 작업 비용이 남는다.
+
+확장한 정적 raw-syscall 시험은 Debian/Ubuntu, /workspace binding, 중첩
+binding fallback, 상위 심볼릭 링크, 절대·cwd 경로, 읽기 전용 출력 메모리,
+UID 변경과 seccomp를 검증했다. 다음 설치 검증은 사용자 앱과 분리한
+`:android-runtime`의 standalone Android test APK에서 실제 bootstrapper와
+배포판 기본 환경 구성을 실행하도록 준비한다. 이 APK의 기본 PRoot는 아직
+실험 payload가 아니므로, 그 설치 시험을 실험 경로 전체의 검증으로 혼동하지
+않는다. 가속 payload의 새 설치 검증과 제품 적용은 별도로 남는다.
+
+독립 시험 APK와 표준 Gradle 검증은 통과했다. 초기 공간 부족은 사용자 승인에
+따른 재생성 가능한 캐시·이전 빌드 산출물 정리로 해결했다. JUnit 반환형 오류도
+수정한 뒤 기본 payload로 Debian 새 설치 시험을 통과했다(`OK (1 test)`,
+89.251초). 이 시간은 가속 전후 비교가 아니다.
+[독립 설치 시험 절차와 제한](ROOTLESS_FRESH_INSTALL_TEST.md)을 기록했다.
+커널 경로의 재현 빌드는 측정한 최종 SHA-256과 일치했고 loader digest는
+기존 값과 동일하다. 가속 끔·seccomp 가속 끔의 회귀와 독립 dpkg 설치·업그레이드·
+제거는 현재 사용 가능한 환경에서 통과했다.

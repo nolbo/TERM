@@ -233,7 +233,7 @@ private fun deleteRootlessTreeIfPresent(path: Path) {
     if (Files.isDirectory(path, NOFOLLOW_LINKS)) deleteRootlessTree(path) else Files.deleteIfExists(path)
 }
 
-private fun deleteRootlessTree(root: Path) {
+internal fun deleteRootlessTree(root: Path) {
     // Distribution archives may contain read-only directories. Restore only owner
     // access within the discarded tree, and never follow links outside that tree.
     val pending = ArrayDeque<Pair<Path, Boolean>>()
