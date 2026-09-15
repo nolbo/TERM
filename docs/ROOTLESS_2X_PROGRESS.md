@@ -146,3 +146,46 @@ UID 변경과 seccomp를 검증했다. 다음 설치 검증은 사용자 앱과 
 포함한 단일 검증 실행 시간이며 배속 비교가 아니다. 기본 앱 payload는
 계속 별도로 유지한다. 전체 2배 목표는 미달성이고, stat 외 호출의 반복 경로
 해석과 진입 정지 비용을 줄이는 구현 및 대표 전체 작업 측정이 남는다.
+
+## 5단계: 일반 open·파일 변경 경로의 커널 해석
+
+`PROOT_PATH_KERNEL=1`은 openat, mkdirat, unlinkat, renameat/renameat2,
+linkat, fchmodat, utimensat, faccessat의 일반 경로를 가속한다. 부모를
+openat2(NO_SYMLINKS)로 확인하고 마지막 구성 요소는 fd 기준 fstatat으로
+확인한다. 일반 파일·디렉터리 또는 없는 최종 이름만 처리하며, 부모·최종
+파일의 fake-root 권한 보정과 TRANSLATED_PATH 확장 처리는 유지한다.
+호출 사이에 경로·메타데이터를 캐시하지 않는다. 커널 probe FD는 닫는다.
+
+심볼릭 링크, 점 경로·중복/끝 슬래시, 중첩 binding, pseudo 경로, 다른 확장,
+비활성 seccomp 및 ARM32는 기존 해석으로 돌아간다. 이 단계는 real syscall을
+guest에서 계속 실행하므로 진입·종료 정지 횟수 자체는 줄이지 않는다.
+
+[7회 교대 3종 비교](../tools/rootless/faststat/results/path-kernel-2026-09-15.json):
+
+| 작업 | 기존 PRoot+l2s(ms) | stat 가속(ms) | 경로 가속 추가(ms) | 기존 대비 배속 |
+| --- | ---: | ---: | ---: | ---: |
+| metadata 1,000개 | 63.638 | 24.910 | 24.541 | 2.59 |
+| 파일 변경 | 371.377 | 340.331 | 321.364 | 1.16 |
+| Python import | 194.472 | 174.818 | 173.560 | 1.12 |
+| tar 추출 | 895.980 | 763.995 | 728.586 | 1.23 |
+
+별도 파일 변경 계측에서 canonical lstat는 30,111 → 450회,
+path translation은 7,256 → 98회, 경로 가속 성공은 7,158회였다.
+진입 14,012회와 종료 5,389회는 그대로다. 입력 준비·프로그램 시작을 포함하며
+커널 probe나 fake-root의 권한 stat까지 모두 센 수치는 아니다.
+
+정적 syscall 회귀와 Debian/Ubuntu의 파일 작업 회귀, workspace·중첩 binding,
+상위·최종·dangling symlink, 읽기 제한 파일의 읽기·쓰기, rename/link/unlink,
+seccomp 가속 끔을 확인했다. 회귀 시험에서 부모 0500→0700, 파일 0000→0600이
+남는 동작은 기존 PRoot에서도 재현됐다. 새 경로가 권한 복원을 보장한다는
+주장은 하지 않으며 별도의 기존 fake-root 결함으로 남는다.
+
+**전체 2배 목표는 미달성**이다. 다음 병목은 경로 검사보다 syscall의 정지·재개
+비용이다. FD를 새로 반환하지 않는 변경 호출의 tracer 내 완료를 검토해야 한다.
+기본 앱 payload에는 아직 적용하지 않았다. stock Android 정책과 F2FS 특이
+동작은 이 ext4 redroid 결과로 검증되지 않으며 제품 적용 전에 남은 과제다.
+
+동일 최종 해시로 새 Debian 설치·기본 패키지 구성·하드링크 시험도 통과했다
+(`OK (1 test)`, 87.349초). 표준 Gradle 검증 및 옵션 격리 단위 시험이 통과했다.
+[설치 절차와 결과](ROOTLESS_FRESH_INSTALL_TEST.md)에 기본·stat·일반 경로
+가속 시험을 구분했다. 설치 시간은 단일 네트워크 포함 실행으로 배속 비교가 아니다.

@@ -80,3 +80,22 @@ RootlessEnvironmentSetup 및 마지막 하드링크 검증 프로세스에만
 포함하는 각각 한 번의 실행이다. 성능 배속 계산에 사용하지 않는다. 이 결과는
 가속 옵션을 켠 설치의 정상성 증거이며 전체 작업 2배 또는 stock 기기의
 seccomp/SELinux 정책 지원을 증명하지 않는다.
+
+## 일반 경로 가속을 추가한 설치
+
+2026-09-15, PRoot
+`a19c562a50f26102415347e63118d23d3bf252134b68fa4693c5165ba75b6326`을 같은 방식으로
+시험 APK에 패키징했다. 앞의 실행 명령에서 digest를 이 값으로 바꾸고
+`-e rootlessPathKernel true`를 추가한다. 이 옵션은 digest 검증이 있는
+`rootlessStatKernel=true`와 함께만 사용할 수 있다.
+
+- Android MCP의 새 Debian 설치·기본 패키지 구성·환경·하드링크 시험 통과:
+  `OK (1 test)`, 87.349초. 임시 rootfs는 자동 정리되었다.
+- 표준 Gradle 검증과 Android 시험 APK 빌드 통과(170 tasks, 15 executed).
+  확장한 옵션 격리 단위 시험도 포함한다.
+- 초기 PRoot 빌드의 계측 상수 이름 오류는 수정 후 빌드에 성공했다.
+- incremental 설치 미지원은 도구의 streamed 설치로 해결했다. 한 번의 읽기
+  전용 기기 조회가 자동 검토 서버의 용량 오류로 거부되었으나 재조회는 성공했다.
+
+이번 설치 시간도 배속 비교에 사용하지 않는다. 변경한 기본 앱 payload는 없으며,
+stock Android와 F2FS 정책·특이 동작 검증은 남아 있다.

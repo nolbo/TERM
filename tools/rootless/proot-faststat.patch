@@ -536,3 +536,103 @@
  	proot_perf_count(PERF_READ_STRING);
  	word_t *src  = (word_t *)src_tracee;
  	word_t *dest = (word_t *)dest_tracer;
+--- a/src/path/path.c
++++ b/src/path/path.c
+@@ -36,6 +36,9 @@
+ #include "path/path.h"
+ #include "path/binding.h"
+ #include "tracee/perf.h"
++#include "tracee/abi.h"
++#include "syscall/syscall.h"
++#include <stdlib.h>
+ #include "path/canon.h"
+ #include "path/proc.h"
+ #include "extension/extension.h"
+@@ -308,6 +311,77 @@
+ 	return 0;
+ }
+ 
++#if defined(__aarch64__)
++/* Resolve ordinary mutating/open paths with one kernel walk. No cross-call
++ * cache: links, pseudo paths, and nested bindings keep the full resolver. */
++static bool kernel_translate(Tracee *tracee, const char *guest, char result[PATH_MAX])
++{
++	const char *enabled = getenv("PROOT_PATH_KERNEL");
++	if (!enabled || strcmp(enabled, "1") != 0 || !tracee ||
++	    tracee->seccomp != ENABLED || tracee->glue_type != 0 || is_32on64_mode(tracee)) return false;
++	switch (get_sysnum(tracee, ORIGINAL)) {
++	case PR_openat: case PR_mkdirat: case PR_unlinkat:
++	case PR_renameat: case PR_renameat2: case PR_linkat:
++	case PR_fchmodat: case PR_utimensat: case PR_faccessat:
++		break;
++	default: return false;
++	}
++	if (tracee->extensions) {
++		Extension *extension;
++		LIST_FOREACH(extension, tracee->extensions, link)
++			if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback)
++				return false;
++	}
++	size_t length = strlen(guest);
++	if (length < 2 || guest[0] != '/' || guest[length - 1] == '/') return false;
++	for (const char *part = guest + 1; *part;) {
++		const char *slash = strchr(part, '/');
++		size_t size = slash ? (size_t)(slash - part) : strlen(part);
++		if (!size || (size == 1 && part[0] == '.') ||
++		    (size == 2 && part[0] == '.' && part[1] == '.')) return false;
++		if (!slash) break;
++		part = slash + 1;
++	}
++	Binding *binding;
++	CIRCLEQ_FOREACH(binding, tracee->fs->bindings.guest, link.guest) {
++		Comparison relation = compare_paths(binding->guest.path, guest);
++		if (strchr(binding->guest.path + 1, '/') &&
++		    (relation == PATHS_ARE_EQUAL || relation == PATH1_IS_PREFIX)) return false;
++	}
++	char host[PATH_MAX], parent[PATH_MAX];
++	strcpy(host, guest);
++	if (substitute_binding(tracee, GUEST, host) < 0) return false;
++	const char *special[] = { "/proc", "/sys", "/dev" };
++	for (unsigned int i = 0; i < 3; i++) {
++		Comparison a = compare_paths(special[i], guest), b = compare_paths(special[i], host);
++		if (a == PATHS_ARE_EQUAL || a == PATH1_IS_PREFIX ||
++		    b == PATHS_ARE_EQUAL || b == PATH1_IS_PREFIX) return false;
++	}
++	strcpy(parent, host);
++	char *last = strrchr(parent, '/');
++	if (!last || last == parent) return false;
++	*last = '\0';
++	struct { uint64_t flags, mode, resolve; } how = {
++		.flags = O_PATH | O_DIRECTORY | O_CLOEXEC, .resolve = 0x04 /* NO_SYMLINKS */
++	};
++	int fd = syscall(437 /* AArch64 openat2 */, AT_FDCWD, parent, &how, sizeof(how));
++	if (fd < 0) return false;
++	struct stat metadata;
++	int status = fstatat(fd, last + 1, &metadata, AT_SYMLINK_NOFOLLOW);
++	int error = errno;
++	close(fd);
++	if (status < 0 ? error != ENOENT : (!S_ISREG(metadata.st_mode) && !S_ISDIR(metadata.st_mode)))
++		return false;
++	/* Kernel traversal proved ancestor search access. Keep fake-root's
++	 * writable parent/final-object overrides for the actual guest syscall. */
++	if (notify_extensions(tracee, HOST_PATH, (intptr_t)parent, false) < 0 ||
++	    notify_extensions(tracee, HOST_PATH, (intptr_t)host, true) < 0) return false;
++	strcpy(result, host);
++	proot_perf_count(PERF_PATH_HIT);
++	return true;
++}
++#endif
++
+ /**
+  * Copy in @result the equivalent of "@tracee->root + canon(@dir_fd +
+  * @user_path)".  If @user_path is not absolute then it is relative to
+@@ -371,6 +445,9 @@
+ 	if (status < 0)
+ 		return status;
+ 	strcpy(result, "/");
++#if defined(__aarch64__)
++	if (kernel_translate(tracee, guest_path, result)) goto skip;
++#endif
+ 
+ 	/* Canonicalize regarding the new root. */
+ 	proot_perf_count(PERF_PATH_TRANSLATION);

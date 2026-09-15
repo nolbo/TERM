@@ -460,3 +460,21 @@ Clang 경고 검사, 독립 Android 시험 APK 빌드와 표준 Gradle 검증을
 공간 확보와 JUnit 시험 반환형 수정 후 기본 payload의 Debian 새 설치 시험은
 통과했다(`OK (1 test)`, 89.251초). 같은 해시의 실험 가속 payload로도 새 Debian 설치 시험을
 통과했다(`OK (1 test)`, 90.722초). 두 설치 시간은 단일 실행으로 배속 비교가 아니다. [절차와 결과](../../../docs/ROOTLESS_FRESH_INSTALL_TEST.md)를 참조한다.
+
+## 일반 경로 가속 실험: 2026-09-15
+
+STAT_ENTRY/STAT_KERNEL과 함께 `PROOT_PATH_KERNEL=1`을 주면 일반 open·파일
+변경 경로에서 부모의 커널 검사와 최종 이름 검사를 사용한다. 옵션은 기본 꺼짐이다.
+최종 실험 PRoot SHA-256은
+`a19c562a50f26102415347e63118d23d3bf252134b68fa4693c5165ba75b6326`이다.
+
+`sh path-kernel-test.sh [/workspace]`는 guest 안에 소유한 임시 트리만 만들고
+정리한다. 읽기 제한 경로의 생성·쓰기, rename/link/unlink, dangling·상위 링크,
+점·슬래시 오류 경로를 검증한다. 권한 모드 출력은 기존 fake-root의 지속되는
+권한 보정 동작을 관찰하기 위한 것이며 복원 성공 assertion이 아니다.
+
+[7회 교대 측정](results/path-kernel-2026-09-15.json)과
+[별도 카운터](results/path-kernel-counters-2026-09-15.json)를 기록했다.
+metadata 2.59배, 파일 변경 1.16배, import 1.12배, tar 1.23배이며
+전체 목표는 미달성이다. [5단계 결과](../../../docs/ROOTLESS_2X_PROGRESS.md)에
+검증 범위와 남는 제한을 기록했다.

@@ -42,6 +42,8 @@ class RootlessFreshInstallTest {
             val proot = loader.resolvePackagedExecutable("proot").getOrThrow()
             val guestLoader = loader.resolvePackagedExecutable("proot-loader").getOrThrow()
             val statKernel = arguments.getString("rootlessStatKernel") == "true"
+            val pathKernel = arguments.getString("rootlessPathKernel") == "true"
+            require(!pathKernel || statKernel) { "Path experiment requires the verified stat experiment payload" }
             if (statKernel) {
                 val expected = requireNotNull(arguments.getString("rootlessProotSha256"))
                 require(expected.matches(Regex("[0-9a-f]{64}")))
@@ -54,7 +56,7 @@ class RootlessFreshInstallTest {
             assertTrue(RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath()))
             val launch = buildRootlessLaunchSpec(layout, proot, guestLoader, "/bin/sh", "/", emptyMap())
             assertFalse(launch.arguments.contains("--link2symlink"))
-            RootlessEnvironmentSetup(context, layout, proot, guestLoader, reporter, statKernel).prepare()
+            RootlessEnvironmentSetup(context, layout, proot, guestLoader, reporter, statKernel, pathKernel).prepare()
             RootlessEnvironmentProfile.validate(layout).getOrThrow()
             val check = runRootlessSetupCommand(layout, proot, guestLoader, listOf("/bin/sh", "-c", """
                 set -eu
@@ -68,7 +70,7 @@ class RootlessFreshInstallTest {
                 rm "${'$'}work/a"
                 test "${'$'}(cat "${'$'}work/b")" = 'native link'
                 printf 'PASS fresh distribution native links\n'
-            """.trimIndent()), statKernelAcceleration = statKernel)
+            """.trimIndent()), statKernelAcceleration = statKernel, pathKernelAcceleration = pathKernel)
             assertEquals(check.output, 0, check.exitCode)
             assertTrue(check.output.contains("PASS fresh distribution native links"))
             Log.i("RootlessFreshInstall", "${distribution.name}: VERIFIED")
