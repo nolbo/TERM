@@ -45,6 +45,7 @@ static bool event_mask_initialized;
 static sigset_t event_wait_mask;
 static unsigned long notified_opens, ordinary_opens, notified_closes;
 static bool notify_opens, notify_closes;
+static int sync_wake_status;
 static pthread_mutex_t tracee_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t receiver;
 static bool threaded, main_holds_lock;
@@ -58,7 +59,7 @@ static void receiver_wakeup(int number) { (void)number; }
 static void report_counts(void)
 {
     if (getenv("PROOT_OPEN_NOTIFY_REPORT"))
-        fprintf(stderr, "{\"notify_opens\":%lu,\"ordinary_opens\":%lu,\"notify_closes\":%lu}\n", notified_opens, ordinary_opens, notified_closes);
+        fprintf(stderr, "{\"notify_opens\":%lu,\"ordinary_opens\":%lu,\"notify_closes\":%lu,\"sync_wake_status\":%d}\n", notified_opens, ordinary_opens, notified_closes, sync_wake_status);
 }
 
 int open_notify_prepare(const Tracee *tracee, int channel[2])
@@ -138,6 +139,16 @@ int open_notify_parent(int channel[2])
         !cmsg || cmsg->cmsg_level != SOL_SOCKET || cmsg->cmsg_type != SCM_RIGHTS ||
         cmsg->cmsg_len != CMSG_LEN(sizeof(int))) return -EIO;
     memcpy(&listener, CMSG_DATA(cmsg), sizeof(listener));
+    const char *sync_wake = getenv("PROOT_NOTIFY_SYNC_WAKE");
+    if (sync_wake && !strcmp(sync_wake, "1")) {
+        int result;
+        /* SET_FLAGS takes a scalar, despite the ioctl's _IOW encoding. */
+        do { result = ioctl(listener, SECCOMP_IOCTL_NOTIF_SET_FLAGS,
+                            SECCOMP_USER_NOTIF_FD_SYNC_WAKE_UP); } while (result < 0 && errno == EINTR);
+        sync_wake_status = result == 0 ? 1 : -errno;
+        if (result && errno != EINVAL && errno != ENOTTY && errno != EOPNOTSUPP)
+            return -errno;
+    }
     atexit(report_counts);
     return 0;
 }

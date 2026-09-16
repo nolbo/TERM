@@ -261,3 +261,30 @@ close 알림 off/on 각 1회에서 메타데이터 25.833/28.976ms, 작은 파�
 fastfd를 켰고 path DSO/open 알림을 껐다. 속도 향상 근거가 없어 설치 후보로
 채택하지 않았다. 전체 반복 비교·새 설치·Gradle은 수행하지 않았다. APK의
 incremental 미지원은 streamed로 해결했고 UI/외부 앱 MCP는 필요하지 않았다.
+
+## 동기 깨우기 옵션 실험
+
+`PROOT_NOTIFY_SYNC_WAKE=1`은 listener에 SECCOMP_IOCTL_NOTIF_SET_FLAGS로
+SECCOMP_USER_NOTIF_FD_SYNC_WAKE_UP을 요청한다. ioctl 인자는 포인터가 아닌
+정수다. EINVAL/ENOTTY/EOPNOTSUPP는 기존 깨우기를 유지하고, 다른 오류는
+시작 실패로 보고한다. 진단의 sync_wake_status는 미요청 0, 활성 1, 지원
+거부 시 음수 errno다. 기본값은 비활성이다.
+
+Context7에서는 이 옵션의 세부 설명을 얻지 못했다.
+[Linux 6.17 구현](https://raw.githubusercontent.com/torvalds/linux/v6.17/kernel/seccomp.c)의
+seccomp_notify_set_flags와 seccomp_notify_send를 직접 확인했다. SEND가
+complete_on_current_cpu를 쓰게 되지만 ADDFD는 같은 변경을 사용하지 않는다.
+그러므로 이 비교는 닫기 알림에 집중한다.
+
+2026-09-16 Android MCP에서 sync_wake_status=1과 close 알림 1,060회를 확인했다.
+auxv/netlink FD 재사용·8스레드/800개 파일·guest seccomp 거부·파이프 20회·
+임시 dpkg 설치/제거 검사가 통과했다. 구형 커널의 미지원 복귀는 실기기에서
+검사하지 못했다. ARM64 빌드·APK 서명·설치는 통과했으며 incremental 미지원은
+streamed로 해결했다.
+
+[단일 off/on 비교](results/sync-wake-2026-09-16.json)에서 작은 파일 읽기는
+99.349→106.020ms, tar 추출은 703.870→787.940ms, 메타데이터는
+25.345→26.810ms였다. 반복 검증의 확정 수치는 아니지만 채택할 이득을
+보이지 않아 옵션을 실험용으로 남겼다. 전체 비교·새 배포판 설치·Gradle은
+반복하지 않았다. 이후는 알림 튜닝 대신 경로 변환 정보를 공유해 open의
+프로세스 왕복을 줄이는 설계를 검토한다.
