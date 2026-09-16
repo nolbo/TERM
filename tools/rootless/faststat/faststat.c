@@ -215,6 +215,78 @@ static struct proot_fastfd_identity *current_identity(pid_t pid)
     return local_identity.page;
 }
 
+/* Snapshot lookup only; the future open dispatcher must validate the same
+ * sequence again after its kernel operation. No inode or existence is cached. */
+static int lookup_shared_path(struct proot_fastpath_rules *rules, const char *path,
+                              char result[PATH_MAX])
+{
+    if (path[0] != '/') return 0;
+    for (const char *part = path + 1; *part;) {
+        const char *end = strchr(part, '/');
+        size_t length = end ? (size_t)(end - part) : strlen(part);
+        if (!length || (length == 1 && part[0] == '.') ||
+            (length == 2 && part[0] == '.' && part[1] == '.')) return 0;
+        if (!end) break;
+        part = end + 1;
+    }
+    uint32_t sequence = atomic_load(&rules->sequence);
+    if ((sequence & 1) || !atomic_load(&rules->active)) return 0;
+    uint32_t count = atomic_load(&rules->count);
+    if (!count || count > PROOT_FASTPATH_BINDINGS) return 0;
+    uint32_t selected = count, longest = 0;
+    size_t length = strlen(path);
+    for (uint32_t i = 0; i < count; i++) {
+        const struct proot_fastpath_binding *item = &rules->bindings[i];
+        uint32_t offset = atomic_load(&item->guest), size = atomic_load(&item->guest_length);
+        if (!size || size >= PATH_MAX || offset >= PROOT_FASTPATH_BYTES ||
+            size >= PROOT_FASTPATH_BYTES - offset) return 0;
+        char guest[PATH_MAX];
+        for (uint32_t j = 0; j <= size; j++) guest[j] = atomic_load_explicit(&rules->paths[offset + j], memory_order_relaxed);
+        if (guest[size] || guest[0] != '/') return 0;
+        int matches = size == 1 || (length >= size && !memcmp(path, guest, size) &&
+                                   (!path[size] || path[size] == '/'));
+        int ancestor = length < size && !memcmp(path, guest, length) && guest[length] == '/';
+        /* Nested binds require ancestor checks by the canonical translator. */
+        if (strchr(guest + 1, '/') && (matches || ancestor)) return 0;
+        if (matches && size > longest) { selected = i; longest = size; }
+    }
+    if (selected == count) return 0;
+    const struct proot_fastpath_binding *item = &rules->bindings[selected];
+    uint32_t offset = atomic_load(&item->host), size = atomic_load(&item->host_length);
+    if (!size || size >= PATH_MAX || offset >= PROOT_FASTPATH_BYTES ||
+        size >= PROOT_FASTPATH_BYTES - offset) return 0;
+    for (uint32_t j = 0; j <= size; j++) result[j] = atomic_load_explicit(&rules->paths[offset + j], memory_order_relaxed);
+    if (result[size] || result[0] != '/') return 0;
+    const char *suffix = path + (longest == 1 ? 1 : longest);
+    if (size == 1 && *suffix == '/') suffix++;
+    int separator = longest == 1 && size > 1 && *suffix;
+    if (size + separator + strlen(suffix) >= PATH_MAX) return 0;
+    if (separator) result[size++] = '/';
+    strcpy(result + size, suffix);
+    return sequence == atomic_load(&rules->sequence) && atomic_load(&rules->active);
+}
+
+/* Private diagnostic API used to test rule publication before enabling open. */
+int proot_fastpath_translate(const char *path, char *output, size_t capacity)
+{
+    int saved_errno = errno, success = 0;
+    if (!enabled || !fd_requested || atomic_exchange(&local_identity.busy, 1)) return 0;
+    pid_t pid = syscall(SYS_getpid);
+    struct proot_fastfd_identity *identity = current_identity(pid);
+    char copied[PATH_MAX], translated[PATH_MAX];
+    if (identity && copy_path(copied, path) &&
+        lookup_shared_path(&identity->paths, copied, translated)) {
+        size_t length = strlen(translated) + 1;
+        if (length <= capacity) {
+            struct iovec local = { translated, length }, remote = { output, length };
+            success = syscall(SYS_process_vm_writev, pid, &local, 1, &remote, 1, 0) == (long)length;
+        }
+    }
+    atomic_store(&local_identity.busy, 0);
+    errno = saved_errno;
+    return success;
+}
+
 static int map_identity(struct proot_fastfd_identity *page, struct stat *result)
 {
     for (int attempt = 0; attempt < 4; attempt++) {

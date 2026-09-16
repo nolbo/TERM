@@ -735,3 +735,34 @@ FD 전용 설치 구성으로 새 Debian 설치·환경·하드링크·실제 �
 빌드도 통과했다. APK incremental 미지원은 streamed 설치로 해결했다.
 전체 8개 작업 비교는 반복하지 않았다. 나머지 작업의 이 구성 성능과 open/close
 비용 개선은 후속 검증 대상이다.
+
+## 공유 경로 규칙 게시 기반
+
+host의 `PROOT_FASTPATH=1`은 fastfd 공유 영역에 bind 규칙을 게시한다.
+실험 ABI는 버전 2, 매핑 크기는 32 KiB로 변경했다. tracer와 guest DSO를
+함께 다시 빌드해야 한다. 최대 32개 bind와 16 KiB 경로 문자열을 담으며,
+한도를 넘으면 공유 경로 조회를 비활성화한다. 파일 존재 여부·inode·내용은
+저장하지 않는다. 규칙 변경 전에 모든 연결된 페이지를 무효화하고 각 tracee의
+재개 직전에 해당 namespace의 규칙을 게시한다. fork 후 공유되는 binding
+목록도 고려해 무효화 범위를 개별 FileSystemNameSpace로 제한하지 않았다.
+
+현재 소비자는 시험용 `proot_fastpath_translate`뿐이다. 절대 경로 중 정규화가
+필요하지 않은 경로만 번역하며 중첩 bind에 걸리면 기존 변환으로 복귀한다.
+이 함수는 심볼릭 링크나 파일 존재 여부를 검증하지 않는다. 실제 open 연결은
+아직 없으며, 연결 시 커널의 링크 해석 제한과 syscall 이후 규칙 버전 재검사가
+추가로 필요하다. 따라서 이 변경 자체의 파일 I/O 개선 수치는 제시하지 않는다.
+
+`path-rules-test.py`는 기존 RESOLVE 결과와 공유 조회를 비교한다. bind 추가·제거,
+다른 스레드 재개 후 갱신, fork/chroot 후 부모의 규칙 유지, 잘못된 경로·출력
+버퍼를 검사한다. 시험 중 기존 chroot 처리의 초기화하지 않은 path_guest 사용을
+발견해 수정했고 realpath 실패도 반환하도록 했다. 존재하지 않는 chroot 대상의
+ENOENT와 유효한 대상의 정상 동작을 검사한다.
+
+2026-09-16 Android MCP의 기존 Debian/app UID 시험에서 위 시험과 fd-test
+(hits=653)가 통과했다. 엔진 SHA-256은
+`ae78f676206eaef60eb155bc25b4a02c11e8bde8b128d7861c6b2e7481a99329`,
+DSO는 `991793c1593db8c0dfea83e746e10338f2c99bd23b7c59c619cfcc34335bd1f1`이다.
+ARM64 엔진/DSO 빌드와 APK 서명·설치를 통과했다. incremental 설치 미지원은
+streamed 설치로 해결했다. 실험 native 코드만 변경하여 Gradle과 새 Debian 설치,
+전체 성능 비교는 반복하지 않았다. UI·새 외부 API·외부 앱 변경이 없어
+replicant/context7/codex_apps는 사용하지 않았다.

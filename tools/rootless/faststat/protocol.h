@@ -11,18 +11,31 @@
 #include <stdatomic.h>
 
 #define PROOT_FASTFD_ATTACH 0x50525348
-#define PROOT_FASTFD_VERSION 1
-#define PROOT_FASTFD_MAPPING_SIZE 4096
-/* Per-thread credentials only. File metadata is never stored here. */
+#define PROOT_FASTFD_VERSION 2
+#define PROOT_FASTFD_MAPPING_SIZE 32768
+#define PROOT_FASTPATH_BINDINGS 32
+#define PROOT_FASTPATH_BYTES 16384
+struct proot_fastpath_binding {
+    _Atomic uint32_t guest, host, guest_length, host_length;
+};
+struct proot_fastpath_rules {
+    _Atomic uint32_t sequence, active, count;
+    struct proot_fastpath_binding bindings[PROOT_FASTPATH_BINDINGS];
+    _Atomic unsigned char paths[PROOT_FASTPATH_BYTES];
+};
+/* Credentials and path rules only. File metadata is never stored here. */
 struct proot_fastfd_identity {
     _Atomic uint32_t sequence, active, host_uid, host_gid, guest_uid, guest_gid;
+    struct proot_fastpath_rules paths;
 };
-_Static_assert(sizeof(struct proot_fastfd_identity) == 24, "fastfd identity ABI");
+_Static_assert(sizeof(struct proot_fastfd_identity) <= PROOT_FASTFD_MAPPING_SIZE, "fastfd shared ABI fits");
+_Static_assert(ATOMIC_CHAR_LOCK_FREE == 2, "shared paths need lock-free bytes");
 _Static_assert(ATOMIC_INT_LOCK_FREE == 2, "shared identity needs lock-free atomics");
 struct tracee;
 int fastfd_attach(struct tracee *tracee, int fd, unsigned version);
 void fastfd_sync(struct tracee *tracee);
 void fastfd_reset(struct tracee *tracee);
+void fastpath_invalidate_all(void);
 void forget_closed_fd(struct tracee *tracee, int fd);
 
 /* Fixed-width request/reply shared by Android PRoot and guest glibc.

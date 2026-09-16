@@ -841,3 +841,61 @@
  	tracee/mem.o		\
  	tracee/perf.o		\
  	tracee/reg.o		\
+--- a/src/path/binding.c
++++ b/src/path/binding.c
+@@ -20,6 +20,7 @@
+  * 02110-1301 USA.
+  */
+ 
++#include "tracee/faststat.h"
+ #include <sys/stat.h> /* lstat(2), */
+ #include <unistd.h>   /* getcwd(2), lstat(2), */
+ #include <string.h>   /* string(3),  */
+@@ -276,6 +277,7 @@
+  */
+ void remove_binding_from_all_lists(const Tracee *tracee, Binding *binding)
+ {
++	fastpath_invalidate_all();
+        if (IS_LINKED(binding, link.pending))
+ 	       CIRCLEQ_REMOVE_(tracee, binding, pending);
+ 
+@@ -296,6 +298,7 @@
+  */
+ static void insort_binding(const Tracee *tracee, Side side, Binding *binding)
+ {
++	fastpath_invalidate_all();
+ 	Binding *iterator;
+ 	Binding *previous = NULL;
+ 	Binding *next = CIRCLEQ_FIRST(HEAD(tracee, side));
+@@ -421,6 +424,7 @@
+  */
+ static int remove_bindings(Bindings *bindings)
+ {
++	fastpath_invalidate_all();
+ 	Binding *binding;
+ 	Tracee *tracee;
+ 
+--- a/src/extension/fake_id0/chroot.c
++++ b/src/extension/fake_id0/chroot.c
+@@ -51,7 +51,8 @@
+ 	if (status < 0)
+ 		return status;
+ 
+-	realpath(path, path_host_absolute);
++	if (realpath(path, path_host_absolute) == NULL)
++		return -errno;
+ 
+ 	/* Handle "new rootfs == current rootfs" case.  */
+ 	status = compare_paths(get_root(tracee), path_host_absolute);
+@@ -73,9 +74,9 @@
+ 	/* Fetch guest path if we didn't already.  */
+ 	if (!from_sigsys) {
+ 		input = peek_reg(tracee, ORIGINAL, SYSARG_1);
+-		status = read_path(tracee, path, input);
++		status = read_path(tracee, path_guest, input);
+ 		if (status < 0)
+-			return -errno;
++			return status;
+ 	}
+ 
+ 	/* Check if chroot target has bind mounts inside.

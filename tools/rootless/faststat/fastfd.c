@@ -14,11 +14,70 @@
 #include "extension/extension.h"
 #include "extension/fake_id0/config.h"
 #include "arch.h"
+#include "path/binding.h"
 
 struct fastfd_state {
     struct proot_fastfd_identity *page;
     uint32_t host_uid, host_gid, guest_uid, guest_gid, active;
+    uint64_t path_epoch;
+    bool path_requested;
+    const Bindings *bindings;
 };
+
+static uint64_t path_epoch = 1;
+
+/* Binding lists may be shared by distinct FileSystemNameSpace objects.
+ * Invalidate before mutation, including pages used by running siblings.
+ * The existing event-loop/notification lock serializes all writers. */
+void fastpath_invalidate_all(void)
+{
+    path_epoch++;
+    Tracees *head = get_tracees_list_head();
+    if (!head) return;
+    Tracee *tracee;
+    LIST_FOREACH(tracee, head, link) {
+        if (!tracee->fastfd || !tracee->fastfd->path_requested) continue;
+        struct proot_fastpath_rules *page = &tracee->fastfd->page->paths;
+        atomic_store(&page->active, 0);
+        atomic_fetch_add(&page->sequence, 2);
+    }
+}
+
+static void publish_paths(Tracee *tracee, struct fastfd_state *state, bool active)
+{
+    const Bindings *bindings = tracee->fs->bindings.guest;
+    if (!state->path_requested || (state->path_epoch == path_epoch && state->bindings == bindings &&
+                                  state->active == active)) return;
+    state->path_epoch = path_epoch;
+    state->bindings = bindings;
+    struct proot_fastpath_rules *page = &state->page->paths;
+    atomic_fetch_add(&page->sequence, 1);
+    atomic_store(&page->active, 0);
+    unsigned count = 0, used = 0;
+    bool root = false, valid = active && bindings;
+    if (valid) {
+        const Binding *binding;
+        CIRCLEQ_FOREACH(binding, bindings, link.guest) {
+            size_t gl = strlen(binding->guest.path), hl = strlen(binding->host.path);
+            if (count == PROOT_FASTPATH_BINDINGS || used + gl + hl + 2 > PROOT_FASTPATH_BYTES ||
+                !gl || !hl || binding->guest.path[0] != '/' || binding->host.path[0] != '/') {
+                valid = false;
+                break;
+            }
+            struct proot_fastpath_binding *item = &page->bindings[count++];
+            atomic_store(&item->guest, used);
+            atomic_store(&item->guest_length, gl);
+            for (size_t i = 0; i <= gl; i++) atomic_store_explicit(&page->paths[used++], binding->guest.path[i], memory_order_relaxed);
+            atomic_store(&item->host, used);
+            atomic_store(&item->host_length, hl);
+            for (size_t i = 0; i <= hl; i++) atomic_store_explicit(&page->paths[used++], binding->host.path[i], memory_order_relaxed);
+            if (gl == 1) root = true;
+        }
+    }
+    atomic_store(&page->count, count);
+    atomic_store(&page->active, valid && root);
+    atomic_fetch_add(&page->sequence, 1);
+}
 
 static int release_page(struct fastfd_state *state)
 {
@@ -54,6 +113,7 @@ void fastfd_sync(Tracee *tracee)
         uid = config->suid;
         gid = config->sgid;
     }
+    publish_paths(tracee, state, active);
     if (state->active == active && state->guest_uid == uid && state->guest_gid == gid) return;
     struct proot_fastfd_identity *page = state->page;
     atomic_fetch_add_explicit(&page->sequence, 1, memory_order_seq_cst);
@@ -99,10 +159,14 @@ int fastfd_attach(Tracee *tracee, int guest_fd, unsigned version)
     state->page = page;
     state->host_uid = getuid();
     state->host_gid = getgid();
+    const char *paths = getenv("PROOT_FASTPATH");
+    state->path_requested = paths && !strcmp(paths, "1");
     talloc_set_destructor(state, release_page);
     fastfd_reset(tracee);
     tracee->fastfd = state;
     atomic_store(&state->page->sequence, 0);
+    atomic_store(&state->page->paths.sequence, 0);
+    atomic_store(&state->page->paths.active, 0);
     fastfd_sync(tracee);
     return 0;
 }
