@@ -117,7 +117,7 @@
  
  /* Older kernel headers may lack these. */
  #ifndef CLONE_NEWTIME
-@@ -1814,6 +1820,281 @@
+@@ -1814,6 +1820,289 @@
   * -errno if an error occured from the tracee's point-of-view (EFAULT
   * for instance), otherwise 0.
   */
@@ -396,10 +396,18 @@
 +}
 +#endif
 +
++/* Also used after successful close-notification continuation. */
++void forget_closed_fd(Tracee *tracee, int fd)
++{
++	if (tracee->auxv_fd == fd) tracee->auxv_fd = -1;
++	unmark_fake_netlink_fd(tracee, fd);
++	unmark_netlink_route_fd(tracee, fd);
++}
++
  int translate_syscall_enter(Tracee *tracee)
  {
  	int flags;
-@@ -1831,6 +2112,8 @@
+@@ -1831,6 +2120,8 @@
  	word_t syscall_number;
  	bool special = false;
  
@@ -408,7 +416,7 @@
  	status = notify_extensions(tracee, SYSCALL_ENTER_START, 0, 0);
  	if (status < 0)
  		goto end;
-@@ -1839,6 +2122,82 @@
+@@ -1839,6 +2130,82 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
@@ -491,7 +499,22 @@
  	switch (syscall_number) {
  	default:
  		/* Nothing to do. */
-@@ -2856,7 +3215,16 @@
+@@ -2842,21 +3209,22 @@
+ 	case PR_close: {
+ 		int closed_fd = (int) peek_reg(tracee, CURRENT, SYSARG_1);
+ 
+-		/* Stop tracking auxv_fd once the tracee closes it. */
+-		if (tracee->auxv_fd >= 0 && closed_fd == tracee->auxv_fd)
+-			tracee->auxv_fd = -1;
+-
+-		/* Drop the fd from the netlink tracking sets, otherwise
+-		 * its number could be reused for an unrelated file and
+-		 * we'd keep intercepting sendto/recvfrom on it.  */
+-		unmark_fake_netlink_fd(tracee, closed_fd);
+-		unmark_netlink_route_fd(tracee, closed_fd);
++		forget_closed_fd(tracee, closed_fd);
+ 
+ 		/* Keep a shadow read end so child writers don't get
  		 * EPIPE when the parent closes its copy first (ptrace
  		 * serialisation makes this happen routinely, breaking
  		 * process substitution like `echo <(echo a)`).  */

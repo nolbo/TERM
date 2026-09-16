@@ -23,6 +23,7 @@ struct tracee;
 int fastfd_attach(struct tracee *tracee, int fd, unsigned version);
 void fastfd_sync(struct tracee *tracee);
 void fastfd_reset(struct tracee *tracee);
+void forget_closed_fd(struct tracee *tracee, int fd);
 
 /* Fixed-width request/reply shared by Android PRoot and guest glibc.
  * A fresh reply is obtained for every context-mode call; it is not a cache. */

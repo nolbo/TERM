@@ -1,5 +1,5 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
-/* Experimental read-only open transport. Never enabled by default. */
+/* Experimental read-only open and close transport. Never enabled by default. */
 #include <errno.h>
 #include <elf.h>
 #include <fcntl.h>
@@ -29,6 +29,7 @@
 #include <unistd.h>
 #include <talloc.h>
 #include "tracee/open-notify.h"
+#include "tracee/faststat.h"
 #include "tracee/reg.h"
 #include "path/path.h"
 #include "path/binding.h"
@@ -42,7 +43,8 @@ static struct seccomp_notif *request;
 static struct seccomp_notif_resp *response;
 static bool event_mask_initialized;
 static sigset_t event_wait_mask;
-static unsigned long notified_opens, ordinary_opens;
+static unsigned long notified_opens, ordinary_opens, notified_closes;
+static bool notify_opens, notify_closes;
 static pthread_mutex_t tracee_lock = PTHREAD_MUTEX_INITIALIZER;
 static pthread_t receiver;
 static bool threaded, main_holds_lock;
@@ -56,14 +58,20 @@ static void receiver_wakeup(int number) { (void)number; }
 static void report_counts(void)
 {
     if (getenv("PROOT_OPEN_NOTIFY_REPORT"))
-        fprintf(stderr, "{\"notify_opens\":%lu,\"ordinary_opens\":%lu}\n", notified_opens, ordinary_opens);
+        fprintf(stderr, "{\"notify_opens\":%lu,\"ordinary_opens\":%lu,\"notify_closes\":%lu}\n", notified_opens, ordinary_opens, notified_closes);
 }
 
 int open_notify_prepare(const Tracee *tracee, int channel[2])
 {
     channel[0] = channel[1] = -1;
     const char *enabled = getenv("PROOT_OPEN_NOTIFY");
-    if (!enabled || strcmp(enabled, "1")) return 0;
+    notify_opens = enabled && !strcmp(enabled, "1");
+    const char *close_setting = getenv("PROOT_CLOSE_NOTIFY");
+    notify_closes = close_setting && !strcmp(close_setting, "1");
+    if (!notify_opens && !notify_closes) return 0;
+    /* No post-close shadow reader can be opened. Use kernel pipe semantics. */
+    const char *kernel_pipe = getenv("PROOT_KERNEL_PIPE");
+    if (notify_closes && (!kernel_pipe || strcmp(kernel_pipe, "1"))) return -EINVAL;
     if (getenv("PROOT_NO_SECCOMP")) return -EINVAL;
     if (tracee->extensions) {
         Extension *extension;
@@ -83,13 +91,14 @@ int open_notify_child(int channel[2])
 {
     if (channel[0] < 0) return 0;
     close(channel[0]);
-    /* Only native read-only opens with these flags enter the transport.
+    /* Native close (opt-in) and read-only opens enter the transport.
      * Creation, writes, O_PATH, unknown flags and other ABIs retain TRACE. */
     struct sock_filter filter[] = {
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_AARCH64, 0, 5),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_AARCH64, 0, 6),
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_openat, 0, 3),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_close, notify_closes ? 3 : 4, 0),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_openat, notify_opens ? 0 : 3, 3),
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
         BPF_JUMP(BPF_JMP | BPF_JSET | BPF_K,
                  ~(O_CLOEXEC | O_LARGEFILE | O_DIRECTORY | O_NONBLOCK), 1, 0),
@@ -279,8 +288,30 @@ static int snapshot_auxv(Tracee *tracee, const char *host, int source, int flags
     return result;
 }
 
+static int complete_close(void)
+{
+    Tracee *tracee = get_tracee(NULL, request->pid, false);
+    memset(response, 0, sizes.seccomp_notif_resp);
+    response->id = request->id;
+    if (!tracee || request->flags || request->data.arch != AUDIT_ARCH_AARCH64)
+        response->error = -ENOSYS;
+    else response->flags = SECCOMP_USER_NOTIF_FLAG_CONTINUE;
+    int result;
+    do { result = ioctl(listener, SECCOMP_IOCTL_NOTIF_SEND, response); } while (result < 0 && errno == EINTR);
+    if (result) return errno == ENOENT ? 0 : -errno;
+    if (response->flags) {
+        /* SEND must succeed before bookkeeping changes: a signal may cancel
+         * a notification without closing its FD. The event-loop lock remains
+         * held until cleanup, so no later traced use sees stale bookkeeping. */
+        forget_closed_fd(tracee, (int)request->data.args[0]);
+        notified_closes++;
+    }
+    return 0;
+}
+
 static int complete_open(void)
 {
+    if (request->data.nr == SYS_close) return complete_close();
     notified_opens++;
     int error = 0, fd = -1, path_fd = -1;
     char guest[PATH_MAX], host[PATH_MAX];

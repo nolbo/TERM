@@ -229,3 +229,35 @@ notification에서 익명 파이프의 읽기 전용 재열기와 `O_NONBLOCK`�
 성능 비교, 새 배포판 설치와 Gradle은 이번 native 실험 패치에서 재실행하지
 않았다. 앞 절의 새 설치 성공은 14463e 후보의 결과다. TTY·임의 장치·blocking
 named FIFO·guest ptracer 및 stock Android/F2FS는 남은 범위이며 기본 적용하지 않았다.
+
+## Close 알림 실험
+
+`PROOT_CLOSE_NOTIFY=1 PROOT_KERNEL_PIPE=1 PROOT_OPEN_NOTIFY_THREAD=1`로 닫기만
+알림 처리할 수 있다. PROOT_OPEN_NOTIFY는 독립 옵션이다. 파이프 shadow는
+커널 close 후 만들 수 없으므로 kernel-pipe 옵션이 없으면 시작을 거부한다.
+기존 auxv/netlink FD 정리는 공통 `forget_closed_fd`로 추출했다. 알림 응답은
+CONTINUE로 실제 커널 close를 실행하게 하고, SEND 성공 후에만 상태를 지운다.
+그때까지 event-loop lock을 유지한다. 취소된 요청의 SEND 실패에서는 상태를
+지우지 않는다. 기본 설치/제품 설정은 바꾸지 않았다.
+
+Context7은 필터 우선순위와 일반 알림 자료를 제공했지만 CONTINUE 취소 시점의
+세부 내용은 부족했다. [Linux 6.17 UAPI](https://raw.githubusercontent.com/torvalds/linux/v6.17/include/uapi/linux/seccomp.h),
+[커널 구현](https://raw.githubusercontent.com/torvalds/linux/v6.17/kernel/seccomp.c),
+[seccomp 문서](https://docs.kernel.org/userspace-api/seccomp_filter.html)를 함께
+확인했다. close에는 guest 메모리 포인터 인자가 없으며, 이 프로토콜을 권한
+정책이나 격리 경계로 사용하지 않는다. 높은 우선순위의 ERRNO 거부는 유지된다.
+
+2026-09-16 엔진 adf74a...를 별도 시험 APK로 빌드·서명·Android MCP 설치했다.
+`close-test.py`에서 auxv FD를 일반 파일로 재사용, netlink FD를 UNIX 소켓으로
+재사용, 8스레드/800개 파일, guest seccomp의 close 거부를 검증했다. 파이프/
+조기 종료/프로세스 치환 20회와 독립 dpkg 루트의 설치·제거도 통과했다.
+open과 close 알림을 함께 켠 fd-test도 hits=653으로 통과했다. true 실행에서
+open 알림 0회/close 알림 12회가 관측됐다. 신호 취소와 응답의 모든 경합을
+강제로 재현한 시험은 아니므로 그 범위까지 통과했다고 해석하지 않는다.
+
+[짧은 비교 기록](results/close-transport-2026-09-16.json): 같은 엔진의
+close 알림 off/on 각 1회에서 메타데이터 25.833/28.976ms, 작은 파일 읽기
+97.280/99.779ms, tar 추출 689.313/705.932ms였다. 양쪽 모두 kernel-pipe와
+fastfd를 켰고 path DSO/open 알림을 껐다. 속도 향상 근거가 없어 설치 후보로
+채택하지 않았다. 전체 반복 비교·새 설치·Gradle은 수행하지 않았다. APK의
+incremental 미지원은 streamed로 해결했고 UI/외부 앱 MCP는 필요하지 않았다.
