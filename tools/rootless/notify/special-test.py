@@ -5,6 +5,7 @@ import errno
 import fcntl
 import os
 import pathlib
+import signal
 import stat
 import struct
 import tempfile
@@ -31,6 +32,7 @@ def check_device(path, expected_minor, expected_bytes):
 
 
 def main():
+    signal.alarm(20)
     for name, minor, expected in (("null", 3, b""), ("zero", 5, bytes(32)),
                                   ("full", 7, bytes(32)), ("random", 8, None),
                                   ("urandom", 9, None)):
@@ -42,12 +44,12 @@ def main():
         fifo = pathlib.Path(root) / "fifo"
         os.mkfifo(fifo)
         try:
-            fd = os.open(fifo, os.O_RDONLY | os.O_NONBLOCK)
+            fd = os.open(fifo, os.O_RDONLY)
         except OSError as error:
             assert error.errno == errno.EOPNOTSUPP
         else:
             os.close(fd)
-            raise AssertionError("FIFO support must not be silently claimed")
+            raise AssertionError("Blocking named FIFO support must not be silently claimed")
 
     libc = ctypes.CDLL(None)
     libc.getauxval.argtypes = [ctypes.c_ulong]
@@ -77,7 +79,7 @@ def main():
             os.close(duplicate)
     finally:
         os.close(fd)
-    print("PASS: five memory devices, alias/flags/read-only, FIFO rejection, sealed auxv partial/pread/dup")
+    print("PASS: five memory devices, alias/flags/read-only, blocking FIFO rejection, sealed auxv partial/pread/dup")
 
 
 if __name__ == "__main__":

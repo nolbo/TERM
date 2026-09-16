@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-16",
+  "candidate_sha256": "1495a9040f8ed05f38bf0a7ff095b1b53ade743f71f227058909b6ed42432003",
+  "build": "ARM64 engine and signed test APK passed; installed through Android MCP",
+  "threaded": "PASS: anonymous pipe reopen/EOF/independent flags, nonblocking FIFO, blocking FIFO rejection\nTEST_EXIT=0",
+  "polled": "PASS: anonymous pipe reopen/EOF/independent flags, nonblocking FIFO, blocking FIFO rejection\nTEST_EXIT=0",
+  "shell_and_packages": "dpkg-deb: building package 'terminal-pipe-test' in '/tmp/terminal-kernel-pipe-FIXTURE/test.deb'.\nSelecting previously unselected package terminal-pipe-test.\n(Reading database ... 0 files and directories currently installed.)\nPreparing to unpack .../test.deb ...\nUnpacking terminal-pipe-test (1.0) ...\nSetting up terminal-pipe-test (1.0) ...\n(Reading database ... 5 files and directories currently installed.)\nRemoving terminal-pipe-test (1.0) ...\nPASS: 20 pipeline/early-exit/process-substitution rounds and isolated dpkg install/purge\nTEST_EXIT=0",
+  "special": "PASS: five memory devices, alias/flags/read-only, blocking FIFO rejection, sealed auxv partial/pread/dup\nTEST_EXIT=0",
+  "concurrency": "PASS: 8 threads, 800 opens, symlink/dirfd/content/CLOEXEC/fstat\nTEST_EXIT=0",
+  "not_run": [
+    "Performance comparison",
+    "Fresh distribution installation for this candidate",
+    "Gradle (native experiment only)",
+    "Stock Android/F2FS"
+  ],
+  "limitations": [
+    "Blocking named FIFO, TTY/arbitrary devices and guest ptracer remain unsupported or unverified",
+    "Production payload unchanged"
+  ]
+}

@@ -198,3 +198,34 @@ inode의 문자 장치 major/minor를 확인한다. 번호는
 추가 실행하지 않았다. 설치 시간으로 배속을 계산하지 않는다. FIFO/TTY,
 guest ptracer, stock Android/F2FS 및 전송 오류 주입은 남은 범위이며, 이 설치
 성공을 전체 Linux 기능 검증으로 일반화하지 않는다. 제품 기본값은 바꾸지 않았다.
+
+## 익명 파이프와 비대기 FIFO 열기
+
+notification에서 익명 파이프의 읽기 전용 재열기와 `O_NONBLOCK`을 지정한
+이름 있는 FIFO 열기를 지원한다. `O_PATH`로 고정한 inode가 FIFO 타입이면
+원래 flags 및 fstatfs의 PIPEFS_MAGIC을 검사한다. 경로가 `/proc/self/fd/N`이어도
+이름 있는 FIFO를 가리킬 수 있으므로 경로 문자열로 익명 여부를 판정하지 않는다.
+원래 flags를 유지하며 dup으로 대신하지 않아 file status flags도 독립적이다.
+
+[Linux 5.10](https://github.com/torvalds/linux/blob/v5.10/fs/pipe.c),
+[6.1](https://github.com/torvalds/linux/blob/v6.1/fs/pipe.c),
+[6.17](https://github.com/torvalds/linux/blob/v6.17/fs/pipe.c)의 fifo_open에서
+익명 파이프는 writer 대기를 하지 않으며, 이름 있는 FIFO는 O_NONBLOCK을
+지정해야 대기를 생략함을 확인했다. 따라서 공유 이벤트 처리 잠금을 잡은 채
+이름 있는 blocking FIFO를 열지는 않는다. 해당 호출은 계속 EOPNOTSUPP다.
+
+후보 digest:
+`1495a9040f8ed05f38bf0a7ff095b1b53ade743f71f227058909b6ed42432003`.
+[검증 기록](results/pipe-validation-2026-09-16.json):
+
+- ARM64 엔진 빌드와 별도 APK 설치 통과.
+- `pipe-test.py`: 익명 파이프 재열기·writer 없는 EOF·독립 flags·비대기 FIFO
+  전송 및 blocking FIFO 거부를 스레드/기존 대기 방식에서 통과.
+- 기존 `kernel-pipe-test.sh`: 20회 셸 파이프·조기 소비자 종료·프로세스 치환 및
+  임시 루트의 dpkg 설치·제거 통과. PROOT_KERNEL_PIPE 옵션은 켜지 않았다.
+- 장치/auxv와 8스레드/800회 파일 열기 회귀 통과.
+- Android MCP를 사용했고 증분 설치 미지원 뒤 streamed 설치가 성공했다.
+
+성능 비교, 새 배포판 설치와 Gradle은 이번 native 실험 패치에서 재실행하지
+않았다. 앞 절의 새 설치 성공은 14463e 후보의 결과다. TTY·임의 장치·blocking
+named FIFO·guest ptracer 및 stock Android/F2FS는 남은 범위이며 기본 적용하지 않았다.

@@ -471,3 +471,23 @@ guest ptracer와 stock Android/F2FS 검증은 남는다. 제품 기본 엔진도
 [후보의 구현·검증 범위](../tools/rootless/notify/README.md)와
 [새 설치 절차](ROOTLESS_FRESH_INSTALL_TEST.md)에 기록했다.
 **전체 2배 및 파일 I/O 성능 목표는 계속 미달성이다.**
+
+## 15단계: notification의 익명 파이프·비대기 FIFO 지원
+
+익명 파이프의 읽기 전용 재열기와 O_NONBLOCK named FIFO를 처리한다.
+O_PATH로 고정한 inode의 종류와 파일시스템을 확인해 writer를 기다릴 수 있는
+named FIFO를 구분한다. flags를 바꾸거나 dup으로 대체하지 않는다. 대기 가능한
+named FIFO는 별도 설계가 필요해 계속 명시적으로 거부한다.
+
+ARM64 빌드와 Android MCP의 파이프 회귀(스레드/기존 대기 방식)가 통과했다.
+20회 셸 파이프·조기 종료·프로세스 치환, 임시 dpkg 루트의 자체 패키지
+설치·제거, 장치/auxv, 8스레드/800회 열기 검사도 통과했다. 원본 프로세스의
+FD flags와 재열기한 FD flags가 독립적인지, /proc/fd 경로의 named FIFO를
+익명 파이프로 오인하지 않는지도 검사했다.
+
+후보는 1495a9...이며 [구현과 검증 기록](../tools/rootless/notify/README.md)에
+전체 해시를 남겼다. 커널 5.10/6.1/6.17의 pipe 구현으로 대기 조건을 확인했다.
+APK 증분 설치 실패는 streamed 설치로 해결했다. UI/외부 앱 변경이 없어
+다른 MCP는 사용하지 않았다. 성능 비교와 새 설치는 반복하지 않았고 Android
+모듈 변경이 없어 Gradle도 재실행하지 않았다. 기본 엔진은 유지했으며
+**전체 2배 및 파일 I/O 성능 목표는 계속 미달성이다.**

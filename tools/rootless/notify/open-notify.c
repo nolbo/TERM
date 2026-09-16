@@ -6,6 +6,7 @@
 #include <linux/audit.h>
 #include <linux/filter.h>
 #include <linux/memfd.h>
+#include <linux/magic.h>
 #include <linux/seccomp.h>
 #include <poll.h>
 #include <pthread.h>
@@ -20,6 +21,7 @@
 #include <sys/prctl.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/vfs.h>
 #include <sys/syscall.h>
 #include <sys/sysmacros.h>
 #include <sys/uio.h>
@@ -203,7 +205,7 @@ static int ordinary_open(Tracee *tracee, const char *guest, int dirfd, int flags
 
 /* Check the pinned inode, never a pathname supplied by the guest. These
  * memory devices have nonblocking open operations and need no session state.
- * TTYs, arbitrary devices and FIFOs need a separate blocking-open design. */
+ * TTYs, arbitrary devices and blocking named FIFOs need separate handling. */
 static bool supported_memory_device(const struct stat *info)
 {
     if (!S_ISCHR(info->st_mode) || major(info->st_rdev) != 1) return false;
@@ -215,6 +217,17 @@ static bool supported_memory_device(const struct stat *info)
         case 9: /* urandom */ return true;
         default: return false;
     }
+}
+
+/* Anonymous pipes never wait for a writer at open. Named FIFOs may wait,
+ * except when the guest itself requested O_NONBLOCK. Classify the pinned
+ * inode's filesystem; a /proc/fd pathname can refer to either kind. */
+static bool supported_pipe(int pinned, const struct stat *info, int flags)
+{
+    if (!S_ISFIFO(info->st_mode)) return false;
+    if (flags & O_NONBLOCK) return true;
+    struct statfs filesystem;
+    return fstatfs(pinned, &filesystem) == 0 && filesystem.f_type == PIPEFS_MAGIC;
 }
 
 /* Notification replies resume the guest without a ptrace stop, so merely
@@ -292,7 +305,7 @@ static int complete_open(void)
         memcpy(tracee->_regs, saved, sizeof(saved));
         tracee->_regs_were_changed = changed;
         if (!error) {
-            /* Pin first: reject FIFOs and unsupported device types.
+            /* Pin first: reject blocking named FIFOs and unsupported devices.
              * Reopen the same inode; no second pathname lookup race. */
             path_fd = open(host, O_PATH | O_CLOEXEC | (flags & (O_NOFOLLOW | O_DIRECTORY)));
             if (path_fd < 0) error = -errno;
@@ -301,7 +314,8 @@ static int complete_open(void)
                 if (fstat(path_fd, &info)) error = -errno;
                 else if (S_ISLNK(info.st_mode)) error = -ELOOP;
                 else if (!S_ISREG(info.st_mode) && !S_ISDIR(info.st_mode) &&
-                         !supported_memory_device(&info)) error = -EOPNOTSUPP;
+                         !supported_memory_device(&info) &&
+                         !supported_pipe(path_fd, &info, flags)) error = -EOPNOTSUPP;
                 else {
                     char reference[64];
                     snprintf(reference, sizeof(reference), "/proc/self/fd/%d", path_fd);
