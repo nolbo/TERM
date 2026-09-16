@@ -23,6 +23,7 @@ internal class RootlessEnvironmentSetup(
     private val pathKernelAcceleration: Boolean = false,
     private val mutationEntryAcceleration: Boolean = false,
     private val fstatEntryAcceleration: Boolean = false,
+    private val openNotifyThread: Boolean = false,
 ) {
     suspend fun prepare() {
         // An older successful marker must not survive a failed repair of missing defaults.
@@ -47,7 +48,7 @@ internal class RootlessEnvironmentSetup(
                 onOutputLine = progress::line, statKernelAcceleration = statKernelAcceleration,
                 pathKernelAcceleration = pathKernelAcceleration,
                 mutationEntryAcceleration = mutationEntryAcceleration,
-                fstatEntryAcceleration = fstatEntryAcceleration)
+                fstatEntryAcceleration = fstatEntryAcceleration, openNotifyThread = openNotifyThread)
             check(result.exitCode == 0) { "종료 코드 ${result.exitCode}\n${result.errorContext.ifBlank { result.output.takeLast(2000) }}" }
         } catch (error: TimeoutCancellationException) {
             throw RootlessSetupException(progress.currentPhase,
@@ -69,6 +70,7 @@ internal suspend fun runRootlessSetupCommand(
     pathKernelAcceleration: Boolean = false,
     mutationEntryAcceleration: Boolean = false,
     fstatEntryAcceleration: Boolean = false,
+    openNotifyThread: Boolean = false,
 ): RootlessCommandResult = withContext(Dispatchers.IO) {
     File(layout.tmp, "graphics-shm").mkdirs()
     val spec = buildRootlessLaunchSpec(layout, proot, loader, "/bin/sh", "/", mapOf(
@@ -89,6 +91,10 @@ internal suspend fun runRootlessSetupCommand(
         if (pathKernelAcceleration) environment()["PROOT_PATH_KERNEL"] = "1"
         if (mutationEntryAcceleration) environment()["PROOT_MUTATION_ENTRY"] = "1"
         if (fstatEntryAcceleration) environment()["PROOT_FSTAT_ENTRY"] = "1"
+        if (openNotifyThread) {
+            environment()["PROOT_OPEN_NOTIFY"] = "1"
+            environment()["PROOT_OPEN_NOTIFY_THREAD"] = "1"
+        }
     }.start()
     process.outputStream.close() // Installers must never wait for UI input.
     try {

@@ -138,3 +138,24 @@ digest 검증을 요구하는 stat 모드도 켜야 하며, 일반 실행 기본
 기본 앱 payload와 사용자 rootfs는 교체하지 않았다. 위 시간은 단일 네트워크
 포함 실행이며 설치 속도 배속을 의미하지 않는다. notification 통합 옵션은
 이 시험에 포함하지 않았다. stock Android/F2FS 검증은 남아 있다.
+
+## notification 스레드·기본 장치·auxv를 포함한 설치
+
+2026-09-16, 다음 payload를 별도 instrumentation APK에 포함했다:
+`14463e3bb1990b4d8e8eb0ed992332dbe796a3ad73c34d61f5fa63d471cbfc3c`.
+stat/path/mutation/fstat 옵션에 `-e rootlessOpenNotifyThread true`를 추가하고
+`rootlessProotSha256`을 위 값으로 지정한다. 이 옵션도 stat 모드의 digest 검증을
+요구하며 각 설치 프로세스에 `PROOT_OPEN_NOTIFY=1 PROOT_OPEN_NOTIFY_THREAD=1`을
+전달한다. 일반 실행에 두 변수가 누출되지 않는 단위 시험을 추가했다.
+
+- 표준 Gradle 및 시험 APK 빌드 통과: 170 tasks, 15 executed.
+- Android MCP에서 새 Debian 설치·공식 기본 패키지 구성·환경·하드링크 검증
+  **통과**: `OK (1 test)`, 87.019초. 종료 후 시험 디렉터리 잔여 0개 확인.
+- APK 증분 설치 미지원은 streamed 설치로 해결했다.
+- 별도 device/auxv, raw syscall, 8스레드 파일 읽기 회귀도 통과했다.
+
+이 엔진은 기본 메모리 장치와 보정한 auxv 스냅샷을 지원하지만 FIFO/TTY 및
+guest ptracer 지원은 미완성이다. auxv의 procfs 메타데이터는 보존하지 않는다.
+이번 기본 패키지 구성 성공은 임의 패키지나 모든 Linux 기능의 정상성을
+보장하지 않는다. 설치 시간은 단회 기능 시험 시간이며 성능 배속이 아니다.
+기본 앱과 사용자 rootfs는 교체하지 않았고 stock Android/F2FS는 미검증이다.

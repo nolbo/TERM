@@ -45,9 +45,11 @@ class RootlessFreshInstallTest {
             val pathKernel = arguments.getString("rootlessPathKernel") == "true"
             val mutationEntry = arguments.getString("rootlessMutationEntry") == "true"
             val fstatEntry = arguments.getString("rootlessFstatEntry") == "true"
+            val openNotifyThread = arguments.getString("rootlessOpenNotifyThread") == "true"
             require(!pathKernel || statKernel) { "Path experiment requires the verified stat experiment payload" }
             require(!mutationEntry || statKernel) { "Mutation experiment requires the verified stat experiment payload" }
             require(!fstatEntry || statKernel) { "Fstat experiment requires the verified stat experiment payload" }
+            require(!openNotifyThread || statKernel) { "Notification experiment requires the verified stat experiment payload" }
             if (statKernel) {
                 val expected = requireNotNull(arguments.getString("rootlessProotSha256"))
                 require(expected.matches(Regex("[0-9a-f]{64}")))
@@ -61,7 +63,7 @@ class RootlessFreshInstallTest {
             val launch = buildRootlessLaunchSpec(layout, proot, guestLoader, "/bin/sh", "/", emptyMap())
             assertFalse(launch.arguments.contains("--link2symlink"))
             RootlessEnvironmentSetup(context, layout, proot, guestLoader, reporter,
-                statKernel, pathKernel, mutationEntry, fstatEntry).prepare()
+                statKernel, pathKernel, mutationEntry, fstatEntry, openNotifyThread).prepare()
             RootlessEnvironmentProfile.validate(layout).getOrThrow()
             val check = runRootlessSetupCommand(layout, proot, guestLoader, listOf("/bin/sh", "-c", """
                 set -eu
@@ -76,7 +78,8 @@ class RootlessFreshInstallTest {
                 test "${'$'}(cat "${'$'}work/b")" = 'native link'
                 printf 'PASS fresh distribution native links\n'
             """.trimIndent()), statKernelAcceleration = statKernel, pathKernelAcceleration = pathKernel,
-                mutationEntryAcceleration = mutationEntry, fstatEntryAcceleration = fstatEntry)
+                mutationEntryAcceleration = mutationEntry, fstatEntryAcceleration = fstatEntry,
+                openNotifyThread = openNotifyThread)
             assertEquals(check.output, 0, check.exitCode)
             assertTrue(check.output.contains("PASS fresh distribution native links"))
             Log.i("RootlessFreshInstall", "${distribution.name}: VERIFIED")

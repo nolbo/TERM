@@ -164,6 +164,37 @@ tar 723.862/746.882/749.147ms였다(기준/기존 notification/스레드 방식)
 기준은 751f 실험판의 kernel-pipe 옵션을 끈 상태다. 반복 비교가 아니며
 확정 배속이나 전체 향상으로 해석하지 않는다. 전 작업 반복 측정은 하지 않았다.
 
-FIFO/장치 파일 거부, auxv 후처리와 guest ptracer 지원의 기존 제한은 남아 있다.
-새 배포판 설치, stock Android/F2FS, 전송 오류 강제 주입은 검증하지 않았다.
+이 단계에서는 FIFO/장치 파일 거부, auxv 후처리와 guest ptracer 제한이 남았다.
+새 배포판 설치, stock Android/F2FS, 전송 오류 강제 주입은 당시 검증하지 않았다.
 따라서 일반 목적 rootless 후보의 완성이나 전체 2배 달성으로 보고하지 않는다.
+
+## 기본 장치와 auxv 지원, 새 Debian 설치
+
+notification 경로에서 `/dev/null`, `/dev/zero`, `/dev/full`, `/dev/random`,
+`/dev/urandom`의 읽기 전용 열기를 지원한다. 경로 이름이 아닌 O_PATH로 고정한
+inode의 문자 장치 major/minor를 확인한다. 번호는
+[Linux 장치 목록](https://www.kernel.org/doc/Documentation/admin-guide/devices.txt)을
+따른다. 임의 장치나 TTY, FIFO의 열기를 수신 스레드에서 실행하지 않는다.
+일반 파일의 빠른 경로는 이 검사를 거치지 않는다.
+
+자기 프로세스의 auxv 경로는 AT_EXECFN을 guest 실행 주소로 보정한 sealed memfd를
+읽기 전용으로 전달한다. 응답 직후 guest가 실행되므로 auxv_fd만 설정해서는
+후속 read를 추적할 수 없는 문제를 해결한다. 부분 read, pread, dup에서도 같은
+값을 제공한다. **procfs의 inode·크기·readlink 표현을 보존하지 않는 스냅샷**이며
+다른 프로세스의 auxv를 보정하는 기능은 아니다. 원본 auxv는 변경하지 않는다.
+
+최종 후보 digest:
+`14463e3bb1990b4d8e8eb0ed992332dbe796a3ad73c34d61f5fa63d471cbfc3c`.
+
+- `special-test.py`: 다섯 장치, symlink, 읽기 전용/flags, FIFO 명시적 거부,
+  auxv 3바이트 분할 읽기·pread·dup·seal 검사 통과. 스레드/기존 대기 방식 모두 확인.
+- 같은 후보의 raw syscall 회귀와 8스레드/800회 열기 회귀 통과.
+- 표준 Gradle 및 시험 APK 빌드 통과(170 tasks, 15 executed).
+- [새 Debian 설치](../../../docs/ROOTLESS_FRESH_INSTALL_TEST.md): notification 스레드와
+  stat/path/rename/fstat 가속을 켜고 기본 패키지·환경·하드링크 검증 통과,
+  `OK (1 test)`, 87.019초. 임시 설치 디렉터리 잔여 0개 확인.
+
+[검증 기록](results/special-validation-2026-09-16.json)을 남겼다. 성능 비교는
+추가 실행하지 않았다. 설치 시간으로 배속을 계산하지 않는다. FIFO/TTY,
+guest ptracer, stock Android/F2FS 및 전송 오류 주입은 남은 범위이며, 이 설치
+성공을 전체 Linux 기능 검증으로 일반화하지 않는다. 제품 기본값은 바꾸지 않았다.

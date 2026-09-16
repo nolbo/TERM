@@ -446,3 +446,28 @@ Android 모듈 변경이 없어 Gradle은 재실행하지 않았다. UI/외부 A
 [구조와 검증 범위](../tools/rootless/notify/README.md)에 해시와 제약을 기록했다.
 특수 파일·auxv·guest ptracer와 새 배포판 설치 검증이 남아 있으므로 기본 적용하지
 않았다. **전체 2배 및 파일 I/O 목표는 계속 미달성이다.**
+
+## 14단계: notification 후보의 기본 장치·auxv와 실제 Debian 설치
+
+이전 후보가 거부하던 기본 메모리 장치 다섯 종류의 읽기 전용 열기를 구현했다.
+고정한 inode의 장치 번호로 범위를 제한하며 임의 장치·TTY·FIFO는 여전히 거부한다.
+자기 auxv는 AT_EXECFN을 보정한 sealed 읽기 전용 스냅샷으로 제공한다.
+부분 read/pread/dup은 지원하지만 procfs inode·크기·readlink 표현은 보존하지 않는다.
+
+`special-test.py`의 장치·flags·내용·FIFO 거부·auxv 분할 읽기와 seal 검사가
+스레드/기존 대기 방식에서 통과했다. raw syscall 및 8스레드/800회 읽기 회귀도
+통과했다. 설치 시험에 명시적 notification 스레드 옵션과 일반 실행으로의
+환경 변수 누출 방지 단위 시험을 추가했다. 표준 Gradle과 시험 APK 빌드가
+170 tasks, 15 executed로 통과했다.
+
+최종 14463e... 후보의 digest를 검증한 별도 APK에서 **새 Debian 설치·공식
+기본 패키지 구성·환경·하드링크 검증이 통과**했다(`OK (1 test)`, 87.019초).
+임시 설치 디렉터리가 남지 않은 것도 확인했다. Android MCP를 사용했고
+incremental 설치 미지원은 streamed 설치로 해결했다. 장치 번호는 Linux 커널
+문서로 확인했다. 다른 MCP는 UI/외부 서비스/API 변경이 없어 사용하지 않았다.
+
+성능 비교는 추가 실행하지 않았다. 설치 시간은 배속 근거가 아니며, FIFO/TTY,
+guest ptracer와 stock Android/F2FS 검증은 남는다. 제품 기본 엔진도 유지했다.
+[후보의 구현·검증 범위](../tools/rootless/notify/README.md)와
+[새 설치 절차](ROOTLESS_FRESH_INSTALL_TEST.md)에 기록했다.
+**전체 2배 및 파일 I/O 성능 목표는 계속 미달성이다.**

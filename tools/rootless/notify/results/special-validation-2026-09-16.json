@@ -1,0 +1,18 @@
+{
+  "date": "2026-09-16",
+  "candidate_sha256": "14463e3bb1990b4d8e8eb0ed992332dbe796a3ad73c34d61f5fa63d471cbfc3c",
+  "build": "ARM64 experimental engine, standard Gradle plus AndroidTest APK: passed, 170 tasks / 15 executed",
+  "special_threaded": "PASS: five memory devices, alias/flags/read-only, FIFO rejection, sealed auxv partial/pread/dup\nTEST_EXIT=0",
+  "special_polled": "PASS: five memory devices, alias/flags/read-only, FIFO rejection, sealed auxv partial/pread/dup\nTEST_EXIT=0",
+  "concurrency": "PASS: 8 threads, 800 opens, symlink/dirfd/content/CLOEXEC/fstat\nTEST_EXIT=0",
+  "raw": "stat mode=100640 size=4 uid=0 gid=0 nlink=1\nPASS raw stat/mutation/open, cwd, links, flags, pointers, identity, concurrent readers and seccomp\nTEST_EXIT=0",
+  "fresh_debian": "dev.terminal.runtime.rootless.RootlessFreshInstallTest:.\n\nTime: 87.019\n\nOK (1 test)",
+  "fresh_directories_remaining": 0,
+  "performance": "Not measured in this stage. Installation elapsed time is not a speedup comparison.",
+  "limitations": [
+    "FIFO and TTY opens unsupported in notification path",
+    "auxv snapshot does not preserve procfs metadata",
+    "Guest ptracer, stock Android/F2FS and injected transport failures unverified",
+    "Production payload unchanged"
+  ]
+}

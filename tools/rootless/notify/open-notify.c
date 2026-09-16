@@ -1,9 +1,11 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /* Experimental read-only open transport. Never enabled by default. */
 #include <errno.h>
+#include <elf.h>
 #include <fcntl.h>
 #include <linux/audit.h>
 #include <linux/filter.h>
+#include <linux/memfd.h>
 #include <linux/seccomp.h>
 #include <poll.h>
 #include <pthread.h>
@@ -19,6 +21,7 @@
 #include <sys/socket.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
+#include <sys/sysmacros.h>
 #include <sys/uio.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -198,6 +201,71 @@ static int ordinary_open(Tracee *tracee, const char *guest, int dirfd, int flags
     return fd;
 }
 
+/* Check the pinned inode, never a pathname supplied by the guest. These
+ * memory devices have nonblocking open operations and need no session state.
+ * TTYs, arbitrary devices and FIFOs need a separate blocking-open design. */
+static bool supported_memory_device(const struct stat *info)
+{
+    if (!S_ISCHR(info->st_mode) || major(info->st_rdev) != 1) return false;
+    switch (minor(info->st_rdev)) {
+        case 3: /* null */
+        case 5: /* zero */
+        case 7: /* full */
+        case 8: /* random */
+        case 9: /* urandom */ return true;
+        default: return false;
+    }
+}
+
+/* Notification replies resume the guest without a ptrace stop, so merely
+ * setting auxv_fd cannot arrange interception of the following read. Supply
+ * a sealed snapshot instead: partial reads, pread and dup all see the same
+ * corrected AT_EXECFN. This intentionally exposes a memfd, not procfs stat
+ * metadata. Only the tracee's own translated auxv path is rewritten. */
+static int snapshot_auxv(Tracee *tracee, const char *host, int source, int flags)
+{
+    char own_auxv[64];
+    snprintf(own_auxv, sizeof(own_auxv), "/proc/%d/auxv", tracee->pid);
+    if (!tracee->execfn_addr || strcmp(host, own_auxv)) return source;
+    uint64_t words[512];
+    size_t length = 0;
+    int error = 0, snapshot = -1, result = -1;
+    while (length < sizeof(words)) {
+        ssize_t count = read(source, (char *)words + length, sizeof(words) - length);
+        if (count < 0 && errno == EINTR) continue;
+        if (count < 0) { error = errno; goto done; }
+        if (!count) break;
+        length += count;
+    }
+    if (!length || length % (2 * sizeof(uint64_t))) { error = EIO; goto done; }
+    bool terminated = false, patched = false;
+    for (size_t i = 0; i + 1 < length / sizeof(uint64_t); i += 2) {
+        if (words[i] == AT_NULL) { terminated = true; break; }
+        if (words[i] == AT_EXECFN) { words[i + 1] = tracee->execfn_addr; patched = true; }
+    }
+    if (!terminated || !patched) { error = EIO; goto done; }
+    snapshot = syscall(SYS_memfd_create, "proot-auxv", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+    if (snapshot < 0) { error = errno; goto done; }
+    for (size_t offset = 0; offset < length;) {
+        ssize_t count = write(snapshot, (char *)words + offset, length - offset);
+        if (count < 0 && errno == EINTR) continue;
+        if (count <= 0) { error = count < 0 ? errno : EIO; goto done; }
+        offset += count;
+    }
+    if (fcntl(snapshot, F_ADD_SEALS, F_SEAL_SEAL | F_SEAL_SHRINK | F_SEAL_GROW | F_SEAL_WRITE)) {
+        error = errno; goto done;
+    }
+    char reference[64];
+    snprintf(reference, sizeof(reference), "/proc/self/fd/%d", snapshot);
+    result = open(reference, flags | O_CLOEXEC);
+    if (result < 0) error = errno;
+ done:
+    if (snapshot >= 0) close(snapshot);
+    close(source);
+    if (error) errno = error;
+    return result;
+}
+
 static int complete_open(void)
 {
     notified_opens++;
@@ -224,7 +292,7 @@ static int complete_open(void)
         memcpy(tracee->_regs, saved, sizeof(saved));
         tracee->_regs_were_changed = changed;
         if (!error) {
-            /* Pin without executing a FIFO/device open in the event loop.
+            /* Pin first: reject FIFOs and unsupported device types.
              * Reopen the same inode; no second pathname lookup race. */
             path_fd = open(host, O_PATH | O_CLOEXEC | (flags & (O_NOFOLLOW | O_DIRECTORY)));
             if (path_fd < 0) error = -errno;
@@ -232,11 +300,14 @@ static int complete_open(void)
                 struct stat info;
                 if (fstat(path_fd, &info)) error = -errno;
                 else if (S_ISLNK(info.st_mode)) error = -ELOOP;
-                else if (!S_ISREG(info.st_mode) && !S_ISDIR(info.st_mode)) error = -EOPNOTSUPP;
+                else if (!S_ISREG(info.st_mode) && !S_ISDIR(info.st_mode) &&
+                         !supported_memory_device(&info)) error = -EOPNOTSUPP;
                 else {
                     char reference[64];
                     snprintf(reference, sizeof(reference), "/proc/self/fd/%d", path_fd);
                     fd = open(reference, (flags & ~O_NOFOLLOW) | O_CLOEXEC);
+                    if (fd >= 0 && S_ISREG(info.st_mode))
+                        fd = snapshot_auxv(tracee, host, fd, flags & ~O_NOFOLLOW);
                     if (fd < 0) error = -errno;
                 }
             }
