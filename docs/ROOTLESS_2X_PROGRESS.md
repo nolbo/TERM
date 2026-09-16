@@ -424,3 +424,25 @@ Gradle은 재실행하지 않았고 UI/외부 API 작업이 없어 다른 MCP는
 7회 비교를 반복하는 흐름을 중단한다. 이후 관련 엔진 변경을 묶고, 개발 중에는
 영향받는 작업의 짧은 확인과 기능 회귀를 우선한다. 전체 반복 비교는 채택할
 후보의 최종 검증에 수행한다. **전체 2배 및 파일 I/O 목표는 미달성이다.**
+
+## 13단계: notification 대기를 별도 스레드로 분리
+
+`PROOT_OPEN_NOTIFY_THREAD=1` 실험 옵션을 구현했다. 일반 ptrace 이벤트는
+blocking waitpid를 사용하고 별도 스레드가 notification을 기다린다. 요청별
+타이머 arm/disarm을 없앴다. 공유 Tracee/확장/talloc 접근을 직렬화하고,
+종료 시 RECV를 중단·join한 뒤 상태를 정리한다. 기본값은 비활성이다.
+
+ARM64 빌드, APK 서명/설치, raw syscall 오류·seccomp·동시 자식·자식 종료
+회귀를 통과했다. 추가한 8스레드/800회 열기 검사는 링크/dirfd, 내용, fstat,
+CLOEXEC를 검증하며 새 방식·기존 notification·비활성 모드에서 모두 통과했다.
+Android MCP를 사용했고 incremental 설치 실패는 streamed 설치로 해결했다.
+Android 모듈 변경이 없어 Gradle은 재실행하지 않았다. UI/외부 API 변경이 없어
+다른 MCP는 사용하지 않았다. patch 파일의 정상적인 context 공백은 기존 patch와
+같은 .gitattributes 규칙으로 처리했다.
+
+[단회 확인](../tools/rootless/notify/results/thread-spot-2026-09-16.json)에서
+작은 파일 읽기만 개선 방향이었고 import/tar의 이점은 확인하지 못했다.
+이는 개발 확인이며 확정적인 성능 비교가 아니다. 전체 7회 비교를 반복하지 않았다.
+[구조와 검증 범위](../tools/rootless/notify/README.md)에 해시와 제약을 기록했다.
+특수 파일·auxv·guest ptracer와 새 배포판 설치 검증이 남아 있으므로 기본 적용하지
+않았다. **전체 2배 및 파일 I/O 목표는 계속 미달성이다.**

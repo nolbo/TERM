@@ -132,3 +132,38 @@ CLOEXEC/F_GETFL, dirfd, symlink/O_NOFOLLOW, 오류 포인터·페이지 경계, 
 이 통합은 성능 목표를 달성하지 못해 기본으로 채택하지 않는다. 다음 변경은
 실제 작은 파일 작업에 남은 fstat/close 정지 비용의 분리 측정과 축소가 우선이다.
 FD 전달 자체의 가능성과 전체 작업의 개선을 구분한다.
+
+## 요청 수신 스레드 실험
+
+`PROOT_BUILD_FASTSTAT=1 PROOT_BUILD_NOTIFY=1` 빌드에서
+`PROOT_OPEN_NOTIFY=1 PROOT_OPEN_NOTIFY_THREAD=1`을 함께 지정하면 별도
+스레드가 notification을 수신·처리한다. 기본 ptrace 루프는 blocking waitpid로
+돌아가며, notification마다 ppoll과 pipe timer 설정을 수행하지 않는다.
+옵션을 생략하면 기존 방식이다. 제품 기본 payload는 바꾸지 않는다.
+
+RECV만 상태 잠금 밖에서 수행한다. 경로 변환·확장·talloc·Tracee 접근과
+메인 루프의 상태 변경·삭제는 같은 mutex로 직렬화한다. 종료 시에는 잠금을
+놓고 private signal로 RECV를 깨워 worker를 join한 뒤 tracee 정리를 수행한다.
+신호가 RECV 진입 직전에 도착하는 경쟁을 피하기 위해 worker 종료 확인까지
+깨우기를 반복한다. worker의 치명적 전송 오류는 추적 중인 자식을 종료하고
+메인 waitpid를 깨운다. 스레드 모드에서는 비동기 SIGUSR1/2 talloc 출력이
+동시 메모리 접근을 일으키지 않도록 비활성화한다.
+
+후보 SHA-256:
+`c40fb3aef399b62649389b7c5b84b5b988b8f4eede706a6d8b2d40802efa08af`.
+ARM64 빌드·별도 APK 설치·시작/종료 및 기존 raw syscall 회귀가 통과했다.
+raw 회귀는 동시 자식 읽기, 자식 강제 종료, 잘못된 포인터, dirfd/링크,
+FD flags와 guest seccomp 거부를 포함한다.
+`thread-test.py`는 8개 스레드가 800회 경로·링크·dirfd 열기, fstat, 내용,
+CLOEXEC를 검사한다. 새 방식·기존 방식·notification 비활성에서 모두 통과했다.
+실행은 guest의 `python3 thread-test.py`이며 별도 시간 제한을 두어야 한다.
+
+[개발 중 단회 확인](results/thread-spot-2026-09-16.json)은 작은 파일 읽기
+143.744/144.650/137.369ms, import 171.097/177.540/176.538ms,
+tar 723.862/746.882/749.147ms였다(기준/기존 notification/스레드 방식).
+기준은 751f 실험판의 kernel-pipe 옵션을 끈 상태다. 반복 비교가 아니며
+확정 배속이나 전체 향상으로 해석하지 않는다. 전 작업 반복 측정은 하지 않았다.
+
+FIFO/장치 파일 거부, auxv 후처리와 guest ptracer 지원의 기존 제한은 남아 있다.
+새 배포판 설치, stock Android/F2FS, 전송 오류 강제 주입은 검증하지 않았다.
+따라서 일반 목적 rootless 후보의 완성이나 전체 2배 달성으로 보고하지 않는다.

@@ -38,7 +38,21 @@
  	}
  
  	/* Never reached.  */
-@@ -398,7 +406,7 @@
+@@ -375,6 +383,13 @@
+ 	if (status < 0)
+ 		note(NULL, WARNING, SYSTEM, "sigaction(SIGALRM)");
+ 
++	status = open_notify_start();
++	if (status < 0) {
++		errno = -status;
++		note(NULL, ERROR, SYSTEM, "open_notify_start()");
++		return EXIT_FAILURE;
++	}
++
+ 	while (1) {
+ 		int tracee_status;
+ 		Tracee *tracee;
+@@ -398,7 +413,7 @@
  		shadow_pipes_set_timer(shadow_pipes_held());
  
  		/* Wait for the next tracee's stop. */
@@ -47,6 +61,22 @@
  		saved_errno = errno;
  		shadow_pipes_set_timer(false);
  		errno = saved_errno;
+@@ -408,6 +423,7 @@
+ 				continue;
+ 			if (errno != ECHILD) {
+ 				note(NULL, ERROR, SYSTEM, "waitpid()");
++				open_notify_stop();
+ 				return EXIT_FAILURE;
+ 			}
+ 			break;
+@@ -433,6 +449,7 @@
+ 		(void) restart_tracee(tracee, signal);
+ 	}
+ 
++	open_notify_stop();
+ 	return last_exit_status;
+ }
+ 
 --- a/src/GNUmakefile
 +++ b/src/GNUmakefile
 @@ -54,6 +54,7 @@

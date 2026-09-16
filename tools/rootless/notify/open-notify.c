@@ -6,6 +6,9 @@
 #include <linux/filter.h>
 #include <linux/seccomp.h>
 #include <poll.h>
+#include <pthread.h>
+#include <stdatomic.h>
+#include <time.h>
 #include <signal.h>
 #include <stddef.h>
 #include <stdio.h>
@@ -35,6 +38,15 @@ static struct seccomp_notif_resp *response;
 static bool event_mask_initialized;
 static sigset_t event_wait_mask;
 static unsigned long notified_opens, ordinary_opens;
+static pthread_mutex_t tracee_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_t receiver;
+static bool threaded, main_holds_lock;
+static atomic_bool stopping, receiver_done;
+static int receiver_error;
+static int receiver_signal;
+
+static void receiver_wakeup(int number) { (void)number; }
+
 
 static void report_counts(void)
 {
@@ -186,11 +198,8 @@ static int ordinary_open(Tracee *tracee, const char *guest, int dirfd, int flags
     return fd;
 }
 
-static int serve_open(void)
+static int complete_open(void)
 {
-    memset(request, 0, sizes.seccomp_notif);
-    if (ioctl(listener, SECCOMP_IOCTL_NOTIF_RECV, request))
-        return errno == EINTR || errno == ENOENT ? 0 : -errno;
     notified_opens++;
     int error = 0, fd = -1, path_fd = -1;
     char guest[PATH_MAX], host[PATH_MAX];
@@ -255,11 +264,108 @@ static int serve_open(void)
     return 0;
 }
 
+static int receive_open(void)
+{
+    memset(request, 0, sizes.seccomp_notif);
+    if (!ioctl(listener, SECCOMP_IOCTL_NOTIF_RECV, request)) return 1;
+    return errno == EINTR || errno == ENOENT ? 0 : -errno;
+}
+
+/* Only RECV is outside the lock. All Tracee, extension and talloc access,
+ * including deletion on the ptrace thread, is serialized by tracee_lock. */
+static void *receive_loop(void *unused)
+{
+    (void)unused;
+    sigset_t mask;
+    sigfillset(&mask);
+    sigdelset(&mask, receiver_signal);
+    pthread_sigmask(SIG_SETMASK, &mask, NULL);
+    while (!atomic_load(&stopping)) {
+        int received = receive_open();
+        if (!received) continue;
+        pthread_mutex_lock(&tracee_lock);
+        if (atomic_load(&stopping)) {
+            pthread_mutex_unlock(&tracee_lock);
+            break;
+        }
+        int result = received > 0 ? complete_open() : received;
+        if (result < 0) {
+            receiver_error = -result;
+            /* A failed transport cannot leave guests blocked forever.
+             * Killing under the same lock also wakes the main waitpid. */
+            kill_all_tracees();
+            pthread_mutex_unlock(&tracee_lock);
+            break;
+        }
+        pthread_mutex_unlock(&tracee_lock);
+    }
+    atomic_store(&receiver_done, true);
+    return NULL;
+}
+
+void open_notify_stop(void)
+{
+    if (!threaded) return;
+    atomic_store(&stopping, true);
+    if (main_holds_lock) {
+        main_holds_lock = false;
+        pthread_mutex_unlock(&tracee_lock);
+    }
+    /* Closing another thread's fd does not reliably interrupt a blocked
+     * ioctl. Repeat the private interrupt until it has left RECV, covering
+     * the race between checking stopping and entering the syscall. */
+    while (!atomic_load(&receiver_done)) {
+        pthread_kill(receiver, receiver_signal);
+        struct timespec pause = { .tv_nsec = 1000000 };
+        nanosleep(&pause, NULL);
+    }
+    pthread_join(receiver, NULL);
+    threaded = false;
+}
+
+int open_notify_start(void)
+{
+    const char *setting = getenv("PROOT_OPEN_NOTIFY_THREAD");
+    if (listener < 0 || !setting || strcmp(setting, "1")) return 0;
+    receiver_signal = SIGRTMIN + 1;
+    struct sigaction action = { .sa_handler = receiver_wakeup };
+    sigemptyset(&action.sa_mask);
+    if (sigaction(receiver_signal, &action, NULL)) return -errno;
+    /* Async talloc tree printing cannot traverse data owned by the receiver. */
+    if (sigaction(SIGUSR1, &action, NULL) || sigaction(SIGUSR2, &action, NULL)) return -errno;
+    atomic_store(&stopping, false);
+    atomic_store(&receiver_done, false);
+    pthread_mutex_lock(&tracee_lock);
+    main_holds_lock = true;
+    int error = pthread_create(&receiver, NULL, receive_loop, NULL);
+    if (error) {
+        main_holds_lock = false;
+        pthread_mutex_unlock(&tracee_lock);
+        return -error;
+    }
+    threaded = true;
+    /* Registered after the event loop's kill_all_tracees handler, so join
+     * happens before exit-time tracee destruction and reporting. */
+    if (atexit(open_notify_stop)) { open_notify_stop(); return -ENOMEM; }
+    return 0;
+}
+
 static void child_event(int signal_number) { (void)signal_number; }
 
 pid_t open_notify_wait(int *status)
 {
     if (listener < 0) return waitpid(-1, status, __WALL);
+    if (threaded) {
+        if (receiver_error) { errno = receiver_error; return -1; }
+        main_holds_lock = false;
+        pthread_mutex_unlock(&tracee_lock);
+        pid_t pid = waitpid(-1, status, __WALL);
+        int error = errno;
+        pthread_mutex_lock(&tracee_lock);
+        main_holds_lock = true;
+        errno = receiver_error ? receiver_error : error;
+        return receiver_error ? -1 : pid;
+    }
     /* Block SIGCHLD across waitpid -> ppoll, then atomically unblock during
      * sleep. This closes the missed-child-event race without a polling delay. */
     if (!event_mask_initialized) {
@@ -285,7 +391,8 @@ pid_t open_notify_wait(int *status)
             /* A canceled notification can disappear after poll. Keep the
              * existing bounded alarm wakeup active across RECV as well. */
             shadow_pipes_set_timer(true);
-            int served = serve_open();
+            int served = receive_open();
+            if (served > 0) served = complete_open();
             shadow_pipes_set_timer(false);
             if (served < 0) { errno = -served; pid = -1; break; }
         } else if (ready.revents & POLLHUP) {
