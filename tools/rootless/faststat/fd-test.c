@@ -18,6 +18,21 @@
 #include <sys/wait.h>
 #include <unistd.h>
 #define CHECK(x) do { if (!(x)) { fprintf(stderr,"FAIL %d: %s errno=%d\n",__LINE__,#x,errno); exit(1); } } while (0)
+/* Force the DSO constructor outside glibc's allocation-free key block. */
+int pthread_key_create(pthread_key_t *key, void (*destructor)(void *))
+{
+    int (*real_create)(pthread_key_t *, void (*)(void *)) = dlsym(RTLD_NEXT, "pthread_key_create");
+    if (!real_create) _exit(92);
+    static int reserved;
+    if (!reserved && getenv("PROOT_FASTFD_TEST_HIGHKEY")) {
+        reserved = 1;
+        for (int i = 0; i < 32; i++) {
+            pthread_key_t unused;
+            if (real_create(&unused, NULL)) _exit(93);
+        }
+    }
+    return real_create(key, destructor);
+}
 static int (*checked_stat)(int, struct stat *);
 static unsigned long (*hits)(void);
 /* Deliver a signal exactly after the TLS destructor unmaps its identity page.
@@ -53,6 +68,12 @@ static void *teardown_worker(void *unused)
     signal_after_unmap = 1;
     return NULL;
 }
+static void *first_signal_worker(void *unused)
+{
+    (void)unused;
+    CHECK(raise(SIGUSR1) == 0);
+    return NULL;
+}
 static void check_teardown_signal(void)
 {
     struct sigaction action = { .sa_handler = during_teardown }, old;
@@ -61,6 +82,12 @@ static void check_teardown_signal(void)
     signal_fd = open("/tmp", O_RDONLY | O_DIRECTORY);
     CHECK(signal_fd >= 0);
     pthread_t thread;
+    unsigned long before = hits();
+    signal_seen = 0;
+    CHECK(pthread_create(&thread, NULL, first_signal_worker, NULL) == 0);
+    CHECK(pthread_join(thread, NULL) == 0);
+    CHECK(signal_seen == 1 && hits() > before);
+    signal_seen = 0;
     CHECK(pthread_create(&thread, NULL, teardown_worker, NULL) == 0);
     CHECK(pthread_join(thread, NULL) == 0);
     CHECK(signal_seen == 1);
@@ -108,6 +135,16 @@ int main(int argc, char **argv)
     checked_stat=dlsym(RTLD_DEFAULT,"fstat");
     hits=dlsym(RTLD_DEFAULT,"proot_fastfd_hits");
     CHECK(checked_stat && hits);
+    int (*fd_enabled)(void) = dlsym(RTLD_DEFAULT, "proot_fastfd_enabled");
+    CHECK(fd_enabled);
+    if (getenv("PROOT_FASTFD_TEST_HIGHKEY")) {
+        CHECK(fd_enabled() == 0);
+        worker(NULL);
+        CHECK(hits() == 0);
+        puts("PASS high pthread key disables fastfd, ordinary fstat stays correct");
+        return 0;
+    }
+    CHECK(fd_enabled() == 1);
     worker(NULL);
     CHECK(hits() >= 64);
     if (argc > 1) { puts("PASS exec reinitialization"); return 0; }

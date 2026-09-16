@@ -44,7 +44,9 @@ struct local_identity {
     _Atomic int busy;
     struct proot_fastfd_identity *page;
 };
-static _Thread_local struct local_identity local_identity;
+/* This DSO is preloaded at startup. Avoid dynamic TLS allocation in a signal. */
+static _Thread_local struct local_identity local_identity
+    __attribute__((tls_model("initial-exec")));
 
 static void release_identity(void *pointer)
 {
@@ -120,8 +122,14 @@ __attribute__((constructor)) static void initialize_faststat(void)
     fast_syscall(SYS_close, fd, 0, 0, 0);
     const char *fd_setting = getenv("PROOT_FASTFD");
     if (execution_mode == PROOT_FASTSTAT_CONTEXT_VERSION && fd_setting &&
-        strcmp(fd_setting, "1") == 0 && pthread_key_create(&fd_key, destroy_identity) == 0)
-        fd_requested = 1;
+        strcmp(fd_setting, "1") == 0 && pthread_key_create(&fd_key, destroy_identity) == 0) {
+        /* glibc NPTL embeds its first 32 keys in each pthread descriptor.
+         * Higher keys can allocate inside pthread_setspecific, which is unsafe
+         * if first fstat happens in a handler interrupting the allocator.
+         * This implementation-specific condition is documented in README. */
+        if (fd_key < 32) fd_requested = 1;
+        else pthread_key_delete(fd_key);
+    }
     enabled = 1;
     initialization_status = 1;
 out:
@@ -135,6 +143,7 @@ int proot_faststat_initialization_status(void) { return initialization_status; }
 unsigned long proot_faststat_hits(void) { return atomic_load_explicit(&hits, memory_order_relaxed); }
 unsigned long proot_faststat_fallbacks(void) { return atomic_load_explicit(&fallbacks, memory_order_relaxed); }
 
+int proot_fastfd_enabled(void) { return fd_requested; }
 unsigned long proot_fastfd_hits(void) { return atomic_load_explicit(&fd_hits, memory_order_relaxed); }
 unsigned long proot_fastfd_fallbacks(void) { return atomic_load_explicit(&fd_fallbacks, memory_order_relaxed); }
 

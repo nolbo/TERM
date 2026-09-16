@@ -614,3 +614,30 @@ fastfd 비활성 146.390ms, 활성 109.251ms(약 25.4% 시간 감소, 1.34배)�
 siglongjmp로 호출을 탈출할 때 가속 복구는 추가 검토가 필요하다. 이 수정으로
 모든 async-signal-safe 조건을 입증한 것은 아니다. Android/Gradle 변경이나
 새 배포판 설치 검증은 이번 단계에 포함하지 않았다.
+
+#### 첫 신호 호출의 초기화 비용 제한
+
+DSO의 TLS를 initial-exec 모델로 고정하고 `-z now`로 함수 연결을 시작 시
+완료한다. `readelf`에서 `R_AARCH64_TLS_TPREL`과 `BIND_NOW`를 확인했다.
+런타임 dlopen용 범용 DSO가 아니라 시작 시 LD_PRELOAD하는 구성이다.
+
+키가 32 미만일 때만 fastfd를 활성화한다. 그 이상이면 키를 삭제하고 일반
+fstat 경로를 유지한다. 이는 POSIX의 pthread_setspecific 안전성 보장이 아니라
+검토한 glibc NPTL 구현에 의존하는 제한이다. glibc의
+[pthread_setspecific 소스](https://codebrowser.dev/glibc/glibc/nptl/pthread_setspecific.c.html)는
+첫 블록을 직접 사용하고 그 밖의 블록에서 calloc을 호출한다.
+[glibc 2.41의 descriptor 정의](https://github.com/bminor/glibc/blob/glibc-2.41/nptl/descr.h)는
+첫 블록 크기를 32로 정의한다. 다른 libc 구현으로 확장할 때 이 전제를
+다시 검증해야 하며, 임의의 pthread 함수 interposer까지 보장하지 않는다.
+
+2026-09-16 Android MCP로 확인한 guest는 glibc 2.41이다. 새 스레드의 첫 fstat을
+SIGUSR1 처리기에서 실행하는 검사와 기존 종료 직후 재진입·fork·exec 회귀가
+notification 비활성/스레드 활성 모두 통과(hits=653)했다. 별도 실행에서
+시험 바이너리가 constructor의 키 생성을 interpose해 32개를 먼저 예약했다.
+fastfd_enabled=0, hits=0이며 파일 정보와 UID/GID 검사도 통과했다.
+
+guest DSO SHA-256:
+`b3fa5f85952f7bcd13be58c4548fdbecc08e99b07171c329baaa17480a0ce8c8`.
+빌드·APK 서명·기기 설치는 통과했고 incremental 미지원은 streamed 설치로
+해결했다. 이번 단계에서는 성능 비교를 하지 않았다. siglongjmp로 초기화
+중간을 탈출하는 경우의 자원 수명과 가속 복구 검토는 여전히 남아 있다.

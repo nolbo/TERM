@@ -551,3 +551,22 @@ atomic 재진입 표시를 적용했다. 그동안 신호 처리기의 fstat은 
 첫 신호 호출의 초기화 안전성·비지역 탈출 후 가속 복구, 후보 전체 성능 및
 새 배포판 설치 검증은 남아 있다. Android 모듈을 바꾸지 않아 Gradle은 생략했다.
 **전체 2배 및 파일 I/O 성능 목표는 계속 미달성이다.**
+
+## 19단계: 첫 신호 호출의 동적 초기화 제한
+
+guest DSO를 initial-exec TLS와 즉시 함수 연결로 빌드한다. glibc NPTL의
+추가 할당 없는 첫 32개 pthread 키 안에서만 fastfd를 활성화하고, 그 밖이면
+일반 경로를 사용한다. 구현 의존성과 소스 근거는
+[faststat 문서](../tools/rootless/faststat/README.md)에 기록했다.
+
+Android MCP로 guest glibc 2.41을 확인했다. 새 스레드의 최초 fstat을 신호
+처리기에서 실행하는 검사와 기존 fd-test가 notification 비활성/스레드 활성
+모두 통과(hits=653)했다. 32개 키를 먼저 점유한 시험에서는 가속이 비활성화되고
+일반 fstat의 결과가 유지됨을 확인했다. guest 빌드·ELF TLS/연결 방식 확인·APK
+설치가 통과했다. incremental 설치 실패는 streamed 설치로 해결했다.
+외부 glibc 소스 조회 일부가 실패해 코드 브라우저와 읽을 수 있는 태그 소스를
+사용했다. UI 변경이 없어 replicant 등 다른 MCP는 사용하지 않았다.
+
+성능 비교·새 배포판 설치·Gradle은 이번에 반복하지 않았다. 비지역 탈출 시
+자원 수명 검토와 후보 전체 성능/배포판 검증이 남는다.
+**전체 2배 및 파일 I/O 성능 목표는 계속 미달성이다.**

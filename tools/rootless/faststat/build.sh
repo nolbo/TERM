@@ -6,7 +6,7 @@ output_directory=${1:?usage: faststat/build.sh OUTPUT_DIRECTORY}
 [[ $(uname -m) == aarch64 ]] || { echo "ARM64 glibc host required" >&2; exit 1; }
 mkdir -p "$output_directory"
 clang -O2 -Wall -Wextra -Werror -fPIC -shared -pthread \
-    -Wl,-z,noexecstack,-z,max-page-size=16384 \
+    -Wl,-z,now,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/faststat.c" -o "$output_directory/libproot-faststat.so"
 clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/test.c" -ldl -pthread -o "$output_directory/faststat-test"
@@ -17,4 +17,4 @@ clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
 clang -O2 -Wall -Wextra -Werror -static -Wl,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/stat-entry-test.c" -o "$output_directory/stat-entry-test"
 clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
-    "$source_directory/fd-test.c" -Wl,--export-dynamic-symbol=munmap -ldl -pthread -o "$output_directory/fd-test"
+    "$source_directory/fd-test.c" -Wl,--export-dynamic-symbol=munmap,--export-dynamic-symbol=pthread_key_create -ldl -pthread -o "$output_directory/fd-test"
