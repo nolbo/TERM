@@ -1,0 +1,23 @@
+--- a/src/syscall/seccomp.c
++++ b/src/syscall/seccomp.c
+@@ -268,6 +268,20 @@
+ 		goto end;
+ 
+ #if defined(__aarch64__)
++	/* File-workload upper-bound probe only: this omits close bookkeeping
++	 * and pipe shadows. It is not a general-purpose runtime option. */
++	const char *close_probe = getenv("PROOT_CLOSE_KERNEL_PROBE");
++	if (close_probe && strcmp(close_probe, "1") == 0) {
++		struct sock_filter entry[] = {
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 3),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 57 /* close */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_ALLOW),
++		};
++		status = add_statements(&program, sizeof(entry)/sizeof(entry[0]), entry);
++		if (status < 0) goto end;
++	}
+ 	const char *fstat_entry = getenv("PROOT_FSTAT_ENTRY");
+ 	if (fstat_entry && strcmp(fstat_entry, "1") == 0) {
+ 		struct sock_filter entry[] = {

@@ -71,6 +71,11 @@ if [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]]; then
 fi
 
 termux_prefix="$prefix/data/data/com.termux/files/usr"
+if [[ ${PROOT_BUILD_CLOSE_PROBE:-0} == 1 ]]; then
+    [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]] || { echo 'close probe requires PROOT_BUILD_FASTSTAT=1' >&2; exit 1; }
+    patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-close-probe.patch"
+    echo 'File-workload close upper-bound probe; not a general-purpose runtime.' >&2
+fi
 if [[ ${PROOT_BUILD_NOTIFY:-0} == 1 ]]; then
     [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]] || { echo 'notify requires PROOT_BUILD_FASTSTAT=1' >&2; exit 1; }
     cp "$repository_root/tools/rootless/notify/open-notify.c" "$build_directory/proot-5.1.107.92/src/tracee/open-notify.c"
