@@ -49,10 +49,12 @@ class RootlessSetupCommandTest {
         assertTrue(accelerated.output.contains("${library.absolutePath}:/usr/local/lib/terminal-faststat.so\n"))
         assertTrue(accelerated.output.contains("LD_PRELOAD=/usr/local/lib/terminal-faststat.so\n"))
         assertTrue(accelerated.output.contains("PROOT_FASTFD=1\n"))
+        assertTrue(accelerated.output.contains("PROOT_FASTSTAT_PATH=0\n"))
         val ordinary = runRootlessSetupCommand(current, fakeProot, fakeProot, listOf("/bin/true"))
         assertTrue(ordinary.output.startsWith("unset:unset:unset\n"))
         assertFalse(ordinary.output.contains("terminal-faststat.so"))
         assertFalse(ordinary.output.contains("PROOT_FASTFD="))
+        assertFalse(ordinary.output.contains("PROOT_FASTSTAT_PATH="))
     }
 
     @Test fun packageOutputIsBoundedAndExitFailuresRemainVisible() = runBlocking {

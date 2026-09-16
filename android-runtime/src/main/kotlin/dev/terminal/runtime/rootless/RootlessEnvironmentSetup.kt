@@ -79,7 +79,7 @@ internal suspend fun runRootlessSetupCommand(
     val guestLibrary = "/usr/local/lib/terminal-faststat.so"
     fastfdLibrary?.let { require(it.isFile && it.canRead()) { "Experimental guest DSO is missing" } }
     val experimentEnvironment = if (fastfdLibrary != null)
-        mapOf("LD_PRELOAD" to guestLibrary, "PROOT_FASTFD" to "1") else emptyMap()
+        mapOf("LD_PRELOAD" to guestLibrary, "PROOT_FASTFD" to "1", "PROOT_FASTSTAT_PATH" to "0") else emptyMap()
     val spec = buildRootlessLaunchSpec(layout, proot, loader, "/bin/sh", "/", mapOf(
         SessionCommand.KEY to SessionCommand.encode(argv), "TERM" to "dumb", "LC_ALL" to "C.UTF-8",
         "DEBIAN_FRONTEND" to "noninteractive", "NEEDRESTART_MODE" to "a",

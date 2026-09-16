@@ -708,3 +708,30 @@ replicant, 외부 API/앱 변경이 없어 context7/codex_apps는 사용하지 �
 개선되지 않았다. 경로 DSO를 함께 켠 후보의 메타데이터 수치는 이전 진입 가속
 단독 결과보다 나쁘므로, fastfd와 경로 DSO의 분리 검증이 다음 과제다. 이전
 2.61배 메타데이터 결과를 이번 누적 후보의 성능으로 인용하면 안 된다.
+
+### 경로 조회 DSO와 FD 가속 분리
+
+`PROOT_FASTSTAT_PATH=0`은 guest DSO의 stat/lstat/fstatat 경로를 일반 syscall로
+돌린다. 이 syscall에는 tracer의 STAT_ENTRY/STAT_KERNEL 가속이 계속 적용된다.
+전용 syscall PC 초기화와 PROOT_FASTFD는 유지한다. 옵션 미지정 시 기존 경로
+DSO 동작을 유지한다. 내부 설치 실험의 fastfdLibrary 지정 시에는 이 옵션을
+함께 전달하도록 변경했다. 제품 기본 엔진/일반 설치는 바꾸지 않았다.
+
+`proot_faststat_enabled`는 여전히 DSO 초기화 여부이고 새 진단 함수
+`proot_faststat_path_enabled`는 경로 DSO 활성 여부다. 경로 시험 driver는 후자를
+사용한다. 경로 off 회귀 hits=0/fallbacks=842, 동시에 실행한 fd 회귀 hits=653,
+경로 on 회귀 hits=831/fallbacks=11이 Android MCP에서 통과했다.
+
+[3쌍 교대 분리 시험](results/fastfd-path-split-2026-09-16.json)은 같은 엔진과
+DSO에서 이 옵션만 바꿨다. 메타데이터 중앙값은 on 51.778ms → off 25.851ms,
+작은 파일 읽기는 108.564ms → 106.502ms였다. 경로 DSO의 추가 처리 때문에
+메타데이터가 느려졌음을 뒷받침하며 FD 가속은 유지된다. 이 두 배 차이는
+경로 DSO on/off 사이의 결과이며 제품 전체 2배 달성 수치가 아니다.
+
+엔진 a25b410f... / DSO
+`93aa3f7d521dac15bb79138928d6a889bcc8673258b58aed5b6a0d5715c2f5ba`의
+FD 전용 설치 구성으로 새 Debian 설치·환경·하드링크·실제 가속 fstat 검사가
+89.669초에 통과했다. JDK 17 정규 빌드·단위 시험·image 시험 및 instrumentation
+빌드도 통과했다. APK incremental 미지원은 streamed 설치로 해결했다.
+전체 8개 작업 비교는 반복하지 않았다. 나머지 작업의 이 구성 성능과 open/close
+비용 개선은 후속 검증 대상이다.

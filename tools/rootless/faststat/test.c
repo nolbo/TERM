@@ -81,7 +81,8 @@ static long parse_count(const char *text)
 int main(int argc, char **argv)
 {
     CHECK(argc == 3 || argc == 4);
-    int (*enabled)(void) = dlsym(RTLD_DEFAULT, "proot_faststat_enabled");
+    int (*enabled)(void) = dlsym(RTLD_DEFAULT, "proot_faststat_path_enabled");
+    if (!enabled) enabled = dlsym(RTLD_DEFAULT, "proot_faststat_enabled");
     int (*mode)(void) = dlsym(RTLD_DEFAULT, "proot_faststat_mode");
     test_statat = dlsym(RTLD_DEFAULT, "fstatat");
     hits = dlsym(RTLD_DEFAULT, "proot_faststat_hits");

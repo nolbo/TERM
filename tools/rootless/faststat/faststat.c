@@ -31,6 +31,7 @@ _Static_assert(__builtin_offsetof(struct stat, st_uid) == 24, "stat uid ABI");
 
 /* Initialized before guest main/threads; no mutable metadata or FD cache. */
 static int enabled;
+static int path_enabled = 1;
 static int initialization_status;
 static int execution_mode;
 static int report_on_exit;
@@ -84,6 +85,8 @@ static long fast_syscall(long nr, long a, long b, long c, long d)
 __attribute__((constructor)) static void initialize_faststat(void)
 {
     int saved_errno = errno;
+    const char *path_setting = getenv("PROOT_FASTSTAT_PATH");
+    path_enabled = !path_setting || strcmp(path_setting, "0") != 0;
     const char *report = getenv("PROOT_FASTSTAT_REPORT");
     report_on_exit = report && strcmp(report, "1") == 0;
     const char *report_target = getenv("PROOT_FASTSTAT_REPORT_FD");
@@ -146,6 +149,7 @@ out:
 
 /* Exported for the test driver; not an application-facing runtime API. */
 int proot_faststat_enabled(void) { return enabled; }
+int proot_faststat_path_enabled(void) { return enabled && path_enabled; }
 int proot_faststat_mode(void) { return execution_mode; }
 int proot_faststat_initialization_status(void) { return initialization_status; }
 unsigned long proot_faststat_hits(void) { return atomic_load_explicit(&hits, memory_order_relaxed); }
@@ -266,7 +270,7 @@ int fstatat(int dirfd, const char *path, struct stat *output, int flags)
     struct stat result;
     /* PRoot's cwd is virtual. Mode 1 requires a real directory FD;
      * mode 2 obtains an absolute host path before issuing raw openat2. */
-    if (!enabled || (flags != 0 && flags != AT_SYMLINK_NOFOLLOW)) goto slow;
+    if (!enabled || !path_enabled || (flags != 0 && flags != AT_SYMLINK_NOFOLLOW)) goto slow;
     if (!copy_path(copied, path) || !copied[0]) goto slow;
     struct proot_faststat_context context = {0};
     const char *kernel_path = copied;

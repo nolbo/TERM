@@ -632,3 +632,23 @@ Android MCP로 설치·실행·정리를 확인했으며 incremental 미지원�
 해결했다. UI/외부 API/외부 앱 변경이 없어 다른 MCP는 사용하지 않았다.
 다음은 경로 DSO와 fastfd 분리 및 남은 open/close 비용 개선이다.
 **전체 2배 및 파일 I/O 성능 목표는 계속 미달성이다.**
+
+## 22단계: 경로 DSO 분리로 메타데이터 회귀 해결
+
+guest PROOT_FASTSTAT_PATH=0 옵션을 추가했다. 경로 조회는 tracer의 진입
+가속에 맡기고 DSO는 열린 FD의 fstat만 가속할 수 있다. fastfd 설치 실험은
+이 조합을 쓰도록 변경하고, 일반 설치에 옵션이 새지 않는 단위 시험을 보강했다.
+
+같은 엔진·DSO에서 옵션만 바꾼 3쌍 교대 비교 결과, 메타데이터 중앙값은
+51.778→25.851ms, 작은 파일 읽기는 108.564→106.502ms였다. 메타데이터
+회귀를 해소하면서 FD 가속을 유지했다. 경로 off/on 기능 회귀와 FD 회귀 모두
+통과했다. [12개 원시 결과](../tools/rootless/faststat/results/fastfd-path-split-2026-09-16.json)에
+조건과 해시를 기록했다. 전체 8개 작업 비교는 반복하지 않았다.
+
+FD 전용 구성의 새 Debian 설치·기본 환경·하드링크·실제 가속 fstat 확인은
+89.669초에 통과했다. JDK 17 정규 Android/runtime/image 검증 및 설치 시험 APK
+빌드가 통과했다. Android MCP 설치의 incremental 미지원은 streamed로 해결했다.
+UI/외부 API/외부 앱 변경이 없어 다른 MCP는 사용하지 않았다.
+기본 제품 엔진은 유지했다. 다음 병목은 파일 열기·닫기이며 close 추적에 연결된
+auxv/netlink 상태 정리를 먼저 해결해야 한다.
+**전체 2배 및 파일 I/O 성능 목표는 계속 미달성이다.**
