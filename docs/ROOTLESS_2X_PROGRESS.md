@@ -512,3 +512,24 @@ UI/외부 서비스/API 변경이 없어 다른 MCP는 사용하지 않았다.
 [검증 범위](../tools/rootless/faststat/README.md)에 결과를 남겼다.
 열린 FD의 일반 fstat/close 전체를 직접 실행하는 후속 설계는 아직 미구현이며
 **전체 2배 및 파일 I/O 성능 목표는 계속 미달성이다.**
+
+## 17단계: 공유 자격 정보를 이용한 프로세스 내부 fstat
+
+스레드별 UID/GID 공유 페이지와 DSO fstat/fstat64를 구현했다. 파일 정보는 매번
+커널에서 읽고 fake-root 소유자만 프로세스 안에서 변환한다. tracer 왕복을
+줄이되 UID/GID 변경은 재개 직전에 반영한다. fork/exec와 스레드 종료 시
+매핑을 각각 관리하며, 사용할 수 없으면 기존 syscall 경로로 복귀한다.
+
+엔진 a25b410f... 빌드 및 Android MCP 기능 시험이 통과했다. notification
+스레드 활성/비활성 모두 새 시험 hits=651, 기존 stat 회귀 hits=831/fallbacks=11.
+크기 변경·unlink·FD 재사용·8스레드별 saved-ID 변경·fork·exec·EFAULT·seccomp와
+공유 페이지 생성 실패를 검사했다. 자세한 범위와 제약은
+[faststat 문서](../tools/rootless/faststat/README.md)에 기록했다.
+
+성능 비교를 반복하지 않았으므로 이 단계의 속도 향상률은 아직 없다. glibc
+2.34 이상을 요구하는 실험 DSO이며 static/hidden 호출은 가속하지 않는다.
+기본 제품 엔진은 유지했다. 새 설치/Gradle은 재실행하지 않았다. Android MCP
+설치의 incremental 실패는 streamed로 해결했다. UI나 외부 API 변경이 없어
+다른 MCP는 필요하지 않았다. 신호 재진입과 자원 수명 검토, 실제 파일 작업의
+후보 성능 검증과 새 배포판 설치 검증이 남았다.
+**전체 2배 및 파일 I/O 성능 목표는 계속 미달성이다.**

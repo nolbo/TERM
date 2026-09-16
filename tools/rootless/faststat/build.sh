@@ -5,7 +5,7 @@ source_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 output_directory=${1:?usage: faststat/build.sh OUTPUT_DIRECTORY}
 [[ $(uname -m) == aarch64 ]] || { echo "ARM64 glibc host required" >&2; exit 1; }
 mkdir -p "$output_directory"
-clang -O2 -Wall -Wextra -Werror -fPIC -shared \
+clang -O2 -Wall -Wextra -Werror -fPIC -shared -pthread \
     -Wl,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/faststat.c" -o "$output_directory/libproot-faststat.so"
 clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
@@ -16,3 +16,5 @@ clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/trampoline-test.c" -ldl -o "$output_directory/trampoline-test"
 clang -O2 -Wall -Wextra -Werror -static -Wl,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/stat-entry-test.c" -o "$output_directory/stat-entry-test"
+clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
+    "$source_directory/fd-test.c" -ldl -pthread -o "$output_directory/fd-test"

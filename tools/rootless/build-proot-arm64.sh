@@ -67,6 +67,7 @@ patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootl
 patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-perf.patch"
 if [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]]; then
     cp "$repository_root/tools/rootless/faststat/protocol.h" "$build_directory/proot-5.1.107.92/src/tracee/faststat.h"
+    cp "$repository_root/tools/rootless/faststat/fastfd.c" "$build_directory/proot-5.1.107.92/src/tracee/fastfd.c"
     patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-faststat.patch"
 fi
 

@@ -10,7 +10,7 @@
  #include "cli/note.h"
  
  #include "compat.h"
-@@ -263,6 +266,90 @@
+@@ -263,6 +266,91 @@
  	status = new_program_filter(&program);
  	if (status < 0)
  		goto end;
@@ -26,12 +26,13 @@
 +		if (strcmp(faststat, "2") == 0) {
 +			struct sock_filter requests[] = {
 +				BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
-+				BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 7),
++				BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 8),
 +				BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
-+				BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 167 /* prctl */, 0, 5),
++				BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 167 /* prctl */, 0, 6),
 +				BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, args)),
-+				BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, PROOT_FASTSTAT_QUERY, 2, 0),
-+				BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, PROOT_FASTSTAT_RESOLVE, 1, 0),
++				BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, PROOT_FASTSTAT_QUERY, 3, 0),
++				BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, PROOT_FASTSTAT_RESOLVE, 2, 0),
++				BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, PROOT_FASTFD_ATTACH, 1, 0),
 +				BPF_STMT(BPF_JMP+BPF_JA+BPF_K, 1),
 +				BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
 +			};
@@ -407,7 +408,7 @@
  	status = notify_extensions(tracee, SYSCALL_ENTER_START, 0, 0);
  	if (status < 0)
  		goto end;
-@@ -1839,6 +2122,72 @@
+@@ -1839,6 +2122,82 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
@@ -448,6 +449,16 @@
 +			goto end;
 +		}
 +		if (strcmp(faststat, "2") == 0 && syscall_number == PR_prctl &&
++		    peek_reg(tracee, CURRENT, SYSARG_1) == PROOT_FASTFD_ATTACH) {
++			status = fastfd_attach(tracee, (int)peek_reg(tracee, CURRENT, SYSARG_2),
++				(unsigned)peek_reg(tracee, CURRENT, SYSARG_3));
++			if (status == 0) {
++				poke_reg(tracee, SYSARG_RESULT, 0);
++				set_sysnum(tracee, PR_void);
++			}
++			goto end;
++		}
++		if (strcmp(faststat, "2") == 0 && syscall_number == PR_prctl &&
 +		    peek_reg(tracee, CURRENT, SYSARG_1) == PROOT_FASTSTAT_RESOLVE) {
 +			status = faststat_resolve(tracee);
 +			if (status == 0) {
@@ -480,7 +491,7 @@
  	switch (syscall_number) {
  	default:
  		/* Nothing to do. */
-@@ -2856,7 +3205,16 @@
+@@ -2856,7 +3215,16 @@
  		 * EPIPE when the parent closes its copy first (ptrace
  		 * serialisation makes this happen routinely, breaking
  		 * process substitution like `echo <(echo a)`).  */
@@ -498,7 +509,7 @@
  		break;
  	}
  
-@@ -2868,5 +3226,15 @@
+@@ -2868,5 +3236,15 @@
  	if (status2 < 0)
  		status = status2;
  
@@ -604,11 +615,12 @@
  		 *
 --- a/src/tracee/tracee.h
 +++ b/src/tracee/tracee.h
-@@ -90,6 +90,10 @@
+@@ -90,6 +90,11 @@
  	/* Valid only inside one translate_path(), never across a kernel call. */
  	char checked_path[PATH_MAX];
  	bool checked_path_not_symlink;
 +	struct faststat_path_cache *faststat_path_cache;
++	struct fastfd_state *fastfd; /* Per tracee, deliberately not inherited. */
 +	bool reuse_open_path;
 +	word_t rewritten_open_path_address;
 +	char rewritten_open_path[PATH_MAX];
@@ -769,3 +781,40 @@
  
  	/* Canonicalize regarding the new root. */
  	proot_perf_count(PERF_PATH_TRANSLATION);
+--- a/src/tracee/event.c
++++ b/src/tracee/event.c
+@@ -45,6 +45,7 @@
+ #include "syscall/syscall.h"
+ #include "syscall/seccomp.h"
+ #include "syscall/pipe_shadow.h"
++#include "tracee/faststat.h"
+ #include "ptrace/wait.h"
+ #include "extension/extension.h"
+ #include "execve/elf.h"
+@@ -749,6 +750,7 @@
+ 		case SIGTRAP | PTRACE_EVENT_VFORK_DONE << 8:
+ 		case SIGTRAP | PTRACE_EVENT_EXEC  << 8:
+ 		case SIGTRAP | PTRACE_EVENT_EXIT  << 8:
++			if (((unsigned)tracee_status >> 16) == PTRACE_EVENT_EXEC) fastfd_reset(tracee);
+ 			signal = 0;
+ 			if (tracee->last_restart_how) {
+ 				tracee->restart_how = tracee->last_restart_how;
+@@ -884,6 +886,8 @@
+ 	if (tracee->as_ptracer.wait_pid != 0 || signal == -1)
+ 		return false;
+ 
++	fastfd_sync(tracee);
++
+ 	/* Restart the tracee and stop it at the next instruction, or
+ 	 * at the next entry or exit of a system call. */
+ 	assert(tracee->restart_how != 0);
+--- a/src/GNUmakefile
++++ b/src/GNUmakefile
+@@ -51,6 +51,7 @@
+ 	syscall/rlimit.o	\
+ 	syscall/pipe_shadow.o	\
+ 	tracee/tracee.o		\
++	tracee/fastfd.o		\
+ 	tracee/mem.o		\
+ 	tracee/perf.o		\
+ 	tracee/reg.o		\

@@ -8,6 +8,21 @@
 #define PROOT_FASTSTAT_CONTEXT_VERSION 4
 #define PROOT_FASTSTAT_RESOLVE 0x50525347
 #include <stdint.h>
+#include <stdatomic.h>
+
+#define PROOT_FASTFD_ATTACH 0x50525348
+#define PROOT_FASTFD_VERSION 1
+#define PROOT_FASTFD_MAPPING_SIZE 4096
+/* Per-thread credentials only. File metadata is never stored here. */
+struct proot_fastfd_identity {
+    _Atomic uint32_t sequence, active, host_uid, host_gid, guest_uid, guest_gid;
+};
+_Static_assert(sizeof(struct proot_fastfd_identity) == 24, "fastfd identity ABI");
+_Static_assert(ATOMIC_INT_LOCK_FREE == 2, "shared identity needs lock-free atomics");
+struct tracee;
+int fastfd_attach(struct tracee *tracee, int fd, unsigned version);
+void fastfd_sync(struct tracee *tracee);
+void fastfd_reset(struct tracee *tracee);
 
 /* Fixed-width request/reply shared by Android PRoot and guest glibc.
  * A fresh reply is obtained for every context-mode call; it is not a cache. */

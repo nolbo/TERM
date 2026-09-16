@@ -7,6 +7,8 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <linux/openat2.h>
+#include <linux/memfd.h>
+#include <pthread.h>
 #include <stdint.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -34,6 +36,24 @@ static int report_on_exit;
 static _Atomic unsigned long hits;
 static _Atomic unsigned long fallbacks;
 static _Atomic unsigned long negative_hits;
+static _Atomic unsigned long fd_hits, fd_fallbacks;
+static int fd_requested;
+static pthread_key_t fd_key;
+struct local_identity {
+    pid_t pid;
+    int busy;
+    struct proot_fastfd_identity *page;
+};
+static _Thread_local struct local_identity local_identity;
+
+static void release_identity(void *pointer)
+{
+    struct local_identity *local = pointer;
+    if (local->page) munmap(local->page, PROOT_FASTFD_MAPPING_SIZE);
+    local->page = NULL;
+    local->pid = 0;
+}
+
 
 static long fast_syscall(long nr, long a, long b, long c, long d)
 {
@@ -91,6 +111,10 @@ __attribute__((constructor)) static void initialize_faststat(void)
         goto out;
     }
     fast_syscall(SYS_close, fd, 0, 0, 0);
+    const char *fd_setting = getenv("PROOT_FASTFD");
+    if (execution_mode == PROOT_FASTSTAT_CONTEXT_VERSION && fd_setting &&
+        strcmp(fd_setting, "1") == 0 && pthread_key_create(&fd_key, release_identity) == 0)
+        fd_requested = 1;
     enabled = 1;
     initialization_status = 1;
 out:
@@ -103,6 +127,9 @@ int proot_faststat_mode(void) { return execution_mode; }
 int proot_faststat_initialization_status(void) { return initialization_status; }
 unsigned long proot_faststat_hits(void) { return atomic_load_explicit(&hits, memory_order_relaxed); }
 unsigned long proot_faststat_fallbacks(void) { return atomic_load_explicit(&fallbacks, memory_order_relaxed); }
+
+unsigned long proot_fastfd_hits(void) { return atomic_load_explicit(&fd_hits, memory_order_relaxed); }
+unsigned long proot_fastfd_fallbacks(void) { return atomic_load_explicit(&fd_fallbacks, memory_order_relaxed); }
 
 unsigned long proot_faststat_negative_hits(void) { return atomic_load_explicit(&negative_hits, memory_order_relaxed); }
 
@@ -127,6 +154,73 @@ static int copy_path(char output[PATH_MAX], const char *input)
     long length = syscall(SYS_process_vm_readv, getpid(), &local, 1, &remote, 1, 0);
     return length > 0 && memchr(output, '\0', (size_t)length) != NULL;
 }
+
+/* A separate page per Linux thread matches fake_id0's per-thread saved IDs.
+ * The PID check discards a fork child's inherited mapping before first use.
+ * The tracer owns its own mapping; guest thread destructors cannot invalidate it. */
+static struct proot_fastfd_identity *current_identity(pid_t pid)
+{
+    if (local_identity.busy) return NULL;
+    if (local_identity.pid == pid) return local_identity.page;
+    release_identity(&local_identity);
+    local_identity.pid = pid;
+    local_identity.busy = 1;
+    int fd = syscall(SYS_memfd_create, "proot-fastfd", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+    void *page = MAP_FAILED;
+    if (fd >= 0 && syscall(SYS_ftruncate, fd, PROOT_FASTFD_MAPPING_SIZE) == 0 &&
+        fcntl(fd, F_ADD_SEALS, F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL) == 0) {
+        page = mmap(NULL, PROOT_FASTFD_MAPPING_SIZE, PROT_READ, MAP_SHARED, fd, 0);
+        if (page != MAP_FAILED && syscall(SYS_prctl, PROOT_FASTFD_ATTACH,
+                fd, PROOT_FASTFD_VERSION, 0, 0) == 0 &&
+                pthread_setspecific(fd_key, &local_identity) == 0)
+            local_identity.page = page;
+    }
+    if (page != MAP_FAILED && !local_identity.page) munmap(page, PROOT_FASTFD_MAPPING_SIZE);
+    if (fd >= 0) syscall(SYS_close, fd);
+    local_identity.busy = 0;
+    return local_identity.page;
+}
+
+static int map_identity(struct proot_fastfd_identity *page, struct stat *result)
+{
+    for (int attempt = 0; attempt < 4; attempt++) {
+        uint32_t sequence = atomic_load(&page->sequence);
+        if (sequence & 1) continue;
+        uint32_t active = atomic_load(&page->active);
+        uint32_t host_uid = atomic_load(&page->host_uid), host_gid = atomic_load(&page->host_gid);
+        uint32_t guest_uid = atomic_load(&page->guest_uid), guest_gid = atomic_load(&page->guest_gid);
+        if (sequence != atomic_load(&page->sequence)) continue;
+        if (!active) return 0;
+        if (result->st_uid == host_uid) result->st_uid = guest_uid;
+        if (result->st_gid == host_gid) result->st_gid = guest_gid;
+        return 1;
+    }
+    return 0;
+}
+
+int fstat(int fd, struct stat *output)
+{
+    int saved_errno = errno;
+    if (!enabled || !fd_requested || local_identity.busy) goto slow_fd;
+    pid_t pid = (pid_t)syscall(SYS_getpid);
+    struct proot_fastfd_identity *identity = current_identity(pid);
+    if (!identity) goto slow_fd;
+    struct stat result;
+    if (fast_syscall(SYS_fstat, fd, (long)&result, 0, 0) < 0 ||
+        (!S_ISREG(result.st_mode) && !S_ISDIR(result.st_mode)) ||
+        !map_identity(identity, &result)) goto slow_fd;
+    struct iovec local = { &result, sizeof(result) }, remote = { output, sizeof(result) };
+    if (syscall(SYS_process_vm_writev, pid, &local, 1, &remote, 1, 0) != sizeof(result)) goto slow_fd;
+    atomic_fetch_add_explicit(&fd_hits, 1, memory_order_relaxed);
+    errno = saved_errno;
+    return 0;
+ slow_fd:
+    atomic_fetch_add_explicit(&fd_fallbacks, 1, memory_order_relaxed);
+    errno = saved_errno;
+    return (int)syscall(SYS_fstat, fd, output);
+}
+
+int fstat64(int fd, struct stat64 *output) { return fstat(fd, (struct stat *)output); }
 
 int fstatat(int dirfd, const char *path, struct stat *output, int flags)
 {

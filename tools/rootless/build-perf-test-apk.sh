@@ -34,7 +34,8 @@ with zipfile.ZipFile(sys.argv[1], "a", compression=zipfile.ZIP_DEFLATED) as arch
         fixtures = pathlib.Path(sys.argv[5])
         for source, target in (("libproot-faststat.so", "libproot-faststat.so"),
                                ("faststat-test", "libfaststat-test.so"),
-                               ("trampoline-test", "libtrampoline-test.so")):
+                               ("trampoline-test", "libtrampoline-test.so"),
+                               ("fd-test", "libfd-test.so")):
             archive.write(fixtures / source, "lib/arm64-v8a/" + target)
 PY
 "$signer" sign --ks "$keystore" --ks-pass pass:android \

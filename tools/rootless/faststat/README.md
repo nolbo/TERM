@@ -558,3 +558,36 @@ bind해 실행할 수 있으며 제품 APK나 사용자 rootfs에 파일을 설�
 성능 비교와 새 배포판 설치는 반복하지 않았다. Android 모듈을 변경하지 않아
 Gradle도 재실행하지 않았다. 이 수정은 fstat/close 전체를 프로세스 내부로 옮긴
 구현이 아니며, 전체 2배 달성을 의미하지 않는다. 기본 payload는 유지했다.
+
+### 스레드별 공유 자격 정보로 fstat 직접 실행
+
+`PROOT_FASTFD=1`을 tracer와 guest 환경 양쪽에 지정하고 기존 모드 2 DSO를
+preload하면 일반 파일·디렉터리의 interposed `fstat/fstat64`가 전용 syscall
+PC에서 커널 정보를 직접 읽는다. 파일 크기·inode·FD 번호를 캐시하지 않는다.
+스레드별 sealed-size memfd에는 실제/가상 UID·GID만 저장한다. tracer는 재개
+직전에 saved UID/GID를 갱신하고, guest는 atomic sequence로 일관된 값을 읽는다.
+메모리 출력은 process_vm_writev로 처리하며 지원하지 않는 대상·오류는 기존
+syscall로 복귀한다. 상위 seccomp 거부는 우회하지 않는다.
+
+페이지는 각 Linux thread에 독립적이다. fork 자식은 PID 변경으로 다시 연결하고,
+exec 시 tracer가 기존 매핑을 해제한다. guest pthread destructor와 tracer talloc
+소멸자는 각각 자기 매핑을 해제한다. 페이지 크기 변경 seal을 먼저 확인해
+외부 truncate가 tracer에 SIGBUS를 일으키는 것을 방지한다. 이 협력 프로토콜은
+PRoot를 보안 격리 경계로 바꾸지 않는다.
+
+2026-09-16 Android MCP의 기존 ARM64 Debian 시험 환경에서 엔진
+`a25b410f7902d969b05800596e3be63639c6a07dc8d743092070654ffc42fabf`와
+새 `fd-test`를 검증했다. notification 비활성/스레드 활성 모두 종료 코드 0,
+각 hits=651이었다. 파일 크기·unlink, 8스레드의 독립 saved-ID 변경, fork의
+자격 정보 변경과 부모 유지, exec 재초기화, 디렉터리, 파이프 fallback,
+dup2 재사용, 닫힌 FD, 읽기 전용/잘못된 출력 주소, guest seccomp fstat 거부,
+memfd 생성 거부 시 fallback, seal 누락·잘못된 ABI 버전 거부를 검사했다.
+기존 path-stat 회귀도 fastfd 활성 상태에서 hits=831/fallbacks=11로 통과했다.
+이 카운터는 경로 실행 증거이며 속도 개선 수치가 아니다.
+
+엔진·guest 빌드와 시험 APK 서명·설치가 통과했다. incremental 설치 미지원은
+streamed 설치로 해결했다. DSO는 pthread API 때문에 현재 빌드에서 glibc 2.34
+이상을 요구한다. static ELF와 libc 내부 hidden 호출은 interposition 대상이
+아니다. 기본 제품 payload/환경은 바꾸지 않았다. 이번 단계에서 성능 비교,
+새 Debian 설치, Android Gradle 빌드는 실행하지 않았다. 후보 성능 측정과
+배포판 설치 전체 검증, 신호 재진입·자원 수명 추가 검토를 거쳐야 채택할 수 있다.
