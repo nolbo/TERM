@@ -508,3 +508,21 @@ unlink/link는 기존에 종료 정지가 없어 이 가속에서 제외했다. 
 확장한 stat-entry-test는 이동 오류·cwd·seccomp 거부를 검사하며 Debian/Ubuntu와
 seccomp 가속 끔에서 통과했다. 동일 payload의 새 Debian 설치도 통과했다.
 [설치 절차](../../../docs/ROOTLESS_FRESH_INSTALL_TEST.md)를 참조한다.
+
+## 파이프 보정 생략 실험
+
+faststat 실험 빌드에 `PROOT_KERNEL_PIPE=1`을 주면 close 추적과 auxv/netlink
+상태 정리는 유지하면서 pipe shadow 생성만 생략한다. 기본값은 꺼짐이다.
+실제 읽기 끝을 모두 닫으면 커널의 SIGPIPE/EPIPE 동작을 따르므로,
+소비하지 않는 프로세스 치환의 writer 오류를 기존처럼 숨기지 않는다.
+
+[112개 측정](results/kernel-pipe-2026-09-16.json)에서 직전 fstat 실험판 대비
+작은 파일 읽기는 141.682→136.113ms였다. 효과가 작고 다른 항목의 악화도
+관찰돼 기본 적용하지 않는다. close 전체 생략 실험의 효과를 이 옵션에
+전용하지 않는다. 후보 digest는
+`751f184bab448185a356621e1137efd31b1ec7e46a004f26884599a4a1e67b60`이다.
+
+게스트에서 `bash kernel-pipe-test.sh`로 파이프 전달·조기 소비자 종료·프로세스
+치환을 20회 검사하고, 임시 루트에 자체 패키지를 설치·제거한다. 시험은
+Android MCP에서 옵션을 켜고 통과했다. 실제 패키지 DB는 변경하지 않는다.
+새 배포판 설치, maintainer script, 네트워크 FD 재사용의 포괄 검증은 미실행이다.

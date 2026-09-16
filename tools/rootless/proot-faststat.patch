@@ -480,7 +480,25 @@
  	switch (syscall_number) {
  	default:
  		/* Nothing to do. */
-@@ -2868,5 +3217,15 @@
+@@ -2856,7 +3205,16 @@
+ 		 * EPIPE when the parent closes its copy first (ptrace
+ 		 * serialisation makes this happen routinely, breaking
+ 		 * process substitution like `echo <(echo a)`).  */
+-		shadow_pipe_read_end(tracee->pid, closed_fd);
++		/* Experimental kernel pipe semantics: retain close bookkeeping,
++		 * but do not manufacture an extra reader after the guest closes
++		 * its own. This also avoids probing every ordinary file close. */
++		static int kernel_pipe = -1;
++		if (kernel_pipe < 0) {
++			const char *setting = getenv("PROOT_KERNEL_PIPE");
++			kernel_pipe = setting && strcmp(setting, "1") == 0;
++		}
++		if (!kernel_pipe)
++			shadow_pipe_read_end(tracee->pid, closed_fd);
+ 		break;
+ 	}
+ 
+@@ -2868,5 +3226,15 @@
  	if (status2 < 0)
  		status = status2;
  
