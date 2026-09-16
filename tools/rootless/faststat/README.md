@@ -526,3 +526,35 @@ faststat 실험 빌드에 `PROOT_KERNEL_PIPE=1`을 주면 close 추적과 auxv/n
 치환을 20회 검사하고, 임시 루트에 자체 패키지를 설치·제거한다. 시험은
 Android MCP에서 옵션을 켜고 통과했다. 실제 패키지 DB는 변경하지 않는다.
 새 배포판 설치, maintainer script, 네트워크 FD 재사용의 포괄 검증은 미실행이다.
+
+## 내부 호출 필터와 fstat 진입 가속의 결합 수정
+
+`PROOT_FASTSTAT=2`와 `PROOT_FSTAT_ENTRY=1`을 함께 켜면, 내부 전용 PC의
+fstat도 일반 fstat 진입 필터에 먼저 잡히는 충돌이 있었다. 전용 PC/architecture/
+syscall 검사를 먼저 배치해 의도한 직접 실행을 복구했다. 예외의 syscall 범위를
+넓히지 않았으며 다른 주소의 fstat 및 전용 주소의 getuid는 계속 추적한다.
+게스트가 추가한 seccomp 거부도 그대로 적용된다. 이 예외는 보안 격리 수단이 아니다.
+
+`trampoline-test.c`는 별도 DSO가 만든 전용 호출 영역을 사용한다. 일반 fstat의
+가상 소유자와 내부 fstat의 실제 소유자를 비교해 경로 혼선을 검출하고,
+삭제된 inode의 크기를 128회 변경해 새 메타데이터를 확인한다. 자식에서 추가한
+seccomp 필터가 두 fstat 경로를 모두 EPERM으로 거부하는지도 검사한다.
+호스트 UID 값 자체는 출력하지 않는다. fake-root인 모드 2 실행을 요구한다.
+
+`faststat/build.sh`가 이 시험을 함께 빌드한다. 시험 APK 생성 시
+`PROOT_TEST_FASTSTAT_DIRECTORY`를 그 출력 디렉터리로 지정하면 DSO와 두
+driver가 APK에 포함된다. 추출된 시험 nativeLibraryDir만 별도 guest 시험 경로에
+bind해 실행할 수 있으며 제품 APK나 사용자 rootfs에 파일을 설치하지 않는다.
+
+[검증 기록](results/trampoline-order-2026-09-16.json):
+
+- 기존 1495a9... 엔진에서 새 회귀가 내부 소유자 검사에 실패해 문제 재현.
+- 수정 9312f4... 엔진에서 통과. notification 스레드를 함께 켠 경우도 통과.
+- 기존 `faststat-test 1 test` 통과: hits=831, fallbacks=11. 잘못된 포인터 시험의
+  PEEKDATA 경고는 의도된 EFAULT 검사다. exec 확인의 bench 0은 성능 측정이 아니다.
+- ARM64 엔진 빌드, guest DSO/driver의 경고 오류 처리 빌드, APK 서명·설치 통과.
+- Android MCP incremental 설치 실패는 streamed 설치로 해결했다.
+
+성능 비교와 새 배포판 설치는 반복하지 않았다. Android 모듈을 변경하지 않아
+Gradle도 재실행하지 않았다. 이 수정은 fstat/close 전체를 프로세스 내부로 옮긴
+구현이 아니며, 전체 2배 달성을 의미하지 않는다. 기본 payload는 유지했다.

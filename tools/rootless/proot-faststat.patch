@@ -10,51 +10,10 @@
  #include "cli/note.h"
  
  #include "compat.h"
-@@ -264,6 +267,90 @@
+@@ -263,6 +266,90 @@
+ 	status = new_program_filter(&program);
  	if (status < 0)
  		goto end;
- 
-+#if defined(__aarch64__)
-+	const char *fstat_entry = getenv("PROOT_FSTAT_ENTRY");
-+	if (fstat_entry && strcmp(fstat_entry, "1") == 0) {
-+		struct sock_filter entry[] = {
-+			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 3),
-+			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 80 /* fstat */, 0, 1),
-+			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
-+		};
-+		status = add_statements(&program, sizeof(entry)/sizeof(entry[0]), entry);
-+		if (status < 0) goto end;
-+	}
-+	const char *mutation_entry = getenv("PROOT_MUTATION_ENTRY");
-+	if (mutation_entry && strcmp(mutation_entry, "1") == 0) {
-+		struct sock_filter entry[] = {
-+			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 5),
-+			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 38 /* renameat */, 0, 1),
-+			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 276 /* renameat2 */, 0, 1),
-+			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
-+		};
-+		status = add_statements(&program, sizeof(entry)/sizeof(entry[0]), entry);
-+		if (status < 0) goto end;
-+	}
-+	/* Entry-side metadata completion requests exit dynamically on fallback. */
-+	const char *stat_entry = getenv("PROOT_STAT_ENTRY");
-+	if (stat_entry && strcmp(stat_entry, "1") == 0) {
-+		struct sock_filter entry[] = {
-+			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 3),
-+			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 79 /* newfstatat */, 0, 1),
-+			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
-+		};
-+		status = add_statements(&program, sizeof(entry)/sizeof(entry[0]), entry);
-+		if (status < 0) goto end;
-+	}
-+#endif
 +
 +#if defined(__aarch64__)
 +	/* Experimental dispatcher: exact architecture, exact SVC return PC,
@@ -98,9 +57,50 @@
 +	}
 +#endif
 +
++#if defined(__aarch64__)
++	const char *fstat_entry = getenv("PROOT_FSTAT_ENTRY");
++	if (fstat_entry && strcmp(fstat_entry, "1") == 0) {
++		struct sock_filter entry[] = {
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 3),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 80 /* fstat */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++		};
++		status = add_statements(&program, sizeof(entry)/sizeof(entry[0]), entry);
++		if (status < 0) goto end;
++	}
++	const char *mutation_entry = getenv("PROOT_MUTATION_ENTRY");
++	if (mutation_entry && strcmp(mutation_entry, "1") == 0) {
++		struct sock_filter entry[] = {
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 5),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 38 /* renameat */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 276 /* renameat2 */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++		};
++		status = add_statements(&program, sizeof(entry)/sizeof(entry[0]), entry);
++		if (status < 0) goto end;
++	}
++	/* Entry-side metadata completion requests exit dynamically on fallback. */
++	const char *stat_entry = getenv("PROOT_STAT_ENTRY");
++	if (stat_entry && strcmp(stat_entry, "1") == 0) {
++		struct sock_filter entry[] = {
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 3),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 79 /* newfstatat */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++		};
++		status = add_statements(&program, sizeof(entry)/sizeof(entry[0]), entry);
++		if (status < 0) goto end;
++	}
++#endif
+ 
  	/* For each handled architectures */
  	for (i = 0; i < nb_archs; i++) {
- 		word_t syscall;
 --- a/src/syscall/enter.c
 +++ b/src/syscall/enter.c
 @@ -79,6 +79,12 @@

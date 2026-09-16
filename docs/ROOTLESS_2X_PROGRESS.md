@@ -491,3 +491,24 @@ APK 증분 설치 실패는 streamed 설치로 해결했다. UI/외부 앱 변�
 다른 MCP는 사용하지 않았다. 성능 비교와 새 설치는 반복하지 않았고 Android
 모듈 변경이 없어 Gradle도 재실행하지 않았다. 기본 엔진은 유지했으며
 **전체 2배 및 파일 I/O 성능 목표는 계속 미달성이다.**
+
+## 16단계: 프로세스 내부 조회와 fstat 진입 가속의 필터 충돌 수정
+
+기존 DSO 가속과 FSTAT_ENTRY를 함께 활성화하면 내부 전용 fstat 호출까지
+진입 추적되는 순서 문제가 있었다. seccomp의 전용 PC/architecture/syscall
+검사를 일반 fstat 진입 규칙보다 먼저 배치했다. 허용 syscall 범위는 유지한다.
+
+새 `trampoline-test.c`로 기존 1495a9... 엔진의 실패를 재현하고, 수정한
+9312f4... 엔진의 통과를 확인했다. 일반 fstat/getuid의 가상 소유자, 내부
+fstat의 실제 정보, 삭제한 inode의 128회 크기 변경, guest seccomp의 양쪽
+경로 거부를 검증한다. notification 스레드 결합에서도 통과했다.
+기존 DSO 회귀도 hits=831/fallbacks=11로 통과했다. 이 값은 기능 경로 확인이며
+속도 비교 수치가 아니다. 잘못된 포인터의 PEEKDATA 경고는 예상된 검사다.
+
+ARM64 엔진과 guest DSO/driver 빌드, 별도 APK 서명·Android MCP 설치가 통과했다.
+incremental 설치 미지원은 streamed 설치로 해결했다. 시험 파일을 선택적으로
+APK에 넣는 빌드 옵션을 추가했다. 성능 비교·새 설치·Gradle은 반복하지 않았고
+UI/외부 서비스/API 변경이 없어 다른 MCP는 사용하지 않았다.
+[검증 범위](../tools/rootless/faststat/README.md)에 결과를 남겼다.
+열린 FD의 일반 fstat/close 전체를 직접 실행하는 후속 설계는 아직 미구현이며
+**전체 2배 및 파일 I/O 성능 목표는 계속 미달성이다.**

@@ -1,0 +1,18 @@
+{
+  "date": "2026-09-16",
+  "baseline_sha256": "1495a9040f8ed05f38bf0a7ff095b1b53ade743f71f227058909b6ed42432003",
+  "candidate_sha256": "9312f45c234f03daa600c8a594908c26e563e3fa27805055931a4a1a71a426a6",
+  "scope": "Functional regression with PROOT_FASTSTAT=2 plus STAT_ENTRY/STAT_KERNEL/PATH_KERNEL/MUTATION_ENTRY/FSTAT_ENTRY; no speed comparison",
+  "baseline_expected_failure": "FAIL line 54: result.st_uid == context.host_uid && result.st_gid == context.host_gid errno=0\nTEST_EXIT=1",
+  "candidate": "PASS: private fstat raw metadata, ordinary fstat/getuid mapping, fresh inode state and guest seccomp\nTEST_EXIT=0",
+  "candidate_with_notification_thread": "PASS: private fstat raw metadata, ordinary fstat/getuid mapping, fresh inode state and guest seccomp\nTEST_EXIT=0",
+  "existing_dso_regression": "proot warning: ptrace(PEEKDATA): I/O error\n{\"enabled\":1,\"iterations\":0,\"ms\":0.000,\"hits\":0,\"fallbacks\":0}\nPASS enabled=1 hits=831 fallbacks=11\nTEST_EXIT=0",
+  "validation": "ARM64 engine and warning-as-error guest DSO/driver builds, test APK signature/install passed; shell syntax and diff checks passed",
+  "not_run": [
+    "Performance comparison",
+    "Fresh installation of this candidate",
+    "Gradle (native experimental tools only)",
+    "Stock Android/F2FS"
+  ],
+  "production_payload_changed": false
+}
