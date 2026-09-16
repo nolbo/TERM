@@ -1,0 +1,223 @@
+{
+  "date": "2026-09-15",
+  "probe_sha256": "1d504d2c1e395613fc5a7ff0034f035a6ba6da0eeed87c647bf8b14d81bc2499",
+  "proot_sha256": "e7f7f3e6cbebb90d121a7c0ad4ad0b4e10a655e30e30e47d0239602ac7ea5a9c",
+  "scope": "ARM64/API35 redroid, kernel 6.17.0-1020-oracle, app UID CapEff/CapPrm=0 and initial Seccomp=0. Same static glibc probe and app-private ext4 tmp directory. Seven alternating quadruples, 10000 warm read-only open/close operations. notify serves only one fixed owned file via dirfd, with memory copy, ID validation and ADDFD_SEND; it does not implement a general rootless path resolver. current PRoot enables stat/path/rename experiments and native links; baseline is production PRoot -0/l2s. Not a whole-workload speedup or stock Android policy validation.",
+  "checks": "Seven notification runs passed listener/SCM_RIGHTS/memory reads/readonly FD/CLOEXEC/error/stale and killed-request ID checks. Host sandbox memory-read EPERM is a separate environment failure; cleanup checked.",
+  "summary": [
+    {
+      "label": "native",
+      "median_ms": 16.986
+    },
+    {
+      "label": "notify",
+      "median_ms": 141.996
+    },
+    {
+      "label": "current",
+      "median_ms": 468.299
+    },
+    {
+      "label": "baseline",
+      "median_ms": 517.189
+    }
+  ],
+  "rows": [
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 527.372,
+      "label": "baseline",
+      "pair": 0
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 461.964,
+      "label": "current",
+      "pair": 0
+    },
+    {
+      "mode": "notify",
+      "count": 10000,
+      "wall_ms": 140.263,
+      "label": "notify",
+      "pair": 0
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 16.914,
+      "label": "native",
+      "pair": 0
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 16.986,
+      "label": "native",
+      "pair": 1
+    },
+    {
+      "mode": "notify",
+      "count": 10000,
+      "wall_ms": 142.391,
+      "label": "notify",
+      "pair": 1
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 466.51,
+      "label": "current",
+      "pair": 1
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 521.995,
+      "label": "baseline",
+      "pair": 1
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 517.189,
+      "label": "baseline",
+      "pair": 2
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 468.299,
+      "label": "current",
+      "pair": 2
+    },
+    {
+      "mode": "notify",
+      "count": 10000,
+      "wall_ms": 141.996,
+      "label": "notify",
+      "pair": 2
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 16.965,
+      "label": "native",
+      "pair": 2
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 16.918,
+      "label": "native",
+      "pair": 3
+    },
+    {
+      "mode": "notify",
+      "count": 10000,
+      "wall_ms": 140.88,
+      "label": "notify",
+      "pair": 3
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 461.085,
+      "label": "current",
+      "pair": 3
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 518.132,
+      "label": "baseline",
+      "pair": 3
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 511.396,
+      "label": "baseline",
+      "pair": 4
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 497.702,
+      "label": "current",
+      "pair": 4
+    },
+    {
+      "mode": "notify",
+      "count": 10000,
+      "wall_ms": 141.482,
+      "label": "notify",
+      "pair": 4
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 19.398,
+      "label": "native",
+      "pair": 4
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 18.877,
+      "label": "native",
+      "pair": 5
+    },
+    {
+      "mode": "notify",
+      "count": 10000,
+      "wall_ms": 146.232,
+      "label": "notify",
+      "pair": 5
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 492.589,
+      "label": "current",
+      "pair": 5
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 516.393,
+      "label": "baseline",
+      "pair": 5
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 516.697,
+      "label": "baseline",
+      "pair": 6
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 473.978,
+      "label": "current",
+      "pair": 6
+    },
+    {
+      "mode": "notify",
+      "count": 10000,
+      "wall_ms": 142.369,
+      "label": "notify",
+      "pair": 6
+    },
+    {
+      "mode": "direct",
+      "count": 10000,
+      "wall_ms": 17.112,
+      "label": "native",
+      "pair": 6
+    }
+  ]
+}

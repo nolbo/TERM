@@ -101,6 +101,10 @@ targeting API 29 or newer. This app targets API 35. `NativeExecutableLoader`
 therefore resolves only a small allow-list from the APK-installed native
 library directory. Rootfs downloads are treated as untrusted data; neither a
 downloaded PRoot binary nor an arbitrary file selected through SAF is executed.
+The fixed `rootless-notify-probe` name supports an opt-in standalone test APK;
+the production APK does not bundle this probe. It remains subject to the same
+canonical library-directory and executable checks and grants no downloaded-file
+execution path. Its fixture-only FD transport is not a guest capability API.
 Bootstrap downloads are catalog-pinned Debian, Ubuntu and Arch Linux ARM rootfs
 archives. The installer limits their size, verifies SHA-256 before extraction, rejects path
 escapes, symlink-parent traversal, unsupported special files and unsafe links,

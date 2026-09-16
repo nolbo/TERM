@@ -1,6 +1,7 @@
 package dev.terminal.runtime.native
 
 import java.io.File
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -35,7 +36,7 @@ class NativeExecutableLoaderTest {
     @Test fun toolingIsPackagedOnlyAndNeverAUsbmuxDaemonOrDownloadedWorker() {
         val directory = temporary.newFolder("bootstrap-lib")
         val resolver = PackagedExecutableResolver(directory) { listOf("arm64-v8a") }
-        listOf("terminal-usb", "iphone-tool-probe", "isideload").forEach { name ->
+        listOf("terminal-usb", "iphone-tool-probe", "isideload", "rootless-notify-probe").forEach { name ->
             assertTrue(resolver.resolvePackagedExecutable(name).isFailure)
             val binary = File(directory, "lib$name.so").apply { writeText("test"); setExecutable(true) }
             assertEquals(binary.canonicalFile, resolver.resolvePackagedExecutable(name).getOrThrow())
@@ -43,6 +44,15 @@ class NativeExecutableLoaderTest {
         listOf("usbmuxd", "mux-owner", "../terminal-usb", "sidestore-bootstrap").forEach {
             assertTrue(resolver.resolvePackagedExecutable(it).isFailure)
         }
+    }
+
+    @Test fun rootlessProbeCannotResolveOutsideTheApkLibraryDirectory() {
+        val directory = temporary.newFolder("notify-lib")
+        val outside = temporary.newFile("downloaded-probe").apply { setExecutable(true) }
+        Files.createSymbolicLink(File(directory, "librootless-notify-probe.so").toPath(), outside.toPath())
+        val result = PackagedExecutableResolver(directory) { listOf("arm64-v8a") }
+            .resolvePackagedExecutable("rootless-notify-probe")
+        assertTrue(result.exceptionOrNull()?.message?.contains("escaped APK") == true)
     }
 
     @Test fun iphoneWorkerMustBeAnImmutablePackagedExecutable() {

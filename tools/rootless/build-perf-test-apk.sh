@@ -19,7 +19,7 @@ cat > "$build_directory/AndroidManifest.xml" <<'XML'
 XML
 "$repository_root/tools/aapt2" link --manifest "$build_directory/AndroidManifest.xml" \
     -I "$sdk_root/platforms/android-35/android.jar" -o "$build_directory/unsigned.apk"
-python3 - "$build_directory/unsigned.apk" "$payload_directory" "$baseline" <<'PY'
+python3 - "$build_directory/unsigned.apk" "$payload_directory" "$baseline" "${PROOT_TEST_NOTIFY_BINARY:-}" <<'PY'
 import pathlib
 import sys
 import zipfile
@@ -28,6 +28,8 @@ with zipfile.ZipFile(sys.argv[1], "a", compression=zipfile.ZIP_DEFLATED) as arch
         archive.write(pathlib.Path(sys.argv[2]) / name, "lib/arm64-v8a/lib" + name + ".so")
     if sys.argv[3]:
         archive.write(sys.argv[3], "lib/arm64-v8a/libproot-baseline.so")
+    if sys.argv[4]:
+        archive.write(sys.argv[4], "lib/arm64-v8a/libnotify-open-test.so")
 PY
 "$signer" sign --ks "$keystore" --ks-pass pass:android \
     --out "$output_apk" "$build_directory/unsigned.apk"

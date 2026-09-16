@@ -238,3 +238,26 @@ seccomp 가속 끔에서 통과했다. 셸의 권한·변경·링크 회귀도 �
 현재 시험 커널(6.17.0-1020-oracle)은 seccomp actions_avail에 user_notif를
 열거한다. 이는 다음 FD 전달 실험의 단서이며 앱 UID에서 listener/ADDFD가
 동작한다는 증거는 아직 아니다.
+
+## 7단계: 비특권 파일 디스크립터 전달 가능성 검증
+
+[별도 전송 실험](../tools/rootless/notify/README.md)을 구현했다. 고정 파일의
+USER_NOTIF/ADDFD_SEND 전달, 메모리 읽기, CLOEXEC, 오류 및 취소 요청 검사를
+Android 앱 UID에서 통과했다. 중앙 실행 로더로 실행하는 별도 앱 시험도
+통과했다. APK에 포함한 고정 시험 이름만 허용하며 제품 APK에 실행 파일을
+추가하거나 기존 PRoot를 교체하지 않는다.
+
+10000회 open/close의 7회 교대 중앙값은 native 16.986ms, 고정 파일 전달
+141.996ms, 현재 실험 PRoot 468.299ms, 기존 PRoot 517.189ms였다.
+약 3.30배의 전송 가능성을 확인했지만 일반 경로 변환과 FD 상태 관리가
+빠진 시험이므로 **전체 rootless 2배 목표는 여전히 미달성**이다.
+
+표준 Gradle 및 시험 APK 빌드가 통과했다. 앱 instrumentation은 0.117초,
+1개 시험을 통과했다. 호스트 샌드박스에서는 메모리 읽기 EPERM으로 실패했다.
+Android 시험 앱 역시 초기 Seccomp=0이어서 stock 단말의 정책 검증은 남는다.
+다음 구현은 PRoot의 경로/dirfd/umask 의미와 ptrace 이벤트 루프에 전송을
+통합하고 실제 설치·파일 변경·import·tar 작업으로 다시 측정하는 것이다.
+
+설치 시험을 막았던 디스크 부족은 재생성 가능한 임시 Rust target과 비활성
+모듈 app/build를 정리해 해소했다. 사용자 데이터와 rootfs는 보존했고,
+이후 6단계 최종 payload의 새 Debian 설치 시험이 통과했다.
