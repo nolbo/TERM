@@ -641,3 +641,30 @@ guest DSO SHA-256:
 빌드·APK 서명·기기 설치는 통과했고 incremental 미지원은 streamed 설치로
 해결했다. 이번 단계에서는 성능 비교를 하지 않았다. siglongjmp로 초기화
 중간을 탈출하는 경우의 자원 수명과 가속 복구 검토는 여전히 남아 있다.
+
+#### 비지역 탈출 중 임시 자원 수명
+
+공유 페이지를 처음 연결하는 동안만 AArch64 rt_sigprocmask로 신호 전달을
+미룬다. 임시 FD를 닫고 매핑의 TLS destructor 등록을 끝낸 뒤 이전 마스크를
+복원한다. 초기 마스크 변경이 거부되면 일반 fstat으로 복귀한다. 이미 연결된
+페이지를 사용하는 반복 호출에는 신호 마스크 syscall을 추가하지 않는다.
+
+`fd-test`는 F_ADD_SEALS 직전에 SIGUSR2를 보내고 처리기에서 siglongjmp한다.
+이전 b3fa5f... DSO는 16개 스레드를 순서대로 실행한 뒤 FD 수가 원래 값으로
+돌아오지 않는 검사에 실패했다(종료 1). 새 DSO는 FD 수와 proot-fastfd 매핑
+수가 모두 유지되고, 신호 마스크 복원과 탈출 후 일반 fstat 결과도 통과했다.
+비지역 탈출로 busy 표시가 남은 스레드는 종료/exec까지 일반 경로를 쓴다.
+그 특수 경우의 가속 자동 복구는 구현하지 않았으며 Linux 작업은 계속 가능하다.
+
+2026-09-16 Android MCP에서 notification 비활성/스레드 활성 모두 전체 fd-test
+통과(hits=653). memfd_create와 rt_sigprocmask를 각각 거부하는 seccomp 자식
+검사도 통과했다. 같은 DSO를 bash와 dpkg에 preload한 시험에서 파이프·조기
+종료·프로세스 치환 20회, 임시 패키지 생성·독립 dpkg 루트 설치·내용 비교·제거가
+통과했다. 실제 배포판의 패키지 DB는 변경하지 않았다. 이 시험은 새 Debian
+전체 설치를 대체하지 않는다.
+
+DSO SHA-256:
+`396be7f08f543ab3d550555a9e35e0b783dda1deaf8a6d767c29f21f9020cc38`.
+guest 빌드·APK 서명·설치 통과, incremental 미지원은 streamed 설치로 해결했다.
+이번 단계는 성능 비교·Android Gradle 빌드를 반복하지 않았다. 다음 검증은
+누적 가속 후보의 실제 배포판 설치와 대표 작업 성능이다.

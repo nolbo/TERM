@@ -9,6 +9,7 @@
 #include <linux/openat2.h>
 #include <linux/memfd.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -177,6 +178,11 @@ static int copy_path(char output[PATH_MAX], const char *input)
 static struct proot_fastfd_identity *current_identity(pid_t pid)
 {
     if (local_identity.pid == pid) return local_identity.page;
+    /* Keep temporary resources out of signal-driven nonlocal exits. The
+     * AArch64 kernel signal set is 64 bits, unlike glibc's padded sigset_t.
+     * This runs only once per thread/fork, not on the steady-state path. */
+    uint64_t blocked = UINT64_MAX, previous;
+    if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &blocked, &previous, sizeof(previous))) return NULL;
     release_identity(&local_identity);
     local_identity.pid = pid;
     int fd = syscall(SYS_memfd_create, "proot-fastfd", MFD_CLOEXEC | MFD_ALLOW_SEALING);
@@ -191,6 +197,9 @@ static struct proot_fastfd_identity *current_identity(pid_t pid)
     }
     if (page != MAP_FAILED && !local_identity.page) munmap(page, PROOT_FASTFD_MAPPING_SIZE);
     if (fd >= 0) syscall(SYS_close, fd);
+    /* At this point every resource is closed or owned by the TLS destructor.
+     * A pending handler may jump away during mask restoration. */
+    syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous, NULL, sizeof(previous));
     return local_identity.page;
 }
 

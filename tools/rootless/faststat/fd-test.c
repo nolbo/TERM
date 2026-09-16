@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 #define _GNU_SOURCE
 #include <dlfcn.h>
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/filter.h>
@@ -9,8 +10,11 @@
 #include <linux/seccomp.h>
 #include <pthread.h>
 #include <signal.h>
+#include <setjmp.h>
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
 #include <sys/stat.h>
@@ -94,6 +98,86 @@ static void check_teardown_signal(void)
     CHECK(close(signal_fd) == 0);
     CHECK(sigaction(SIGUSR1, &old, NULL) == 0);
 }
+static _Thread_local sigjmp_buf jump_target;
+static _Thread_local volatile sig_atomic_t jump_on_seal;
+/* Only F_ADD_SEALS is issued through this symbol by these fixtures. */
+int fcntl(int fd, int command, ...)
+{
+    CHECK(command == F_ADD_SEALS);
+    va_list arguments;
+    va_start(arguments, command);
+    int value = va_arg(arguments, int);
+    va_end(arguments);
+    if (jump_on_seal) {
+        jump_on_seal = 0;
+        CHECK(raise(SIGUSR2) == 0);
+    }
+    return syscall(SYS_fcntl, fd, command, value);
+}
+static void jump_handler(int number)
+{
+    (void)number;
+    siglongjmp(jump_target, 1);
+}
+static void *jump_worker(void *unused)
+{
+    (void)unused;
+    if (sigsetjmp(jump_target, 1) == 0) {
+        jump_on_seal = 1;
+        struct stat result;
+        checked_stat(signal_fd, &result);
+        CHECK(0); /* The pending signal must have escaped the first call. */
+    }
+    struct stat actual, expected;
+    CHECK(checked_stat(signal_fd, &actual) == 0);
+    CHECK(syscall(SYS_fstat, signal_fd, &expected) == 0);
+    CHECK(actual.st_uid == expected.st_uid && actual.st_ino == expected.st_ino);
+    sigset_t current;
+    CHECK(pthread_sigmask(SIG_SETMASK, NULL, &current) == 0);
+    CHECK(sigismember(&current, SIGUSR2) == 0);
+    return NULL;
+}
+static int fd_count(void)
+{
+    DIR *directory = opendir("/proc/self/fd");
+    CHECK(directory);
+    int count = 0;
+    struct dirent *entry;
+    while ((entry = readdir(directory)))
+        if (entry->d_name[0] != '.') count++;
+    CHECK(closedir(directory) == 0);
+    return count;
+}
+static int identity_map_count(void)
+{
+    FILE *maps = fopen("/proc/self/maps", "r");
+    CHECK(maps);
+    char line[1024];
+    int count = 0;
+    while (fgets(line, sizeof(line), maps))
+        if (strstr(line, "memfd:proot-fastfd")) count++;
+    CHECK(!ferror(maps) && fclose(maps) == 0);
+    return count;
+}
+static void check_nonlocal_exit(void)
+{
+    struct sigaction action = { .sa_handler = jump_handler }, old;
+    CHECK(sigemptyset(&action.sa_mask) == 0);
+    CHECK(sigaction(SIGUSR2, &action, &old) == 0);
+    signal_fd = open("/tmp", O_RDONLY | O_DIRECTORY);
+    CHECK(signal_fd >= 0);
+    int before = fd_count();
+    int mappings_before = identity_map_count();
+    for (int i = 0; i < 16; i++) {
+        pthread_t thread;
+        CHECK(pthread_create(&thread, NULL, jump_worker, NULL) == 0);
+        CHECK(pthread_join(thread, NULL) == 0);
+    }
+    CHECK(fd_count() == before);
+    CHECK(identity_map_count() == mappings_before);
+    CHECK(close(signal_fd) == 0);
+    CHECK(sigaction(SIGUSR2, &old, NULL) == 0);
+}
 static void compare(int fd)
 {
     struct stat a, b;
@@ -149,6 +233,7 @@ int main(int argc, char **argv)
     CHECK(hits() >= 64);
     if (argc > 1) { puts("PASS exec reinitialization"); return 0; }
     check_teardown_signal();
+    check_nonlocal_exit();
     pthread_t threads[8];
     for (int i=0;i<8;i++) CHECK(pthread_create(&threads[i],NULL,worker,NULL)==0);
     for (int i=0;i<8;i++) CHECK(pthread_join(threads[i],NULL)==0);
@@ -197,12 +282,15 @@ int main(int argc, char **argv)
     CHECK(fcntl(invalid,F_ADD_SEALS,F_SEAL_GROW|F_SEAL_SHRINK)==0);
     CHECK(syscall(SYS_prctl,PROOT_FASTFD_ATTACH,invalid,99,0,0)==-1);
     close(invalid);
+    const int unavailable[] = { SYS_memfd_create, SYS_rt_sigprocmask };
+    for (unsigned i = 0; i < sizeof(unavailable) / sizeof(unavailable[0]); i++) {
+        int denied_syscall = unavailable[i];
     child=fork(); CHECK(child>=0);
     if (!child) {
         unsigned long before=hits();
         struct sock_filter filter[]={
             BPF_STMT(BPF_LD|BPF_W|BPF_ABS,0),
-            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,SYS_memfd_create,0,1),
+            BPF_JUMP(BPF_JMP|BPF_JEQ|BPF_K,denied_syscall,0,1),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ERRNO|EPERM),
             BPF_STMT(BPF_RET|BPF_K,SECCOMP_RET_ALLOW)};
         struct sock_fprog program={.len=4,.filter=filter};
@@ -211,6 +299,7 @@ int main(int argc, char **argv)
         worker(NULL); CHECK(hits()==before); _exit(0);
     }
     wait_ok(child);
+    }
     printf("PASS fastfd freshness, 8 threads, fork IDs, exec, FD reuse, EFAULT, seccomp; hits=%lu\n",hits());
     return 0;
 }
