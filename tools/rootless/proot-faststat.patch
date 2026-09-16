@@ -10,12 +10,23 @@
  #include "cli/note.h"
  
  #include "compat.h"
-@@ -263,6 +266,78 @@
- 	status = new_program_filter(&program);
+@@ -264,6 +267,90 @@
  	if (status < 0)
  		goto end;
-+
+ 
 +#if defined(__aarch64__)
++	const char *fstat_entry = getenv("PROOT_FSTAT_ENTRY");
++	if (fstat_entry && strcmp(fstat_entry, "1") == 0) {
++		struct sock_filter entry[] = {
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 3),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 80 /* fstat */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++		};
++		status = add_statements(&program, sizeof(entry)/sizeof(entry[0]), entry);
++		if (status < 0) goto end;
++	}
 +	const char *mutation_entry = getenv("PROOT_MUTATION_ENTRY");
 +	if (mutation_entry && strcmp(mutation_entry, "1") == 0) {
 +		struct sock_filter entry[] = {
@@ -86,9 +97,10 @@
 +		if (status < 0) goto end;
 +	}
 +#endif
- 
++
  	/* For each handled architectures */
  	for (i = 0; i < nb_archs; i++) {
+ 		word_t syscall;
 --- a/src/syscall/enter.c
 +++ b/src/syscall/enter.c
 @@ -79,6 +79,12 @@
@@ -104,7 +116,7 @@
  
  /* Older kernel headers may lack these. */
  #ifndef CLONE_NEWTIME
-@@ -1814,6 +1820,251 @@
+@@ -1814,6 +1820,281 @@
   * -errno if an error occured from the tracee's point-of-view (EFAULT
   * for instance), otherwise 0.
   */
@@ -238,7 +250,8 @@
 +	/* PTRACE_POKEDATA can write a read-only guest mapping. A syscall result
 +	 * must instead respect its protections and fall back on short writes. */
 +	struct iovec local = { result, sizeof(*result) };
-+	struct iovec remote = { (void *)peek_reg(tracee, ORIGINAL, SYSARG_3), sizeof(*result) };
++	Reg destination = get_sysnum(tracee, ORIGINAL) == PR_fstat ? SYSARG_2 : SYSARG_3;
++	struct iovec remote = { (void *)peek_reg(tracee, ORIGINAL, destination), sizeof(*result) };
 +	proot_perf_count(PERF_VM_WRITE);
 +	if (process_vm_writev(tracee->pid, &local, 1, &remote, 1, 0) != sizeof(*result))
 +		return false;
@@ -307,6 +320,35 @@
 +	return emit_stat_entry(tracee, &result);
 +}
 +
++static bool fstat_entry_enabled(Tracee *tracee)
++{
++	if (get_sysnum(tracee, ORIGINAL) != PR_fstat || tracee->seccomp != ENABLED ||
++	    is_32on64_mode(tracee)) return false;
++	const char *setting = getenv("PROOT_FSTAT_ENTRY");
++	return setting && strcmp(setting, "1") == 0;
++}
++
++static bool complete_fstat_entry(Tracee *tracee)
++{
++	if (!fstat_entry_enabled(tracee) || get_sysnum(tracee, CURRENT) != PR_fstat) return false;
++	if (tracee->extensions) {
++		Extension *extension;
++		LIST_FOREACH(extension, tracee->extensions, link)
++			if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback)
++				return false;
++	}
++	int fd = (int)peek_reg(tracee, ORIGINAL, SYSARG_1);
++	if (fd < 0) return false;
++	char path[64];
++	snprintf(path, sizeof(path), "/proc/%d/fd/%d", tracee->pid, fd);
++	struct stat result = {0};
++	/* Follow the live descriptor's magic link, including an unlinked inode.
++	 * No name or metadata survives this call. Restricted procfs and errors
++	 * fall back to the guest kernel, which retains exact errno precedence. */
++	if (stat(path, &result) != 0) return false;
++	return emit_stat_entry(tracee, &result);
++}
++
 +/* Resolve a plain lexical binding once, then let the kernel check every
 + * component. No filesystem metadata or cwd/binding state survives this call. */
 +static bool kernel_stat_entry(Tracee *tracee)
@@ -356,7 +398,7 @@
  int translate_syscall_enter(Tracee *tracee)
  {
  	int flags;
-@@ -1831,6 +2082,8 @@
+@@ -1831,6 +2112,8 @@
  	word_t syscall_number;
  	bool special = false;
  
@@ -365,11 +407,15 @@
  	status = notify_extensions(tracee, SYSCALL_ENTER_START, 0, 0);
  	if (status < 0)
  		goto end;
-@@ -1839,6 +2092,68 @@
+@@ -1839,6 +2122,72 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
 +#if defined(__aarch64__)
++	if (fstat_entry_enabled(tracee)) {
++		tracee->sysexit_pending = true;
++		tracee->restart_how = PTRACE_SYSCALL;
++	}
 +	if (mutation_entry_enabled(tracee)) {
 +		tracee->sysexit_pending = true;
 +		tracee->restart_how = PTRACE_SYSCALL;
@@ -434,13 +480,14 @@
  	switch (syscall_number) {
  	default:
  		/* Nothing to do. */
-@@ -2868,5 +3183,14 @@
+@@ -2868,5 +3217,15 @@
  	if (status2 < 0)
  		status = status2;
  
 +#if defined(__aarch64__)
 +	if (status >= 0) {
 +		(void) complete_stat_entry(tracee);
++		(void) complete_fstat_entry(tracee);
 +		(void) complete_mutation_entry(tracee);
 +	}
 +#endif

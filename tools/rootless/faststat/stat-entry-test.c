@@ -45,6 +45,24 @@ int main(int argc, char **argv)
     int file = openat(dir, "file", O_CREAT | O_EXCL | O_RDWR, 0640);
     CHECK(file >= 0 && write(file, "data", 4) == 4);
     struct stat result;
+    CHECK(syscall(SYS_fstat, file, &result) == 0 && result.st_size == 4 && result.st_uid == 0);
+    CHECK(ftruncate(file, 9) == 0);
+    CHECK(syscall(SYS_fstat, file, &result) == 0 && result.st_size == 9);
+    CHECK(ftruncate(file, 4) == 0);
+    CHECK(syscall(SYS_fstat, -123, &result) == -1 && errno == EBADF);
+    CHECK(syscall(SYS_fstat, file, (void *)1) == -1 && errno == EFAULT);
+    int unlinked = openat(dir, "unlinked", O_RDWR | O_CREAT | O_EXCL, 0600);
+    CHECK(unlinked >= 0 && write(unlinked, "x", 1) == 1 && unlinkat(dir, "unlinked", 0) == 0);
+    CHECK(syscall(SYS_fstat, unlinked, &result) == 0 && result.st_size == 1 && result.st_nlink == 0);
+    CHECK(close(unlinked) == 0);
+    CHECK(syscall(SYS_fstat, unlinked, &result) == -1 && errno == EBADF);
+    CHECK(dup2(file, unlinked) == unlinked);
+    CHECK(syscall(SYS_fstat, unlinked, &result) == 0 && result.st_size == 4 && result.st_nlink == 1);
+    CHECK(close(unlinked) == 0);
+    CHECK(syscall(SYS_fstat, dir, &result) == 0 && S_ISDIR(result.st_mode));
+    int pipe_fds[2]; CHECK(pipe(pipe_fds) == 0);
+    CHECK(syscall(SYS_fstat, pipe_fds[0], &result) == 0 && S_ISFIFO(result.st_mode));
+    CHECK(close(pipe_fds[0]) == 0 && close(pipe_fds[1]) == 0);
     CHECK(snprintf(absolute, sizeof(absolute), "%s/file", root) < (int)sizeof(absolute));
     check_open(AT_FDCWD, absolute, O_RDONLY | O_CLOEXEC);
     check_open(dir, "file", O_RDONLY);
@@ -145,19 +163,27 @@ int main(int argc, char **argv)
     long size = sysconf(_SC_PAGESIZE);
     void *readonly = mmap(NULL, size, PROT_READ, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     CHECK(readonly != MAP_FAILED);
+    CHECK(syscall(SYS_fstat, file, readonly) == -1 && errno == EFAULT);
     CHECK(query(dir, "file", readonly, 0) == -1 && errno == EFAULT);
     CHECK(query(AT_FDCWD, absolute, readonly, 0) == -1 && errno == EFAULT);
     CHECK(munmap(readonly, size) == 0);
+    char *partial = mmap(NULL, size * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    CHECK(partial != MAP_FAILED && mprotect(partial + size, size, PROT_NONE) == 0);
+    CHECK(syscall(SYS_fstat, file, partial + size - 64) == -1 && errno == EFAULT);
+    CHECK(munmap(partial, size * 2) == 0);
     CHECK(query(AT_FDCWD, "/proc/self", &result, 0) == 0 && S_ISDIR(result.st_mode));
     CHECK(query(AT_FDCWD, "/dev/null", &result, 0) == 0 && S_ISCHR(result.st_mode));
     pid_t child = fork(); CHECK(child >= 0);
     if (child == 0) {
         CHECK(setresuid(1000, 1000, 1000) == 0);
+        CHECK(syscall(SYS_fstat, file, &result) == 0 && result.st_uid == 1000);
         CHECK(query(dir, "file", &result, 0) == 0 && result.st_uid == 1000);
         CHECK(query(AT_FDCWD, absolute, &result, 0) == 0 && result.st_uid == 1000);
         struct sock_filter filter[] = {
             BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_newfstatat, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_fstat, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_unlinkat, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
@@ -175,6 +201,7 @@ int main(int argc, char **argv)
         CHECK(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0);
         CHECK(prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) == 0);
         CHECK(query(dir, "file", &result, 0) == -1 && errno == EPERM);
+        CHECK(syscall(SYS_fstat, file, &result) == -1 && errno == EPERM);
         CHECK(syscall(SYS_openat, dir, "file", O_RDONLY | O_CLOEXEC, 0) == -1 && errno == EPERM);
         CHECK(query(AT_FDCWD, absolute, &result, 0) == -1 && errno == EPERM);
         CHECK(syscall(SYS_unlinkat, dir, "file", 0) == -1 && errno == EPERM);

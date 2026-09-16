@@ -1,6 +1,19 @@
 # PRoot 내부 파일 조회 실험
 
 상태: 개발용 실험. 기본 앱에 포함하거나 활성화하지 않는다.
+
+추가 옵션 `PROOT_FSTAT_ENTRY=1`은 native ARM64의 일반 파일·디렉터리 fstat를
+진입 시 완료한다. `PROOT_BUILD_FASTSTAT=1` 빌드에 포함되며 실행 시 명시적으로
+켜야 한다. 열린 inode의 현재 정보를 읽으므로 삭제·FD 재사용·크기 변경을
+캐시하지 않는다. procfs 접근 실패·특수 파일·지원하지 않는 확장과 출력 버퍼
+오류는 기존 처리로 돌아간다. stat/path/rename 옵션과 함께 사용한
+[비교 결과](results/fstat-entry-2026-09-16.json)는 작은 파일 읽기 시간을
+159.768→140.570ms로 줄였지만 순차 I/O는 거의 같았다. 비교 기준은 이전
+e7f... 실험판이며 제품 원본 대비 배속이 아니다. 혼합 작업의 metadata 악화는
+[별도 반복 시험](results/fstat-metadata-audit-2026-09-16.json)에서 재현되지
+않았으며 두 결과를 모두 보존한다. [10단계 기록](../../../docs/ROOTLESS_2X_PROGRESS.md)에
+오류·권한·seccomp·Debian 설치 검증 범위를 정리했다.
+
 전체 설계는 [재설계안](../../../docs/ROOTLESS_FILESYSTEM_REDESIGN.md), 실측에 따른
 현재 목표와 한계는 [실현 가능성 평가](../../../docs/ROOTLESS_FEASIBILITY.md)에 있다.
 

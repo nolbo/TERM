@@ -117,3 +117,24 @@ digest 검증을 요구하는 stat 모드도 켜야 하며, 일반 실행 기본
 않으며, 일반 Android 기기·F2FS 정책/특이 동작 검증은 남아 있다.
 
 최종 rename 경로 길이 검사 보완 뒤 동일 절차를 재실행한 결과다.
+
+## fstat 진입 완료를 추가한 설치
+
+2026-09-16 최종 PRoot
+`b8ea54de9d0e32c02ad4d3d28d43aee3f2fb99c338cd73a337c87bb38f095b6f`를 별도 시험 APK에
+패키징하고 기존 stat/path/mutation flags에 `-e rootlessFstatEntry true`를 추가했다.
+이 옵션도 해시 검증이 있는 stat 모드를 요구한다. 일반 실행 기본값은 꺼짐이다.
+
+- APK 서명 확인, Android MCP 설치·새 Debian 설치·기본 패키지·환경·하드링크
+  시험 통과: `OK (1 test)`, 88.286초.
+- 표준 Gradle 검증과 Android 시험 APK 빌드 통과(170 tasks, 15 executed).
+  다섯 가속 환경 변수의 명시적 활성화 및 다음 일반 프로세스로의 누출 방지
+  단위 시험을 포함한다.
+- native syscall 회귀는 Debian과 기존 Ubuntu workspace, seccomp 가속 끔에서
+  통과했다. Ubuntu 새 설치를 시험한 것은 아니다.
+- 최초 Gradle 실행의 캐시 쓰기 제한은 승인된 재실행으로 해결했다.
+  Android incremental 설치 미지원은 streamed 설치로 해결했다.
+
+기본 앱 payload와 사용자 rootfs는 교체하지 않았다. 위 시간은 단일 네트워크
+포함 실행이며 설치 속도 배속을 의미하지 않는다. notification 통합 옵션은
+이 시험에 포함하지 않았다. stock Android/F2FS 검증은 남아 있다.
