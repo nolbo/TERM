@@ -46,6 +46,17 @@ class RootlessFreshInstallTest {
             val mutationEntry = arguments.getString("rootlessMutationEntry") == "true"
             val fstatEntry = arguments.getString("rootlessFstatEntry") == "true"
             val openNotifyThread = arguments.getString("rootlessOpenNotifyThread") == "true"
+            val fastfd = arguments.getString("rootlessFastfd") == "true"
+            require(!fastfd || statKernel) { "Fastfd requires the verified experimental payload" }
+            val fastfdLibrary = if (fastfd) File(context.applicationInfo.nativeLibraryDir, "libproot-faststat.so") else null
+            fastfdLibrary?.let { library ->
+                val expected = requireNotNull(arguments.getString("rootlessFastfdSha256"))
+                require(expected.matches(Regex("[0-9a-f]{64}")))
+                val actual = MessageDigest.getInstance("SHA-256").digest(library.readBytes())
+                    .joinToString("") { "%02x".format(it) }
+                assertEquals("Experimental guest DSO digest", expected, actual)
+                Log.i("RootlessFreshInstall", "FASTFD=1 dso=$actual")
+            }
             require(!pathKernel || statKernel) { "Path experiment requires the verified stat experiment payload" }
             require(!mutationEntry || statKernel) { "Mutation experiment requires the verified stat experiment payload" }
             require(!fstatEntry || statKernel) { "Fstat experiment requires the verified stat experiment payload" }
@@ -63,10 +74,11 @@ class RootlessFreshInstallTest {
             val launch = buildRootlessLaunchSpec(layout, proot, guestLoader, "/bin/sh", "/", emptyMap())
             assertFalse(launch.arguments.contains("--link2symlink"))
             RootlessEnvironmentSetup(context, layout, proot, guestLoader, reporter,
-                statKernel, pathKernel, mutationEntry, fstatEntry, openNotifyThread).prepare()
+                statKernel, pathKernel, mutationEntry, fstatEntry, openNotifyThread, fastfdLibrary).prepare()
             RootlessEnvironmentProfile.validate(layout).getOrThrow()
             val check = runRootlessSetupCommand(layout, proot, guestLoader, listOf("/bin/sh", "-c", """
                 set -eu
+                ${if (fastfd) "exec 3>&2; export PROOT_FASTSTAT_REPORT=1 PROOT_FASTSTAT_REPORT_FD=3" else ":"}
                 test "${'$'}(id -u)" = 0
                 work=${'$'}(mktemp -d)
                 trap 'rm -rf "${'$'}work"' EXIT
@@ -79,9 +91,11 @@ class RootlessFreshInstallTest {
                 printf 'PASS fresh distribution native links\n'
             """.trimIndent()), statKernelAcceleration = statKernel, pathKernelAcceleration = pathKernel,
                 mutationEntryAcceleration = mutationEntry, fstatEntryAcceleration = fstatEntry,
-                openNotifyThread = openNotifyThread)
+                openNotifyThread = openNotifyThread, fastfdLibrary = fastfdLibrary)
             assertEquals(check.output, 0, check.exitCode)
             assertTrue(check.output.contains("PASS fresh distribution native links"))
+            if (fastfd) assertTrue("No accelerated fstat observed: ${check.output}",
+                Regex("\"fd_hits\":([1-9][0-9]*)").containsMatchIn(check.output))
             Log.i("RootlessFreshInstall", "${distribution.name}: VERIFIED")
         } finally {
             deleteRootlessTree(temporary)

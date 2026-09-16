@@ -34,6 +34,7 @@ static int enabled;
 static int initialization_status;
 static int execution_mode;
 static int report_on_exit;
+static int report_fd = STDERR_FILENO;
 static _Atomic unsigned long hits;
 static _Atomic unsigned long fallbacks;
 static _Atomic unsigned long negative_hits;
@@ -85,6 +86,12 @@ __attribute__((constructor)) static void initialize_faststat(void)
     int saved_errno = errno;
     const char *report = getenv("PROOT_FASTSTAT_REPORT");
     report_on_exit = report && strcmp(report, "1") == 0;
+    const char *report_target = getenv("PROOT_FASTSTAT_REPORT_FD");
+    if (report_on_exit && report_target) {
+        char *end;
+        long value = strtol(report_target, &end, 10);
+        if (*report_target && !*end && value >= 3 && value <= 1023) report_fd = (int)value;
+    }
     const char *disabled = getenv("PROOT_FASTSTAT_DISABLE");
     if (disabled && strcmp(disabled, "1") == 0) { initialization_status = 2; goto out; }
     /* Requires the matching experimental tracer, seccomp acceleration,
@@ -154,12 +161,13 @@ unsigned long proot_faststat_negative_hits(void) { return atomic_load_explicit(&
 __attribute__((destructor)) static void report_faststat(void)
 {
     if (!report_on_exit) return;
-    char buffer[192];
+    char buffer[320];
     int length = snprintf(buffer, sizeof(buffer),
-        "{\"faststat\":{\"enabled\":%d,\"hits\":%lu,\"fallbacks\":%lu,\"negative_hits\":%lu}}\n",
-        enabled, proot_faststat_hits(), proot_faststat_fallbacks(), proot_faststat_negative_hits());
+        "{\"faststat\":{\"enabled\":%d,\"hits\":%lu,\"fallbacks\":%lu,\"negative_hits\":%lu,\"fd_hits\":%lu,\"fd_fallbacks\":%lu}}\n",
+        enabled, proot_faststat_hits(), proot_faststat_fallbacks(), proot_faststat_negative_hits(),
+        proot_fastfd_hits(), proot_fastfd_fallbacks());
     if (length > 0 && (size_t)length < sizeof(buffer))
-        (void)syscall(SYS_write, STDERR_FILENO, buffer, (size_t)length);
+        (void)syscall(SYS_write, report_fd, buffer, (size_t)length);
 }
 
 static int copy_path(char output[PATH_MAX], const char *input)

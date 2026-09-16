@@ -24,6 +24,7 @@ internal class RootlessEnvironmentSetup(
     private val mutationEntryAcceleration: Boolean = false,
     private val fstatEntryAcceleration: Boolean = false,
     private val openNotifyThread: Boolean = false,
+    private val fastfdLibrary: File? = null,
 ) {
     suspend fun prepare() {
         // An older successful marker must not survive a failed repair of missing defaults.
@@ -48,7 +49,8 @@ internal class RootlessEnvironmentSetup(
                 onOutputLine = progress::line, statKernelAcceleration = statKernelAcceleration,
                 pathKernelAcceleration = pathKernelAcceleration,
                 mutationEntryAcceleration = mutationEntryAcceleration,
-                fstatEntryAcceleration = fstatEntryAcceleration, openNotifyThread = openNotifyThread)
+                fstatEntryAcceleration = fstatEntryAcceleration, openNotifyThread = openNotifyThread,
+                fastfdLibrary = fastfdLibrary)
             check(result.exitCode == 0) { "종료 코드 ${result.exitCode}\n${result.errorContext.ifBlank { result.output.takeLast(2000) }}" }
         } catch (error: TimeoutCancellationException) {
             throw RootlessSetupException(progress.currentPhase,
@@ -71,19 +73,31 @@ internal suspend fun runRootlessSetupCommand(
     mutationEntryAcceleration: Boolean = false,
     fstatEntryAcceleration: Boolean = false,
     openNotifyThread: Boolean = false,
+    fastfdLibrary: File? = null,
 ): RootlessCommandResult = withContext(Dispatchers.IO) {
     File(layout.tmp, "graphics-shm").mkdirs()
+    val guestLibrary = "/usr/local/lib/terminal-faststat.so"
+    fastfdLibrary?.let { require(it.isFile && it.canRead()) { "Experimental guest DSO is missing" } }
+    val experimentEnvironment = if (fastfdLibrary != null)
+        mapOf("LD_PRELOAD" to guestLibrary, "PROOT_FASTFD" to "1") else emptyMap()
     val spec = buildRootlessLaunchSpec(layout, proot, loader, "/bin/sh", "/", mapOf(
         SessionCommand.KEY to SessionCommand.encode(argv), "TERM" to "dumb", "LC_ALL" to "C.UTF-8",
         "DEBIAN_FRONTEND" to "noninteractive", "NEEDRESTART_MODE" to "a",
-    ))
+    ) + experimentEnvironment)
     // Maintenance commands are finite: keyring hooks may leave gpg-agent detached.
     // Reap only this invocation's tracees once its command exits. Interactive PTYs
     // keep their independent lifetime and do not use this option.
-    val arguments = spec.arguments.toMutableList().apply { add(1, "--kill-on-exit") }
+    val arguments = spec.arguments.toMutableList().apply {
+        add(1, "--kill-on-exit")
+        fastfdLibrary?.let { addAll(1, listOf("-b", "${it.absolutePath}:$guestLibrary")) }
+    }
     val process = ProcessBuilder(arguments).directory(File(spec.hostCwd)).redirectErrorStream(true).apply {
         environment().clear()
         spec.hostEnvironment.forEach { environment()[it.substringBefore('=')] = it.substringAfter('=') }
+        if (fastfdLibrary != null) {
+            environment()["PROOT_FASTSTAT"] = "2"
+            environment()["PROOT_FASTFD"] = "1"
+        }
         if (statKernelAcceleration) {
             environment()["PROOT_STAT_ENTRY"] = "1"
             environment()["PROOT_STAT_KERNEL"] = "1"

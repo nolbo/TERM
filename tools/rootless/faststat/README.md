@@ -668,3 +668,43 @@ DSO SHA-256:
 guest 빌드·APK 서명·설치 통과, incremental 미지원은 streamed 설치로 해결했다.
 이번 단계는 성능 비교·Android Gradle 빌드를 반복하지 않았다. 다음 검증은
 누적 가속 후보의 실제 배포판 설치와 대표 작업 성능이다.
+
+### 공유 자격 정보 후보의 새 Debian 설치 검증
+
+설치 명령의 내부 실험 옵션 `fastfdLibrary`는 지정한 DSO 파일 하나만 guest의
+`/usr/local/lib/terminal-faststat.so`로 bind한다. host에는 PROOT_FASTSTAT=2와
+PROOT_FASTFD=1을, guest에는 LD_PRELOAD와 PROOT_FASTFD=1을 전달한다.
+host Android 프로세스에는 glibc LD_PRELOAD를 설정하지 않는다. 기본값은 null이며
+일반 설치·세션은 바뀌지 않는다. 단위 시험은 이 환경과 bind의 적용 범위를 검사한다.
+
+독립 runtime 시험 APK의 `RootlessFreshInstallTest`에 다음 옵션을 추가했다.
+`rootlessFastfd=true`와 `rootlessFastfdSha256=<DSO SHA-256>`를 기존 stat/path/
+mutation/fstat 옵션 및 엔진 SHA-256과 함께 지정한다. 시험 APK에만
+`lib/arm64-v8a/libproot.so`를 후보로 교체하고 `libproot-faststat.so`를 넣어 다시
+서명한다. 제품 APK의 기본 엔진이나 기존 사용자 rootfs는 교체하지 않는다.
+
+2026-09-16 엔진 a25b410f...와 DSO
+`119b88d643e6c413843cd0286601b5679018e7ab567612ea8dcf7f677c95ace2`로
+새 Debian 설치·기본 패키지/환경 확인·하드링크·가속 fstat 호출 확인이
+92.070초에 통과했다. notification과 kernel-pipe 옵션은 끈 조합이다.
+시험 후 fresh-rootless 임시 디렉터리 수는 0이었다. 전체 설치 시간은 네트워크와
+다운로드를 포함하므로 이전 설치 시간과의 성능 비교로 사용하지 않는다.
+
+처음에는 호출 인자의 DSO 해시를 잘못 전달해 검증 전에 중단됐다. 이를 고친
+첫 설치는 완료됐지만 종료 진단을 받지 못해 가속 확인 assertion이 실패했다.
+coreutils의 stderr 종료 이후에도 진단을 받을 수 있도록, opt-in 진단에
+`PROOT_FASTSTAT_REPORT_FD`(3..1023, 기본 stderr)를 추가했다. 시험에서는
+`exec 3>&2` 후 report FD=3을 자식에 전달한다. 별도 cat 검사에서 fd_hits=1을
+확인한 뒤 설치 시험을 재실행해 통과했다. 이 진단은 성능 비교에서는 끈다.
+
+JDK 17 정규 assembleDebug/런타임 단위 시험/image 시험과 instrumentation APK
+빌드가 통과했다. Gradle 캐시 read-only 오류는 기존 캐시 쓰기 권한으로 해결했고,
+Android MCP incremental 설치 미지원은 streamed로 해결했다. UI 변경이 없어
+replicant, 외부 API/앱 변경이 없어 context7/codex_apps는 사용하지 않았다.
+
+후보 전체 비교는 [80개 결과](results/fastfd-candidate-2026-09-16.json)에 저장했다.
+5쌍 교대 중앙값에서 작은 파일 읽기는 183.543→103.685ms(1.77배), 메타데이터는
+67.010→52.188ms(1.28배), tar는 898.920→743.690ms(1.21배)였다. 순차 I/O는
+개선되지 않았다. 경로 DSO를 함께 켠 후보의 메타데이터 수치는 이전 진입 가속
+단독 결과보다 나쁘므로, fastfd와 경로 DSO의 분리 검증이 다음 과제다. 이전
+2.61배 메타데이터 결과를 이번 누적 후보의 성능으로 인용하면 안 된다.

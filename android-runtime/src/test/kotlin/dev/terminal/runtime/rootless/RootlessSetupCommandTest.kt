@@ -38,6 +38,23 @@ class RootlessSetupCommandTest {
         assertEquals("unset:unset", ordinary.output)
     }
 
+    @Test fun fastfdDsoIsBoundOnlyForExplicitGuestSetup() = runBlocking {
+        val fakeProot = executable("printf '%s:%s:%s\\n' \"\${PROOT_FASTSTAT-unset}\" \"\${PROOT_FASTFD-unset}\" \"\${LD_PRELOAD-unset}\"; printf '%s\\n' \"\$@\"")
+        val library = temporary.newFile("libproot-faststat.so")
+        val current = layout()
+        val accelerated = runRootlessSetupCommand(current, fakeProot, fakeProot,
+            listOf("/bin/true"), fastfdLibrary = library)
+        assertEquals(0, accelerated.exitCode)
+        assertTrue(accelerated.output.startsWith("2:1:unset\n"))
+        assertTrue(accelerated.output.contains("${library.absolutePath}:/usr/local/lib/terminal-faststat.so\n"))
+        assertTrue(accelerated.output.contains("LD_PRELOAD=/usr/local/lib/terminal-faststat.so\n"))
+        assertTrue(accelerated.output.contains("PROOT_FASTFD=1\n"))
+        val ordinary = runRootlessSetupCommand(current, fakeProot, fakeProot, listOf("/bin/true"))
+        assertTrue(ordinary.output.startsWith("unset:unset:unset\n"))
+        assertFalse(ordinary.output.contains("terminal-faststat.so"))
+        assertFalse(ordinary.output.contains("PROOT_FASTFD="))
+    }
+
     @Test fun packageOutputIsBoundedAndExitFailuresRemainVisible() = runBlocking {
         val fakeProot = executable("i=0; while [ \$i -lt 2000 ]; do echo '012345678901234567890123456789'; i=\$((i+1)); done; echo decisive-error; exit 17")
         val result = runRootlessSetupCommand(layout(), fakeProot, fakeProot, listOf("/bin/true"), 10_000)
