@@ -3,6 +3,37 @@
 The optional [faststat experiment](faststat/README.md) adds a separate development
 build and guest dispatcher. It is not included in the production payloads below.
 
+## File I/O measurements
+
+`workloads.py` also measures `small-read`, `sequential-read`, `sequential-write`
+and `synced-write`. For example, inside the selected guest:
+
+```sh
+python3 /tmp/terminal-path-kernel-workloads.py --count 1000 --io-mib 64 \
+  --case small-read --case sequential-read --case sequential-write --case synced-write
+```
+
+Use the same source, rootfs, storage and interpreter for both payloads and
+alternate their order. The first case opens, reads, verifies and closes 1000
+448-byte files. Sequential cases transfer 64 MiB using 64 KiB blocks; they
+include open/close. Read content checks are timed, while write content is
+verified after timing. Short reads and writes are handled. `synced-write`
+includes one final file fsync; it does not include a parent-directory fsync or
+claim crash-safe namespace durability. Plain writes measure buffered completion.
+
+Preparation and cleanup are excluded. Read data is warm in the page cache;
+neither reported MiB/s nor fsync results represent cold device throughput.
+`--io-mib` defaults to 16 and is bounded to 1..256. Each run uses its own
+temporary directory, with at most an input and output transfer file alive at
+once, plus the count-limited small-file tree. No cache dropping or global sync
+is performed. JSON records transferred bytes and effective MiB/s.
+
+[The first device comparison](faststat/results/file-io-2026-09-16.json) shows
+1.09x small-file reads and no sequential I/O improvement. The fsync median was
+worse with substantial shared-storage variation; it is not a speedup claim.
+
+## Production payload
+
 The stock ARM64 APK embeds `proot` and its matching loader as immutable JNI
 payloads. They are never downloaded or replaced at runtime.
 

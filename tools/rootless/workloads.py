@@ -20,7 +20,8 @@ import tempfile
 import time
 
 
-CASES = ("metadata", "mutations", "git-status", "python-import", "tar-extract")
+CASES = ("metadata", "mutations", "git-status", "python-import", "tar-extract",
+         "small-read", "sequential-read", "sequential-write", "synced-write")
 
 
 def main():
@@ -29,9 +30,13 @@ def main():
     parser.add_argument("--rounds", type=int, default=1)
     parser.add_argument("--case", action="append", choices=CASES)
     parser.add_argument("--coverage", action="store_true")
+    parser.add_argument("--io-mib", type=int, default=16,
+                        help="sequential transfer size in MiB (1..256); warm cache")
     args = parser.parse_args()
     if not 1 <= args.count <= 100000 or not 1 <= args.rounds <= 30:
         parser.error("count must be 1..100000 and rounds 1..30")
+    if not 1 <= args.io_mib <= 256:
+        parser.error("io-mib must be 1..256")
     cases = args.case or list(CASES)
     if "git-status" in cases and not shutil.which("git"):
         parser.error("git is required for git-status")
@@ -96,6 +101,18 @@ def main():
                            "user.email=benchmark@example.invalid", "commit", "-qm", "fixture"], tree)
             # Refresh the index before the timed status operations.
             command(git + ["status", "--porcelain", "--untracked-files=all"], tree)
+        # Buffered page-cache I/O, not O_DIRECT or a claim about cold storage.
+        # Each write handles short writes; fsync is timed only in synced-write.
+        io_block = bytes(range(256)) * 256
+        io_pattern = io_block + io_block
+        io_blocks = args.io_mib * 16
+        io_input = root / "io-input"
+        if "sequential-read" in cases:
+            with io_input.open("wb") as output:
+                for _ in range(io_blocks):
+                    output.write(io_block)
+                output.flush()
+                os.fsync(output.fileno())
         for round_index in range(args.rounds):
             for case in cases if round_index % 2 == 0 else list(reversed(cases)):
                 scratch = root / "scratch"
@@ -104,6 +121,7 @@ def main():
                 usage = [resource.getrusage(who) for who in (resource.RUSAGE_SELF, resource.RUSAGE_CHILDREN)]
                 start = time.perf_counter_ns()
                 reports = []
+                transferred = 0
                 if case == "metadata":
                     total = sum(os.stat(path).st_size for path in files)
                     assert total == len(payload) * args.count
@@ -127,6 +145,39 @@ def main():
                             source.extractall(scratch, filter="fully_trusted")
                         else:
                             source.extractall(scratch)
+                elif case == "small-read":
+                    for path in files:
+                        with path.open("rb") as source:
+                            data = source.read()
+                        assert data == payload
+                        transferred += len(data)
+                elif case == "sequential-read":
+                    fd = os.open(io_input, os.O_RDONLY | os.O_CLOEXEC)
+                    try:
+                        while True:
+                            data = os.read(fd, len(io_block))
+                            if not data:
+                                break
+                            offset = transferred % len(io_block)
+                            assert data == io_pattern[offset:offset + len(data)]
+                            transferred += len(data)
+                    finally:
+                        os.close(fd)
+                    assert transferred == args.io_mib * 1024 * 1024
+                elif case in ("sequential-write", "synced-write"):
+                    fd = os.open(scratch / "io-output", os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC, 0o600)
+                    try:
+                        for _ in range(io_blocks):
+                            remaining = memoryview(io_block)
+                            while remaining:
+                                written = os.write(fd, remaining)
+                                assert written > 0
+                                transferred += written
+                                remaining = remaining[written:]
+                        if case == "synced-write":
+                            os.fsync(fd)
+                    finally:
+                        os.close(fd)
                 elapsed = (time.perf_counter_ns() - start) / 1e6
                 after = counts()
                 finished = [resource.getrusage(who) for who in (resource.RUSAGE_SELF, resource.RUSAGE_CHILDREN)]
@@ -135,8 +186,16 @@ def main():
                 if case == "tar-extract":
                     for path in files:
                         assert (scratch / "tree" / path.relative_to(tree)).read_bytes() == payload
+                if case in ("sequential-write", "synced-write"):
+                    # Verify all bytes outside the measured write region.
+                    with (scratch / "io-output").open("rb") as source:
+                        for _ in range(io_blocks):
+                            assert source.read(len(io_block)) == io_block
+                        assert source.read(1) == b""
                 print(json.dumps({"case": case, "round": round_index + 1, "count": args.count,
                     "wall_ms": round(elapsed, 3), "guest_cpu_ms": round(cpu_ms, 3),
+                    "bytes": transferred, "io_mib": args.io_mib if case in ("sequential-read", "sequential-write", "synced-write") else None,
+                    "mib_per_second": round(transferred / (1024 * 1024) / (elapsed / 1000), 3) if transferred else None,
                     "parent_hits": after[0] - before[0], "parent_fallbacks": after[1] - before[1],
                     "child_reports": reports, "coverage": args.coverage}), flush=True)
                 shutil.rmtree(scratch)
