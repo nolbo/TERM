@@ -71,6 +71,12 @@ if [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]]; then
 fi
 
 termux_prefix="$prefix/data/data/com.termux/files/usr"
+if [[ ${PROOT_BUILD_NOTIFY:-0} == 1 ]]; then
+    [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]] || { echo 'notify requires PROOT_BUILD_FASTSTAT=1' >&2; exit 1; }
+    cp "$repository_root/tools/rootless/notify/open-notify.c" "$build_directory/proot-5.1.107.92/src/tracee/open-notify.c"
+    cp "$repository_root/tools/rootless/notify/open-notify.h" "$build_directory/proot-5.1.107.92/src/tracee/open-notify.h"
+    patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-notify.patch"
+fi
 source_directory="$build_directory/proot-5.1.107.92/src"
 compiler="clang --target=aarch64-linux-android31 --sysroot=$llvm_data_root/sysroot -resource-dir=$llvm_data_root/lib/clang/19"
 make -C "$source_directory" -j"$(nproc)" \

@@ -68,3 +68,67 @@ instrumentation도 `OK (1 test)`, 0.117초였다. 이 환경은 앱 프로세스
 C 두 빌드의 경고 오류 처리, 셸 문법 검사, 표준 Gradle 검증 및
 `:android-runtime:assembleDebugAndroidTest`는 통과했다(170 tasks, 14 executed).
 이번 단계는 새 PRoot 구현이 아니므로 Debian 설치를 재실행하지 않았다.
+
+## 2026-09-16: PRoot 통합 실험 — 기본 채택 보류
+
+`open-notify.c`와 `proot-notify.patch`는 위 고정 파일 시험과 별개로 PRoot의
+실제 경로 변환과 이벤트 루프에 FD 전달을 연결한다. 빌드는 다음과 같다.
+
+```sh
+PROOT_BUILD_FASTSTAT=1 PROOT_BUILD_NOTIFY=1 \
+  bash tools/rootless/build-proot-arm64.sh /tmp/terminal-notify/payload
+```
+
+실행 시 tracer 환경에 `PROOT_OPEN_NOTIFY=1`을 명시해야 한다. 옵션이 없으면
+기존 waitpid 경로이며, 제품 payload는 바뀌지 않는다. 기존 stat/path/rename
+옵션도 각각 명시한다. seccomp 끔 및 fake_id0/mountinfo 외 확장은 거부한다.
+기능이 없는 커널에서 묵시적으로 성공했다고 표시하지 않고 시작에 실패한다.
+
+native ARM64의 읽기 전용 openat만 notification으로 처리한다. 생성·쓰기,
+O_PATH, O_NOFOLLOW, 알려지지 않은 flags 및 다른 ABI는 기존 TRACE 경로다.
+단순한 절대/cwd 경로는 binding 선택 후 openat2의 NO_SYMLINKS로 검증하고
+O_PATH로 inode를 고정한다. 일반 파일·디렉터리인지 확인한 뒤 같은 inode를
+읽기용으로 열어 전달한다. 접근 실패·symlink·중첩 binding·pseudo 경로·dirfd
+경로는 PRoot의 전체 변환을 사용한다. guest 포인터는 페이지 경계마다 복사하며
+notification으로 막힌 프로세스에 ptrace 메모리 읽기를 시도하지 않는다.
+
+부모는 SIGCHLD를 차단한 waitpid(WNOHANG) 검사와 원자적으로 차단을 푸는
+ppoll을 사용한다. pipe shadow의 주기적 회수와 취소된 notification의 RECV
+깨우기를 유지한다. 마지막 자식 종료 후 listener HUP를 오류로 취급하던
+초기 경쟁 조건을 고쳤으며 최종 시험에서는 정상 종료 코드까지 확인했다.
+
+**아직 일반 목적 backend로 사용할 수 없다.** notification 대상 FIFO·장치
+등 특수 파일은 EOPNOTSUPP이며, /proc/self/auxv의 기존 종료 후 보정 등
+특수 open bookkeeping은 아직 통합하지 않았다. 기존 guest ptracer와의
+상호 작용, stock Android 정책, 새 배포판 설치도 이 통합판에서 검증하지 않았다.
+일반 파일 성공 시험으로 이 제약이 해결됐다고 간주하지 않는다.
+
+[7회 교대 비교](results/integrated-open-2026-09-16.json)의 중앙값:
+
+| 작업 | 이전 실험 PRoot(ms) | notification 통합(ms) | 배속 |
+| --- | ---: | ---: | ---: |
+| 작은 파일 읽기 | 158.827 | 167.190 | 0.95 |
+| Python import | 173.323 | 179.083 | 0.97 |
+| tar 추출 | 732.823 | 785.160 | 0.93 |
+| 순차 읽기 | 13.306 | 13.151 | 1.01 |
+| 순차 쓰기 | 13.795 | 13.630 | 1.01 |
+| fsync 포함 쓰기 | 287.633 | 291.306 | 0.99 |
+
+비교 기준은 제품 원본이 아닌 e7f... 실험판이다. 고정 파일 전송의 3.30배는
+실제 통합에서 재현되지 않았다. 경로 처리와 혼합 이벤트 대기 비용이 포함되며
+원인별 시간을 아직 분리 계측하지 않았다. fsync 값은 공유 디스크의 상태가
+달라 이전 날짜/세션의 표와 직접 비교하면 안 된다.
+
+별도 진단에서 notification 1129회 중 단순 경로 성공이 1078회였다. 새 경로가
+실행되지 않아서 나온 결과는 아니다. 측정 중에는 진단 출력을 껐다.
+
+최종 SHA-256은 `bc19cebeaf418d194fd2c217d438bbe4a633dda0782fae7c5e7ac69043d30680`.
+ARM64 엔진 빌드와 시험 APK 생성·설치, Debian의 84개 workload 결과 내용 검증이
+통과했다. 확장한 stat-entry-test는 기존 실험판과 통합판 모두에서 읽기 전용 FD,
+CLOEXEC/F_GETFL, dirfd, symlink/O_NOFOLLOW, 오류 포인터·페이지 경계, 동시 자식
+3개와 반복 중인 자식 10개 종료, guest seccomp open 거부를 통과했다.
+엔진 빌드에는 기존 upstream 경고가 있으며 새 전송 파일에서는 경고가 없었다.
+
+이 통합은 성능 목표를 달성하지 못해 기본으로 채택하지 않는다. 다음 변경은
+실제 작은 파일 작업에 남은 fstat/close 정지 비용의 분리 측정과 축소가 우선이다.
+FD 전달 자체의 가능성과 전체 작업의 개선을 구분한다.

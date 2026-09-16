@@ -1,0 +1,59 @@
+--- a/src/tracee/event.c
++++ b/src/tracee/event.c
+@@ -37,6 +37,7 @@
+ #include <inttypes.h>   /* PRI*, */
+ 
+ #include "tracee/event.h"
++#include "tracee/open-notify.h"
+ #include "tracee/seccomp.h"
+ #include "tracee/mem.h"
+ #include "cli/note.h"
+@@ -91,6 +92,9 @@
+ 	if (tracee->verbose > 0)
+ 		list_open_fd(tracee);
+ 
++	int channel[2];
++	status = open_notify_prepare(tracee, channel);
++	if (status < 0) return status;
+ 	pid = fork();
+ 	switch(pid) {
+ 	case -1:
+@@ -98,6 +102,8 @@
+ 		return -errno;
+ 
+ 	case 0: /* child */
++		status = open_notify_child(channel);
++		if (status < 0) _exit(125);
+ 		/* SIG_IGN survives fork(2) and execve(2), so an ignored
+ 		 * SIGPIPE anywhere above proot is inherited by every
+ 		 * process of the guest: write(2) then fails with EPIPE
+@@ -140,7 +146,9 @@
+ 	default: /* parent */
+ 		/* We know the pid of the first tracee now.  */
+ 		tracee->pid = pid;
+-		return 0;
++		status = open_notify_parent(channel);
++		if (status < 0) { kill(pid, SIGKILL); waitpid(pid, NULL, 0); }
++		return status;
+ 	}
+ 
+ 	/* Never reached.  */
+@@ -398,7 +406,7 @@
+ 		shadow_pipes_set_timer(shadow_pipes_held());
+ 
+ 		/* Wait for the next tracee's stop. */
+-		pid = waitpid(-1, &tracee_status, __WALL);
++		pid = open_notify_wait(&tracee_status);
+ 		saved_errno = errno;
+ 		shadow_pipes_set_timer(false);
+ 		errno = saved_errno;
+--- a/src/GNUmakefile
++++ b/src/GNUmakefile
+@@ -54,6 +54,7 @@
+ 	tracee/mem.o		\
+ 	tracee/perf.o		\
+ 	tracee/reg.o		\
++	tracee/open-notify.o	\
+ 	tracee/event.o		\
+ 	tracee/seccomp.o        \
+ 	tracee/statx.o		\

@@ -20,6 +20,19 @@
 static int query(int fd, const char *path, void *out, int flags)
 { return syscall(SYS_newfstatat, fd, path, out, flags); }
 
+static void check_open(int dir, const char *name, int flags)
+{
+    int fd = syscall(SYS_openat, dir, name, flags, 0);
+    CHECK(fd >= 0);
+    CHECK(fcntl(fd, F_GETFD) == ((flags & O_CLOEXEC) ? FD_CLOEXEC : 0));
+    CHECK((fcntl(fd, F_GETFL) & (O_ACCMODE | O_NONBLOCK | O_NOFOLLOW)) ==
+          (flags & (O_ACCMODE | O_NONBLOCK | O_NOFOLLOW)));
+    char data[4];
+    CHECK(read(fd, data, sizeof(data)) == 4 && memcmp(data, "data", 4) == 0);
+    CHECK(write(fd, "x", 1) == -1 && errno == EBADF);
+    CHECK(close(fd) == 0);
+}
+
 int main(int argc, char **argv)
 {
     alarm(30);
@@ -33,6 +46,40 @@ int main(int argc, char **argv)
     CHECK(file >= 0 && write(file, "data", 4) == 4);
     struct stat result;
     CHECK(snprintf(absolute, sizeof(absolute), "%s/file", root) < (int)sizeof(absolute));
+    check_open(AT_FDCWD, absolute, O_RDONLY | O_CLOEXEC);
+    check_open(dir, "file", O_RDONLY);
+    check_open(dir, "./file", O_RDONLY | O_NONBLOCK);
+    check_open(dir, "file", O_RDONLY | O_NOFOLLOW);
+    CHECK(syscall(SYS_openat, dir, "absent", O_RDONLY, 0) == -1 && errno == ENOENT);
+    CHECK(syscall(SYS_openat, -123, "file", O_RDONLY, 0) == -1 && errno == EBADF);
+    CHECK(syscall(SYS_openat, dir, "file", O_RDONLY | O_DIRECTORY, 0) == -1 && errno == ENOTDIR);
+    CHECK(syscall(SYS_openat, dir, (const char *)1, O_RDONLY, 0) == -1 && errno == EFAULT);
+    long page_size = sysconf(_SC_PAGESIZE);
+    char *edge = mmap(NULL, page_size * 2, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    CHECK(edge != MAP_FAILED && mprotect(edge + page_size, page_size, PROT_NONE) == 0);
+    memcpy(edge + page_size - 5, "file", 5);
+    check_open(dir, edge + page_size - 5, O_RDONLY | O_CLOEXEC);
+    CHECK(munmap(edge, page_size * 2) == 0);
+    pid_t readers[3];
+    for (int i = 0; i < 3; i++) {
+        readers[i] = fork(); CHECK(readers[i] >= 0);
+        if (!readers[i]) {
+            for (int j = 0; j < 50; j++) check_open(dir, "file", O_RDONLY | O_CLOEXEC);
+            _exit(0);
+        }
+    }
+    for (int i = 0; i < 3; i++) {
+        int status;
+        CHECK(waitpid(readers[i], &status, 0) == readers[i] && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    }
+    for (int i = 0; i < 10; i++) {
+        pid_t canceled = fork(); CHECK(canceled >= 0);
+        if (!canceled) for (;;) check_open(dir, "file", O_RDONLY | O_CLOEXEC);
+        usleep(1000);
+        CHECK(kill(canceled, SIGKILL) == 0);
+        int status;
+        CHECK(waitpid(canceled, &status, 0) == canceled && WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL);
+    }
     CHECK(mkdirat(dir, "sub", 0700) == 0);
     CHECK(linkat(dir, "file", dir, "sub/file", 0) == 0);
     CHECK(symlinkat("sub", dir, "subalias") == 0);
@@ -81,6 +128,8 @@ int main(int argc, char **argv)
     CHECK(fchdir(saved_cwd) == 0 && close(saved_cwd) == 0);
     CHECK(unlinkat(dir, "cwd-new", AT_REMOVEDIR) == 0);
     CHECK(symlinkat("file", dir, "sym") == 0);
+    check_open(dir, "sym", O_RDONLY | O_CLOEXEC);
+    CHECK(syscall(SYS_openat, dir, "sym", O_RDONLY | O_NOFOLLOW, 0) == -1 && errno == ELOOP);
     CHECK(query(dir, "sym", &result, AT_SYMLINK_NOFOLLOW) == 0 && S_ISLNK(result.st_mode));
     CHECK(query(dir, "sym", &result, 0) == 0 && result.st_size == 4);
     CHECK(snprintf(absolute, sizeof(absolute), "%s/sym", root) < (int)sizeof(absolute));
@@ -118,12 +167,15 @@ int main(int argc, char **argv)
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
             BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_renameat2, 0, 1),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
+            BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_openat, 0, 1),
+            BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ERRNO | EPERM),
             BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
         };
         struct sock_fprog program = { .len = sizeof(filter) / sizeof(filter[0]), .filter = filter };
         CHECK(prctl(PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) == 0);
         CHECK(prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &program) == 0);
         CHECK(query(dir, "file", &result, 0) == -1 && errno == EPERM);
+        CHECK(syscall(SYS_openat, dir, "file", O_RDONLY | O_CLOEXEC, 0) == -1 && errno == EPERM);
         CHECK(query(AT_FDCWD, absolute, &result, 0) == -1 && errno == EPERM);
         CHECK(syscall(SYS_unlinkat, dir, "file", 0) == -1 && errno == EPERM);
         CHECK(syscall(SYS_linkat, dir, "file", dir, "denied", 0) == -1 && errno == EPERM);
@@ -135,6 +187,6 @@ int main(int argc, char **argv)
     CHECK(query(dir, "file", &result, 0) == 0 && result.st_uid == 0);
     CHECK(unlinkat(dir, "sym", 0) == 0 && unlinkat(dir, "hard", 0) == 0 && unlinkat(dir, "file", 0) == 0);
     CHECK(close(file) == 0 && close(dir) == 0 && rmdir(root) == 0);
-    puts("PASS raw stat/mutation entry, cwd, links, flags, pointers, identity and seccomp");
+    puts("PASS raw stat/mutation/open, cwd, links, flags, pointers, identity, concurrent readers and seccomp");
     return 0;
 }

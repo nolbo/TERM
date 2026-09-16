@@ -299,3 +299,27 @@ env 할당으로 해석되어 실패했다. 명시적 sh 실행으로 수정 후
 이번 변경은 벤치마크와 문서만 바꾸므로 Gradle/새 설치는 재실행하지 않았다.
 UI 및 외부 서비스 변경이 없어 replicant/context7/codex_apps는 사용하지 않았다.
 **전체 2배 및 파일 I/O 개선은 아직 달성하지 못했다.**
+
+## 9단계: 읽기 전용 open의 PRoot 통합과 부정적 성능 결과
+
+[notification 통합](../tools/rootless/notify/README.md)을 별도 빌드·실행 옵션으로
+구현했다. 실제 binding/경로 변환, 단순 경로의 kernel 검증, FD 전달과
+ptrace/notification 혼합 이벤트 대기를 연결했다. 종료 경쟁 조건을 수정하고
+파일 읽기·flags·오류·동시 자식·자식 종료·guest seccomp 회귀를 통과했다.
+
+그러나 이전 최선의 e7f... 실험판과 7회 교대로 비교한 결과 작은 파일 읽기는
+158.827→167.190ms, import는 173.323→179.083ms, tar는 732.823→785.160ms로
+느려졌다. 순차 I/O는 대체로 같았다. 별도 진단에서 1129개 notification 중
+1078개가 단순 경로로 처리되어 실제 통합 경로가 실행됐음은 확인했다.
+고정 파일 전송 실험의 3.30배 향상은 일반 작업으로 이어지지 않았다.
+
+새 코드는 실험 옵션으로만 보존하며 기본 채택을 보류한다. FIFO/장치 파일,
+auxv 후처리 및 guest ptracer 지원은 미완성이고 새 설치는 검증하지 않았다.
+따라서 일반 목적 rootless backend나 목표 달성으로 보고하지 않는다.
+다음 최적화에서는 작은 파일 읽기의 fstat/close 추적 비용도 분리해 다룬다.
+
+최종 해시·84개 측정·검증 범위는 위 문서와 원시 JSON에 기록했다. Android MCP로
+별도 APK와 Debian runtime을 검증했으며 증분 설치 불가 시 streamed 설치가
+성공했다. 이번 변경은 별도 C 엔진/시험 도구이며 Android 모듈 코드는 바꾸지
+않아 Gradle은 재실행하지 않았다. UI·외부 앱·새 외부 라이브러리 작업이 없어
+replicant/codex_apps/context7는 사용하지 않았다. **목표는 계속 미달성이다.**
