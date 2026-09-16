@@ -41,7 +41,7 @@ static int fd_requested;
 static pthread_key_t fd_key;
 struct local_identity {
     pid_t pid;
-    int busy;
+    _Atomic int busy;
     struct proot_fastfd_identity *page;
 };
 static _Thread_local struct local_identity local_identity;
@@ -54,6 +54,13 @@ static void release_identity(void *pointer)
     local->pid = 0;
 }
 
+/* A signal arriving after munmap must not reuse the retiring TLS page. */
+static void destroy_identity(void *pointer)
+{
+    struct local_identity *local = pointer;
+    atomic_store_explicit(&local->busy, 1, memory_order_relaxed);
+    release_identity(local);
+}
 
 static long fast_syscall(long nr, long a, long b, long c, long d)
 {
@@ -113,7 +120,7 @@ __attribute__((constructor)) static void initialize_faststat(void)
     fast_syscall(SYS_close, fd, 0, 0, 0);
     const char *fd_setting = getenv("PROOT_FASTFD");
     if (execution_mode == PROOT_FASTSTAT_CONTEXT_VERSION && fd_setting &&
-        strcmp(fd_setting, "1") == 0 && pthread_key_create(&fd_key, release_identity) == 0)
+        strcmp(fd_setting, "1") == 0 && pthread_key_create(&fd_key, destroy_identity) == 0)
         fd_requested = 1;
     enabled = 1;
     initialization_status = 1;
@@ -160,11 +167,9 @@ static int copy_path(char output[PATH_MAX], const char *input)
  * The tracer owns its own mapping; guest thread destructors cannot invalidate it. */
 static struct proot_fastfd_identity *current_identity(pid_t pid)
 {
-    if (local_identity.busy) return NULL;
     if (local_identity.pid == pid) return local_identity.page;
     release_identity(&local_identity);
     local_identity.pid = pid;
-    local_identity.busy = 1;
     int fd = syscall(SYS_memfd_create, "proot-fastfd", MFD_CLOEXEC | MFD_ALLOW_SEALING);
     void *page = MAP_FAILED;
     if (fd >= 0 && syscall(SYS_ftruncate, fd, PROOT_FASTFD_MAPPING_SIZE) == 0 &&
@@ -177,7 +182,6 @@ static struct proot_fastfd_identity *current_identity(pid_t pid)
     }
     if (page != MAP_FAILED && !local_identity.page) munmap(page, PROOT_FASTFD_MAPPING_SIZE);
     if (fd >= 0) syscall(SYS_close, fd);
-    local_identity.busy = 0;
     return local_identity.page;
 }
 
@@ -201,7 +205,12 @@ static int map_identity(struct proot_fastfd_identity *page, struct stat *result)
 int fstat(int fd, struct stat *output)
 {
     int saved_errno = errno;
-    if (!enabled || !fd_requested || local_identity.busy) goto slow_fd;
+    int owned = 0;
+    if (!enabled || !fd_requested) goto slow_fd;
+    /* Hold through the whole call, including fork mapping replacement and
+     * output copying. A signal handler uses the ordinary syscall instead. */
+    if (atomic_exchange_explicit(&local_identity.busy, 1, memory_order_relaxed)) goto slow_fd;
+    owned = 1;
     pid_t pid = (pid_t)syscall(SYS_getpid);
     struct proot_fastfd_identity *identity = current_identity(pid);
     if (!identity) goto slow_fd;
@@ -212,9 +221,11 @@ int fstat(int fd, struct stat *output)
     struct iovec local = { &result, sizeof(result) }, remote = { output, sizeof(result) };
     if (syscall(SYS_process_vm_writev, pid, &local, 1, &remote, 1, 0) != sizeof(result)) goto slow_fd;
     atomic_fetch_add_explicit(&fd_hits, 1, memory_order_relaxed);
+    atomic_store_explicit(&local_identity.busy, 0, memory_order_relaxed);
     errno = saved_errno;
     return 0;
  slow_fd:
+    if (owned) atomic_store_explicit(&local_identity.busy, 0, memory_order_relaxed);
     atomic_fetch_add_explicit(&fd_fallbacks, 1, memory_order_relaxed);
     errno = saved_errno;
     return (int)syscall(SYS_fstat, fd, output);

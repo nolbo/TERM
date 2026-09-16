@@ -17,4 +17,4 @@ clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
 clang -O2 -Wall -Wextra -Werror -static -Wl,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/stat-entry-test.c" -o "$output_directory/stat-entry-test"
 clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
-    "$source_directory/fd-test.c" -ldl -pthread -o "$output_directory/fd-test"
+    "$source_directory/fd-test.c" -Wl,--export-dynamic-symbol=munmap -ldl -pthread -o "$output_directory/fd-test"

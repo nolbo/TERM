@@ -591,3 +591,26 @@ streamed 설치로 해결했다. DSO는 pthread API 때문에 현재 빌드에�
 아니다. 기본 제품 payload/환경은 바꾸지 않았다. 이번 단계에서 성능 비교,
 새 Debian 설치, Android Gradle 빌드는 실행하지 않았다. 후보 성능 측정과
 배포판 설치 전체 검증, 신호 재진입·자원 수명 추가 검토를 거쳐야 채택할 수 있다.
+
+#### 신호 재진입 수명 수정
+
+TLS destructor가 munmap한 직후 신호 처리기가 fstat을 호출하면 이전 구현은
+해제한 페이지를 참조했다. guest fstat 전체와 fork 매핑 교체를 atomic busy
+표시로 보호하고, destructor는 해제 전에 표시를 영구 설정한다. 재진입은
+추적되는 일반 syscall로 복귀한다. 별도 시험 hook을 제품 코드에 넣지 않고,
+시험 실행 파일이 munmap을 interpose해 해제 직후 SIGUSR1을 전달한다.
+
+[2026-09-16 재현 및 짧은 확인 기록](results/fastfd-signal-2026-09-16.json):
+이전 DSO에서 SIGSEGV(종료 255)를 재현했고 수정 DSO에서는 기존 fd-test와
+새 신호 검사 모두 notification 비활성/스레드 활성에서 통과(hits=652)했다.
+tracer 엔진은 동일하며 guest DSO와 시험만 다시 빌드했다.
+
+작은 파일 1,000개/448,000바이트 읽기 한 쌍만 확인했다. 같은 엔진·DSO에서
+fastfd 비활성 146.390ms, 활성 109.251ms(약 25.4% 시간 감소, 1.34배)였다.
+순서를 무작위화하지 않은 각 1회 warm-cache 확인이므로 확정 향상률이나
+전체 2배 달성 근거로 사용하지 않는다. 전체 반복 비교는 수행하지 않았다.
+
+신호 처리기에서 최초 초기화할 때 pthread_setspecific/TLS 할당의 안전성과
+siglongjmp로 호출을 탈출할 때 가속 복구는 추가 검토가 필요하다. 이 수정으로
+모든 async-signal-safe 조건을 입증한 것은 아니다. Android/Gradle 변경이나
+새 배포판 설치 검증은 이번 단계에 포함하지 않았다.

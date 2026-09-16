@@ -8,6 +8,7 @@
 #include "protocol.h"
 #include <linux/seccomp.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/mman.h>
@@ -19,6 +20,53 @@
 #define CHECK(x) do { if (!(x)) { fprintf(stderr,"FAIL %d: %s errno=%d\n",__LINE__,#x,errno); exit(1); } } while (0)
 static int (*checked_stat)(int, struct stat *);
 static unsigned long (*hits)(void);
+/* Deliver a signal exactly after the TLS destructor unmaps its identity page.
+ * Exporting munmap makes this deterministic without production test hooks. */
+static _Thread_local volatile sig_atomic_t signal_after_unmap;
+static volatile sig_atomic_t signal_seen;
+static int signal_fd;
+int munmap(void *address, size_t length)
+{
+    int result = syscall(SYS_munmap, address, length);
+    if (signal_after_unmap) {
+        signal_after_unmap = 0;
+        if (raise(SIGUSR1)) _exit(90);
+    }
+    return result;
+}
+static void during_teardown(int number)
+{
+    (void)number;
+    int saved_errno = errno;
+    struct stat actual, expected;
+    if (checked_stat(signal_fd, &actual) || syscall(SYS_fstat, signal_fd, &expected) ||
+        actual.st_uid != expected.st_uid || actual.st_gid != expected.st_gid ||
+        actual.st_ino != expected.st_ino) _exit(91);
+    signal_seen = 1;
+    errno = saved_errno;
+}
+static void *teardown_worker(void *unused)
+{
+    (void)unused;
+    struct stat result;
+    CHECK(checked_stat(signal_fd, &result) == 0);
+    signal_after_unmap = 1;
+    return NULL;
+}
+static void check_teardown_signal(void)
+{
+    struct sigaction action = { .sa_handler = during_teardown }, old;
+    CHECK(sigemptyset(&action.sa_mask) == 0);
+    CHECK(sigaction(SIGUSR1, &action, &old) == 0);
+    signal_fd = open("/tmp", O_RDONLY | O_DIRECTORY);
+    CHECK(signal_fd >= 0);
+    pthread_t thread;
+    CHECK(pthread_create(&thread, NULL, teardown_worker, NULL) == 0);
+    CHECK(pthread_join(thread, NULL) == 0);
+    CHECK(signal_seen == 1);
+    CHECK(close(signal_fd) == 0);
+    CHECK(sigaction(SIGUSR1, &old, NULL) == 0);
+}
 static void compare(int fd)
 {
     struct stat a, b;
@@ -63,6 +111,7 @@ int main(int argc, char **argv)
     worker(NULL);
     CHECK(hits() >= 64);
     if (argc > 1) { puts("PASS exec reinitialization"); return 0; }
+    check_teardown_signal();
     pthread_t threads[8];
     for (int i=0;i<8;i++) CHECK(pthread_create(&threads[i],NULL,worker,NULL)==0);
     for (int i=0;i<8;i++) CHECK(pthread_join(threads[i],NULL)==0);

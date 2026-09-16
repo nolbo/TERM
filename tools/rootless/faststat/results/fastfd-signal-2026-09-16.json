@@ -1,0 +1,57 @@
+{
+  "date": "2026-09-16",
+  "scope": "ARM64 Android app UID, existing Debian rootfs; experimental preload",
+  "engine_sha256": "a25b410f7902d969b05800596e3be63639c6a07dc8d743092070654ffc42fabf",
+  "old_dso_sha256": "398560083b23ba96d5d06996462164b084510bb0620724de4b3e1b054dece485",
+  "fixed_dso_sha256": "c60827351071c9406602f062362d2d5d9a44644fa89948119c3c7dc927b8690c",
+  "regression": {
+    "old": "SIGSEGV, shell exit 255",
+    "fixed_notify_off": "PASS, hits=652, exit 0",
+    "fixed_notify_thread": "PASS, hits=652, exit 0"
+  },
+  "spot_check": [
+    {
+      "fastfd": "0",
+      "workload": {
+        "case": "small-read",
+        "round": 1,
+        "count": 1000,
+        "wall_ms": 146.39,
+        "guest_cpu_ms": 58.658,
+        "bytes": 448000,
+        "io_mib": null,
+        "mib_per_second": 2.919,
+        "parent_hits": 0,
+        "parent_fallbacks": 0,
+        "child_reports": [],
+        "coverage": false
+      },
+      "exit": 0
+    },
+    {
+      "fastfd": "1",
+      "workload": {
+        "case": "small-read",
+        "round": 1,
+        "count": 1000,
+        "wall_ms": 109.251,
+        "guest_cpu_ms": 53.887,
+        "bytes": 448000,
+        "io_mib": null,
+        "mib_per_second": 3.911,
+        "parent_hits": 0,
+        "parent_fallbacks": 0,
+        "child_reports": [],
+        "coverage": false
+      },
+      "exit": 0
+    }
+  ],
+  "limitations": [
+    "One unrandomized pair, not acceptance benchmark",
+    "Warm-cache small-read only",
+    "No fresh distro installation in this step",
+    "No stock Android or F2FS evidence",
+    "Signal handler first-use allocation and nonlocal exits need further review"
+  ]
+}
