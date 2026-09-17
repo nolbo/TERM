@@ -769,8 +769,9 @@ replicant/context7/codex_apps는 사용하지 않았다.
 ## 읽기 전용 open 연결
 
 host `PROOT_FASTPATH=1`, guest `PROOT_FASTOPEN=1`을 기존 fastfd 구성에 추가한다.
-`open/open64/openat/openat64`에서 root binding에 속하는 정규화된 절대 경로의
-읽기 전용 열기를 처리한다. 상대 경로, 별도 bind, 링크, 쓰기/생성, O_NOFOLLOW,
+`open/open64/openat/openat64`에서 정규화된 절대 경로의 읽기 전용 열기를
+처리한다. 처음에는 root binding에 한정했고 아래 단계에서 최상위 bind도
+지원했다. 상대 경로, 중첩 bind, 링크, 쓰기/생성, O_NOFOLLOW,
 지원하지 않는 플래그는 libc openat로 복귀한다. glibc 내부 비공개 호출과 정적
 ELF는 이 interposition의 적용 대상이 아니다. 제품 기본 구성은 변경하지 않았다.
 
@@ -820,3 +821,24 @@ JDK 17에서 정규 assembleDebug/runtime 단위 시험/image 시험과 instrume
 APK 빌드가 통과했다(170 tasks, 15 executed). DSO 빌드도 통과했다. APK의
 incremental 설치 미지원은 streamed 설치로 해결했다. UI·새 외부 API·외부 앱
 변경이 없어 replicant/context7/codex_apps는 사용하지 않았다.
+
+### 최상위 bind 파일 열기
+
+`/workspace`, `/root`처럼 게스트 최상위 디렉터리에 연결된 bind도 공유 규칙으로
+열 수 있다. 기존 중첩 bind의 경로 정규화 제한은 유지한다. O_PATH로 고정한
+대상에 fstatfs를 수행하고 ext4/F2FS/tmpfs/XFS/Btrfs/overlay/EROFS/squashfs에
+속하는 일반 파일·디렉터리만 다시 연다. 파일시스템 정보는 캐시하지 않는다.
+procfs/sysfs 및 목록에 없는 파일시스템은 기존 libc/PRoot 처리로 복귀한다.
+따라서 `/proc`를 다른 게스트 이름으로 bind해도 auxv 처리를 우회하지 않는다.
+FUSE 저장소는 아직 가속하지 않는다. fstatfs가 거부돼도 기존 open으로 복귀한다.
+
+2026-09-17 Android MCP에서 최상위 bind의 가속 사용, umount 뒤 ENOENT,
+다른 이름에 bind한 procfs auxv의 원래 syscall 결과 일치와 가속 미사용을
+검사했다. fstatfs seccomp 거부 복귀를 기존 fastopen 회귀에 추가해 통과했다
+(open hits=439). FD 회귀(hits=653)와 전용 syscall PC 회귀도 통과했다.
+DSO 빌드·시험 APK 서명/설치 통과; incremental 설치 미지원은 streamed로 해결했다.
+DSO SHA-256은 `4a18d83318697862a137710a1a1615446b175c261a9d433cbc13d93c151b234f`다.
+엔진은 58eea29d... 그대로다. 실제 파일시스템 시험 대상은 ext4이며 나머지 허용
+유형은 이번 기기 시험에서 별도로 검증하지 않았다. 성능 비교·새 설치·Gradle은
+반복하지 않았다. 변경 범위는 실험 DSO와 기능 시험이다. UI·외부 API·외부 앱
+변경이 없어 다른 MCP는 사용하지 않았다.

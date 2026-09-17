@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <linux/openat2.h>
+#include <linux/magic.h>
 #include <linux/memfd.h>
 #include <pthread.h>
 #include <signal.h>
@@ -19,6 +20,7 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/vfs.h>
 #include <sys/syscall.h>
 #include <sys/uio.h>
 #include <unistd.h>
@@ -226,7 +228,7 @@ static struct proot_fastfd_identity *current_identity(pid_t pid)
 /* Snapshot lookup only; the open dispatcher validates the same sequence
  * after its kernel operation. No inode or existence is cached. */
 static int lookup_shared_path(struct proot_fastpath_rules *rules, const char *path,
-                              char result[PATH_MAX], int root_only)
+                              char result[PATH_MAX])
 {
     if (path[0] != '/') return 0;
     for (const char *part = path + 1; *part;) {
@@ -258,7 +260,7 @@ static int lookup_shared_path(struct proot_fastpath_rules *rules, const char *pa
         if (strchr(guest + 1, '/') && (matches || ancestor)) return 0;
         if (matches && size > longest) { selected = i; longest = size; }
     }
-    if (selected == count || (root_only && longest != 1)) return 0;
+    if (selected == count) return 0;
     const struct proot_fastpath_binding *item = &rules->bindings[selected];
     uint32_t offset = atomic_load(&item->host), size = atomic_load(&item->host_length);
     if (!size || size >= PATH_MAX || offset >= PROOT_FASTPATH_BYTES ||
@@ -283,7 +285,7 @@ int proot_fastpath_translate(const char *path, char *output, size_t capacity)
     struct proot_fastfd_identity *identity = current_identity(pid);
     char copied[PATH_MAX], translated[PATH_MAX];
     if (identity && copy_path(copied, path) &&
-        lookup_shared_path(&identity->paths, copied, translated, 0)) {
+        lookup_shared_path(&identity->paths, copied, translated)) {
         size_t length = strlen(translated) + 1;
         if (length <= capacity) {
             struct iovec local = { translated, length }, remote = { output, length };
@@ -295,7 +297,7 @@ int proot_fastpath_translate(const char *path, char *output, size_t capacity)
     return success;
 }
 
-/* Only root-binding regular files/directories. Pin before reopening so a FIFO
+/* Regular files/directories on ordinary storage. Pin before reopening so a FIFO
  * substitution cannot block and a device substitution cannot have side effects.
  * Ordinary openat remains the fallback and the final fast call uses openat too,
  * so a guest filter denying that syscall still applies. */
@@ -317,7 +319,7 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
     char copied[PATH_MAX], translated[PATH_MAX];
     if (!identity || !copy_path(copied, path)) goto slow_open;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
-    if (!lookup_shared_path(&identity->paths, copied, translated, 1)) goto slow_open;
+    if (!lookup_shared_path(&identity->paths, copied, translated)) goto slow_open;
     struct open_how how = { .flags = O_PATH | O_CLOEXEC,
                             .resolve = RESOLVE_NO_SYMLINKS };
     pin = fast_syscall(SYS_openat2, AT_FDCWD, (long)translated, (long)&how, sizeof(how));
@@ -325,6 +327,18 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
     struct stat info;
     if (fast_syscall(SYS_fstat, pin, (long)&info, 0, 0) < 0 ||
         (!S_ISREG(info.st_mode) && !S_ISDIR(info.st_mode))) goto slow_open;
+    /* procfs regular files (notably auxv) still need tracer emulation. Check
+     * the pinned object, not a cached pathname or binding classification. */
+    struct statfs filesystem;
+    if (syscall(SYS_fstatfs, pin, &filesystem)) goto slow_open;
+    switch (filesystem.f_type) {
+    case EXT4_SUPER_MAGIC: case F2FS_SUPER_MAGIC: case TMPFS_MAGIC:
+    case XFS_SUPER_MAGIC: case BTRFS_SUPER_MAGIC: case OVERLAYFS_SUPER_MAGIC:
+    case EROFS_SUPER_MAGIC_V1: case SQUASHFS_MAGIC:
+        break;
+    default:
+        goto slow_open;
+    }
     char pinned[64];
     snprintf(pinned, sizeof(pinned), "/proc/self/fd/%ld", pin);
     fd = fast_syscall(SYS_openat, AT_FDCWD, (long)pinned, flags, 0);
