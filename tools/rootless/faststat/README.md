@@ -853,3 +853,31 @@ DSO SHA-256은 `4a18d83318697862a137710a1a1615446b175c261a9d433cbc13d93c151b234f
 warm-cache 결과이며 실제 휴대폰/F2FS 검증을 대신하지 않는다. 다음 병목은
 현재 기존 처리로 복귀하는 생성·쓰기 경로다. 자세한 표와 검증 범위는
 [29단계 기록](../../../docs/ROOTLESS_2X_PROGRESS.md)에 있다.
+
+## 새 일반 파일 생성 실험
+
+guest `PROOT_FASTCREATE=1`을 fastopen 구성에 추가하면 쓰기/읽기쓰기 O_CREAT의
+새 파일 생성을 가속한다. 현재 기본값은 off이며 설치 실행기의 fastOpen 옵션만으로
+활성화되지 않는다. 정규화된 절대 경로와 기존 fastopen의 저장소/bind 제한을 따른다.
+일반 mode 비트(0777)만 처리하고 특수 비트·추가 flags·상대 경로는 기존 처리다.
+
+부모 디렉터리를 O_PATH/NO_SYMLINKS로 고정하고 파일시스템과 공유 규칙을 확인한
+뒤, 원래 flags에 O_EXCL을 더해 openat을 실행한다. 이미 파일이 있으면 기존
+libc open으로 돌아가므로 기존 파일 truncate, symlink 및 권한 보완 처리를
+유지한다. 생성 성공 뒤에는 namespace가 바뀌어도 재시도하지 않는다. 부모 조회와
+실제 실행 사이의 동시 rename/bind에 대해서는 tracer의 경로 조회 후 실행과 같은
+모델이며, 전체 namespace 변경을 직렬화하는 트랜잭션은 아니다. umask는 커널에
+맡기며 파일 정보나 존재 여부를 캐시하지 않는다.
+
+2026-09-17 Android MCP에서 새 생성의 가속 호출, mode/umask, 기존 파일 truncate,
+링크 append, 8스레드 O_EXCL 경합의 단일 성공, seccomp openat 거부가 통과했다.
+기존 fastopen 회귀(bind/umount/procfs/FD/오류/스레드/seccomp)도 통과했다.
+DSO 빌드 및 시험 APK 서명·설치 통과; incremental 미지원은 streamed로 해결했다.
+DSO 해시는 `4147b3fd803669801ffb9aee10e57461e1904e2fbea21c0068be28eb6c826af4`,
+엔진은 58eea29d...다. 이 생성 옵션으로 새 Debian 설치는 아직 검증하지 않았다.
+
+동일 후보에서 생성 옵션 off/on 각 1회만 확인했다. 생성·rename·삭제 1,000회는
+297.021→279.954ms, tar 추출은 706.177→697.407ms였다. guest CPU는 각각
+159.425→172.776ms, 347.802→374.168ms로 증가했다. 단일 비교의 방향 확인이며
+확정 성능 또는 원본 대비 배속으로 사용하지 않는다. 전체 비교·Gradle·새 설치는
+반복하지 않았다. 실험 DSO 변경으로 UI/외부 API/외부 앱 MCP는 필요하지 않았다.

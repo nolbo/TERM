@@ -46,6 +46,8 @@ static _Atomic unsigned long negative_hits;
 static _Atomic unsigned long fd_hits, fd_fallbacks;
 static int fd_requested;
 static int open_requested;
+static int create_requested;
+static _Atomic unsigned long create_hits;
 static int (*libc_openat)(int, const char *, int, ...);
 static _Atomic unsigned long open_hits;
 static pthread_key_t fd_key;
@@ -151,6 +153,8 @@ __attribute__((constructor)) static void initialize_faststat(void)
     }
     const char *open_setting = getenv("PROOT_FASTOPEN");
     open_requested = fd_requested && open_setting && !strcmp(open_setting, "1");
+    const char *create_setting = getenv("PROOT_FASTCREATE");
+    create_requested = open_requested && create_setting && !strcmp(create_setting, "1");
     enabled = 1;
     initialization_status = 1;
 out:
@@ -307,7 +311,12 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
     long pin = -1, fd = -1;
     uint64_t all_signals = UINT64_MAX, previous_signals;
     const int allowed = O_CLOEXEC | O_DIRECTORY | O_NONBLOCK | O_LARGEFILE;
-    if (!enabled || !open_requested || (flags & ~allowed)) goto slow_open;
+    const int create_allowed = O_ACCMODE | O_CREAT | O_EXCL | O_TRUNC | O_APPEND |
+                               O_CLOEXEC | O_LARGEFILE;
+    int creating = create_requested && (flags & O_CREAT) &&
+        ((flags & O_ACCMODE) == O_WRONLY || (flags & O_ACCMODE) == O_RDWR) &&
+        !(flags & ~create_allowed) && !(mode & ~0777);
+    if (!enabled || !open_requested || (!creating && (flags & ~allowed))) goto slow_open;
     pthread_testcancel();
     if (atomic_exchange(&local_identity.busy, 1)) goto slow_open;
     owned = 1;
@@ -320,7 +329,14 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
     if (!identity || !copy_path(copied, path)) goto slow_open;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
     if (!lookup_shared_path(&identity->paths, copied, translated)) goto slow_open;
-    struct open_how how = { .flags = O_PATH | O_CLOEXEC,
+    char *basename = NULL;
+    if (creating) {
+        char *slash = strrchr(translated, '/');
+        if (!slash || !slash[1] || slash == translated) goto slow_open;
+        *slash = '\0';
+        basename = slash + 1;
+    }
+    struct open_how how = { .flags = O_PATH | O_CLOEXEC | (creating ? O_DIRECTORY : 0),
                             .resolve = RESOLVE_NO_SYMLINKS };
     pin = fast_syscall(SYS_openat2, AT_FDCWD, (long)translated, (long)&how, sizeof(how));
     if (pin < 0) goto slow_open;
@@ -341,9 +357,22 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
     }
     char pinned[64];
     snprintf(pinned, sizeof(pinned), "/proc/self/fd/%ld", pin);
-    fd = fast_syscall(SYS_openat, AT_FDCWD, (long)pinned, flags, 0);
-    if (fd < 0 || sequence != atomic_load(&identity->paths.sequence) ||
-        !atomic_load(&identity->paths.active)) goto slow_open;
+    if (creating) {
+        if (sequence != atomic_load(&identity->paths.sequence) ||
+            !atomic_load(&identity->paths.active)) goto slow_open;
+        /* Never truncate an object that appeared after parent lookup. A failed
+         * exclusive create has no mutation to retry; libc handles existing
+         * files, links and permission emulation. After success do not retry,
+         * even if a concurrent bind changes the namespace. The pinned parent
+         * is the same lookup-before-execution model as the tracer's path. */
+        fd = fast_syscall(SYS_openat, pin, (long)basename, flags | O_EXCL, mode);
+        if (fd < 0) goto slow_open;
+        atomic_fetch_add_explicit(&create_hits, 1, memory_order_relaxed);
+    } else {
+        fd = fast_syscall(SYS_openat, AT_FDCWD, (long)pinned, flags, 0);
+        if (fd < 0 || sequence != atomic_load(&identity->paths.sequence) ||
+            !atomic_load(&identity->paths.active)) goto slow_open;
+    }
     fast_syscall(SYS_close, pin, 0, 0, 0);
     atomic_fetch_add_explicit(&open_hits, 1, memory_order_relaxed);
     atomic_store(&local_identity.busy, 0);
@@ -360,6 +389,7 @@ slow_open:
                         (int)syscall(SYS_openat, dirfd, path, flags, mode);
 }
 
+unsigned long proot_fastcreate_hits(void) { return atomic_load(&create_hits); }
 unsigned long proot_fastopen_hits(void) { return atomic_load(&open_hits); }
 
 #define OPEN_WRAPPER(name) \
