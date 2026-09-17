@@ -84,8 +84,8 @@ tasks.register('verifyRootlessExecutables') {
             'proot-loader': '2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237',
         ]
         if (acceleratedRootless) {
-            expected.proot = 'eb7fcae57d8e38b8c497c996c5569c11826d26ebaf1086be74a5f77cd6c4bf85'
-            expected['libproot-faststat.so'] = 'facbee68797a75a483cfa190d854647a865796ada603ad08d3f46545228fefb2'
+            expected.proot = '8b18f55628eedd2ea867f649a4e27a0476da0ba00690adb97714984b485f8804'
+            expected['libproot-faststat.so'] = '32440930dc740987aec8288b0d84c569980703a20479a10c2f58218bc22a745d'
         }
         expected.each { name, digest ->
             def payload = rootlessPayloadSource.file(name).asFile

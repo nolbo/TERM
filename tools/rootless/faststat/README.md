@@ -1217,7 +1217,7 @@ DSO는 facbee68... 그대로다. 전체 비교·새 설치·Gradle은 반복하�
 
 `-ProotlessAcceleratedPayload=/absolute/path/to/payload` Gradle 속성으로 후보 APK를
 만들 수 있다. 디렉터리에는 `proot`, `proot-loader`, `libproot-faststat.so`가 필요하다.
-현재 허용한 조합은 설치·누적 비교를 마친 eb7fcae5... 엔진, 2567ab8a... loader,
+최초 후보 조합은 설치·누적 비교를 마친 eb7fcae5... 엔진, 2567ab8a... loader,
 facbee68... DSO이며 Gradle이 전체 SHA-256과 ELF/16 KiB 정렬을 검증한다.
 후속 rename 경로 재사용 엔진은 이 고정 조합에 아직 포함하지 않았다.
 
@@ -1298,3 +1298,29 @@ incremental 설치 미지원은 streamed로 해결했다. 엔진 SHA-256은
 비활성 상태에서도 libc fallback이 초기화되도록 한 것이다. 전체 비교·새 설치·
 Gradle은 반복하지 않았다. 네이티브 실험이므로 UI/외부 API/앱 MCP는 필요하지 않았다.
 스레드가 많은 작업의 close는 가속하지 못하며 설치 통합·시간 효과 확인은 남아 있다.
+
+### close 한정 효과와 ABI 4 후보 통합
+
+2026-09-17 동일 ABI 4 엔진/DSO에서 close 옵션만 off/on으로 바꾸어 세 작업을
+3쌍 교대로 실행했다. 1,000개 파일, redroid/ext4/warm cache 조건이다.
+18개 작업과 모든 종료 코드가 통과했다.
+[조건·해시·원시 표본](results/fastclose-2026-09-17.json).
+
+| 작업 | off 중앙값 ms | on 중앙값 ms | 시간 감소 |
+| --- | ---: | ---: | ---: |
+| 생성·rename·삭제 | 235.536 | 218.965 | 7.0% |
+| 작은 파일 읽기 | 58.337 | 33.053 | 43.3% |
+| tar 추출 | 646.477 | 637.200 | 1.4% |
+
+작은 파일 읽기와 생성·변경의 표본 범위는 분리됐지만 tar 차이는 작고 범위가
+겹친다. 원본 엔진 비교가 아니므로 과거 배속에 곱해 새 원본 대비 배속을 만들지
+않는다. 다른 작업의 전체 비교와 물리 Android/F2FS 확인은 하지 않았다.
+
+이 결과에 따라 후보 Gradle 입력을 8b18f556... 엔진과 32440930... DSO로 고정하고
+프로필에 host/guest FASTCLOSE를 추가했다. 이 조합에는 rename 경로 재사용도
+포함된다. 정규 빌드/runtime 단위 시험/image 시험/instrumentation APK 빌드가
+통과했다(173 tasks). Android MCP에서 Gradle 생성 시험 APK의 새 Debian 설치와
+실제 PTY의 stat·close 양수 hits 검사가 87.659초에 통과했다. 임시 설치 디렉터리는
+0개였다. streamed 설치가 성공했다. 설치 시간은 성능 비교로 사용하지 않는다.
+사용자 앱 교체와 UI 검사는 하지 않았고 외부 API/앱 MCP는 필요하지 않았다.
+기본 릴리스 승격 및 전체 2배 목표는 남아 있다.

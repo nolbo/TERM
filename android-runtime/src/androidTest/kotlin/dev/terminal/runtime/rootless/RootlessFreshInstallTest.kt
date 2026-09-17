@@ -136,7 +136,9 @@ class RootlessFreshInstallTest {
                     }
                     val command = listOf("/usr/bin/python3", "-c",
                         "import ctypes,os; assert os.stat('/etc/debian_version').st_size>0; " +
-                            "assert ctypes.CDLL(None).proot_faststat_hits()>0; print('PASS accelerated PTY')")
+                            "c=ctypes.CDLL(None); assert c.proot_faststat_hits()>0; n=c.proot_fastclose_hits(); " +
+                            "f=os.open('/etc/debian_version',os.O_RDONLY); os.close(f); " +
+                            "assert c.proot_fastclose_hits()>n; print('PASS accelerated PTY')")
                     controller.create("/bin/sh", "/root", mapOf(
                         dev.terminal.runtime.session.SessionCommand.KEY to dev.terminal.runtime.session.SessionCommand.encode(command)),
                         24u, 80u).getOrThrow()

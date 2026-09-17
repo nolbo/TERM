@@ -24,6 +24,8 @@ class RootlessLaunchSpecTest {
         assertFalse(spec.arguments.contains("PROOT_OPEN_NOTIFY=1"))
         assertFalse(spec.arguments.contains("--link2symlink"))
         assertTrue(spec.hostEnvironment.contains("PROOT_FASTPATH=1"))
+        assertTrue(spec.hostEnvironment.contains("PROOT_FASTCLOSE=1"))
+        assertTrue(spec.arguments.contains("PROOT_FASTCLOSE=1"))
         assertFalse(spec.hostEnvironment.any { it.startsWith("LD_PRELOAD=") })
     }
 

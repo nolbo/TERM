@@ -94,7 +94,11 @@ redesign includes an optional accelerated APK profile. Build with
 candidate `proot`, `proot-loader`, and `libproot-faststat.so`. Gradle verifies all
 three hashes and ARM64/16 KiB ELF constraints. This APK automatically applies the
 validated shared-path/stat/open/create/unlink and ID/TCGETS settings to ordinary
-Rootless PTY sessions. The glibc preload is bound into the guest only; host PRoot
+Rootless PTY sessions. The candidate also accelerates regular-file close while
+the tracee's descriptor table is isolated after exec. Fork/thread creation and
+tracked auxv/netlink descriptors revoke that eligibility until another exec.
+Pipes and other descriptors retain the original close path.
+The glibc preload is bound into the guest only; host PRoot
 execution still uses the centralized APK executable loader. Existing guest
 preloads follow the acceleration DSO. Guest-supplied PROOT options cannot replace
 the APK-selected profile.
