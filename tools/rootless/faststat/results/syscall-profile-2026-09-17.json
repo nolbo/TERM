@@ -1,0 +1,249 @@
+{
+  "scope": "Full invocation counts, including startup, fixture preparation, verification and cleanup. Not timed-region-only costs or a speed comparison. Same candidate, 1000 files, one round each; all workload assertions passed. Chains/unknown calls are grouped as void.",
+  "engine_sha256": "a022cb287ed6be4d64ea35ff814c4ab27f9dd5b105a7a8afdd1e88bfd333d99c",
+  "dso_sha256": "2a37aa03e6a89c0472ed821bef167dc458ff0340c26125917f24d1ee63cb6c80",
+  "results": [
+    {
+      "case": "mutations",
+      "total": "proot-perf: enter_stop=8819 exit_stop=2176 path_translation=99 canon_lstat=453 l2s_exit_lstat=0 l2s_readlink=0 read_string=7601 vm_read=9247 vm_write=5652 vm_fallback=0 path_fast_hit=4103 path_fast_miss=0",
+      "syscalls": [
+        {
+          "syscall": "ioctl",
+          "enter": 2066,
+          "exit": 2066
+        },
+        {
+          "syscall": "close",
+          "enter": 2163,
+          "exit": 0
+        },
+        {
+          "syscall": "fstatat64",
+          "enter": 1331,
+          "exit": 40
+        },
+        {
+          "syscall": "unlinkat",
+          "enter": 1035,
+          "exit": 0
+        },
+        {
+          "syscall": "mkdirat",
+          "enter": 1003,
+          "exit": 0
+        },
+        {
+          "syscall": "renameat",
+          "enter": 1000,
+          "exit": 0
+        },
+        {
+          "syscall": "fstat",
+          "enter": 73,
+          "exit": 4
+        },
+        {
+          "syscall": "openat",
+          "enter": 77,
+          "exit": 0
+        },
+        {
+          "syscall": "brk",
+          "enter": 26,
+          "exit": 26
+        },
+        {
+          "syscall": "prctl",
+          "enter": 17,
+          "exit": 15
+        },
+        {
+          "syscall": "mmap",
+          "enter": 11,
+          "exit": 11
+        },
+        {
+          "syscall": "readlinkat",
+          "enter": 5,
+          "exit": 5
+        },
+        {
+          "syscall": "execve",
+          "enter": 2,
+          "exit": 2
+        },
+        {
+          "syscall": "prlimit64",
+          "enter": 2,
+          "exit": 2
+        },
+        {
+          "syscall": "faccessat",
+          "enter": 2,
+          "exit": 0
+        },
+        {
+          "syscall": "getcwd",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "getegid",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "geteuid",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "getgid",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "getuid",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "memfd_create",
+          "enter": 1,
+          "exit": 0
+        }
+      ]
+    },
+    {
+      "case": "tar-extract",
+      "total": "proot-perf: enter_stop=36069 exit_stop=7329 path_translation=1209 canon_lstat=7001 l2s_exit_lstat=0 l2s_readlink=0 read_string=18302 vm_read=19514 vm_write=22521 vm_fallback=0 path_fast_hit=9436 path_fast_miss=0",
+      "syscalls": [
+        {
+          "syscall": "close",
+          "enter": 8446,
+          "exit": 0
+        },
+        {
+          "syscall": "ioctl",
+          "enter": 4072,
+          "exit": 4072
+        },
+        {
+          "syscall": "fstatat64",
+          "enter": 7600,
+          "exit": 40
+        },
+        {
+          "syscall": "fstat",
+          "enter": 4274,
+          "exit": 4
+        },
+        {
+          "syscall": "openat",
+          "enter": 4277,
+          "exit": 0
+        },
+        {
+          "syscall": "unlinkat",
+          "enter": 2069,
+          "exit": 0
+        },
+        {
+          "syscall": "geteuid",
+          "enter": 1034,
+          "exit": 1034
+        },
+        {
+          "syscall": "fchmodat",
+          "enter": 1033,
+          "exit": 1033
+        },
+        {
+          "syscall": "fchownat",
+          "enter": 1033,
+          "exit": 1033
+        },
+        {
+          "syscall": "mkdirat",
+          "enter": 1036,
+          "exit": 0
+        },
+        {
+          "syscall": "utimensat",
+          "enter": 1033,
+          "exit": 0
+        },
+        {
+          "syscall": "socket",
+          "enter": 44,
+          "exit": 44
+        },
+        {
+          "syscall": "brk",
+          "enter": 30,
+          "exit": 30
+        },
+        {
+          "syscall": "connect",
+          "enter": 44,
+          "exit": 0
+        },
+        {
+          "syscall": "prctl",
+          "enter": 17,
+          "exit": 15
+        },
+        {
+          "syscall": "mmap",
+          "enter": 11,
+          "exit": 11
+        },
+        {
+          "syscall": "readlinkat",
+          "enter": 5,
+          "exit": 5
+        },
+        {
+          "syscall": "execve",
+          "enter": 2,
+          "exit": 2
+        },
+        {
+          "syscall": "prlimit64",
+          "enter": 2,
+          "exit": 2
+        },
+        {
+          "syscall": "faccessat",
+          "enter": 2,
+          "exit": 0
+        },
+        {
+          "syscall": "getcwd",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "getegid",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "getgid",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "getuid",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "memfd_create",
+          "enter": 1,
+          "exit": 0
+        }
+      ]
+    }
+  ]
+}

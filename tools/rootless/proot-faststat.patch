@@ -10,7 +10,7 @@
  #include "cli/note.h"
  
  #include "compat.h"
-@@ -264,6 +267,93 @@
+@@ -264,6 +267,111 @@
  	if (status < 0)
  		goto end;
  
@@ -60,6 +60,24 @@
 +#endif
 +
 +#if defined(__aarch64__)
++	/* TCGETS is passed through unchanged by PRoot. Leave every other ioctl
++	 * on its existing path (termios2, network emulation, FICLONE, etc.). */
++	const char *direct_tcgets = getenv("PROOT_TCGETS_DIRECT");
++	if (direct_tcgets && !strcmp(direct_tcgets, "1")) {
++		struct sock_filter direct[] = {
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 7),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 29 /* ioctl */, 0, 5),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, args) + 12),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 0, 0, 3),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, args) + 8),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 0x5401 /* TCGETS */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_ALLOW),
++		};
++		status = add_statements(&program, sizeof(direct)/sizeof(direct[0]), direct);
++		if (status < 0) goto end;
++	}
 +	const char *fstat_entry = getenv("PROOT_FSTAT_ENTRY");
 +	if (fstat_entry && strcmp(fstat_entry, "1") == 0) {
 +		struct sock_filter entry[] = {
@@ -697,6 +715,16 @@
  }
  
  /**
+@@ -152,6 +163,9 @@
+ 	int suppressed_syscall_status = 0;
+ 
+ 	proot_perf_count(is_enter_stage ? PERF_ENTER_STOP : PERF_EXIT_STOP);
++	if (proot_perf_syscalls)
++		proot_perf_syscall(tracee->chain.syscalls ? PR_void :
++			get_sysnum(tracee, is_enter_stage ? CURRENT : ORIGINAL), is_enter_stage);
+ 	if (is_enter_stage) {
+ 		/* Never restore original register values at the end
+ 		 * of this stage.  */
 --- a/src/tracee/mem.c
 +++ b/src/tracee/mem.c
 @@ -417,6 +417,14 @@
@@ -923,3 +951,51 @@
 +		fastpath_invalidate_all();
  		TALLOC_FREE(tracee->fs->cwd);
  		tracee->fs->cwd = tmp;
+--- a/src/tracee/perf.h
++++ b/src/tracee/perf.h
+@@ -9,6 +9,8 @@
+ 	PERF_VM_FALLBACK, PERF_PATH_HIT, PERF_PATH_MISS, PERF_COUNT
+ } ProotPerfCounter;
+ extern bool proot_perf_enabled;
++extern bool proot_perf_syscalls;
++void proot_perf_syscall(unsigned number, bool entering);
+ extern bool proot_path_fastpath_enabled;
+ extern uint64_t proot_perf_counters[PERF_COUNT];
+ void proot_perf_init(void);
+--- a/src/tracee/perf.c
++++ b/src/tracee/perf.c
+@@ -5,7 +5,15 @@
+ #include <string.h>
+ #include <unistd.h>
+ #include "tracee/perf.h"
++#include "syscall/sysnum.h"
+ bool proot_perf_enabled;
++bool proot_perf_syscalls;
++static uint64_t syscall_counts[PR_NB_SYSNUM][2];
++void proot_perf_syscall(unsigned number, bool entering)
++{
++	if (number >= PR_NB_SYSNUM) number = PR_void;
++	syscall_counts[number][entering ? 0 : 1]++;
++}
+ bool proot_path_fastpath_enabled = true;
+ uint64_t proot_perf_counters[PERF_COUNT];
+ static pid_t owner;
+@@ -21,11 +29,18 @@
+ 	for (int i = 0; i < PERF_COUNT; i++)
+ 		fprintf(stderr, " %s=%" PRIu64, names[i], proot_perf_counters[i]);
+ 	fputc('\n', stderr);
++	if (proot_perf_syscalls)
++		for (unsigned i = 0; i < PR_NB_SYSNUM; i++)
++			if (syscall_counts[i][0] || syscall_counts[i][1])
++				fprintf(stderr, "proot-syscall: %s enter=%" PRIu64 " exit=%" PRIu64 "\n",
++					stringify_sysnum(i), syscall_counts[i][0], syscall_counts[i][1]);
+ }
+ void proot_perf_init(void)
+ {
+ 	const char *value = getenv("PROOT_PERF");
+ 	proot_perf_enabled = value != NULL && strcmp(value, "1") == 0;
++	const char *syscalls = getenv("PROOT_PERF_SYSCALLS");
++	proot_perf_syscalls = proot_perf_enabled && syscalls && !strcmp(syscalls, "1");
+ 	proot_path_fastpath_enabled = getenv("PROOT_NO_PATH_FASTPATH") == NULL;
+ 	owner = getpid();
+ 	if (proot_perf_enabled) atexit(report);

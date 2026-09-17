@@ -1,0 +1,249 @@
+{
+  "scope": "TCGETS direct option enabled; full invocation counts including startup, preparation, verification and cleanup. 1000 files, one round; all assertions passed. Compare syscall-profile-2026-09-17.json for disabled diagnostic candidate. No timing claim.",
+  "engine_sha256": "eb6d4105348b26aa5a8fc48937ed13449433676892586f07eb65fa30550e62be",
+  "dso_sha256": "2a37aa03e6a89c0472ed821bef167dc458ff0340c26125917f24d1ee63cb6c80",
+  "results": [
+    {
+      "case": "mutations",
+      "total": "proot-perf: enter_stop=6762 exit_stop=119 path_translation=99 canon_lstat=453 l2s_exit_lstat=0 l2s_readlink=0 read_string=7601 vm_read=10256 vm_write=5652 vm_fallback=0 path_fast_hit=4103 path_fast_miss=0",
+      "syscalls": [
+        {
+          "syscall": "brk",
+          "enter": 26,
+          "exit": 26
+        },
+        {
+          "syscall": "close",
+          "enter": 2163,
+          "exit": 0
+        },
+        {
+          "syscall": "execve",
+          "enter": 2,
+          "exit": 2
+        },
+        {
+          "syscall": "faccessat",
+          "enter": 2,
+          "exit": 0
+        },
+        {
+          "syscall": "fstat",
+          "enter": 73,
+          "exit": 4
+        },
+        {
+          "syscall": "fstatat64",
+          "enter": 1331,
+          "exit": 40
+        },
+        {
+          "syscall": "getcwd",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "getegid",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "geteuid",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "getgid",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "getuid",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "ioctl",
+          "enter": 7,
+          "exit": 7
+        },
+        {
+          "syscall": "memfd_create",
+          "enter": 1,
+          "exit": 0
+        },
+        {
+          "syscall": "mkdirat",
+          "enter": 1003,
+          "exit": 0
+        },
+        {
+          "syscall": "mmap",
+          "enter": 12,
+          "exit": 12
+        },
+        {
+          "syscall": "openat",
+          "enter": 77,
+          "exit": 0
+        },
+        {
+          "syscall": "prctl",
+          "enter": 18,
+          "exit": 16
+        },
+        {
+          "syscall": "prlimit64",
+          "enter": 2,
+          "exit": 2
+        },
+        {
+          "syscall": "readlinkat",
+          "enter": 5,
+          "exit": 5
+        },
+        {
+          "syscall": "renameat",
+          "enter": 1000,
+          "exit": 0
+        },
+        {
+          "syscall": "unlinkat",
+          "enter": 1035,
+          "exit": 0
+        }
+      ]
+    },
+    {
+      "case": "tar-extract",
+      "total": "proot-perf: enter_stop=32006 exit_stop=3266 path_translation=1209 canon_lstat=7001 l2s_exit_lstat=0 l2s_readlink=0 read_string=18302 vm_read=19520 vm_write=22521 vm_fallback=0 path_fast_hit=9436 path_fast_miss=0",
+      "syscalls": [
+        {
+          "syscall": "brk",
+          "enter": 30,
+          "exit": 30
+        },
+        {
+          "syscall": "close",
+          "enter": 8446,
+          "exit": 0
+        },
+        {
+          "syscall": "connect",
+          "enter": 44,
+          "exit": 0
+        },
+        {
+          "syscall": "execve",
+          "enter": 2,
+          "exit": 2
+        },
+        {
+          "syscall": "faccessat",
+          "enter": 2,
+          "exit": 0
+        },
+        {
+          "syscall": "fchmodat",
+          "enter": 1033,
+          "exit": 1033
+        },
+        {
+          "syscall": "fchownat",
+          "enter": 1033,
+          "exit": 1033
+        },
+        {
+          "syscall": "fstat",
+          "enter": 4274,
+          "exit": 4
+        },
+        {
+          "syscall": "fstatat64",
+          "enter": 7600,
+          "exit": 40
+        },
+        {
+          "syscall": "getcwd",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "getegid",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "geteuid",
+          "enter": 1034,
+          "exit": 1034
+        },
+        {
+          "syscall": "getgid",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "getuid",
+          "enter": 1,
+          "exit": 1
+        },
+        {
+          "syscall": "ioctl",
+          "enter": 7,
+          "exit": 7
+        },
+        {
+          "syscall": "memfd_create",
+          "enter": 1,
+          "exit": 0
+        },
+        {
+          "syscall": "mkdirat",
+          "enter": 1036,
+          "exit": 0
+        },
+        {
+          "syscall": "mmap",
+          "enter": 12,
+          "exit": 12
+        },
+        {
+          "syscall": "openat",
+          "enter": 4277,
+          "exit": 0
+        },
+        {
+          "syscall": "prctl",
+          "enter": 18,
+          "exit": 16
+        },
+        {
+          "syscall": "prlimit64",
+          "enter": 2,
+          "exit": 2
+        },
+        {
+          "syscall": "readlinkat",
+          "enter": 5,
+          "exit": 5
+        },
+        {
+          "syscall": "socket",
+          "enter": 44,
+          "exit": 44
+        },
+        {
+          "syscall": "unlinkat",
+          "enter": 2069,
+          "exit": 0
+        },
+        {
+          "syscall": "utimensat",
+          "enter": 1033,
+          "exit": 0
+        }
+      ]
+    }
+  ]
+}

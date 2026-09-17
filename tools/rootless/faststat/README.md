@@ -980,3 +980,31 @@ DSO 해시는 `2a37aa03e6a89c0472ed821bef167dc458ff0340c26125917f24d1ee63cb6c80`
 엔진은 47d3b22e... 그대로다. 성능 비교·새 설치·Gradle은 반복하지 않았다.
 실험 DSO 변경으로 다른 MCP는 필요하지 않았다. 전체 성능 개선의 추가 배속을
 주장하지 않으며, 새 설치 검증은 직전 DSO 후보에 대한 결과다.
+
+## syscall별 계측과 TCGETS 직접 전달
+
+host `PROOT_PERF=1 PROOT_PERF_SYSCALLS=1`은 실험 엔진에서 syscall 이름별 진입·
+반환 횟수를 출력한다. 경로나 파일 내용은 기록하지 않는다. PRoot의 chained
+호출과 알 수 없는 번호는 void에 모은다. 각 이름의 합계가 기존 enter/exit 총계와
+일치하는지 검사했다. 이 진단은 일반 성능 비교에서는 끈다.
+
+생성·삭제와 tar 추출 전체 실행에서 ioctl 왕복이 각각 2,066회와 4,072회였다.
+소스상 TCGETS는 변경 없이 전달되므로 host `PROOT_TCGETS_DIRECT=1`을 추가했다.
+ARM64 ioctl의 요청 값이 정확히 TCGETS(0x5401)일 때만 seccomp ALLOW로 전달한다.
+TCGETS2/TCSETS 계열 변환, SIOCGIFINDEX, FICLONE 및 다른 ioctl은 기존 추적을
+유지한다. 추가 guest/host seccomp 정책은 계속 적용된다. 기본값은 off다.
+
+2026-09-17 Android MCP에서 옵션 off/on 모두 PTY의 isatty, 일반 파일/파이프,
+EBADF/EFAULT, termios 설정·복원·조회, guest seccomp EPERM 검사가 통과했다.
+전체 작업 계측의 ioctl은 생성·삭제 2,066→7회, tar 4,072→7회로 줄었다. 총 반환
+정지는 각각 2,176→119회, 7,329→3,266회였다. 측정은 시작·준비·검증·정리도
+포함한 전체 실행이며 시간 측정 구간만의 비용이나 속도 배속을 뜻하지 않는다.
+[원래 진단](results/syscall-profile-2026-09-17.json),
+[직접 전달 진단](results/tcgets-profile-2026-09-17.json).
+
+ARM64 엔진 빌드·시험 APK 서명/설치 통과. 최초 패치 조립은 기존 syscall.c 항목
+중복 검사에서 실패해 기존 항목을 갱신하도록 고친 뒤 최종 엔진을 빌드했다.
+incremental 설치 미지원은 streamed로 해결했다. 최종 엔진 해시는
+`eb6d4105348b26aa5a8fc48937ed13449433676892586f07eb65fa30550e62be`다.
+DSO는 dot 경로 후보 2a37aa03... 그대로다. 새 옵션의 Debian 설치·최종 시간 비교는
+남아 있다. Gradle/UI 및 외부 API/앱 MCP는 이번 실험 범위에 없어 사용하지 않았다.
