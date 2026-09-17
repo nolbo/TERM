@@ -754,3 +754,34 @@ procfs의 auxv 처리 유지, fstatfs 거부 시 복귀와 기존 open/FD/syscal
 반복하지 않았다. 자세한 적용 범위와 검증 해시는
 [실험 문서](../tools/rootless/faststat/README.md#최상위-bind-파일-열기)에 있다.
 **전체 2배 및 파일 I/O 목표의 달성은 아직 입증되지 않았다.**
+
+## 29단계: fastopen 후보와 원본의 대표 작업 비교
+
+2026-09-17 동일 Debian/app UID/ext4에서 원본과 누적 후보를 3쌍 교대로 비교했다.
+파일 수는 1,000개, 순차 전송은 64 MiB, warm cache 조건이다. 준비·검증·정리는
+측정 밖에서 수행했고 48개 실행 결과의 작업 검증이 모두 통과했다. 원본은
+--link2symlink/DSO 없음, 후보는 native links + 진입 가속 + fastfd/fastpath/fastopen,
+경로 DSO off다. notification/kernel-pipe/진단은 껐다.
+
+| 작업 | 원본 중앙값 ms | 후보 중앙값 ms | 배속 |
+| --- | ---: | ---: | ---: |
+| 메타데이터 조회 | 65.925 | 30.777 | 2.14 |
+| 생성·rename·삭제 | 374.682 | 298.898 | 1.25 |
+| Python import | 205.023 | 177.055 | 1.16 |
+| tar 추출 | 908.652 | 704.167 | 1.29 |
+| 작은 파일 읽기 | 183.911 | 86.390 | 2.13 |
+| 순차 읽기 | 13.249 | 13.609 | 0.97 |
+| 순차 쓰기 | 14.046 | 13.947 | 1.01 |
+| fsync 포함 쓰기 | 276.069 | 275.155 | 1.00 |
+
+[조건·해시·범위·48개 원시 결과](../tools/rootless/faststat/results/fastopen-candidate-2026-09-17.json).
+메타데이터와 작은 파일 읽기는 이 조건에서 2배를 넘었다. 전체 작업이나 실제
+휴대폰/F2FS에서의 2배를 의미하지 않는다. 순차 I/O 개선은 입증되지 않았다.
+다음 우선순위는 상대 경로 읽기의 확장보다 생성·쓰기 작업의 tracer 비용 감소다.
+이들 작업은 현재 fastopen에서 기존 libc/PRoot로 복귀하며, mutations 시험은
+write_bytes → rename → unlink, tar는 파일 생성/쓰기를 포함한다.
+
+Android MCP로 실행했고 별도 비교 APK의 서명·설치가 통과했다. incremental
+미지원은 streamed 설치로 해결했다. 코드 변경이 없어 Gradle 및 새 설치는
+반복하지 않았다. UI·새 외부 API·외부 앱 관련 MCP도 사용하지 않았다.
+**메타데이터와 작은 파일 읽기의 2배는 관측됐지만 전체 목표는 미달성이다.**
