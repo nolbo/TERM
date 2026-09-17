@@ -10,14 +10,13 @@
  #include "cli/note.h"
  
  #include "compat.h"
-@@ -263,6 +266,91 @@
- 	status = new_program_filter(&program);
+@@ -264,6 +267,92 @@
  	if (status < 0)
  		goto end;
-+
+ 
 +#if defined(__aarch64__)
 +	/* Experimental dispatcher: exact architecture, exact SVC return PC,
-+	 * and only its three internal read-only-stat plumbing syscalls.
++	 * and only its internal file lookup/open plumbing syscalls.
 +	 * This is a compatibility optimization, never a sandbox boundary. */
 +	const char *faststat = getenv("PROOT_FASTSTAT");
 +	if (faststat != NULL && (strcmp(faststat, "1") == 0 || strcmp(faststat, "2") == 0)) {
@@ -41,15 +40,16 @@
 +		}
 +		struct sock_filter fast[] = {
 +			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 10),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 11),
 +			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)+4),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, (uint32_t)(PROOT_FASTSTAT_PC >> 32), 0, 8),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, (uint32_t)(PROOT_FASTSTAT_PC >> 32), 0, 9),
 +			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, (uint32_t)PROOT_FASTSTAT_PC, 0, 6),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, (uint32_t)PROOT_FASTSTAT_PC, 0, 7),
 +			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 437 /* openat2 */, 3, 0),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 80 /* fstat */, 2, 0),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 57 /* close */, 1, 0),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 437 /* openat2 */, 4, 0),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 80 /* fstat */, 3, 0),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 57 /* close */, 2, 0),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 56 /* openat */, 1, 0),
 +			BPF_STMT(BPF_JMP+BPF_JA+BPF_K, 1),
 +			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_ALLOW),
 +		};
@@ -99,9 +99,10 @@
 +		if (status < 0) goto end;
 +	}
 +#endif
- 
++
  	/* For each handled architectures */
  	for (i = 0; i < nb_archs; i++) {
+ 		word_t syscall;
 --- a/src/syscall/enter.c
 +++ b/src/syscall/enter.c
 @@ -79,6 +79,12 @@

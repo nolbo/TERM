@@ -20,7 +20,7 @@ e7f... 실험판이며 제품 원본 대비 배속이 아니다. 혼합 작업�
 ## 공통 구조와 모드 1
 
 - `proot-faststat.patch`: 최초 seccomp 필터에 ARM64 전용 syscall 실행 주소를
-  추가한다. 정확한 PC에서의 openat2/fstat/close만 PRoot의 추적을 생략한다.
+  추가한다. 정확한 PC에서의 openat2/openat/fstat/close만 PRoot의 추적을 생략한다.
   다른 주소와 syscall은 기존 필터로 내려간다. 상속된 OS 정책은 유지된다.
 - `faststat.c`: glibc의 fstatat/fstatat64를 연결한다. **실제로 열린 dirfd와
   상대 경로**에 openat2 → fstat → close를 같은 프로세스에서 수행한다.
@@ -746,11 +746,10 @@ host의 `PROOT_FASTPATH=1`은 fastfd 공유 영역에 bind 규칙을 게시한�
 재개 직전에 해당 namespace의 규칙을 게시한다. fork 후 공유되는 binding
 목록도 고려해 무효화 범위를 개별 FileSystemNameSpace로 제한하지 않았다.
 
-현재 소비자는 시험용 `proot_fastpath_translate`뿐이다. 절대 경로 중 정규화가
+25단계의 소비자는 시험용 `proot_fastpath_translate`뿐이었다. 절대 경로 중 정규화가
 필요하지 않은 경로만 번역하며 중첩 bind에 걸리면 기존 변환으로 복귀한다.
-이 함수는 심볼릭 링크나 파일 존재 여부를 검증하지 않는다. 실제 open 연결은
-아직 없으며, 연결 시 커널의 링크 해석 제한과 syscall 이후 규칙 버전 재검사가
-추가로 필요하다. 따라서 이 변경 자체의 파일 I/O 개선 수치는 제시하지 않는다.
+이 진단 함수는 심볼릭 링크나 파일 존재 여부를 검증하지 않는다. 이후 실제 open
+연결은 아래 단계에서 추가했다. 규칙 게시 단계 자체의 파일 I/O 개선 수치는 없다.
 
 `path-rules-test.py`는 기존 RESOLVE 결과와 공유 조회를 비교한다. bind 추가·제거,
 다른 스레드 재개 후 갱신, fork/chroot 후 부모의 규칙 유지, 잘못된 경로·출력
@@ -766,3 +765,36 @@ ARM64 엔진/DSO 빌드와 APK 서명·설치를 통과했다. incremental 설�
 streamed 설치로 해결했다. 실험 native 코드만 변경하여 Gradle과 새 Debian 설치,
 전체 성능 비교는 반복하지 않았다. UI·새 외부 API·외부 앱 변경이 없어
 replicant/context7/codex_apps는 사용하지 않았다.
+
+## 읽기 전용 open 연결
+
+host `PROOT_FASTPATH=1`, guest `PROOT_FASTOPEN=1`을 기존 fastfd 구성에 추가한다.
+`open/open64/openat/openat64`에서 root binding에 속하는 정규화된 절대 경로의
+읽기 전용 열기를 처리한다. 상대 경로, 별도 bind, 링크, 쓰기/생성, O_NOFOLLOW,
+지원하지 않는 플래그는 libc openat로 복귀한다. glibc 내부 비공개 호출과 정적
+ELF는 이 interposition의 적용 대상이 아니다. 제품 기본 구성은 변경하지 않았다.
+
+공유 규칙으로 host 경로를 만들고 openat2(NO_SYMLINKS, O_PATH)로 대상을 고정한다.
+fstat로 일반 파일·디렉터리임을 확인한 뒤 /proc/self/fd를 통해 원래 플래그의
+openat로 다시 연다. 따라서 경로가 FIFO·장치로 바뀌어도 잘못된 대상을 열지
+않는다. syscall 이후 규칙 버전을 재확인하며 변경 또는 오류 시 임시 FD를 닫고
+기존 처리로 복귀한다. 파일 내용·inode 결과는 캐시하지 않는다.
+
+전용 PC의 openat도 PRoot 추적 생략 목록에 추가했다. 실제 마지막 열기는 원래
+syscall 번호인 openat이므로 해당 번호를 거부하는 guest seccomp도 적용된다.
+임시 FD가 살아 있는 동안 신호를 미루며, libc fallback을 통해 blocking FIFO의
+스레드 취소 동작을 유지한다. 이 내부 PC 예외는 보안 격리 장치가 아니다.
+
+Android MCP에서 fastopen-test.py의 내용 변경·rename·링크·FIFO·flags·EFAULT·
+8스레드·fork·openat 거부/openat2 거부 복귀 검사가 통과했다(open hits=438).
+기존 fd-test(hits=653), 공유 규칙 bind/chroot 검사, open-test의 FD 전달 및
+blocking FIFO 취소 검사도 통과했다. ARM64 엔진/DSO 빌드와 APK 서명·설치 통과,
+incremental 설치 미지원은 streamed 설치로 해결했다. 엔진은
+`58eea29df2278fe33fc3ec0e594ca5859a48e6bcda1bd1503f62e6cab1847a81`,
+DSO는 `f445899cc8622c87a7ac14cf16455255b5f8fcdd8b4e9b182803a36e0c4f33e1`이다.
+
+작은 파일 1,000개/448,000 bytes 읽기만 off/on 각 1회 비교했다. 동일한 fastfd/
+공유 규칙 구성에서 106.093→86.956ms(약 18% 시간 감소)였다. guest CPU는
+53.287→57.848ms로 늘었다. 이는 개선 방향 확인용이며 반복 측정에 의한 확정
+성능이나 원본 대비 2배 달성 증거가 아니다. 전체 비교와 새 Debian 설치는 아직
+수행하지 않았다. 실험 native 코드만 변경해 Gradle은 반복하지 않았다.

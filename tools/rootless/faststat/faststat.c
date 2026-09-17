@@ -4,12 +4,14 @@
  */
 #define _GNU_SOURCE
 #include <errno.h>
+#include <dlfcn.h>
 #include <fcntl.h>
 #include <limits.h>
 #include <linux/openat2.h>
 #include <linux/memfd.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdatomic.h>
 #include <stdio.h>
@@ -41,6 +43,9 @@ static _Atomic unsigned long fallbacks;
 static _Atomic unsigned long negative_hits;
 static _Atomic unsigned long fd_hits, fd_fallbacks;
 static int fd_requested;
+static int open_requested;
+static int (*libc_openat)(int, const char *, int, ...);
+static _Atomic unsigned long open_hits;
 static pthread_key_t fd_key;
 struct local_identity {
     pid_t pid;
@@ -85,6 +90,7 @@ static long fast_syscall(long nr, long a, long b, long c, long d)
 __attribute__((constructor)) static void initialize_faststat(void)
 {
     int saved_errno = errno;
+    libc_openat = dlsym(RTLD_NEXT, "openat");
     const char *path_setting = getenv("PROOT_FASTSTAT_PATH");
     path_enabled = !path_setting || strcmp(path_setting, "0") != 0;
     const char *report = getenv("PROOT_FASTSTAT_REPORT");
@@ -141,6 +147,8 @@ __attribute__((constructor)) static void initialize_faststat(void)
         if (fd_key < 32) fd_requested = 1;
         else pthread_key_delete(fd_key);
     }
+    const char *open_setting = getenv("PROOT_FASTOPEN");
+    open_requested = fd_requested && open_setting && !strcmp(open_setting, "1");
     enabled = 1;
     initialization_status = 1;
 out:
@@ -215,10 +223,10 @@ static struct proot_fastfd_identity *current_identity(pid_t pid)
     return local_identity.page;
 }
 
-/* Snapshot lookup only; the future open dispatcher must validate the same
- * sequence again after its kernel operation. No inode or existence is cached. */
+/* Snapshot lookup only; the open dispatcher validates the same sequence
+ * after its kernel operation. No inode or existence is cached. */
 static int lookup_shared_path(struct proot_fastpath_rules *rules, const char *path,
-                              char result[PATH_MAX])
+                              char result[PATH_MAX], int root_only)
 {
     if (path[0] != '/') return 0;
     for (const char *part = path + 1; *part;) {
@@ -250,7 +258,7 @@ static int lookup_shared_path(struct proot_fastpath_rules *rules, const char *pa
         if (strchr(guest + 1, '/') && (matches || ancestor)) return 0;
         if (matches && size > longest) { selected = i; longest = size; }
     }
-    if (selected == count) return 0;
+    if (selected == count || (root_only && longest != 1)) return 0;
     const struct proot_fastpath_binding *item = &rules->bindings[selected];
     uint32_t offset = atomic_load(&item->host), size = atomic_load(&item->host_length);
     if (!size || size >= PATH_MAX || offset >= PROOT_FASTPATH_BYTES ||
@@ -275,7 +283,7 @@ int proot_fastpath_translate(const char *path, char *output, size_t capacity)
     struct proot_fastfd_identity *identity = current_identity(pid);
     char copied[PATH_MAX], translated[PATH_MAX];
     if (identity && copy_path(copied, path) &&
-        lookup_shared_path(&identity->paths, copied, translated)) {
+        lookup_shared_path(&identity->paths, copied, translated, 0)) {
         size_t length = strlen(translated) + 1;
         if (length <= capacity) {
             struct iovec local = { translated, length }, remote = { output, length };
@@ -286,6 +294,80 @@ int proot_fastpath_translate(const char *path, char *output, size_t capacity)
     errno = saved_errno;
     return success;
 }
+
+/* Only root-binding regular files/directories. Pin before reopening so a FIFO
+ * substitution cannot block and a device substitution cannot have side effects.
+ * Ordinary openat remains the fallback and the final fast call uses openat too,
+ * so a guest filter denying that syscall still applies. */
+static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
+{
+    int saved_errno = errno, owned = 0, masked = 0;
+    long pin = -1, fd = -1;
+    uint64_t all_signals = UINT64_MAX, previous_signals;
+    const int allowed = O_CLOEXEC | O_DIRECTORY | O_NONBLOCK | O_LARGEFILE;
+    if (!enabled || !open_requested || (flags & ~allowed)) goto slow_open;
+    pthread_testcancel();
+    if (atomic_exchange(&local_identity.busy, 1)) goto slow_open;
+    owned = 1;
+    /* A handler's siglongjmp must not abandon the temporary pinned FD. */
+    if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &all_signals, &previous_signals,
+                sizeof(previous_signals))) goto slow_open;
+    masked = 1;
+    struct proot_fastfd_identity *identity = current_identity(syscall(SYS_getpid));
+    char copied[PATH_MAX], translated[PATH_MAX];
+    if (!identity || !copy_path(copied, path)) goto slow_open;
+    uint32_t sequence = atomic_load(&identity->paths.sequence);
+    if (!lookup_shared_path(&identity->paths, copied, translated, 1)) goto slow_open;
+    struct open_how how = { .flags = O_PATH | O_CLOEXEC,
+                            .resolve = RESOLVE_NO_SYMLINKS };
+    pin = fast_syscall(SYS_openat2, AT_FDCWD, (long)translated, (long)&how, sizeof(how));
+    if (pin < 0) goto slow_open;
+    struct stat info;
+    if (fast_syscall(SYS_fstat, pin, (long)&info, 0, 0) < 0 ||
+        (!S_ISREG(info.st_mode) && !S_ISDIR(info.st_mode))) goto slow_open;
+    char pinned[64];
+    snprintf(pinned, sizeof(pinned), "/proc/self/fd/%ld", pin);
+    fd = fast_syscall(SYS_openat, AT_FDCWD, (long)pinned, flags, 0);
+    if (fd < 0 || sequence != atomic_load(&identity->paths.sequence) ||
+        !atomic_load(&identity->paths.active)) goto slow_open;
+    fast_syscall(SYS_close, pin, 0, 0, 0);
+    atomic_fetch_add_explicit(&open_hits, 1, memory_order_relaxed);
+    atomic_store(&local_identity.busy, 0);
+    syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous_signals, NULL, sizeof(previous_signals));
+    errno = saved_errno;
+    return (int)fd;
+slow_open:
+    if (fd >= 0) fast_syscall(SYS_close, fd, 0, 0, 0);
+    if (pin >= 0) fast_syscall(SYS_close, pin, 0, 0, 0);
+    if (owned) atomic_store(&local_identity.busy, 0);
+    if (masked) syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous_signals, NULL, sizeof(previous_signals));
+    errno = saved_errno;
+    return libc_openat ? libc_openat(dirfd, path, flags, mode) :
+                        (int)syscall(SYS_openat, dirfd, path, flags, mode);
+}
+
+unsigned long proot_fastopen_hits(void) { return atomic_load(&open_hits); }
+
+#define OPEN_WRAPPER(name) \
+int name(const char *path, int flags, ...) { \
+    mode_t mode = 0; \
+    if ((flags & O_CREAT) || ((flags & O_TMPFILE) == O_TMPFILE)) { \
+        va_list args; va_start(args, flags); mode = va_arg(args, mode_t); va_end(args); \
+    } \
+    return dispatch_open(AT_FDCWD, path, flags, mode); \
+}
+#define OPENAT_WRAPPER(name) \
+int name(int dirfd, const char *path, int flags, ...) { \
+    mode_t mode = 0; \
+    if ((flags & O_CREAT) || ((flags & O_TMPFILE) == O_TMPFILE)) { \
+        va_list args; va_start(args, flags); mode = va_arg(args, mode_t); va_end(args); \
+    } \
+    return dispatch_open(dirfd, path, flags, mode); \
+}
+OPEN_WRAPPER(open)
+OPEN_WRAPPER(open64)
+OPENAT_WRAPPER(openat)
+OPENAT_WRAPPER(openat64)
 
 static int map_identity(struct proot_fastfd_identity *page, struct stat *result)
 {
