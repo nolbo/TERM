@@ -946,3 +946,20 @@ APK 서명·설치 통과; incremental 설치 미지원은 streamed로 해결했
 DSO는 `16abfaca639a912959c799ec0e32cab1720b44431244acf3c2884e05e5657e73`다.
 시간 벤치마크·새 설치·Gradle은 반복하지 않았다. 새 ABI 후보의 전체 설치 검증은
 남아 있다. 실험 native 코드 범위라 UI/외부 API/외부 앱 MCP는 사용하지 않았다.
+
+### 삭제·상대 경로 후보의 새 설치 시험 연결
+
+내부 설치 실행기에 기본 off인 fastUnlink를 추가했다. fastOpen을 요구하고 guest에
+PROOT_FASTUNLINK=1을 전달한다. instrumentation의 rootlessFastUnlink=true로 전체
+설치 단계에 적용한다. 설치 후 Python이 chdir한 디렉터리에서 상대 경로로 생성·
+내용 확인·삭제를 수행하며, 종료 진단의 unlink_hits 양수를 기존 create/open/fstat
+확인과 함께 요구한다. 단위 시험은 옵션 의존 조건과 기본 비활성을 확인한다.
+
+2026-09-17 Android MCP에서 ABI 3/상대 경로/삭제 가속 누적 후보의 새 Debian 설치,
+기본 환경·하드링크·상대 파일 내용·가속 create/open/unlink/fstat 확인이
+88.025초에 통과했다. 시험 후 임시 설치 디렉터리는 0개였다. 엔진은 47d3b22e...,
+진단 추가 DSO는 `b6cbfc60a530f6d855f33babbb78588c63672050380e1342300fef7bf05b4d37`다.
+JDK 17 정규 빌드·runtime 단위 시험·image 시험·instrumentation APK 빌드와 DSO
+빌드가 통과했다. incremental 설치 미지원은 streamed로 해결했다. 성능 비교는
+반복하지 않았고 설치 시간을 성능 향상 수치로 사용하지 않는다. UI/외부 API/
+외부 앱 MCP는 필요하지 않았다. 일반 세션과 제품 기본 엔진은 아직 변경하지 않았다.

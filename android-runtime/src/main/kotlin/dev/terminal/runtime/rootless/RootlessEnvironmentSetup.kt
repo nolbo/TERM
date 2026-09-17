@@ -27,6 +27,7 @@ internal class RootlessEnvironmentSetup(
     private val fastfdLibrary: File? = null,
     private val fastOpen: Boolean = false,
     private val fastCreate: Boolean = false,
+    private val fastUnlink: Boolean = false,
 ) {
     suspend fun prepare() {
         // An older successful marker must not survive a failed repair of missing defaults.
@@ -52,7 +53,7 @@ internal class RootlessEnvironmentSetup(
                 pathKernelAcceleration = pathKernelAcceleration,
                 mutationEntryAcceleration = mutationEntryAcceleration,
                 fstatEntryAcceleration = fstatEntryAcceleration, openNotifyThread = openNotifyThread,
-                fastfdLibrary = fastfdLibrary, fastOpen = fastOpen, fastCreate = fastCreate)
+                fastfdLibrary = fastfdLibrary, fastOpen = fastOpen, fastCreate = fastCreate, fastUnlink = fastUnlink)
             check(result.exitCode == 0) { "종료 코드 ${result.exitCode}\n${result.errorContext.ifBlank { result.output.takeLast(2000) }}" }
         } catch (error: TimeoutCancellationException) {
             throw RootlessSetupException(progress.currentPhase,
@@ -78,8 +79,10 @@ internal suspend fun runRootlessSetupCommand(
     fastfdLibrary: File? = null,
     fastOpen: Boolean = false,
     fastCreate: Boolean = false,
+    fastUnlink: Boolean = false,
 ): RootlessCommandResult = withContext(Dispatchers.IO) {
     File(layout.tmp, "graphics-shm").mkdirs()
+    require(!fastUnlink || fastOpen) { "Fast unlink requires fast open" }
     require(!fastCreate || fastOpen) { "Fast create requires fast open" }
     require(!fastOpen || (fastfdLibrary != null && !openNotifyThread)) { "Fast open requires a guest DSO without notification mode" }
     val guestLibrary = "/usr/local/lib/terminal-faststat.so"
@@ -87,7 +90,8 @@ internal suspend fun runRootlessSetupCommand(
     val experimentEnvironment = if (fastfdLibrary != null)
         mapOf("LD_PRELOAD" to guestLibrary, "PROOT_FASTFD" to "1", "PROOT_FASTSTAT_PATH" to "0") +
             (if (fastOpen) mapOf("PROOT_FASTOPEN" to "1") else emptyMap()) +
-            (if (fastCreate) mapOf("PROOT_FASTCREATE" to "1") else emptyMap()) else emptyMap()
+            (if (fastCreate) mapOf("PROOT_FASTCREATE" to "1") else emptyMap()) +
+            (if (fastUnlink) mapOf("PROOT_FASTUNLINK" to "1") else emptyMap()) else emptyMap()
     val spec = buildRootlessLaunchSpec(layout, proot, loader, "/bin/sh", "/", mapOf(
         SessionCommand.KEY to SessionCommand.encode(argv), "TERM" to "dumb", "LC_ALL" to "C.UTF-8",
         "DEBIAN_FRONTEND" to "noninteractive", "NEEDRESTART_MODE" to "a",

@@ -870,3 +870,17 @@ Android MCP에서 상대 경로 가속, cwd 변경·실패·스레드 공유·re
 통과했다. [상세 범위와 해시](../tools/rootless/faststat/README.md#가상-작업-디렉터리와-상대-경로).
 성능 비교·Gradle·새 설치는 반복하지 않았다. 새 ABI의 설치와 누적 성능 검증은
 남아 있다. **전체 2배 및 파일 I/O 목표의 달성은 아직 입증되지 않았다.**
+
+## 35단계: 상대 경로·삭제 누적 후보의 새 Debian 설치
+
+설치 실행기의 명시적 fastUnlink 옵션과 instrumentation 인자를 연결했다.
+설치 후 상대 경로 생성·내용 확인·삭제와 create/open/unlink/fstat 가속 진단을
+각각 확인한다. 옵션 의존 조건과 기본 비활성은 단위 시험으로 검증했다.
+
+2026-09-17 Android MCP에서 새 Debian 설치 및 위 검증이 88.025초에 통과했고,
+임시 설치 디렉터리는 0개였다. JDK 17 정규 빌드·runtime 단위 시험·image 시험·
+instrumentation APK 및 DSO 빌드도 통과했다. [해시·조건](../tools/rootless/faststat/README.md#삭제상대-경로-후보의-새-설치-시험-연결).
+APK incremental 미지원은 streamed로 해결했다. 이번에는 성능 비교를 하지 않았다.
+
+이는 누적 후보의 설치 정상 동작 증거이며 성능 2배 또는 제품 기본 적용을 뜻하지
+않는다. **전체 작업 2배 및 파일 I/O 목표는 아직 미달성이다.**

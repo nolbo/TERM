@@ -46,9 +46,11 @@ class RootlessFreshInstallTest {
             val mutationEntry = arguments.getString("rootlessMutationEntry") == "true"
             val fstatEntry = arguments.getString("rootlessFstatEntry") == "true"
             val openNotifyThread = arguments.getString("rootlessOpenNotifyThread") == "true"
+            val fastUnlink = arguments.getString("rootlessFastUnlink") == "true"
             val fastCreate = arguments.getString("rootlessFastCreate") == "true"
             val fastOpen = arguments.getString("rootlessFastOpen") == "true"
             val fastfd = arguments.getString("rootlessFastfd") == "true"
+            require(!fastUnlink || fastOpen) { "Fast unlink requires fast open" }
             require(!fastCreate || fastOpen) { "Fast create requires fast open" }
             require(!fastOpen || fastfd) { "Fast open requires fastfd" }
             require(!fastfd || statKernel) { "Fastfd requires the verified experimental payload" }
@@ -78,7 +80,7 @@ class RootlessFreshInstallTest {
             val launch = buildRootlessLaunchSpec(layout, proot, guestLoader, "/bin/sh", "/", emptyMap())
             assertFalse(launch.arguments.contains("--link2symlink"))
             RootlessEnvironmentSetup(context, layout, proot, guestLoader, reporter,
-                statKernel, pathKernel, mutationEntry, fstatEntry, openNotifyThread, fastfdLibrary, fastOpen, fastCreate).prepare()
+                statKernel, pathKernel, mutationEntry, fstatEntry, openNotifyThread, fastfdLibrary, fastOpen, fastCreate, fastUnlink).prepare()
             RootlessEnvironmentProfile.validate(layout).getOrThrow()
             val check = runRootlessSetupCommand(layout, proot, guestLoader, listOf("/bin/sh", "-c", """
                 set -eu
@@ -93,11 +95,11 @@ class RootlessFreshInstallTest {
                 rm "${'$'}work/a"
                 test "${'$'}(cat "${'$'}work/b")" = 'native link'
                 ${if (fastOpen) "cat /etc/debian_version >/dev/null" else ":"}
-                ${if (fastCreate) "python3 -B -c 'import sys; f=open(sys.argv[1], \"wb\"); f.write(b\"created\"); f.close()' \"${'$'}work/created\"" else ":"}
+                ${if (fastCreate || fastUnlink) "python3 -B -c 'import os,sys; os.chdir(sys.argv[1]); f=open(\"created\", \"wb\"); f.write(b\"created\"); f.close(); assert open(\"created\", \"rb\").read()==b\"created\"; os.unlink(\"created\")' \"${'$'}work\"" else ":"}
                 printf 'PASS fresh distribution native links\n'
             """.trimIndent()), statKernelAcceleration = statKernel, pathKernelAcceleration = pathKernel,
                 mutationEntryAcceleration = mutationEntry, fstatEntryAcceleration = fstatEntry,
-                openNotifyThread = openNotifyThread, fastfdLibrary = fastfdLibrary, fastOpen = fastOpen, fastCreate = fastCreate)
+                openNotifyThread = openNotifyThread, fastfdLibrary = fastfdLibrary, fastOpen = fastOpen, fastCreate = fastCreate, fastUnlink = fastUnlink)
             assertEquals(check.output, 0, check.exitCode)
             assertTrue(check.output.contains("PASS fresh distribution native links"))
             if (fastfd) assertTrue("No accelerated fstat observed: ${check.output}",
@@ -106,6 +108,8 @@ class RootlessFreshInstallTest {
                 Regex("\"open_hits\":([1-9][0-9]*)").containsMatchIn(check.output))
             if (fastCreate) assertTrue("No accelerated creation observed: ${check.output}",
                 Regex("\"create_hits\":([1-9][0-9]*)").containsMatchIn(check.output))
+            if (fastUnlink) assertTrue("No accelerated unlink observed: ${check.output}",
+                Regex("\"unlink_hits\":([1-9][0-9]*)").containsMatchIn(check.output))
             Log.i("RootlessFreshInstall", "${distribution.name}: VERIFIED")
         } finally {
             deleteRootlessTree(temporary)

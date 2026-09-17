@@ -183,11 +183,11 @@ unsigned long proot_faststat_negative_hits(void) { return atomic_load_explicit(&
 __attribute__((destructor)) static void report_faststat(void)
 {
     if (!report_on_exit) return;
-    char buffer[320];
+    char buffer[384];
     int length = snprintf(buffer, sizeof(buffer),
-        "{\"faststat\":{\"enabled\":%d,\"hits\":%lu,\"fallbacks\":%lu,\"negative_hits\":%lu,\"fd_hits\":%lu,\"fd_fallbacks\":%lu,\"open_hits\":%lu,\"create_hits\":%lu}}\n",
+        "{\"faststat\":{\"enabled\":%d,\"hits\":%lu,\"fallbacks\":%lu,\"negative_hits\":%lu,\"fd_hits\":%lu,\"fd_fallbacks\":%lu,\"open_hits\":%lu,\"create_hits\":%lu,\"unlink_hits\":%lu}}\n",
         enabled, proot_faststat_hits(), proot_faststat_fallbacks(), proot_faststat_negative_hits(),
-        proot_fastfd_hits(), proot_fastfd_fallbacks(), atomic_load(&open_hits), atomic_load(&create_hits));
+        proot_fastfd_hits(), proot_fastfd_fallbacks(), atomic_load(&open_hits), atomic_load(&create_hits), atomic_load(&unlink_hits));
     if (length > 0 && (size_t)length < sizeof(buffer))
         (void)syscall(SYS_write, report_fd, buffer, (size_t)length);
 }
