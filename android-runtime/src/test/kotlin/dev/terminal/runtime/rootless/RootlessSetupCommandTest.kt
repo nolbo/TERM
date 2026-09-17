@@ -57,6 +57,26 @@ class RootlessSetupCommandTest {
         assertFalse(ordinary.output.contains("PROOT_FASTSTAT_PATH="))
     }
 
+    @Test fun fastOpenRequiresExplicitDsoAndSeparatesHostAndGuestOptions() = runBlocking {
+        val fakeProot = executable("printf '%s:%s\\n' \"\${PROOT_FASTPATH-unset}\" \"\${PROOT_FASTOPEN-unset}\"; printf '%s\\n' \"\$@\"")
+        val current = layout()
+        val library = temporary.newFile("open-dso.so")
+        val enabled = runRootlessSetupCommand(current, fakeProot, fakeProot,
+            listOf("/bin/true"), fastfdLibrary = library, fastOpen = true)
+        assertEquals(0, enabled.exitCode)
+        assertTrue(enabled.output.startsWith("1:unset\n"))
+        assertTrue(enabled.output.contains("PROOT_FASTOPEN=1\n"))
+        val disabled = runRootlessSetupCommand(current, fakeProot, fakeProot,
+            listOf("/bin/true"), fastfdLibrary = library)
+        assertTrue(disabled.output.startsWith("unset:unset\n"))
+        assertFalse(disabled.output.contains("PROOT_FASTOPEN="))
+        assertTrue(runCatching { runRootlessSetupCommand(current, fakeProot, fakeProot,
+            listOf("/bin/true"), fastOpen = true) }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching { runRootlessSetupCommand(current, fakeProot, fakeProot,
+            listOf("/bin/true"), fastfdLibrary = library, fastOpen = true,
+            openNotifyThread = true) }.exceptionOrNull() is IllegalArgumentException)
+    }
+
     @Test fun packageOutputIsBoundedAndExitFailuresRemainVisible() = runBlocking {
         val fakeProot = executable("i=0; while [ \$i -lt 2000 ]; do echo '012345678901234567890123456789'; i=\$((i+1)); done; echo decisive-error; exit 17")
         val result = runRootlessSetupCommand(layout(), fakeProot, fakeProot, listOf("/bin/true"), 10_000)

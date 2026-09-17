@@ -798,3 +798,25 @@ DSO는 `f445899cc8622c87a7ac14cf16455255b5f8fcdd8b4e9b182803a36e0c4f33e1`이다.
 53.287→57.848ms로 늘었다. 이는 개선 방향 확인용이며 반복 측정에 의한 확정
 성능이나 원본 대비 2배 달성 증거가 아니다. 전체 비교와 새 Debian 설치는 아직
 수행하지 않았다. 실험 native 코드만 변경해 Gradle은 반복하지 않았다.
+
+### 새 설치 시험의 fastOpen 옵션
+
+내부 설치 실행기에 `fastOpen` 옵션을 추가했다. DSO 지정이 필수이며 알림 방식과
+동시 사용은 거부한다. host에는 PROOT_FASTPATH=1, guest에는 PROOT_FASTOPEN=1을
+추가한다. 기본값은 false다. 단위 시험으로 host/guest 옵션 분리, 명시적 활성화,
+DSO 없는 구성과 notification 병용 거부를 검사한다.
+
+`RootlessFreshInstallTest`의 기존 fastfd 시험 인자에 `rootlessFastOpen=true`를
+추가하면 설치·구성·검증 전체에 적용한다. 종료 진단에 open_hits를 추가했으며,
+설치 후 `/etc/debian_version` 읽기 등을 수행한 출력에서 양수 open_hits와 fd_hits를
+각각 요구한다. 바이너리와 DSO SHA-256 검증도 기존대로 수행한다.
+
+2026-09-17 엔진 58eea29d...와 진단 추가 DSO
+`ff29841795d50544412a88ac04abd58ad67f20f1f9882fdbdec765cbd2e39b70`로
+Android MCP 새 Debian 설치 시험이 88.558초에 통과했다. 설치·환경·하드링크와
+실제 가속 open/fstat 사용 확인을 포함한다. 이 시간은 다운로드를 포함하므로
+성능 비교로 사용하지 않는다. 시험 후 임시 fresh-rootless 디렉터리는 0개였다.
+JDK 17에서 정규 assembleDebug/runtime 단위 시험/image 시험과 instrumentation
+APK 빌드가 통과했다(170 tasks, 15 executed). DSO 빌드도 통과했다. APK의
+incremental 설치 미지원은 streamed 설치로 해결했다. UI·새 외부 API·외부 앱
+변경이 없어 replicant/context7/codex_apps는 사용하지 않았다.
