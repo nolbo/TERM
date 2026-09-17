@@ -1018,3 +1018,24 @@ Python import는 1.22배, tar는 1.33배였고 순차 읽기·쓰기·fsync 쓰�
 없었다. 모든 작업의 내용 검증이 통과했다. 조건과 표본 범위는 원시 결과에 있다.
 여러 개선을 묶은 결과이므로 단일 옵션의 효과로 분리해 해석하지 않는다.
 TCGETS를 포함한 새 설치는 아직 검증하지 않았으며 제품 기본 적용도 남아 있다.
+
+## ID 조회의 반환 정지 제거
+
+host `PROOT_ID_ENTRY=1`은 ARM64 getuid/geteuid/getgid/getegid를 진입 시점에
+fake_id0의 현재 real/effective ID로 완료한다. ID를 별도로 캐시하지 않으며
+getresuid/getresgid 및 ID 변경 호출은 기존 경로를 사용한다. fake_id0가 없거나
+지원하지 않는 확장이 있으면 반환 추적을 유지한다. 기본값은 off다.
+
+2026-09-17 Android MCP의 Debian/app UID 시험에서 `id-entry-test.py`가 off/on
+모두 통과했다. real/effective/saved ID 변경, 8개 스레드, fork 격리, 네 조회
+syscall에 대한 guest seccomp EPERM을 검사했다. 누적 가속과 함께 실행한 FD
+회귀 시험도 통과했다(hits=653). ARM64 엔진 빌드와 Python 구문 검사가 통과했다.
+
+Python에서 geteuid를 1,000회 호출한 전체 실행의 해당 syscall 진입은 양쪽 모두
+1,001회였고 반환 정지는 1,001→0회였다. 전체 enter_stop은 1,198회 그대로,
+exit_stop은 1,070→66회였다. 이는 추적 왕복 감소의 증거이며 시간 배속은 아니다.
+엔진 SHA-256은
+`0677e4c247d2f830d5318f6a29a10707521c8573a5657a86f5ba7acca412ea3a`다.
+DSO는 2a37aa03... 그대로다. 전체 성능 비교와 새 Debian 설치는 반복하지 않았다.
+실험 네이티브 패치 범위이므로 Gradle/UI/외부 API·앱 MCP는 사용하지 않았다.
+새 옵션의 설치 통합 검증과 제품 기본 적용은 남아 있다.

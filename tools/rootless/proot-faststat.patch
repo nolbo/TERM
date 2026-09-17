@@ -10,7 +10,7 @@
  #include "cli/note.h"
  
  #include "compat.h"
-@@ -264,6 +267,111 @@
+@@ -264,6 +267,129 @@
  	if (status < 0)
  		goto end;
  
@@ -78,6 +78,24 @@
 +		status = add_statements(&program, sizeof(direct)/sizeof(direct[0]), direct);
 +		if (status < 0) goto end;
 +	}
++	const char *id_entry = getenv("PROOT_ID_ENTRY");
++	if (id_entry && !strcmp(id_entry, "1")) {
++		struct sock_filter ids[] = {
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 9),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 174 /* getuid */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 175 /* geteuid */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 176 /* getgid */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 177 /* getegid */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++		};
++		status = add_statements(&program, sizeof(ids)/sizeof(ids[0]), ids);
++		if (status < 0) goto end;
++	}
 +	const char *fstat_entry = getenv("PROOT_FSTAT_ENTRY");
 +	if (fstat_entry && strcmp(fstat_entry, "1") == 0) {
 +		struct sock_filter entry[] = {
@@ -137,7 +155,7 @@
  
  /* Older kernel headers may lack these. */
  #ifndef CLONE_NEWTIME
-@@ -1814,6 +1820,289 @@
+@@ -1814,6 +1820,327 @@
   * -errno if an error occured from the tracee's point-of-view (EFAULT
   * for instance), otherwise 0.
   */
@@ -277,6 +295,44 @@
 +	if (process_vm_writev(tracee->pid, &local, 1, &remote, 1, 0) != sizeof(*result))
 +		return false;
 +	poke_reg(tracee, SYSARG_RESULT, 0);
++	set_sysnum(tracee, PR_void);
++	tracee->sysexit_pending = false;
++	tracee->restart_how = PTRACE_CONT;
++	return true;
++}
++
++static bool id_entry_enabled(Tracee *tracee)
++{
++	switch (get_sysnum(tracee, ORIGINAL)) {
++	case PR_getuid: case PR_geteuid: case PR_getgid: case PR_getegid: break;
++	default: return false;
++	}
++	const char *setting = getenv("PROOT_ID_ENTRY");
++	return setting && !strcmp(setting, "1") && tracee->seccomp == ENABLED &&
++		!is_32on64_mode(tracee);
++}
++
++static bool complete_id_entry(Tracee *tracee)
++{
++	if (!id_entry_enabled(tracee)) return false;
++	word_t number = get_sysnum(tracee, ORIGINAL);
++	if (get_sysnum(tracee, CURRENT) != number) return false;
++	Extension *identity = get_extension(tracee, fake_id0_callback);
++	if (!identity) return false;
++	Extension *extension;
++	LIST_FOREACH(extension, tracee->extensions, link)
++		if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback)
++			return false;
++	Config *config = identity->config;
++	word_t result;
++	switch (number) {
++	case PR_getuid: result = config->ruid; break;
++	case PR_geteuid: result = config->euid; break;
++	case PR_getgid: result = config->rgid; break;
++	case PR_getegid: result = config->egid; break;
++	default: return false;
++	}
++	poke_reg(tracee, SYSARG_RESULT, result);
 +	set_sysnum(tracee, PR_void);
 +	tracee->sysexit_pending = false;
 +	tracee->restart_how = PTRACE_CONT;
@@ -427,7 +483,7 @@
  int translate_syscall_enter(Tracee *tracee)
  {
  	int flags;
-@@ -1831,6 +2120,8 @@
+@@ -1831,6 +2158,8 @@
  	word_t syscall_number;
  	bool special = false;
  
@@ -436,7 +492,7 @@
  	status = notify_extensions(tracee, SYSCALL_ENTER_START, 0, 0);
  	if (status < 0)
  		goto end;
-@@ -1839,6 +2130,82 @@
+@@ -1839,6 +2168,82 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
@@ -445,7 +501,7 @@
 +		tracee->sysexit_pending = true;
 +		tracee->restart_how = PTRACE_SYSCALL;
 +	}
-+	if (mutation_entry_enabled(tracee)) {
++	if (mutation_entry_enabled(tracee) || id_entry_enabled(tracee)) {
 +		tracee->sysexit_pending = true;
 +		tracee->restart_how = PTRACE_SYSCALL;
 +	}
@@ -519,7 +575,7 @@
  	switch (syscall_number) {
  	default:
  		/* Nothing to do. */
-@@ -1944,6 +2311,7 @@
+@@ -1944,6 +2349,7 @@
  			status = -ENOMEM;
  			break;
  		}
@@ -527,7 +583,7 @@
  		TALLOC_FREE(tracee->fs->cwd);
  
  		tracee->fs->cwd = tmp;
-@@ -2842,21 +3210,22 @@
+@@ -2842,21 +3248,22 @@
  	case PR_close: {
  		int closed_fd = (int) peek_reg(tracee, CURRENT, SYSARG_1);
  
@@ -560,7 +616,7 @@
  		break;
  	}
  
-@@ -2868,5 +3237,15 @@
+@@ -2868,5 +3275,16 @@
  	if (status2 < 0)
  		status = status2;
  
@@ -569,6 +625,7 @@
 +		(void) complete_stat_entry(tracee);
 +		(void) complete_fstat_entry(tracee);
 +		(void) complete_mutation_entry(tracee);
++		(void) complete_id_entry(tracee);
 +	}
 +#endif
 +
