@@ -1018,3 +1018,15 @@ Android MCP에서 실제 가속 hits와 신선한 파일 크기·ID·삭제·오
 [범위·설정·해시](../tools/rootless/faststat/README.md#공유-경로-기반-stat).
 엔진·DSO 빌드가 통과했다. 새 설치와 시간 비교·제품 적용은 남아 있으며
 **전체 2배 목표는 미달성이다.**
+
+## 45단계: 공유 stat의 설치 통합 검증
+
+설치 실행기에 공유 stat 옵션을 연결하고 host/guest 설정 분리 및 옵션 의존성을
+단위 시험으로 확인했다. Android MCP에서 최신 엔진·DSO로 새 Debian 설치가
+85.992초에 통과했다. 공식 패키지 구성·기본 환경·하드링크·파일 내용과 실제
+stat/fstat/open/create/unlink 가속 사용을 확인했다. 권한 변경 실험은 꺼 두었다.
+[설정·검증 범위](../tools/rootless/faststat/README.md#공유-stat를-포함한-debian-설치).
+
+정규 빌드·runtime 단위 시험·image 시험·instrumentation APK 빌드가 통과했다.
+설치 시간은 성능 향상 수치로 해석하지 않는다. 누적 성능 확인과 제품 적용이
+남아 있으며 **전체 목표는 미달성이다.**

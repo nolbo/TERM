@@ -52,7 +52,9 @@ class RootlessFreshInstallTest {
             val fastUnlink = arguments.getString("rootlessFastUnlink") == "true"
             val fastCreate = arguments.getString("rootlessFastCreate") == "true"
             val fastOpen = arguments.getString("rootlessFastOpen") == "true"
+            val sharedStat = arguments.getString("rootlessSharedStat") == "true"
             val fastfd = arguments.getString("rootlessFastfd") == "true"
+            require(!sharedStat || fastfd) { "Shared stat requires fastfd" }
             require(!fastUnlink || fastOpen) { "Fast unlink requires fast open" }
             require(!fastCreate || fastOpen) { "Fast create requires fast open" }
             require(!fastOpen || fastfd) { "Fast open requires fastfd" }
@@ -83,7 +85,7 @@ class RootlessFreshInstallTest {
             val launch = buildRootlessLaunchSpec(layout, proot, guestLoader, "/bin/sh", "/", emptyMap())
             assertFalse(launch.arguments.contains("--link2symlink"))
             RootlessEnvironmentSetup(context, layout, proot, guestLoader, reporter,
-                statKernel, pathKernel, mutationEntry, fstatEntry, openNotifyThread, fastfdLibrary, fastOpen, fastCreate, fastUnlink, tcgetsDirect, idEntry).prepare()
+                statKernel, pathKernel, mutationEntry, fstatEntry, openNotifyThread, fastfdLibrary, fastOpen, fastCreate, fastUnlink, tcgetsDirect, idEntry, sharedStat).prepare()
             RootlessEnvironmentProfile.validate(layout).getOrThrow()
             val check = runRootlessSetupCommand(layout, proot, guestLoader, listOf("/bin/sh", "-c", """
                 set -eu
@@ -103,9 +105,11 @@ class RootlessFreshInstallTest {
             """.trimIndent()), statKernelAcceleration = statKernel, pathKernelAcceleration = pathKernel,
                 mutationEntryAcceleration = mutationEntry, fstatEntryAcceleration = fstatEntry,
                 openNotifyThread = openNotifyThread, fastfdLibrary = fastfdLibrary, fastOpen = fastOpen, fastCreate = fastCreate, fastUnlink = fastUnlink,
-                tcgetsDirect = tcgetsDirect, idEntry = idEntry)
+                tcgetsDirect = tcgetsDirect, idEntry = idEntry, sharedStat = sharedStat)
             assertEquals(check.output, 0, check.exitCode)
             assertTrue(check.output.contains("PASS fresh distribution native links"))
+            if (sharedStat) assertTrue("No accelerated path stat observed: ${check.output}",
+                Regex("\"hits\":([1-9][0-9]*)").containsMatchIn(check.output))
             if (fastfd) assertTrue("No accelerated fstat observed: ${check.output}",
                 Regex("\"fd_hits\":([1-9][0-9]*)").containsMatchIn(check.output))
             if (fastOpen) assertTrue("No accelerated open observed: ${check.output}",

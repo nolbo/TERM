@@ -98,6 +98,26 @@ class RootlessSetupCommandTest {
             openNotifyThread = true) }.exceptionOrNull() is IllegalArgumentException)
     }
 
+    @Test fun sharedStatSeparatesHostAndGuestOptionsAndRequiresDso() = runBlocking {
+        val fakeProot = executable("printf '%s:%s\\n' \"\${PROOT_FASTPATH-unset}\" \"\${PROOT_FASTSTAT_SHARED-unset}\"; printf '%s\\n' \"\$@\"")
+        val current = layout()
+        val library = temporary.newFile("stat-dso.so")
+        val enabled = runRootlessSetupCommand(current, fakeProot, fakeProot,
+            listOf("/bin/true"), fastfdLibrary = library, sharedStat = true)
+        assertEquals(0, enabled.exitCode)
+        assertTrue(enabled.output.startsWith("1:unset\n"))
+        assertTrue(enabled.output.contains("PROOT_FASTSTAT_SHARED=1\n"))
+        val ordinary = runRootlessSetupCommand(current, fakeProot, fakeProot,
+            listOf("/bin/true"), fastfdLibrary = library)
+        assertTrue(ordinary.output.startsWith("unset:unset\n"))
+        assertFalse(ordinary.output.contains("PROOT_FASTSTAT_SHARED="))
+        assertTrue(runCatching { runRootlessSetupCommand(current, fakeProot, fakeProot,
+            listOf("/bin/true"), sharedStat = true) }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching { runRootlessSetupCommand(current, fakeProot, fakeProot,
+            listOf("/bin/true"), sharedStat = true, fastfdLibrary = library,
+            openNotifyThread = true) }.exceptionOrNull() is IllegalArgumentException)
+    }
+
     @Test fun packageOutputIsBoundedAndExitFailuresRemainVisible() = runBlocking {
         val fakeProot = executable("i=0; while [ \$i -lt 2000 ]; do echo '012345678901234567890123456789'; i=\$((i+1)); done; echo decisive-error; exit 17")
         val result = runRootlessSetupCommand(layout(), fakeProot, fakeProot, listOf("/bin/true"), 10_000)

@@ -1146,3 +1146,22 @@ ARM64 엔진·DSO 빌드와 Python 구문 검사, APK 설치가 통과했다. in
 `facbee68797a75a483cfa190d854647a865796ada603ad08d3f46545228fefb2`다.
 실험 네이티브 변경으로 Gradle·UI·외부 API/앱 MCP는 사용하지 않았다.
 새 설치 통합·누적 시간 비교·제품 기본 적용은 남아 있다.
+
+### 공유 stat를 포함한 Debian 설치
+
+설치 실행기에 기본 비활성 `sharedStat`를 추가했다. 시험 인자
+`rootlessSharedStat=true`로 켜며 fastfd DSO가 필요하고 notification 모드와
+함께 사용하지 않는다. host FASTPATH와 guest FASTSTAT_SHARED 전달을 분리한다.
+설치 시험은 기존 path DSO를 끈 상태에서 양수인 path stat hits를 요구한다.
+
+2026-09-17 Android MCP의 API35 ARM64 redroid/ext4에서 eb7fcae5... 엔진과
+facbee68... DSO, ID/TCGETS와 기존 파일 가속을 켠 새 Debian 설치가
+85.992초에 통과했다. 공식 패키지 설치·기본 환경·하드링크·상대 파일 내용 및
+stat/fstat/open/create/unlink 가속 사용을 확인했다. 권한 변경 실험 옵션은 끈
+상태다. 설치 시간은 속도 향상 증거로 사용하지 않는다.
+
+JDK 17 정규 assembleDebug/runtime 단위 시험/image 시험과
+assembleDebugAndroidTest가 통과했다(170 tasks). 시험 APK 서명 검증과 설치가
+통과했고 incremental 미지원은 streamed로 해결했다. 전체 성능 비교는 반복하지
+않았다. UI/외부 API/외부 앱 변경이 없어 다른 MCP는 사용하지 않았다.
+누적 시간 비교와 일반 사용자 세션의 제품 기본 적용은 남아 있다.
