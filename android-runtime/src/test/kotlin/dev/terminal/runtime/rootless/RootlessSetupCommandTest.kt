@@ -118,6 +118,25 @@ class RootlessSetupCommandTest {
             openNotifyThread = true) }.exceptionOrNull() is IllegalArgumentException)
     }
 
+    @Test fun packagedProfileAcceleratesMaintenanceWithoutPreloadingTheHost() = runBlocking {
+        val fakeProot = executable("printf '%s:%s:%s\\n' \"\${PROOT_ID_ENTRY-unset}\" \"\${PROOT_FASTPATH-unset}\" \"\${LD_PRELOAD-unset}\"; printf '%s\\n' \"\$@\"")
+        val current = layout()
+        current.rootfs.mkdirs()
+        RootlessStorageFormat.prepareNewInstallation(current.rootfs.toPath())
+        val library = temporary.newFile("packaged-stat.so")
+        val result = runRootlessSetupCommand(current, fakeProot, fakeProot, listOf("/bin/true"),
+            accelerationLibrary = library)
+        assertEquals(0, result.exitCode)
+        assertTrue(result.output.startsWith("1:1:unset\n"))
+        assertTrue(result.output.contains("PROOT_FASTSTAT_SHARED=1\n"))
+        assertTrue(result.output.contains("PROOT_FASTCREATE=1\n"))
+        assertTrue(result.output.contains("--kill-on-exit\n"))
+        assertEquals(1, result.output.lineSequence().count { it == "${library.absolutePath}:/usr/local/lib/terminal-faststat.so" })
+        assertTrue(runCatching { runRootlessSetupCommand(current, fakeProot, fakeProot,
+            listOf("/bin/true"), accelerationLibrary = library, fastfdLibrary = library)
+        }.exceptionOrNull() is IllegalArgumentException)
+    }
+
     @Test fun packageOutputIsBoundedAndExitFailuresRemainVisible() = runBlocking {
         val fakeProot = executable("i=0; while [ \$i -lt 2000 ]; do echo '012345678901234567890123456789'; i=\$((i+1)); done; echo decisive-error; exit 17")
         val result = runRootlessSetupCommand(layout(), fakeProot, fakeProot, listOf("/bin/true"), 10_000)

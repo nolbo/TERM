@@ -57,7 +57,9 @@ internal class RootlessEnvironmentSetup(
                 mutationEntryAcceleration = mutationEntryAcceleration,
                 fstatEntryAcceleration = fstatEntryAcceleration, openNotifyThread = openNotifyThread,
                 fastfdLibrary = fastfdLibrary, fastOpen = fastOpen, fastCreate = fastCreate, fastUnlink = fastUnlink,
-                tcgetsDirect = tcgetsDirect, idEntry = idEntry, sharedStat = sharedStat)
+                tcgetsDirect = tcgetsDirect, idEntry = idEntry, sharedStat = sharedStat,
+                accelerationLibrary = if (dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION &&
+                    fastfdLibrary == null && !openNotifyThread) File(proot.parentFile, "libproot-faststat.so") else null)
             check(result.exitCode == 0) { "종료 코드 ${result.exitCode}\n${result.errorContext.ifBlank { result.output.takeLast(2000) }}" }
         } catch (error: TimeoutCancellationException) {
             throw RootlessSetupException(progress.currentPhase,
@@ -87,8 +89,12 @@ internal suspend fun runRootlessSetupCommand(
     tcgetsDirect: Boolean = false,
     idEntry: Boolean = false,
     sharedStat: Boolean = false,
+    accelerationLibrary: File? = null,
 ): RootlessCommandResult = withContext(Dispatchers.IO) {
     File(layout.tmp, "graphics-shm").mkdirs()
+    require(accelerationLibrary == null || (fastfdLibrary == null && !openNotifyThread)) {
+        "Packaged acceleration cannot be combined with a separate DSO or notification experiment"
+    }
     require(!sharedStat || (fastfdLibrary != null && !openNotifyThread)) { "Shared stat requires a guest DSO without notification mode" }
     require(!fastUnlink || fastOpen) { "Fast unlink requires fast open" }
     require(!fastCreate || fastOpen) { "Fast create requires fast open" }
@@ -104,7 +110,7 @@ internal suspend fun runRootlessSetupCommand(
     val spec = buildRootlessLaunchSpec(layout, proot, loader, "/bin/sh", "/", mapOf(
         SessionCommand.KEY to SessionCommand.encode(argv), "TERM" to "dumb", "LC_ALL" to "C.UTF-8",
         "DEBIAN_FRONTEND" to "noninteractive", "NEEDRESTART_MODE" to "a",
-    ) + experimentEnvironment)
+    ) + experimentEnvironment, accelerationLibrary = accelerationLibrary)
     // Maintenance commands are finite: keyring hooks may leave gpg-agent detached.
     // Reap only this invocation's tracees once its command exits. Interactive PTYs
     // keep their independent lifetime and do not use this option.

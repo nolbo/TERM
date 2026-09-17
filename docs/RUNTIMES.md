@@ -99,6 +99,12 @@ execution still uses the centralized APK executable loader. Existing guest
 preloads follow the acceleration DSO. Guest-supplied PROOT options cannot replace
 the APK-selected profile.
 
+The candidate's package installation, environment configuration and verification
+stages use the same profile automatically. Maintenance retains its finite
+`--kill-on-exit` process ownership; interactive session ownership is unchanged.
+Explicit experimental DSO/notification setup paths remain separate from the
+packaged profile to avoid duplicate library bindings or conflicting modes.
+
 The candidate requires a fresh native-hardlink installation and reports an error
 for an unmarked rootfs rather than converting it. Builds without the property
 retain the original engine. This is a candidate distribution path, not promotion
