@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Virtual cwd publication across chdir, shared threads, fork and rename."""
 import ctypes
+import errno
 import os
 import shutil
 import signal
@@ -31,13 +32,27 @@ def read_relative(expected, accelerate=True):
 try:
     os.chdir(a)
     read_relative(b'a')
+    for spelling in ('./file', '././file', a + '//./file'):
+        before = libc.proot_fastopen_hits()
+        fd = os.open(spelling, os.O_RDONLY)
+        assert os.read(fd, 1) == b'a'
+        os.close(fd)
+        assert libc.proot_fastopen_hits() > before
+    for spelling in ('file/.', './file//.', 'file/'):
+        try:
+            fd = os.open(spelling, os.O_RDONLY)
+        except OSError as error:
+            assert error.errno == errno.ENOTDIR
+        else:
+            os.close(fd)
+            raise AssertionError('trailing directory requirement lost')
     before = libc.proot_fastcreate_hits()
-    fd = os.open('new', os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    fd = os.open('././new', os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     os.write(fd, b'new')
     os.close(fd)
     assert libc.proot_fastcreate_hits() > before
     before = libc.proot_fastunlink_hits()
-    os.unlink('new')
+    os.unlink('./new')
     assert libc.proot_fastunlink_hits() > before and not os.path.exists(a + '/new')
     ready, changed = threading.Event(), threading.Event()
     errors = []

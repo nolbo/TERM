@@ -963,3 +963,20 @@ JDK 17 정규 빌드·runtime 단위 시험·image 시험·instrumentation APK �
 빌드가 통과했다. incremental 설치 미지원은 streamed로 해결했다. 성능 비교는
 반복하지 않았고 설치 시간을 성능 향상 수치로 사용하지 않는다. UI/외부 API/
 외부 앱 MCP는 필요하지 않았다. 일반 세션과 제품 기본 엔진은 아직 변경하지 않았다.
+
+### dot와 중복 slash 표기
+
+open/create/unlink는 공유 cwd와 결합한 경로에서 중복 `/`와 `.` 요소를 정리한다.
+끝의 `/` 또는 `/.`는 디렉터리 요구 조건을 남기므로 일반 파일을 잘못 열지 않는다.
+`..` 요소는 정리하지 않고 기존 처리로 복귀한다. 실제 경로의 심볼릭 링크 제한은
+기존 커널 NO_SYMLINKS 검사로 유지한다. 진단 전용 proot_fastpath_translate의
+입력 허용 범위는 바꾸지 않았다.
+
+2026-09-17 Android MCP에서 `./file`, `././file`, 중복 slash 열기의 가속 사용과
+`././new` 생성·`./new` 삭제의 가속 사용을 확인했다. `file/.`, `file//.`, `file/`는
+ENOTDIR를 유지했다. cwd·생성·읽기·삭제 회귀도 통과했다. DSO 빌드·시험 APK
+서명/설치 통과; incremental 미지원은 streamed로 해결했다.
+DSO 해시는 `2a37aa03e6a89c0472ed821bef167dc458ff0340c26125917f24d1ee63cb6c80`이고
+엔진은 47d3b22e... 그대로다. 성능 비교·새 설치·Gradle은 반복하지 않았다.
+실험 DSO 변경으로 다른 MCP는 필요하지 않았다. 전체 성능 개선의 추가 배속을
+주장하지 않으며, 새 설치 검증은 직전 DSO 후보에 대한 결과다.
