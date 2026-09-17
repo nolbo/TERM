@@ -54,7 +54,13 @@ static void publish_paths(Tracee *tracee, struct fastfd_state *state, bool activ
     atomic_fetch_add(&page->sequence, 1);
     atomic_store(&page->active, 0);
     unsigned count = 0, used = 0;
-    bool root = false, valid = active && bindings;
+    const char *cwd = tracee->fs->cwd;
+    size_t cwd_length = cwd ? strlen(cwd) : 0;
+    bool root = false, valid = active && bindings && cwd_length &&
+        cwd_length < sizeof(page->cwd) && cwd[0] == '/';
+    if (valid)
+        for (size_t i = 0; i <= cwd_length; i++)
+            atomic_store_explicit(&page->cwd[i], cwd[i], memory_order_relaxed);
     if (valid) {
         const Binding *binding;
         CIRCLEQ_FOREACH(binding, bindings, link.guest) {

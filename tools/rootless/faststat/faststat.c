@@ -284,6 +284,29 @@ static int lookup_shared_path(struct proot_fastpath_rules *rules, const char *pa
     return sequence == atomic_load(&rules->sequence) && atomic_load(&rules->active);
 }
 
+/* The kernel cwd is not PRoot's virtual cwd. Relative AT_FDCWD calls use
+ * the same shared snapshot as the binding lookup; other dirfds fall back. */
+static int shared_absolute_path(struct proot_fastpath_rules *rules, int dirfd,
+                                char path[PATH_MAX])
+{
+    if (path[0] == '/') return 1;
+    if (!path[0] || dirfd != AT_FDCWD || !atomic_load(&rules->active)) return 0;
+    char absolute[PATH_MAX];
+    size_t length;
+    for (length = 0; length < sizeof(absolute); length++) {
+        absolute[length] = atomic_load_explicit(&rules->cwd[length], memory_order_relaxed);
+        if (!absolute[length]) break;
+    }
+    if (!length || length == sizeof(absolute) || absolute[0] != '/') return 0;
+    size_t suffix = strlen(path);
+    int separator = absolute[length - 1] != '/';
+    if (length + separator + suffix >= sizeof(absolute)) return 0;
+    if (separator) absolute[length++] = '/';
+    memcpy(absolute + length, path, suffix + 1);
+    strcpy(path, absolute);
+    return 1;
+}
+
 /* Private diagnostic API used to test rule publication before enabling open. */
 int proot_fastpath_translate(const char *path, char *output, size_t capacity)
 {
@@ -346,6 +369,7 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
     char copied[PATH_MAX], translated[PATH_MAX];
     if (!identity || !copy_path(copied, path)) goto slow_open;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
+    if (!shared_absolute_path(&identity->paths, dirfd, copied)) goto slow_open;
     if (!lookup_shared_path(&identity->paths, copied, translated)) goto slow_open;
     char *basename = NULL;
     if (creating) {
@@ -414,6 +438,7 @@ int unlinkat(int dirfd, const char *path, int flags)
     char copied[PATH_MAX], translated[PATH_MAX];
     if (!identity || !copy_path(copied, path)) goto slow_unlink;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
+    if (!shared_absolute_path(&identity->paths, dirfd, copied)) goto slow_unlink;
     if (!lookup_shared_path(&identity->paths, copied, translated)) goto slow_unlink;
     char *slash = strrchr(translated, '/');
     if (!slash || slash == translated || !slash[1]) goto slow_unlink;

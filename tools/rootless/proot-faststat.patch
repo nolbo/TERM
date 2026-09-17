@@ -501,7 +501,15 @@
  	switch (syscall_number) {
  	default:
  		/* Nothing to do. */
-@@ -2842,21 +3209,22 @@
+@@ -1944,6 +2311,7 @@
+ 			status = -ENOMEM;
+ 			break;
+ 		}
++		fastpath_invalidate_all();
+ 		TALLOC_FREE(tracee->fs->cwd);
+ 
+ 		tracee->fs->cwd = tmp;
+@@ -2842,21 +3210,22 @@
  	case PR_close: {
  		int closed_fd = (int) peek_reg(tracee, CURRENT, SYSARG_1);
  
@@ -534,7 +542,7 @@
  		break;
  	}
  
-@@ -2868,5 +3236,15 @@
+@@ -2868,5 +3237,15 @@
  	if (status2 < 0)
  		status = status2;
  
@@ -901,3 +909,17 @@
  	}
  
  	/* Check if chroot target has bind mounts inside.
+--- a/src/syscall/exit.c
++++ b/src/syscall/exit.c
+@@ -1,3 +1,4 @@
++#include "tracee/faststat.h"
+ /* -*- c-set-style: "K&R"; c-basic-offset: 8 -*-
+  *
+  * This file is part of PRoot.
+@@ -322,5 +323,6 @@
+ 			break;
+ 		}
+ 
++		fastpath_invalidate_all();
+ 		TALLOC_FREE(tracee->fs->cwd);
+ 		tracee->fs->cwd = tmp;

@@ -11,7 +11,7 @@
 #include <stdatomic.h>
 
 #define PROOT_FASTFD_ATTACH 0x50525348
-#define PROOT_FASTFD_VERSION 2
+#define PROOT_FASTFD_VERSION 3
 #define PROOT_FASTFD_MAPPING_SIZE 32768
 #define PROOT_FASTPATH_BINDINGS 32
 #define PROOT_FASTPATH_BYTES 16384
@@ -22,6 +22,7 @@ struct proot_fastpath_rules {
     _Atomic uint32_t sequence, active, count;
     struct proot_fastpath_binding bindings[PROOT_FASTPATH_BINDINGS];
     _Atomic unsigned char paths[PROOT_FASTPATH_BYTES];
+    _Atomic unsigned char cwd[4096];
 };
 /* Credentials and path rules only. File metadata is never stored here. */
 struct proot_fastfd_identity {

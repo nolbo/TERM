@@ -921,3 +921,28 @@ DSO는 `0fc52429093460dcebca25599bea7307b2acb775295ea493cbb702e20b8f2e5c`다.
 삭제 옵션은 아직 설치 실행기에 연결하지 않았고 새 Debian 설치 검증도 남아 있다.
 실험 native 코드만 변경해 Gradle은 반복하지 않았다. UI·외부 API·외부 앱 MCP는
 필요하지 않았다. 제품 기본 엔진과 일반 세션 구성은 변경하지 않았다.
+
+## 가상 작업 디렉터리와 상대 경로
+
+공유 ABI 버전 3은 가상 cwd를 추가한다. 매핑 크기는 32 KiB 그대로이며 엔진과
+DSO를 함께 다시 빌드해야 한다. chdir/fchdir 및 PRoot가 cwd를 갱신하는 rename
+처리에서 연결된 규칙을 먼저 무효화하고 tracee 재개 전에 새 cwd/bind를 게시한다.
+fork의 독립 namespace는 독립 페이지를 사용하며, 스레드가 공유하는 cwd 변경은
+다른 스레드의 페이지도 무효화한다.
+
+open/create/unlink에서 AT_FDCWD의 단순 상대 경로를 같은 snapshot의 cwd와
+결합한다. 실제 디렉터리 FD를 지정한 상대 경로, `.`/`..` 정규화가 필요한 경로,
+중첩 bind 등은 기존 처리다. 커널 cwd를 PRoot cwd로 간주하지 않는다. 기존의
+읽기 후 버전 재확인과 생성/삭제 전 버전 확인을 유지한다. 이는 기존 PRoot의
+가상 cwd를 공유하는 구현이며 외부 프로세스에 의한 모든 rename을 추적하는
+커널 cwd 구현을 새로 제공하는 것은 아니다.
+
+2026-09-17 Android MCP에서 cwd-test.py의 상대 open/create/unlink 가속 사용,
+chdir/fchdir, 다른 스레드의 cwd 변경, 실패한 chdir의 상태 유지, 실제 dirfd의
+fallback, cwd rename, fork 이후 부모/자식 분리가 통과했다. bind/chroot 공유 규칙,
+기존 생성·읽기·삭제 및 FD 회귀(hits=653)도 통과했다. ARM64 엔진/DSO 빌드·시험
+APK 서명·설치 통과; incremental 설치 미지원은 streamed로 해결했다.
+엔진 해시는 `47d3b22ed4dc2bb48e2146ff49f5b694bea16494e228c4c652073d970d98245d`,
+DSO는 `16abfaca639a912959c799ec0e32cab1720b44431244acf3c2884e05e5657e73`다.
+시간 벤치마크·새 설치·Gradle은 반복하지 않았다. 새 ABI 후보의 전체 설치 검증은
+남아 있다. 실험 native 코드 범위라 UI/외부 API/외부 앱 MCP는 사용하지 않았다.
