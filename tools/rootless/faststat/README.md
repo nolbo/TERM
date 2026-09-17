@@ -1039,3 +1039,22 @@ exit_stop은 1,070→66회였다. 이는 추적 왕복 감소의 증거이며 �
 DSO는 2a37aa03... 그대로다. 전체 성능 비교와 새 Debian 설치는 반복하지 않았다.
 실험 네이티브 패치 범위이므로 Gradle/UI/외부 API·앱 MCP는 사용하지 않았다.
 새 옵션의 설치 통합 검증과 제품 기본 적용은 남아 있다.
+
+### ID·TCGETS 누적 후보의 새 Debian 설치
+
+설치 실행기에 기본 비활성 `tcgetsDirect`와 `idEntry`를 추가했다. 시험 인자
+`rootlessTcgetsDirect=true rootlessIdEntry=true`로 켜며 검증된 실험 엔진 해시가
+필요하다. 두 값은 host 환경에만 전달한다. 단위 시험에서 각각/동시 활성화와
+기본 비활성을 확인했다.
+
+2026-09-17 Android MCP의 API35 ARM64 redroid/ext4에서 최신 ID 엔진 0677e4c2...
+및 dot 경로 DSO 2a37aa03...를 사용한 새 Debian 설치가 85.842초에 통과했다.
+stat/path/mutation/fstat 및 fastfd/open/create/unlink와 새 두 옵션을 함께 켰다.
+공식 패키지 설치·기본 환경 검증·하드링크·상대 파일 내용 검증과 양수인
+create/open/unlink/fstat 가속 카운터를 확인했다. 설치 시간은 배속 증거가 아니다.
+
+JDK 17에서 정규 assembleDebug/runtime 단위 시험/image 시험 및
+assembleDebugAndroidTest가 통과했다(170 tasks). APK 서명 검증·설치가 통과했고
+incremental 설치 미지원은 streamed 설치로 해결했다. 전체 성능 비교는 반복하지
+않았다. UI/외부 API/외부 앱 변경이 없어 다른 MCP는 사용하지 않았다.
+일반 사용자 세션과 제품 기본 엔진 적용, 전체 작업 2배 달성은 여전히 남아 있다.

@@ -956,3 +956,16 @@ Android MCP에서 off/on 모두 ID 변경·8개 스레드·fork 격리·seccomp 
 엔진 빌드와 Python 구문 검사가 통과했다. 전체 시간 비교·새 설치·Gradle은
 반복하지 않았다. 새 ID/TCGETS 옵션의 설치 통합과 제품 적용은 남아 있다.
 **전체 작업 2배 및 파일 I/O 목표는 아직 미달성이다.**
+
+## 40단계: ID·TCGETS를 포함한 새 설치 통합 검증
+
+설치 실행기에 두 옵션을 연결하고 단위 시험으로 host 전달 및 기본 비활성을
+검사했다. 최신 실험 엔진과 DSO의 해시를 확인한 별도 시험 rootfs에서 누적
+가속을 모두 켜고 새 Debian 설치가 85.842초에 통과했다. 공식 패키지·기본 환경,
+하드링크, 상대 경로 파일 내용과 가속 create/open/unlink/fstat 사용을 검증했다.
+[설정과 검증 범위](../tools/rootless/faststat/README.md#idtcgets-누적-후보의-새-debian-설치).
+
+정규 Android 빌드·runtime 단위 시험·image 시험과 instrumentation APK 빌드가
+통과했다. Android MCP에서 실행했으며 전체 성능 비교는 반복하지 않았다.
+설치 성공을 전체 성능 2배 달성으로 해석하지 않는다. 제품 기본 적용과
+남은 생성·변경/추출 비용 개선이 필요하다. **전체 목표는 아직 미달성이다.**

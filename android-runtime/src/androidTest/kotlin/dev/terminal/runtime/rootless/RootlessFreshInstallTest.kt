@@ -46,6 +46,9 @@ class RootlessFreshInstallTest {
             val mutationEntry = arguments.getString("rootlessMutationEntry") == "true"
             val fstatEntry = arguments.getString("rootlessFstatEntry") == "true"
             val openNotifyThread = arguments.getString("rootlessOpenNotifyThread") == "true"
+            val tcgetsDirect = arguments.getString("rootlessTcgetsDirect") == "true"
+            val idEntry = arguments.getString("rootlessIdEntry") == "true"
+            require(!(tcgetsDirect || idEntry) || statKernel) { "Entry experiments require the verified experimental payload" }
             val fastUnlink = arguments.getString("rootlessFastUnlink") == "true"
             val fastCreate = arguments.getString("rootlessFastCreate") == "true"
             val fastOpen = arguments.getString("rootlessFastOpen") == "true"
@@ -80,7 +83,7 @@ class RootlessFreshInstallTest {
             val launch = buildRootlessLaunchSpec(layout, proot, guestLoader, "/bin/sh", "/", emptyMap())
             assertFalse(launch.arguments.contains("--link2symlink"))
             RootlessEnvironmentSetup(context, layout, proot, guestLoader, reporter,
-                statKernel, pathKernel, mutationEntry, fstatEntry, openNotifyThread, fastfdLibrary, fastOpen, fastCreate, fastUnlink).prepare()
+                statKernel, pathKernel, mutationEntry, fstatEntry, openNotifyThread, fastfdLibrary, fastOpen, fastCreate, fastUnlink, tcgetsDirect, idEntry).prepare()
             RootlessEnvironmentProfile.validate(layout).getOrThrow()
             val check = runRootlessSetupCommand(layout, proot, guestLoader, listOf("/bin/sh", "-c", """
                 set -eu
@@ -99,7 +102,8 @@ class RootlessFreshInstallTest {
                 printf 'PASS fresh distribution native links\n'
             """.trimIndent()), statKernelAcceleration = statKernel, pathKernelAcceleration = pathKernel,
                 mutationEntryAcceleration = mutationEntry, fstatEntryAcceleration = fstatEntry,
-                openNotifyThread = openNotifyThread, fastfdLibrary = fastfdLibrary, fastOpen = fastOpen, fastCreate = fastCreate, fastUnlink = fastUnlink)
+                openNotifyThread = openNotifyThread, fastfdLibrary = fastfdLibrary, fastOpen = fastOpen, fastCreate = fastCreate, fastUnlink = fastUnlink,
+                tcgetsDirect = tcgetsDirect, idEntry = idEntry)
             assertEquals(check.output, 0, check.exitCode)
             assertTrue(check.output.contains("PASS fresh distribution native links"))
             if (fastfd) assertTrue("No accelerated fstat observed: ${check.output}",

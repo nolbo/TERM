@@ -26,6 +26,19 @@ class RootlessSetupCommandTest {
         assertEquals("unset:unset:unset:unset:unset", ordinary.output)
     }
 
+    @Test fun entryOptionsReachOnlyExplicitHostProcesses() = runBlocking {
+        val fakeProot = executable("printf '%s:%s\\n' \"\${PROOT_TCGETS_DIRECT-unset}\" \"\${PROOT_ID_ENTRY-unset}\"; printf '%s\\n' \"\$@\"")
+        val current = layout()
+        for ((tcgets, identity) in listOf(false to false, true to false, false to true, true to true)) {
+            val result = runRootlessSetupCommand(current, fakeProot, fakeProot, listOf("/bin/true"),
+                tcgetsDirect = tcgets, idEntry = identity)
+            assertEquals(0, result.exitCode)
+            assertTrue(result.output.startsWith("${if (tcgets) "1" else "unset"}:${if (identity) "1" else "unset"}\n"))
+            assertFalse(result.output.contains("PROOT_TCGETS_DIRECT="))
+            assertFalse(result.output.contains("PROOT_ID_ENTRY="))
+        }
+    }
+
     @Test fun notificationThreadModeDoesNotLeakIntoOrdinarySetup() = runBlocking {
         val fakeProot = executable("printf '%s:%s' \"\${PROOT_OPEN_NOTIFY-unset}\" \"\${PROOT_OPEN_NOTIFY_THREAD-unset}\"")
         val current = layout()

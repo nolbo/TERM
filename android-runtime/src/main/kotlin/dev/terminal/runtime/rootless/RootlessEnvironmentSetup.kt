@@ -28,6 +28,8 @@ internal class RootlessEnvironmentSetup(
     private val fastOpen: Boolean = false,
     private val fastCreate: Boolean = false,
     private val fastUnlink: Boolean = false,
+    private val tcgetsDirect: Boolean = false,
+    private val idEntry: Boolean = false,
 ) {
     suspend fun prepare() {
         // An older successful marker must not survive a failed repair of missing defaults.
@@ -53,7 +55,8 @@ internal class RootlessEnvironmentSetup(
                 pathKernelAcceleration = pathKernelAcceleration,
                 mutationEntryAcceleration = mutationEntryAcceleration,
                 fstatEntryAcceleration = fstatEntryAcceleration, openNotifyThread = openNotifyThread,
-                fastfdLibrary = fastfdLibrary, fastOpen = fastOpen, fastCreate = fastCreate, fastUnlink = fastUnlink)
+                fastfdLibrary = fastfdLibrary, fastOpen = fastOpen, fastCreate = fastCreate, fastUnlink = fastUnlink,
+                tcgetsDirect = tcgetsDirect, idEntry = idEntry)
             check(result.exitCode == 0) { "종료 코드 ${result.exitCode}\n${result.errorContext.ifBlank { result.output.takeLast(2000) }}" }
         } catch (error: TimeoutCancellationException) {
             throw RootlessSetupException(progress.currentPhase,
@@ -80,6 +83,8 @@ internal suspend fun runRootlessSetupCommand(
     fastOpen: Boolean = false,
     fastCreate: Boolean = false,
     fastUnlink: Boolean = false,
+    tcgetsDirect: Boolean = false,
+    idEntry: Boolean = false,
 ): RootlessCommandResult = withContext(Dispatchers.IO) {
     File(layout.tmp, "graphics-shm").mkdirs()
     require(!fastUnlink || fastOpen) { "Fast unlink requires fast open" }
@@ -118,6 +123,8 @@ internal suspend fun runRootlessSetupCommand(
         if (pathKernelAcceleration) environment()["PROOT_PATH_KERNEL"] = "1"
         if (mutationEntryAcceleration) environment()["PROOT_MUTATION_ENTRY"] = "1"
         if (fstatEntryAcceleration) environment()["PROOT_FSTAT_ENTRY"] = "1"
+        if (tcgetsDirect) environment()["PROOT_TCGETS_DIRECT"] = "1"
+        if (idEntry) environment()["PROOT_ID_ENTRY"] = "1"
         if (openNotifyThread) {
             environment()["PROOT_OPEN_NOTIFY"] = "1"
             environment()["PROOT_OPEN_NOTIFY_THREAD"] = "1"
