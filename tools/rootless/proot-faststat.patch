@@ -10,10 +10,11 @@
  #include "cli/note.h"
  
  #include "compat.h"
-@@ -264,6 +267,129 @@
+@@ -263,6 +266,143 @@
+ 	status = new_program_filter(&program);
  	if (status < 0)
  		goto end;
- 
++
 +#if defined(__aarch64__)
 +	/* Experimental dispatcher: exact architecture, exact SVC return PC,
 +	 * and only its internal file lookup/open plumbing syscalls.
@@ -78,6 +79,20 @@
 +		status = add_statements(&program, sizeof(direct)/sizeof(direct[0]), direct);
 +		if (status < 0) goto end;
 +	}
++	const char *permission_entry = getenv("PROOT_PERMISSION_ENTRY");
++	if (permission_entry && !strcmp(permission_entry, "1")) {
++		struct sock_filter permissions[] = {
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 5),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 53 /* fchmodat */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 54 /* fchownat */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++		};
++		status = add_statements(&program, sizeof(permissions)/sizeof(permissions[0]), permissions);
++		if (status < 0) goto end;
++	}
 +	const char *id_entry = getenv("PROOT_ID_ENTRY");
 +	if (id_entry && !strcmp(id_entry, "1")) {
 +		struct sock_filter ids[] = {
@@ -136,10 +151,9 @@
 +		if (status < 0) goto end;
 +	}
 +#endif
-+
+ 
  	/* For each handled architectures */
  	for (i = 0; i < nb_archs; i++) {
- 		word_t syscall;
 --- a/src/syscall/enter.c
 +++ b/src/syscall/enter.c
 @@ -79,6 +79,12 @@
@@ -155,7 +169,7 @@
  
  /* Older kernel headers may lack these. */
  #ifndef CLONE_NEWTIME
-@@ -1814,6 +1820,327 @@
+@@ -1814,6 +1820,374 @@
   * -errno if an error occured from the tracee's point-of-view (EFAULT
   * for instance), otherwise 0.
   */
@@ -339,6 +353,53 @@
 +	return true;
 +}
 +
++static bool permission_entry_enabled(Tracee *tracee)
++{
++	word_t number = get_sysnum(tracee, ORIGINAL);
++	if (number != PR_fchmodat && number != PR_fchownat) return false;
++	const char *setting = getenv("PROOT_PERMISSION_ENTRY");
++	return setting && !strcmp(setting, "1") && tracee->seccomp == ENABLED &&
++		!is_32on64_mode(tracee);
++}
++
++static bool complete_permission_entry(Tracee *tracee)
++{
++#ifndef USERLAND
++	if (!permission_entry_enabled(tracee)) return false;
++	word_t number = get_sysnum(tracee, ORIGINAL);
++	if (get_sysnum(tracee, CURRENT) != number) return false;
++	Extension *identity = get_extension(tracee, fake_id0_callback);
++	if (!identity || ((Config *)identity->config)->euid != 0) return false;
++	Extension *extension;
++	LIST_FOREACH(extension, tracee->extensions, link)
++		if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback)
++			return false;
++	int flags = number == PR_fchownat ? (int)peek_reg(tracee, CURRENT, SYSARG_5) : 0;
++	if (flags & ~AT_SYMLINK_NOFOLLOW) return false;
++	char path[PATH_MAX];
++	if (read_path(tracee, path, peek_reg(tracee, CURRENT, SYSARG_2)) <= 0 ||
++	    path[0] != '/' || stat_entry_special(path)) return false;
++	struct stat metadata;
++	if (lstat(path, &metadata) != 0 || !S_ISREG(metadata.st_mode)) return false;
++	int result;
++	if (number == PR_fchmodat)
++		result = fchmodat(AT_FDCWD, path, (mode_t)peek_reg(tracee, CURRENT, SYSARG_3), 0);
++	else
++		result = fchownat(AT_FDCWD, path, (uid_t)peek_reg(tracee, CURRENT, SYSARG_3),
++			(gid_t)peek_reg(tracee, CURRENT, SYSARG_4), flags);
++	/* Match fake_id0's root permission-error handling. Never retry after mutation. */
++	int status = result < 0 ? -errno : result;
++	if (status == -EPERM || status == -EACCES) status = 0;
++	poke_reg(tracee, SYSARG_RESULT, (word_t)status);
++	set_sysnum(tracee, PR_void);
++	tracee->sysexit_pending = false;
++	tracee->restart_how = PTRACE_CONT;
++	return true;
++#else
++	return false;
++#endif
++}
++
 +static bool mutation_entry_enabled(Tracee *tracee)
 +{
 +	const char *setting = getenv("PROOT_MUTATION_ENTRY");
@@ -483,7 +544,7 @@
  int translate_syscall_enter(Tracee *tracee)
  {
  	int flags;
-@@ -1831,6 +2158,8 @@
+@@ -1831,6 +2205,8 @@
  	word_t syscall_number;
  	bool special = false;
  
@@ -492,7 +553,7 @@
  	status = notify_extensions(tracee, SYSCALL_ENTER_START, 0, 0);
  	if (status < 0)
  		goto end;
-@@ -1839,6 +2168,82 @@
+@@ -1839,6 +2215,82 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
@@ -501,7 +562,7 @@
 +		tracee->sysexit_pending = true;
 +		tracee->restart_how = PTRACE_SYSCALL;
 +	}
-+	if (mutation_entry_enabled(tracee) || id_entry_enabled(tracee)) {
++	if (mutation_entry_enabled(tracee) || id_entry_enabled(tracee) || permission_entry_enabled(tracee)) {
 +		tracee->sysexit_pending = true;
 +		tracee->restart_how = PTRACE_SYSCALL;
 +	}
@@ -575,7 +636,7 @@
  	switch (syscall_number) {
  	default:
  		/* Nothing to do. */
-@@ -1944,6 +2349,7 @@
+@@ -1944,6 +2396,7 @@
  			status = -ENOMEM;
  			break;
  		}
@@ -583,7 +644,7 @@
  		TALLOC_FREE(tracee->fs->cwd);
  
  		tracee->fs->cwd = tmp;
-@@ -2842,21 +3248,22 @@
+@@ -2842,21 +3295,22 @@
  	case PR_close: {
  		int closed_fd = (int) peek_reg(tracee, CURRENT, SYSARG_1);
  
@@ -616,7 +677,7 @@
  		break;
  	}
  
-@@ -2868,5 +3275,16 @@
+@@ -2868,5 +3322,17 @@
  	if (status2 < 0)
  		status = status2;
  
@@ -626,6 +687,7 @@
 +		(void) complete_fstat_entry(tracee);
 +		(void) complete_mutation_entry(tracee);
 +		(void) complete_id_entry(tracee);
++		(void) complete_permission_entry(tracee);
 +	}
 +#endif
 +

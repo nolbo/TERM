@@ -1058,3 +1058,27 @@ assembleDebugAndroidTest가 통과했다(170 tasks). APK 서명 검증·설치�
 incremental 설치 미지원은 streamed 설치로 해결했다. 전체 성능 비교는 반복하지
 않았다. UI/외부 API/외부 앱 변경이 없어 다른 MCP는 사용하지 않았다.
 일반 사용자 세션과 제품 기본 엔진 적용, 전체 작업 2배 달성은 여전히 남아 있다.
+
+## 일반 파일 권한·소유자 변경의 진입 완료 실험
+
+host `PROOT_PERMISSION_ENTRY=1`은 ARM64 fchmodat/fchownat를 경로 번역과 확장
+진입 처리 후 tracer에서 실행한다. fake_id0의 effective UID가 0이고 허용한
+확장만 있을 때 일반 파일을 대상으로 한다. USERLAND 메타파일 모드, 디렉터리,
+특수 경로, 지원하지 않는 flags 등은 기존 반환 처리를 유지한다. fchownat는
+fake_id0가 변환한 UID/GID를 사용하고 EPERM/EACCES 처리는 기존 fake-root와
+맞춘다. 실행 후 오류도 최종 결과로 반환하며 변경 작업을 재시도하지 않는다.
+기본값은 off이고 제품에는 적용하지 않았다.
+
+2026-09-17 Android MCP에서 `permission-entry-test.py`가 off/on 모두 통과했다.
+권한 비트(setuid 포함), 소유자 변경, 파일 내용, 심볼릭 링크/디렉터리, ENOENT,
+EFAULT, 잘못된 flags와 guest seccomp EPERM 및 거부 후 권한 불변을 검사했다.
+fchmodat와 fchownat 각각 100회 실행 시 각각의 반환 정지가 100→0회로 줄었다.
+전체 enter_stop은 719회 그대로, exit_stop은 311→111회였다. 반면 read_string은
+528→728회로 늘었다. 실제 시간 이득은 아직 입증하지 않았으며 이 경로를
+채택할지는 후속 누적 비교로 판단한다.
+
+ARM64 엔진 빌드, Python 구문 검사, 시험 APK 설치가 통과했다. incremental
+미지원은 streamed 설치로 해결했다. 엔진 SHA-256:
+`cbb2d40b7c032bca127c0453b4493471e55c37a16f7e89f4e89482d52d218115`.
+전체 벤치마크·새 Debian 설치·Gradle은 반복하지 않았다. 실험 네이티브 패치여서
+외부 API·UI·외부 앱 MCP는 필요하지 않았다. 새 옵션의 설치 통합은 남아 있다.
