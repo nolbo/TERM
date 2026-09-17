@@ -15,6 +15,7 @@
 #include "extension/fake_id0/config.h"
 #include "arch.h"
 #include "path/binding.h"
+#include "syscall/sysnum.h"
 
 struct fastfd_state {
     struct proot_fastfd_identity *page;
@@ -107,12 +108,36 @@ void fastfd_reset(Tracee *tracee)
     TALLOC_FREE(tracee->fastfd);
 }
 
+void fastclose_observe_enter(Tracee *tracee)
+{
+    switch (get_sysnum(tracee, ORIGINAL)) {
+    case PR_clone: case PR_clone3: case PR_fork: case PR_vfork: break;
+    default: return;
+    }
+    /* Invalidate before the kernel can create a descriptor-table sharer.
+     * New tracees start ineligible; only a later exec can enable them. */
+    Tracees *head = get_tracees_list_head();
+    Tracee *item;
+    LIST_FOREACH(item, head, link) {
+        item->fastclose_exec_isolated = false;
+        if (item->fastfd) atomic_store(&item->fastfd->page->close_safe, 0);
+    }
+}
+
 void fastfd_sync(Tracee *tracee)
 {
     struct fastfd_state *state = tracee->fastfd;
     if (!state) return;
     uint32_t uid = state->host_uid, gid = state->host_gid;
     uint32_t active = compatible(tracee);
+    static int requested = -1;
+    if (requested < 0) {
+        const char *setting = getenv("PROOT_FASTCLOSE");
+        requested = setting && !strcmp(setting, "1");
+    }
+    if (tracee->auxv_fd >= 0 || tracee->fake_netlink_fds_count || tracee->netlink_route_fds_count)
+        tracee->fastclose_exec_isolated = false;
+    atomic_store(&state->page->close_safe, requested && active && tracee->fastclose_exec_isolated);
     Extension *identity = get_extension(tracee, fake_id0_callback);
     if (identity) {
         Config *config = identity->config;

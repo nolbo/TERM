@@ -1266,3 +1266,35 @@ close의 auxv/netlink 상태 정리와 파이프 동작 때문에 무조건 추�
 적용하지 않았다. 이 시험은 이후 닫기 가속의 회귀 기준이며 새로운 속도 향상
 증거가 아니다. Python 구문 검사가 통과했고 실행 코드·Gradle·APK는 변경하지
 않았다. 전체 비교나 새 설치도 반복하지 않았다.
+
+## exec 격리 상태의 일반 파일 close 가속
+
+host와 guest의 `PROOT_FASTCLOSE=1`은 공유 페이지의 close 자격을 확인한 뒤
+일반 파일·디렉터리를 private close syscall로 닫는다. guest FASTFD도 필요하다.
+기본값은 off다. ABI 4는 close_safe 필드를 추가하며 기존 ABI와 짝지어 사용하지
+않는다. 후보 APK에 고정된 ABI 3 조합은 변경하지 않았다.
+
+새 tracee는 비활성으로 시작한다. exec 이벤트에서 FD 테이블이 분리되고 다른
+스레드가 사라진 뒤 자격을 얻는다. clone/clone3/fork/vfork 진입 시 현재 모든
+tracee의 자격을 먼저 해제한다. 새 자식은 exec 전까지 자격을 얻지 못한다.
+auxv/netlink 추적 상태가 관측된 tracee도 다음 exec까지 비활성이다. 이 조건과
+신호 마스킹으로 FD 검사와 close 사이에 같은 FD 테이블의 다른 실행자가 FD를
+바꾸지 못하게 한다. 일반 파일/디렉터리 이외에는 libc close를 사용해 파이프
+보정과 내부 상태 정리를 유지한다. 실행한 close는 오류에도 재시도하지 않는다.
+게스트 seccomp는 원래 close 번호에 적용되며 실패 errno를 그대로 반환한다.
+
+2026-09-17 Android MCP에서 `fastclose-test.py`가 off/on 모두 통과했다. 실제 hits,
+errno/EBADF, 스레드 생성 후 비활성화, exec 후 재활성화와 seccomp 거부 후 FD
+생존을 확인했다. 최종 DSO에서 close 상태·shared stat·FD 회귀(hits=653)도 통과했다.
+100회 open/read/close 루프를 포함한 실행에서 close 진입은 163→30회, 전체
+진입은 616→483회, 반환은 103회로 같았다. 시간 배속은 측정하지 않았다.
+
+엔진 빌드와 DSO 빌드, Python 구문 검사, 시험 APK 설치가 통과했다. 최초 엔진
+빌드는 패치 재생성 중 새 헤더 항목을 누락해 실패했으며 복원 후 통과했다.
+incremental 설치 미지원은 streamed로 해결했다. 엔진 SHA-256은
+`8b18f55628eedd2ea867f649a4e27a0476da0ba00690adb97714984b485f8804`, 최종 DSO는
+`32440930dc740987aec8288b0d84c569980703a20479a10c2f58218bc22a745d`다.
+카운터 진단은 같은 fast 경로의 초기 DSO 45fb694b...에서 수행했고 최종 변경은
+비활성 상태에서도 libc fallback이 초기화되도록 한 것이다. 전체 비교·새 설치·
+Gradle은 반복하지 않았다. 네이티브 실험이므로 UI/외부 API/앱 MCP는 필요하지 않았다.
+스레드가 많은 작업의 close는 가속하지 못하며 설치 통합·시간 효과 확인은 남아 있다.

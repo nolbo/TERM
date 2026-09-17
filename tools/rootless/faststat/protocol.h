@@ -11,7 +11,7 @@
 #include <stdatomic.h>
 
 #define PROOT_FASTFD_ATTACH 0x50525348
-#define PROOT_FASTFD_VERSION 3
+#define PROOT_FASTFD_VERSION 4
 #define PROOT_FASTFD_MAPPING_SIZE 32768
 #define PROOT_FASTPATH_BINDINGS 32
 #define PROOT_FASTPATH_BYTES 16384
@@ -24,9 +24,10 @@ struct proot_fastpath_rules {
     _Atomic unsigned char paths[PROOT_FASTPATH_BYTES];
     _Atomic unsigned char cwd[4096];
 };
-/* Credentials and path rules only. File metadata is never stored here. */
+/* Credentials, path rules and close eligibility. Never file metadata. */
 struct proot_fastfd_identity {
     _Atomic uint32_t sequence, active, host_uid, host_gid, guest_uid, guest_gid;
+    _Atomic uint32_t close_safe;
     struct proot_fastpath_rules paths;
 };
 _Static_assert(sizeof(struct proot_fastfd_identity) <= PROOT_FASTFD_MAPPING_SIZE, "fastfd shared ABI fits");
@@ -36,6 +37,7 @@ struct tracee;
 int fastfd_attach(struct tracee *tracee, int fd, unsigned version);
 void fastfd_sync(struct tracee *tracee);
 void fastfd_reset(struct tracee *tracee);
+void fastclose_observe_enter(struct tracee *tracee);
 void fastpath_invalidate_all(void);
 void forget_closed_fd(struct tracee *tracee, int fd);
 

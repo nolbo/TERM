@@ -553,7 +553,7 @@
  int translate_syscall_enter(Tracee *tracee)
  {
  	int flags;
-@@ -1830,7 +2212,13 @@
+@@ -1830,7 +2212,14 @@
  
  	word_t syscall_number;
  	bool special = false;
@@ -563,12 +563,13 @@
 +	word_t rename_old_address = 0, rename_new_address = 0;
 +#endif
 +
++	fastclose_observe_enter(tracee);
 +	tracee->reuse_open_path = false;
 +	tracee->rewritten_open_path_address = 0;
  	status = notify_extensions(tracee, SYSCALL_ENTER_START, 0, 0);
  	if (status < 0)
  		goto end;
-@@ -1839,6 +2227,99 @@
+@@ -1839,6 +2228,99 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
@@ -668,7 +669,7 @@
  	switch (syscall_number) {
  	default:
  		/* Nothing to do. */
-@@ -1944,6 +2425,7 @@
+@@ -1944,6 +2426,7 @@
  			status = -ENOMEM;
  			break;
  		}
@@ -676,7 +677,7 @@
  		TALLOC_FREE(tracee->fs->cwd);
  
  		tracee->fs->cwd = tmp;
-@@ -2675,6 +3157,17 @@
+@@ -2675,6 +3158,17 @@
  		if (status < 0)
  			break;
  
@@ -694,7 +695,7 @@
  		status = translate_path2(tracee, olddirfd, oldpath, SYSARG_2, SYMLINK);
  		if (status < 0)
  			break;
-@@ -2842,21 +3335,22 @@
+@@ -2842,21 +3336,22 @@
  	case PR_close: {
  		int closed_fd = (int) peek_reg(tracee, CURRENT, SYSARG_1);
  
@@ -727,7 +728,7 @@
  		break;
  	}
  
-@@ -2868,5 +3362,21 @@
+@@ -2868,5 +3363,21 @@
  	if (status2 < 0)
  		status = status2;
  
@@ -839,12 +840,13 @@
  		 *
 --- a/src/tracee/tracee.h
 +++ b/src/tracee/tracee.h
-@@ -90,6 +90,11 @@
+@@ -90,6 +90,12 @@
  	/* Valid only inside one translate_path(), never across a kernel call. */
  	char checked_path[PATH_MAX];
  	bool checked_path_not_symlink;
 +	struct faststat_path_cache *faststat_path_cache;
 +	struct fastfd_state *fastfd; /* Per tracee, deliberately not inherited. */
++	bool fastclose_exec_isolated; /* Starts false; exec establishes isolation. */
 +	bool reuse_open_path;
 +	word_t rewritten_open_path_address;
 +	char rewritten_open_path[PATH_MAX];
@@ -1025,15 +1027,19 @@
  #include "ptrace/wait.h"
  #include "extension/extension.h"
  #include "execve/elf.h"
-@@ -749,6 +750,7 @@
+@@ -749,6 +750,11 @@
  		case SIGTRAP | PTRACE_EVENT_VFORK_DONE << 8:
  		case SIGTRAP | PTRACE_EVENT_EXEC  << 8:
  		case SIGTRAP | PTRACE_EVENT_EXIT  << 8:
-+			if (((unsigned)tracee_status >> 16) == PTRACE_EVENT_EXEC) fastfd_reset(tracee);
++			if (((unsigned)tracee_status >> 16) == PTRACE_EVENT_EXEC) {
++				/* exec destroys other threads and unshares the FD table. */
++				tracee->fastclose_exec_isolated = true;
++				fastfd_reset(tracee);
++			}
  			signal = 0;
  			if (tracee->last_restart_how) {
  				tracee->restart_how = tracee->last_restart_how;
-@@ -884,6 +886,8 @@
+@@ -884,6 +890,8 @@
  	if (tracee->as_ptracer.wait_pid != 0 || signal == -1)
  		return false;
  

@@ -49,6 +49,9 @@ static int open_requested;
 static int create_requested;
 static int unlink_requested;
 static int shared_stat_requested;
+static int close_requested;
+static int (*libc_close)(int);
+static _Atomic unsigned long close_hits;
 static _Atomic unsigned long unlink_hits;
 static _Atomic unsigned long create_hits;
 static int (*libc_openat)(int, const char *, int, ...);
@@ -98,6 +101,7 @@ __attribute__((constructor)) static void initialize_faststat(void)
 {
     int saved_errno = errno;
     libc_openat = dlsym(RTLD_NEXT, "openat");
+    libc_close = dlsym(RTLD_NEXT, "close");
     const char *path_setting = getenv("PROOT_FASTSTAT_PATH");
     path_enabled = !path_setting || strcmp(path_setting, "0") != 0;
     const char *report = getenv("PROOT_FASTSTAT_REPORT");
@@ -154,6 +158,8 @@ __attribute__((constructor)) static void initialize_faststat(void)
         if (fd_key < 32) fd_requested = 1;
         else pthread_key_delete(fd_key);
     }
+    const char *close_setting = getenv("PROOT_FASTCLOSE");
+    close_requested = fd_requested && close_setting && !strcmp(close_setting, "1");
     const char *open_setting = getenv("PROOT_FASTOPEN");
     open_requested = fd_requested && open_setting && !strcmp(open_setting, "1");
     const char *create_setting = getenv("PROOT_FASTCREATE");
@@ -565,6 +571,42 @@ int fstat(int fd, struct stat *output)
     errno = saved_errno;
     return (int)syscall(SYS_fstat, fd, output);
 }
+
+/* Only an exec-isolated descriptor table without tracer-owned FD state.
+ * Signals cannot replace the descriptor between classification and close. */
+int close(int fd)
+{
+    int saved_errno = errno, owned = 0, masked = 0;
+    uint64_t all_signals = UINT64_MAX, previous_signals;
+    long result = 0;
+    if (!enabled || !close_requested) goto slow_close;
+    pthread_testcancel();
+    if (atomic_exchange(&local_identity.busy, 1)) goto slow_close;
+    owned = 1;
+    if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &all_signals, &previous_signals,
+                sizeof(previous_signals))) goto slow_close;
+    masked = 1;
+    struct proot_fastfd_identity *identity = current_identity(syscall(SYS_getpid));
+    struct stat info;
+    if (!identity || !atomic_load(&identity->close_safe) ||
+        fast_syscall(SYS_fstat, fd, (long)&info, 0, 0) < 0 ||
+        (!S_ISREG(info.st_mode) && !S_ISDIR(info.st_mode)) ||
+        !atomic_load(&identity->close_safe)) goto slow_close;
+    result = fast_syscall(SYS_close, fd, 0, 0, 0);
+    /* Never retry close: an error can still mean the FD was released. */
+    atomic_fetch_add_explicit(&close_hits, 1, memory_order_relaxed);
+    atomic_store(&local_identity.busy, 0);
+    syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous_signals, NULL, sizeof(previous_signals));
+    errno = result < 0 ? (int)-result : saved_errno;
+    return result < 0 ? -1 : 0;
+slow_close:
+    if (owned) atomic_store(&local_identity.busy, 0);
+    if (masked) syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous_signals, NULL, sizeof(previous_signals));
+    errno = saved_errno;
+    return libc_close ? libc_close(fd) : (int)syscall(SYS_close, fd);
+}
+
+unsigned long proot_fastclose_hits(void) { return atomic_load(&close_hits); }
 
 int fstat64(int fd, struct stat64 *output) { return fstat(fd, (struct stat *)output); }
 
