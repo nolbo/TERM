@@ -20,7 +20,7 @@ e7f... 실험판이며 제품 원본 대비 배속이 아니다. 혼합 작업�
 ## 공통 구조와 모드 1
 
 - `proot-faststat.patch`: 최초 seccomp 필터에 ARM64 전용 syscall 실행 주소를
-  추가한다. 정확한 PC에서의 openat2/openat/fstat/close만 PRoot의 추적을 생략한다.
+  추가한다. 정확한 PC에서의 openat2/openat/fstat/close/unlinkat만 PRoot의 추적을 생략한다.
   다른 주소와 syscall은 기존 필터로 내려간다. 상속된 OS 정책은 유지된다.
 - `faststat.c`: glibc의 fstatat/fstatat64를 연결한다. **실제로 열린 dirfd와
   상대 경로**에 openat2 → fstat → close를 같은 프로세스에서 수행한다.
@@ -898,3 +898,26 @@ JDK 17 정규 빌드·runtime 단위 시험·image 시험·instrumentation APK �
 통과했다(170 tasks, 15 executed). DSO 빌드도 통과했다. incremental 설치
 미지원은 streamed로 해결했다. UI/외부 API/외부 앱 MCP는 필요하지 않았다.
 설치 시간은 네트워크를 포함하므로 성능 비교에 사용하지 않는다.
+
+## 게스트 내부 unlink 실험
+
+guest `PROOT_FASTUNLINK=1`은 fastopen 구성에서 unlink/unlinkat(flags=0)을 연결한다.
+정규화된 절대 경로의 부모 디렉터리를 O_PATH/NO_SYMLINKS로 고정하고 일반 저장소와
+공유 규칙 버전을 확인한 뒤 전용 PC의 unlinkat을 실행한다. 성공 후 재실행하지
+않는다. 실패는 기존 PRoot 경로로 복귀해 오류 및 fake-root 처리를 유지한다.
+상대 경로·중첩 bind·rmdir·지원하지 않는 파일시스템은 기존 경로다. 최종 심볼릭
+링크는 따라가지 않고 링크 자체를 삭제한다. 일반 libc 내부 호출이나 정적 ELF까지
+모두 연결하는 구현은 아니다. 엔진과 DSO를 함께 다시 빌드해야 한다.
+
+2026-09-17 Android MCP에서 열린 inode/하드링크/dirfd/링크/디렉터리 fallback/
+errno/guest seccomp와 실제 가속 사용 확인이 통과했다. 생성·읽기 회귀도 함께
+통과했다. 파일 생성·삭제 100회에서 옵션 off/on 계측은 enter_stop=610→510,
+exit_stop=141→141, read_string=358→258, vm_write=452→352였다. 앞서 기각한
+tracer 내부 unlink와 달리 진입 100회가 제거됐다. 시간 벤치마크는 실행하지 않았다.
+
+ARM64 엔진/DSO 빌드·APK 서명·설치 통과. incremental 미지원은 streamed로 해결했다.
+엔진 SHA-256은 `8995a580853089ef5452ea24969f6caa585ff55c42bb975512123228dfa1c170`,
+DSO는 `0fc52429093460dcebca25599bea7307b2acb775295ea493cbb702e20b8f2e5c`다.
+삭제 옵션은 아직 설치 실행기에 연결하지 않았고 새 Debian 설치 검증도 남아 있다.
+실험 native 코드만 변경해 Gradle은 반복하지 않았다. UI·외부 API·외부 앱 MCP는
+필요하지 않았다. 제품 기본 엔진과 일반 세션 구성은 변경하지 않았다.

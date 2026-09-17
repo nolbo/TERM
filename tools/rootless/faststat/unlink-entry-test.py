@@ -9,10 +9,14 @@ import tempfile
 
 signal.alarm(30)
 libc = ctypes.CDLL(None, use_errno=True)
+hits = getattr(libc, 'proot_fastunlink_hits', None)
+if hits:
+    hits.restype = ctypes.c_ulong
+before = hits() if hits else 0
 root = tempfile.mkdtemp(prefix='unlink-entry-', dir='/tmp')
 
 def rejects(path, flags, expected):
-    assert libc.syscall(35, -100, path.encode(), flags) == -1
+    assert libc.unlinkat(-100, path.encode(), flags) == -1
     assert ctypes.get_errno() == expected, (path, flags, ctypes.get_errno())
 
 try:
@@ -65,6 +69,8 @@ try:
     _, status = os.waitpid(child, 0)
     assert status == 0
     assert open(path, 'rb').read() == b'protected'
+    if os.environ.get('PROOT_FASTUNLINK') == '1':
+        assert hits and hits() >= before + 3, 'unlink acceleration was not used'
     print('PASS unlink: live inode, hardlinks, dirfd, symlinks, directory fallback, errno, seccomp')
 finally:
     shutil.rmtree(root)

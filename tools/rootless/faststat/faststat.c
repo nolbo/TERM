@@ -47,6 +47,8 @@ static _Atomic unsigned long fd_hits, fd_fallbacks;
 static int fd_requested;
 static int open_requested;
 static int create_requested;
+static int unlink_requested;
+static _Atomic unsigned long unlink_hits;
 static _Atomic unsigned long create_hits;
 static int (*libc_openat)(int, const char *, int, ...);
 static _Atomic unsigned long open_hits;
@@ -155,6 +157,8 @@ __attribute__((constructor)) static void initialize_faststat(void)
     open_requested = fd_requested && open_setting && !strcmp(open_setting, "1");
     const char *create_setting = getenv("PROOT_FASTCREATE");
     create_requested = open_requested && create_setting && !strcmp(create_setting, "1");
+    const char *unlink_setting = getenv("PROOT_FASTUNLINK");
+    unlink_requested = open_requested && unlink_setting && !strcmp(unlink_setting, "1");
     enabled = 1;
     initialization_status = 1;
 out:
@@ -301,6 +305,20 @@ int proot_fastpath_translate(const char *path, char *output, size_t capacity)
     return success;
 }
 
+static int ordinary_storage(int pin)
+{
+    struct statfs filesystem;
+    if (syscall(SYS_fstatfs, pin, &filesystem)) return 0;
+    switch (filesystem.f_type) {
+    case EXT4_SUPER_MAGIC: case F2FS_SUPER_MAGIC: case TMPFS_MAGIC:
+    case XFS_SUPER_MAGIC: case BTRFS_SUPER_MAGIC: case OVERLAYFS_SUPER_MAGIC:
+    case EROFS_SUPER_MAGIC_V1: case SQUASHFS_MAGIC:
+        return 1;
+    default:
+        return 0;
+    }
+}
+
 /* Regular files/directories on ordinary storage. Pin before reopening so a FIFO
  * substitution cannot block and a device substitution cannot have side effects.
  * Ordinary openat remains the fallback and the final fast call uses openat too,
@@ -345,16 +363,7 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
         (!S_ISREG(info.st_mode) && !S_ISDIR(info.st_mode))) goto slow_open;
     /* procfs regular files (notably auxv) still need tracer emulation. Check
      * the pinned object, not a cached pathname or binding classification. */
-    struct statfs filesystem;
-    if (syscall(SYS_fstatfs, pin, &filesystem)) goto slow_open;
-    switch (filesystem.f_type) {
-    case EXT4_SUPER_MAGIC: case F2FS_SUPER_MAGIC: case TMPFS_MAGIC:
-    case XFS_SUPER_MAGIC: case BTRFS_SUPER_MAGIC: case OVERLAYFS_SUPER_MAGIC:
-    case EROFS_SUPER_MAGIC_V1: case SQUASHFS_MAGIC:
-        break;
-    default:
-        goto slow_open;
-    }
+    if (!ordinary_storage(pin)) goto slow_open;
     char pinned[64];
     snprintf(pinned, sizeof(pinned), "/proc/self/fd/%ld", pin);
     if (creating) {
@@ -388,6 +397,50 @@ slow_open:
     return libc_openat ? libc_openat(dirfd, path, flags, mode) :
                         (int)syscall(SYS_openat, dirfd, path, flags, mode);
 }
+
+/* Pinned-parent unlink: a successful mutation is never retried. */
+int unlinkat(int dirfd, const char *path, int flags)
+{
+    int saved_errno = errno, owned = 0, masked = 0;
+    long pin = -1;
+    uint64_t all_signals = UINT64_MAX, previous_signals;
+    if (!enabled || !unlink_requested || flags != 0) goto slow_unlink;
+    if (atomic_exchange(&local_identity.busy, 1)) goto slow_unlink;
+    owned = 1;
+    if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &all_signals, &previous_signals,
+                sizeof(previous_signals))) goto slow_unlink;
+    masked = 1;
+    struct proot_fastfd_identity *identity = current_identity(syscall(SYS_getpid));
+    char copied[PATH_MAX], translated[PATH_MAX];
+    if (!identity || !copy_path(copied, path)) goto slow_unlink;
+    uint32_t sequence = atomic_load(&identity->paths.sequence);
+    if (!lookup_shared_path(&identity->paths, copied, translated)) goto slow_unlink;
+    char *slash = strrchr(translated, '/');
+    if (!slash || slash == translated || !slash[1]) goto slow_unlink;
+    *slash = '\0';
+    struct open_how how = { .flags = O_PATH | O_DIRECTORY | O_CLOEXEC,
+                           .resolve = RESOLVE_NO_SYMLINKS };
+    pin = fast_syscall(SYS_openat2, AT_FDCWD, (long)translated, (long)&how, sizeof(how));
+    if (pin < 0 || !ordinary_storage(pin) ||
+        sequence != atomic_load(&identity->paths.sequence) ||
+        !atomic_load(&identity->paths.active)) goto slow_unlink;
+    if (fast_syscall(SYS_unlinkat, pin, (long)(slash + 1), 0, 0) < 0) goto slow_unlink;
+    fast_syscall(SYS_close, pin, 0, 0, 0);
+    atomic_fetch_add_explicit(&unlink_hits, 1, memory_order_relaxed);
+    atomic_store(&local_identity.busy, 0);
+    syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous_signals, NULL, sizeof(previous_signals));
+    errno = saved_errno;
+    return 0;
+slow_unlink:
+    if (pin >= 0) fast_syscall(SYS_close, pin, 0, 0, 0);
+    if (owned) atomic_store(&local_identity.busy, 0);
+    if (masked) syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous_signals, NULL, sizeof(previous_signals));
+    errno = saved_errno;
+    return syscall(SYS_unlinkat, dirfd, path, flags);
+}
+
+int unlink(const char *path) { return unlinkat(AT_FDCWD, path, 0); }
+unsigned long proot_fastunlink_hits(void) { return atomic_load(&unlink_hits); }
 
 unsigned long proot_fastcreate_hits(void) { return atomic_load(&create_hits); }
 unsigned long proot_fastopen_hits(void) { return atomic_load(&open_hits); }
