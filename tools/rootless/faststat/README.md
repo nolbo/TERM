@@ -1191,3 +1191,24 @@ Android MCP로 실행했고 비교 APK 서명·설치가 통과했다. increment
 streamed로 해결했다. 코드 변경이 없어 Gradle은 반복하지 않았다. 제품 기본
 적용은 아직 남아 있다. 생성·rename·삭제의 남은 traced rename 경로는 다음
 개선 후보지만 호출 횟수만으로 실제 시간 비중을 단정하지 않는다.
+
+## rename 진입 완료의 경로 재사용
+
+MUTATION_ENTRY의 일반 파일 renameat/renameat2(flags=0)는 같은 syscall에서 번역한
+두 경로를 재사용한다. 확장 처리 후 두 경로 포인터가 같을 때만 완료를 시도한다.
+기존의 tracee 메모리 경로 재독 두 번을 제거했으며 syscall 사이 캐시는 없다.
+디렉터리는 기존 반환 처리와 가상 cwd 갱신을 유지한다. DSO에서 rename을 직접
+수행하는 경로는 추가하지 않았다.
+
+2026-09-17 Android MCP에서 `rename-entry-test.py`가 MUTATION_ENTRY off/on 모두
+통과했다. 내용 보존·덮어쓰기·dirfd·ENOENT/EFAULT·빈 경로·NOREPLACE·seccomp를
+검사했다. 누적 DSO 가속을 켠 cwd 회귀도 통과했다(디렉터리 rename 포함).
+100회 rename 진단에서 off/on 진입은 575로 같았고 반환은 205→105회,
+read_string은 592→492회였다. 이는 현재 옵션 off/on 비교로, 직전 엔진과의
+시간 비교나 추가 배속 증거는 아니다. 두 재독 제거는 구현 변경에 해당한다.
+
+엔진 빌드·Python 구문 검사·시험 APK 설치가 통과했다. incremental 미지원은
+streamed로 해결했다. 엔진 SHA-256은
+`407515dcf00f6eecd111356d93d9f4504817d784023158678c63df6a7199defa`이며
+DSO는 facbee68... 그대로다. 전체 비교·새 설치·Gradle은 반복하지 않았다.
+실험 네이티브 코드 범위여서 UI/외부 API/외부 앱 MCP는 필요하지 않았다.

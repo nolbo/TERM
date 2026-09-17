@@ -170,7 +170,7 @@
  
  /* Older kernel headers may lack these. */
  #ifndef CLONE_NEWTIME
-@@ -1814,6 +1820,374 @@
+@@ -1814,6 +1820,382 @@
   * -errno if an error occured from the tracee's point-of-view (EFAULT
   * for instance), otherwise 0.
   */
@@ -414,7 +414,18 @@
 +
 +/* Only calls without returned FDs or user-memory writes are completed here.
 + * Directory renames retain the existing syscall exit processing. */
-+static bool complete_mutation_entry(Tracee *tracee)
++static int translate_rename_path(Tracee *tracee, int dirfd, char path[PATH_MAX], Reg reg)
++{
++	if (!path[0]) return 0;
++	char translated[PATH_MAX];
++	int status = translate_path(tracee, translated, dirfd, path, false);
++	if (status < 0) return status;
++	status = set_sysarg_path(tracee, translated, reg);
++	if (status >= 0) strcpy(path, translated);
++	return status;
++}
++
++static bool complete_mutation_entry(Tracee *tracee, const char *oldpath, const char *newpath)
 +{
 +	if (!mutation_entry_enabled(tracee)) return false;
 +	word_t number = get_sysnum(tracee, ORIGINAL);
@@ -426,11 +437,8 @@
 +				return false;
 +	}
 +	if (number == PR_renameat2 && peek_reg(tracee, CURRENT, SYSARG_5) != 0) return false;
-+	char oldpath[PATH_MAX], newpath[PATH_MAX];
-+	if (read_path(tracee, oldpath, peek_reg(tracee, CURRENT, SYSARG_2)) <= 0 ||
-+	    oldpath[0] != '/' || stat_entry_special(oldpath)) return false;
-+	if (read_path(tracee, newpath, peek_reg(tracee, CURRENT, SYSARG_4)) <= 0 ||
-+	    newpath[0] != '/' || stat_entry_special(newpath)) return false;
++	if (!oldpath || !newpath || oldpath[0] != '/' || newpath[0] != '/' ||
++	    stat_entry_special(oldpath) || stat_entry_special(newpath)) return false;
 +	struct stat metadata;
 +	if (lstat(oldpath, &metadata) != 0 || !S_ISREG(metadata.st_mode)) return false;
 +	int result;
@@ -545,13 +553,14 @@
  int translate_syscall_enter(Tracee *tracee)
  {
  	int flags;
-@@ -1830,7 +2204,12 @@
+@@ -1830,7 +2212,13 @@
  
  	word_t syscall_number;
  	bool special = false;
 -
 +#if defined(__aarch64__)
 +	word_t permission_path_address = 0;
++	word_t rename_old_address = 0, rename_new_address = 0;
 +#endif
 +
 +	tracee->reuse_open_path = false;
@@ -559,7 +568,7 @@
  	status = notify_extensions(tracee, SYSCALL_ENTER_START, 0, 0);
  	if (status < 0)
  		goto end;
-@@ -1839,6 +2218,99 @@
+@@ -1839,6 +2227,99 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
@@ -659,7 +668,7 @@
  	switch (syscall_number) {
  	default:
  		/* Nothing to do. */
-@@ -1944,6 +2416,7 @@
+@@ -1944,6 +2425,7 @@
  			status = -ENOMEM;
  			break;
  		}
@@ -667,7 +676,25 @@
  		TALLOC_FREE(tracee->fs->cwd);
  
  		tracee->fs->cwd = tmp;
-@@ -2842,21 +3315,22 @@
+@@ -2675,6 +3157,17 @@
+ 		if (status < 0)
+ 			break;
+ 
++#if defined(__aarch64__)
++		if (mutation_entry_enabled(tracee) && oldpath[0] && newpath[0]) {
++			status = translate_rename_path(tracee, olddirfd, oldpath, SYSARG_2);
++			if (status < 0) break;
++			status = translate_rename_path(tracee, newdirfd, newpath, SYSARG_4);
++			if (status < 0) break;
++			rename_old_address = peek_reg(tracee, CURRENT, SYSARG_2);
++			rename_new_address = peek_reg(tracee, CURRENT, SYSARG_4);
++			break;
++		}
++#endif
+ 		status = translate_path2(tracee, olddirfd, oldpath, SYSARG_2, SYMLINK);
+ 		if (status < 0)
+ 			break;
+@@ -2842,21 +3335,22 @@
  	case PR_close: {
  		int closed_fd = (int) peek_reg(tracee, CURRENT, SYSARG_1);
  
@@ -700,7 +727,7 @@
  		break;
  	}
  
-@@ -2868,5 +3342,18 @@
+@@ -2868,5 +3362,21 @@
  	if (status2 < 0)
  		status = status2;
  
@@ -708,7 +735,10 @@
 +	if (status >= 0) {
 +		(void) complete_stat_entry(tracee);
 +		(void) complete_fstat_entry(tracee);
-+		(void) complete_mutation_entry(tracee);
++		if (rename_old_address && rename_new_address &&
++		    rename_old_address == peek_reg(tracee, CURRENT, SYSARG_2) &&
++		    rename_new_address == peek_reg(tracee, CURRENT, SYSARG_4))
++			(void) complete_mutation_entry(tracee, oldpath, newpath);
 +		(void) complete_id_entry(tracee);
 +		if (permission_path_address && permission_path_address == peek_reg(tracee, CURRENT, SYSARG_2))
 +			(void) complete_permission_entry(tracee, newpath);
