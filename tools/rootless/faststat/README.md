@@ -1119,3 +1119,30 @@ guest CPU에는 tracer CPU가 포함되지 않아 전체 CPU 감소로 해석할
 권한 옵션은 실험 상태로 남기며 이 결과로 제품 기본 적용을 정당화하지 않는다.
 이 시험은 원본 엔진 대비 배속 비교가 아니며 이전 원본 측정과 합쳐 배속을
 계산하지 않는다. Android MCP를 사용했고 코드 변경·새 설치·전체 비교는 없었다.
+
+## 공유 경로 기반 stat
+
+guest `PROOT_FASTSTAT_SHARED=1`은 fastfd 공유 페이지의 cwd/bind 정보를 사용해
+stat/lstat/fstatat의 단순 경로를 처리한다. host FASTPATH 및 guest FASTFD 설정이
+필요하며 기본값은 off다. `PROOT_FASTSTAT_PATH=0`과 함께 사용할 수 있다.
+기존 resolve prctl을 요청하지 않는다. NO_SYMLINKS로 O_PATH FD를 얻고 보통
+저장장치인지 확인한 뒤 private PC의 newfstatat(AT_EMPTY_PATH)로 새 메타데이터를
+읽는다. 원래 syscall 번호를 유지해 guest seccomp 거부가 계속 적용된다.
+공유 경로 세대와 ID를 확인하고 결과를 안전하게 복사한다. FD가 있는 동안
+신호를 막아 siglongjmp로 FD가 남지 않도록 한다. 지원하지 않는 경로·파일 종류,
+실패·변경 감지는 원래 조회로 복귀한다. 메타데이터와 실패 결과는 캐시하지 않는다.
+
+2026-09-17 Android MCP에서 `shared-stat-test.py`가 off/on 모두 통과했고 on에서
+양수인 가속 hits를 확인했다. 파일 크기/ID·상대 경로·링크·EFAULT·삭제·seccomp를
+검사했다. 새 옵션을 켠 FD 회귀(hits=653), cwd 및 공유 bind/chroot 회귀도 통과했다.
+100회 stat 루프를 포함한 전체 Python 실행에서 enter_stop 517→299,
+read_string 393→175, vm_write 489→271이었다. exit_stop은 104로 같고 prctl은
+18/16(진입/반환)으로 같았다. 준비·시작·정리를 포함하므로 루프만의 계측은 아니다.
+추적 감소는 확인했지만 시간 배속은 아직 측정하지 않았다.
+
+ARM64 엔진·DSO 빌드와 Python 구문 검사, APK 설치가 통과했다. incremental
+미지원은 streamed로 해결했다. 엔진 SHA-256은
+`eb7fcae57d8e38b8c497c996c5569c11826d26ebaf1086be74a5f77cd6c4bf85`, DSO는
+`facbee68797a75a483cfa190d854647a865796ada603ad08d3f46545228fefb2`다.
+실험 네이티브 변경으로 Gradle·UI·외부 API/앱 MCP는 사용하지 않았다.
+새 설치 통합·누적 시간 비교·제품 기본 적용은 남아 있다.

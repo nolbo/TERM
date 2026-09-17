@@ -48,6 +48,7 @@ static int fd_requested;
 static int open_requested;
 static int create_requested;
 static int unlink_requested;
+static int shared_stat_requested;
 static _Atomic unsigned long unlink_hits;
 static _Atomic unsigned long create_hits;
 static int (*libc_openat)(int, const char *, int, ...);
@@ -159,6 +160,8 @@ __attribute__((constructor)) static void initialize_faststat(void)
     create_requested = open_requested && create_setting && !strcmp(create_setting, "1");
     const char *unlink_setting = getenv("PROOT_FASTUNLINK");
     unlink_requested = open_requested && unlink_setting && !strcmp(unlink_setting, "1");
+    const char *shared_stat = getenv("PROOT_FASTSTAT_SHARED");
+    shared_stat_requested = fd_requested && shared_stat && !strcmp(shared_stat, "1");
     enabled = 1;
     initialization_status = 1;
 out:
@@ -565,11 +568,53 @@ int fstat(int fd, struct stat *output)
 
 int fstat64(int fd, struct stat64 *output) { return fstat(fd, (struct stat *)output); }
 
+/* Fresh metadata using the shared namespace, without a resolve request. */
+static int shared_path_stat(int dirfd, const char *path, struct stat *output, int flags)
+{
+    int saved_errno = errno, success = 0, masked = 0;
+    long pin = -1;
+    uint64_t all_signals = UINT64_MAX, previous_signals;
+    if (!enabled || !shared_stat_requested || (flags != 0 && flags != AT_SYMLINK_NOFOLLOW) ||
+        atomic_exchange(&local_identity.busy, 1)) return 0;
+    if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &all_signals, &previous_signals,
+                sizeof(previous_signals))) goto done;
+    masked = 1;
+    pid_t pid = syscall(SYS_getpid);
+    struct proot_fastfd_identity *identity = current_identity(pid);
+    char copied[PATH_MAX], translated[PATH_MAX];
+    if (!identity || !copy_path(copied, path)) goto done;
+    uint32_t sequence = atomic_load(&identity->paths.sequence);
+    if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
+        !normalize_simple_path(copied) ||
+        !lookup_shared_path(&identity->paths, copied, translated)) goto done;
+    struct open_how how = { .flags = O_PATH | O_CLOEXEC, .resolve = RESOLVE_NO_SYMLINKS };
+    pin = fast_syscall(SYS_openat2, AT_FDCWD, (long)translated, (long)&how, sizeof(how));
+    if (pin < 0 || !ordinary_storage(pin)) goto done;
+    struct stat result;
+    /* Use the original syscall number: guest seccomp denial still wins. */
+    if (fast_syscall(SYS_newfstatat, pin, (long)"", (long)&result, AT_EMPTY_PATH) < 0 ||
+        (!S_ISREG(result.st_mode) && !S_ISDIR(result.st_mode)) ||
+        !map_identity(identity, &result) ||
+        sequence != atomic_load(&identity->paths.sequence) ||
+        !atomic_load(&identity->paths.active)) goto done;
+    struct iovec local = { &result, sizeof(result) }, remote = { output, sizeof(result) };
+    if (syscall(SYS_process_vm_writev, pid, &local, 1, &remote, 1, 0) != sizeof(result)) goto done;
+    atomic_fetch_add_explicit(&hits, 1, memory_order_relaxed);
+    success = 1;
+done:
+    if (pin >= 0) fast_syscall(SYS_close, pin, 0, 0, 0);
+    atomic_store(&local_identity.busy, 0);
+    if (masked) syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous_signals, NULL, sizeof(previous_signals));
+    errno = saved_errno;
+    return success;
+}
+
 int fstatat(int dirfd, const char *path, struct stat *output, int flags)
 {
     int saved_errno = errno;
     char copied[PATH_MAX];
     struct stat result;
+    if (shared_path_stat(dirfd, path, output, flags)) return 0;
     /* PRoot's cwd is virtual. Mode 1 requires a real directory FD;
      * mode 2 obtains an absolute host path before issuing raw openat2. */
     if (!enabled || !path_enabled || (flags != 0 && flags != AT_SYMLINK_NOFOLLOW)) goto slow;
