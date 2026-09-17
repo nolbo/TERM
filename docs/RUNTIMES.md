@@ -89,8 +89,22 @@ diagnostic controls and validation limits.
 
 [ROOTLESS_FILESYSTEM_REDESIGN.md](ROOTLESS_FILESYSTEM_REDESIGN.md) proposes
 in-process filesystem translation with PRoot compatibility handling. This
-redesign has a separate experimental dirfd-stat prototype; it is not enabled in
-the application. Stock-device probes and whole-workload targets remain to be validated.
+redesign includes an optional accelerated APK profile. Build with
+`-ProotlessAcceleratedPayload=/absolute/path/to/payload` to package the pinned
+candidate `proot`, `proot-loader`, and `libproot-faststat.so`. Gradle verifies all
+three hashes and ARM64/16 KiB ELF constraints. This APK automatically applies the
+validated shared-path/stat/open/create/unlink and ID/TCGETS settings to ordinary
+Rootless PTY sessions. The glibc preload is bound into the guest only; host PRoot
+execution still uses the centralized APK executable loader. Existing guest
+preloads follow the acceleration DSO. Guest-supplied PROOT options cannot replace
+the APK-selected profile.
+
+The candidate requires a fresh native-hardlink installation and reports an error
+for an unmarked rootfs rather than converting it. Builds without the property
+retain the original engine. This is a candidate distribution path, not promotion
+to the default release. Debian installation/file workload evidence and remaining
+whole-workload/physical-device limits are recorded in
+[the performance progress](ROOTLESS_2X_PROGRESS.md).
 
 ## AVF Debian
 

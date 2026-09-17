@@ -1212,3 +1212,27 @@ streamed로 해결했다. 엔진 SHA-256은
 `407515dcf00f6eecd111356d93d9f4504817d784023158678c63df6a7199defa`이며
 DSO는 facbee68... 그대로다. 전체 비교·새 설치·Gradle은 반복하지 않았다.
 실험 네이티브 코드 범위여서 UI/외부 API/외부 앱 MCP는 필요하지 않았다.
+
+## 일반 PTY 세션용 후보 APK
+
+`-ProotlessAcceleratedPayload=/absolute/path/to/payload` Gradle 속성으로 후보 APK를
+만들 수 있다. 디렉터리에는 `proot`, `proot-loader`, `libproot-faststat.so`가 필요하다.
+현재 허용한 조합은 설치·누적 비교를 마친 eb7fcae5... 엔진, 2567ab8a... loader,
+facbee68... DSO이며 Gradle이 전체 SHA-256과 ELF/16 KiB 정렬을 검증한다.
+후속 rename 경로 재사용 엔진은 이 고정 조합에 아직 포함하지 않았다.
+
+후보 빌드의 RootlessSessionController는 일반 PTY 세션에 검증된 가속 프로필을
+자동 적용한다. 게스트 DSO만 명시적으로 bind하며 host LD_PRELOAD는 설정하지
+않는다. 사용자의 guest LD_PRELOAD는 가속 DSO 뒤에 유지한다. guest PROOT_ 설정은
+APK 프로필을 덮어쓰지 못한다. native-hardlink 형식의 새 rootfs가 필요하며,
+표시가 없는 rootfs는 변환하거나 묵시적으로 다른 방식으로 실행하지 않고 오류를 낸다.
+Gradle 속성 없는 기본 빌드는 기존 엔진을 유지한다.
+
+2026-09-17 후보 설정에서 정규 assembleDebug/runtime 단위 시험/image 시험 및
+assembleDebugAndroidTest가 통과했다(173 tasks). 기본 설정 runtime 단위 시험도
+통과했다. 수동 재포장 없이 생성된 시험 APK의 세 바이너리 해시를 확인하고
+Android MCP로 설치했다. 새 Debian 설치 뒤 RootlessSessionController의 PTY에서
+Python stat 결과와 양수인 가속 hits를 확인하는 시험이 92.134초에 통과했다.
+설치 시간은 성능 배속이 아니다. 실제 사용자 앱 설치·UI 조작은 수행하지 않았다.
+API35 redroid/ext4 검증이며 실제 휴대폰/F2FS·다른 배포판 세션 검증과 기본
+릴리스 승격은 남아 있다. 외부 API/앱 MCP는 필요하지 않았다.

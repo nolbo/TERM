@@ -1057,3 +1057,16 @@ Android MCP에서 내용·덮어쓰기·dirfd·오류·NOREPLACE·seccomp 시험
 [범위·해시·검증](../tools/rootless/faststat/README.md#rename-진입-완료의-경로-재사용).
 빌드가 통과했다. 전체 비교와 새 설치는 반복하지 않았으며 추가 시간 이득은
 아직 측정하지 않았다. **전체 2배 목표와 제품 기본 적용은 남아 있다.**
+
+## 48단계: 검증된 후보를 일반 PTY 세션에 연결
+
+해시가 고정된 후보 payload를 선택하는 Gradle 빌드 경로와 일반 세션 가속
+프로필을 추가했다. 후보 APK의 RootlessSessionController가 host 추적 옵션과
+guest DSO를 자동 구성한다. 게스트 preload는 호스트에 전달하지 않으며
+native-hardlink 형식 rootfs만 지원한다. 기본 릴리스 엔진은 아직 교체하지 않았다.
+[빌드 입력·동작·검증 범위](../tools/rootless/faststat/README.md#일반-pty-세션용-후보-apk).
+
+후보 정규 빌드/시험과 기본 설정 runtime 시험이 통과했다. Android MCP에서
+수동 재포장 없는 시험 APK로 새 Debian 설치 및 실제 PTY 세션의 가속 stat 사용
+검사가 92.134초에 통과했다. 시험 카운터가 아닌 일반 세션 연결까지 진전했지만,
+전체 작업 2배·순차 I/O 개선·기본 릴리스 승격은 여전히 남아 있다.

@@ -73,7 +73,9 @@ class RootlessSessionController(
         val transport = KittyGraphicsTransport(media)
         val usbEnvironment = usbBroker?.register(id, layout.distribution.displayName).orEmpty()
         val launch = try { buildRootlessLaunchSpec(layout, proot, loader, shell, cwd, env, storage,
-            usbBroker?.clientFile, usbEnvironment) } catch (error: Exception) { usbBroker?.unregister(id); throw error }
+            usbBroker?.clientFile, usbEnvironment,
+            accelerationLibrary = if (dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION)
+                File(proot.parentFile, "libproot-faststat.so") else null) } catch (error: Exception) { usbBroker?.unregister(id); throw error }
         val process = try { PtyProcess.start(
             launch.command,
             launch.hostCwd,
@@ -191,7 +193,15 @@ internal fun buildRootlessLaunchSpec(
     sharedStorage: File? = null,
     usbClientFile: File? = null,
     usbEnvironment: Map<String, String> = emptyMap(),
+    accelerationLibrary: File? = null,
 ): RootlessLaunchSpec {
+    accelerationLibrary?.let {
+        require(it.isFile && it.canRead()) { "Packaged Rootless acceleration library is missing" }
+        require(RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath())) {
+            "Rootless acceleration requires a fresh native-hardlink installation"
+        }
+    }
+    val acceleration = accelerationLibrary?.let { RootlessAccelerationProfile(it) }
     val argv = dev.terminal.runtime.session.SessionCommand.decode(env)
     val guestCwd = cwd.takeIf { it.startsWith('/') } ?: "/root"
     val guestShell = shell.takeIf { it.startsWith('/') } ?: "/bin/sh"
@@ -206,13 +216,16 @@ internal fun buildRootlessLaunchSpec(
         addAll(listOf("-b", "${layout.workspace.absolutePath}:/workspace"))
         sharedStorage?.let { addAll(listOf("-b", "${it.absolutePath}:/sdcard")) }
         usbClientFile?.let { addAll(listOf("-b", "${it.absolutePath}:/usr/local/bin/terminal-usb")) }
+        acceleration?.let { addAll(listOf("-b", it.binding)) }
         addAll(listOf("-w", guestCwd, "/usr/bin/env", "-i"))
         add("HOME=/root")
         add("USER=root")
         rootlessLocaleEnvironment(layout).forEach { (key, value) -> add("$key=$value") }
         add("TERM=${env["TERM"] ?: "xterm-256color"}")
         add("PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin")
-        env.filterKeys { it.matches(ENV_KEY) && it !in RESERVED_ENV }.forEach { (key, value) -> add("$key=$value") }
+        env.filterKeys { it.matches(ENV_KEY) && it !in RESERVED_ENV &&
+            (acceleration == null || (it != "LD_PRELOAD" && !it.startsWith("PROOT_"))) }.forEach { (key, value) -> add("$key=$value") }
+        acceleration?.guestEnvironment(env["LD_PRELOAD"])?.forEach { (key, value) -> add("$key=$value") }
         usbEnvironment.filterKeys { it in setOf("TERMINAL_USB_SOCKET", "TERMINAL_USB_TOKEN") }
             .forEach { (key, value) -> add("$key=$value") }
         if (argv != null) addAll(argv) else {
@@ -229,7 +242,7 @@ internal fun buildRootlessLaunchSpec(
             "TMPDIR=${layout.tmp.absolutePath}",
             "PROOT_TMP_DIR=${layout.tmp.absolutePath}",
             "PROOT_LOADER=${loader.absolutePath}",
-        ),
+        ) + (acceleration?.hostEnvironment ?: emptyArray()),
         guestShell = guestShell,
         guestCwd = guestCwd,
     )

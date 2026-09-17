@@ -9,6 +9,10 @@ import java.nio.file.Files
 import java.util.Locale
 import java.security.MessageDigest
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.flow.first
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
 import org.junit.Test
@@ -118,6 +122,29 @@ class RootlessFreshInstallTest {
                 Regex("\"create_hits\":([1-9][0-9]*)").containsMatchIn(check.output))
             if (fastUnlink) assertTrue("No accelerated unlink observed: ${check.output}",
                 Regex("\"unlink_hits\":([1-9][0-9]*)").containsMatchIn(check.output))
+            if (dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION) {
+                val controller = RootlessSessionController(layout, proot, guestLoader)
+                try {
+                    val output = StringBuilder()
+                    val observed = async(start = CoroutineStart.UNDISPATCHED) {
+                        withTimeout(30_000) {
+                            controller.events.first { event ->
+                                if (event is dev.terminal.protocol.SessionEvent.Output) output.append(event.bytes.toString(Charsets.UTF_8))
+                                output.contains("PASS accelerated PTY")
+                            }
+                        }
+                    }
+                    val command = listOf("/usr/bin/python3", "-c",
+                        "import ctypes,os; assert os.stat('/etc/debian_version').st_size>0; " +
+                            "assert ctypes.CDLL(None).proot_faststat_hits()>0; print('PASS accelerated PTY')")
+                    controller.create("/bin/sh", "/root", mapOf(
+                        dev.terminal.runtime.session.SessionCommand.KEY to dev.terminal.runtime.session.SessionCommand.encode(command)),
+                        24u, 80u).getOrThrow()
+                    observed.await()
+                } finally {
+                    controller.close()
+                }
+            }
             Log.i("RootlessFreshInstall", "${distribution.name}: VERIFIED")
         } finally {
             deleteRootlessTree(temporary)

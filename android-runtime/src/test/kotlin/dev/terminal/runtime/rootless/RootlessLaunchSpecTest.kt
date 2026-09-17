@@ -9,6 +9,32 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class RootlessLaunchSpecTest {
+    @Test fun accelerationIsHostSelectedAndPreloadStaysInGuest() {
+        val layout = RootlessDebianLayout(File(temporary.root, "accelerated/debian"))
+        layout.rootfs.mkdirs()
+        RootlessStorageFormat.prepareNewInstallation(layout.rootfs.toPath())
+        val library = temporary.newFile("libproot-faststat.so")
+        val spec = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"), "/bin/sh", "/root",
+            mapOf("LD_PRELOAD" to "/guest/custom.so", "PROOT_FASTSTAT_SHARED" to "0",
+                "PROOT_OPEN_NOTIFY" to "1"), accelerationLibrary = library)
+        assertTrue(spec.arguments.contains("${library.absolutePath}:/usr/local/lib/terminal-faststat.so"))
+        assertTrue(spec.arguments.contains("LD_PRELOAD=/usr/local/lib/terminal-faststat.so:/guest/custom.so"))
+        assertTrue(spec.arguments.contains("PROOT_FASTSTAT_SHARED=1"))
+        assertFalse(spec.arguments.contains("PROOT_FASTSTAT_SHARED=0"))
+        assertFalse(spec.arguments.contains("PROOT_OPEN_NOTIFY=1"))
+        assertFalse(spec.arguments.contains("--link2symlink"))
+        assertTrue(spec.hostEnvironment.contains("PROOT_FASTPATH=1"))
+        assertFalse(spec.hostEnvironment.any { it.startsWith("LD_PRELOAD=") })
+    }
+
+    @Test fun accelerationRejectsMissingLibraryAndUnmarkedRootfs() {
+        val layout = RootlessDebianLayout(File(temporary.root, "unmarked/debian"))
+        fun launch(library: File) = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"),
+            "/bin/sh", "/root", emptyMap(), accelerationLibrary = library)
+        assertTrue(runCatching { launch(File(temporary.root, "missing.so")) }.exceptionOrNull() is IllegalArgumentException)
+        assertTrue(runCatching { launch(temporary.newFile("present.so")) }.exceptionOrNull() is IllegalArgumentException)
+    }
+
     @Test fun usbCredentialsAndClientBindAreHostSelected() {
         val layout = RootlessDebianLayout(File(temporary.root, "rootless/debian"))
         val client = File(temporary.root, "usb-client.py")

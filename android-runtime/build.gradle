@@ -2,7 +2,8 @@ plugins {
     id 'com.android.library'
 }
 
-def rootlessPayloadSource = layout.projectDirectory.dir('src/main/rootless/arm64-v8a')
+def acceleratedRootless = providers.gradleProperty('rootlessAcceleratedPayload').orNull
+def rootlessPayloadSource = acceleratedRootless ? layout.projectDirectory.dir(acceleratedRootless) : layout.projectDirectory.dir('src/main/rootless/arm64-v8a')
 def generatedRootlessJniDirectory = layout.buildDirectory.dir('generated/rootlessJniLibs')
 def iphoneBuildDirectory = layout.buildDirectory.dir('iphone-native')
 def sideStoreBuildDirectory = layout.buildDirectory.dir('sidestore-native')
@@ -70,15 +71,22 @@ tasks.register('stageRootlessExecutables', Sync) {
     into generatedRootlessJniDirectory.map { it.dir('arm64-v8a') }
     from(rootlessPayloadSource.file('proot')) { rename { 'libproot.so' } }
     from(rootlessPayloadSource.file('proot-loader')) { rename { 'libproot-loader.so' } }
+    if (acceleratedRootless) from(rootlessPayloadSource.file('libproot-faststat.so'))
 }
 
 tasks.register('verifyRootlessExecutables') {
     inputs.files(rootlessPayloadSource.file('proot'), rootlessPayloadSource.file('proot-loader'))
+    inputs.property('accelerated', acceleratedRootless != null)
+    if (acceleratedRootless) inputs.file(rootlessPayloadSource.file('libproot-faststat.so'))
     doLast {
         def expected = [
             'proot': '9edb5ff81998a990b014797c9acc05f31b9eb5d84cb16105d4e8c1179d7d382b',
             'proot-loader': '2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237',
         ]
+        if (acceleratedRootless) {
+            expected.proot = 'eb7fcae57d8e38b8c497c996c5569c11826d26ebaf1086be74a5f77cd6c4bf85'
+            expected['libproot-faststat.so'] = 'facbee68797a75a483cfa190d854647a865796ada603ad08d3f46545228fefb2'
+        }
         expected.each { name, digest ->
             def payload = rootlessPayloadSource.file(name).asFile
             if (!payload.isFile()) throw new GradleException("Missing Rootless ARM64 payload: ${payload}")
@@ -109,6 +117,7 @@ android {
     compileSdk project.properties.compileSdkVersion.toInteger()
 
     defaultConfig {
+        buildConfigField "boolean", "ROOTLESS_ACCELERATION", acceleratedRootless ? "true" : "false"
         minSdk project.properties.minSdkVersion.toInteger()
         targetSdk project.properties.targetSdkVersion.toInteger()
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
@@ -116,6 +125,7 @@ android {
     }
 
     buildFeatures {
+        buildConfig true
         aidl true
     }
 
