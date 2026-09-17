@@ -881,3 +881,20 @@ DSO 해시는 `4147b3fd803669801ffb9aee10e57461e1904e2fbea21c0068be28eb6c826af4`
 159.425→172.776ms, 347.802→374.168ms로 증가했다. 단일 비교의 방향 확인이며
 확정 성능 또는 원본 대비 배속으로 사용하지 않는다. 전체 비교·Gradle·새 설치는
 반복하지 않았다. 실험 DSO 변경으로 UI/외부 API/외부 앱 MCP는 필요하지 않았다.
+
+### 생성 가속의 새 설치 시험 연결
+
+내부 설치 실행기에 기본 off인 `fastCreate`를 추가했다. fastOpen을 요구하고,
+guest에만 PROOT_FASTCREATE=1을 전달한다. 단위 시험은 의존 조건과 기본 비활성
+동작을 확인한다. instrumentation 인자 `rootlessFastCreate=true`로 설치·설정·검증
+전 단계에서 켤 수 있다. 설치 후 Python으로 파일을 생성하고 종료 진단의
+create_hits가 양수임을 요구한다. 기존 open/fstat 양수 확인도 유지한다.
+
+2026-09-17 Android MCP의 새 Debian 설치·환경·하드링크·실제 create/open/fstat
+가속 확인이 86.911초에 통과했다. 시험 후 임시 설치 디렉터리는 0개였다.
+엔진 58eea29d...와 진단 추가 DSO
+`f14710f4d7bd2bbfbc9292f7f725f9d7e025ed867c4bee227635c77da6c315b5`를 사용했다.
+JDK 17 정규 빌드·runtime 단위 시험·image 시험·instrumentation APK 빌드가
+통과했다(170 tasks, 15 executed). DSO 빌드도 통과했다. incremental 설치
+미지원은 streamed로 해결했다. UI/외부 API/외부 앱 MCP는 필요하지 않았다.
+설치 시간은 네트워크를 포함하므로 성능 비교에 사용하지 않는다.

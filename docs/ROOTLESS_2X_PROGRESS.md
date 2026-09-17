@@ -827,3 +827,18 @@ APK 설치도 통과했다. [적용 조건과 해시](../tools/rootless/faststat
 이는 단일 비교로 확정 개선 수치가 아니다. 새 생성 옵션의 Debian 새 설치 및
 전체 대표 작업 검증은 남아 있다. 읽기 쪽 2배 결과를 생성·쓰기 전체에 적용할 수
 없다. **전체 2배 및 파일 I/O 목표의 달성은 아직 입증되지 않았다.**
+
+## 32단계: 생성 가속 후보의 새 Debian 설치 검증
+
+기본 off인 fastCreate 설치 옵션과 instrumentation 인자를 연결했다. fastOpen
+의존 조건 및 기본 비활성 동작을 단위 시험으로 검사했다. 설치 후 Python으로
+파일을 생성해 create_hits 양수를 요구하고 기존 open/fstat 확인도 유지했다.
+
+2026-09-17 Android MCP에서 새 Debian 설치·환경·하드링크·가속 호출 확인이
+86.911초에 통과했다. 임시 설치 디렉터리는 시험 후 0개였다. JDK 17 정규 Android
+빌드·runtime 단위 시험·image 시험·instrumentation APK와 DSO 빌드도 통과했다.
+APK incremental 미지원은 streamed로 해결했다. [조건과 DSO 해시](../tools/rootless/faststat/README.md#생성-가속의-새-설치-시험-연결).
+
+성능 비교는 반복하지 않았으며 설치 시간을 성능 향상으로 해석하지 않는다.
+생성 가속을 포함한 전체 2배 달성은 아직 입증되지 않았다. 일반 세션에 후보를
+채택하기 위한 적용 범위·비용 개선과 최종 대표 작업 검증이 남아 있다.

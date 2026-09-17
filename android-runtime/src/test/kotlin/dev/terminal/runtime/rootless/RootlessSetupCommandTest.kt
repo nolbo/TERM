@@ -62,14 +62,18 @@ class RootlessSetupCommandTest {
         val current = layout()
         val library = temporary.newFile("open-dso.so")
         val enabled = runRootlessSetupCommand(current, fakeProot, fakeProot,
-            listOf("/bin/true"), fastfdLibrary = library, fastOpen = true)
+            listOf("/bin/true"), fastfdLibrary = library, fastOpen = true, fastCreate = true)
         assertEquals(0, enabled.exitCode)
         assertTrue(enabled.output.startsWith("1:unset\n"))
         assertTrue(enabled.output.contains("PROOT_FASTOPEN=1\n"))
+        assertTrue(enabled.output.contains("PROOT_FASTCREATE=1\n"))
         val disabled = runRootlessSetupCommand(current, fakeProot, fakeProot,
             listOf("/bin/true"), fastfdLibrary = library)
         assertTrue(disabled.output.startsWith("unset:unset\n"))
         assertFalse(disabled.output.contains("PROOT_FASTOPEN="))
+        assertFalse(disabled.output.contains("PROOT_FASTCREATE="))
+        assertTrue(runCatching { runRootlessSetupCommand(current, fakeProot, fakeProot,
+            listOf("/bin/true"), fastCreate = true) }.exceptionOrNull() is IllegalArgumentException)
         assertTrue(runCatching { runRootlessSetupCommand(current, fakeProot, fakeProot,
             listOf("/bin/true"), fastOpen = true) }.exceptionOrNull() is IllegalArgumentException)
         assertTrue(runCatching { runRootlessSetupCommand(current, fakeProot, fakeProot,
