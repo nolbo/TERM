@@ -1249,3 +1249,20 @@ preload, 단일 DSO bind, 가속 옵션 및 유지된 `--kill-on-exit`를 확인
 0개였다. streamed 설치가 성공했다. 설치 시간은 속도 비교 수치가 아니다.
 전체 벤치마크는 반복하지 않았다. 사용자 앱 교체·UI 검사는 하지 않았고
 외부 API/앱 MCP는 필요하지 않았다. 기본 릴리스 승격과 전체 목표는 남아 있다.
+
+## close 가속 전제의 FD 상태 회귀
+
+`close-state-test.py`는 auxv FD를 닫고 그 번호를 일반 파일에 재사용했을 때
+auxv 보정이 남지 않는지 검사한다. 일반 파일에 AT_EXECFN 모양의 데이터를 넣어
+잘못된 재보정을 검출한다. netlink 및 복제 FD의 닫기/번호 재사용 후 getsockname
+ENOTSOCK, 중복 close의 EBADF, 파이프 데이터와 EOF도 확인한다.
+
+2026-09-17 Android MCP에서 407515dc... 엔진과 facbee68... DSO의 누적 가속
+off/on 모두 통과했다. 최초 AT_PHDR 일치 단정은 양쪽에서 실패했다. 소스상
+PRoot는 proc auxv의 AT_EXECFN을 보정하고 나머지 ELF 항목은 loader를 가리킬 수
+있으므로 시험을 실제 보정 계약으로 수정했다. 제품 회귀로 분류하지 않는다.
+
+close의 auxv/netlink 상태 정리와 파이프 동작 때문에 무조건 추적을 없애는 변경은
+적용하지 않았다. 이 시험은 이후 닫기 가속의 회귀 기준이며 새로운 속도 향상
+증거가 아니다. Python 구문 검사가 통과했고 실행 코드·Gradle·APK는 변경하지
+않았다. 전체 비교나 새 설치도 반복하지 않았다.
