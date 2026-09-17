@@ -1082,3 +1082,20 @@ ARM64 엔진 빌드, Python 구문 검사, 시험 APK 설치가 통과했다. in
 `cbb2d40b7c032bca127c0453b4493471e55c37a16f7e89f4e89482d52d218115`.
 전체 벤치마크·새 Debian 설치·Gradle은 반복하지 않았다. 실험 네이티브 패치여서
 외부 API·UI·외부 앱 MCP는 필요하지 않았다. 새 옵션의 설치 통합은 남아 있다.
+
+### 권한 변경 경로의 재독 제거
+
+권한 변경 진입 완료는 이제 같은 syscall에서 번역한 경로를 지역 버퍼로 전달한다.
+확장 처리 후 경로 포인터가 달라지면 가속을 적용하지 않는다. syscall 사이의
+경로 캐시는 없으며 빈 경로는 기존 AT_EMPTY_PATH/dirfd 처리를 유지한다.
+
+2026-09-17 Android MCP에서 기존 권한 시험에 dirfd 상대 경로·빈 경로를 추가해
+off/on 모두 통과했다. 동일한 chmod/chown 각 100회 진단에서 enter_stop 719,
+read_string 528은 양쪽이 같았고 exit_stop은 311→111회였다. 직전 실험의 추가
+read_string 200회가 제거됐으며 각 syscall의 exit는 100→0회를 유지했다.
+실제 시간 이득은 아직 측정하지 않았다.
+
+엔진 빌드·Python 구문 검사·시험 APK 설치가 통과했다. 새 엔진 SHA-256은
+`cdd9cb06bbc687a2b0fa79b65ff5d786d321a38f701e4ab765eecdbeab5579dc`다.
+incremental 설치 미지원은 streamed로 해결했다. 전체 비교·새 설치·Gradle은
+반복하지 않았다. 제품 기본 적용과 권한 옵션 설치 통합 검증은 남아 있다.

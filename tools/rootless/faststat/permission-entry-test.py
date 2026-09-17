@@ -38,6 +38,17 @@ with tempfile.TemporaryDirectory() as directory:
         assert ctypes.get_errno() == errno.EFAULT
     assert call(54, path, 0, 0, 0x40000000) == -1
     assert ctypes.get_errno() == errno.EINVAL
+    directory_fd = os.open(directory, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        assert libc.syscall(53, directory_fd, b'file', 0o600) == 0
+        assert stat.S_IMODE(os.stat(path).st_mode) == 0o600
+        assert libc.syscall(54, directory_fd, b'file', 0, 0, 0) == 0
+        assert libc.syscall(54, directory_fd, b'', 0, 0, 0x1000) == 0
+        assert libc.syscall(53, directory_fd, b'', 0o600) == -1
+        assert ctypes.get_errno() == errno.ENOENT
+    finally:
+        os.close(directory_fd)
+    assert call(53, path, 0o644) == 0
 
     class Filter(ctypes.Structure):
         _fields_ = [('code', ctypes.c_ushort), ('jt', ctypes.c_ubyte),

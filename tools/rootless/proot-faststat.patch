@@ -362,7 +362,7 @@
 +		!is_32on64_mode(tracee);
 +}
 +
-+static bool complete_permission_entry(Tracee *tracee)
++static bool complete_permission_entry(Tracee *tracee, const char *translated_path)
 +{
 +#ifndef USERLAND
 +	if (!permission_entry_enabled(tracee)) return false;
@@ -376,9 +376,9 @@
 +			return false;
 +	int flags = number == PR_fchownat ? (int)peek_reg(tracee, CURRENT, SYSARG_5) : 0;
 +	if (flags & ~AT_SYMLINK_NOFOLLOW) return false;
-+	char path[PATH_MAX];
-+	if (read_path(tracee, path, peek_reg(tracee, CURRENT, SYSARG_2)) <= 0 ||
-+	    path[0] != '/' || stat_entry_special(path)) return false;
++	/* This path belongs to this entry only, after normal translation. */
++	const char *path = translated_path;
++	if (!path || path[0] != '/' || stat_entry_special(path)) return false;
 +	struct stat metadata;
 +	if (lstat(path, &metadata) != 0 || !S_ISREG(metadata.st_mode)) return false;
 +	int result;
@@ -544,16 +544,21 @@
  int translate_syscall_enter(Tracee *tracee)
  {
  	int flags;
-@@ -1831,6 +2205,8 @@
+@@ -1830,7 +2204,12 @@
+ 
  	word_t syscall_number;
  	bool special = false;
- 
+-
++#if defined(__aarch64__)
++	word_t permission_path_address = 0;
++#endif
++
 +	tracee->reuse_open_path = false;
 +	tracee->rewritten_open_path_address = 0;
  	status = notify_extensions(tracee, SYSCALL_ENTER_START, 0, 0);
  	if (status < 0)
  		goto end;
-@@ -1839,6 +2215,82 @@
+@@ -1839,6 +2218,99 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
@@ -633,10 +638,27 @@
 +		}
 +	}
 +#endif
++#if defined(__aarch64__)
++	if (permission_entry_enabled(tracee)) {
++		status = get_sysarg_path(tracee, path, SYSARG_2);
++		if (status < 0) goto end;
++		/* Empty paths retain the original dirfd/AT_EMPTY_PATH handling. */
++		if (path[0]) {
++			dirfd = peek_reg(tracee, CURRENT, SYSARG_1);
++			flags = syscall_number == PR_fchownat ? peek_reg(tracee, CURRENT, SYSARG_5) : 0;
++			status = translate_path(tracee, newpath, dirfd, path, !(flags & AT_SYMLINK_NOFOLLOW));
++			if (status < 0) goto end;
++			status = set_sysarg_path(tracee, newpath, SYSARG_2);
++			if (status >= 0) permission_path_address = peek_reg(tracee, CURRENT, SYSARG_2);
++			goto end;
++		}
++	}
++#endif
++
  	switch (syscall_number) {
  	default:
  		/* Nothing to do. */
-@@ -1944,6 +2396,7 @@
+@@ -1944,6 +2416,7 @@
  			status = -ENOMEM;
  			break;
  		}
@@ -644,7 +666,7 @@
  		TALLOC_FREE(tracee->fs->cwd);
  
  		tracee->fs->cwd = tmp;
-@@ -2842,21 +3295,22 @@
+@@ -2842,21 +3315,22 @@
  	case PR_close: {
  		int closed_fd = (int) peek_reg(tracee, CURRENT, SYSARG_1);
  
@@ -677,7 +699,7 @@
  		break;
  	}
  
-@@ -2868,5 +3322,17 @@
+@@ -2868,5 +3342,18 @@
  	if (status2 < 0)
  		status = status2;
  
@@ -687,7 +709,8 @@
 +		(void) complete_fstat_entry(tracee);
 +		(void) complete_mutation_entry(tracee);
 +		(void) complete_id_entry(tracee);
-+		(void) complete_permission_entry(tracee);
++		if (permission_path_address && permission_path_address == peek_reg(tracee, CURRENT, SYSARG_2))
++			(void) complete_permission_entry(tracee, newpath);
 +	}
 +#endif
 +
