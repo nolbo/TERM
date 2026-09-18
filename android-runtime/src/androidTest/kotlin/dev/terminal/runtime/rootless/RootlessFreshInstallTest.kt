@@ -135,10 +135,30 @@ class RootlessFreshInstallTest {
                         }
                     }
                     val command = listOf("/usr/bin/python3", "-c",
-                        "import ctypes,os; assert os.stat('/etc/debian_version').st_size>0; " +
-                            "c=ctypes.CDLL(None); assert c.proot_faststat_hits()>0; n=c.proot_fastclose_hits(); " +
-                            "f=os.open('/etc/debian_version',os.O_RDONLY); os.close(f); " +
-                            "assert c.proot_fastclose_hits()>n; print('PASS accelerated PTY')")
+                        """
+                        import ctypes,os,stat,subprocess,tarfile,tempfile
+                        assert os.stat('/etc/debian_version').st_size>0
+                        c=ctypes.CDLL(None,use_errno=True)
+                        assert c.proot_faststat_hits()>0
+                        n=c.proot_fastclose_hits()
+                        f=os.open('/etc/debian_version',os.O_RDONLY)
+                        os.close(f)
+                        assert c.proot_fastclose_hits()>n
+                        with tempfile.TemporaryDirectory() as root:
+                            target=root+'/target'
+                            os.mkdir(target)
+                            assert c.syscall(452,-100,os.fsencode(target),0o751,0x100)==0, ctypes.get_errno()
+                            assert stat.S_IMODE(os.stat(target).st_mode)==0o751
+                            archive=root+'/fixture.tar'
+                            with tarfile.open(archive,'w') as output:
+                                entry=tarfile.TarInfo('directory')
+                                entry.type=tarfile.DIRTYPE
+                                entry.mode=0o705
+                                output.addfile(entry)
+                            subprocess.run(['tar','-xf',archive,'-C',target],check=True)
+                            assert stat.S_IMODE(os.stat(target+'/directory').st_mode)==0o705
+                        print('PASS accelerated PTY')
+                        """.trimIndent())
                     controller.create("/bin/sh", "/root", mapOf(
                         dev.terminal.runtime.session.SessionCommand.KEY to dev.terminal.runtime.session.SessionCommand.encode(command)),
                         24u, 80u).getOrThrow()

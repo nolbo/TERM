@@ -1420,3 +1420,19 @@ Python tarfile 추출 중앙값은 639.538→400.149ms(37.4% 감소), 6개 내�
 제외한 guest CPU다. 기존 original-engine 수치와 곱해 전체 개선율로 주장하지
 않는다. 제품 적용에는 데몬 수명 소유권, 시작 비용, 실제 계정 파일/동시 세션
 검증이 남아 있다. Gradle/전체 벤치마크는 반복하지 않았다.
+
+## fchmodat2 후보 APK 반영 (2026-09-18)
+
+Gradle 후보 입력의 엔진 해시를 4d6ddc8f...로 갱신했다. 기본 APK 엔진 선택은
+유지되며 `rootlessAcceleratedPayload`로 선택하는 후보에 적용된다. 새 설치
+계측 시험은 실제 RootlessSessionController PTY에서 가속 stat/close 사용과
+fchmodat2의 no-follow 모드 변경, GNU tar 디렉터리 모드 복원을 함께 확인한다.
+
+`JAVA_HOME=/usr/lib/jvm/java-17-openjdk-arm64 ./gradlew
+-ProotlessAcceleratedPayload=/tmp/terminal-fchmodat2-profile
+:android-runtime:assembleDebugAndroidTest :android-app:assembleDebug
+:android-runtime:testDebugUnitTest :image:test --console=plain` 통과
+(173 tasks, 17 executed). Android MCP streamed 설치 후 새 Debian 설치와 PTY
+검사가 89.965초에 통과했다. 설치 시간은 성능 비교에 사용하지 않는다.
+실제 사용자 앱 교체/UI 검사는 하지 않았다. NSS 서비스는 아직 제품에
+연결하지 않았으며 소유권·종료/재시작 검증이 남아 있다.

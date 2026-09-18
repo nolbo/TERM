@@ -98,6 +98,9 @@ Rootless PTY sessions. The candidate also accelerates regular-file close while
 the tracee's descriptor table is isolated after exec. Fork/thread creation and
 tracked auxv/netlink descriptors revoke that eligibility until another exec.
 Pipes and other descriptors retain the original close path.
+The candidate translates ARM64 `fchmodat2`, including no-follow paths and
+empty-path operations against the guest working directory. This is required
+for current glibc/GNU tar directory permission restoration during extraction.
 The glibc preload is bound into the guest only; host PRoot
 execution still uses the centralized APK executable loader. Existing guest
 preloads follow the acceleration DSO. Guest-supplied PROOT options cannot replace

@@ -1156,3 +1156,15 @@ Android MCP에서 가속 off/on의 권한·오류·symlink·빈 경로·seccomp�
 [원시 결과와 측정 범위](../tools/rootless/faststat/results/nss-tar-2026-09-18.json).
 데몬 시작/종료를 제외했으며 original 엔진 대비 결과가 아니다.
 **런타임 적용, 기존 후보 엔진 갱신, 전체 2배 및 순차 I/O 개선은 남아 있다.**
+
+## 56단계: 수정 엔진의 후보 통합 및 새 설치 검증
+
+fchmodat2 수정 엔진을 Gradle 후보 해시에 반영하고, 새 설치 후 실제 PTY의
+stat/close 가속과 fchmodat2/GNU tar 권한 복원 검사를 추가했다.
+정규 빌드/단위 시험과 Android MCP의 새 Debian 설치 계측 시험이 통과했다
+(89.965초; 성능 비교 아님). NSS 데몬은 아직 런타임에 연결하지 않았다.
+
+사용자 지시에 따라 이전 로컬 작업 이력과 미커밋 변경을 보존해 `dev`로
+옮겼고, AGENTS.md에 dev 전용 작업 정책을 추가했다. 로컬 main은 origin/main
+기준점으로 복구했으며 원격 변경은 하지 않았다.
+**전체 2배 및 순차 I/O 개선 목표는 계속 진행 중이다.**
