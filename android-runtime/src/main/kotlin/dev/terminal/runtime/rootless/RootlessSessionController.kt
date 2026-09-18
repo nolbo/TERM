@@ -25,6 +25,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -35,6 +36,7 @@ class RootlessSessionController(
     private val loader: File,
     private val sharedStorage: () -> File? = { null },
     private val usbBroker: dev.terminal.runtime.usb.UsbBroker? = null,
+    private val cacheDirectory: File = layout.tmp,
 ) : SessionController {
     init {
         require(proot.isFile && proot.canExecute()) { "Packaged PRoot is not executable" }
@@ -51,6 +53,18 @@ class RootlessSessionController(
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val entries = ConcurrentHashMap<String, Entry>()
+    private var nssCache: RootlessNssCache? = null
+    private var cacheClosed = false
+    @Synchronized private fun cache(): RootlessNssCache? {
+        check(!cacheClosed) { "Rootless controller closed" }
+        if (nssCache == null && dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION &&
+            layout.distribution == RootlessDistribution.DEBIAN &&
+            resolveRootlessFile(layout.rootfs, "usr/sbin/nscd")?.canExecute() == true) {
+            nssCache = runCatching { RootlessNssCache(layout, proot, loader, cacheDirectory) }
+                .onFailure { Log.w(TAG, "NSS cache unavailable", it) }.getOrNull()
+        }
+        return nssCache
+    }
     private val mutableEvents = MutableSharedFlow<SessionEvent>(extraBufferCapacity = 128)
     private val mutableConnection = MutableStateFlow(SessionConnectionState.CONNECTED)
     override val events: SharedFlow<SessionEvent> = mutableEvents.asSharedFlow()
@@ -58,6 +72,16 @@ class RootlessSessionController(
 
     override suspend fun create(shell: String, cwd: String, env: Map<String, String>, rows: UShort, cols: UShort): Result<SessionDescriptor> = runCatching {
         layout.validateInstalledRootfs().getOrThrow()
+        val cache = cache()
+        if (cache != null) {
+            val ready = runInterruptible(Dispatchers.IO) {
+                try { cache.ensureStarted() } catch (error: java.io.IOException) {
+                    Log.w(TAG, "NSS cache process unavailable", error)
+                    false
+                }
+            }
+            if (!ready) Log.w(TAG, "NSS cache startup failed; using direct lookups")
+        }
         val id = "${layout.distribution.runtime.idPrefix}${UUID.randomUUID()}"
         val storage = sharedStorage()
         val graphicsShm = File(layout.tmp, "graphics-shm").apply { mkdirs() }
@@ -75,8 +99,11 @@ class RootlessSessionController(
         val launch = try { buildRootlessLaunchSpec(layout, proot, loader, shell, cwd, env, storage,
             usbBroker?.clientFile, usbEnvironment,
             accelerationLibrary = if (dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION)
-                File(proot.parentFile, "libproot-faststat.so") else null) } catch (error: Exception) { usbBroker?.unregister(id); throw error }
-        val process = try { PtyProcess.start(
+                File(proot.parentFile, "libproot-faststat.so") else null,
+            nssBindings = cache?.bindings.orEmpty()) } catch (error: Exception) { usbBroker?.unregister(id); throw error }
+        val (process, descriptor) = try { synchronized(this) {
+            check(!cacheClosed) { "Rootless controller closed" }
+            val process = PtyProcess.start(
             launch.command,
             launch.hostCwd,
             launch.arguments,
@@ -85,9 +112,11 @@ class RootlessSessionController(
             cols.toInt(),
             0,
             0,
-        ) } catch (error: Exception) { usbBroker?.unregister(id); throw error }
-        val descriptor = SessionDescriptor(id, layout.distribution.displayName, launch.guestShell, launch.guestCwd, System.currentTimeMillis(), rows, cols, SessionStatus.RUNNING)
-        entries[id] = Entry(descriptor, process)
+            )
+            val descriptor = SessionDescriptor(id, layout.distribution.displayName, launch.guestShell, launch.guestCwd, System.currentTimeMillis(), rows, cols, SessionStatus.RUNNING)
+            entries[id] = Entry(descriptor, process)
+            process to descriptor
+        } } catch (error: Exception) { usbBroker?.unregister(id); throw error }
         scope.launch {
             pumpPtyOutput(
                 process.inputStream,
@@ -161,9 +190,12 @@ class RootlessSessionController(
         entries.remove(sessionId, entry)
         entry.process.close()
     }
-    override fun close() {
+    @Synchronized override fun close() {
         entries.values.forEach { usbBroker?.unregister(it.descriptor.id); it.process.terminate(SIGKILL); it.process.close() }
         entries.clear(); mutableConnection.value = SessionConnectionState.DISCONNECTED; scope.cancel()
+        cacheClosed = true
+        nssCache?.close()
+        nssCache = null
     }
 
     private companion object {
@@ -194,6 +226,7 @@ internal fun buildRootlessLaunchSpec(
     usbClientFile: File? = null,
     usbEnvironment: Map<String, String> = emptyMap(),
     accelerationLibrary: File? = null,
+    nssBindings: List<String> = emptyList(),
 ): RootlessLaunchSpec {
     accelerationLibrary?.let {
         require(it.isFile && it.canRead()) { "Packaged Rootless acceleration library is missing" }
@@ -217,6 +250,7 @@ internal fun buildRootlessLaunchSpec(
         sharedStorage?.let { addAll(listOf("-b", "${it.absolutePath}:/sdcard")) }
         usbClientFile?.let { addAll(listOf("-b", "${it.absolutePath}:/usr/local/bin/terminal-usb")) }
         acceleration?.let { addAll(listOf("-b", it.binding)) }
+        nssBindings.forEach { addAll(listOf("-b", it)) }
         addAll(listOf("-w", guestCwd, "/usr/bin/env", "-i"))
         add("HOME=/root")
         add("USER=root")

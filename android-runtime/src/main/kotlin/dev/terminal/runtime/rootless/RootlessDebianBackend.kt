@@ -103,7 +103,8 @@ class RootlessDebianBackend(
         }
         val executable = proot ?: error("${distribution.displayName} must be prepared before start")
         val loaderExecutable = loader ?: error("${distribution.displayName} loader must be prepared before start")
-        controller = RootlessSessionController(layout, executable, loaderExecutable, usbBroker = usbBroker, sharedStorage = {
+        controller = RootlessSessionController(layout, executable, loaderExecutable, usbBroker = usbBroker,
+            cacheDirectory = appContext.cacheDir, sharedStorage = {
             // Query at session creation, including after returning from system settings.
             // This UID-wide OS grant is also the Native shell's access boundary.
             if (Environment.isExternalStorageManager()) Environment.getExternalStorageDirectory() else null

@@ -109,6 +109,18 @@ the APK-selected profile.
 The candidate's package installation, environment configuration and verification
 stages use the same profile automatically. Maintenance retains its finite
 `--kill-on-exit` process ownership; interactive session ownership is unchanged.
+
+The accelerated Debian installation also installs the official `nscd` package.
+The session controller owns one foreground passwd/group cache, starts it before
+the first session, and retries after a daemon exit when another session is
+created. Cache data and its socket use dedicated app-cache directories; account
+files retain the distribution's normal directory layout and inotify watches.
+The cache is shared but nonpersistent, with positive/negative TTLs of 2/1 seconds.
+Only the daemon uses the owner-pipe and EXITKILL options. Closing its controller
+closes that pipe and waits for termination; UI detach leaves the cache running.
+Missing packages or failed startup retain direct NSS lookups. Existing verified
+installations without nscd do not gain this optimization until environment setup
+installs it. Other distributions and the default APK profile do not enable it.
 Explicit experimental DSO/notification setup paths remain separate from the
 packaged profile to avoid duplicate library bindings or conflicting modes.
 

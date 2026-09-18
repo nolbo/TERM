@@ -1480,3 +1480,34 @@ tracer 죽음/정상 종료 검사를 포함한 7개 검사가 Android MCP 앱 U
 빌드/시험 APK 패키징과 streamed 설치 통과. 최종 엔진 SHA-256은
 `975d535771988c04b1fff1e870543103c9958a258a16e0087ab71c0021f5628e`다.
 Gradle 후보 입력은 변경하지 않았고 전체 벤치마크/새 설치는 반복하지 않았다.
+
+## 후보 런타임의 NSS 캐시 통합 (2026-09-18)
+
+Gradle 후보 엔진을 975d5357...로 갱신하고 Debian 환경 설치에 공식 nscd를
+추가했다. RootlessNssCache는 컨트롤러별 foreground 데몬 하나를 소유한다.
+앱 cache 디렉터리에 짧은 독립 소켓/비영속 DB 경로를 만들고, 실제 rootfs의
+계정 파일은 그대로 사용한다. 세션들은 같은 run/cache 바인드를 공유한다.
+데몬은 owner-pipe 모드의 별도 PRoot에서 실행되고, 세션 종료 옵션은 바꾸지
+않는다. UI detach는 데몬을 종료하지 않는다.
+
+첫 세션 전에 시작하며, 데몬이 죽으면 다음 세션 생성에서 재시작한다.
+시작 실패나 패키지 부재는 직접 NSS 조회로 동작한다. 관리자를 닫으면 소유
+파이프를 닫고 종료를 기다린 뒤 캐시 디렉터리를 지운다. 컨트롤러의 닫기와
+PTY 등록을 동기화해 닫은 후 새 PTY가 등록되는 경쟁도 막았다.
+기존 검증 완료 rootfs에 nscd가 없으면 환경 설치/보완 전까지 캐시는 꺼져 있다.
+
+정규 빌드/시험 통과(173 tasks). 동기화 보완 뒤 관련 빌드를 확인했고, 데몬
+재시작 검사 추가 뒤 계측 APK만 다시 빌드했다. Android MCP streamed 설치 및
+새 Debian 설치/검증이 88.711초에 통과했다. 이 실행은 다음을 확인했다.
+
+- 데몬 시작 및 두 번째 요청에서 같은 PID 재사용.
+- nscd 강제 종료 후 새 PID로 시작하고, 관리자 close 뒤 종료.
+- 실제 RootlessSessionController PTY의 passwd/group 공유 DB 매핑 2개.
+- 기존 stat/close 가속, fchmodat2와 GNU tar 디렉터리 권한 복원.
+- 시험 종료 후 fresh-rootless 디렉터리 0개, NSS 캐시 디렉터리 0개.
+
+후보 APK는 `/tmp/terminal-nss-profile/terminal-accelerated-debug.apk`다.
+실제 사용자 앱 교체/UI 시험은 하지 않았다. Android 서비스 강제 종료의 연결
+단절은 앞선 프로세스 소유권 시험으로 검증했으며, 앱 서비스 자체를 강제 종료한
+시험으로 대체해 주장하지 않는다. NSS 통합 후 전체 성능 비교는 아직 하지
+않았고, 이전 tar 37.4% 감소가 이 APK에서 재확인된 것은 아니다.

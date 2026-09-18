@@ -9,6 +9,17 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class RootlessLaunchSpecTest {
+    @Test fun nssBindingsAreSelectedByRuntimeAndDoNotReplaceAccountFiles() {
+        val layout = RootlessDebianLayout(File(temporary.root, "nss/debian"))
+        val bindings = listOf("/private/run:/run/nscd", "/private/cache:/var/cache/nscd")
+        val spec = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"),
+            "/bin/sh", "/root", emptyMap(), nssBindings = bindings)
+        val actual = spec.arguments.toList().windowed(2).filter { it[0] == "-b" }.map { it[1] }
+        assertTrue(actual.containsAll(bindings))
+        assertFalse(actual.any { it.endsWith(":/etc/passwd") || it.endsWith(":/etc/group") })
+        assertFalse(spec.hostEnvironment.contains("PROOT_OWNER_PIPE=1"))
+    }
+
     @Test fun accelerationIsHostSelectedAndPreloadStaysInGuest() {
         val layout = RootlessDebianLayout(File(temporary.root, "accelerated/debian"))
         layout.rootfs.mkdirs()

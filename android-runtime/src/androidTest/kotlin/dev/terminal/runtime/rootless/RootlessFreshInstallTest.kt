@@ -123,7 +123,36 @@ class RootlessFreshInstallTest {
             if (fastUnlink) assertTrue("No accelerated unlink observed: ${check.output}",
                 Regex("\"unlink_hits\":([1-9][0-9]*)").containsMatchIn(check.output))
             if (dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION) {
-                val controller = RootlessSessionController(layout, proot, guestLoader)
+                val cacheDirectoriesBefore = context.cacheDir.list().orEmpty().filter { it.startsWith("nss-") }.toSet()
+                fun alive(pid: Int): Boolean = runCatching {
+                    File("/proc/$pid/stat").readText().substringAfterLast(')').trim().first() !in setOf('Z', 'X')
+                }.getOrDefault(false)
+                var cachePid = 0
+                RootlessNssCache(layout, proot, guestLoader, context.cacheDir).use { cache ->
+                    assertTrue(cache.ensureStarted())
+                    val pidFile = File(cache.bindings.first().substringBefore(":"), "nscd.pid")
+                    withTimeout(5_000) {
+                        while (!pidFile.isFile) kotlinx.coroutines.delay(20)
+                    }
+                    cachePid = pidFile.readText().trim().toInt()
+                    assertTrue(alive(cachePid))
+                    assertTrue(cache.ensureStarted())
+                    assertEquals(cachePid, pidFile.readText().trim().toInt())
+                    android.os.Process.sendSignal(cachePid, 9)
+                    withTimeout(5_000) {
+                        do {
+                            kotlinx.coroutines.delay(20)
+                            assertTrue(cache.ensureStarted())
+                            val replacement = pidFile.takeIf { it.isFile }?.readText()?.trim()?.toIntOrNull()
+                        } while (replacement == null || replacement == cachePid)
+                    }
+                    cachePid = pidFile.readText().trim().toInt()
+                    assertTrue(alive(cachePid))
+                }
+                withTimeout(5_000) {
+                    while (alive(cachePid)) kotlinx.coroutines.delay(20)
+                }
+                val controller = RootlessSessionController(layout, proot, guestLoader, cacheDirectory = context.cacheDir)
                 try {
                     val output = StringBuilder()
                     val observed = async(start = CoroutineStart.UNDISPATCHED) {
@@ -136,7 +165,11 @@ class RootlessFreshInstallTest {
                     }
                     val command = listOf("/usr/bin/python3", "-c",
                         """
-                        import ctypes,os,stat,subprocess,tarfile,tempfile
+                        import ctypes,os,stat,subprocess,tarfile,tempfile,pwd,grp
+                        assert pwd.getpwnam('root').pw_uid==0
+                        assert grp.getgrnam('root').gr_gid==0
+                        maps=open('/proc/self/maps').read().splitlines()
+                        assert len([line for line in maps if 'r--s' in line and '/run/db' in line])==2
                         assert os.stat('/etc/debian_version').st_size>0
                         c=ctypes.CDLL(None,use_errno=True)
                         assert c.proot_faststat_hits()>0
@@ -166,6 +199,8 @@ class RootlessFreshInstallTest {
                 } finally {
                     controller.close()
                 }
+                assertEquals(cacheDirectoriesBefore,
+                    context.cacheDir.list().orEmpty().filter { it.startsWith("nss-") }.toSet())
             }
             Log.i("RootlessFreshInstall", "${distribution.name}: VERIFIED")
         } finally {

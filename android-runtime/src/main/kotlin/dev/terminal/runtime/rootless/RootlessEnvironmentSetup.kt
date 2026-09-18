@@ -35,7 +35,9 @@ internal class RootlessEnvironmentSetup(
     suspend fun prepare() {
         // An older successful marker must not survive a failed repair of missing defaults.
         RootlessEnvironmentProfile.invalidate(layout)
-        val packages = RootlessEnvironmentProfile.packages(layout.distribution)
+        val packages = RootlessEnvironmentProfile.packages(layout.distribution) +
+            if (dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION &&
+                layout.distribution == RootlessDistribution.DEBIAN) listOf("nscd") else emptyList()
         runStage(RootlessPhase.PACKAGES,
             if (layout.distribution == RootlessDistribution.ARCH) "packages-arch.sh" else "packages-debian.sh", packages)
         runStage(RootlessPhase.CONFIGURE, "configure.sh", listOf(layout.distribution.directory))
