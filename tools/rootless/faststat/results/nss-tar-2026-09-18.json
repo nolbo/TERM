@@ -1,0 +1,140 @@
+{
+  "date": "2026-09-18",
+  "scope": "Same accelerated engine and DSO, nscd off/on only; 3 alternating pairs, diagnostics off, 1000 files; API35 ARM64 redroid/ext4, warm cache, synthetic passwd/group and private whole /etc directory binding. tar uses Python tarfile. Workload content assertions all passed. Daemon startup/shutdown excluded. Guest CPU excludes tracer and daemon; no original-engine speedup claim.",
+  "engine_sha256": "4d6ddc8fdb2afb669bd5f3697fcf5e64181ae0160e680f34aa027d4a1d561323",
+  "dso_sha256": "32440930dc740987aec8288b0d84c569980703a20479a10c2f58218bc22a745d",
+  "nscd": "Debian 2.41-12+deb13u4; threads=3, passwd/group shared=yes persistent=no check-files=yes, positive TTL=2s negative TTL=1s; foreground (-F)",
+  "median_ms": {
+    "off": 639.538,
+    "on": 400.149
+  },
+  "reduction_percent": 37.43155215170951,
+  "runs": [
+    {
+      "index": 0,
+      "nscd": false,
+      "whole_workload_ms": 1548.739,
+      "records": [
+        {
+          "case": "tar-extract",
+          "round": 1,
+          "count": 1000,
+          "wall_ms": 640.31,
+          "guest_cpu_ms": 365.937,
+          "bytes": 0,
+          "io_mib": null,
+          "mib_per_second": null,
+          "parent_hits": 1070,
+          "parent_fallbacks": 0,
+          "child_reports": [],
+          "coverage": false
+        }
+      ]
+    },
+    {
+      "index": 1,
+      "nscd": true,
+      "whole_workload_ms": 1022.554,
+      "records": [
+        {
+          "case": "tar-extract",
+          "round": 1,
+          "count": 1000,
+          "wall_ms": 399.209,
+          "guest_cpu_ms": 273.396,
+          "bytes": 0,
+          "io_mib": null,
+          "mib_per_second": null,
+          "parent_hits": 1070,
+          "parent_fallbacks": 0,
+          "child_reports": [],
+          "coverage": false
+        }
+      ]
+    },
+    {
+      "index": 2,
+      "nscd": true,
+      "whole_workload_ms": 1025.3,
+      "records": [
+        {
+          "case": "tar-extract",
+          "round": 1,
+          "count": 1000,
+          "wall_ms": 408.332,
+          "guest_cpu_ms": 283.108,
+          "bytes": 0,
+          "io_mib": null,
+          "mib_per_second": null,
+          "parent_hits": 1070,
+          "parent_fallbacks": 0,
+          "child_reports": [],
+          "coverage": false
+        }
+      ]
+    },
+    {
+      "index": 3,
+      "nscd": false,
+      "whole_workload_ms": 1524.951,
+      "records": [
+        {
+          "case": "tar-extract",
+          "round": 1,
+          "count": 1000,
+          "wall_ms": 629.732,
+          "guest_cpu_ms": 358.259,
+          "bytes": 0,
+          "io_mib": null,
+          "mib_per_second": null,
+          "parent_hits": 1070,
+          "parent_fallbacks": 0,
+          "child_reports": [],
+          "coverage": false
+        }
+      ]
+    },
+    {
+      "index": 4,
+      "nscd": false,
+      "whole_workload_ms": 1526.372,
+      "records": [
+        {
+          "case": "tar-extract",
+          "round": 1,
+          "count": 1000,
+          "wall_ms": 639.538,
+          "guest_cpu_ms": 366.864,
+          "bytes": 0,
+          "io_mib": null,
+          "mib_per_second": null,
+          "parent_hits": 1070,
+          "parent_fallbacks": 0,
+          "child_reports": [],
+          "coverage": false
+        }
+      ]
+    },
+    {
+      "index": 5,
+      "nscd": true,
+      "whole_workload_ms": 1022.062,
+      "records": [
+        {
+          "case": "tar-extract",
+          "round": 1,
+          "count": 1000,
+          "wall_ms": 400.149,
+          "guest_cpu_ms": 274.525,
+          "bytes": 0,
+          "io_mib": null,
+          "mib_per_second": null,
+          "parent_hits": 1070,
+          "parent_fallbacks": 0,
+          "child_reports": [],
+          "coverage": false
+        }
+      ]
+    }
+  ]
+}
