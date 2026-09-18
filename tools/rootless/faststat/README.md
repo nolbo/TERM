@@ -1361,3 +1361,37 @@ MCP 설치의 incremental 실패 후 streamed 설치는 성공했다.
 Android/runtime 코드는 수정하지 않아 Gradle 전체 빌드와 새 설치를 반복하지
 않았다. **Gradle 후보의 엔진 해시는 아직 이전 버전이다.** 후보 통합과 새 설치
 검증, nscd의 실제 캐시 효과/갱신/수명 검증은 후속 작업이며 완료로 간주하지 않는다.
+
+## NSS 공유 캐시 격리 시험 (2026-09-18)
+
+`nss-cache-test.py EXTRACTED_NSCD PRIVATE_TRIAL_DIRECTORY`는 제품 데몬이 아닌
+임시 실험이다. 실행 전 `/tmp/terminal-nss-cache-*` 아래에 `run`, `cache`
+디렉터리와 합성 `passwd`, `group`, `nsswitch.conf`를 만든다. passwd는 root와
+probe(uid/gid 1234), group은 root와 probe만 포함하고 NSS는 passwd/group에
+`files`를 사용한다. PRoot에서 이 파일들을 `/etc`의 해당 파일에, 두 디렉터리를
+`/run/nscd`, `/var/cache/nscd`에 각각 바인드해야 한다. 기존 계정 파일에 직접
+실행하지 않는다. 시험은 private fixture만 초기화/수정한다.
+
+Debian nscd 2.41-12+deb13u4를 `-d`로 직접 소유하고, passwd/group에만
+shared=yes, persistent=no, check-files=yes, positive TTL 2초/negative TTL
+1초를 적용했다. 자식 종료는 finally의 terminate/wait와 kill fallback으로
+회수한다. Android MCP의 API 35 ARM64 redroid/ext4, 53단계 엔진과 누적 DSO
+가속에서 다음을 확인했다.
+
+- 각각 100회의 passwd/group 이름 조회 결과가 정확했다.
+- 클라이언트에 읽기 전용 공유 DB 매핑 2개가 존재했다.
+- 200회 조회 동안 데몬의 이름 조회 요청은 DB당 1회, 총 2회였다.
+- private passwd/group의 UID/GID 변경이 10초 제한 안에 반영됐다.
+- 데몬 종료 후 새 프로세스의 직접 조회 결과도 변경된 값이었다.
+
+처음에는 매핑 이름이 passwd/group일 것으로 가정해 시험이 실패했다.
+비영속 DB는 `run/dbXXXXXX (deleted)`이므로 읽기 전용 공유 매핑으로 검사를
+수정했다. 데몬 로그의 요청 수로도 사용 여부를 확인한다.
+이 결과는 반복 조회의 공유 캐시 사용 증거이며, ptrace 전체 횟수 감소량이나
+실제 작업 시간 개선율은 아니다. 기존 진단 수치와 합산하지 않는다.
+
+제품에 적용하려면 런타임이 데몬의 생성/종료/재시작을 소유해야 한다.
+계정 파일 교체/삭제, 음성 캐시 갱신, 동시 세션, 설치 중 계정 변경과 캐시
+정합성, 데몬 비용을 포함한 실제 작업 효과가 추가 검증 대상이다.
+현재 앱의 NSS 설정이나 패키지 DB는 변경하지 않았고 새 서비스도 추가하지
+않았다. 네이티브/Android 소스 변경이 없어 Gradle 및 전체 벤치마크는 생략했다.
