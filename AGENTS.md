@@ -29,7 +29,8 @@ the ongoing task unless the user explicitly replaces or cancels it.
 Before substantial work, Codex MUST:
 
 1. start from the repository root;
-2. inspect the active branch and worktree with git status --short --branch;
+2. inspect the active branch and worktree with git status --short --branch,
+   and ensure work proceeds on `dev` under the Git policy below;
 3. locate any more-specific AGENTS.md or AGENTS.override.md that governs files
    in the task;
 4. read this file and the user's current request in full;
@@ -485,6 +486,13 @@ only a plan.
 
 The worktree may contain user or previous-session changes.
 
+- All repository work MUST be performed on the `dev` branch. Before editing,
+  safely switch to `dev`, preserving existing commits and uncommitted changes.
+  If switching would overwrite or discard work, resolve that conflict before
+  proceeding; never reset or discard changes merely to reach `dev`.
+- Commit task-owned changes on `dev`. Do not develop or commit directly on
+  `main`, or create another working branch, unless the user explicitly changes
+  this policy. Merging or publishing `dev` still requires explicit authorization.
 - Preserve unrelated changes.
 - Do not reset, checkout, clean, stash, or overwrite them.
 - Do not use destructive Git operations.
