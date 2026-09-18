@@ -1047,7 +1047,19 @@
  	proot_perf_count(PERF_PATH_TRANSLATION);
 --- a/src/tracee/event.c
 +++ b/src/tracee/event.c
-@@ -45,6 +45,7 @@
+@@ -20,6 +20,11 @@
+  * 02110-1301 USA.
+  */
+ 
++#include <fcntl.h>
++#include <poll.h>
++#include <pthread.h>
++#include <sys/stat.h>
++
+ #include <sched.h>      /* CLONE_*,  */
+ #include <sys/types.h>  /* pid_t, */
+ #include <sys/ptrace.h> /* ptrace(1), PTRACE_*, */
+@@ -45,6 +50,7 @@
  #include "syscall/syscall.h"
  #include "syscall/seccomp.h"
  #include "syscall/pipe_shadow.h"
@@ -1055,7 +1067,48 @@
  #include "ptrace/wait.h"
  #include "extension/extension.h"
  #include "execve/elf.h"
-@@ -500,7 +501,7 @@
+@@ -62,6 +68,40 @@
+  * silently accept PTRACE_O_TRACESECCOMP option bits without actually
+  * implementing the event, so we can't rely on PTRACE_SETOPTIONS alone.
+  */
++/* Only for service-owned helpers: stdin is the owner's pipe, not a PTY.
++ * Watch HUP without consuming input. Start after EXITKILL is installed. */
++static void *watch_owner_pipe(void *opaque)
++{
++	int fd = (int)(intptr_t)opaque;
++	struct pollfd owner = { .fd = fd, .events = 0 };
++	while (poll(&owner, 1, -1) < 0 && errno == EINTR) {}
++	close(fd);
++	kill(getpid(), SIGKILL);
++	return NULL;
++}
++
++static int start_owner_pipe_watch(void)
++{
++	struct stat st;
++	pthread_t thread;
++	if (fstat(STDIN_FILENO, &st) < 0) return -errno;
++	if (!S_ISFIFO(st.st_mode)) return -EINVAL;
++	int fd = fcntl(STDIN_FILENO, F_DUPFD_CLOEXEC, 3);
++	if (fd < 0) return -errno;
++	struct pollfd owner = { .fd = fd, .events = 0 };
++	int ready;
++	do { ready = poll(&owner, 1, 0); } while (ready < 0 && errno == EINTR);
++	if (ready != 0) {
++		int error = ready < 0 ? errno : EPIPE;
++		close(fd);
++		return -error;
++	}
++	int result = pthread_create(&thread, NULL, watch_owner_pipe, (void *)(intptr_t)fd);
++	if (result) { close(fd); return -result; }
++	result = pthread_detach(thread);
++	return -result;
++}
++
+ static bool kernel_supports_ptrace_event_seccomp(void)
+ {
+ 	struct utsname uts;
+@@ -500,7 +540,7 @@
  			static bool deliver_sigtrap = false;
  
  		case SIGTRAP: {
@@ -1064,7 +1117,7 @@
  				PTRACE_O_TRACESYSGOOD	|
  				PTRACE_O_TRACEFORK	|
  				PTRACE_O_TRACEVFORK	|
-@@ -508,6 +509,12 @@
+@@ -508,6 +548,14 @@
  				PTRACE_O_TRACEEXEC	|
  				PTRACE_O_TRACECLONE	|
  				PTRACE_O_TRACEEXIT);
@@ -1072,12 +1125,29 @@
 +			/* Runtime-owned helpers must not survive their tracer. Do not
 +			 * silently drop this option on kernels that reject it. */
 +			const char *exitkill = getenv("PROOT_EXITKILL");
-+			if (exitkill && strcmp(exitkill, "1") == 0)
++			const char *owner_pipe = getenv("PROOT_OWNER_PIPE");
++			bool owned = owner_pipe && strcmp(owner_pipe, "1") == 0;
++			if (owned || (exitkill && strcmp(exitkill, "1") == 0))
 +				default_ptrace_options |= PTRACE_O_EXITKILL;
  
  			/* Distinguish some events from others and
  			 * automatically trace each new process with
-@@ -749,6 +756,11 @@
+@@ -550,6 +598,14 @@
+ 				 * PTRACE_EVENT_SECCOMP requires Linux >= 3.5.  */
+ 				seccomp_ptrace_event_supported =
+ 					kernel_supports_ptrace_event_seccomp();
++			}
++			if (owned) {
++				status = start_owner_pipe_watch();
++				if (status < 0) {
++					errno = -status;
++					note(tracee, ERROR, SYSTEM, "runtime owner pipe");
++					exit(EXIT_FAILURE);
++				}
+ 			}
+ 		}
+ 			/* Fall through. */
+@@ -749,6 +805,11 @@
  		case SIGTRAP | PTRACE_EVENT_VFORK_DONE << 8:
  		case SIGTRAP | PTRACE_EVENT_EXEC  << 8:
  		case SIGTRAP | PTRACE_EVENT_EXIT  << 8:
@@ -1089,7 +1159,7 @@
  			signal = 0;
  			if (tracee->last_restart_how) {
  				tracee->restart_how = tracee->last_restart_how;
-@@ -884,6 +896,8 @@
+@@ -884,6 +945,8 @@
  	if (tracee->as_ptracer.wait_pid != 0 || signal == -1)
  		return false;
  
