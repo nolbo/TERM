@@ -155,6 +155,14 @@
  
  	/* For each handled architectures */
  	for (i = 0; i < nb_archs; i++) {
+@@ -356,6 +497,7 @@
+ 	{ PR_faccessat2,	FILTER_SYSEXIT },
+ 	{ PR_fchdir,		FILTER_SYSEXIT },
+ 	{ PR_fchmodat,		0 },
++	{ PR_fchmodat2,		0 },
+ 	{ PR_fchownat,		0 },
+ 	{ PR_fstatat64,		0 },
+ 	{ PR_futimesat,		0 },
 --- a/src/syscall/enter.c
 +++ b/src/syscall/enter.c
 @@ -79,6 +79,12 @@
@@ -677,7 +685,27 @@
  		TALLOC_FREE(tracee->fs->cwd);
  
  		tracee->fs->cwd = tmp;
-@@ -2675,6 +3158,17 @@
+@@ -2483,6 +2966,19 @@
+ 			maybe_redirect_userns_file(tracee, SYSARG_1);
+ 		break;
+ 
++	case PR_fchmodat2:
++		dirfd = peek_reg(tracee, CURRENT, SYSARG_1);
++		flags = peek_reg(tracee, CURRENT, SYSARG_4);
++		status = get_sysarg_path(tracee, path, SYSARG_2);
++		if (status < 0)
++			break;
++		/* AT_FDCWD refers to PRoot's virtual cwd, even for an empty path. */
++		if (!path[0] && dirfd == AT_FDCWD && (flags & AT_EMPTY_PATH))
++			strcpy(path, ".");
++		status = translate_path2(tracee, dirfd, path, SYSARG_2,
++			(flags & AT_SYMLINK_NOFOLLOW) ? SYMLINK : REGULAR);
++		break;
++
+ 	case PR_fchownat:
+ 	case PR_fstatat64:
+ 	case PR_newfstatat:
+@@ -2675,6 +3171,17 @@
  		if (status < 0)
  			break;
  
@@ -695,7 +723,7 @@
  		status = translate_path2(tracee, olddirfd, oldpath, SYSARG_2, SYMLINK);
  		if (status < 0)
  			break;
-@@ -2842,21 +3336,22 @@
+@@ -2842,21 +3349,22 @@
  	case PR_close: {
  		int closed_fd = (int) peek_reg(tracee, CURRENT, SYSARG_1);
  
@@ -728,7 +756,7 @@
  		break;
  	}
  
-@@ -2868,5 +3363,21 @@
+@@ -2868,5 +3376,21 @@
  	if (status2 < 0)
  		status = status2;
  
@@ -1178,3 +1206,46 @@
  	proot_path_fastpath_enabled = getenv("PROOT_NO_PATH_FASTPATH") == NULL;
  	owner = getpid();
  	if (proot_perf_enabled) atexit(report);
+--- a/src/syscall/sysnums.list
++++ b/src/syscall/sysnums.list
+@@ -72,6 +72,7 @@
+ SYSNUM(fchdir)
+ SYSNUM(fchmod)
+ SYSNUM(fchmodat)
++SYSNUM(fchmodat2)
+ SYSNUM(fchown)
+ SYSNUM(fchown32)
+ SYSNUM(fchownat)
+--- a/src/syscall/sysnums-arm64.h
++++ b/src/syscall/sysnums-arm64.h
+@@ -281,4 +281,5 @@
+ 	[ 435 ] = PR_clone3,
+ 	[ 437 ] = PR_openat2,
+ 	[ 439 ] = PR_faccessat2,
++	[ 452 ] = PR_fchmodat2,
+ };
+--- a/src/extension/fake_id0/fake_id0.c
++++ b/src/extension/fake_id0/fake_id0.c
+@@ -321,6 +321,7 @@
+ 	{ PR_execve,		FILTER_SYSEXIT },
+ 	{ PR_fchmod,		FILTER_SYSEXIT },
+ 	{ PR_fchmodat,		FILTER_SYSEXIT },
++	{ PR_fchmodat2,		FILTER_SYSEXIT },
+ 	{ PR_fchown,		FILTER_SYSEXIT },
+ 	{ PR_fchown32,		FILTER_SYSEXIT },
+ 	{ PR_fchownat,		FILTER_SYSEXIT },
+@@ -446,6 +447,7 @@
+ 			break;
+ 
+ 		case PR_fchmodat:
++		case PR_fchmodat2:
+ 			node->mode = peek_reg(tracee, ORIGINAL, SYSARG_3);
+ 			break;
+ 
+@@ -1035,5 +1037,6 @@
+ 	case PR_fchown32:
+ 	case PR_lchown32:
+ 	case PR_fchmodat:
++	case PR_fchmodat2:
+ 	case PR_fchownat: 
+ 		return handle_perm_err_exit_end(tracee, config, false);

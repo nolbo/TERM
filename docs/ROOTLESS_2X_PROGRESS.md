@@ -1119,3 +1119,16 @@ ABI 4 엔진/DSO를 후보 입력으로 고정하고 일반 세션·설치 프�
 추가했다. 정규 빌드/시험이 통과했으며 Android MCP의 새 Debian 설치와 실제
 PTY의 stat·close 가속 사용 검사가 87.659초에 통과했다. 임시 설치 디렉터리는
 0개였다. **전체 2배·순차 I/O 개선·기본 릴리스 승격은 남아 있다.**
+
+## 53단계: NSS 병목 계측과 패키지 압축 해제 오류 수정
+
+사용자/그룹 이름을 각각 100회 조회하면 빈 Python 실행보다 ptrace 진입이
+819회 증가했다. nscd 시험 준비 과정에서 최근 glibc가 사용하는 ARM64
+fchmodat2가 추적되지 않아 GNU tar의 디렉터리 권한 복원이 실패하는 오류를
+찾았다. syscall 목록/필터와 게스트 경로 변환을 추가했다.
+
+Android MCP에서 가속 off/on의 권한·오류·symlink·빈 경로·seccomp·GNU tar
+회귀 시험과 실제 Debian 패키지 압축 해제가 통과했다.
+[조건·해시·제한](../tools/rootless/faststat/README.md#nss-계측과-arm64-fchmodat2-복구-2026-09-18).
+새 속도 비교는 하지 않았다. 후보 APK 통합과 nscd 시험은 남아 있으며,
+**전체 2배 및 순차 I/O 개선 목표는 아직 달성하지 못했다.**

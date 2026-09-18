@@ -1,0 +1,369 @@
+{
+  "date": "2026-09-17",
+  "scope": "Diagnostic counts include startup, fixture construction, verification and cleanup, not just timed tar extraction. Same ABI4 fastclose engine/DSO and cumulative profile. No timing conclusion from this diagnostic. NSS files-only; no nscd installed at observation time. All guest command assertions passed.",
+  "engine_sha256": "8b18f55628eedd2ea867f649a4e27a0476da0ba00690adb97714984b485f8804",
+  "dso_sha256": "32440930dc740987aec8288b0d84c569980703a20479a10c2f58218bc22a745d",
+  "tar_1000_files": {
+    "total": {
+      "enter_stop": 24616,
+      "exit_stop": 2276,
+      "path_translation": 1257,
+      "canon_lstat": 7047,
+      "l2s_exit_lstat": 0,
+      "l2s_readlink": 0,
+      "read_string": 14992,
+      "vm_read": 15197,
+      "vm_write": 19261,
+      "vm_fallback": 0,
+      "path_fast_hit": 9435,
+      "path_fast_miss": 0
+    },
+    "syscalls": [
+      {
+        "name": "brk",
+        "enter": 30,
+        "exit": 30
+      },
+      {
+        "name": "close",
+        "enter": 4317,
+        "exit": 0
+      },
+      {
+        "name": "connect",
+        "enter": 44,
+        "exit": 0
+      },
+      {
+        "name": "execve",
+        "enter": 2,
+        "exit": 2
+      },
+      {
+        "name": "faccessat",
+        "enter": 2,
+        "exit": 0
+      },
+      {
+        "name": "fchmodat",
+        "enter": 1033,
+        "exit": 1033
+      },
+      {
+        "name": "fchownat",
+        "enter": 1033,
+        "exit": 1033
+      },
+      {
+        "name": "fstat",
+        "enter": 4273,
+        "exit": 4
+      },
+      {
+        "name": "fstatat64",
+        "enter": 4294,
+        "exit": 40
+      },
+      {
+        "name": "getcwd",
+        "enter": 52,
+        "exit": 52
+      },
+      {
+        "name": "getegid",
+        "enter": 1,
+        "exit": 0
+      },
+      {
+        "name": "geteuid",
+        "enter": 1034,
+        "exit": 0
+      },
+      {
+        "name": "getgid",
+        "enter": 1,
+        "exit": 0
+      },
+      {
+        "name": "getuid",
+        "enter": 1,
+        "exit": 0
+      },
+      {
+        "name": "ioctl",
+        "enter": 6,
+        "exit": 6
+      },
+      {
+        "name": "memfd_create",
+        "enter": 1,
+        "exit": 0
+      },
+      {
+        "name": "mkdirat",
+        "enter": 1036,
+        "exit": 0
+      },
+      {
+        "name": "mmap",
+        "enter": 12,
+        "exit": 12
+      },
+      {
+        "name": "openat",
+        "enter": 4276,
+        "exit": 0
+      },
+      {
+        "name": "prctl",
+        "enter": 18,
+        "exit": 16
+      },
+      {
+        "name": "prlimit64",
+        "enter": 2,
+        "exit": 2
+      },
+      {
+        "name": "readlinkat",
+        "enter": 2,
+        "exit": 2
+      },
+      {
+        "name": "socket",
+        "enter": 44,
+        "exit": 44
+      },
+      {
+        "name": "unlinkat",
+        "enter": 2069,
+        "exit": 0
+      },
+      {
+        "name": "utimensat",
+        "enter": 1033,
+        "exit": 0
+      }
+    ],
+    "exit_code": 0,
+    "fastclose_hits": 4128
+  },
+  "nss_import_only": {
+    "total": {
+      "enter_stop": 146,
+      "exit_stop": 65,
+      "path_translation": 36,
+      "canon_lstat": 173,
+      "l2s_exit_lstat": 0,
+      "l2s_readlink": 0,
+      "read_string": 86,
+      "vm_read": 250,
+      "vm_write": 167,
+      "vm_fallback": 0,
+      "path_fast_hit": 18,
+      "path_fast_miss": 0
+    },
+    "syscalls": [
+      {
+        "name": "brk",
+        "enter": 10,
+        "exit": 10
+      },
+      {
+        "name": "close",
+        "enter": 22,
+        "exit": 0
+      },
+      {
+        "name": "execve",
+        "enter": 2,
+        "exit": 2
+      },
+      {
+        "name": "faccessat",
+        "enter": 2,
+        "exit": 0
+      },
+      {
+        "name": "fstat",
+        "enter": 22,
+        "exit": 4
+      },
+      {
+        "name": "fstatat64",
+        "enter": 21,
+        "exit": 16
+      },
+      {
+        "name": "getcwd",
+        "enter": 1,
+        "exit": 1
+      },
+      {
+        "name": "getegid",
+        "enter": 1,
+        "exit": 0
+      },
+      {
+        "name": "geteuid",
+        "enter": 1,
+        "exit": 0
+      },
+      {
+        "name": "getgid",
+        "enter": 1,
+        "exit": 0
+      },
+      {
+        "name": "getuid",
+        "enter": 1,
+        "exit": 0
+      },
+      {
+        "name": "memfd_create",
+        "enter": 1,
+        "exit": 0
+      },
+      {
+        "name": "mmap",
+        "enter": 12,
+        "exit": 12
+      },
+      {
+        "name": "openat",
+        "enter": 27,
+        "exit": 0
+      },
+      {
+        "name": "prctl",
+        "enter": 18,
+        "exit": 16
+      },
+      {
+        "name": "prlimit64",
+        "enter": 2,
+        "exit": 2
+      },
+      {
+        "name": "readlinkat",
+        "enter": 2,
+        "exit": 2
+      }
+    ],
+    "exit_code": 0
+  },
+  "nss_100_user_and_100_group_lookups": {
+    "total": {
+      "enter_stop": 965,
+      "exit_stop": 71,
+      "path_translation": 40,
+      "canon_lstat": 193,
+      "l2s_exit_lstat": 0,
+      "l2s_readlink": 0,
+      "read_string": 488,
+      "vm_read": 656,
+      "vm_write": 771,
+      "vm_fallback": 0,
+      "path_fast_hit": 219,
+      "path_fast_miss": 0
+    },
+    "syscalls": [
+      {
+        "name": "brk",
+        "enter": 12,
+        "exit": 12
+      },
+      {
+        "name": "close",
+        "enter": 227,
+        "exit": 0
+      },
+      {
+        "name": "connect",
+        "enter": 4,
+        "exit": 0
+      },
+      {
+        "name": "execve",
+        "enter": 2,
+        "exit": 2
+      },
+      {
+        "name": "faccessat",
+        "enter": 2,
+        "exit": 0
+      },
+      {
+        "name": "fstat",
+        "enter": 224,
+        "exit": 4
+      },
+      {
+        "name": "fstatat64",
+        "enter": 222,
+        "exit": 16
+      },
+      {
+        "name": "getcwd",
+        "enter": 1,
+        "exit": 1
+      },
+      {
+        "name": "getegid",
+        "enter": 1,
+        "exit": 0
+      },
+      {
+        "name": "geteuid",
+        "enter": 1,
+        "exit": 0
+      },
+      {
+        "name": "getgid",
+        "enter": 1,
+        "exit": 0
+      },
+      {
+        "name": "getuid",
+        "enter": 1,
+        "exit": 0
+      },
+      {
+        "name": "memfd_create",
+        "enter": 1,
+        "exit": 0
+      },
+      {
+        "name": "mmap",
+        "enter": 12,
+        "exit": 12
+      },
+      {
+        "name": "openat",
+        "enter": 228,
+        "exit": 0
+      },
+      {
+        "name": "prctl",
+        "enter": 18,
+        "exit": 16
+      },
+      {
+        "name": "prlimit64",
+        "enter": 2,
+        "exit": 2
+      },
+      {
+        "name": "readlinkat",
+        "enter": 2,
+        "exit": 2
+      },
+      {
+        "name": "socket",
+        "enter": 4,
+        "exit": 4
+      }
+    ],
+    "exit_code": 0
+  }
+}

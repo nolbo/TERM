@@ -1324,3 +1324,40 @@ Gradle은 반복하지 않았다. 네이티브 실험이므로 UI/외부 API/앱
 0개였다. streamed 설치가 성공했다. 설치 시간은 성능 비교로 사용하지 않는다.
 사용자 앱 교체와 UI 검사는 하지 않았고 외부 API/앱 MCP는 필요하지 않았다.
 기본 릴리스 승격 및 전체 2배 목표는 남아 있다.
+
+## NSS 계측과 ARM64 fchmodat2 복구 (2026-09-18)
+
+`results/nss-profile-2026-09-17.json`은 ABI 4 후보의 진단 계측이다.
+passwd/group을 각각 100회 조회하면 import만 한 실행보다 ptrace 진입이
+819회 늘었다. tar의 전체 잔여 비용이 NSS라는 증명은 아니며, 시간 비교도 아니다.
+별도 임시 apt 목록으로 Debian nscd 2.41-12+deb13u4를 내려받았다.
+기존 목록의 u3 다운로드는 404였고, 독립 목록 갱신으로 해결했다.
+패키지를 설치하거나 사용자 dpkg 데이터베이스를 변경하지 않았다.
+
+압축 해제 중 가속 DSO를 preload하면 GNU tar가 디렉터리 모드 복원에서
+ENOENT로 실패했다. DSO 자체를 비활성화해도 재현됐으며, glibc fchmodat의
+AT_SYMLINK_NOFOLLOW 호출을 직접 검사하면 preload 없이도 실패했다.
+ARM64 syscall 452(fchmodat2)가 PRoot 목록/필터에 없어 게스트 경로가
+번역되지 않는 것이 확인됐다. DSO 없이 해당 패키지 압축 해제가 성공한
+이유까지 입증한 것은 아니다.
+
+syscall 목록, seccomp 추적, follow/nofollow 경로 변환, fake-root 권한 오류
+처리와 임시 권한 복원에 fchmodat2를 추가했다. AT_EMPTY_PATH와 AT_FDCWD의
+조합도 커널 cwd가 아닌 게스트 cwd에 적용한다. syscall을 다른 번호로 바꾸거나
+tracer에서 대신 실행하지 않는다. 게스트 seccomp 거부가 그대로 적용된다.
+
+수정 엔진 SHA-256:
+`4d6ddc8fdb2afb669bd5f3697fcf5e64181ae0160e680f34aa027d4a1d561323`.
+DSO는 `32440930dc740987aec8288b0d84c569980703a20479a10c2f58218bc22a745d`로
+변경하지 않았다. Android MCP의 API 35 ARM64 redroid/ext4 환경에서
+`fchmodat2-test.py`를 가속 DSO off/on 각각 실행해 통과했다. 실제 모드,
+dirfd/빈 경로/게스트 cwd, 심볼릭 링크 follow/nofollow, ENOENT/EINVAL/EFAULT,
+seccomp EPERM과 비변경, GNU tar의 중첩 디렉터리 모드 복원을 검사한다.
+실제 nscd.deb 압축 해제도 수정 엔진에서 성공했다.
+
+엔진 빌드 및 시험 APK 패키징 통과. 첫 APK 패키징은 테스트 실행 파일이 없는
+프로필 디렉터리를 지정해 실패했고, 전용 guest 빌드 디렉터리로 수정했다.
+MCP 설치의 incremental 실패 후 streamed 설치는 성공했다.
+Android/runtime 코드는 수정하지 않아 Gradle 전체 빌드와 새 설치를 반복하지
+않았다. **Gradle 후보의 엔진 해시는 아직 이전 버전이다.** 후보 통합과 새 설치
+검증, nscd의 실제 캐시 효과/갱신/수명 검증은 후속 작업이며 완료로 간주하지 않는다.
