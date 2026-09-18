@@ -9,6 +9,7 @@ permissions:
 
 jobs:
   build-and-unit-test:
+    if: ${{ !startsWith(github.ref, 'refs/tags/v0.1.0-rootless.') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -117,3 +118,19 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
         run: bash tools/updates/publish.sh update
+
+  sign-rootless-prerelease:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v0.1.0-rootless.')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - name: Sign verified local candidate
+        env:
+          GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
+          TERMINAL_SIGNING_KEYSTORE_BASE64: ${{ secrets.TERMINAL_SIGNING_KEYSTORE_BASE64 }}
+          TERMINAL_SIGNING_STORE_PASSWORD: ${{ secrets.TERMINAL_SIGNING_STORE_PASSWORD }}
+        run: bash tools/updates/sign-rootless-prerelease.sh

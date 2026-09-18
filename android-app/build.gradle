@@ -17,7 +17,9 @@ def gitOutput = { List<String> arguments ->
 def updateChannel = providers.environmentVariable('TERMINAL_UPDATE_CHANNEL')
     .orElse(gitOutput(['branch', '--show-current']) == 'dev' ? 'dev' : 'main').get()
 if (!(updateChannel in ['main', 'dev'])) throw new GradleException('Update channel must be main or dev.')
-def updateRevision = gitOutput(['rev-parse', '--verify', "origin/${updateChannel}"])
+def updateRevision = providers.environmentVariable('TERMINAL_UPDATE_REVISION')
+    .orElse(gitOutput(['rev-parse', '--verify', "origin/${updateChannel}"])).get()
+if (!(updateRevision ==~ /[0-9a-f]{40}/)) throw new GradleException('Update revision must be a full commit SHA.')
 if (gitOutput(['rev-parse', '--is-shallow-repository']) != 'false') {
     throw new GradleException('Full Git history is required for update versions. Run git fetch --unshallow before building.')
 }
@@ -38,6 +40,7 @@ def releaseStorePassword = providers.environmentVariable('TERMINAL_SIGNING_STORE
 def releaseKeyPassword = providers.environmentVariable('TERMINAL_SIGNING_KEY_PASSWORD').orElse(
     providers.environmentVariable('TERMINAL_SIGNING_STORE_PASSWORD')).orNull
 def releaseKeyAlias = providers.environmentVariable('TERMINAL_SIGNING_KEY_ALIAS').orElse('terminal').get()
+def unsignedRelease = providers.gradleProperty('terminalUnsignedRelease').orNull == 'true'
 
 def checkReleaseSigning = tasks.register('checkReleaseSigning') {
     doLast {
@@ -51,7 +54,7 @@ def checkReleaseSigning = tasks.register('checkReleaseSigning') {
 }
 
 tasks.configureEach {
-    if (name == 'packageRelease' || name == 'validateSigningRelease') {
+    if (!unsignedRelease && (name == 'packageRelease' || name == 'validateSigningRelease')) {
         dependsOn checkReleaseSigning
     }
 }
@@ -83,7 +86,7 @@ android {
 
     buildTypes {
         release {
-            signingConfig signingConfigs.release
+            signingConfig unsignedRelease ? null : signingConfigs.release
         }
     }
 
