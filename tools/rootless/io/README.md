@@ -55,5 +55,7 @@ criteria; a smaller-block-only improvement cannot satisfy the full objective.
 
 Follow-up: [the bounded stdio experiment](STDIO.md) now implements and tests this
 approach for a subset of glibc streams. It improves 4 KiB stdio transfers in the
-Android guest, but is not enabled in the runtime and does not close the remaining
-raw sequential I/O or fsync gap.
+Android guest and is available through an opt-in APK build. Fresh Debian/Ubuntu
+installation and PTY tests passed. It remains off by default and does not close
+the raw sequential I/O or fsync gap. See the current
+[completion and design audit](../../../docs/ROOTLESS_IO_GOAL_AUDIT.md).
