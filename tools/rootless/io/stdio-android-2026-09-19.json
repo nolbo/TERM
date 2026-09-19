@@ -1,0 +1,204 @@
+{
+  "date": "2026-09-19",
+  "scope": "API35 ARM64 redroid/ext4, existing Ubuntu glibc guest, app UID, original PRoot 9edb5ff with --link2symlink in both modes. Same dynamically linked C binary and DSO; PROOT_STDIO_BUFFER=0 vs 1. 64 MiB named temporary file; 4/64/1024 KiB fread/fwrite requests; three alternating pairs. Write timing includes fflush, final fsync measured separately while file is still linked, read is warm after fsync. Every byte verified outside timing. Open/close, process startup and allocator setup excluded. No full application workload, cold storage, real phone, default runtime integration or statistical confidence interval. Pool is first 32 eligible fopen/fopen64 streams only, lifetime 2 MiB upper bound. All 18 content checks passed.",
+  "rows": [
+    {
+      "round": 1,
+      "enabled": 0,
+      "block_kib": 4,
+      "stdio_buffer": 4096,
+      "bytes": 67108864,
+      "write_flush_ns": 43004223,
+      "fsync_ns": 209503821,
+      "read_ns": 20882010,
+      "verified": true
+    },
+    {
+      "round": 1,
+      "enabled": 1,
+      "block_kib": 4,
+      "stdio_buffer": 65536,
+      "bytes": 67108864,
+      "write_flush_ns": 14479075,
+      "fsync_ns": 627804901,
+      "read_ns": 9839143,
+      "verified": true
+    },
+    {
+      "round": 1,
+      "enabled": 0,
+      "block_kib": 64,
+      "stdio_buffer": 4096,
+      "bytes": 67108864,
+      "write_flush_ns": 19601007,
+      "fsync_ns": 1230900423,
+      "read_ns": 10064344,
+      "verified": true
+    },
+    {
+      "round": 1,
+      "enabled": 1,
+      "block_kib": 64,
+      "stdio_buffer": 65536,
+      "bytes": 67108864,
+      "write_flush_ns": 13564152,
+      "fsync_ns": 1235031473,
+      "read_ns": 8031259,
+      "verified": true
+    },
+    {
+      "round": 1,
+      "enabled": 0,
+      "block_kib": 1024,
+      "stdio_buffer": 4096,
+      "bytes": 67108864,
+      "write_flush_ns": 16169919,
+      "fsync_ns": 1236451117,
+      "read_ns": 7974299,
+      "verified": true
+    },
+    {
+      "round": 1,
+      "enabled": 1,
+      "block_kib": 1024,
+      "stdio_buffer": 65536,
+      "bytes": 67108864,
+      "write_flush_ns": 15755398,
+      "fsync_ns": 1234851313,
+      "read_ns": 7556298,
+      "verified": true
+    },
+    {
+      "round": 2,
+      "enabled": 1,
+      "block_kib": 4,
+      "stdio_buffer": 65536,
+      "bytes": 67108864,
+      "write_flush_ns": 14699396,
+      "fsync_ns": 1239201403,
+      "read_ns": 9672503,
+      "verified": true
+    },
+    {
+      "round": 2,
+      "enabled": 0,
+      "block_kib": 4,
+      "stdio_buffer": 4096,
+      "bytes": 67108864,
+      "write_flush_ns": 42473981,
+      "fsync_ns": 1208342530,
+      "read_ns": 20055968,
+      "verified": true
+    },
+    {
+      "round": 2,
+      "enabled": 1,
+      "block_kib": 64,
+      "stdio_buffer": 65536,
+      "bytes": 67108864,
+      "write_flush_ns": 13483472,
+      "fsync_ns": 1215888069,
+      "read_ns": 7790859,
+      "verified": true
+    },
+    {
+      "round": 2,
+      "enabled": 0,
+      "block_kib": 64,
+      "stdio_buffer": 4096,
+      "bytes": 67108864,
+      "write_flush_ns": 19902847,
+      "fsync_ns": 1242978814,
+      "read_ns": 10342264,
+      "verified": true
+    },
+    {
+      "round": 2,
+      "enabled": 1,
+      "block_kib": 1024,
+      "stdio_buffer": 65536,
+      "bytes": 67108864,
+      "write_flush_ns": 15593037,
+      "fsync_ns": 1232880030,
+      "read_ns": 7384777,
+      "verified": true
+    },
+    {
+      "round": 2,
+      "enabled": 0,
+      "block_kib": 1024,
+      "stdio_buffer": 4096,
+      "bytes": 67108864,
+      "write_flush_ns": 15851718,
+      "fsync_ns": 1240247728,
+      "read_ns": 7590618,
+      "verified": true
+    },
+    {
+      "round": 3,
+      "enabled": 0,
+      "block_kib": 4,
+      "stdio_buffer": 4096,
+      "bytes": 67108864,
+      "write_flush_ns": 42517382,
+      "fsync_ns": 1214120305,
+      "read_ns": 20134528,
+      "verified": true
+    },
+    {
+      "round": 3,
+      "enabled": 1,
+      "block_kib": 4,
+      "stdio_buffer": 65536,
+      "bytes": 67108864,
+      "write_flush_ns": 14716715,
+      "fsync_ns": 1214559987,
+      "read_ns": 9778623,
+      "verified": true
+    },
+    {
+      "round": 3,
+      "enabled": 0,
+      "block_kib": 64,
+      "stdio_buffer": 4096,
+      "bytes": 67108864,
+      "write_flush_ns": 20002888,
+      "fsync_ns": 1233156551,
+      "read_ns": 10140625,
+      "verified": true
+    },
+    {
+      "round": 3,
+      "enabled": 1,
+      "block_kib": 64,
+      "stdio_buffer": 65536,
+      "bytes": 67108864,
+      "write_flush_ns": 13617833,
+      "fsync_ns": 1235269396,
+      "read_ns": 7577458,
+      "verified": true
+    },
+    {
+      "round": 3,
+      "enabled": 0,
+      "block_kib": 1024,
+      "stdio_buffer": 4096,
+      "bytes": 67108864,
+      "write_flush_ns": 16188078,
+      "fsync_ns": 1239519047,
+      "read_ns": 7775498,
+      "verified": true
+    },
+    {
+      "round": 3,
+      "enabled": 1,
+      "block_kib": 1024,
+      "stdio_buffer": 65536,
+      "bytes": 67108864,
+      "write_flush_ns": 15874438,
+      "fsync_ns": 1239563367,
+      "read_ns": 9032701,
+      "verified": true
+    }
+  ]
+}

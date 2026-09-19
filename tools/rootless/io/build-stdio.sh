@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+output_directory=${1:?usage: build-stdio.sh OUTPUT_DIRECTORY}
+mkdir -p "$output_directory"
+cc -O2 -Wall -Wextra -Werror -shared -fPIC -pthread \
+    "$source_directory/stdio-buffer.c" -ldl -o "$output_directory/stdio-buffer.so"
+cc -O2 -Wall -Wextra -Werror -pthread \
+    "$source_directory/stdio-test.c" -o "$output_directory/stdio-test"
+cc -O2 -Wall -Wextra -Werror \
+    "$source_directory/stdio-probe.c" -o "$output_directory/stdio-probe"
+PROOT_STDIO_BUFFER=1 LD_PRELOAD="$output_directory/stdio-buffer.so" "$output_directory/stdio-test"

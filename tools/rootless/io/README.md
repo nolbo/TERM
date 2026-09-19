@@ -52,3 +52,8 @@ been implemented**. Do not call this a delivered speedup or revise the original
 and file-copy APIs without changing read/write visibility, fsync durability or
 returning success before completion. Existing 64 KiB workloads remain acceptance
 criteria; a smaller-block-only improvement cannot satisfy the full objective.
+
+Follow-up: [the bounded stdio experiment](STDIO.md) now implements and tests this
+approach for a subset of glibc streams. It improves 4 KiB stdio transfers in the
+Android guest, but is not enabled in the runtime and does not close the remaining
+raw sequential I/O or fsync gap.

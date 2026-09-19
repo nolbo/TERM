@@ -1,0 +1,200 @@
+[
+  {
+    "block_kib": 4,
+    "stdio_buffer": 4096,
+    "bytes": 67108864,
+    "write_flush_ns": 44095784,
+    "fsync_ns": 206322489,
+    "read_ns": 20399688,
+    "verified": true,
+    "round": 1,
+    "enabled": false
+  },
+  {
+    "block_kib": 4,
+    "stdio_buffer": 65536,
+    "bytes": 67108864,
+    "write_flush_ns": 14619715,
+    "fsync_ns": 701538902,
+    "read_ns": 9871503,
+    "verified": true,
+    "round": 1,
+    "enabled": true
+  },
+  {
+    "block_kib": 64,
+    "stdio_buffer": 4096,
+    "bytes": 67108864,
+    "write_flush_ns": 19680286,
+    "fsync_ns": 1285557246,
+    "read_ns": 9776983,
+    "verified": true,
+    "round": 1,
+    "enabled": false
+  },
+  {
+    "block_kib": 64,
+    "stdio_buffer": 65536,
+    "bytes": 67108864,
+    "write_flush_ns": 13575392,
+    "fsync_ns": 1272300575,
+    "read_ns": 7746258,
+    "verified": true,
+    "round": 1,
+    "enabled": true
+  },
+  {
+    "block_kib": 1024,
+    "stdio_buffer": 4096,
+    "bytes": 67108864,
+    "write_flush_ns": 16402918,
+    "fsync_ns": 1269326568,
+    "read_ns": 7465418,
+    "verified": true,
+    "round": 1,
+    "enabled": false
+  },
+  {
+    "block_kib": 1024,
+    "stdio_buffer": 65536,
+    "bytes": 67108864,
+    "write_flush_ns": 15529237,
+    "fsync_ns": 1267890765,
+    "read_ns": 7326097,
+    "verified": true,
+    "round": 1,
+    "enabled": true
+  },
+  {
+    "block_kib": 4,
+    "stdio_buffer": 65536,
+    "bytes": 67108864,
+    "write_flush_ns": 14621115,
+    "fsync_ns": 1275475383,
+    "read_ns": 9666383,
+    "verified": true,
+    "round": 2,
+    "enabled": true
+  },
+  {
+    "block_kib": 4,
+    "stdio_buffer": 4096,
+    "bytes": 67108864,
+    "write_flush_ns": 42811741,
+    "fsync_ns": 1277314228,
+    "read_ns": 20167168,
+    "verified": true,
+    "round": 2,
+    "enabled": false
+  },
+  {
+    "block_kib": 64,
+    "stdio_buffer": 65536,
+    "bytes": 67108864,
+    "write_flush_ns": 14551315,
+    "fsync_ns": 1246254874,
+    "read_ns": 8760900,
+    "verified": true,
+    "round": 2,
+    "enabled": true
+  },
+  {
+    "block_kib": 64,
+    "stdio_buffer": 4096,
+    "bytes": 67108864,
+    "write_flush_ns": 19704406,
+    "fsync_ns": 1267113844,
+    "read_ns": 9815183,
+    "verified": true,
+    "round": 2,
+    "enabled": false
+  },
+  {
+    "block_kib": 1024,
+    "stdio_buffer": 65536,
+    "bytes": 67108864,
+    "write_flush_ns": 16247918,
+    "fsync_ns": 1258936345,
+    "read_ns": 7377698,
+    "verified": true,
+    "round": 2,
+    "enabled": true
+  },
+  {
+    "block_kib": 1024,
+    "stdio_buffer": 4096,
+    "bytes": 67108864,
+    "write_flush_ns": 16619279,
+    "fsync_ns": 1271748056,
+    "read_ns": 7457818,
+    "verified": true,
+    "round": 2,
+    "enabled": false
+  },
+  {
+    "block_kib": 4,
+    "stdio_buffer": 4096,
+    "bytes": 67108864,
+    "write_flush_ns": 42430140,
+    "fsync_ns": 1243898110,
+    "read_ns": 20031888,
+    "verified": true,
+    "round": 3,
+    "enabled": false
+  },
+  {
+    "block_kib": 4,
+    "stdio_buffer": 65536,
+    "bytes": 67108864,
+    "write_flush_ns": 15249716,
+    "fsync_ns": 1241684105,
+    "read_ns": 9554063,
+    "verified": true,
+    "round": 3,
+    "enabled": true
+  },
+  {
+    "block_kib": 64,
+    "stdio_buffer": 4096,
+    "bytes": 67108864,
+    "write_flush_ns": 19399206,
+    "fsync_ns": 1264469000,
+    "read_ns": 9837623,
+    "verified": true,
+    "round": 3,
+    "enabled": false
+  },
+  {
+    "block_kib": 64,
+    "stdio_buffer": 65536,
+    "bytes": 67108864,
+    "write_flush_ns": 13740873,
+    "fsync_ns": 1266282604,
+    "read_ns": 7915899,
+    "verified": true,
+    "round": 3,
+    "enabled": true
+  },
+  {
+    "block_kib": 1024,
+    "stdio_buffer": 4096,
+    "bytes": 67108864,
+    "write_flush_ns": 15857077,
+    "fsync_ns": 1266814806,
+    "read_ns": 7580698,
+    "verified": true,
+    "round": 3,
+    "enabled": false
+  },
+  {
+    "block_kib": 1024,
+    "stdio_buffer": 65536,
+    "bytes": 67108864,
+    "write_flush_ns": 16439799,
+    "fsync_ns": 1268301129,
+    "read_ns": 7653978,
+    "verified": true,
+    "round": 3,
+    "enabled": true
+  }
+]
