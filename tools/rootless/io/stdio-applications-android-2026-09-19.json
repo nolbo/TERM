@@ -1,0 +1,160 @@
+{
+  "date": "2026-09-19",
+  "environment": "API35 ARM64 redroid/ext4, same scratch root with existing Ubuntu usr/lib bindings, same candidate PRoot and combined DSO; full acceleration profile; subprocesses toggle only PROOT_STDIO_BUFFER",
+  "engine_sha256": "975d535771988c04b1fff1e870543103c9958a258a16e0087ab71c0021f5628e",
+  "dso_sha256": "7641d9415322beb07154443c1b90e801cdbb2b845691c20655a08c17dba75674",
+  "program_versions": [
+    "/usr/bin/sed (GNU sed) 4.9",
+    "wc (GNU coreutils) 9.4",
+    "gzip 1.12"
+  ],
+  "input_bytes": 68157440,
+  "input_lines": 1048576,
+  "conditions": "Warm cache, repeated 65-byte ASCII line; three alternating pairs per case. Timing includes subprocess spawn/exec, processing and exit. Fixture generation, parent output-file open/close and output verification excluded. Output is not fsynced. Highly compressible input, not representative compression throughput. Not comparison against original PRoot or full application UI timing.",
+  "observations": [
+    {
+      "case": "sed-count",
+      "index": 0,
+      "enabled": 0,
+      "elapsed_ms": 74.353028,
+      "verified": true
+    },
+    {
+      "case": "sed-count",
+      "index": 1,
+      "enabled": 1,
+      "elapsed_ms": 64.802508,
+      "verified": true
+    },
+    {
+      "case": "sed-count",
+      "index": 2,
+      "enabled": 1,
+      "elapsed_ms": 65.37055,
+      "verified": true
+    },
+    {
+      "case": "sed-count",
+      "index": 3,
+      "enabled": 0,
+      "elapsed_ms": 72.767021,
+      "verified": true
+    },
+    {
+      "case": "sed-count",
+      "index": 4,
+      "enabled": 0,
+      "elapsed_ms": 73.193982,
+      "verified": true
+    },
+    {
+      "case": "sed-count",
+      "index": 5,
+      "enabled": 1,
+      "elapsed_ms": 64.077225,
+      "verified": true
+    },
+    {
+      "case": "wc-count",
+      "index": 0,
+      "enabled": 0,
+      "elapsed_ms": 26.375669,
+      "verified": true
+    },
+    {
+      "case": "wc-count",
+      "index": 1,
+      "enabled": 1,
+      "elapsed_ms": 24.26458,
+      "verified": true
+    },
+    {
+      "case": "wc-count",
+      "index": 2,
+      "enabled": 1,
+      "elapsed_ms": 24.649822,
+      "verified": true
+    },
+    {
+      "case": "wc-count",
+      "index": 3,
+      "enabled": 0,
+      "elapsed_ms": 24.416661,
+      "verified": true
+    },
+    {
+      "case": "wc-count",
+      "index": 4,
+      "enabled": 0,
+      "elapsed_ms": 24.177019,
+      "verified": true
+    },
+    {
+      "case": "wc-count",
+      "index": 5,
+      "enabled": 1,
+      "elapsed_ms": 24.631621,
+      "verified": true
+    },
+    {
+      "case": "gzip",
+      "index": 0,
+      "enabled": 0,
+      "elapsed_ms": 227.283819,
+      "verified": true
+    },
+    {
+      "case": "gzip",
+      "index": 1,
+      "enabled": 1,
+      "elapsed_ms": 226.494495,
+      "verified": true
+    },
+    {
+      "case": "gzip",
+      "index": 2,
+      "enabled": 1,
+      "elapsed_ms": 226.843977,
+      "verified": true
+    },
+    {
+      "case": "gzip",
+      "index": 3,
+      "enabled": 0,
+      "elapsed_ms": 226.653775,
+      "verified": true
+    },
+    {
+      "case": "gzip",
+      "index": 4,
+      "enabled": 0,
+      "elapsed_ms": 226.461534,
+      "verified": true
+    },
+    {
+      "case": "gzip",
+      "index": 5,
+      "enabled": 1,
+      "elapsed_ms": 227.524179,
+      "verified": true
+    },
+    {
+      "case": "sed-count",
+      "disabled_ms": 73.193982,
+      "enabled_ms": 64.802508,
+      "speedup": 1.1294930436951607
+    },
+    {
+      "case": "wc-count",
+      "disabled_ms": 24.416661,
+      "enabled_ms": 24.631621,
+      "speedup": 0.991273006352282
+    },
+    {
+      "case": "gzip",
+      "disabled_ms": 226.653775,
+      "enabled_ms": 226.843977,
+      "speedup": 0.9991615294242527
+    }
+  ]
+}

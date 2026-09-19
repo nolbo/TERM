@@ -326,3 +326,44 @@ build and live runs were used rather than repeating the prior full unit suite.
 Still unproven: whole-program speedups for this combined build, physical handsets,
 cold I/O, a new forced-hardlink-failure installation with this build, and the
 overall 2x sequential/file-I/O target. Buffering remains opt-in.
+
+## Whole-program screen (2026-09-19)
+
+`stdio-applications.py` processes the same warm 65 MiB fixture (1,048,576
+65-byte lines) with the installed GNU sed 4.9, coreutils wc 9.4 and gzip 1.12.
+It alternates buffering off/on, on/off, off/on. The parent driver keeps buffering
+off; each child receives its selected value before exec. Timing includes child
+startup, processing and exit, but excludes fixture preparation, parent output
+file open/close and content verification. There is no fsync. Compression input
+is deliberately repetitive; results do not characterize arbitrary compression.
+
+Feed the Python source through stdin to the Android runner, executed as the app
+UID with the test APK's nativeLibraryDir:
+
+```sh
+sh stdio-composition.sh NATIVE_LIBRARY_DIRECTORY combined-applications < stdio-applications.py
+```
+
+On the same Android API35 ARM64 scratch-root environment and combined DSO:
+
+| Program | Buffer off, median ms | Buffer on, median ms | Ratio |
+| --- | ---: | ---: | ---: |
+| sed -n '$=' | 73.194 | 64.803 | 1.129x |
+| wc -l | 24.417 | 24.632 | 0.991x |
+| gzip -1 -c | 226.654 | 226.844 | 0.999x |
+
+All 18 output checks passed, including decompression, exact byte length and
+SHA-256 for gzip. The raw observations, program versions and checked engine/DSO
+hashes are in `stdio-applications-android-2026-09-19.json`. Python compilation,
+shell syntax checking and git diff checking passed. Android MCP ran the actual
+programs; no Android implementation changed, so Gradle was not rerun. No UI or
+external API evidence was needed from other MCP servers.
+
+Decision: do not promote buffering to the default on the strength of the earlier
+4 KiB transfer microbenchmark. Sed benefits in this fixture, while wc and gzip
+show no material gain. Increasing stdio buffer sizes further is not supported
+by these observations. This comparison isolates the added buffering, not the
+candidate's total gain over original PRoot. Raw sequential and durable-write
+criteria remain unmet. Further work should address remaining traced operations
+such as rename in the original create/rename/unlink workload, retaining the
+original sequential and durable-write acceptance cases.

@@ -13,15 +13,26 @@ case ${2:-split} in
     split) set -- "$stdio:$faststat" "$faststat:$stdio"; workload=streams ;;
     combined) set -- "$faststat"; workload=streams ;;
     combined-write) set -- "$faststat"; workload=small-write ;;
-    *) echo 'Expected split, combined or combined-write mode' >&2; exit 2 ;;
+    combined-applications) set -- "$faststat"; workload=applications ;;
+    *) echo 'Expected split, combined, combined-write or combined-applications mode' >&2; exit 2 ;;
 esac
 for preload in "$@"; do
-    if [ "$workload" = streams ]; then sequence='0 1'; else sequence='0 1 1 0 0 1'; fi
+    case $workload in
+        streams) sequence='0 1' ;;
+        applications) sequence='0' ;;
+        *) sequence='0 1 1 0 0 1' ;;
+    esac
     for setting in $sequence; do
+        argument=write
         if [ "$workload" = streams ]; then
             fastfd=$setting
             buffering=1
             executable=/usr/local/bin/terminal-stdio-test
+        elif [ "$workload" = applications ]; then
+            fastfd=1
+            buffering=0
+            executable=/usr/bin/python3
+            argument=-
         else
             fastfd=1
             buffering=$setting
@@ -45,6 +56,6 @@ for preload in "$@"; do
             LD_PRELOAD="$preload" PROOT_STDIO_BUFFER="$buffering" STDIO_EXPECT_FASTFD="$fastfd" \
             PROOT_FASTFD="$fastfd" PROOT_FASTCLOSE=1 PROOT_FASTOPEN=1 \
             PROOT_FASTCREATE=1 PROOT_FASTUNLINK=1 PROOT_FASTSTAT_PATH=0 \
-            PROOT_FASTSTAT_SHARED=1 "$executable" write
+            PROOT_FASTSTAT_SHARED=1 "$executable" "$argument"
     done
 done
