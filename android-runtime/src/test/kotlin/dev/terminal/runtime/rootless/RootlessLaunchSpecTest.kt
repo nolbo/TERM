@@ -40,6 +40,20 @@ class RootlessLaunchSpecTest {
         assertFalse(spec.hostEnvironment.any { it.startsWith("LD_PRELOAD=") })
     }
 
+    @Test fun verifiedEmulatedStorageUsesProotWithoutNativeAcceleration() {
+        val layout = RootlessDebianLayout(File(temporary.root, "emulated/ubuntu"), RootlessDistribution.UBUNTU)
+        layout.rootfs.mkdirs()
+        RootlessStorageFormat.prepareNewInstallation(layout.rootfs.toPath()) { _, _ ->
+            throw java.nio.file.AccessDeniedException("hardlink")
+        }
+        val library = temporary.newFile("fallback-stat.so")
+        val spec = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"),
+            "/bin/sh", "/root", emptyMap(), accelerationLibrary = library)
+        assertTrue(spec.arguments.contains("--link2symlink"))
+        assertFalse(spec.arguments.any { it.contains("terminal-faststat.so") || it.startsWith("PROOT_FAST") })
+        assertFalse(spec.hostEnvironment.any { it.startsWith("PROOT_FAST") || it.startsWith("PROOT_STAT") })
+    }
+
     @Test fun accelerationRejectsMissingLibraryAndUnmarkedRootfs() {
         val layout = RootlessDebianLayout(File(temporary.root, "unmarked/debian"))
         fun launch(library: File) = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"),

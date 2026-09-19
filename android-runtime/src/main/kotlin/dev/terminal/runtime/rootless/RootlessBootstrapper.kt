@@ -65,6 +65,7 @@ class RootlessBootstrapper(
     private val context: Context,
     private val layout: RootlessDebianLayout,
     private val reporter: RootlessProgressReporter = RootlessProgressReporter.NONE,
+    private val createHardLink: (Path, Path) -> Path = Files::createLink,
 ) {
     private val installMutex = Mutex()
     private val distribution = layout.distribution
@@ -127,7 +128,10 @@ class RootlessBootstrapper(
                         "파일 $entries 개 처리 · ${bytes / (1024 * 1024)} MiB 압축 해제"))
                 }
                 configureRootlessRootfs(staging, distribution)
-                RootlessStorageFormat.prepareNewInstallation(staging)
+                RootlessStorageFormat.prepareNewInstallation(staging, createHardLink)
+                if (RootlessStorageFormat.usesEmulatedLinks(staging)) {
+                    reporter.report(RootlessPhase.EXTRACT, "하드링크를 사용할 수 없어 PRoot 링크 에뮬레이션으로 설치합니다. 파일 가속은 비활성화됩니다")
+                }
                 require(Files.isExecutable(staging.resolve("bin/sh"))) { "${distribution.displayName} archive does not contain an executable /bin/sh" }
                 require(distribution.packageExecutables.any { Files.isExecutable(staging.resolve(it)) }) {
                     "${distribution.displayName} archive does not contain its package manager"

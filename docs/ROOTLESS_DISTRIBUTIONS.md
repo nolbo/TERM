@@ -47,6 +47,29 @@ archive limits are 128 MiB for Debian and 256 MiB for Ubuntu/Arch; extracted dat
 is bounded to 2 GiB and 100,000 entries. Downloads use HTTPS and must match the
 pinned SHA-256 before the existing safe extractor handles them.
 
+After extraction, staging probes native hardlinks. A denial at
+`.native-link-probe-*/linked` is a storage-capability failure, not evidence of a
+corrupt Ubuntu archive. Fresh installs now select verified PRoot link emulation
+when that probe fails and symbolic links still work. Native-link acceleration
+is disabled for this storage format. Failed, unpublished staging is cleaned up;
+retry does not require deleting the separate home or resetting application data.
+The original `v0.1.0-rootless.1` APK predates this fallback and rejects the probe.
+The reported Android profile/device itself has not yet been tested with the fix.
+
+Regression validation (2026-09-19): the standalone Android runtime test injected
+`FileSystemException` at the native-link probe using
+`rootlessFreshInstall=true`, `rootlessDistribution=UBUNTU`, and
+`rootlessDenyNativeLinks=true`. On the API 35 ARM64 test device it passed in
+299.145 seconds: pinned archive installation, official package installation and
+upgrade, environment verification, emulated link count/unlink survival, and an
+actual PTY's identity, file open/close, fchmodat2 and tar permission checks.
+The PTY also verified that the native acceleration DSO was not loaded.
+The runtime/image unit tests and canonical debug build passed. This verifies the
+injected failure path, not the original device's security policy or its speed.
+The first investigation run completed Ubuntu setup but failed a Debian-only NSS
+assertion in the test harness; that assertion is now scoped to Debian while the
+PTY checks cover Ubuntu too.
+
 The service retains one parameterized `RootlessDebianBackend` per distribution;
 the historical class/layout names are retained to avoid unnecessary source
 churn. Registry identities distinguish distributions without introducing a

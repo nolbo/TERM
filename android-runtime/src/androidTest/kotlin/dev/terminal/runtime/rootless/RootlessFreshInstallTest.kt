@@ -84,10 +84,16 @@ class RootlessFreshInstallTest {
                 assertEquals("Experimental PRoot digest", expected, actual)
                 Log.i("RootlessFreshInstall", "STAT_KERNEL=1 proot=$actual")
             }
-            RootlessBootstrapper(context, layout, reporter).installIfNeeded().getOrThrow()
-            assertTrue(RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath()))
+            val denyNativeLinks = arguments.getString("rootlessDenyNativeLinks") == "true"
+            RootlessBootstrapper(context, layout, reporter, createHardLink = { link, original ->
+                if (denyNativeLinks) throw java.nio.file.FileSystemException(
+                    link.toString(), original.toString(), "Operation not permitted")
+                Files.createLink(link, original)
+            }).installIfNeeded().getOrThrow()
+            assertEquals(!denyNativeLinks, RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath()))
+            assertEquals(denyNativeLinks, RootlessStorageFormat.usesEmulatedLinks(layout.rootfs.toPath()))
             val launch = buildRootlessLaunchSpec(layout, proot, guestLoader, "/bin/sh", "/", emptyMap())
-            assertFalse(launch.arguments.contains("--link2symlink"))
+            assertEquals(denyNativeLinks, launch.arguments.contains("--link2symlink"))
             RootlessEnvironmentSetup(context, layout, proot, guestLoader, reporter,
                 statKernel, pathKernel, mutationEntry, fstatEntry, openNotifyThread, fastfdLibrary, fastOpen, fastCreate, fastUnlink, tcgetsDirect, idEntry, sharedStat).prepare()
             RootlessEnvironmentProfile.validate(layout).getOrThrow()
@@ -99,7 +105,7 @@ class RootlessFreshInstallTest {
                 trap 'rm -rf "${'$'}work"' EXIT
                 printf 'native link\n' > "${'$'}work/a"
                 ln "${'$'}work/a" "${'$'}work/b"
-                test ! -L "${'$'}work/b"
+                ${if (!denyNativeLinks) "test ! -L \"${'$'}work/b\"" else ":"}
                 test "${'$'}(stat -c %h "${'$'}work/b")" = 2
                 rm "${'$'}work/a"
                 test "${'$'}(cat "${'$'}work/b")" = 'native link'
@@ -127,30 +133,33 @@ class RootlessFreshInstallTest {
                 fun alive(pid: Int): Boolean = runCatching {
                     File("/proc/$pid/stat").readText().substringAfterLast(')').trim().first() !in setOf('Z', 'X')
                 }.getOrDefault(false)
-                var cachePid = 0
-                RootlessNssCache(layout, proot, guestLoader, context.cacheDir).use { cache ->
-                    assertTrue(cache.ensureStarted())
-                    val pidFile = File(cache.bindings.first().substringBefore(":"), "nscd.pid")
-                    withTimeout(5_000) {
-                        while (!pidFile.isFile) kotlinx.coroutines.delay(20)
+                // Only Debian installs the optional NSS cache; all distributions exercise the PTY.
+                if (distribution == RootlessDistribution.DEBIAN) {
+                    var cachePid = 0
+                    RootlessNssCache(layout, proot, guestLoader, context.cacheDir).use { cache ->
+                        assertTrue(cache.ensureStarted())
+                        val pidFile = File(cache.bindings.first().substringBefore(":"), "nscd.pid")
+                        withTimeout(5_000) {
+                            while (!pidFile.isFile) kotlinx.coroutines.delay(20)
+                        }
+                        cachePid = pidFile.readText().trim().toInt()
+                        assertTrue(alive(cachePid))
+                        assertTrue(cache.ensureStarted())
+                        assertEquals(cachePid, pidFile.readText().trim().toInt())
+                        android.os.Process.sendSignal(cachePid, 9)
+                        withTimeout(5_000) {
+                            do {
+                                kotlinx.coroutines.delay(20)
+                                assertTrue(cache.ensureStarted())
+                                val replacement = pidFile.takeIf { it.isFile }?.readText()?.trim()?.toIntOrNull()
+                            } while (replacement == null || replacement == cachePid)
+                        }
+                        cachePid = pidFile.readText().trim().toInt()
+                        assertTrue(alive(cachePid))
                     }
-                    cachePid = pidFile.readText().trim().toInt()
-                    assertTrue(alive(cachePid))
-                    assertTrue(cache.ensureStarted())
-                    assertEquals(cachePid, pidFile.readText().trim().toInt())
-                    android.os.Process.sendSignal(cachePid, 9)
                     withTimeout(5_000) {
-                        do {
-                            kotlinx.coroutines.delay(20)
-                            assertTrue(cache.ensureStarted())
-                            val replacement = pidFile.takeIf { it.isFile }?.readText()?.trim()?.toIntOrNull()
-                        } while (replacement == null || replacement == cachePid)
+                        while (alive(cachePid)) kotlinx.coroutines.delay(20)
                     }
-                    cachePid = pidFile.readText().trim().toInt()
-                    assertTrue(alive(cachePid))
-                }
-                withTimeout(5_000) {
-                    while (alive(cachePid)) kotlinx.coroutines.delay(20)
                 }
                 val controller = RootlessSessionController(layout, proot, guestLoader, cacheDirectory = context.cacheDir)
                 try {
@@ -169,14 +178,14 @@ class RootlessFreshInstallTest {
                         assert pwd.getpwnam('root').pw_uid==0
                         assert grp.getgrnam('root').gr_gid==0
                         maps=open('/proc/self/maps').read().splitlines()
-                        assert len([line for line in maps if 'r--s' in line and '/run/db' in line])==2
-                        assert os.stat('/etc/debian_version').st_size>0
+                        ${if (distribution == RootlessDistribution.DEBIAN) "assert len([line for line in maps if 'r--s' in line and '/run/db' in line])==2" else "# NSS shared caching is Debian-only"}
+                        assert os.stat('/etc/passwd').st_size>0
                         c=ctypes.CDLL(None,use_errno=True)
-                        assert c.proot_faststat_hits()>0
-                        n=c.proot_fastclose_hits()
-                        f=os.open('/etc/debian_version',os.O_RDONLY)
+                        ${if (!denyNativeLinks) "assert c.proot_faststat_hits()>0" else "assert not any('terminal-faststat.so' in line for line in maps)"}
+                        ${if (!denyNativeLinks) "n=c.proot_fastclose_hits()" else "n=0"}
+                        f=os.open('/etc/passwd',os.O_RDONLY)
                         os.close(f)
-                        assert c.proot_fastclose_hits()>n
+                        ${if (!denyNativeLinks) "assert c.proot_fastclose_hits()>n" else "assert os.stat('/etc/passwd').st_size>0"}
                         with tempfile.TemporaryDirectory() as root:
                             target=root+'/target'
                             os.mkdir(target)

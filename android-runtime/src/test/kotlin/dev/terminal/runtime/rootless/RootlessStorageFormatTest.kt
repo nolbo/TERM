@@ -32,6 +32,33 @@ class RootlessStorageFormatTest {
         }
     }
 
+    @Test fun deniedNativeLinkSelectsVerifiedEmulationWithoutLeavingProbeFiles() {
+        val root = temporary.newFolder("denied").toPath()
+        val permissions = PosixFilePermissions.fromString("r-xr-xr-x")
+        Files.setPosixFilePermissions(root, permissions)
+        try {
+            RootlessStorageFormat.prepareNewInstallation(root) { link, original ->
+                throw java.nio.file.FileSystemException(link.toString(), original.toString(), "Operation not permitted")
+            }
+            assertFalse(RootlessStorageFormat.usesNativeLinks(root))
+            assertTrue(RootlessStorageFormat.usesEmulatedLinks(root))
+            assertEquals(permissions, Files.getPosixFilePermissions(root))
+            Files.list(root).use { assertEquals(1L, it.count()) }
+        } finally {
+            Files.setPosixFilePermissions(root, PosixFilePermissions.fromString("rwx------"))
+        }
+    }
+
+    @Test fun failedProbeIntegrityDoesNotPublishAFormat() {
+        val root = temporary.newFolder("bad-link").toPath()
+        assertTrue(runCatching {
+            RootlessStorageFormat.prepareNewInstallation(root) { link, _ -> Files.write(link, byteArrayOf(2)) }
+        }.isFailure)
+        assertFalse(RootlessStorageFormat.usesNativeLinks(root))
+        assertFalse(RootlessStorageFormat.usesEmulatedLinks(root))
+        Files.list(root).use { assertEquals(0L, it.count()) }
+    }
+
     @Test fun unmarkedUserImageIsNotSilentlyReinterpreted() {
         val layout = RootlessDebianLayout(File(temporary.root, "rootless/debian"))
         assertFalse(RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath()))

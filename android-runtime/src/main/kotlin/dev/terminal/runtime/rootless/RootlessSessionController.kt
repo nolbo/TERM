@@ -228,20 +228,21 @@ internal fun buildRootlessLaunchSpec(
     accelerationLibrary: File? = null,
     nssBindings: List<String> = emptyList(),
 ): RootlessLaunchSpec {
+    val nativeLinks = RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath())
     accelerationLibrary?.let {
         require(it.isFile && it.canRead()) { "Packaged Rootless acceleration library is missing" }
-        require(RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath())) {
-            "Rootless acceleration requires a fresh native-hardlink installation"
+        require(nativeLinks || RootlessStorageFormat.usesEmulatedLinks(layout.rootfs.toPath())) {
+            "Rootless acceleration requires a fresh installation with a verified storage format"
         }
     }
-    val acceleration = accelerationLibrary?.let { RootlessAccelerationProfile(it) }
+    val acceleration = accelerationLibrary?.takeIf { nativeLinks }?.let { RootlessAccelerationProfile(it) }
     val argv = dev.terminal.runtime.session.SessionCommand.decode(env)
     val guestCwd = cwd.takeIf { it.startsWith('/') } ?: "/root"
     val guestShell = shell.takeIf { it.startsWith('/') } ?: "/bin/sh"
     val arguments = buildList {
         // PtyProcess passes this array directly to execvp(), so argv[0] is explicit.
         add(proot.absolutePath)
-        if (!RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath())) add("--link2symlink")
+        if (!nativeLinks) add("--link2symlink")
         addAll(listOf("-0", "-r", layout.rootfs.absolutePath))
         addAll(listOf("-b", "/dev", "-b", "/proc", "-b", "/sys"))
         addAll(listOf("-b", "${File(layout.tmp, "graphics-shm").absolutePath}:/dev/shm"))

@@ -58,8 +58,11 @@ resulting PTY across UI detach.
 New installations probe kernel hardlink support in unpublished staging and record
 `native-hardlinks-1` in `.terminal-storage-format`. Their sessions omit PRoot's
 `--link2symlink` extension while retaining fake-root and the selected binds.
-This avoids link emulation on ordinary file operations. Unsupported storage fails
-before activation. Existing unmarked user images are not converted automatically;
+This avoids link emulation on ordinary file operations. If the hardlink probe is
+denied or unsupported, staging verifies symbolic-link access and records
+`emulated-hardlinks-1` instead. These installations use `--link2symlink` without
+the native-link acceleration DSO or its host flags. Failure of the fallback
+probe still aborts activation. Existing unmarked user images are not converted automatically;
 they retain their previous launch mode. A fresh installation is the supported path
 to the new storage format. This is one step toward the current 2x performance goal,
 not evidence that the goal has been reached. See
@@ -124,8 +127,11 @@ installs it. Other distributions and the default APK profile do not enable it.
 Explicit experimental DSO/notification setup paths remain separate from the
 packaged profile to avoid duplicate library bindings or conflicting modes.
 
-The candidate requires a fresh native-hardlink installation and reports an error
-for an unmarked rootfs rather than converting it. Builds without the property
+The candidate requires a fresh installation with a verified storage marker and
+reports an error for an unmarked rootfs rather than converting it. Native-link
+acceleration is enabled only for the native marker; a verified emulated marker
+keeps installation and PTY execution available when Android denies hardlinks.
+The phase-1 acceleration measurements do not apply to this fallback mode. Builds without the property
 retain the original engine. This is a candidate distribution path, not promotion
 to the default release. Debian installation/file workload evidence and remaining
 whole-workload/physical-device limits are recorded in
