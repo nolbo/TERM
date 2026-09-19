@@ -66,4 +66,47 @@ class RootlessStorageFormatTest {
             "/bin/sh", "/root", emptyMap()).arguments.toList()
         assertTrue(launch.contains("--link2symlink"))
     }
+    @Test fun legacyMigrationPreservesLinksPackagesAndHomeAcrossRepeatedLaunches() {
+        for (distribution in RootlessDistribution.entries) {
+            val layout = RootlessDebianLayout(File(temporary.root, distribution.directory), distribution)
+            layout.createHostDirectories()
+            layout.rootfs.mkdirs()
+            val root = layout.rootfs.toPath()
+            val data = Files.write(root.resolve(".l2s.fixture"), "package data".toByteArray())
+            val link = Files.createSymbolicLink(root.resolve("package-file"), data.fileName)
+            val home = File(layout.home, "user-config").apply { writeText("keep home") }
+            val workspace = File(layout.workspace, "user-work").apply { writeText("keep work") }
+            val timestamp = Files.getLastModifiedTime(root)
+            val library = temporary.newFile("${distribution.directory}.so")
+            repeat(2) {
+                assertEquals(RootlessStorageFormat.LaunchFormat.LEGACY_EMULATED,
+                    RootlessStorageFormat.resolveForLaunch(root))
+                val spec = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"),
+                    "/bin/sh", "/root", emptyMap(), accelerationLibrary = library)
+                assertTrue(spec.arguments.contains("--link2symlink"))
+                assertFalse(spec.arguments.any { it.contains("terminal-faststat.so") })
+                assertEquals("package data", Files.readString(link))
+                assertEquals(data.fileName, Files.readSymbolicLink(link))
+                assertEquals("keep home", home.readText())
+                assertEquals("keep work", workspace.readText())
+                assertEquals(timestamp, Files.getLastModifiedTime(root))
+                assertFalse(Files.exists(root.resolve(".terminal-storage-format")))
+            }
+        }
+    }
+
+    @Test fun invalidAndFutureMarkersAreNeverTreatedAsLegacyOrOverwritten() {
+        val root = temporary.newFolder("invalid-marker").toPath()
+        val marker = root.resolve(".terminal-storage-format")
+        for (value in listOf("", "native-hardlinks-2\n", "native-hardlinks-1\nextra", "x".repeat(10000))) {
+            Files.writeString(marker, value)
+            assertTrue(runCatching { RootlessStorageFormat.resolveForLaunch(root) }.isFailure)
+            assertEquals(value, Files.readString(marker))
+        }
+        Files.delete(marker)
+        Files.createSymbolicLink(marker, root.resolve("missing"))
+        assertTrue(runCatching { RootlessStorageFormat.resolveForLaunch(root) }.isFailure)
+        assertTrue(Files.isSymbolicLink(marker))
+    }
+
 }

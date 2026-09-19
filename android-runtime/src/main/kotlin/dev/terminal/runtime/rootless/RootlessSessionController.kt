@@ -228,12 +228,10 @@ internal fun buildRootlessLaunchSpec(
     accelerationLibrary: File? = null,
     nssBindings: List<String> = emptyList(),
 ): RootlessLaunchSpec {
-    val nativeLinks = RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath())
+    val nativeLinks = RootlessStorageFormat.resolveForLaunch(layout.rootfs.toPath()) ==
+        RootlessStorageFormat.LaunchFormat.NATIVE
     accelerationLibrary?.let {
         require(it.isFile && it.canRead()) { "Packaged Rootless acceleration library is missing" }
-        require(nativeLinks || RootlessStorageFormat.usesEmulatedLinks(layout.rootfs.toPath())) {
-            "Rootless acceleration requires a fresh installation with a verified storage format"
-        }
     }
     val acceleration = accelerationLibrary?.takeIf { nativeLinks }?.let { RootlessAccelerationProfile(it) }
     val argv = dev.terminal.runtime.session.SessionCommand.decode(env)

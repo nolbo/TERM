@@ -87,7 +87,9 @@ class RootlessFreshInstallTest {
             val denyNativeLinks = arguments.getString("rootlessDenyNativeLinks") == "true"
             val packagedLibrary = if (dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION &&
                 !fastfd && !openNotifyThread) File(context.applicationInfo.nativeLibraryDir, "libproot-faststat.so") else null
-            val expectStdio = dev.terminal.runtime.BuildConfig.ROOTLESS_STDIO_BUFFER && !denyNativeLinks
+            val legacyMigration = arguments.getString("rootlessLegacyMigration") == "true"
+            require(!legacyMigration || (!statKernel && !fastfd && !openNotifyThread))
+            val expectStdio = dev.terminal.runtime.BuildConfig.ROOTLESS_STDIO_BUFFER && !denyNativeLinks && !legacyMigration
             val stdioCheck = if (expectStdio) """
                 import ctypes,os,tempfile
                 assert os.environ.get('PROOT_STDIO_BUFFER')=='1'
@@ -138,8 +140,21 @@ class RootlessFreshInstallTest {
             }).installIfNeeded().getOrThrow()
             assertEquals(!denyNativeLinks, RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath()))
             assertEquals(denyNativeLinks, RootlessStorageFormat.usesEmulatedLinks(layout.rootfs.toPath()))
+            if (legacyMigration) {
+                Files.delete(layout.rootfs.toPath().resolve(".terminal-storage-format"))
+                val old = runRootlessSetupCommand(layout, proot, guestLoader, listOf("/bin/sh", "-c",
+                    "set -eu; mkdir /legacy-fixture; printf preserved > /legacy-fixture/a; " +
+                    "ln /legacy-fixture/a /legacy-fixture/b; printf home > /root/legacy-home; " +
+                    "printf workspace > /workspace/legacy-work"))
+                assertEquals(old.output, 0, old.exitCode)
+                assertTrue(Files.isSymbolicLink(layout.rootfs.toPath().resolve("legacy-fixture/b")))
+                val migrated = buildRootlessLaunchSpec(layout, proot, guestLoader,
+                    "/bin/sh", "/", emptyMap(), accelerationLibrary = packagedLibrary)
+                assertTrue(migrated.arguments.contains("--link2symlink"))
+                assertFalse(migrated.arguments.any { it.contains("terminal-faststat.so") })
+            }
             val launch = buildRootlessLaunchSpec(layout, proot, guestLoader, "/bin/sh", "/", emptyMap())
-            assertEquals(denyNativeLinks, launch.arguments.contains("--link2symlink"))
+            assertEquals(denyNativeLinks || legacyMigration, launch.arguments.contains("--link2symlink"))
             RootlessEnvironmentSetup(context, layout, proot, guestLoader, reporter,
                 statKernel, pathKernel, mutationEntry, fstatEntry, openNotifyThread, fastfdLibrary, fastOpen, fastCreate, fastUnlink, tcgetsDirect, idEntry, sharedStat).prepare()
             RootlessEnvironmentProfile.validate(layout).getOrThrow()
@@ -151,7 +166,7 @@ class RootlessFreshInstallTest {
                 trap 'rm -rf "${'$'}work"' EXIT
                 printf 'native link\n' > "${'$'}work/a"
                 ln "${'$'}work/a" "${'$'}work/b"
-                ${if (!denyNativeLinks) "test ! -L \"${'$'}work/b\"" else ":"}
+                ${if (!denyNativeLinks && !legacyMigration) "test ! -L \"${'$'}work/b\"" else ":"}
                 test "${'$'}(stat -c %h "${'$'}work/b")" = 2
                 rm "${'$'}work/a"
                 test "${'$'}(cat "${'$'}work/b")" = 'native link'
@@ -222,8 +237,10 @@ class RootlessFreshInstallTest {
                         withTimeout(30_000) {
                             controller.events.first { event ->
                                 if (event is dev.terminal.protocol.SessionEvent.Output) output.append(event.bytes.toString(Charsets.UTF_8))
-                                output.contains("PASS accelerated PTY")
+                                output.contains("PASS accelerated PTY") ||
+                                    event is dev.terminal.protocol.SessionEvent.Exited
                             }
+                            assertTrue("PTY failed: $output", output.contains("PASS accelerated PTY"))
                         }
                     }
                     val command = listOf("/usr/bin/python3", "-c",
@@ -235,11 +252,11 @@ class RootlessFreshInstallTest {
                         ${if (distribution == RootlessDistribution.DEBIAN) "assert len([line for line in maps if 'r--s' in line and '/run/db' in line])==2" else "# NSS shared caching is Debian-only"}
                         assert os.stat('/etc/passwd').st_size>0
                         c=ctypes.CDLL(None,use_errno=True)
-                        ${if (!denyNativeLinks) "assert c.proot_faststat_hits()>0" else "assert not any('terminal-faststat.so' in line for line in maps)"}
-                        ${if (!denyNativeLinks) "n=c.proot_fastclose_hits()" else "n=0"}
+                        ${if (!denyNativeLinks && !legacyMigration) "assert c.proot_faststat_hits()>0" else "assert not any('terminal-faststat.so' in line for line in maps)"}
+                        ${if (!denyNativeLinks && !legacyMigration) "n=c.proot_fastclose_hits()" else "n=0"}
                         f=os.open('/etc/passwd',os.O_RDONLY)
                         os.close(f)
-                        ${if (!denyNativeLinks) "assert c.proot_fastclose_hits()>n" else "assert os.stat('/etc/passwd').st_size>0"}
+                        ${if (!denyNativeLinks && !legacyMigration) "assert c.proot_fastclose_hits()>n" else "assert os.stat('/etc/passwd').st_size>0"}
                         with tempfile.TemporaryDirectory() as root:
                             target=root+'/target'
                             os.mkdir(target)
@@ -266,6 +283,23 @@ class RootlessFreshInstallTest {
                 }
                 assertEquals(cacheDirectoriesBefore,
                     context.cacheDir.list().orEmpty().filter { it.startsWith("nss-") }.toSet())
+            }
+            if (legacyMigration) {
+                repeat(2) {
+                    val migrated = runRootlessSetupCommand(layout, proot, guestLoader,
+                        listOf("/bin/sh", "-c", "set -eu; " +
+                            "test \"${'$'}(cat /legacy-fixture/b)\" = preserved; " +
+                            "test \"${'$'}(cat /root/legacy-home)\" = home; " +
+                            "test \"${'$'}(cat /workspace/legacy-work)\" = workspace; " +
+                            "test -z \"${'$'}{LD_PRELOAD-}\"; " +
+                            "test -z \"${'$'}{PROOT_STDIO_BUFFER-}\"; " +
+                            "printf updated > /legacy-fixture/a; " +
+                            "test \"${'$'}(cat /legacy-fixture/b)\" = updated; " +
+                            "printf preserved > /legacy-fixture/a"), accelerationLibrary = packagedLibrary)
+                    assertEquals(migrated.output, 0, migrated.exitCode)
+                    assertFalse(Files.exists(layout.rootfs.toPath().resolve(".terminal-storage-format")))
+                }
+                Log.i("RootlessFreshInstall", "${distribution.name}: LEGACY_MIGRATION_VERIFIED")
             }
             Log.i("RootlessFreshInstall", "${distribution.name}: VERIFIED")
         } finally {

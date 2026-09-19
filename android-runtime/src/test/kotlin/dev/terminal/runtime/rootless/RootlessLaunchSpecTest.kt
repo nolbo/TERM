@@ -66,12 +66,15 @@ class RootlessLaunchSpecTest {
         assertFalse(spec.hostEnvironment.any { it.startsWith("PROOT_FAST") || it.startsWith("PROOT_STAT") })
     }
 
-    @Test fun accelerationRejectsMissingLibraryAndUnmarkedRootfs() {
+    @Test fun accelerationRejectsMissingLibraryButMigratesUnmarkedRootfs() {
         val layout = RootlessDebianLayout(File(temporary.root, "unmarked/debian"))
         fun launch(library: File) = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"),
             "/bin/sh", "/root", emptyMap(), accelerationLibrary = library)
         assertTrue(runCatching { launch(File(temporary.root, "missing.so")) }.exceptionOrNull() is IllegalArgumentException)
-        assertTrue(runCatching { launch(temporary.newFile("present.so")) }.exceptionOrNull() is IllegalArgumentException)
+        val spec = launch(temporary.newFile("present.so"))
+        assertTrue(spec.arguments.contains("--link2symlink"))
+        assertFalse(spec.arguments.any { it.contains("terminal-faststat.so") })
+        assertFalse(spec.hostEnvironment.any { it.startsWith("PROOT_FAST") })
     }
 
     @Test fun usbCredentialsAndClientBindAreHostSelected() {

@@ -14,6 +14,36 @@ internal object RootlessStorageFormat {
 
     private const val EMULATED_LINKS = "emulated-hardlinks-1\n"
 
+    enum class LaunchFormat { NATIVE, EMULATED, LEGACY_EMULATED }
+
+    /** Compatibility migration is a launch decision, not a rewrite of guest data.
+     * Old link2symlink installations must never be upgraded by probing today's
+     * filesystem: their existing emulated links still need the extension.
+     * No migration journal or partial conversion can be left by process death.
+     */
+    fun resolveForLaunch(root: Path): LaunchFormat {
+        val marker = root.resolve(MARKER)
+        if (Files.notExists(marker, NOFOLLOW_LINKS)) return LaunchFormat.LEGACY_EMULATED
+        require(Files.isRegularFile(marker, NOFOLLOW_LINKS)) {
+            "Rootless 저장 형식 표시가 올바른 일반 파일이 아닙니다. 기존 설치를 보존했습니다"
+        }
+        val value = Files.newInputStream(marker, NOFOLLOW_LINKS).use { input ->
+            val bytes = ArrayList<Byte>()
+            repeat(maxOf(NATIVE_LINKS.length, EMULATED_LINKS.length) + 1) {
+                val next = input.read()
+                if (next == -1) return@use bytes.toByteArray().toString(Charsets.UTF_8)
+                bytes.add(next.toByte())
+            }
+            bytes.toByteArray().toString(Charsets.UTF_8)
+        }
+        return when (value) {
+            NATIVE_LINKS -> LaunchFormat.NATIVE
+            EMULATED_LINKS -> LaunchFormat.EMULATED
+            else -> throw IllegalArgumentException(
+                "지원하지 않거나 손상된 Rootless 저장 형식입니다. 기존 설치를 보존했습니다")
+        }
+    }
+
     fun usesNativeLinks(root: Path): Boolean = hasFormat(root, NATIVE_LINKS)
     fun usesEmulatedLinks(root: Path): Boolean = hasFormat(root, EMULATED_LINKS)
 
