@@ -181,3 +181,46 @@ also passed with this build. Android MCP installed and ran the test APK; streame
 installation succeeded after the device rejected incremental installation.
 No Android module changed, so the Gradle suite was not rerun. No UI or external
 API changed, so replicant, context7 and connected-app tools were unnecessary.
+
+## Faststat composition and combined build (2026-09-19)
+
+The opt-in combined build places the same stdio implementation in the faststat
+DSO, so a runtime experiment can preload a single library:
+
+```sh
+PROOT_BUILD_STDIO=1 bash tools/rootless/faststat/build.sh /tmp/terminal-combined
+```
+
+The build flag does not enable buffering: the guest still needs
+`PROOT_STDIO_BUFFER=1`. Default faststat builds and the production APK/profile
+remain unchanged. The default build was reproduced with SHA-256
+`32440930dc740987aec8288b0d84c569980703a20479a10c2f58218bc22a745d`.
+The combined test DSO has SHA-256
+`7641d9415322beb07154443c1b90e801cdbb2b845691c20655a08c17dba75674`.
+Both current faststat builds require up to GLIBC_2.38 on this host; this is not
+an assertion of compatibility with older distributions.
+
+`stdio-composition.sh` runs as the app UID with the test APK nativeLibraryDir as
+its first argument. Its optional second argument is `split` (default, both DSO
+orders) or `combined` (only the combined faststat DSO). It creates and removes a
+unique temporary root, using existing Ubuntu libraries and a private /tmp; it
+does not enable native-link acceleration on an unmarked installed rootfs. This
+is a controlled composition fixture, not a full fresh-install acceptance test.
+Build the test APK with both PROOT_TEST_FASTSTAT_DIRECTORY and
+PROOT_TEST_STDIO_DIRECTORY pointing to their respective fixture directories.
+
+On API35 ARM64 Android, both separate DSO orders and the combined DSO passed
+with fastfd enabled and disabled. The stream test checks actual fastfd hit
+counts when `STDIO_EXPECT_FASTFD=0|1` is set, preventing a silent fallback from
+being mistaken for accelerated-path coverage. Each enabled run had 91 hits;
+each disabled run had zero. Contents, concurrent streams, fflush/fsync,
+freopen, caller buffers, fork, repeated reuse and errno checks passed. The
+combined DSO also passed host fallback and cancelled-close/FILE-reuse tests.
+
+This completes a library composition gate, not a new performance result.
+Small-file write cost, whole-application speed, fresh distribution setup with
+the combined library and production integration remain outstanding. The
+overall 2x sequential/file-I/O target is still unmet. Android MCP supplied live
+execution evidence; incremental install again fell back successfully to streamed
+install. No UI/external API or Android module changed, so other MCP servers and
+the Gradle build were not needed for this tools-only change.

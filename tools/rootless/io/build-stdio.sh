@@ -6,7 +6,7 @@ mkdir -p "$output_directory"
 cc -O2 -Wall -Wextra -Werror -shared -fPIC -pthread \
     "$source_directory/stdio-buffer.c" -ldl -o "$output_directory/stdio-buffer.so"
 cc -O2 -Wall -Wextra -Werror -pthread \
-    "$source_directory/stdio-test.c" -o "$output_directory/stdio-test"
+    "$source_directory/stdio-test.c" -ldl -o "$output_directory/stdio-test"
 cc -O2 -Wall -Wextra -Werror \
     "$source_directory/stdio-probe.c" -o "$output_directory/stdio-probe"
 cc -O2 -Wall -Wextra -Werror \

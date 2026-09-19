@@ -1,5 +1,6 @@
 #define _GNU_SOURCE
 #include <assert.h>
+#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -33,6 +34,14 @@ static void *worker(void *argument) {
     return NULL;
 }
 int main(void) {
+    /* Optional composition gate: prove the intended fastfd path actually ran. */
+    const char *expected_fastfd = getenv("STDIO_EXPECT_FASTFD");
+    unsigned long (*fd_hits)(void) = NULL;
+    if (expected_fastfd) {
+        assert(!strcmp(expected_fastfd, "0") || !strcmp(expected_fastfd, "1"));
+        fd_hits = dlsym(RTLD_DEFAULT, "proot_fastfd_hits");
+        assert(fd_hits);
+    }
     assert(mkdtemp(directory));
     pthread_t threads[4];
     for (long i = 0; i < 4; i++) assert(!pthread_create(&threads[i], NULL, worker, (void *)i));
@@ -69,5 +78,10 @@ int main(void) {
     assert(fallback == 80); /* Closing streams recycles their bounded storage. */
     errno = 0; assert(!fopen("/nonexistent/terminal-test", "r") && errno == ENOENT);
     assert(!unlink(path) && !rmdir(directory));
+    if (fd_hits) {
+        unsigned long hits = fd_hits();
+        assert((hits > 0) == !strcmp(expected_fastfd, "1"));
+        printf("PASS stdio/fastfd composition: fastfd_hits=%lu\n", hits);
+    }
     puts("PASS stdio: threads, content, fflush/fsync, reopen, caller buffer, update mode, device, fork, exhaustion, errno");
 }
