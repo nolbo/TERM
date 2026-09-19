@@ -10,3 +10,9 @@ cc -O2 -Wall -Wextra -Werror -pthread \
 cc -O2 -Wall -Wextra -Werror \
     "$source_directory/stdio-probe.c" -o "$output_directory/stdio-probe"
 PROOT_STDIO_BUFFER=1 LD_PRELOAD="$output_directory/stdio-buffer.so" "$output_directory/stdio-test"
+cc -O2 -Wall -Wextra -Werror -shared -fPIC -pthread \
+    "$source_directory/stdio-buffer.c" "$source_directory/stdio-check-counter.c" \
+    -Wl,--wrap=fcntl,--wrap=fstat -ldl -o "$output_directory/stdio-counted.so"
+cc -O2 -Wall -Wextra -Werror "$source_directory/stdio-pool-test.c" \
+    -ldl -o "$output_directory/stdio-pool-test"
+PROOT_STDIO_BUFFER=1 LD_PRELOAD="$output_directory/stdio-counted.so" "$output_directory/stdio-pool-test"

@@ -33,6 +33,8 @@ static void initialize(void) {
 static FILE *tune(FILE *stream, const char *mode) {
     if (!stream || !enabled || !mode || (mode[0] != 'r' && mode[0] != 'w') ||
         strchr(mode, '+') || strchr(mode, 'm')) return stream;
+    // Once exhausted, avoid two extra syscalls on every later small-file open.
+    if (atomic_load_explicit(&next_slot, memory_order_relaxed) >= SLOTS) return stream;
     int saved = errno;
     struct stat st;
     int fd = fileno(stream), flags = fcntl(fd, F_GETFL);

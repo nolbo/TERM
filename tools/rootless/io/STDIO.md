@@ -80,3 +80,36 @@ account for the extra fstat/fcntl at fopen, evaluate the first-32-stream limit,
 and test composition with the packaged faststat DSO and distribution setup.
 Do not drop raw sequential I/O, synced writes or the original workload acceptance
 criteria merely because this narrower experiment exceeds 2x at 4 KiB.
+
+## Pool-exhaustion regression (2026-09-19)
+
+The initial prototype still issued fcntl(F_GETFL) and fstat on every eligible
+fopen after its lifetime pool was full. This could add two traced calls per
+small-file open while providing no buffering benefit. An atomic saturation check
+now returns before either call. Existing reservations remain saturating and
+buffers remain process-lifetime; no memory recycling or stream-close hooks were
+introduced.
+
+`stdio-check-counter.c` is linked only into a test DSO with GNU linker wrappers.
+It counts the candidate's two checks, not libc's own file operations.
+`stdio-pool-test.c` fills the 32 slots, then performs 1,000 successful open/read/
+close operations and requires the counter to stay at 64. The test fails with the
+previous DSO and passes with the fix. It also passed on Android API35 ARM64 in
+Ubuntu under original PRoot/link2symlink, as did the existing stream lifecycle
+test. Pool concurrency may permit already-started checks to finish after another
+thread takes the last slot; the zero-extra-check guarantee is for subsequent
+opens observing saturation, not a stop-the-world claim.
+
+`stdio-programs.sh` passed in that guest with the candidate both disabled and
+enabled: awk/sort/sed/grep output, gzip and tar round trips, cmp and a read-only
+dpkg-query against bash. These are correctness checks, not whole-program speed
+measurements or a full package installation. Performance comparisons were not
+repeated because the transfer loop did not change. Android module code was not
+changed, so Gradle tests were not rerun. The test APK needed streamed installation
+after incremental installation was rejected by the device.
+
+Remaining gates still include opening many short-lived streams before pool
+exhaustion, memory/latency measurements, full faststat composition and complete
+distribution setup. The earlier 4 KiB speedups remain specific to that measured
+prototype; neither this regression fix nor the tool smoke tests proves overall
+2x I/O performance.

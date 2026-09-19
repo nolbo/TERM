@@ -36,6 +36,10 @@ with zipfile.ZipFile(sys.argv[1], "a", compression=zipfile.ZIP_DEFLATED) as arch
                                ("stdio-test", "libstdio-test.so"),
                                ("stdio-probe", "libstdio-probe.so")):
             archive.write(fixtures / source, "lib/arm64-v8a/" + target)
+        for source, target in (("stdio-counted.so", "libstdio-counted.so"),
+                               ("stdio-pool-test", "libstdio-pool-test.so")):
+            if (fixtures / source).is_file():
+                archive.write(fixtures / source, "lib/arm64-v8a/" + target)
     if sys.argv[6]:
         archive.write(sys.argv[6], "lib/arm64-v8a/libsequential-io-test.so")
     if sys.argv[5]:
