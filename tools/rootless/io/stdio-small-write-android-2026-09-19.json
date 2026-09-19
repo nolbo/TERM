@@ -1,0 +1,63 @@
+{
+  "date": "2026-09-19",
+  "conditions": "API35 ARM64 redroid, private scratch root with Ubuntu usr/lib bindings, candidate PRoot and combined faststat/stdio library, full acceleration profile, fastfd enabled in both conditions",
+  "timing": "1024 fopen(wb)/fwrite(448 bytes)/fclose operations over 128 existing files; warmup, setup, cleanup and post-pass raw-FD content/EOF verification excluded; data changes every pass; no fsync",
+  "dso_sha256": "7641d9415322beb07154443c1b90e801cdbb2b845691c20655a08c17dba75674",
+  "scope": "Bounded overwrite/close regression screen, not creation, durable writes, full applications or physical phone performance",
+  "rows": [
+    {
+      "enabled": 0,
+      "operation": "write-close",
+      "operations": 1024,
+      "bytes_per_file": 448,
+      "elapsed_ms": 247.98781,
+      "fsync": false,
+      "verified": true
+    },
+    {
+      "enabled": 1,
+      "operation": "write-close",
+      "operations": 1024,
+      "bytes_per_file": 448,
+      "elapsed_ms": 237.555664,
+      "fsync": false,
+      "verified": true
+    },
+    {
+      "enabled": 1,
+      "operation": "write-close",
+      "operations": 1024,
+      "bytes_per_file": 448,
+      "elapsed_ms": 220.772743,
+      "fsync": false,
+      "verified": true
+    },
+    {
+      "enabled": 0,
+      "operation": "write-close",
+      "operations": 1024,
+      "bytes_per_file": 448,
+      "elapsed_ms": 308.658238,
+      "fsync": false,
+      "verified": true
+    },
+    {
+      "enabled": 0,
+      "operation": "write-close",
+      "operations": 1024,
+      "bytes_per_file": 448,
+      "elapsed_ms": 227.84408,
+      "fsync": false,
+      "verified": true
+    },
+    {
+      "enabled": 1,
+      "operation": "write-close",
+      "operations": 1024,
+      "bytes_per_file": 448,
+      "elapsed_ms": 272.66859,
+      "fsync": false,
+      "verified": true
+    }
+  ]
+}

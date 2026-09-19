@@ -130,6 +130,8 @@ class RootlessSetupCommandTest {
         assertTrue(result.output.startsWith("1:1:unset\n"))
         assertTrue(result.output.contains("PROOT_FASTSTAT_SHARED=1\n"))
         assertTrue(result.output.contains("PROOT_FASTCREATE=1\n"))
+        assertEquals(dev.terminal.runtime.BuildConfig.ROOTLESS_STDIO_BUFFER,
+            result.output.lineSequence().any { it == "PROOT_STDIO_BUFFER=1" })
         assertTrue(result.output.contains("--kill-on-exit\n"))
         assertEquals(1, result.output.lineSequence().count { it == "${library.absolutePath}:/usr/local/lib/terminal-faststat.so" })
         assertTrue(runCatching { runRootlessSetupCommand(current, fakeProot, fakeProot,

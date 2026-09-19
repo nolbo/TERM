@@ -1,6 +1,6 @@
 # Bounded stdio buffering experiment
 
-This is an opt-in prototype, **not a packaged/default runtime optimization**.
+This is an opt-in prototype, **not a default runtime optimization**.
 It targets ordinary glibc `fopen`/`fopen64` read-only or write-only regular files.
 Set `PROOT_STDIO_BUFFER=1` and preload `stdio-buffer.so` inside the guest only.
 No native-hardlink capability is required. Raw read/write, fdopen, standard
@@ -224,3 +224,51 @@ overall 2x sequential/file-I/O target is still unmet. Android MCP supplied live
 execution evidence; incremental install again fell back successfully to streamed
 install. No UI/external API or Android module changed, so other MCP servers and
 the Gradle build were not needed for this tools-only change.
+
+## Small writes and opt-in APK integration (2026-09-19)
+
+`stdio-small-probe write` times fopen(wb), fwrite and fclose for 1,024 overwrites
+of 128 existing 448-byte files. Each pass changes the content; untimed checks
+reopen each file through a separate raw descriptor and verify bytes and EOF.
+No fsync is issued, so this does not measure durable writes or file creation.
+The original no-argument/read mode remains available.
+
+`stdio-composition.sh NATIVE_LIBRARY_DIRECTORY combined-write` reproduces three
+alternating pairs with the full candidate profile and combined DSO, toggling
+only PROOT_STDIO_BUFFER. All six runs passed on Android. Disabled median was
+247.987810 ms (227.844080–308.658238); enabled median was 237.555664 ms
+(220.772743–272.668590). Variation is large: these observations do not establish
+a speedup or a broad no-regression guarantee. Raw timings are in
+`stdio-small-write-android-2026-09-19.json`.
+
+The Android build now accepts `-ProotlessStdioBuffer=true` only together with
+`-ProotlessAcceleratedPayload=/absolute/path/to/combined-payload`. That directory
+must contain the pinned candidate proot/loader and the combined DSO identified
+above. SHA-256 and ARM64/16 KiB alignment checks remain mandatory; a mismatched
+library fails the build. Ordinary builds retain their existing payload and omit
+the buffering flag. The build-selected profile adds PROOT_STDIO_BUFFER=1 only
+to the guest environment, for native-link sessions and setup/maintenance alike.
+Verified emulated-link installations continue to use their existing fallback.
+Guest-supplied environment variables cannot override the selected profile.
+
+This enables APK-level testing; it does not promote buffering to the default
+or complete fresh-install, physical-device or full-application validation.
+
+Validation for the APK integration used JDK 17:
+
+```sh
+./gradlew :android-app:assembleDebug :android-runtime:testDebugUnitTest :image:test \
+  -ProotlessAcceleratedPayload=/tmp/terminal-stdio-app-payload \
+  -ProotlessStdioBuffer=true --console=plain
+```
+
+This passed: runtime 147 tests, zero failures/errors, one existing optional
+archive test skipped; image four tests passed. The APK's extracted DSO matched
+the combined hash above. Focused launch/setup tests passed with the feature
+enabled and again with default build settings. Negative Gradle checks rejected
+both the missing accelerated payload option and an ordinary faststat library
+supplied with buffering enabled. Host C lifecycle tests and the small-write
+content check passed. Android MCP ran the six combined-library write checks;
+incremental APK installation fell back to streamed installation successfully.
+The full application APK was built and inspected, but not installed over the
+user's running app; live end-to-end setup/session validation remains pending.

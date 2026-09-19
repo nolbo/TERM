@@ -109,6 +109,15 @@ execution still uses the centralized APK executable loader. Existing guest
 preloads follow the acceleration DSO. Guest-supplied PROOT options cannot replace
 the APK-selected profile.
 
+An additional experimental build option, `-ProotlessStdioBuffer=true`, requires
+that accelerated payload directory to contain the separately pinned combined
+faststat/stdio DSO. It enables bounded 64 KiB buffering for eligible glibc file
+streams in native-link sessions and maintenance commands. It is off by default;
+raw read/write and fsync are unchanged. This option has not established overall
+2x I/O performance or completed fresh-install validation. Build instructions,
+tests and visibility/memory limitations are in
+[the stdio experiment](../tools/rootless/io/STDIO.md).
+
 The candidate's package installation, environment configuration and verification
 stages use the same profile automatically. Maintenance retains its finite
 `--kill-on-exit` process ownership; interactive session ownership is unchanged.

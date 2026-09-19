@@ -2,8 +2,11 @@ package dev.terminal.runtime.rootless
 
 import java.io.File
 
-/** APK-selected profile validated with fresh Debian installation and file workloads. */
-internal class RootlessAccelerationProfile(library: File) {
+/** APK-selected acceleration; optional stdio buffering is still experimental. */
+internal class RootlessAccelerationProfile(
+    library: File,
+    private val stdioBuffering: Boolean = dev.terminal.runtime.BuildConfig.ROOTLESS_STDIO_BUFFER,
+) {
     private val guestLibrary = "/usr/local/lib/terminal-faststat.so"
     val binding = "${library.absolutePath}:$guestLibrary"
     val hostEnvironment = arrayOf(
@@ -16,5 +19,5 @@ internal class RootlessAccelerationProfile(library: File) {
         "LD_PRELOAD" to listOfNotNull(guestLibrary, preload?.takeIf { it.isNotBlank() }).joinToString(":"),
         "PROOT_FASTCLOSE" to "1", "PROOT_FASTFD" to "1", "PROOT_FASTOPEN" to "1", "PROOT_FASTCREATE" to "1",
         "PROOT_FASTUNLINK" to "1", "PROOT_FASTSTAT_PATH" to "0", "PROOT_FASTSTAT_SHARED" to "1",
-    )
+    ).apply { if (stdioBuffering) put("PROOT_STDIO_BUFFER", "1") }
 }

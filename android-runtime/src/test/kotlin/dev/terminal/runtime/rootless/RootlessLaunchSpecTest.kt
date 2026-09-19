@@ -9,6 +9,15 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class RootlessLaunchSpecTest {
+    @Test fun stdioBufferingIsExplicitAndGuestOnly() {
+        val library = temporary.newFile("stdio-profile.so")
+        val ordinary = RootlessAccelerationProfile(library, stdioBuffering = false)
+        val buffered = RootlessAccelerationProfile(library, stdioBuffering = true)
+        assertFalse(ordinary.guestEnvironment(null).containsKey("PROOT_STDIO_BUFFER"))
+        assertEquals("1", buffered.guestEnvironment(null)["PROOT_STDIO_BUFFER"])
+        assertFalse(buffered.hostEnvironment.any { it.startsWith("PROOT_STDIO_BUFFER=") })
+    }
+
     @Test fun nssBindingsAreSelectedByRuntimeAndDoNotReplaceAccountFiles() {
         val layout = RootlessDebianLayout(File(temporary.root, "nss/debian"))
         val bindings = listOf("/private/run:/run/nscd", "/private/cache:/var/cache/nscd")
@@ -27,12 +36,15 @@ class RootlessLaunchSpecTest {
         val library = temporary.newFile("libproot-faststat.so")
         val spec = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"), "/bin/sh", "/root",
             mapOf("LD_PRELOAD" to "/guest/custom.so", "PROOT_FASTSTAT_SHARED" to "0",
-                "PROOT_OPEN_NOTIFY" to "1"), accelerationLibrary = library)
+                "PROOT_OPEN_NOTIFY" to "1", "PROOT_STDIO_BUFFER" to "forged"), accelerationLibrary = library)
         assertTrue(spec.arguments.contains("${library.absolutePath}:/usr/local/lib/terminal-faststat.so"))
         assertTrue(spec.arguments.contains("LD_PRELOAD=/usr/local/lib/terminal-faststat.so:/guest/custom.so"))
         assertTrue(spec.arguments.contains("PROOT_FASTSTAT_SHARED=1"))
         assertFalse(spec.arguments.contains("PROOT_FASTSTAT_SHARED=0"))
         assertFalse(spec.arguments.contains("PROOT_OPEN_NOTIFY=1"))
+        assertFalse(spec.arguments.contains("PROOT_STDIO_BUFFER=forged"))
+        assertEquals(dev.terminal.runtime.BuildConfig.ROOTLESS_STDIO_BUFFER,
+            spec.arguments.contains("PROOT_STDIO_BUFFER=1"))
         assertFalse(spec.arguments.contains("--link2symlink"))
         assertTrue(spec.hostEnvironment.contains("PROOT_FASTPATH=1"))
         assertTrue(spec.hostEnvironment.contains("PROOT_FASTCLOSE=1"))

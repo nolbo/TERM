@@ -3,6 +3,10 @@ plugins {
 }
 
 def acceleratedRootless = providers.gradleProperty('rootlessAcceleratedPayload').orNull
+def stdioSetting = providers.gradleProperty('rootlessStdioBuffer').getOrElse('false')
+if (!(stdioSetting in ['true', 'false'])) throw new GradleException('rootlessStdioBuffer must be true or false')
+def stdioRootless = stdioSetting == 'true'
+if (stdioRootless && !acceleratedRootless) throw new GradleException('rootlessStdioBuffer requires rootlessAcceleratedPayload')
 def rootlessPayloadSource = acceleratedRootless ? layout.projectDirectory.dir(acceleratedRootless) : layout.projectDirectory.dir('src/main/rootless/arm64-v8a')
 def generatedRootlessJniDirectory = layout.buildDirectory.dir('generated/rootlessJniLibs')
 def iphoneBuildDirectory = layout.buildDirectory.dir('iphone-native')
@@ -77,6 +81,7 @@ tasks.register('stageRootlessExecutables', Sync) {
 tasks.register('verifyRootlessExecutables') {
     inputs.files(rootlessPayloadSource.file('proot'), rootlessPayloadSource.file('proot-loader'))
     inputs.property('accelerated', acceleratedRootless != null)
+    inputs.property('stdioBuffer', stdioRootless)
     if (acceleratedRootless) inputs.file(rootlessPayloadSource.file('libproot-faststat.so'))
     doLast {
         def expected = [
@@ -85,7 +90,9 @@ tasks.register('verifyRootlessExecutables') {
         ]
         if (acceleratedRootless) {
             expected.proot = '975d535771988c04b1fff1e870543103c9958a258a16e0087ab71c0021f5628e'
-            expected['libproot-faststat.so'] = '32440930dc740987aec8288b0d84c569980703a20479a10c2f58218bc22a745d'
+            expected['libproot-faststat.so'] = stdioRootless ?
+                '7641d9415322beb07154443c1b90e801cdbb2b845691c20655a08c17dba75674' :
+                '32440930dc740987aec8288b0d84c569980703a20479a10c2f58218bc22a745d'
         }
         expected.each { name, digest ->
             def payload = rootlessPayloadSource.file(name).asFile
@@ -118,6 +125,7 @@ android {
 
     defaultConfig {
         buildConfigField "boolean", "ROOTLESS_ACCELERATION", acceleratedRootless ? "true" : "false"
+        buildConfigField "boolean", "ROOTLESS_STDIO_BUFFER", stdioRootless ? "true" : "false"
         minSdk project.properties.minSdkVersion.toInteger()
         targetSdk project.properties.targetSdkVersion.toInteger()
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'

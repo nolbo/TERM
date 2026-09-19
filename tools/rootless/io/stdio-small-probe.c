@@ -16,7 +16,10 @@ static double milliseconds(void) {
     assert(clock_gettime(CLOCK_MONOTONIC, &now) == 0);
     return now.tv_sec * 1000.0 + now.tv_nsec / 1000000.0;
 }
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc > 2 || (argc == 2 && strcmp(argv[1], "read") && strcmp(argv[1], "write")))
+        return 2;
+    int writing = argc == 2 && !strcmp(argv[1], "write");
     char directory[] = "/tmp/terminal-stdio-small-XXXXXX";
     char paths[FILES][128];
     unsigned char expected[BYTES], actual[BYTES + 1];
@@ -29,23 +32,39 @@ int main(void) {
         assert(write(fd, expected, sizeof(expected)) == sizeof(expected));
         assert(close(fd) == 0);
     }
-    /* One untimed warmup uses the same stdio path as the measured reads. */
+    /* One untimed warmup uses the same stdio path as measured operations. */
     double elapsed = 0;
     for (int pass = -1; pass < PASSES; ++pass) {
+        if (writing) expected[0] = (unsigned char)(pass + 2);
         double start = milliseconds();
         for (int i = 0; i < FILES; ++i) {
-            FILE *stream = fopen(paths[i], "rb");
+            FILE *stream = fopen(paths[i], writing ? "wb" : "rb");
             assert(stream);
-            assert(fread(actual, 1, sizeof(actual), stream) == BYTES);
-            assert(feof(stream) && !ferror(stream));
-            assert(memcmp(actual, expected, BYTES) == 0);
+            if (writing) {
+                assert(fwrite(expected, 1, BYTES, stream) == BYTES);
+            } else {
+                assert(fread(actual, 1, sizeof(actual), stream) == BYTES);
+                assert(feof(stream) && !ferror(stream));
+                assert(memcmp(actual, expected, BYTES) == 0);
+            }
             assert(fclose(stream) == 0);
         }
         if (pass >= 0) elapsed += milliseconds() - start;
+        /* Separate descriptors observe flushed bytes after every write pass.
+         * Deliberately no fsync: this measures buffered writes, not durability. */
+        if (writing) for (int i = 0; i < FILES; ++i) {
+            int fd = open(paths[i], O_RDONLY);
+            assert(fd >= 0);
+            assert(read(fd, actual, sizeof(actual)) == BYTES);
+            assert(memcmp(actual, expected, BYTES) == 0);
+            assert(read(fd, actual, 1) == 0);
+            assert(close(fd) == 0);
+        }
     }
     for (int i = 0; i < FILES; ++i) assert(unlink(paths[i]) == 0);
     assert(rmdir(directory) == 0);
-    printf("{\"operations\":%d,\"bytes_per_file\":%d,\"elapsed_ms\":%.6f,"
-           "\"verified\":true}\n", FILES * PASSES, BYTES, elapsed);
+    printf("{\"operation\":\"%s\",\"operations\":%d,\"bytes_per_file\":%d,\"elapsed_ms\":%.6f,"
+           "\"fsync\":false,\"verified\":true}\n", writing ? "write-close" : "read-close",
+           FILES * PASSES, BYTES, elapsed);
     return 0;
 }

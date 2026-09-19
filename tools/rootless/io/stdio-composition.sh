@@ -10,12 +10,24 @@ mkdir -p "$scratch/tmp" "$scratch/usr" "$scratch/lib" "$scratch/dev" "$scratch/p
 stdio=/usr/local/lib/terminal-stdio.so
 faststat=/usr/local/lib/terminal-faststat.so
 case ${2:-split} in
-    split) set -- "$stdio:$faststat" "$faststat:$stdio" ;;
-    combined) set -- "$faststat" ;;
-    *) echo 'Expected split or combined library mode' >&2; exit 2 ;;
+    split) set -- "$stdio:$faststat" "$faststat:$stdio"; workload=streams ;;
+    combined) set -- "$faststat"; workload=streams ;;
+    combined-write) set -- "$faststat"; workload=small-write ;;
+    *) echo 'Expected split, combined or combined-write mode' >&2; exit 2 ;;
 esac
 for preload in "$@"; do
-    for fastfd in 0 1; do
+    if [ "$workload" = streams ]; then sequence='0 1'; else sequence='0 1 1 0 0 1'; fi
+    for setting in $sequence; do
+        if [ "$workload" = streams ]; then
+            fastfd=$setting
+            buffering=1
+            executable=/usr/local/bin/terminal-stdio-test
+        else
+            fastfd=1
+            buffering=$setting
+            executable=/usr/local/bin/terminal-stdio-small-probe
+            echo "PROOT_STDIO_BUFFER=$buffering"
+        fi
         env PROOT_TMP_DIR=/data/user/0/dev.terminal.app/cache \
             PROOT_LOADER="$library_directory/libproot-loader.so" \
             PROOT_STAT_ENTRY=1 PROOT_STAT_KERNEL=1 PROOT_PATH_KERNEL=1 \
@@ -28,10 +40,11 @@ for preload in "$@"; do
             -b "$library_directory/libstdio-buffer.so:$stdio" \
             -b "$library_directory/libproot-faststat.so:$faststat" \
             -b "$library_directory/libstdio-test.so:/usr/local/bin/terminal-stdio-test" \
+            -b "$library_directory/libstdio-small-probe.so:/usr/local/bin/terminal-stdio-small-probe" \
             -w /tmp /usr/bin/env -i PATH=/usr/bin:/bin \
-            LD_PRELOAD="$preload" PROOT_STDIO_BUFFER=1 STDIO_EXPECT_FASTFD="$fastfd" \
+            LD_PRELOAD="$preload" PROOT_STDIO_BUFFER="$buffering" STDIO_EXPECT_FASTFD="$fastfd" \
             PROOT_FASTFD="$fastfd" PROOT_FASTCLOSE=1 PROOT_FASTOPEN=1 \
             PROOT_FASTCREATE=1 PROOT_FASTUNLINK=1 PROOT_FASTSTAT_PATH=0 \
-            PROOT_FASTSTAT_SHARED=1 /usr/local/bin/terminal-stdio-test
+            PROOT_FASTSTAT_SHARED=1 "$executable" write
     done
 done
