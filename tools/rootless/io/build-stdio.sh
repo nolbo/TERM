@@ -16,3 +16,9 @@ cc -O2 -Wall -Wextra -Werror -shared -fPIC -pthread \
 cc -O2 -Wall -Wextra -Werror "$source_directory/stdio-pool-test.c" \
     -ldl -o "$output_directory/stdio-pool-test"
 PROOT_STDIO_BUFFER=1 LD_PRELOAD="$output_directory/stdio-counted.so" "$output_directory/stdio-pool-test"
+cc -O2 -Wall -Wextra -Werror -shared -fPIC -pthread \
+    "$source_directory/stdio-close-gate.c" -ldl -o "$output_directory/stdio-close-gate.so"
+cc -O2 -Wall -Wextra -Werror -pthread "$source_directory/stdio-lifetime-test.c" \
+    -ldl -o "$output_directory/stdio-lifetime-test"
+PROOT_STDIO_BUFFER=1 LD_PRELOAD="$output_directory/stdio-buffer.so:$output_directory/stdio-close-gate.so" \
+    "$output_directory/stdio-lifetime-test"

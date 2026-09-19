@@ -63,10 +63,10 @@ int main(void) {
     int fallback = 0;
     for (int i = 0; i < 80; i++) {
         f = fopen(path, "r"); assert(f);
-        if (__fbufsize(f) != 65536) fallback++;
+        if (__fbufsize(f) == 65536) fallback++;
         assert(fgetc(f) == 'c' && !fclose(f));
     }
-    assert(fallback > 0); /* Bounded pool exhaustion preserves correctness. */
+    assert(fallback == 80); /* Closing streams recycles their bounded storage. */
     errno = 0; assert(!fopen("/nonexistent/terminal-test", "r") && errno == ENOENT);
     assert(!unlink(path) && !rmdir(directory));
     puts("PASS stdio: threads, content, fflush/fsync, reopen, caller buffer, update mode, device, fork, exhaustion, errno");

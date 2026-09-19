@@ -9,17 +9,28 @@ are not tuned. O_DIRECT/O_SYNC/O_DSYNC/O_NONBLOCK descriptors are skipped.
 
 ## Lifetime and semantics
 
-The first 32 eligible streams receive independent 64 KiB fully buffered storage.
-Buffers live in a fixed 2 MiB BSS pool until process exit and are never recycled.
-This intentionally trades a bounded amount of retained memory for avoiding
-fclose/freopen/cancellation hooks, dangling buffers and private FILE ABI changes.
-Pool exhaustion leaves subsequent streams unchanged. No malloc/free ownership
-is transferred to libc. The pool's slot index saturates and is atomic; fork
-inherits normal copy-on-write process storage. Caller `setvbuf` still takes
-precedence after fopen. [GNU libc's buffering contract](https://www.gnu.org/software/libc/manual/2.34/html_node/Controlling-Buffering.html)
+Up to 32 live eligible streams receive independent 64 KiB buffers from a fixed
+2 MiB BSS pool. Normal fclose returns release the slot for a later stream. The
+wrapper detaches associations before calling libc, then frees only those slots
+after libc returns (including an EOF/error return). It never looks up the FILE
+address after close, because another fopen may already have reused that address.
+Atomic slot reservation and owner publication avoid a process-global mutex.
+No private FILE fields or malloc ownership flags are modified.
+
+Cancellation or nonlocal exit during fclose deliberately strands its reserved
+slots: a still-live stream may retain the buffer. The limit stays 2 MiB; after
+sufficient interrupted closes new streams fall back to libc buffering. Failed
+freopen or libc-internal close paths that bypass the wrapper may also retain
+slots. These conservative cases affect optimization coverage, not permission to
+reuse potentially live memory. Existing caller setvbuf and freopen retain valid
+storage for the entire FILE lifetime; normal fork inherits copy-on-write pool
+state. Pool exhaustion leaves additional streams unchanged and skips eligibility
+syscalls when saturation is observed.
+[GNU libc's buffering contract](https://www.gnu.org/software/libc/manual/2.34/html_node/Controlling-Buffering.html)
 requires supplied storage to remain valid while the stream uses it.
 
-`fflush`, `fclose` and `fsync` remain libc/kernel operations. Writes are not
+`fflush` and `fsync` remain libc/kernel operations; the fclose wrapper delegates
+the actual flush and close to libc before releasing storage. Writes are not
 reported durable before fsync. As with ordinary buffered stdio, applications
 must fflush before fsync on fileno; interposing larger buffers does not make
 fsync flush libc memory. Unflushed output can become visible later than with a
@@ -76,12 +87,12 @@ Tested Android payload SHA-256:
 - test: `5e0aabb6cf83e28accad78b9f4bfdf30a9a6ce057ecbfdb8370b7e9fe386461c`
 
 Before runtime integration: measure whole programs and small-file regressions,
-account for the extra fstat/fcntl at fopen, evaluate the first-32-stream limit,
+account for the extra fstat/fcntl at fopen and the concurrent 32-stream limit,
 and test composition with the packaged faststat DSO and distribution setup.
 Do not drop raw sequential I/O, synced writes or the original workload acceptance
 criteria merely because this narrower experiment exceeds 2x at 4 KiB.
 
-## Pool-exhaustion regression (2026-09-19)
+## Pool-exhaustion regression before recycling (2026-09-19)
 
 The initial prototype still issued fcntl(F_GETFL) and fstat on every eligible
 fopen after its lifetime pool was full. This could add two traced calls per
@@ -113,3 +124,36 @@ exhaustion, memory/latency measurements, full faststat composition and complete
 distribution setup. The earlier 4 KiB speedups remain specific to that measured
 prototype; neither this regression fix nor the tool smoke tests proves overall
 2x I/O performance.
+
+
+## Reusable pool validation (2026-09-19)
+
+The current pool replaces the first-32-stream lifetime limit with up to 32 live
+slots. The revised counter test holds 32 tuned streams open, verifies 1,000
+additional streams add zero eligibility checks, closes the original streams,
+then verifies 1,000 further streams each receive a 64 KiB buffer. This passed on
+the ARM64 host and Android API35 Ubuntu/original-PRoot/link2symlink.
+
+`stdio-close-gate.c` is a test-only second preload that deterministically stops
+inside the delegated fclose or opens a replacement FILE immediately after libc
+frees the old one. `stdio-lifetime-test.c` verified on both environments:
+
+- cancelling a close retains its buffer and only the other 31 slots can be reused;
+- the original stream still flushes its original content after cancellation;
+- libc reused the exact FILE address before the wrapper returned, and the new
+  stream's live buffer remained reserved and its content intact;
+- an actual EFBIG flush/close failure preserves errno and releases its slot after
+  libc returns.
+
+The existing lifecycle and basic-program checks also passed enabled/disabled.
+Updated DSO SHA-256:
+`de970f2757d1d51031899004dbebb156f5bfd2c676260344db68c8b312a70454`.
+No performance comparisons were repeated; the earlier table describes the older
+prototype, not a measurement of this revision. No production APK was changed.
+
+Recycling restores eligibility checks on later opens whenever slots are free.
+Consequently the previous lifetime-saturation optimization is now a full-live-
+pool optimization only. Short-lived small-file streams may pay fcntl/fstat and
+close bookkeeping costs repeatedly. Measure this regression risk against the
+disabled baseline before default integration. Raw sequential I/O and fsync still
+have no demonstrated 2x improvement, and the whole goal remains unmet.
