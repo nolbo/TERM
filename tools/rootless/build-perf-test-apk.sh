@@ -40,7 +40,8 @@ with zipfile.ZipFile(sys.argv[1], "a", compression=zipfile.ZIP_DEFLATED) as arch
                                ("stdio-pool-test", "libstdio-pool-test.so"),
                                ("stdio-close-gate.so", "libstdio-close-gate.so"),
                                ("stdio-lifetime-test", "libstdio-lifetime-test.so"),
-                               ("stdio-small-probe", "libstdio-small-probe.so")):
+                               ("stdio-small-probe", "libstdio-small-probe.so"),
+                               ("stdio-semantics-test", "libstdio-semantics-test.so")):
             if (fixtures / source).is_file():
                 archive.write(fixtures / source, "lib/arm64-v8a/" + target)
     if sys.argv[6]:

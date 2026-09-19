@@ -24,3 +24,10 @@ cc -O2 -Wall -Wextra -Werror -pthread "$source_directory/stdio-lifetime-test.c" 
     -ldl -o "$output_directory/stdio-lifetime-test"
 PROOT_STDIO_BUFFER=1 LD_PRELOAD="$output_directory/stdio-buffer.so:$output_directory/stdio-close-gate.so" \
     "$output_directory/stdio-lifetime-test"
+
+cc -O2 -Wall -Wextra -Werror "$source_directory/stdio-semantics-test.c" \
+    -o "$output_directory/stdio-semantics-test"
+for buffering in 0 1; do
+    PROOT_STDIO_BUFFER=$buffering LD_PRELOAD="$output_directory/stdio-buffer.so" \
+        "$output_directory/stdio-semantics-test"
+done

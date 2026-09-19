@@ -367,3 +367,47 @@ candidate's total gain over original PRoot. Raw sequential and durable-write
 criteria remain unmet. Further work should address remaining traced operations
 such as rename in the original create/rename/unlink workload, retaining the
 original sequential and durable-write acceptance cases.
+
+
+## Behavioral compatibility gate (2026-09-20)
+
+`stdio-semantics-test.c` adds deterministic behavior checks, without timings:
+position save/restore, seeks across the 64 KiB buffer boundary, ungetc, an
+explicitly synchronized stdio/raw-FD handoff, clearerr and reading newly appended
+data after EOF, mmap observation after fflush/fsync, offsets beyond 4 GiB using
+a sparse file, exclusive creation, close-on-exec and append-mode fallback.
+It asserts that the initial stream is actually tuned when the flag is enabled.
+Files live only in a unique temporary directory and are removed on success.
+
+Host build and all existing stdio correctness/pool/lifetime tests passed:
+
+```sh
+bash tools/rootless/io/build-stdio.sh /tmp/terminal-stdio-semantics
+```
+
+Android MCP installed a separate test APK and executed this same binary as the
+application UID using the existing Ubuntu and Debian glibc environments. Both
+buffer=0 and buffer=1 passed in each environment (four device executions).
+The distributions and main application were not replaced or modified. Reproduce
+with the test APK library directory and runner supplied through `sh -c`:
+
+```sh
+sh stdio-composition.sh NATIVE_LIBRARY_DIRECTORY combined-semantics ubuntu
+sh stdio-composition.sh NATIVE_LIBRARY_DIRECTORY combined-semantics debian
+```
+
+The test APK was built from phase-one engine SHA-256
+`975d535771988c04b1fff1e870543103c9958a258a16e0087ab71c0021f5628e`
+and combined faststat/stdio DSO
+`7641d9415322beb07154443c1b90e801cdbb2b845691c20655a08c17dba75674`.
+Android installation fell back from unsupported incremental installation to
+successful streamed installation. Shell syntax and diff checks passed. No
+Android application/runtime implementation changed, so Gradle was not rerun.
+Other MCP servers were unnecessary for these C behavior tests (no UI, external
+service, or new version-sensitive API). No performance benchmark was repeated.
+
+This covers specific guest/libc/kernel interactions, not universal package
+compatibility, crash durability, all host integrations or physical handsets.
+Changed implicit flush timing remains a documented limitation; explicit
+fflush/fsync behavior is tested. The option remains disabled by default, and
+the overall sequential/file-I/O 2x objective is still unmet.
