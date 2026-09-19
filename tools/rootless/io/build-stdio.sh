@@ -9,6 +9,8 @@ cc -O2 -Wall -Wextra -Werror -pthread \
     "$source_directory/stdio-test.c" -o "$output_directory/stdio-test"
 cc -O2 -Wall -Wextra -Werror \
     "$source_directory/stdio-probe.c" -o "$output_directory/stdio-probe"
+cc -O2 -Wall -Wextra -Werror \
+    "$source_directory/stdio-small-probe.c" -o "$output_directory/stdio-small-probe"
 PROOT_STDIO_BUFFER=1 LD_PRELOAD="$output_directory/stdio-buffer.so" "$output_directory/stdio-test"
 cc -O2 -Wall -Wextra -Werror -shared -fPIC -pthread \
     "$source_directory/stdio-buffer.c" "$source_directory/stdio-check-counter.c" \

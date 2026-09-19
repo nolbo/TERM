@@ -1,0 +1,53 @@
+{
+  "description": "Warm small-file whole-operation regression screen; not a general speedup claim",
+  "environment": "API35 ARM64 redroid, Ubuntu guest, original PRoot --link2symlink, shared host ext4",
+  "files": 128,
+  "passes": 8,
+  "bytes_per_file": 448,
+  "timing": "fopen/fread through EOF/content comparison/fclose; fixture creation, one warmup pass, cleanup and process startup excluded",
+  "comparison": "Same executable and preload DSO; PROOT_STDIO_BUFFER=0 vs 1",
+  "rows": [
+    {
+      "enabled": 0,
+      "operations": 1024,
+      "bytes_per_file": 448,
+      "elapsed_ms": 96.952037,
+      "verified": true
+    },
+    {
+      "enabled": 1,
+      "operations": 1024,
+      "bytes_per_file": 448,
+      "elapsed_ms": 95.033113,
+      "verified": true
+    },
+    {
+      "enabled": 1,
+      "operations": 1024,
+      "bytes_per_file": 448,
+      "elapsed_ms": 98.635881,
+      "verified": true
+    },
+    {
+      "enabled": 0,
+      "operations": 1024,
+      "bytes_per_file": 448,
+      "elapsed_ms": 95.373314,
+      "verified": true
+    },
+    {
+      "enabled": 0,
+      "operations": 1024,
+      "bytes_per_file": 448,
+      "elapsed_ms": 96.527397,
+      "verified": true
+    },
+    {
+      "enabled": 1,
+      "operations": 1024,
+      "bytes_per_file": 448,
+      "elapsed_ms": 95.244833,
+      "verified": true
+    }
+  ]
+}

@@ -157,3 +157,27 @@ pool optimization only. Short-lived small-file streams may pay fcntl/fstat and
 close bookkeeping costs repeatedly. Measure this regression risk against the
 disabled baseline before default integration. Raw sequential I/O and fsync still
 have no demonstrated 2x improvement, and the whole goal remains unmet.
+
+## Small-file regression screen (2026-09-19)
+
+`stdio-small-probe.c` creates 128 disposable 448-byte files using raw I/O, warms
+them once, then times eight passes of fopen, fread through EOF, byte comparison
+and fclose (1,024 complete operations). Setup, warmup, cleanup and process startup
+are excluded. It checks EOF, errors, exact bytes and successful closes. The build
+script compiles it; the standalone test APK optionally includes it.
+
+On API35 ARM64 redroid in the same Ubuntu/original-PRoot/link2symlink environment,
+three pairs in order disabled/enabled, enabled/disabled, disabled/enabled passed
+all content checks. Disabled median was 96.527397 ms; enabled median was
+95.244833 ms (1.0135x). This small difference does not establish a speedup. No
+material regression appeared in this bounded warm-read case, despite repeated
+eligibility calls. Raw observations are in `stdio-small-android-2026-09-19.json`.
+The DSO is the reusable-pool revision identified above.
+
+This does not cover small writes, cold reads, many concurrent streams, application
+startup, physical phones, or composition with faststat. The experiment remains
+opt-in and outside the production APK. All host lifecycle/pool/cancellation tests
+also passed with this build. Android MCP installed and ran the test APK; streamed
+installation succeeded after the device rejected incremental installation.
+No Android module changed, so the Gradle suite was not rerun. No UI or external
+API changed, so replicant, context7 and connected-app tools were unnecessary.
