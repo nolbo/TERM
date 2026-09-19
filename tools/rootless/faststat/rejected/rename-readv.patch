@@ -1,0 +1,65 @@
+--- a/src/syscall/enter.c
++++ b/src/syscall/enter.c
+@@ -2078,6 +2078,36 @@
+ #endif
+ }
+ 
++/* Read two short paths with one remote-memory syscall. Each vector stays
++ * inside the same bounded chunk used by read_string. Anything incomplete uses
++ * the original readers, preserving pointer faults and long-path handling. */
++static bool read_rename_pair(Tracee *tracee, char oldpath[PATH_MAX], char newpath[PATH_MAX])
++{
++	const char *setting = getenv("PROOT_RENAME_READV");
++	if (!setting || strcmp(setting, "1") != 0) return false;
++	long page_size = sysconf(_SC_PAGESIZE);
++	if (page_size <= 0 || (page_size & (page_size - 1))) return false;
++	size_t chunk = page_size < 1024 ? (size_t)page_size : 1024;
++	uintptr_t old_address = peek_reg(tracee, CURRENT, SYSARG_2);
++	uintptr_t new_address = peek_reg(tracee, CURRENT, SYSARG_4);
++	if (!old_address || !new_address) return false;
++	size_t old_size = chunk - old_address % chunk, new_size = chunk - new_address % chunk;
++	struct iovec local[2] = { { oldpath, old_size }, { newpath, new_size } };
++	struct iovec remote[2] = { { (void *)old_address, old_size }, { (void *)new_address, new_size } };
++	int saved_errno = errno;
++	proot_perf_count(PERF_VM_READ);
++	ssize_t result = process_vm_readv(tracee->pid, local, 2, remote, 2, 0);
++	errno = saved_errno;
++	if (result != (ssize_t)(old_size + new_size)) return false;
++	char *old_end = memchr(oldpath, '\0', old_size), *new_end = memchr(newpath, '\0', new_size);
++	if (!old_end || !new_end) return false;
++	/* Match get_sysarg_path's extra terminator; these chunks are < PATH_MAX. */
++	old_end[1] = new_end[1] = '\0';
++	proot_perf_count(PERF_READ_STRING);
++	proot_perf_count(PERF_READ_STRING);
++	return true;
++}
++
+ static int translate_rename_path(Tracee *tracee, int dirfd, char path[PATH_MAX], Reg reg, bool local)
+ {
+ 	if (!path[0]) return 0;
+@@ -3182,13 +3212,18 @@
+ 		olddirfd = peek_reg(tracee, CURRENT, SYSARG_1);
+ 		newdirfd = peek_reg(tracee, CURRENT, SYSARG_3);
+ 
+-		status = get_sysarg_path(tracee, oldpath, SYSARG_2);
+-		if (status < 0)
+-			break;
+-
+-		status = get_sysarg_path(tracee, newpath, SYSARG_4);
+-		if (status < 0)
+-			break;
++#if defined(__aarch64__)
++		if (mutation_entry_enabled(tracee) && rename_local_enabled(tracee) &&
++		    read_rename_pair(tracee, oldpath, newpath)) {
++			status = 0;
++		} else
++#endif
++		{
++			status = get_sysarg_path(tracee, oldpath, SYSARG_2);
++			if (status < 0) break;
++			status = get_sysarg_path(tracee, newpath, SYSARG_4);
++			if (status < 0) break;
++		}
+ 
+ #if defined(__aarch64__)
+ 		if (mutation_entry_enabled(tracee) && oldpath[0] && newpath[0]) {

@@ -72,3 +72,49 @@ this native syscall change. No default APK or release payload was replaced.
 This removes measured overhead but is not a 2x file-I/O improvement. The original
 sequential and synced-write criteria remain unachieved. Full workload comparison
 and installation validation are required before replacing the pinned engine.
+
+## Original workload and rejected read batching (2026-09-19)
+
+The runner now forwards arguments after its first three parameters to the Python
+program on stdin, allowing the unchanged `tools/rootless/workloads.py` to run.
+Three alternating pairs used count=1000 and io-mib=64, with the same local-path
+engine and profile and only PROOT_RENAME_LOCAL toggled:
+
+| Original case | Off median ms | On median ms | Ratio |
+| --- | ---: | ---: | ---: |
+| mutations | 213.621 | 210.341 | 1.016x |
+| sequential-read | 13.151 | 13.109 | 1.003x |
+| sequential-write | 14.094 | 13.982 | 1.008x |
+| synced-write | 754.375 | 762.357 | 0.990x |
+
+All driver checks passed. The mutation ranges overlap; the earlier 6–7% limited
+probe result must not be presented as the improvement to this original workload.
+Sequential/synced results show no demonstrated improvement. These comparisons
+are incremental to the existing accelerated profile, not original PRoot speedups.
+
+An additional candidate read both short rename strings with one process_vm_readv
+call, retaining the original readers on incomplete transfers, missing terminators
+or long paths. It reduced diagnostic vm_read from 4,499 to 3,507, with unchanged
+enter_stop=3,465, exit_stop=162 and vm_write=2,427. But original mutations had
+median 208.267 ms disabled versus 210.689 ms enabled (three alternating pairs).
+This provides no demonstrated speedup, so the candidate was removed from the
+build path. Its patch is archived in `rejected/rename-readv.patch` for audit, not
+selected by a build option. Its tested engine hash was
+`5e2782532138bb0afff9336f5457b26d7d7df88b3a3520e35901579aa71b8bf0`.
+For reproduction, that patch applies after proot-rename-local.patch in the
+temporary PRoot source; the tracer-side switch was PROOT_RENAME_READV=1.
+
+`rename-memory-test.py` passed with the archived candidate off/on and with the
+retained 603ac7d6... engine. It checks source and destination NULs at the last byte
+of a read-only mapped page, an unmapped second vector, an unterminated string
+before an unmapped page, a valid path longer than 1,024 bytes and ENAMETOOLONG.
+The existing contents/dirfd/symlink/flags/cwd/seccomp suite also passed with the
+read-batching candidate off/on. Python compilation, shell syntax and diff checks
+passed. Android MCP supplied live runtime evidence; streamed APK installation
+followed the device's incremental-install rejection. No Android app code or
+default payload changed, so Gradle was not repeated.
+
+Raw timings and diagnostic reports are in
+`results/rename-whole-workload-2026-09-19.json`. The overall 2x objective is still
+unmet; neither reduced syscall counts nor a successful compatibility check is
+substituted for that requirement.

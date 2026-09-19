@@ -5,6 +5,7 @@ set -eu
 library_directory=${1:?test APK nativeLibraryDir required}
 local_paths=${2:-1}
 diagnostics=${3:-0}
+if [ "$#" -ge 3 ]; then shift 3; else set --; fi
 ubuntu=/data/user/0/dev.terminal.app/files/rootless/ubuntu/rootfs
 scratch=$(mktemp -d /data/user/0/dev.terminal.app/cache/rename-local.XXXXXX)
 trap 'rm -rf -- "$scratch"' EXIT
@@ -23,4 +24,4 @@ env PROOT_TMP_DIR=/data/user/0/dev.terminal.app/cache \
     -w /tmp /usr/bin/env -i PATH=/usr/bin:/bin \
     LD_PRELOAD=/usr/local/lib/terminal-faststat.so PROOT_FASTFD=1 \
     PROOT_FASTCLOSE=1 PROOT_FASTOPEN=1 PROOT_FASTCREATE=1 PROOT_FASTUNLINK=1 \
-    PROOT_FASTSTAT_PATH=0 PROOT_FASTSTAT_SHARED=1 /usr/bin/python3 - 2>&1
+    PROOT_FASTSTAT_PATH=0 PROOT_FASTSTAT_SHARED=1 /usr/bin/python3 - "$@" 2>&1
