@@ -1,0 +1,84 @@
+{
+  "date": "2026-09-19",
+  "scope": "API35 ARM64 redroid/ext4, scratch native root with Ubuntu usr/lib bindings, full phase1 acceleration profile, same experimental engine with PROOT_RENAME_LOCAL=0 vs 1. No stdio tuning. Three alternating pairs, counters off for timing. Not the original full workload suite; not durable-write or sequential I/O improvement.",
+  "engine_sha256": "603ac7d6c40af0b76b9691641738e3955040920c75ea13a812bd1144427b61a2",
+  "dso_sha256": "32440930dc740987aec8288b0d84c569980703a20479a10c2f58218bc22a745d",
+  "rows": [
+    {
+      "flag": 0,
+      "rename_calls": 2000,
+      "rename_ms": 94.788224,
+      "mutation_files": 1000,
+      "mutation_ms": 149.85344,
+      "bytes_per_file": 4096,
+      "verified": true
+    },
+    {
+      "flag": 1,
+      "rename_calls": 2000,
+      "rename_ms": 87.747281,
+      "mutation_files": 1000,
+      "mutation_ms": 148.789557,
+      "bytes_per_file": 4096,
+      "verified": true
+    },
+    {
+      "flag": 1,
+      "rename_calls": 2000,
+      "rename_ms": 88.590723,
+      "mutation_files": 1000,
+      "mutation_ms": 139.814247,
+      "bytes_per_file": 4096,
+      "verified": true
+    },
+    {
+      "flag": 0,
+      "rename_calls": 2000,
+      "rename_ms": 95.822546,
+      "mutation_files": 1000,
+      "mutation_ms": 143.260297,
+      "bytes_per_file": 4096,
+      "verified": true
+    },
+    {
+      "flag": 0,
+      "rename_calls": 2000,
+      "rename_ms": 94.01574,
+      "mutation_files": 1000,
+      "mutation_ms": 154.056492,
+      "bytes_per_file": 4096,
+      "verified": true
+    },
+    {
+      "flag": 1,
+      "rename_calls": 2000,
+      "rename_ms": 88.313402,
+      "mutation_files": 1000,
+      "mutation_ms": 140.903529,
+      "bytes_per_file": 4096,
+      "verified": true
+    }
+  ],
+  "summary": {
+    "rename_ms": {
+      "disabled": 94.788224,
+      "enabled": 88.313402,
+      "speedup": 1.073316414647915
+    },
+    "mutation_ms": {
+      "disabled": 149.85344,
+      "enabled": 140.903529,
+      "speedup": 1.063518004577444
+    }
+  },
+  "diagnostics": [
+    {
+      "flag": 0,
+      "output": "{\"rename_calls\": 2000, \"rename_ms\": 92.304851, \"mutation_files\": 1000, \"mutation_ms\": 145.102816, \"bytes_per_file\": 4096, \"verified\": true}\nproot-perf: enter_stop=3220 exit_stop=107 path_translation=79 canon_lstat=214 l2s_exit_lstat=0 l2s_readlink=0 read_string=6134 vm_read=6296 vm_write=6210 vm_fallback=0 path_fast_hit=6028 path_fast_miss=0"
+    },
+    {
+      "flag": 1,
+      "output": "{\"rename_calls\": 2000, \"rename_ms\": 90.575045, \"mutation_files\": 1000, \"mutation_ms\": 144.439814, \"bytes_per_file\": 4096, \"verified\": true}\nproot-perf: enter_stop=3220 exit_stop=107 path_translation=79 canon_lstat=214 l2s_exit_lstat=0 l2s_readlink=0 read_string=6134 vm_read=6298 vm_write=210 vm_fallback=0 path_fast_hit=6028 path_fast_miss=0"
+    }
+  ]
+}

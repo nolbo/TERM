@@ -1,0 +1,80 @@
+--- a/src/syscall/enter.c
++++ b/src/syscall/enter.c
+@@ -2060,13 +2060,31 @@
+ 
+ /* Only calls without returned FDs or user-memory writes are completed here.
+  * Directory renames retain the existing syscall exit processing. */
+-static int translate_rename_path(Tracee *tracee, int dirfd, char path[PATH_MAX], Reg reg)
++/* Only these non-USERLAND callbacks leave rename arguments untouched at
++ * SYSCALL_ENTER_END. Other extensions need translated strings in guest memory. */
++static bool rename_local_enabled(Tracee *tracee)
++{
++#ifdef USERLAND
++	return false;
++#else
++	const char *setting = getenv("PROOT_RENAME_LOCAL");
++	if (!setting || strcmp(setting, "1") != 0) return false;
++	Extension *extension;
++	if (tracee->extensions)
++		LIST_FOREACH(extension, tracee->extensions, link)
++			if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback)
++				return false;
++	return true;
++#endif
++}
++
++static int translate_rename_path(Tracee *tracee, int dirfd, char path[PATH_MAX], Reg reg, bool local)
+ {
+ 	if (!path[0]) return 0;
+ 	char translated[PATH_MAX];
+ 	int status = translate_path(tracee, translated, dirfd, path, false);
+ 	if (status < 0) return status;
+-	status = set_sysarg_path(tracee, translated, reg);
++	if (!local) status = set_sysarg_path(tracee, translated, reg);
+ 	if (status >= 0) strcpy(path, translated);
+ 	return status;
+ }
+@@ -2215,6 +2233,7 @@
+ #if defined(__aarch64__)
+ 	word_t permission_path_address = 0;
+ 	word_t rename_old_address = 0, rename_new_address = 0;
++	bool rename_local = false;
+ #endif
+ 
+ 	fastclose_observe_enter(tracee);
+@@ -3173,9 +3192,10 @@
+ 
+ #if defined(__aarch64__)
+ 		if (mutation_entry_enabled(tracee) && oldpath[0] && newpath[0]) {
+-			status = translate_rename_path(tracee, olddirfd, oldpath, SYSARG_2);
++			rename_local = rename_local_enabled(tracee);
++			status = translate_rename_path(tracee, olddirfd, oldpath, SYSARG_2, rename_local);
+ 			if (status < 0) break;
+-			status = translate_rename_path(tracee, newdirfd, newpath, SYSARG_4);
++			status = translate_rename_path(tracee, newdirfd, newpath, SYSARG_4, rename_local);
+ 			if (status < 0) break;
+ 			rename_old_address = peek_reg(tracee, CURRENT, SYSARG_2);
+ 			rename_new_address = peek_reg(tracee, CURRENT, SYSARG_4);
+@@ -3380,10 +3400,18 @@
+ 	if (status >= 0) {
+ 		(void) complete_stat_entry(tracee);
+ 		(void) complete_fstat_entry(tracee);
+-		if (rename_old_address && rename_new_address &&
+-		    rename_old_address == peek_reg(tracee, CURRENT, SYSARG_2) &&
+-		    rename_new_address == peek_reg(tracee, CURRENT, SYSARG_4))
+-			(void) complete_mutation_entry(tracee, oldpath, newpath);
++		if (rename_old_address && rename_new_address) {
++			bool unchanged = rename_old_address == peek_reg(tracee, CURRENT, SYSARG_2) &&
++				rename_new_address == peek_reg(tracee, CURRENT, SYSARG_4) &&
++				get_sysnum(tracee, CURRENT) == get_sysnum(tracee, ORIGINAL);
++			bool completed = unchanged && complete_mutation_entry(tracee, oldpath, newpath);
++			if (rename_local && !completed) {
++				/* Unsupported objects/flags retain the original kernel/exit path.
++				 * Never dispatch untranslated paths after an unexpected callback. */
++				status = unchanged ? set_sysarg_path(tracee, oldpath, SYSARG_2) : -ENOSYS;
++				if (status >= 0) status = set_sysarg_path(tracee, newpath, SYSARG_4);
++			}
++		}
+ 		(void) complete_id_entry(tracee);
+ 		if (permission_path_address && permission_path_address == peek_reg(tracee, CURRENT, SYSARG_2))
+ 			(void) complete_permission_entry(tracee, newpath);

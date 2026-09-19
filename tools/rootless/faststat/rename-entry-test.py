@@ -25,11 +25,34 @@ with tempfile.TemporaryDirectory() as directory:
             assert ctypes.get_errno() == errno.EFAULT
             assert libc.syscall(number, fd, b'', fd, b'target', 0) == -1
             assert ctypes.get_errno() == errno.ENOENT
+            os.symlink('target', directory + '/link')
+            assert libc.syscall(number, fd, b'link', fd, b'moved-link', 0) == 0
+            assert os.readlink(directory + '/moved-link') == 'target'
+            os.unlink(directory + '/moved-link')
+            assert libc.syscall(number, fd, b'target', fd, ctypes.c_void_p(1), 0) == -1
+            assert ctypes.get_errno() == errno.EFAULT
+            assert open(directory + '/target', 'rb').read() == b'rename source'
         with open(directory + '/source', 'wb') as output:
             output.write(b'kept')
         assert libc.syscall(276, fd, b'source', fd, b'target', 1) == -1
         assert ctypes.get_errno() == errno.EEXIST
         assert open(directory + '/source', 'rb').read() == b'kept'
+        # Nonzero flags must use the kernel fallback, including successful exchange.
+        assert libc.syscall(276, fd, b'source', fd, b'target', 2) == 0
+        assert open(directory + '/target', 'rb').read() == b'kept'
+        assert libc.syscall(276, fd, b'source', fd, b'target', 2) == 0
+        # Directory moves retain PRoot's ordinary renameat exit/cwd handling.
+        previous = os.getcwd()
+        os.makedirs(directory + '/old/child')
+        try:
+            os.chdir(directory + '/old/child')
+            assert libc.syscall(38, fd, b'old', fd, b'new') == 0
+            assert os.getcwd() == directory + '/new/child'
+            with open('relative', 'wb') as output:
+                output.write(b'cwd')
+            assert open(directory + '/new/child/relative', 'rb').read() == b'cwd'
+        finally:
+            os.chdir(previous)
         class Filter(ctypes.Structure):
             _fields_ = [('code', ctypes.c_ushort), ('jt', ctypes.c_ubyte),
                         ('jf', ctypes.c_ubyte), ('k', ctypes.c_uint)]
@@ -53,4 +76,4 @@ with tempfile.TemporaryDirectory() as directory:
             assert open(directory + '/source', 'rb').read() == b'kept'
     finally:
         os.close(fd)
-print('PASS rename: replacement contents, dirfd, ENOENT/EFAULT, noreplace, seccomp')
+print('PASS rename: contents, dirfd, ENOENT/EFAULT, symlink, exchange, directory cwd, seccomp')
