@@ -271,4 +271,58 @@ supplied with buffering enabled. Host C lifecycle tests and the small-write
 content check passed. Android MCP ran the six combined-library write checks;
 incremental APK installation fell back to streamed installation successfully.
 The full application APK was built and inspected, but not installed over the
-user's running app; live end-to-end setup/session validation remains pending.
+user's running app; the subsequent standalone integration checks are below.
+
+## Fresh installation and PTY integration (2026-09-19)
+
+The standalone `dev.terminal.runtime.test` instrumentation APK was built with
+the combined payload and buffering option, then installed with Android MCP.
+The user's application package and its sessions were not replaced. Build:
+
+```sh
+./gradlew :android-runtime:assembleDebugAndroidTest \
+  -ProotlessAcceleratedPayload=/tmp/terminal-stdio-app-payload \
+  -ProotlessStdioBuffer=true --console=plain
+```
+
+Run on Android with the distribution set to UBUNTU or DEBIAN:
+
+```sh
+am instrument -w \
+  -e class dev.terminal.runtime.rootless.RootlessFreshInstallTest \
+  -e rootlessFreshInstall true -e rootlessDistribution UBUNTU \
+  dev.terminal.runtime.test/androidx.test.runner.AndroidJUnitRunner
+```
+
+Both native-link fresh installations passed on API35 ARM64 redroid:
+
+| Distribution | Instrumentation outcome | Elapsed seconds |
+| --- | --- | ---: |
+| Ubuntu | OK (1 test) | 280.634 |
+| Debian | OK (1 test) | 88.626 |
+
+These are test durations including network/package work, **not speedup
+measurements**. Each test verified extraction, package setup/upgrade, environment
+checks, hardlinks, and the actual RootlessSessionController PTY path. The extended
+test uses ctypes to invoke the guest's real fopen/fwrite/fread functions, asserts
+64 KiB buffers, writes 2 MiB in 4 KiB calls, flushes and fsyncs, reopens and checks
+every byte. It runs in both a packaged-profile maintenance command and a PTY.
+Debian additionally passed the existing NSS cache start/restart/cleanup checks.
+Temporary roots and test processes were gone after completion.
+
+The former post-install hardlink check now receives the packaged acceleration
+library when selected, matching maintenance setup instead of silently checking
+an unaccelerated command. The APK SHA-256 was
+`fcfbed2ff3e0cd84d5a37d72da2042be03a9677a78417d35ddff83dc7f46be78`;
+engine and combined DSO hashes remain those recorded above.
+
+The Ubuntu launch tool timed out while instrumentation continued on the device;
+the same live run was observed through process state, logcat and its final
+instrumentation result, without restarting it. Debian used a detached nohup
+launch and completed normally. Other MCP tools were unnecessary: no UI or external
+API changed. Only instrumentation code changed, so the standalone Android test
+build and live runs were used rather than repeating the prior full unit suite.
+
+Still unproven: whole-program speedups for this combined build, physical handsets,
+cold I/O, a new forced-hardlink-failure installation with this build, and the
+overall 2x sequential/file-I/O target. Buffering remains opt-in.

@@ -113,8 +113,9 @@ An additional experimental build option, `-ProotlessStdioBuffer=true`, requires
 that accelerated payload directory to contain the separately pinned combined
 faststat/stdio DSO. It enables bounded 64 KiB buffering for eligible glibc file
 streams in native-link sessions and maintenance commands. It is off by default;
-raw read/write and fsync are unchanged. This option has not established overall
-2x I/O performance or completed fresh-install validation. Build instructions,
+raw read/write and fsync are unchanged. Fresh Ubuntu and Debian installation,
+maintenance and PTY buffering checks passed on API35 ARM64 redroid. This option
+has not established overall 2x I/O performance or physical-device compatibility. Build instructions,
 tests and visibility/memory limitations are in
 [the stdio experiment](../tools/rootless/io/STDIO.md).
 

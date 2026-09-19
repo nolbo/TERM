@@ -85,6 +85,52 @@ class RootlessFreshInstallTest {
                 Log.i("RootlessFreshInstall", "STAT_KERNEL=1 proot=$actual")
             }
             val denyNativeLinks = arguments.getString("rootlessDenyNativeLinks") == "true"
+            val packagedLibrary = if (dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION &&
+                !fastfd && !openNotifyThread) File(context.applicationInfo.nativeLibraryDir, "libproot-faststat.so") else null
+            val expectStdio = dev.terminal.runtime.BuildConfig.ROOTLESS_STDIO_BUFFER && !denyNativeLinks
+            val stdioCheck = if (expectStdio) """
+                import ctypes,os,tempfile
+                assert os.environ.get('PROOT_STDIO_BUFFER')=='1'
+                libc=ctypes.CDLL(None,use_errno=True)
+                libc.fopen.argtypes=[ctypes.c_char_p,ctypes.c_char_p]
+                libc.fopen.restype=ctypes.c_void_p
+                libc.fclose.argtypes=[ctypes.c_void_p]
+                libc.fflush.argtypes=[ctypes.c_void_p]
+                libc.fileno.argtypes=[ctypes.c_void_p]
+                libc.__fbufsize.argtypes=[ctypes.c_void_p]
+                libc.__fbufsize.restype=ctypes.c_size_t
+                for name in ('fread','fwrite'):
+                    operation=getattr(libc,name)
+                    operation.argtypes=[ctypes.c_void_p,ctypes.c_size_t,ctypes.c_size_t,ctypes.c_void_p]
+                    operation.restype=ctypes.c_size_t
+                block=bytes(range(256))*16
+                source=ctypes.create_string_buffer(block)
+                target=ctypes.create_string_buffer(len(block))
+                with tempfile.TemporaryDirectory() as directory:
+                    path=os.fsencode(directory+'/stdio')
+                    stream=libc.fopen(path,b'wb')
+                    assert stream,ctypes.get_errno()
+                    try:
+                        assert libc.__fbufsize(stream)==65536
+                        for _ in range(512):
+                            assert libc.fwrite(source,1,len(block),stream)==len(block)
+                        assert libc.fflush(stream)==0
+                        os.fsync(libc.fileno(stream))
+                    finally:
+                        assert libc.fclose(stream)==0
+                    assert os.stat(path).st_size==512*len(block)
+                    stream=libc.fopen(path,b'rb')
+                    assert stream,ctypes.get_errno()
+                    try:
+                        assert libc.__fbufsize(stream)==65536
+                        for _ in range(512):
+                            assert libc.fread(target,1,len(block),stream)==len(block)
+                            assert target.raw==block
+                        assert libc.fread(target,1,1,stream)==0
+                    finally:
+                        assert libc.fclose(stream)==0
+                print('PASS packaged stdio buffer and content')
+            """.trimIndent() else ""
             RootlessBootstrapper(context, layout, reporter, createHardLink = { link, original ->
                 if (denyNativeLinks) throw java.nio.file.FileSystemException(
                     link.toString(), original.toString(), "Operation not permitted")
@@ -115,9 +161,17 @@ class RootlessFreshInstallTest {
             """.trimIndent()), statKernelAcceleration = statKernel, pathKernelAcceleration = pathKernel,
                 mutationEntryAcceleration = mutationEntry, fstatEntryAcceleration = fstatEntry,
                 openNotifyThread = openNotifyThread, fastfdLibrary = fastfdLibrary, fastOpen = fastOpen, fastCreate = fastCreate, fastUnlink = fastUnlink,
-                tcgetsDirect = tcgetsDirect, idEntry = idEntry, sharedStat = sharedStat)
+                tcgetsDirect = tcgetsDirect, idEntry = idEntry, sharedStat = sharedStat,
+                accelerationLibrary = packagedLibrary)
             assertEquals(check.output, 0, check.exitCode)
             assertTrue(check.output.contains("PASS fresh distribution native links"))
+            if (expectStdio) {
+                val stdio = runRootlessSetupCommand(layout, proot, guestLoader,
+                    listOf("/usr/bin/python3", "-c", stdioCheck), accelerationLibrary = packagedLibrary)
+                assertEquals(stdio.output, 0, stdio.exitCode)
+                assertTrue(stdio.output.contains("PASS packaged stdio buffer and content"))
+                Log.i("RootlessFreshInstall", "${distribution.name}: STDIO_MAINTENANCE_VERIFIED")
+            }
             if (sharedStat) assertTrue("No accelerated path stat observed: ${check.output}",
                 Regex("\"hits\":([1-9][0-9]*)").containsMatchIn(check.output))
             if (fastfd) assertTrue("No accelerated fstat observed: ${check.output}",
@@ -200,11 +254,13 @@ class RootlessFreshInstallTest {
                             subprocess.run(['tar','-xf',archive,'-C',target],check=True)
                             assert stat.S_IMODE(os.stat(target+'/directory').st_mode)==0o705
                         print('PASS accelerated PTY')
-                        """.trimIndent())
+                        """.trimIndent().replace("print('PASS accelerated PTY')",
+                            stdioCheck + "\nprint('PASS accelerated PTY')"))
                     controller.create("/bin/sh", "/root", mapOf(
                         dev.terminal.runtime.session.SessionCommand.KEY to dev.terminal.runtime.session.SessionCommand.encode(command)),
                         24u, 80u).getOrThrow()
                     observed.await()
+                    if (expectStdio) assertTrue(output.toString().contains("PASS packaged stdio buffer and content"))
                 } finally {
                     controller.close()
                 }
