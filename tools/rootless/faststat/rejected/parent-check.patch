@@ -1,0 +1,32 @@
+--- a/tools/rootless/faststat/faststat.c
++++ b/tools/rootless/faststat/faststat.c
+@@ -47,6 +47,9 @@
+ static int fd_requested;
+ static int open_requested;
+ static int create_requested;
++static int parent_check_requested;
++static _Atomic unsigned long parent_check_skips;
++unsigned long proot_parent_check_skips(void) { return atomic_load(&parent_check_skips); }
+ static int unlink_requested;
+ static int shared_stat_requested;
+ static int close_requested;
+@@ -164,6 +167,8 @@
+     open_requested = fd_requested && open_setting && !strcmp(open_setting, "1");
+     const char *create_setting = getenv("PROOT_FASTCREATE");
+     create_requested = open_requested && create_setting && !strcmp(create_setting, "1");
++    const char *parent_setting = getenv("PROOT_SKIP_PARENT_CHECK");
++    parent_check_requested = parent_setting && !strcmp(parent_setting, "1");
+     const char *unlink_setting = getenv("PROOT_FASTUNLINK");
+     unlink_requested = open_requested && unlink_setting && !strcmp(unlink_setting, "1");
+     const char *shared_stat = getenv("PROOT_FASTSTAT_SHARED");
+@@ -417,7 +422,9 @@
+     pin = fast_syscall(SYS_openat2, AT_FDCWD, (long)translated, (long)&how, sizeof(how));
+     if (pin < 0) goto slow_open;
+     struct stat info;
+-    if (fast_syscall(SYS_fstat, pin, (long)&info, 0, 0) < 0 ||
++    if (creating && parent_check_requested) {
++        atomic_fetch_add_explicit(&parent_check_skips, 1, memory_order_relaxed);
++    } else if (fast_syscall(SYS_fstat, pin, (long)&info, 0, 0) < 0 ||
+         (!S_ISREG(info.st_mode) && !S_ISDIR(info.st_mode))) goto slow_open;
+     /* procfs regular files (notably auxv) still need tracer emulation. Check
+      * the pinned object, not a cached pathname or binding classification. */
