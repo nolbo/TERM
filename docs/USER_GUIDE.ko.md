@@ -413,6 +413,10 @@ Ubuntu 4 GiB 이상의 여유 공간이 필요합니다.
 준비가 끝난 뒤 새 셸을 열 때마다 패키지를 업데이트하지는 않습니다.
 PRoot에서는 서버 패키지가 설치되어도 systemd 부팅이나 커널 권한을 얻지는 않습니다.
 
+개발용 stdio 버퍼링 APK의 지원 조건과 명령별 켜기·끄기는
+[Rootless 파일 I/O 실험 옵션](ROOTLESS_IO_OPTIONS.ko.md)을 참조하세요.
+공개 `v0.1.0-rootless.1`에는 이 옵션이 포함돼 있지 않습니다.
+
 ### Rootless 설치 진행 확인
 
 Debian·Ubuntu·Arch 모두 설정 화면과 설치 창에서 현재 작업을 확인할 수 있습니다.

@@ -249,7 +249,10 @@ library fails the build. Ordinary builds retain their existing payload and omit
 the buffering flag. The build-selected profile adds PROOT_STDIO_BUFFER=1 only
 to the guest environment, for native-link sessions and setup/maintenance alike.
 Verified emulated-link installations continue to use their existing fallback.
-Guest-supplied environment variables cannot override the selected profile.
+Session-request environment variables cannot override the selected launch profile.
+After launch, programs can choose PROOT_STDIO_BUFFER=0 or 1 for newly executed
+children. This does not reconfigure an already initialized process. See the
+[Korean usage guide](../../../docs/ROOTLESS_IO_OPTIONS.ko.md).
 
 This enables APK-level testing; it does not promote buffering to the default
 or complete fresh-install, physical-device or full-application validation.
@@ -411,3 +414,11 @@ compatibility, crash durability, all host integrations or physical handsets.
 Changed implicit flush timing remains a documented limitation; explicit
 fflush/fsync behavior is tested. The option remains disabled by default, and
 the overall sequential/file-I/O 2x objective is still unmet.
+
+Command-option documentation check (2026-09-20): a host process first opened a
+64 KiB buffered stream, changed its environment to PROOT_STDIO_BUFFER=0, and
+still opened a tuned stream, as expected from one-time initialization. New
+child executions of stdio-semantics-test selected 0 and 1 independently and
+both passed. This verifies the documented process boundary; it is not a new
+Android or performance result. Documentation-only changes needed no Gradle or
+MCP run; prior Android per-exec checks remain the device evidence.
