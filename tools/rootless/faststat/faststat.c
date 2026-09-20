@@ -269,6 +269,12 @@ static struct proot_fastfd_identity *current_identity(pid_t pid)
     return local_identity.page;
 }
 
+/* Diagnostic publication generation; does not initialize or alter state. */
+unsigned long proot_fastpath_generation(void)
+{
+    return local_identity.page ? atomic_load(&local_identity.page->paths.sequence) : 0;
+}
+
 /* Snapshot lookup only; the open dispatcher validates the same sequence
  * after its kernel operation. No inode or existence is cached. */
 static int lookup_shared_path(struct proot_fastpath_rules *rules, const char *path,

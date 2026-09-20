@@ -13,6 +13,8 @@ libc = ctypes.CDLL(None, use_errno=True)
 lookup = libc.proot_fastpath_translate
 lookup.argtypes = [ctypes.c_char_p, ctypes.c_void_p, ctypes.c_size_t]
 lookup.restype = ctypes.c_int
+generation = libc.proot_fastpath_generation
+generation.restype = ctypes.c_ulong
 
 
 class Context(ctypes.Structure):
@@ -51,6 +53,12 @@ try:
         with open(directory + '/file', 'wb') as file:
             file.write(data)
     before = check(target + '/file')
+    # Resolver requests are traced but do not alter the namespace. Emulated
+    # mode must not republish unchanged rules on every resume.
+    stable_generation = generation()
+    for _ in range(32):
+        assert authoritative(target + '/file') == before
+        assert generation() == stable_generation, 'unchanged rules republished'
     assert translated('relative') is None
     assert translated('/tmp/../etc') is None
     assert translated('/tmp//file') is None
@@ -73,6 +81,7 @@ try:
     mounted = True
     after = check(target + '/file')
     assert after != before
+    assert generation() != stable_generation, 'mount did not invalidate rules'
     changed.set()
     thread.join(10)
     assert not thread.is_alive() and observations == [before, after]
@@ -96,7 +105,7 @@ try:
     _, status = os.waitpid(child, 0)
     assert os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0
     assert check(target + '/file') == before
-    print('PASS shared rules: bindings, sibling invalidation, unmount, fork/chroot, path and buffer rejection')
+    print('PASS shared rules: stable generation, bindings, sibling invalidation, unmount, fork/chroot, path and buffer rejection')
 finally:
     if mounted:
         assert libc.umount2(target.encode(), 0) == 0

@@ -47,7 +47,9 @@ void fastpath_invalidate_all(void)
     }
 }
 
-static void publish_paths(Tracee *tracee, struct fastfd_state *state, bool active)
+/* Preserve the link mode (1 native, 2 emulated) when comparing publication
+ * state. Converting it to bool republishes every emulated syscall resume. */
+static void publish_paths(Tracee *tracee, struct fastfd_state *state, uint32_t active)
 {
     const Bindings *bindings = tracee->fs->bindings.guest;
     if (!state->path_requested || (state->path_epoch == path_epoch && state->bindings == bindings &&
