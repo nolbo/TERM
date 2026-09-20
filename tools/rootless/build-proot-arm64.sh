@@ -77,6 +77,7 @@ termux_prefix="$prefix/data/data/com.termux/files/usr"
 if [[ ${PROOT_BUILD_RENAME_LOCAL:-0} == 1 ]]; then
     [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]] || { echo 'local rename requires PROOT_BUILD_FASTSTAT=1' >&2; exit 1; }
     patch --fuzz=0 -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-rename-local.patch"
+    patch --fuzz=0 -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-unlink-local.patch"
 fi
 if [[ ${PROOT_BUILD_CLOSE_PROBE:-0} == 1 ]]; then
     [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]] || { echo 'close probe requires PROOT_BUILD_FASTSTAT=1' >&2; exit 1; }

@@ -1,0 +1,90 @@
+--- a/src/syscall/enter.c
++++ b/src/syscall/enter.c
+@@ -2276,6 +2276,7 @@
+ 	word_t permission_path_address = 0;
+ 	word_t rename_old_address = 0, rename_new_address = 0;
+ 	bool rename_local = false;
++	word_t unlink_local_address = 0;
+ #endif
+ 
+ 	fastclose_observe_enter(tracee);
+@@ -3194,6 +3195,18 @@
+ 		if (status < 0)
+ 			break;
+ 
++#if defined(__aarch64__)
++		const char *unlink_local = getenv("PROOT_UNLINK_LOCAL");
++		const char *mutation = getenv("PROOT_MUTATION_ENTRY");
++		if (syscall_number == PR_unlinkat && path[0] &&
++		    !peek_reg(tracee, CURRENT, SYSARG_3) && tracee->seccomp == ENABLED &&
++		    !is_32on64_mode(tracee) && mutation && !strcmp(mutation, "1") &&
++		    !(unlink_local && !strcmp(unlink_local, "0")) && rename_local_enabled(tracee)) {
++			status = translate_rename_path(tracee, dirfd, path, SYSARG_2, true);
++			if (status >= 0) unlink_local_address = peek_reg(tracee, CURRENT, SYSARG_2);
++			break;
++		}
++#endif
+ 		status = translate_path2(tracee, dirfd, path, SYSARG_2, SYMLINK);
+ 		break;
+ 
+@@ -3443,6 +3456,10 @@
+ 
+ end:
+ #if defined(__aarch64__)
++	if (status >= 0 && unlink_local_address) {
++		tracee->local_unlink_path = path;
++		tracee->local_unlink_address = unlink_local_address;
++	}
+ 	/* Only synchronous callbacks may use these stack-backed strings. */
+ 	if (status >= 0 && rename_local && rename_old_address && rename_new_address) {
+ 		tracee->local_rename_old = oldpath;
+@@ -3459,7 +3476,13 @@
+ 
+ #if defined(__aarch64__)
+ 	if (status >= 0) {
+-		(void) complete_unlink_entry(tracee);
++		if (unlink_local_address) {
++			bool unchanged = get_sysnum(tracee, CURRENT) == PR_unlinkat &&
++			    unlink_local_address == peek_reg(tracee, CURRENT, SYSARG_2);
++			if (!unchanged) status = -ENOSYS;
++			else if (!complete_unlink_entry(tracee))
++				status = set_sysarg_path(tracee, path, SYSARG_2);
++		} else (void) complete_unlink_entry(tracee);
+ 		(void) complete_stat_entry(tracee);
+ 		(void) complete_fstat_entry(tracee);
+ 		if (rename_old_address && rename_new_address) {
+@@ -3480,6 +3503,7 @@
+ 	}
+ #endif
+ 
++	tracee->local_unlink_path = NULL;
+ 	tracee->reuse_open_path = false;
+ 	tracee->rewritten_open_path_address = 0;
+ 	return status;
+--- a/src/tracee/tracee.h
++++ b/src/tracee/tracee.h
+@@ -97,6 +97,8 @@
+ 	word_t rewritten_open_path_address;
+ 	char rewritten_open_path[PATH_MAX];
+ 	const char *local_rename_old, *local_rename_new;
++	const char *local_unlink_path;
++	word_t local_unlink_address;
+ 	word_t local_rename_old_address, local_rename_new_address;
+ 
+ 	/* Is it currently running or not?  */
+--- a/src/tracee/mem.c
++++ b/src/tracee/mem.c
+@@ -422,6 +422,13 @@
+ 		size_t length = strlen(tracee->rewritten_open_path) + 1;
+ 		if (length <= max_size) {
+ 			memcpy(dest_tracer, tracee->rewritten_open_path, length);
++			return length;
++		}
++	}
++	if (tracee->local_unlink_path && src_tracee == tracee->local_unlink_address) {
++		size_t length = strlen(tracee->local_unlink_path) + 1;
++		if (length <= max_size) {
++			memcpy(dest_tracer, tracee->local_unlink_path, length);
+ 			return length;
+ 		}
+ 	}

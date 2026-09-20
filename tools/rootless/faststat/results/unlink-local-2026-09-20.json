@@ -1,0 +1,46 @@
+{
+  "date": "2026-09-20",
+  "baseline_commit": "2aca6a8",
+  "environment": "API 35 ARM64 redroid app UID, Ubuntu guest, warm cache, openat2 denied on baseline and candidate",
+  "baseline_engine_sha256": "7a6833821e76a7599824ff2125cbf8dd29a18f7cfa5253e8002ed615d1d24cbd",
+  "candidate_engine_sha256": "bfae28b9702ae825eb51a6c224ccbab98d46c18318512b27975fd8f7069de1e9",
+  "shared_dso_sha256": "ee80d5395091d22a07079e75c9f159f5378a7fb4ebf950804f424a18ea524034",
+  "workload": "tools/rootless/workloads.py --count 1000 --case mutations",
+  "timing_order": [
+    "baseline",
+    "candidate",
+    "candidate",
+    "baseline",
+    "baseline",
+    "candidate"
+  ],
+  "baseline_ms": [
+    251.784,
+    256.512,
+    252.504
+  ],
+  "candidate_ms": [
+    249.285,
+    257.557,
+    247.502
+  ],
+  "baseline_median_ms": 252.504,
+  "candidate_median_ms": 249.285,
+  "interpretation": "Median 1.27% lower, one of three pairs worse; do not generalize as a stable speedup. Deterministic reduction of guest memory reads/writes demonstrated separately. Historical native performance target not achieved.",
+  "diagnostic_separate_run": {
+    "baseline": {
+      "vm_read": 10532,
+      "vm_write": 3429,
+      "enter_stop": 4456,
+      "exit_stop": 272
+    },
+    "candidate": {
+      "vm_read": 6531,
+      "vm_write": 1428,
+      "enter_stop": 4456,
+      "exit_stop": 272
+    }
+  },
+  "validation": "unlink-entry, unlink-memory, rename-entry, rename-memory, path-rules, cwd, isolated dpkg install/upgrade/remove passed in emulated and native modes; unlink-memory also passed with PROOT_UNLINK_LOCAL=0.",
+  "raw_output": "MODE:previous\n{\"case\": \"mutations\", \"round\": 1, \"count\": 1000, \"wall_ms\": 252.879, \"guest_cpu_ms\": 145.887, \"bytes\": 0, \"io_mib\": null, \"mib_per_second\": null, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nproot-perf: enter_stop=4456 exit_stop=272 path_translation=109 canon_lstat=299 l2s_exit_lstat=81 l2s_readlink=1164 read_string=9210 vm_read=10532 vm_write=3429 vm_fallback=0 path_fast_hit=5126 path_fast_miss=99\nMODE:restricted\n{\"case\": \"mutations\", \"round\": 1, \"count\": 1000, \"wall_ms\": 249.734, \"guest_cpu_ms\": 143.966, \"bytes\": 0, \"io_mib\": null, \"mib_per_second\": null, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nproot-perf: enter_stop=4456 exit_stop=272 path_translation=109 canon_lstat=299 l2s_exit_lstat=81 l2s_readlink=1164 read_string=5208 vm_read=6531 vm_write=1428 vm_fallback=0 path_fast_hit=5126 path_fast_miss=99\nTIMED:previous\n{\"case\": \"mutations\", \"round\": 1, \"count\": 1000, \"wall_ms\": 251.784, \"guest_cpu_ms\": 142.367, \"bytes\": 0, \"io_mib\": null, \"mib_per_second\": null, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nTIMED:restricted\n{\"case\": \"mutations\", \"round\": 1, \"count\": 1000, \"wall_ms\": 249.285, \"guest_cpu_ms\": 144.231, \"bytes\": 0, \"io_mib\": null, \"mib_per_second\": null, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nTIMED:restricted\n{\"case\": \"mutations\", \"round\": 1, \"count\": 1000, \"wall_ms\": 257.557, \"guest_cpu_ms\": 150.332, \"bytes\": 0, \"io_mib\": null, \"mib_per_second\": null, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nTIMED:previous\n{\"case\": \"mutations\", \"round\": 1, \"count\": 1000, \"wall_ms\": 256.512, \"guest_cpu_ms\": 145.857, \"bytes\": 0, \"io_mib\": null, \"mib_per_second\": null, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nTIMED:previous\n{\"case\": \"mutations\", \"round\": 1, \"count\": 1000, \"wall_ms\": 252.504, \"guest_cpu_ms\": 141.812, \"bytes\": 0, \"io_mib\": null, \"mib_per_second\": null, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nTIMED:restricted\n{\"case\": \"mutations\", \"round\": 1, \"count\": 1000, \"wall_ms\": 247.502, \"guest_cpu_ms\": 142.39, \"bytes\": 0, \"io_mib\": null, \"mib_per_second\": null, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}"
+}
