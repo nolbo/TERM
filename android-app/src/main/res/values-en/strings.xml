@@ -64,4 +64,7 @@
     <string name="palette_ansi_bright_magenta">Bright magenta</string>
     <string name="palette_ansi_bright_cyan">Bright cyan</string>
     <string name="palette_ansi_bright_white">Bright white</string>
+    <string name="rootless_migrate">Migrate to accelerated format</string>
+    <string name="rootless_migrate_description">Keeps installed packages and files. Close all terminal sessions and finish workspace file operations first. Device hardlink support is required.</string>
+    <string name="rootless_migrate_running">Migrating to accelerated format</string>
 </resources>

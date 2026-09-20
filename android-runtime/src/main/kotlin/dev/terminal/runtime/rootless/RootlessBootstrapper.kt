@@ -35,6 +35,7 @@ enum class RootlessPhase(val displayName: String) {
     CHECKSUM("무결성 검증"),
     EXTRACT("안전한 압축 해제"),
     ACTIVATE("설치 활성화"),
+    MIGRATE("가속 형식 이전"),
     PACKAGES("배포판 기본 구성 설치"),
     PACKAGE_INDEX("패키지 저장소 목록 갱신"),
     PACKAGE_RECOVERY("이전 패키지 작업 확인·복구"),
@@ -73,6 +74,8 @@ class RootlessBootstrapper(
 
     suspend fun installIfNeeded(): Result<Unit> = withContext(Dispatchers.IO) {
         installMutex.withLock {
+            if (RootlessNativeMigration.pending(layout.root.parentFile.toPath())) return@withLock Result.failure(
+                IllegalStateException("중단된 가속 형식 이전을 먼저 복구하세요"))
             layout.validateInstalledRootfs().fold(
                 onSuccess = { Result.success(Unit) },
                 onFailure = { install() },
@@ -83,6 +86,7 @@ class RootlessBootstrapper(
     suspend fun remove(removeHome: Boolean = false): Result<Unit> = withContext(Dispatchers.IO) {
         installMutex.withLock {
             runCatching {
+                check(!RootlessNativeMigration.pending(layout.root.parentFile.toPath())) { "중단된 가속 형식 이전을 먼저 복구하세요" }
                 removeRootlessImage(
                     layout.rootfs.toPath(),
                     context.cacheDir.toPath().resolve("rootless-downloads/${distribution.directory}"),

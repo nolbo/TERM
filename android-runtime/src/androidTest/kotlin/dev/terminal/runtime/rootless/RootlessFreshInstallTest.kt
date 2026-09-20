@@ -89,7 +89,9 @@ class RootlessFreshInstallTest {
                 !fastfd && !openNotifyThread) File(context.applicationInfo.nativeLibraryDir, "libproot-faststat.so") else null
             val legacyMigration = arguments.getString("rootlessLegacyMigration") == "true"
             require(!legacyMigration || (!statKernel && !fastfd && !openNotifyThread))
-            val expectStdio = dev.terminal.runtime.BuildConfig.ROOTLESS_STDIO_BUFFER && !denyNativeLinks && !legacyMigration
+            val nativeMigration = arguments.getString("rootlessNativeMigration") == "true"
+            require(!nativeMigration || (legacyMigration && !denyNativeLinks && packagedLibrary != null))
+            val expectStdio = dev.terminal.runtime.BuildConfig.ROOTLESS_STDIO_BUFFER && !denyNativeLinks && (!legacyMigration || nativeMigration)
             val stdioCheck = if (expectStdio) """
                 import ctypes,os,tempfile
                 assert os.environ.get('PROOT_STDIO_BUFFER')=='1'
@@ -145,7 +147,8 @@ class RootlessFreshInstallTest {
                 val old = runRootlessSetupCommand(layout, proot, guestLoader, listOf("/bin/sh", "-c",
                     "set -eu; mkdir /legacy-fixture; printf preserved > /legacy-fixture/a; " +
                     "ln /legacy-fixture/a /legacy-fixture/b; printf home > /root/legacy-home; " +
-                    "printf workspace > /workspace/legacy-work"))
+                    "printf workspace > /workspace/legacy-work; " +
+                    "ln /legacy-fixture/a /root/legacy-hardlink; ln /legacy-fixture/a /workspace/legacy-hardlink"))
                 assertEquals(old.output, 0, old.exitCode)
                 assertTrue(Files.isSymbolicLink(layout.rootfs.toPath().resolve("legacy-fixture/b")))
                 val migrated = buildRootlessLaunchSpec(layout, proot, guestLoader,
@@ -157,6 +160,19 @@ class RootlessFreshInstallTest {
             assertEquals(denyNativeLinks || legacyMigration, launch.arguments.contains("--link2symlink"))
             RootlessEnvironmentSetup(context, layout, proot, guestLoader, reporter,
                 statKernel, pathKernel, mutationEntry, fstatEntry, openNotifyThread, fastfdLibrary, fastOpen, fastCreate, fastUnlink, tcgetsDirect, idEntry, sharedStat).prepare()
+            if (nativeMigration) {
+                val status = File(layout.rootfs, "var/lib/dpkg/status")
+                val digest = MessageDigest.getInstance("SHA-256").digest(status.readBytes())
+                RootlessNativeMigration(layout).migrate()
+                assertArrayEquals(digest, MessageDigest.getInstance("SHA-256").digest(status.readBytes()))
+                assertTrue(RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath()))
+                assertTrue(Files.isSameFile(File(layout.rootfs, "legacy-fixture/a").toPath(), File(layout.home, "legacy-hardlink").toPath()))
+                assertTrue(Files.isSameFile(File(layout.rootfs, "legacy-fixture/a").toPath(), File(layout.workspace, "legacy-hardlink").toPath()))
+                assertEquals("home", File(layout.home, "legacy-home").readText())
+                assertEquals("workspace", File(layout.workspace, "legacy-work").readText())
+                assertFalse(RootlessNativeMigration.pending(layout.root.parentFile.toPath()))
+                Log.i("RootlessFreshInstall", "${distribution.name}: NATIVE_MIGRATION_VERIFIED")
+            }
             RootlessEnvironmentProfile.validate(layout).getOrThrow()
             val check = runRootlessSetupCommand(layout, proot, guestLoader, listOf("/bin/sh", "-c", """
                 set -eu
@@ -166,7 +182,7 @@ class RootlessFreshInstallTest {
                 trap 'rm -rf "${'$'}work"' EXIT
                 printf 'native link\n' > "${'$'}work/a"
                 ln "${'$'}work/a" "${'$'}work/b"
-                ${if (!denyNativeLinks && !legacyMigration) "test ! -L \"${'$'}work/b\"" else ":"}
+                ${if (!denyNativeLinks && (!legacyMigration || nativeMigration)) "test ! -L \"${'$'}work/b\"" else ":"}
                 test "${'$'}(stat -c %h "${'$'}work/b")" = 2
                 rm "${'$'}work/a"
                 test "${'$'}(cat "${'$'}work/b")" = 'native link'
@@ -252,11 +268,11 @@ class RootlessFreshInstallTest {
                         ${if (distribution == RootlessDistribution.DEBIAN) "assert len([line for line in maps if 'r--s' in line and '/run/db' in line])==2" else "# NSS shared caching is Debian-only"}
                         assert os.stat('/etc/passwd').st_size>0
                         c=ctypes.CDLL(None,use_errno=True)
-                        ${if (!denyNativeLinks && !legacyMigration) "assert c.proot_faststat_hits()>0" else "assert not any('terminal-faststat.so' in line for line in maps)"}
-                        ${if (!denyNativeLinks && !legacyMigration) "n=c.proot_fastclose_hits()" else "n=0"}
+                        ${if (!denyNativeLinks && (!legacyMigration || nativeMigration)) "assert c.proot_faststat_hits()>0" else "assert not any('terminal-faststat.so' in line for line in maps)"}
+                        ${if (!denyNativeLinks && (!legacyMigration || nativeMigration)) "n=c.proot_fastclose_hits()" else "n=0"}
                         f=os.open('/etc/passwd',os.O_RDONLY)
                         os.close(f)
-                        ${if (!denyNativeLinks && !legacyMigration) "assert c.proot_fastclose_hits()>n" else "assert os.stat('/etc/passwd').st_size>0"}
+                        ${if (!denyNativeLinks && (!legacyMigration || nativeMigration)) "assert c.proot_fastclose_hits()>n" else "assert os.stat('/etc/passwd').st_size>0"}
                         with tempfile.TemporaryDirectory() as root:
                             target=root+'/target'
                             os.mkdir(target)
@@ -284,7 +300,7 @@ class RootlessFreshInstallTest {
                 assertEquals(cacheDirectoriesBefore,
                     context.cacheDir.list().orEmpty().filter { it.startsWith("nss-") }.toSet())
             }
-            if (legacyMigration) {
+            if (legacyMigration && !nativeMigration) {
                 repeat(2) {
                     val migrated = runRootlessSetupCommand(layout, proot, guestLoader,
                         listOf("/bin/sh", "-c", "set -eu; " +

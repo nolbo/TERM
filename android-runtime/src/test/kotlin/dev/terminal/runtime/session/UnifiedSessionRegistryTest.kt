@@ -18,6 +18,45 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UnifiedSessionRegistryTest {
+    @Test fun migrationRejectsLiveOrUnverifiableSiblingSessions() = runBlocking {
+        for (failed in listOf(false, true)) {
+            val registry = UnifiedSessionRegistry()
+            val sibling = FakeController("native", failList = failed)
+            registry.register(SessionRuntime.NATIVE, sibling)
+            var ran = false
+            assertTrue(runCatching { registry.migrateIfAllIdle(SessionRuntime.ROOTLESS) { ran = true } }.isFailure)
+            assertFalse(ran)
+            assertFalse(sibling.closed)
+            registry.close()
+        }
+    }
+
+    @Test fun migrationExcludesCreationAcrossAllRuntimesAndReleasesLocks() = runBlocking {
+        val registry = UnifiedSessionRegistry()
+        val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val task = launch { registry.migrateIfAllIdle(SessionRuntime.ROOTLESS) { entered.complete(Unit); release.await() } }
+        entered.await()
+        val creations = SessionRuntime.entries.map { runtime -> async {
+            registry.create(runtime, "/bin/sh", "/", rows = 24u, cols = 80u)
+        } }
+        kotlinx.coroutines.yield()
+        assertTrue(creations.none { it.isCompleted })
+        release.complete(Unit)
+        task.join()
+        creations.forEach { assertTrue(it.await().isFailure) }
+        registry.close()
+    }
+
+    @Test fun pendingMigrationGuardRejectsNewSessionsBeforeControllerCreate() = runBlocking {
+        val registry = UnifiedSessionRegistry(beforeCreate = { error("pending migration") })
+        val controller = FakeController("native")
+        registry.register(SessionRuntime.NATIVE, controller)
+        assertTrue(registry.create(SessionRuntime.NATIVE, "/bin/sh", "/", rows = 24u, cols = 80u).isFailure)
+        assertEquals(0, controller.createCount)
+        registry.close()
+    }
+
     @Test fun maintenanceBlocksSameRuntimeCreationButNotSiblingOperations() = runBlocking {
         val registry = UnifiedSessionRegistry()
         registry.register(SessionRuntime.ROOTLESS_UBUNTU, FakeController("ubuntu-live"))

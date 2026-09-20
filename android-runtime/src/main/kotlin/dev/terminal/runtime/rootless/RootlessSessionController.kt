@@ -228,6 +228,9 @@ internal fun buildRootlessLaunchSpec(
     accelerationLibrary: File? = null,
     nssBindings: List<String> = emptyList(),
 ): RootlessLaunchSpec {
+    check(!RootlessNativeMigration.pending(layout.root.parentFile.toPath())) {
+        "중단된 가속 형식 이전이 있습니다. 설정에서 해당 배포판의 이전을 다시 실행해 복구하세요"
+    }
     val nativeLinks = RootlessStorageFormat.resolveForLaunch(layout.rootfs.toPath()) ==
         RootlessStorageFormat.LaunchFormat.NATIVE
     accelerationLibrary?.let {

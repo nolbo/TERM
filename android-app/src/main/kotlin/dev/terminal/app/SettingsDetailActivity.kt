@@ -95,6 +95,14 @@ class SettingsDetailActivity : TerminalActivity() {
             refreshServiceState(runtimeType)
         }
         override fun onOperationError(operation: String, message: String) = runOnUiThread {
+            if (operation.startsWith("ROOTLESS_MIGRATE:")) {
+                val runtimeType = operation.substringAfter(':')
+                refreshServiceState(runtimeType)
+                rootlessStates[runtimeType]?.let {
+                    rootlessStates[runtimeType] = it.copy(status = RootlessSettingsStatus.ERROR, detail = message)
+                }
+                return@runOnUiThread
+            }
             if (operation.startsWith("ROOTLESS_REMOVE:")) {
                 refreshServiceState(operation.substringAfter(':'))
                 Toast.makeText(this@SettingsDetailActivity, message, Toast.LENGTH_LONG).show()
@@ -213,6 +221,16 @@ class SettingsDetailActivity : TerminalActivity() {
         runCatching { service.removeRootless(runtimeType, removeHome) }.onFailure {
             refreshServiceState(runtimeType)
             Toast.makeText(this, it.message.orEmpty(), Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun migrateRootless(runtimeType: String) {
+        val service = runtime ?: return
+        rootlessStates[runtimeType] = rootlessStates.getValue(runtimeType).copy(
+            status = RootlessSettingsStatus.CHECKING, detail = getString(R.string.rootless_migrate_running))
+        runCatching { service.migrateRootlessToNative(runtimeType) }.onFailure {
+            rootlessStates[runtimeType] = rootlessStates.getValue(runtimeType).copy(
+                status = RootlessSettingsStatus.ERROR, detail = it.message.orEmpty())
         }
     }
 
@@ -1084,6 +1102,7 @@ class SettingsDetailActivity : TerminalActivity() {
                 Column {
                     Text(if (state.status == RootlessSettingsStatus.CHECKING) state.progress?.label ?: stringResource(title) else stringResource(title), color = statusColor)
                     Text(state.detail.ifBlank { stringResource(R.string.rootless_status_connecting) })
+                    if (state.canMigrateToNative) Text(stringResource(R.string.rootless_migrate_description))
                     if (state.status == RootlessSettingsStatus.CHECKING) state.progress?.let {
                         RootlessProgressIndicator(it, running = true, modifier = Modifier.padding(top = 8.dp))
                     }
@@ -1098,6 +1117,11 @@ class SettingsDetailActivity : TerminalActivity() {
             },
             trailingContent = {
                 Column(horizontalAlignment = Alignment.End) {
+                    if (state.canMigrateToNative && state.status != RootlessSettingsStatus.CHECKING) {
+                        TextButton(onClick = { migrateRootless(runtimeType) }, shapes = ButtonDefaults.shapes()) {
+                            Text(stringResource(R.string.rootless_migrate))
+                        }
+                    }
                     actionLabel?.let { TextButton(onClick = action, shapes = ButtonDefaults.shapes()) { Text(stringResource(it)) } }
                     if (state.installed && state.status != RootlessSettingsStatus.READY && state.status != RootlessSettingsStatus.CHECKING) {
                         TextButton(onClick = { pendingRootlessRemoval = runtimeType }, shapes = ButtonDefaults.shapes()) {

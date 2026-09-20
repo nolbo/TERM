@@ -64,12 +64,16 @@ denied or unsupported, staging verifies symbolic-link access and records
 the native-link acceleration DSO or its host flags. Failure of the fallback
 probe still aborts activation. Existing unmarked installations automatically use the legacy compatibility
 launch policy, including in accelerated APKs. They retain --link2symlink and
-receive no native-link DSO or acceleration flags. Migration does not rewrite
+receive no native-link DSO or acceleration flags. This automatic compatibility fallback does not rewrite
 guest files, links, package databases, homes or storage markers; it is repeatable
 and cannot leave a partially converted filesystem. See the
-[compatibility migration policy and validation](ROOTLESS_MIGRATION.md). Unknown, corrupt or symlink
+[storage migration policy and validation](ROOTLESS_MIGRATION.md). Unknown, corrupt or symlink
 markers are rejected without modifying them. A fresh installation is the
-supported path to the native-link storage format. This is one step toward the current 2x performance goal,
+supported path to the native-link storage format alongside the explicit migration
+action in Rootless settings. That action converts verified emulated link groups
+in rootfs, home and shared workspace into native hardlinks using staged trees
+and a recovery journal. It requires all sessions to be idle and retains package
+data. Unsupported hardlinks or ambiguous/external links fail without forced conversion. This is one step toward the current 2x performance goal,
 not evidence that the goal has been reached. See
 [the ongoing performance work](ROOTLESS_2X_PROGRESS.md).
 

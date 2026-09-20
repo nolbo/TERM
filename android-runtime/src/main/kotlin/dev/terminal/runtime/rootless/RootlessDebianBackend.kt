@@ -49,6 +49,9 @@ class RootlessDebianBackend(
             return@withLock Result.failure(IllegalStateException("이 배포판의 모든 세션을 종료한 뒤 환경 보완을 실행하세요"))
         }
         runCatching {
+            check(!RootlessNativeMigration.pending(layout.root.parentFile.toPath())) {
+                "중단된 가속 형식 이전이 있습니다. 설정에서 이전을 다시 실행해 복구하세요"
+            }
             if (progressTracker.latest?.update?.phase != RootlessPhase.WAITING) progressTracker.reset()
             state.value = RuntimeState.Preparing
             layout.createHostDirectories()
@@ -78,6 +81,31 @@ class RootlessDebianBackend(
             state.value = RuntimeState.Failed(it.message ?: "${distribution.displayName} setup failed")
             progressTracker.finish()
         }
+    }
+
+    fun canMigrateToNative(): Boolean = dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION &&
+        (if (RootlessNativeMigration.pending(layout.root.parentFile.toPath()))
+            RootlessNativeMigration.pendingOwner(layout.root.parentFile.toPath()) == distribution
+        else hasInstalledImage() && !RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath()))
+
+    suspend fun migrateToNative(): Result<Unit> = prepareMutex.withLock {
+        runCatching {
+            check(dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION) { "가속 기능이 포함된 앱 버전이 필요합니다" }
+            check(controller?.list()?.getOrThrow().orEmpty().isEmpty()) { "이 배포판의 세션을 먼저 종료하세요" }
+            state.value = RuntimeState.Preparing
+            progressTracker.reset()
+            progressReporter.report(RootlessPhase.MIGRATE, "기존 패키지와 파일을 유지하며 가속 형식으로 이전하고 있습니다")
+            controller?.close()
+            controller = null
+            val migration = RootlessNativeMigration(layout)
+            migration.recover()
+            layout.validateInstalledRootfs().getOrThrow()
+            migration.migrate()
+            layout.validateInstalledRootfs().getOrThrow()
+            state.value = RuntimeState.Stopped
+            progressReporter.report(RootlessPhase.READY, "가속 형식으로 이전했습니다. 새 세션부터 적용됩니다")
+        }.onFailure { state.value = RuntimeState.Failed(it.message ?: "가속 형식 이전 실패") }
+            .also { progressTracker.finish() }
     }
 
     // The service excludes controller startup/session creation while removing an image.

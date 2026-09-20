@@ -26,6 +26,7 @@ import kotlinx.coroutines.sync.withLock
  */
 class UnifiedSessionRegistry(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val beforeCreate: () -> Unit = {},
     private val remoteCommand: (suspend (String, String) -> ByteArray?)? = null,
 ) : SessionController {
     private data class Registration(val controller: SessionController, val jobs: List<Job>)
@@ -95,6 +96,23 @@ class UnifiedSessionRegistry(
 
     fun isRegistered(runtime: SessionRuntime): Boolean = registrations.containsKey(runtime)
 
+    /** Excludes creation in every runtime while shared workspace trees are replaced. */
+    suspend fun migrateIfAllIdle(runtime: SessionRuntime, migrate: suspend () -> Unit) {
+        val held = mutableListOf<Mutex>()
+        try {
+            for (mutex in mutationMutexes.values) { mutex.lock(); held.add(mutex) }
+            listMutex.withLock {
+                check(registrations.values.all { it.controller.list().getOrThrow().isEmpty() }) {
+                    "가속 형식 이전 전에 앱의 모든 터미널 세션을 종료하세요. 작업 폴더를 사용하는 파일 작업도 마쳐야 합니다"
+                }
+                registrations.remove(runtime)?.jobs?.forEach(Job::cancel)
+                owners.entries.removeAll { it.value == runtime }
+                lastKnownSessions.remove(runtime)
+            }
+            migrate()
+        } finally { held.asReversed().forEach { it.unlock() } }
+    }
+
     suspend fun removeIfIdle(runtime: SessionRuntime, remove: suspend () -> Unit) = mutationMutexes.getValue(runtime).withLock {
         listMutex.withLock {
             val registration = registrations[runtime]
@@ -117,6 +135,7 @@ class UnifiedSessionRegistry(
         rows: UShort,
         cols: UShort,
     ): Result<SessionDescriptor> = mutationMutexes.getValue(runtime).withLock {
+        runCatching { beforeCreate() }.exceptionOrNull()?.let { return@withLock Result.failure(it) }
         controller(runtime).fold(
             onSuccess = { controller -> controller.create(shell, cwd, env, rows, cols).onSuccess { created ->
                 owners[created.id] = runtime

@@ -386,6 +386,17 @@ class VmRuntimeService : Service() {
             }
         }
 
+        override fun migrateRootlessToNative(runtimeType: String) = launchRuntimeOperation(trackAsWork = true, errorOperation = "ROOTLESS_MIGRATE:$runtimeType") {
+            val selected = SessionRuntime.fromWireName(runtimeType)
+                ?: throw IllegalArgumentException("알 수 없는 Rootless 환경")
+            val rootless = rootlessBackends[selected] ?: throw IllegalArgumentException("Rootless 환경이 아닙니다")
+            val registry = ensureSessionRegistry() ?: error("세션 상태를 확인할 수 없습니다")
+            runtimeControllerMutex.withLock {
+                try { registry.migrateIfAllIdle(selected) { rootless.migrateToNative().getOrThrow() } }
+                finally { notifyClients(latestState) }
+            }
+        }
+
         override fun removeRootless(runtimeType: String, removeHome: Boolean) = launchRuntimeOperation(trackAsWork = true, errorOperation = "ROOTLESS_REMOVE:$runtimeType") {
             val selected = SessionRuntime.fromWireName(runtimeType)
             val rootless = rootlessBackends[selected]
@@ -586,7 +597,11 @@ class VmRuntimeService : Service() {
             else -> selectedBackend.connectSessionClient().getOrNull()
         }
         client?.let { primaryController ->
-            val registry = UnifiedSessionRegistry(remoteCommand = { source, command -> kittyRemote.execute(source, command) })
+            val registry = UnifiedSessionRegistry(beforeCreate = {
+                check(!dev.terminal.runtime.rootless.RootlessNativeMigration.pending(java.io.File(filesDir, "rootless").toPath())) {
+                    "중단된 가속 형식 이전이 있습니다. 설정에서 이전을 다시 실행해 복구하세요"
+                }
+            }, remoteCommand = { source, command -> kittyRemote.execute(source, command) })
             registry.register(
                 if (selectedBackend is NativeBackend) SessionRuntime.NATIVE else SessionRuntime.AVF,
                 primaryController,
@@ -813,6 +828,7 @@ class VmRuntimeService : Service() {
             val progress = rootlessBackend.installProgress()
             put(distribution.runtime.wireName, JSONObject().apply {
                 put("available", rootless is RootlessStatus.Ready)
+                put("canMigrateToNative", rootlessBackends.getValue(distribution.runtime).canMigrateToNative())
                 put("installed", rootlessBackends.getValue(distribution.runtime).hasInstalledImage())
                 put("installable", rootlessBackends.getValue(distribution.runtime).canInstall())
                 put("state", when (rootless) {

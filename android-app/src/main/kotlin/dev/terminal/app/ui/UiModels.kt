@@ -122,6 +122,7 @@ internal data class RootlessSettingsState(
     val detail: String,
     val installed: Boolean = status == RootlessSettingsStatus.READY || status == RootlessSettingsStatus.ENVIRONMENT_REQUIRED,
     val progress: RootlessProgressUi? = null,
+    val canMigrateToNative: Boolean = false,
 )
 
 internal fun parseRootlessSettingsState(json: String, runtimeType: String = "ROOTLESS"): RootlessSettingsState = runCatching {
@@ -130,7 +131,7 @@ internal fun parseRootlessSettingsState(json: String, runtimeType: String = "ROO
         ?.let(RootlessSettingsStatus::valueOf)
         ?: if (rootless.optBoolean("available")) RootlessSettingsStatus.READY else RootlessSettingsStatus.SETUP_REQUIRED
     RootlessSettingsState(status, rootless.optString("detail"), rootless.optBoolean("installed",
-        status == RootlessSettingsStatus.READY || status == RootlessSettingsStatus.ENVIRONMENT_REQUIRED), parseRootlessProgress(rootless))
+        status == RootlessSettingsStatus.READY || status == RootlessSettingsStatus.ENVIRONMENT_REQUIRED), parseRootlessProgress(rootless), rootless.optBoolean("canMigrateToNative"))
 }.getOrElse { RootlessSettingsState(RootlessSettingsStatus.ERROR, it.message.orEmpty()) }
 
 internal fun validatedIntegerDraft(value: String, range: IntRange): Int? =

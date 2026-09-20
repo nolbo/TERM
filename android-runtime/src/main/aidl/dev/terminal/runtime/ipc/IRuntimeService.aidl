@@ -40,4 +40,5 @@ interface IRuntimeService {
     String getHostToolOperationsJson();
     String submitHostToolInput(String operationId, String promptNonce, in String[] values);
     void cancelHostToolOperation(String operationId);
+    void migrateRootlessToNative(String runtimeType);
 }
