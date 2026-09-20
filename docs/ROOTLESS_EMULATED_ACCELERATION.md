@@ -240,3 +240,39 @@ Gradle UP-TO-DATE 재사용). APK 내부 엔진·loader·DSO 고정 해시도 �
 앱 UI 단위 테스트와 새 배포판 설치는 이번 변경 범위에 없어 재실행하지 않았다.
 Android MCP의 incremental APK 설치는 기기에서 거부되어 자동 streamed 설치로
 성공했다. 회귀 검사 완료와 성능 측정은 이 설치된 시험 APK에서 확인했다.
+
+## 디렉터리 FD 상대 경로 조회
+
+`du`·`find`가 사용하는 dirfd 상대 stat/statx를 추가 가속했다. 디렉터리 FD를
+새 O_PATH FD로 고정하고 실제 host 경로가 공유 바인딩에 유일하게 대응하며,
+guest→host 재번역 결과도 일치할 때만 적용한다. 자식도 고정 후 실제 경로를
+확인한다. 디렉터리 rename/교체, 중첩 또는 중복 바인딩, 링크, 삭제된 경로,
+procfs 거부 등 불확실한 경우는 원래 PRoot 처리로 돌아간다. pathname/FD 캐시는 없다.
+파일 바인딩으로 노출된 l2s backing 이름도 stat/statx 모두 기존 처리로 돌린다.
+
+[5회 교대 측정 원본](../tools/rootless/faststat/results/dirfd-stat-2026-09-20.json).
+API 35 ARM64 redroid, 파일 1,000개, warm cache이며 이번 후보만 openat2를 차단했다.
+
+| 작업 | 이전 네이티브(ms) | 이번 후보(ms) | 소요 시간 차이 |
+| --- | ---: | ---: | ---: |
+| ls -ln | 130.193 | 95.493 | -26.7% |
+| du | 45.902 | 18.381 | -60.0% |
+| find -ls | 105.019 | 114.716 | +9.2% |
+
+**전체 목표는 미달성이다.** du는 이전 네이티브보다 빨라졌으나 find와 파일 조회·읽기,
+변경 작업의 잔여 격차는 남는다. 기존 파일 작업 수치는 앞선 경로 대조 시험을 참조하며
+이번에 다시 측정한 것은 위 세 명령뿐이다. 삼성 Android 17 실측은 아니다.
+
+새 `dirfd-stat-test.py`는 stat/statx 결과 전체를 원래 syscall과 비교하고,
+일반 파일 가속 진입, 잘못된 FD/빈 경로, 심볼릭 링크, 중첩·중복 바인딩,
+디렉터리 rename 후 같은 이름 교체, 하드링크, readlinkat/newfstatat/statx 거부를
+두 저장 형식에서 검사했다. 기존 파일·FD·바인딩·패키지·statx 회귀 시험도 통과했다.
+초기 시험 종료 시 generic rmtree가 노출된 l2s backing을 먼저 지워 EPERM이 발생했다.
+이전 d0828fc 바이너리에서도 재현되어 기존 PRoot 제한으로 확인했고, fixture는 남은
+하드링크 별칭을 명시적으로 삭제한 뒤 정리한다. 이 제한 자체를 해결한 것은 아니다.
+
+이번 변경도 canonical `:android-app:assembleDebug :android-runtime:testDebugUnitTest
+:image:test` 빌드를 통과했다. 변경 없는 단위 테스트는 Gradle UP-TO-DATE 결과를
+재사용했다. APK 엔진/loader/DSO 고정 해시와 재현 소스 archive의 코드·시험·측정
+일치를 확인했다. UI 변경이 없어 UI/새 배포판 설치 시험은 반복하지 않았다.
+Android MCP를 사용했으며 incremental APK 설치 거부 뒤 streamed 설치가 성공했다.

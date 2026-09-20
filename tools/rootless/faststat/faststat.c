@@ -414,6 +414,67 @@ static long pin_shared_path(const char *path, size_t anchor_length, int flags)
     return proot_pin_bound_nofollow(fast_syscall, path, anchor_length, flags);
 }
 
+/* Resolve a relative dirfd against a fresh pinned directory. Reverse mapping
+ * must be unique and round-trip through the current guest bindings. A shadowed
+ * or ambiguous host alias belongs to the canonical PRoot resolver. */
+static long pin_shared_relative(struct proot_fastpath_rules *rules, int dirfd,
+                                const char *relative, char translated[PATH_MAX])
+{
+    if (dirfd < 0 || !*relative || *relative == '/') return -EOPNOTSUPP;
+    long parent = fast_syscall(SYS_openat, dirfd, (long)".",
+                              O_PATH | O_DIRECTORY | O_CLOEXEC, 0);
+    if (parent < 0) return parent;
+    long child = -1;
+    char descriptor[64], host[PATH_MAX], expected[PATH_MAX];
+    snprintf(descriptor, sizeof(descriptor), "/proc/self/fd/%ld", parent);
+    long length = fast_syscall(SYS_readlinkat, AT_FDCWD, (long)descriptor,
+                              (long)host, sizeof(host) - 1);
+    if (length <= 0 || length >= (long)sizeof(host) - 1) goto done;
+    host[length] = 0;
+    uint32_t count = atomic_load(&rules->count);
+    if (!atomic_load(&rules->active) || !count || count > PROOT_FASTPATH_BINDINGS) goto done;
+    unsigned matches = 0;
+    for (uint32_t i = 0; i < count; i++) {
+        const struct proot_fastpath_binding *item = &rules->bindings[i];
+        uint32_t offset = atomic_load(&item->host), size = atomic_load(&item->host_length);
+        if (!size || size >= PATH_MAX || offset >= PROOT_FASTPATH_BYTES ||
+            size >= PROOT_FASTPATH_BYTES - offset) goto done;
+        char prefix[PATH_MAX];
+        for (uint32_t j = 0; j <= size; j++) prefix[j] = atomic_load_explicit(&rules->paths[offset + j], memory_order_relaxed);
+        if (prefix[size] || prefix[0] != '/') goto done;
+        if (length < size || memcmp(host, prefix, size) ||
+            (size != 1 && host[size] && host[size] != '/')) continue;
+        const char *suffix = host + size;
+        while (*suffix == '/') suffix++;
+        offset = atomic_load(&item->guest); size = atomic_load(&item->guest_length);
+        if (!size || size >= PATH_MAX || offset >= PROOT_FASTPATH_BYTES ||
+            size >= PROOT_FASTPATH_BYTES - offset) goto done;
+        for (uint32_t j = 0; j <= size; j++) prefix[j] = atomic_load_explicit(&rules->paths[offset + j], memory_order_relaxed);
+        if (prefix[size] || prefix[0] != '/') goto done;
+        char guest[PATH_MAX];
+        int written = snprintf(guest, sizeof(guest), "%s/%s/%s", prefix, suffix, relative);
+        if (written < 0 || written >= (int)sizeof(guest) || !normalize_simple_path(guest)) goto done;
+        size_t anchor;
+        if (!lookup_shared_path(rules, guest, translated, &anchor)) goto done;
+        written = snprintf(expected, sizeof(expected), "%s/%s", host, relative);
+        if (written < 0 || written >= (int)sizeof(expected) || !normalize_simple_path(expected) ||
+            strcmp(expected, translated)) goto done;
+        if (++matches != 1) goto done;
+    }
+    if (matches != 1) goto done;
+    child = fast_syscall(SYS_openat, parent, (long)relative, O_PATH | O_CLOEXEC | O_NOFOLLOW, 0);
+    if (child < 0) goto done;
+    snprintf(descriptor, sizeof(descriptor), "/proc/self/fd/%ld", child);
+    length = fast_syscall(SYS_readlinkat, AT_FDCWD, (long)descriptor, (long)host, sizeof(host));
+    if (length != (long)strlen(expected) || memcmp(host, expected, length)) {
+        fast_syscall(SYS_close, child, 0, 0, 0);
+        child = -1;
+    }
+done:
+    fast_syscall(SYS_close, parent, 0, 0, 0);
+    return child;
+}
+
 static int ordinary_storage(int pin)
 {
     struct statfs filesystem;
@@ -706,12 +767,16 @@ static int shared_path_stat(int dirfd, const char *path, struct stat *output, in
     size_t anchor_length = 0;
     if (!identity || !copy_path(copied, path, pid)) goto done;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
-    if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
-        !normalize_simple_path(copied) ||
-        !lookup_shared_path(&identity->paths, copied, translated, &anchor_length)) goto done;
-    struct open_how how = { .flags = O_PATH | O_CLOEXEC, .resolve = RESOLVE_NO_SYMLINKS };
-    pin = pin_shared_path(translated, anchor_length, how.flags);
-    if (pin < 0 || !ordinary_storage(pin)) goto done;
+    if (copied[0] != '/' && dirfd != AT_FDCWD) {
+        pin = pin_shared_relative(&identity->paths, dirfd, copied, translated);
+    } else {
+        if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
+            !normalize_simple_path(copied) ||
+            !lookup_shared_path(&identity->paths, copied, translated, &anchor_length)) goto done;
+        pin = pin_shared_path(translated, anchor_length, 0);
+    }
+    if (pin < 0 || strstr(translated, "/.l2s.") ||
+        strstr(translated, "/.proot.l2s.") || !ordinary_storage(pin)) goto done;
     struct stat result;
     /* Use the original syscall number: guest seccomp denial still wins. */
     if (fast_syscall(SYS_newfstatat, pin, (long)"", (long)&result, AT_EMPTY_PATH) < 0 ||
@@ -751,14 +816,18 @@ int statx(int dirfd, const char *path, int flags, unsigned mask, struct statx *o
     size_t anchor_length = 0;
     if (!identity || !copy_path(copied, path, pid)) goto done;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
-    if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
-        !normalize_simple_path(copied) ||
-        !lookup_shared_path(&identity->paths, copied, translated, &anchor_length)) goto done;
+    if (copied[0] != '/' && dirfd != AT_FDCWD) {
+        pin = pin_shared_relative(&identity->paths, dirfd, copied, translated);
+    } else {
+        if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
+            !normalize_simple_path(copied) ||
+            !lookup_shared_path(&identity->paths, copied, translated, &anchor_length)) goto done;
+        pin = pin_shared_path(translated, anchor_length, 0);
+    }
     /* A guest bind may directly expose an l2s backing inode even though its
      * guest name is ordinary. Its virtual count still belongs to PRoot. */
-    if (strstr(translated, "/.l2s.") || strstr(translated, "/.proot.l2s.")) goto done;
-    pin = pin_shared_path(translated, anchor_length, 0);
-    if (pin < 0 || !ordinary_storage(pin)) goto done;
+    if (pin < 0 || strstr(translated, "/.l2s.") ||
+        strstr(translated, "/.proot.l2s.") || !ordinary_storage(pin)) goto done;
     struct statx result;
     if (fast_statx(pin, flags | AT_EMPTY_PATH, mask, &result) < 0 ||
         !(result.stx_mask & STATX_TYPE) ||

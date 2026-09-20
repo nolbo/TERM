@@ -1,0 +1,217 @@
+{
+  "candidate_dso_sha256": "24825201890334d0267807b83d095e4d868eda81e01bda0255bd50bf3ed73c82",
+  "reference_dso_sha256": "7641d9415322beb07154443c1b90e801cdbb2b845691c20655a08c17dba75674",
+  "environment": "API 35 ARM64 redroid, app UID, Ubuntu 24.04, SELinux disabled; candidate openat2 denied; warm cache; alternating order; 5 rounds",
+  "samples": [
+    {
+      "case": "ls-long",
+      "wall_ms": 130.983284,
+      "count": 1000,
+      "comparison_round": 1,
+      "mode": "native-reference"
+    },
+    {
+      "case": "du",
+      "wall_ms": 46.961599,
+      "count": 1000,
+      "comparison_round": 1,
+      "mode": "native-reference"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 105.018836,
+      "count": 1000,
+      "comparison_round": 1,
+      "mode": "native-reference"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 95.492523,
+      "count": 1000,
+      "comparison_round": 1,
+      "mode": "restricted"
+    },
+    {
+      "case": "du",
+      "wall_ms": 18.380902,
+      "count": 1000,
+      "comparison_round": 1,
+      "mode": "restricted"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 119.252484,
+      "count": 1000,
+      "comparison_round": 1,
+      "mode": "restricted"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 95.662084,
+      "count": 1000,
+      "comparison_round": 2,
+      "mode": "restricted"
+    },
+    {
+      "case": "du",
+      "wall_ms": 19.506907,
+      "count": 1000,
+      "comparison_round": 2,
+      "mode": "restricted"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 114.716268,
+      "count": 1000,
+      "comparison_round": 2,
+      "mode": "restricted"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 130.192682,
+      "count": 1000,
+      "comparison_round": 2,
+      "mode": "native-reference"
+    },
+    {
+      "case": "du",
+      "wall_ms": 45.677275,
+      "count": 1000,
+      "comparison_round": 2,
+      "mode": "native-reference"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 104.218353,
+      "count": 1000,
+      "comparison_round": 2,
+      "mode": "native-reference"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 125.070184,
+      "count": 1000,
+      "comparison_round": 3,
+      "mode": "native-reference"
+    },
+    {
+      "case": "du",
+      "wall_ms": 45.999355,
+      "count": 1000,
+      "comparison_round": 3,
+      "mode": "native-reference"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 105.449957,
+      "count": 1000,
+      "comparison_round": 3,
+      "mode": "native-reference"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 97.823132,
+      "count": 1000,
+      "comparison_round": 3,
+      "mode": "restricted"
+    },
+    {
+      "case": "du",
+      "wall_ms": 18.058262,
+      "count": 1000,
+      "comparison_round": 3,
+      "mode": "restricted"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 113.585585,
+      "count": 1000,
+      "comparison_round": 3,
+      "mode": "restricted"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 93.836518,
+      "count": 1000,
+      "comparison_round": 4,
+      "mode": "restricted"
+    },
+    {
+      "case": "du",
+      "wall_ms": 18.214981,
+      "count": 1000,
+      "comparison_round": 4,
+      "mode": "restricted"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 111.981859,
+      "count": 1000,
+      "comparison_round": 4,
+      "mode": "restricted"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 132.666889,
+      "count": 1000,
+      "comparison_round": 4,
+      "mode": "native-reference"
+    },
+    {
+      "case": "du",
+      "wall_ms": 45.901835,
+      "count": 1000,
+      "comparison_round": 4,
+      "mode": "native-reference"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 106.940562,
+      "count": 1000,
+      "comparison_round": 4,
+      "mode": "native-reference"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 126.231268,
+      "count": 1000,
+      "comparison_round": 5,
+      "mode": "native-reference"
+    },
+    {
+      "case": "du",
+      "wall_ms": 45.499954,
+      "count": 1000,
+      "comparison_round": 5,
+      "mode": "native-reference"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 104.456194,
+      "count": 1000,
+      "comparison_round": 5,
+      "mode": "native-reference"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 95.059042,
+      "count": 1000,
+      "comparison_round": 5,
+      "mode": "restricted"
+    },
+    {
+      "case": "du",
+      "wall_ms": 19.103184,
+      "count": 1000,
+      "comparison_round": 5,
+      "mode": "restricted"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 116.029273,
+      "count": 1000,
+      "comparison_round": 5,
+      "mode": "restricted"
+    }
+  ]
+}
