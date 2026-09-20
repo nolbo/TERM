@@ -1,6 +1,7 @@
 # TERM 개발 채널 — 하드링크 전환 없이 Rootless 가속
 
-- 릴리즈 ID: `dev-latest` (APK는 `dev-<빌드 커밋 SHA>`의 고정 릴리즈에 게시)
+- 릴리즈 ID: `dev-latest` → `dev-b7815deeb38ad021c3abc6b71a0be5b86c98bf66`
+- 앱 버전: `0.1.0+dev.1000029.b7815deeb38a` (versionCode 1000029)
 - 출시일: 2026-09-20
 - 대상: TERM Android ARM64 APK, Rootless Debian/Ubuntu, PRoot/faststat/stdio 런타임
 - 변경 범위: 이전 공개 개발판 `dev-09afdf17440bed2e3925b52be694dbf07699abc9` 이후
@@ -35,3 +36,12 @@ API 35 ARM64 redroid·Ubuntu·warm cache 조건의 최종 빌드에서 작은 �
 - API 35 Android 시험 환경에서 두 저장 형식의 파일·FD·신호·스레드·fork/exec·메모리 경계·별도 dpkg 설치/업그레이드/삭제 검증 통과. 일부 statx/dirfd/storage 검사는 마지막 prctl 정수 폭 보완 전 후보에서 수행했습니다.
 - 개발 중 하드링크 거부를 주입한 Debian/Ubuntu 설치와 기존 형식 보존 검증을 수행했습니다. 사용자의 실제 Android 17 기기에 대한 검증을 대신하지는 않습니다.
 - 게시 CI는 앱·runtime·image·업데이트 검사, USB 호스트 안전성 회귀 검사, 서명 APK 생성 및 런타임 해시 검사를 통과해야 공개합니다. 실제 USB 장치·AVF 검사는 이번 릴리즈에서 수행하지 않습니다.
+
+## 공개 결과 확인
+
+- GitHub Actions `35500354313`: 앱·runtime·image 빌드/테스트, 업데이트 검사, 서명 APK 생성 및 공개 게시 모두 통과했습니다.
+- USB 호스트 자동 검사 99개 통과. 실제 USB 장치와 Android instrumentation 검사는 해당 게이트에서 수행하지 않았습니다.
+- 공개 APK를 다시 내려받아 패키지·버전·기존 서명 인증서 일치, APK SHA-256, PRoot 엔진·loader·combined DSO 및 재현 소스 해시를 검증했습니다.
+- `dev-latest` 업데이트 정보가 고정 릴리즈의 commit/versionCode/버전/크기/SHA-256과 일치합니다.
+- APK SHA-256: `82c40b8061cbec44bfc0194bc03f835c07249e5981be4e1fdf31800d8cf15c6f`
+- 다운로드: https://github.com/nolbo/TERM/releases/tag/dev-b7815deeb38ad021c3abc6b71a0be5b86c98bf66
