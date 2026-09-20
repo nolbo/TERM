@@ -106,6 +106,9 @@ android {
         // Rootless runtime executables are APK payloads selected from nativeLibraryDir.
         // They must be extracted to an immutable executable filesystem path.
         jniLibs.useLegacyPackaging = true
+        // These are verified runtime inputs, not newly linked JNI libraries.
+        // Preserve exact bytes across local/CI strip-tool versions.
+        jniLibs.keepDebugSymbols += ['**/libproot.so', '**/libproot-loader.so', '**/libproot-faststat.so']
     }
 }
 

@@ -3,6 +3,10 @@
 Channel CI now uses `prepare-release-runtime.py` to fetch and hash-check the pinned
 accelerated engine, loader, combined stdio DSO and corresponding source archive.
 It embeds these files in the APK; the installed app never downloads runtimes.
+The app and runtime packaging preserve the three pinned ELF files with
+[AGP keepDebugSymbols](https://developer.android.com/reference/tools/gradle-api/9.3/com/android/build/api/dsl/JniLibsPackaging#keepDebugSymbols),
+so CI stripping cannot change the verified DSO bytes. Debug and signed release
+APKs both undergo the same payload hash check.
 The baseline payload and manual source build documented below remain available
 for explicit non-accelerated local builds. Channel release builds require acceleration.
 

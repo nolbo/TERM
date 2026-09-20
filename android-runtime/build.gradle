@@ -152,6 +152,9 @@ android {
     // Standalone instrumentation must execute the APK-owned PRoot files too.
     packagingOptions {
         jniLibs.useLegacyPackaging = true
+        // These are verified runtime inputs, not newly linked JNI libraries.
+        // Preserve exact bytes across local/CI strip-tool versions.
+        jniLibs.keepDebugSymbols += ['**/libproot.so', '**/libproot-loader.so', '**/libproot-faststat.so']
     }
 
     sourceSets.main.jniLibs.srcDirs = [generatedRootlessJniDirectory, iphoneBuildDirectory.get().dir('jniLibs').asFile, iphoneToolsBuildDirectory.get().dir('jniLibs').asFile]
