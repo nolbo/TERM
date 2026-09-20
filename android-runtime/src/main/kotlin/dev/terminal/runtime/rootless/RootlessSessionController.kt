@@ -236,7 +236,7 @@ internal fun buildRootlessLaunchSpec(
     accelerationLibrary?.let {
         require(it.isFile && it.canRead()) { "Packaged Rootless acceleration library is missing" }
     }
-    val acceleration = accelerationLibrary?.takeIf { nativeLinks }?.let { RootlessAccelerationProfile(it) }
+    val acceleration = accelerationLibrary?.let { RootlessAccelerationProfile(it) }
     val argv = dev.terminal.runtime.session.SessionCommand.decode(env)
     val guestCwd = cwd.takeIf { it.startsWith('/') } ?: "/root"
     val guestShell = shell.takeIf { it.startsWith('/') } ?: "/bin/sh"

@@ -10,8 +10,10 @@ APKs both undergo the same payload hash check.
 The baseline payload and manual source build documented below remain available
 for explicit non-accelerated local builds. Channel release builds require acceleration.
 
-The optional [faststat experiment](faststat/README.md) adds a separate development
-build and guest dispatcher. It is not included in the production payloads below.
+The [faststat implementation](faststat/README.md) is used by accelerated channel
+builds, separately from the baseline payload documented below. The current
+[emulated-link revision](../../docs/ROOTLESS_EMULATED_ACCELERATION.md) also supports
+legacy storage without a native-hardlink migration.
 
 ## File I/O measurements
 

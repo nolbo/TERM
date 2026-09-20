@@ -45,6 +45,17 @@ try:
                                     directory, b'target', 0) == -1
                 assert ctypes.get_errno() == errno.EFAULT
                 os.unlink(root + '/source')
+            os.mkdir(root + '/other')
+            other = os.open(root + '/other', os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                same = ctypes.create_string_buffer(b'same')
+                with open(root + '/same', 'wb') as stream:
+                    stream.write(b'shared pointer')
+                assert libc.syscall(38, directory, same, other, same) == 0
+                assert not os.path.exists(root + '/same')
+                assert open(root + '/other/same', 'rb').read() == b'shared pointer'
+            finally:
+                os.close(other)
             deep = root
             for _ in range(16):
                 deep += '/' + 'd' * 80

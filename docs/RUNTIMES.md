@@ -56,35 +56,30 @@ starts an APK-packaged, allow-listed PRoot and loader, binds only `/dev`,
 resulting PTY across UI detach.
 
 Channel CI builds now package the pinned accelerated engine (including local rename)
-and combined faststat/stdio DSO from `rootless-runtime-20260920`. They enable both
+and combined faststat/stdio DSO from the pinned runtime input release. The emulated-link fix selects
+`rootless-runtime-20260920-emulated.1`; its prepared local archives must be published
+before channel CI can download this revision. They enable both
 Rootless acceleration and regular-file stdio buffering and fail if either build
 setting is missing. Release APK contents are checked against the same hashes.
 The installed app never downloads this runtime. Manual builds still need explicit
 Gradle properties; see `tools/rootless/prepare-release-runtime.py` and the channel
-workflow. Migration is available in these accelerated APKs, subject to hardlink
-support. The older general dev APK from `951bc7b1bf71` did not enable this profile.
+workflow. Acceleration also supports emulated hardlinks; storage conversion is not required. The older general dev APK from `951bc7b1bf71` did not enable this profile.
 
-New installations probe kernel hardlink support in unpublished staging and record
-`native-hardlinks-1` in `.terminal-storage-format`. Their sessions omit PRoot's
-`--link2symlink` extension while retaining fake-root and the selected binds.
-This avoids link emulation on ordinary file operations. If the hardlink probe is
-denied or unsupported, staging verifies symbolic-link access and records
-`emulated-hardlinks-1` instead. These installations use `--link2symlink` without
-the native-link acceleration DSO or its host flags. Failure of the fallback
-probe still aborts activation. Existing unmarked installations automatically use the legacy compatibility
-launch policy, including in accelerated APKs. They retain --link2symlink and
-receive no native-link DSO or acceleration flags. This automatic compatibility fallback does not rewrite
-guest files, links, package databases, homes or storage markers; it is repeatable
-and cannot leave a partially converted filesystem. See the
-[storage migration policy and validation](ROOTLESS_MIGRATION.md). Unknown, corrupt or symlink
-markers are rejected without modifying them. A fresh installation is the
-supported path to the native-link storage format alongside the explicit migration
-action in Rootless settings. That action converts verified emulated link groups
-in rootfs, home and shared workspace into native hardlinks using staged trees
-and a recovery journal. It requires all sessions to be idle and retains package
-data. Unsupported hardlinks or ambiguous/external links fail without forced conversion. This is one step toward the current 2x performance goal,
-not evidence that the goal has been reached. See
-[the ongoing performance work](ROOTLESS_2X_PROGRESS.md).
+New installations probe hardlinks in unpublished staging and record either
+`native-hardlinks-1` or `emulated-hardlinks-1`. Ordinary Android SELinux policy
+forbids untrusted apps from creating real hardlinks, so emulation is the expected
+stock-device format. Both formats, including unmarked legacy installations,
+receive the packaged acceleration profile. Emulated installations retain
+`--link2symlink`; ordinary metadata/open/create/close operations use validated
+fast paths, while virtual link-count mutations keep PRoot bookkeeping.
+No data conversion or marker rewriting is necessary to accelerate an existing
+installation. Unknown, corrupt or symlink markers remain rejected.
+
+The old migration IPC is retained only to recover interrupted conversions.
+Settings exposes it only when a journal exists for the selected distribution;
+recovery still excludes all sessions and workspace writers. It does not start
+another native-link conversion. See [storage recovery](ROOTLESS_MIGRATION.md)
+and [emulated acceleration and validation](ROOTLESS_EMULATED_ACCELERATION.md).
 
 Ubuntu 24.04 LTS and Arch Linux ARM have separate `files/rootless/ubuntu` and
 `files/rootless/archlinux` roots, homes, temporary files and download caches.
@@ -130,7 +125,7 @@ the APK-selected profile.
 An additional experimental build option, `-ProotlessStdioBuffer=true`, requires
 that accelerated payload directory to contain the separately pinned combined
 faststat/stdio DSO. It enables bounded 64 KiB buffering for eligible glibc file
-streams in native-link sessions and maintenance commands. It is off by default;
+streams in both native-link and emulated-link sessions and maintenance commands. It is off by default;
 raw read/write and fsync are unchanged. Fresh Ubuntu and Debian installation,
 maintenance and PTY buffering checks passed on API35 ARM64 redroid. This option
 has not established overall 2x I/O performance or physical-device compatibility. Build instructions,
@@ -155,15 +150,14 @@ installs it. Other distributions and the default APK profile do not enable it.
 Explicit experimental DSO/notification setup paths remain separate from the
 packaged profile to avoid duplicate library bindings or conflicting modes.
 
-The candidate supports automatic compatibility migration for unmarked legacy
-rootfs installations. Native-link acceleration is enabled only for the native
-marker; unmarked legacy installations and verified emulated markers retain
-installation, maintenance and PTY execution through link emulation.
-The phase-1 acceleration measurements do not apply to this fallback mode. Builds without the property
-retain the original engine. This is a candidate distribution path, not promotion
-to the default release. Debian installation/file workload evidence and remaining
-whole-workload/physical-device limits are recorded in
-[the performance progress](ROOTLESS_2X_PROGRESS.md).
+The emulated-link acceleration revision removes the native-marker gate and
+replaces internal `openat2` probes/walks with Android-allowed `openat` operations.
+Published host bindings are opened afresh; every guest suffix component is
+resolved through pinned directory FDs without following symlinks. There is no
+cross-call path/inode cache. Unsupported cases retain the normal resolver.
+The old phase-one numbers are not stock-device measurements. Current comparison
+results and remaining device restrictions are in
+[emulated acceleration](ROOTLESS_EMULATED_ACCELERATION.md).
 
 ## AVF Debian
 

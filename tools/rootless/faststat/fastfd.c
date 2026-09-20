@@ -98,7 +98,8 @@ static bool compatible(Tracee *tracee)
     Extension *extension;
     if (tracee->extensions)
         LIST_FOREACH(extension, tracee->extensions, link)
-            if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback)
+            if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback &&
+                extension->callback != link2symlink_callback)
                 return false;
     return true;
 }
@@ -129,7 +130,8 @@ void fastfd_sync(Tracee *tracee)
     struct fastfd_state *state = tracee->fastfd;
     if (!state) return;
     uint32_t uid = state->host_uid, gid = state->host_gid;
-    uint32_t active = compatible(tracee);
+    uint32_t active = compatible(tracee) ?
+        (get_extension(tracee, link2symlink_callback) ? 2 : 1) : 0;
     static int requested = -1;
     if (requested < 0) {
         const char *setting = getenv("PROOT_FASTCLOSE");

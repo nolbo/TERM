@@ -84,7 +84,7 @@ class RootlessStorageFormatTest {
                 val spec = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"),
                     "/bin/sh", "/root", emptyMap(), accelerationLibrary = library)
                 assertTrue(spec.arguments.contains("--link2symlink"))
-                assertFalse(spec.arguments.any { it.contains("terminal-faststat.so") })
+                assertTrue(spec.arguments.any { it.contains("terminal-faststat.so") })
                 assertEquals("package data", Files.readString(link))
                 assertEquals(data.fileName, Files.readSymbolicLink(link))
                 assertEquals("keep home", home.readText())

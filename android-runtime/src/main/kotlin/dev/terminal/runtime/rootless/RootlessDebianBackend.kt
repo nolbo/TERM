@@ -50,7 +50,7 @@ class RootlessDebianBackend(
         }
         runCatching {
             check(!RootlessNativeMigration.pending(layout.root.parentFile.toPath())) {
-                "중단된 가속 형식 이전이 있습니다. 설정에서 이전을 다시 실행해 복구하세요"
+                "중단된 가속 형식 이전이 있습니다. 설정에서 중단된 이전 복구를 실행하세요"
             }
             if (progressTracker.latest?.update?.phase != RootlessPhase.WAITING) progressTracker.reset()
             state.value = RuntimeState.Preparing
@@ -83,10 +83,11 @@ class RootlessDebianBackend(
         }
     }
 
+    // Kept for IPC compatibility: the button now only recovers an interrupted
+    // old conversion. Acceleration no longer requires changing storage format.
     fun canMigrateToNative(): Boolean = dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION &&
-        (if (RootlessNativeMigration.pending(layout.root.parentFile.toPath()))
-            RootlessNativeMigration.pendingOwner(layout.root.parentFile.toPath()) == distribution
-        else hasInstalledImage() && !RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath()))
+        RootlessNativeMigration.pending(layout.root.parentFile.toPath()) &&
+        RootlessNativeMigration.pendingOwner(layout.root.parentFile.toPath()) == distribution
 
     suspend fun migrateToNative(): Result<Unit> = prepareMutex.withLock {
         runCatching {
@@ -94,17 +95,15 @@ class RootlessDebianBackend(
             check(controller?.list()?.getOrThrow().orEmpty().isEmpty()) { "이 배포판의 세션을 먼저 종료하세요" }
             state.value = RuntimeState.Preparing
             progressTracker.reset()
-            progressReporter.report(RootlessPhase.MIGRATE, "기존 패키지와 파일을 유지하며 가속 형식으로 이전하고 있습니다")
+            progressReporter.report(RootlessPhase.MIGRATE, "기존 패키지와 파일을 유지하며 중단된 이전을 복구하고 있습니다")
             controller?.close()
             controller = null
             val migration = RootlessNativeMigration(layout)
             migration.recover()
             layout.validateInstalledRootfs().getOrThrow()
-            migration.migrate()
-            layout.validateInstalledRootfs().getOrThrow()
             state.value = RuntimeState.Stopped
-            progressReporter.report(RootlessPhase.READY, "가속 형식으로 이전했습니다. 새 세션부터 적용됩니다")
-        }.onFailure { state.value = RuntimeState.Failed(it.message ?: "가속 형식 이전 실패") }
+            progressReporter.report(RootlessPhase.READY, "복구를 완료했습니다. 저장 형식 변경 없이 새 세션부터 가속을 적용합니다")
+        }.onFailure { state.value = RuntimeState.Failed(it.message ?: "중단된 이전 복구 실패") }
             .also { progressTracker.finish() }
     }
 

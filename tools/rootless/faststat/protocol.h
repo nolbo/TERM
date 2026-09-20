@@ -11,7 +11,7 @@
 #include <stdatomic.h>
 
 #define PROOT_FASTFD_ATTACH 0x50525348
-#define PROOT_FASTFD_VERSION 4
+#define PROOT_FASTFD_VERSION 5
 #define PROOT_FASTFD_MAPPING_SIZE 32768
 #define PROOT_FASTPATH_BINDINGS 32
 #define PROOT_FASTPATH_BYTES 16384
@@ -25,6 +25,7 @@ struct proot_fastpath_rules {
     _Atomic unsigned char cwd[4096];
 };
 /* Credentials, path rules and close eligibility. Never file metadata. */
+/* active: 0 unavailable, 1 native links, 2 emulated links (FD metadata needs tracer). */
 struct proot_fastfd_identity {
     _Atomic uint32_t sequence, active, host_uid, host_gid, guest_uid, guest_gid;
     _Atomic uint32_t close_safe;

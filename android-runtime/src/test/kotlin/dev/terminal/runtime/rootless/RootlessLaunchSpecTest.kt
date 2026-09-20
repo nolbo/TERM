@@ -53,7 +53,7 @@ class RootlessLaunchSpecTest {
         assertFalse(spec.hostEnvironment.any { it.startsWith("LD_PRELOAD=") })
     }
 
-    @Test fun verifiedEmulatedStorageUsesProotWithoutNativeAcceleration() {
+    @Test fun verifiedEmulatedStorageRetainsLinkEmulationAndAcceleration() {
         val layout = RootlessDebianLayout(File(temporary.root, "emulated/ubuntu"), RootlessDistribution.UBUNTU)
         layout.rootfs.mkdirs()
         RootlessStorageFormat.prepareNewInstallation(layout.rootfs.toPath()) { _, _ ->
@@ -63,8 +63,9 @@ class RootlessLaunchSpecTest {
         val spec = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"),
             "/bin/sh", "/root", emptyMap(), accelerationLibrary = library)
         assertTrue(spec.arguments.contains("--link2symlink"))
-        assertFalse(spec.arguments.any { it.contains("terminal-faststat.so") || it.startsWith("PROOT_FAST") })
-        assertFalse(spec.hostEnvironment.any { it.startsWith("PROOT_FAST") || it.startsWith("PROOT_STAT") })
+        assertTrue(spec.arguments.any { it.contains("terminal-faststat.so") })
+        assertTrue(spec.arguments.contains("PROOT_FASTSTAT_SHARED=1"))
+        assertTrue(spec.hostEnvironment.contains("PROOT_FASTPATH=1"))
     }
 
     @Test fun accelerationRejectsMissingLibraryButMigratesUnmarkedRootfs() {
@@ -74,8 +75,8 @@ class RootlessLaunchSpecTest {
         assertTrue(runCatching { launch(File(temporary.root, "missing.so")) }.exceptionOrNull() is IllegalArgumentException)
         val spec = launch(temporary.newFile("present.so"))
         assertTrue(spec.arguments.contains("--link2symlink"))
-        assertFalse(spec.arguments.any { it.contains("terminal-faststat.so") })
-        assertFalse(spec.hostEnvironment.any { it.startsWith("PROOT_FAST") })
+        assertTrue(spec.arguments.any { it.contains("terminal-faststat.so") })
+        assertTrue(spec.hostEnvironment.contains("PROOT_FASTPATH=1"))
     }
 
     @Test fun usbCredentialsAndClientBindAreHostSelected() {

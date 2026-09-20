@@ -91,10 +91,18 @@ class RootlessFreshInstallTest {
             require(!legacyMigration || (!statKernel && !fastfd && !openNotifyThread))
             val nativeMigration = arguments.getString("rootlessNativeMigration") == "true"
             require(!nativeMigration || (legacyMigration && !denyNativeLinks && packagedLibrary != null))
-            val expectStdio = dev.terminal.runtime.BuildConfig.ROOTLESS_STDIO_BUFFER && !denyNativeLinks && (!legacyMigration || nativeMigration)
+            val expectStdio = dev.terminal.runtime.BuildConfig.ROOTLESS_STDIO_BUFFER && packagedLibrary != null
             val stdioCheck = if (expectStdio) """
                 import ctypes,os,tempfile
                 assert os.environ.get('PROOT_STDIO_BUFFER')=='1'
+                fast=ctypes.CDLL(None)
+                fast.proot_faststat_hits.restype=ctypes.c_ulong
+                with tempfile.TemporaryDirectory() as probe:
+                    ordinary=probe+'/ordinary'
+                    with open(ordinary,'wb') as output: output.write(b'probe')
+                    before=fast.proot_faststat_hits()
+                    assert os.stat(ordinary).st_size==5
+                    assert fast.proot_faststat_hits()>before, 'emulated storage lost metadata acceleration'
                 libc=ctypes.CDLL(None,use_errno=True)
                 libc.fopen.argtypes=[ctypes.c_char_p,ctypes.c_char_p]
                 libc.fopen.restype=ctypes.c_void_p
@@ -154,7 +162,7 @@ class RootlessFreshInstallTest {
                 val migrated = buildRootlessLaunchSpec(layout, proot, guestLoader,
                     "/bin/sh", "/", emptyMap(), accelerationLibrary = packagedLibrary)
                 assertTrue(migrated.arguments.contains("--link2symlink"))
-                assertFalse(migrated.arguments.any { it.contains("terminal-faststat.so") })
+                assertEquals(packagedLibrary != null, migrated.arguments.any { it.contains("terminal-faststat.so") })
             }
             val launch = buildRootlessLaunchSpec(layout, proot, guestLoader, "/bin/sh", "/", emptyMap())
             assertEquals(denyNativeLinks || legacyMigration, launch.arguments.contains("--link2symlink"))
@@ -268,11 +276,11 @@ class RootlessFreshInstallTest {
                         ${if (distribution == RootlessDistribution.DEBIAN) "assert len([line for line in maps if 'r--s' in line and '/run/db' in line])==2" else "# NSS shared caching is Debian-only"}
                         assert os.stat('/etc/passwd').st_size>0
                         c=ctypes.CDLL(None,use_errno=True)
-                        ${if (!denyNativeLinks && (!legacyMigration || nativeMigration)) "assert c.proot_faststat_hits()>0" else "assert not any('terminal-faststat.so' in line for line in maps)"}
-                        ${if (!denyNativeLinks && (!legacyMigration || nativeMigration)) "n=c.proot_fastclose_hits()" else "n=0"}
+                        ${if (packagedLibrary != null) "assert c.proot_faststat_hits()>0" else "assert not any('terminal-faststat.so' in line for line in maps)"}
+                        ${if (packagedLibrary != null) "n=c.proot_fastclose_hits()" else "n=0"}
                         f=os.open('/etc/passwd',os.O_RDONLY)
                         os.close(f)
-                        ${if (!denyNativeLinks && (!legacyMigration || nativeMigration)) "assert c.proot_fastclose_hits()>n" else "assert os.stat('/etc/passwd').st_size>0"}
+                        ${if (packagedLibrary != null) "assert c.proot_fastclose_hits()>n" else "assert os.stat('/etc/passwd').st_size>0"}
                         with tempfile.TemporaryDirectory() as root:
                             target=root+'/target'
                             os.mkdir(target)
@@ -307,8 +315,8 @@ class RootlessFreshInstallTest {
                             "test \"${'$'}(cat /legacy-fixture/b)\" = preserved; " +
                             "test \"${'$'}(cat /root/legacy-home)\" = home; " +
                             "test \"${'$'}(cat /workspace/legacy-work)\" = workspace; " +
-                            "test -z \"${'$'}{LD_PRELOAD-}\"; " +
-                            "test -z \"${'$'}{PROOT_STDIO_BUFFER-}\"; " +
+                            (if (packagedLibrary != null) "test -n \"${'$'}{LD_PRELOAD-}\"; " else "test -z \"${'$'}{LD_PRELOAD-}\"; ") +
+                            (if (expectStdio) "test \"${'$'}{PROOT_STDIO_BUFFER-}\" = 1; " else "test -z \"${'$'}{PROOT_STDIO_BUFFER-}\"; ") +
                             "printf updated > /legacy-fixture/a; " +
                             "test \"${'$'}(cat /legacy-fixture/b)\" = updated; " +
                             "printf preserved > /legacy-fixture/a"), accelerationLibrary = packagedLibrary)

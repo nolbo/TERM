@@ -53,7 +53,9 @@ try:
     assert libc.proot_fastcreate_hits() > before
     before = libc.proot_fastunlink_hits()
     os.unlink('./new')
-    assert libc.proot_fastunlink_hits() > before and not os.path.exists(a + '/new')
+    assert not os.path.exists(a + '/new')
+    if os.environ.get('PROOT_TEST_EMULATED_LINKS') != '1':
+        assert libc.proot_fastunlink_hits() > before
     ready, changed = threading.Event(), threading.Event()
     errors = []
     def sibling():

@@ -10,7 +10,7 @@
  #include "cli/note.h"
  
  #include "compat.h"
-@@ -263,6 +266,144 @@
+@@ -263,6 +266,146 @@
  	status = new_program_filter(&program);
  	if (status < 0)
  		goto end;
@@ -47,7 +47,7 @@
 +			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)),
 +			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, (uint32_t)PROOT_FASTSTAT_PC, 0, 9),
 +			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 437 /* openat2 */, 6, 0),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 78 /* readlinkat */, 6, 0),
 +			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 80 /* fstat */, 5, 0),
 +			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 57 /* close */, 4, 0),
 +			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 56 /* openat */, 3, 0),
@@ -128,11 +128,13 @@
 +	if (mutation_entry && strcmp(mutation_entry, "1") == 0) {
 +		struct sock_filter entry[] = {
 +			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
-+			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 5),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 7),
 +			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
 +			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 38 /* renameat */, 0, 1),
 +			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
 +			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 276 /* renameat2 */, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 35 /* unlinkat */, 0, 1),
 +			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
 +		};
 +		status = add_statements(&program, sizeof(entry)/sizeof(entry[0]), entry);
@@ -165,12 +167,14 @@
  	{ PR_futimesat,		0 },
 --- a/src/syscall/enter.c
 +++ b/src/syscall/enter.c
-@@ -79,6 +79,12 @@
+@@ -79,6 +79,14 @@
  #include "path/binding.h"
  #include "path/temp.h"
  #include "arch.h"
 +#include "tracee/faststat.h"
 +#include "tracee/faststat-path.h"
++#define PROOT_NOFOLLOW_TRACER
++#include "tracee/open-nofollow.h"
 +#include <sys/uio.h>
 +#include "tracee/perf.h"
 +#include "extension/fake_id0/config.h"
@@ -178,7 +182,7 @@
  
  /* Older kernel headers may lack these. */
  #ifndef CLONE_NEWTIME
-@@ -1814,6 +1820,382 @@
+@@ -1814,6 +1820,421 @@
   * -errno if an error occured from the tracee's point-of-view (EFAULT
   * for instance), otherwise 0.
   */
@@ -270,7 +274,7 @@
 +/* Native-link experiment: complete ordinary metadata in the tracer's app UID.
 + * A guest seccomp ERRNO/KILL filter takes precedence over the TRACE event.
 + * Pseudo objects, alternate ABIs and extensions retain the kernel/exit path. */
-+static bool stat_entry_eligible(Tracee *tracee)
++static bool stat_entry_eligible(Tracee *tracee, bool emulated)
 +{
 +	if (tracee->seccomp != ENABLED || is_32on64_mode(tracee) ||
 +	    (get_sysnum(tracee, ORIGINAL) != PR_newfstatat &&
@@ -282,7 +286,8 @@
 +		LIST_FOREACH(extension, tracee->extensions, link) {
 +			/* mountinfo only rewrites TRANSLATED_PATH, already completed. */
 +			if (extension->callback != fake_id0_callback &&
-+			    extension->callback != mountinfo_callback) return false;
++			    extension->callback != mountinfo_callback &&
++			    !(emulated && extension->callback == link2symlink_callback)) return false;
 +		}
 +	}
 +	word_t flags = peek_reg(tracee, ORIGINAL, SYSARG_4);
@@ -324,6 +329,35 @@
 +	return true;
 +}
 +
++static bool complete_unlink_entry(Tracee *tracee)
++{
++#ifdef USERLAND
++	return false;
++#else
++	const char *setting = getenv("PROOT_MUTATION_ENTRY");
++	if (!setting || strcmp(setting, "1") || tracee->seccomp != ENABLED ||
++	    is_32on64_mode(tracee) || get_sysnum(tracee, ORIGINAL) != PR_unlinkat ||
++	    get_sysnum(tracee, CURRENT) != PR_unlinkat || peek_reg(tracee, CURRENT, SYSARG_3)) return false;
++	Extension *extension;
++	if (tracee->extensions)
++		LIST_FOREACH(extension, tracee->extensions, link)
++			if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback &&
++			    extension->callback != link2symlink_callback) return false;
++	char path[PATH_MAX];
++	struct stat info;
++	if (read_string(tracee, path, peek_reg(tracee, CURRENT, SYSARG_2), sizeof(path)) <= 0 ||
++	    path[0] != '/' || stat_entry_special(path) ||
++	    lstat(path, &info) || !S_ISREG(info.st_mode)) return false;
++	int result = unlinkat(AT_FDCWD, path, 0);
++	int status = result < 0 ? -errno : result;
++	poke_reg(tracee, SYSARG_RESULT, (word_t)status);
++	set_sysnum(tracee, PR_void);
++	tracee->sysexit_pending = false;
++	tracee->restart_how = PTRACE_CONT;
++	return true;
++#endif
++}
++
 +static bool id_entry_enabled(Tracee *tracee)
 +{
 +	switch (get_sysnum(tracee, ORIGINAL)) {
@@ -344,7 +378,8 @@
 +	if (!identity) return false;
 +	Extension *extension;
 +	LIST_FOREACH(extension, tracee->extensions, link)
-+		if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback)
++		if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback &&
++			    extension->callback != link2symlink_callback)
 +			return false;
 +	Config *config = identity->config;
 +	word_t result;
@@ -441,7 +476,8 @@
 +	if (tracee->extensions) {
 +		Extension *extension;
 +		LIST_FOREACH(extension, tracee->extensions, link)
-+			if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback)
++			if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback &&
++			    extension->callback != link2symlink_callback)
 +				return false;
 +	}
 +	if (number == PR_renameat2 && peek_reg(tracee, CURRENT, SYSARG_5) != 0) return false;
@@ -466,7 +502,7 @@
 +
 +static bool complete_stat_entry(Tracee *tracee)
 +{
-+	if (!stat_entry_eligible(tracee)) return false;
++	if (!stat_entry_eligible(tracee, false)) return false;
 +	char path[PATH_MAX];
 +	if (read_string(tracee, path, peek_reg(tracee, CURRENT, SYSARG_2), sizeof(path)) <= 0 ||
 +	    path[0] != '/' || stat_entry_special(path)) return false;
@@ -509,7 +545,7 @@
 +static bool kernel_stat_entry(Tracee *tracee)
 +{
 +	const char *setting = getenv("PROOT_STAT_KERNEL");
-+	if (!setting || strcmp(setting, "1") != 0 || !stat_entry_eligible(tracee)) return false;
++	if (!setting || strcmp(setting, "1") != 0 || !stat_entry_eligible(tracee, true)) return false;
 +	char input[PATH_MAX], path[PATH_MAX], cwd[PATH_MAX];
 +	if (get_sysarg_path(tracee, input, SYSARG_2) <= 0) return false;
 +	if (input[0] == '/') strcpy(path, input);
@@ -522,6 +558,7 @@
 +	for (const char *part = path + 1; *part;) {
 +		const char *slash = strchr(part, '/');
 +		size_t length = slash ? (size_t)(slash - part) : strlen(part);
++		if (!strncmp(part, ".l2s.", 5) || !strncmp(part, ".proot.l2s.", 11)) return false;
 +		if (length == 0 || (length == 1 && part[0] == '.') ||
 +		    (length == 2 && part[0] == '.' && part[1] == '.')) return false;
 +		if (!slash) break;
@@ -529,8 +566,14 @@
 +	}
 +	/* A nested binding can hide a symlink in its guest-side ancestors.
 +	 * The full resolver must decide those cases before applying the bind. */
++	size_t anchor_length = 0, guest_length = 0;
 +	Binding *binding;
 +	CIRCLEQ_FOREACH(binding, tracee->fs->bindings.guest, link.guest) {
++		Comparison match = compare_paths(binding->guest.path, path);
++		if ((match == PATHS_ARE_EQUAL || match == PATH1_IS_PREFIX) && strlen(binding->guest.path) > guest_length) {
++			guest_length = strlen(binding->guest.path);
++			anchor_length = strlen(binding->host.path);
++		}
 +		if (strchr(binding->guest.path + 1, '/') != NULL) {
 +			Comparison relation = compare_paths(binding->guest.path, path);
 +			if (relation == PATHS_ARE_EQUAL || relation == PATH1_IS_PREFIX) return false;
@@ -540,7 +583,7 @@
 +	    stat_entry_special(path)) return false;
 +	struct proot_open_how how = { .flags = O_PATH | O_CLOEXEC,
 +		.resolve = 0x04 /* RESOLVE_NO_SYMLINKS */ };
-+	int fd = syscall(437 /* AArch64 openat2 */, AT_FDCWD, path, &how, sizeof(how));
++	int fd = proot_open_bound_nofollow(proot_nofollow_call, path, anchor_length, how.flags);
 +	if (fd < 0) return false;
 +	struct stat result = {0};
 +	int status = fstat(fd, &result);
@@ -577,11 +620,18 @@
  	status = notify_extensions(tracee, SYSCALL_ENTER_START, 0, 0);
  	if (status < 0)
  		goto end;
-@@ -1839,6 +2228,99 @@
+@@ -1839,6 +2228,106 @@
  
  	/* Translate input arguments. */
  	syscall_number = get_sysnum(tracee, ORIGINAL);
 +#if defined(__aarch64__)
++	if (syscall_number == PR_unlinkat) {
++		const char *mutation = getenv("PROOT_MUTATION_ENTRY");
++		if (mutation && !strcmp(mutation, "1")) {
++			tracee->sysexit_pending = true;
++			tracee->restart_how = PTRACE_SYSCALL;
++		}
++	}
 +	if (fstat_entry_enabled(tracee)) {
 +		tracee->sysexit_pending = true;
 +		tracee->restart_how = PTRACE_SYSCALL;
@@ -756,12 +806,13 @@
  		break;
  	}
  
-@@ -2868,5 +3376,21 @@
+@@ -2868,5 +3376,22 @@
  	if (status2 < 0)
  		status = status2;
  
 +#if defined(__aarch64__)
 +	if (status >= 0) {
++		(void) complete_unlink_entry(tracee);
 +		(void) complete_stat_entry(tracee);
 +		(void) complete_fstat_entry(tracee);
 +		if (rename_old_address && rename_new_address &&
@@ -947,17 +998,19 @@
  	word_t *dest = (word_t *)dest_tracer;
 --- a/src/path/path.c
 +++ b/src/path/path.c
-@@ -36,6 +36,9 @@
+@@ -36,6 +36,11 @@
  #include "path/path.h"
  #include "path/binding.h"
  #include "tracee/perf.h"
 +#include "tracee/abi.h"
 +#include "syscall/syscall.h"
++#define PROOT_NOFOLLOW_TRACER
++#include "tracee/open-nofollow.h"
 +#include <stdlib.h>
  #include "path/canon.h"
  #include "path/proc.h"
  #include "extension/extension.h"
-@@ -308,6 +311,77 @@
+@@ -308,6 +311,85 @@
  	return 0;
  }
  
@@ -979,7 +1032,8 @@
 +	if (tracee->extensions) {
 +		Extension *extension;
 +		LIST_FOREACH(extension, tracee->extensions, link)
-+			if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback)
++			if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback &&
++			    extension->callback != link2symlink_callback)
 +				return false;
 +	}
 +	size_t length = strlen(guest);
@@ -987,13 +1041,20 @@
 +	for (const char *part = guest + 1; *part;) {
 +		const char *slash = strchr(part, '/');
 +		size_t size = slash ? (size_t)(slash - part) : strlen(part);
++		if (!strncmp(part, ".l2s.", 5) || !strncmp(part, ".proot.l2s.", 11)) return false;
 +		if (!size || (size == 1 && part[0] == '.') ||
 +		    (size == 2 && part[0] == '.' && part[1] == '.')) return false;
 +		if (!slash) break;
 +		part = slash + 1;
 +	}
++	size_t anchor_length = 0, guest_length = 0;
 +	Binding *binding;
 +	CIRCLEQ_FOREACH(binding, tracee->fs->bindings.guest, link.guest) {
++		Comparison match = compare_paths(binding->guest.path, guest);
++		if ((match == PATHS_ARE_EQUAL || match == PATH1_IS_PREFIX) && strlen(binding->guest.path) > guest_length) {
++			guest_length = strlen(binding->guest.path);
++			anchor_length = strlen(binding->host.path);
++		}
 +		Comparison relation = compare_paths(binding->guest.path, guest);
 +		if (strchr(binding->guest.path + 1, '/') &&
 +		    (relation == PATHS_ARE_EQUAL || relation == PATH1_IS_PREFIX)) return false;
@@ -1014,7 +1075,7 @@
 +	struct { uint64_t flags, mode, resolve; } how = {
 +		.flags = O_PATH | O_DIRECTORY | O_CLOEXEC, .resolve = 0x04 /* NO_SYMLINKS */
 +	};
-+	int fd = syscall(437 /* AArch64 openat2 */, AT_FDCWD, parent, &how, sizeof(how));
++	int fd = proot_open_bound_nofollow(proot_nofollow_call, parent, anchor_length, how.flags);
 +	if (fd < 0) return false;
 +	struct stat metadata;
 +	int status = fstatat(fd, last + 1, &metadata, AT_SYMLINK_NOFOLLOW);

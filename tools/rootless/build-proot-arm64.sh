@@ -66,15 +66,17 @@ done
 patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-android.patch"
 patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-perf.patch"
 if [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]]; then
+    cp "$repository_root/tools/rootless/faststat/open-nofollow.h" "$build_directory/proot-5.1.107.92/src/tracee/open-nofollow.h"
     cp "$repository_root/tools/rootless/faststat/protocol.h" "$build_directory/proot-5.1.107.92/src/tracee/faststat.h"
     cp "$repository_root/tools/rootless/faststat/fastfd.c" "$build_directory/proot-5.1.107.92/src/tracee/fastfd.c"
     patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-faststat.patch"
+    patch --fuzz=0 -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-emulated-links.patch"
 fi
 
 termux_prefix="$prefix/data/data/com.termux/files/usr"
 if [[ ${PROOT_BUILD_RENAME_LOCAL:-0} == 1 ]]; then
     [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]] || { echo 'local rename requires PROOT_BUILD_FASTSTAT=1' >&2; exit 1; }
-    patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-rename-local.patch"
+    patch --fuzz=0 -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-rename-local.patch"
 fi
 if [[ ${PROOT_BUILD_CLOSE_PROBE:-0} == 1 ]]; then
     [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]] || { echo 'close probe requires PROOT_BUILD_FASTSTAT=1' >&2; exit 1; }

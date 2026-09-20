@@ -25,6 +25,7 @@
 #include <sys/uio.h>
 #include <unistd.h>
 #include "protocol.h"
+#include "open-nofollow.h"
 
 #if !defined(__aarch64__) || !defined(__GLIBC__)
 #error "The faststat experiment supports glibc on AArch64 only"
@@ -137,11 +138,10 @@ __attribute__((constructor)) static void initialize_faststat(void)
         munmap(page, PROOT_FASTSTAT_MAPPING_SIZE);
         goto out;
     }
-    /* Read-only availability probe; a denied/absent openat2 disables this DSO. */
+    /* Use only Android-allowed syscalls, including this startup probe. */
     struct open_how how = { .flags = O_PATH | O_CLOEXEC,
         .resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS };
-    long fd = fast_syscall(SYS_openat2, AT_FDCWD, (long)".",
-                          (long)&how, sizeof(how));
+    long fd = proot_open_nofollow(fast_syscall, AT_FDCWD, ".", how.flags);
     if (fd < 0) {
         initialization_status = (int)fd;
         munmap(page, PROOT_FASTSTAT_MAPPING_SIZE);
@@ -245,12 +245,13 @@ static struct proot_fastfd_identity *current_identity(pid_t pid)
 /* Snapshot lookup only; the open dispatcher validates the same sequence
  * after its kernel operation. No inode or existence is cached. */
 static int lookup_shared_path(struct proot_fastpath_rules *rules, const char *path,
-                              char result[PATH_MAX])
+                              char result[PATH_MAX], size_t *anchor_length)
 {
     if (path[0] != '/') return 0;
     for (const char *part = path + 1; *part;) {
         const char *end = strchr(part, '/');
         size_t length = end ? (size_t)(end - part) : strlen(part);
+        if (!strncmp(part, ".l2s.", 5) || !strncmp(part, ".proot.l2s.", 11)) return 0;
         if (!length || (length == 1 && part[0] == '.') ||
             (length == 2 && part[0] == '.' && part[1] == '.')) return 0;
         if (!end) break;
@@ -284,6 +285,7 @@ static int lookup_shared_path(struct proot_fastpath_rules *rules, const char *pa
         size >= PROOT_FASTPATH_BYTES - offset) return 0;
     for (uint32_t j = 0; j <= size; j++) result[j] = atomic_load_explicit(&rules->paths[offset + j], memory_order_relaxed);
     if (result[size] || result[0] != '/') return 0;
+    if (anchor_length) *anchor_length = size;
     const char *suffix = path + (longest == 1 ? 1 : longest);
     if (size == 1 && *suffix == '/') suffix++;
     int separator = longest == 1 && size > 1 && *suffix;
@@ -348,8 +350,9 @@ int proot_fastpath_translate(const char *path, char *output, size_t capacity)
     pid_t pid = syscall(SYS_getpid);
     struct proot_fastfd_identity *identity = current_identity(pid);
     char copied[PATH_MAX], translated[PATH_MAX];
+    size_t anchor_length = 0;
     if (identity && copy_path(copied, path) &&
-        lookup_shared_path(&identity->paths, copied, translated)) {
+        lookup_shared_path(&identity->paths, copied, translated, &anchor_length)) {
         size_t length = strlen(translated) + 1;
         if (length <= capacity) {
             struct iovec local = { translated, length }, remote = { output, length };
@@ -400,11 +403,12 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
     masked = 1;
     struct proot_fastfd_identity *identity = current_identity(syscall(SYS_getpid));
     char copied[PATH_MAX], translated[PATH_MAX];
+    size_t anchor_length = 0;
     if (!identity || !copy_path(copied, path)) goto slow_open;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
     if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
         !normalize_simple_path(copied)) goto slow_open;
-    if (!lookup_shared_path(&identity->paths, copied, translated)) goto slow_open;
+    if (!lookup_shared_path(&identity->paths, copied, translated, &anchor_length)) goto slow_open;
     char *basename = NULL;
     if (creating) {
         char *slash = strrchr(translated, '/');
@@ -414,7 +418,7 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
     }
     struct open_how how = { .flags = O_PATH | O_CLOEXEC | (creating ? O_DIRECTORY : 0),
                             .resolve = RESOLVE_NO_SYMLINKS };
-    pin = fast_syscall(SYS_openat2, AT_FDCWD, (long)translated, (long)&how, sizeof(how));
+    pin = proot_open_bound_nofollow(fast_syscall, translated, anchor_length, how.flags);
     if (pin < 0) goto slow_open;
     struct stat info;
     if (fast_syscall(SYS_fstat, pin, (long)&info, 0, 0) < 0 ||
@@ -470,17 +474,21 @@ int unlinkat(int dirfd, const char *path, int flags)
     masked = 1;
     struct proot_fastfd_identity *identity = current_identity(syscall(SYS_getpid));
     char copied[PATH_MAX], translated[PATH_MAX];
-    if (!identity || !copy_path(copied, path)) goto slow_unlink;
+    size_t anchor_length = 0;
+    /* Emulated unlink updates virtual link counts; even an ordinary name can
+     * become an alias concurrently. Keep the entire mutation in the tracer. */
+    if (!identity || atomic_load(&identity->active) != 1 ||
+        !copy_path(copied, path)) goto slow_unlink;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
     if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
         !normalize_simple_path(copied)) goto slow_unlink;
-    if (!lookup_shared_path(&identity->paths, copied, translated)) goto slow_unlink;
+    if (!lookup_shared_path(&identity->paths, copied, translated, &anchor_length)) goto slow_unlink;
     char *slash = strrchr(translated, '/');
     if (!slash || slash == translated || !slash[1]) goto slow_unlink;
     *slash = '\0';
     struct open_how how = { .flags = O_PATH | O_DIRECTORY | O_CLOEXEC,
                            .resolve = RESOLVE_NO_SYMLINKS };
-    pin = fast_syscall(SYS_openat2, AT_FDCWD, (long)translated, (long)&how, sizeof(how));
+    pin = proot_open_bound_nofollow(fast_syscall, translated, anchor_length, how.flags);
     if (pin < 0 || !ordinary_storage(pin) ||
         sequence != atomic_load(&identity->paths.sequence) ||
         !atomic_load(&identity->paths.active)) goto slow_unlink;
@@ -555,10 +563,27 @@ int fstat(int fd, struct stat *output)
     pid_t pid = (pid_t)syscall(SYS_getpid);
     struct proot_fastfd_identity *identity = current_identity(pid);
     if (!identity) goto slow_fd;
+    /* Observe the live descriptor name on both sides of fstat. Linking an
+     * already-open ordinary inode renames it to an l2s backing file. Never
+     * infer virtual nlink from the kernel's nlink or a cached FD classification. */
+    char descriptor[64], before[PATH_MAX], after[PATH_MAX];
+    int emulated = atomic_load(&identity->active) == 2;
+    long before_length = 0;
+    if (emulated) {
+        snprintf(descriptor, sizeof(descriptor), "/proc/self/fd/%d", fd);
+        before_length = fast_syscall(SYS_readlinkat, AT_FDCWD, (long)descriptor, (long)before, sizeof(before) - 1);
+        if (before_length <= 0 || before_length >= (long)sizeof(before) - 1) goto slow_fd;
+        before[before_length] = 0;
+        if (strstr(before, "/.l2s.") || strstr(before, "/.proot.l2s.")) goto slow_fd;
+    }
     struct stat result;
     if (fast_syscall(SYS_fstat, fd, (long)&result, 0, 0) < 0 ||
         (!S_ISREG(result.st_mode) && !S_ISDIR(result.st_mode)) ||
         !map_identity(identity, &result)) goto slow_fd;
+    if (emulated) {
+        long length = fast_syscall(SYS_readlinkat, AT_FDCWD, (long)descriptor, (long)after, sizeof(after) - 1);
+        if (length != before_length || memcmp(before, after, before_length)) goto slow_fd;
+    }
     struct iovec local = { &result, sizeof(result) }, remote = { output, sizeof(result) };
     if (syscall(SYS_process_vm_writev, pid, &local, 1, &remote, 1, 0) != sizeof(result)) goto slow_fd;
     atomic_fetch_add_explicit(&fd_hits, 1, memory_order_relaxed);
@@ -624,13 +649,14 @@ static int shared_path_stat(int dirfd, const char *path, struct stat *output, in
     pid_t pid = syscall(SYS_getpid);
     struct proot_fastfd_identity *identity = current_identity(pid);
     char copied[PATH_MAX], translated[PATH_MAX];
+    size_t anchor_length = 0;
     if (!identity || !copy_path(copied, path)) goto done;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
     if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
         !normalize_simple_path(copied) ||
-        !lookup_shared_path(&identity->paths, copied, translated)) goto done;
+        !lookup_shared_path(&identity->paths, copied, translated, &anchor_length)) goto done;
     struct open_how how = { .flags = O_PATH | O_CLOEXEC, .resolve = RESOLVE_NO_SYMLINKS };
-    pin = fast_syscall(SYS_openat2, AT_FDCWD, (long)translated, (long)&how, sizeof(how));
+    pin = proot_open_bound_nofollow(fast_syscall, translated, anchor_length, how.flags);
     if (pin < 0 || !ordinary_storage(pin)) goto done;
     struct stat result;
     /* Use the original syscall number: guest seccomp denial still wins. */
@@ -658,7 +684,7 @@ int fstatat(int dirfd, const char *path, struct stat *output, int flags)
     struct stat result;
     if (shared_path_stat(dirfd, path, output, flags)) return 0;
     /* PRoot's cwd is virtual. Mode 1 requires a real directory FD;
-     * mode 2 obtains an absolute host path before issuing raw openat2. */
+     * mode 2 obtains an absolute host path before a no-follow directory walk. */
     if (!enabled || !path_enabled || (flags != 0 && flags != AT_SYMLINK_NOFOLLOW)) goto slow;
     if (!copy_path(copied, path) || !copied[0]) goto slow;
     struct proot_faststat_context context = {0};
@@ -674,7 +700,7 @@ int fstatat(int dirfd, const char *path, struct stat *output, int flags)
         if (context.path[0] != '/' || !memchr(context.path, '\0', sizeof(context.path))) goto slow;
         if (context.result_errno == ENOENT && !context.emulated_nlink) {
             /* The tracer observed the missing final path in this request.
-             * Never promote openat2 errors: a guest filter can invent those. */
+             * Never promote resolver errors: a guest filter can invent those. */
             atomic_fetch_add_explicit(&negative_hits, 1, memory_order_relaxed);
             atomic_fetch_add_explicit(&hits, 1, memory_order_relaxed);
             errno = ENOENT;
@@ -691,7 +717,7 @@ int fstatat(int dirfd, const char *path, struct stat *output, int flags)
     struct open_how how = { .flags = O_PATH | O_CLOEXEC,
         .resolve = RESOLVE_NO_SYMLINKS |
             (execution_mode == PROOT_FASTSTAT_VERSION ? RESOLVE_BENEATH : 0) };
-    long fd = fast_syscall(SYS_openat2, kernel_dirfd, (long)kernel_path, (long)&how, sizeof(how));
+    long fd = proot_open_nofollow(fast_syscall, kernel_dirfd, kernel_path, how.flags);
     if (fd < 0) goto slow;
     long status = fast_syscall(SYS_fstat, fd, (long)&result, 0, 0);
     fast_syscall(SYS_close, fd, 0, 0, 0);

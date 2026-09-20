@@ -54,7 +54,7 @@ try:
     assert translated('relative') is None
     assert translated('/tmp/../etc') is None
     assert translated('/tmp//file') is None
-    assert translated('/tmp/terminal-faststat-apk/libproot-faststat.so') is None
+    assert translated(os.environ.get('PROOT_TEST_LIBRARY', '/tmp/terminal-faststat-apk/libproot-faststat.so')) is None
     assert lookup((target + '/file').encode(), ctypes.c_void_p(1), 4096) == 0
     assert lookup((target + '/file').encode(), ctypes.create_string_buffer(1), 1) == 0
     ready, changed = threading.Event(), threading.Event()

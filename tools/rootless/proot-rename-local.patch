@@ -1,6 +1,6 @@
 --- a/src/syscall/enter.c
 +++ b/src/syscall/enter.c
-@@ -2060,13 +2060,31 @@
+@@ -2093,13 +2093,32 @@
  
  /* Only calls without returned FDs or user-memory writes are completed here.
   * Directory renames retain the existing syscall exit processing. */
@@ -17,7 +17,8 @@
 +	Extension *extension;
 +	if (tracee->extensions)
 +		LIST_FOREACH(extension, tracee->extensions, link)
-+			if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback)
++			if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback &&
++			    extension->callback != link2symlink_callback)
 +				return false;
 +	return true;
 +#endif
@@ -34,7 +35,7 @@
  	if (status >= 0) strcpy(path, translated);
  	return status;
  }
-@@ -2215,6 +2233,7 @@
+@@ -2256,6 +2275,7 @@
  #if defined(__aarch64__)
  	word_t permission_path_address = 0;
  	word_t rename_old_address = 0, rename_new_address = 0;
@@ -42,12 +43,13 @@
  #endif
  
  	fastclose_observe_enter(tracee);
-@@ -3173,9 +3192,10 @@
+@@ -3214,9 +3234,11 @@
  
  #if defined(__aarch64__)
  		if (mutation_entry_enabled(tracee) && oldpath[0] && newpath[0]) {
 -			status = translate_rename_path(tracee, olddirfd, oldpath, SYSARG_2);
-+			rename_local = rename_local_enabled(tracee);
++			rename_local = rename_local_enabled(tracee) &&
++			    peek_reg(tracee, CURRENT, SYSARG_2) != peek_reg(tracee, CURRENT, SYSARG_4);
 +			status = translate_rename_path(tracee, olddirfd, oldpath, SYSARG_2, rename_local);
  			if (status < 0) break;
 -			status = translate_rename_path(tracee, newdirfd, newpath, SYSARG_4);
@@ -55,8 +57,27 @@
  			if (status < 0) break;
  			rename_old_address = peek_reg(tracee, CURRENT, SYSARG_2);
  			rename_new_address = peek_reg(tracee, CURRENT, SYSARG_4);
-@@ -3380,10 +3400,18 @@
- 	if (status >= 0) {
+@@ -3413,7 +3435,18 @@
+ 
+ 
+ end:
++#if defined(__aarch64__)
++	/* Only synchronous callbacks may use these stack-backed strings. */
++	if (status >= 0 && rename_local && rename_old_address && rename_new_address) {
++		tracee->local_rename_old = oldpath;
++		tracee->local_rename_new = newpath;
++		tracee->local_rename_old_address = rename_old_address;
++		tracee->local_rename_new_address = rename_new_address;
++	}
++#endif
+ 	status2 = notify_extensions(tracee, SYSCALL_ENTER_END, status, 0);
++	tracee->local_rename_old = NULL;
++	tracee->local_rename_new = NULL;
+ 	if (status2 < 0)
+ 		status = status2;
+ 
+@@ -3422,10 +3455,18 @@
+ 		(void) complete_unlink_entry(tracee);
  		(void) complete_stat_entry(tracee);
  		(void) complete_fstat_entry(tracee);
 -		if (rename_old_address && rename_new_address &&
@@ -78,3 +99,35 @@
  		(void) complete_id_entry(tracee);
  		if (permission_path_address && permission_path_address == peek_reg(tracee, CURRENT, SYSARG_2))
  			(void) complete_permission_entry(tracee, newpath);
+--- a/src/tracee/tracee.h
++++ b/src/tracee/tracee.h
+@@ -96,6 +96,8 @@
+ 	bool reuse_open_path;
+ 	word_t rewritten_open_path_address;
+ 	char rewritten_open_path[PATH_MAX];
++	const char *local_rename_old, *local_rename_new;
++	word_t local_rename_old_address, local_rename_new_address;
+ 
+ 	/* Is it currently running or not?  */
+ 	bool running;
+--- a/src/tracee/mem.c
++++ b/src/tracee/mem.c
+@@ -422,6 +422,18 @@
+ 		size_t length = strlen(tracee->rewritten_open_path) + 1;
+ 		if (length <= max_size) {
+ 			memcpy(dest_tracer, tracee->rewritten_open_path, length);
++			return length;
++		}
++	}
++	const char *local_rename = NULL;
++	if (tracee->local_rename_old && src_tracee == tracee->local_rename_old_address)
++		local_rename = tracee->local_rename_old;
++	if (tracee->local_rename_new && src_tracee == tracee->local_rename_new_address)
++		local_rename = tracee->local_rename_new;
++	if (local_rename) {
++		size_t length = strlen(local_rename) + 1;
++		if (length <= max_size) {
++			memcpy(dest_tracer, local_rename, length);
+ 			return length;
+ 		}
+ 	}
