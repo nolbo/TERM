@@ -1,0 +1,24 @@
+--- a/tools/rootless/faststat/faststat.c
++++ b/tools/rootless/faststat/faststat.c
+@@ -84,8 +84,21 @@
+     release_identity(local);
+ }
+ 
++static _Atomic unsigned long cost_counts[2][512];
++static void cost_record(unsigned kind, long nr) {
++    if (nr >= 0 && nr < 512) atomic_fetch_add(&cost_counts[kind][nr], 1);
++}
++unsigned long proot_cost_count(unsigned kind, unsigned nr) {
++    return kind < 2 && nr < 512 ? atomic_load(&cost_counts[kind][nr]) : 0;
++}
++void proot_cost_reset(void) {
++    for (unsigned k = 0; k < 2; k++)
++        for (unsigned n = 0; n < 512; n++) atomic_store(&cost_counts[k][n], 0);
++}
++#define syscall(number, ...) (cost_record(0, (number)), syscall((number), ##__VA_ARGS__))
+ static long fast_syscall(long nr, long a, long b, long c, long d)
+ {
++    cost_record(1, nr);
+     register long x0 __asm__("x0") = a;
+     register long x1 __asm__("x1") = b;
+     register long x2 __asm__("x2") = c;

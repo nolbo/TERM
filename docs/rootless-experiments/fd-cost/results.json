@@ -1,0 +1,171 @@
+{
+  "base_commit": "bc39fb4",
+  "scope": "Counts only explicit syscall and fast_syscall calls in faststat.c. Excludes libc read/ioctl/lseek and tracer-side syscalls. No duration measurement. Same current engine/DSO in both formats; openat2 denied in both. One fresh process per format.",
+  "environment": "API 35 ARM64 redroid, Ubuntu guest, app UID",
+  "sha256": {
+    "engine": "02214cf3d501a41932d2d57133f33fe3d3fa7e887a9d980457c77bec3c5e82b7",
+    "instrumented_dso": "faafd1674fe4b27fec09e902d7be164ad9a6166cf0bc8cb0bf31e3801660f142"
+  },
+  "results": {
+    "emulated": [
+      {
+        "operation": "python-open",
+        "single_safe": 1,
+        "ordinary_dso": {
+          "rt_sigprocmask": 2,
+          "getpid": 2,
+          "process_vm_readv": 1,
+          "process_vm_writev": 1
+        },
+        "trampoline_dso": {
+          "openat": 2,
+          "close": 1,
+          "readlinkat": 2,
+          "fstat": 2
+        }
+      },
+      {
+        "operation": "python-read",
+        "single_safe": 1,
+        "ordinary_dso": {
+          "getpid": 1,
+          "process_vm_writev": 1
+        },
+        "trampoline_dso": {
+          "readlinkat": 1,
+          "fstat": 1
+        }
+      },
+      {
+        "operation": "python-close",
+        "single_safe": 1,
+        "ordinary_dso": {
+          "rt_sigprocmask": 2,
+          "getpid": 1
+        },
+        "trampoline_dso": {
+          "close": 1,
+          "fstat": 1
+        }
+      },
+      {
+        "operation": "os-open",
+        "single_safe": 1,
+        "ordinary_dso": {
+          "rt_sigprocmask": 2,
+          "getpid": 1,
+          "process_vm_readv": 1
+        },
+        "trampoline_dso": {
+          "openat": 2,
+          "close": 1,
+          "readlinkat": 1,
+          "fstat": 1
+        }
+      },
+      {
+        "operation": "os-fstat",
+        "single_safe": 1,
+        "ordinary_dso": {
+          "getpid": 1,
+          "process_vm_writev": 1
+        },
+        "trampoline_dso": {
+          "readlinkat": 1,
+          "fstat": 1
+        }
+      },
+      {
+        "operation": "os-close",
+        "single_safe": 1,
+        "ordinary_dso": {
+          "rt_sigprocmask": 2,
+          "getpid": 1
+        },
+        "trampoline_dso": {
+          "close": 1,
+          "fstat": 1
+        }
+      }
+    ],
+    "native": [
+      {
+        "operation": "python-open",
+        "single_safe": 1,
+        "ordinary_dso": {
+          "rt_sigprocmask": 2,
+          "getpid": 2,
+          "process_vm_readv": 1,
+          "process_vm_writev": 1
+        },
+        "trampoline_dso": {
+          "openat": 2,
+          "close": 1,
+          "readlinkat": 1,
+          "fstat": 2
+        }
+      },
+      {
+        "operation": "python-read",
+        "single_safe": 1,
+        "ordinary_dso": {
+          "getpid": 1,
+          "process_vm_writev": 1
+        },
+        "trampoline_dso": {
+          "fstat": 1
+        }
+      },
+      {
+        "operation": "python-close",
+        "single_safe": 1,
+        "ordinary_dso": {
+          "rt_sigprocmask": 2,
+          "getpid": 1
+        },
+        "trampoline_dso": {
+          "close": 1,
+          "fstat": 1
+        }
+      },
+      {
+        "operation": "os-open",
+        "single_safe": 1,
+        "ordinary_dso": {
+          "rt_sigprocmask": 2,
+          "getpid": 1,
+          "process_vm_readv": 1
+        },
+        "trampoline_dso": {
+          "openat": 2,
+          "close": 1,
+          "readlinkat": 1,
+          "fstat": 1
+        }
+      },
+      {
+        "operation": "os-fstat",
+        "single_safe": 1,
+        "ordinary_dso": {
+          "getpid": 1,
+          "process_vm_writev": 1
+        },
+        "trampoline_dso": {
+          "fstat": 1
+        }
+      },
+      {
+        "operation": "os-close",
+        "single_safe": 1,
+        "ordinary_dso": {
+          "rt_sigprocmask": 2,
+          "getpid": 1
+        },
+        "trampoline_dso": {
+          "close": 1,
+          "fstat": 1
+        }
+      }
+    ]
+  }
+}
