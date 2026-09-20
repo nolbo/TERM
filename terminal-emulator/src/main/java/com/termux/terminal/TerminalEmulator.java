@@ -187,10 +187,6 @@ public final class TerminalEmulator {
     /** The terminal session this emulator is bound to. */
     private final TerminalOutput mSession;
     private boolean mReplaying;
-    private boolean mShellPromptReady;
-    private boolean mWritingTerminalResponse;
-    private boolean mPasteBracketed;
-    private final java.util.ArrayDeque<String> mPasteLines = new java.util.ArrayDeque<>();
     private final SynchronizedOutput mSynchronizedOutput = new SynchronizedOutput();
     public long getSynchronizedOutputDelayMillis() { return mSynchronizedOutput.remainingMillis(); }
 
@@ -348,11 +344,7 @@ public final class TerminalEmulator {
         mSession = new TerminalOutput() {
             @Override
             public void write(byte[] data, int offset, int count) {
-                if (!mReplaying) {
-                    mWritingTerminalResponse = true;
-                    try { session.write(data, offset, count); }
-                    finally { mWritingTerminalResponse = false; }
-                }
+                if (!mReplaying) session.write(data, offset, count);
             }
 
             @Override
@@ -559,7 +551,6 @@ public final class TerminalEmulator {
 
     /** Restore a transcript's screen state, without answering historical queries to the live PTY. */
     public void appendReplay(byte[] buffer, int length) {
-        cancelPendingPaste();
         boolean previous = mReplaying;
         mReplaying = true;
         try {
@@ -2180,14 +2171,6 @@ public final class TerminalEmulator {
         }
 
         switch (value) {
-            case 133:
-                // App shell integration emits B only after PS1/PS2 is fully printed.
-                // Never advance input in response to historical transcript output.
-                if (!mReplaying && "B".equals(textParameter)) {
-                    mShellPromptReady = true;
-                    sendNextPasteLine();
-                }
-                break;
             case 0: // Change icon name and window title to T.
             case 1: // Change icon name to T.
             case 2: // Change window title to T.
@@ -2691,7 +2674,6 @@ public final class TerminalEmulator {
 
     /** Reset terminal state so user can interact with it regardless of present state. */
     public void reset() {
-        cancelPendingPaste();
         mSynchronizedOutput.end();
         mMainGraphics.reset();
         mAltGraphics.reset();
@@ -2749,53 +2731,16 @@ public final class TerminalEmulator {
         }
     }
 
-    /** At an integrated shell prompt, pace multiline input by prompts; otherwise use DECSET 2004. */
+    /** If DECSET 2004 is set, prefix paste with "\033[200~" and suffix with "\033[201~". */
     public void paste(String text) {
         // First: Always remove escape key and C1 control characters [0x80,0x9F]:
         text = text.replaceAll("(\u001B|[\u0080-\u009F])", "");
-        // Second: Replace all newlines (\n) or CRLF (\r\n) with carriage returns (\r).
-        text = text.replaceAll("\r?\n", "\r");
-
-        if (mShellPromptReady && !isAlternateBufferActive() && text.indexOf('\r') >= 0) {
-            mPasteLines.clear();
-            mPasteBracketed = isDecsetInternalBitSet(DECSET_BIT_BRACKETED_PASTE_MODE);
-            // A clipboard's trailing newline must never submit the last command.
-            text = text.replaceAll("\r[ \t\r]*$", "");
-            if (text.isEmpty()) return;
-            java.util.Collections.addAll(mPasteLines, text.split("\r", -1));
-            sendNextPasteLine();
-            return;
-        }
-        cancelPendingPaste();
-
-        // Then: Implement bracketed paste mode if enabled:
         boolean bracketed = isDecsetInternalBitSet(DECSET_BIT_BRACKETED_PASTE_MODE);
+        // Bracketed paste is application data: preserve all newline characters,
+        // including the final newline. Otherwise retain the legacy Enter encoding.
+        if (!bracketed) text = text.replaceAll("\r?\n", "\r");
         // Keep the paste envelope and payload in one transport write.
         mSession.write(bracketed ? "\033[200~" + text + "\033[201~" : text);
-    }
-
-    /** User input interrupts automation; terminal protocol replies do not. */
-    public void onUserInput() {
-        if (!mWritingTerminalResponse) cancelPendingPaste();
-    }
-
-    public void cancelPendingPaste() {
-        mPasteLines.clear();
-        mShellPromptReady = false;
-    }
-
-    public boolean isShellPromptReady() { return mShellPromptReady; }
-
-    private void sendNextPasteLine() {
-        if (!mShellPromptReady || mPasteLines.isEmpty()) return;
-        mShellPromptReady = false;
-        String line = mPasteLines.removeFirst();
-        // Preserve literal tabs and readline editing characters inside each line.
-        // Bash temporarily disables 2004 between prompts, so retain the mode at paste start.
-        if (mPasteBracketed) line = "\033[200~" + line + "\033[201~";
-        // Real Enter outside a paste envelope lets the shell parse continuations,
-        // quotes, compound commands and heredocs, and print its own PS2.
-        mSession.write(line + (mPasteLines.isEmpty() ? "" : "\r"));
     }
 
     /** http://www.vt100.net/docs/vt510-rm/DECSC */

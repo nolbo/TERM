@@ -18,9 +18,8 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.json.JSONArray
 import org.json.JSONObject
-import org.junit.Assert.assertTrue
-import org.junit.Assert.assertFalse
 import org.junit.Assume.assumeTrue
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
@@ -28,9 +27,7 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class MultilinePasteTest {
     @Test fun nativePaste() = checkRuntime("NATIVE")
-    @Test fun debianPaste() = checkRuntime("ROOTLESS")
-    @Test fun ubuntuPaste() = checkRuntime("ROOTLESS_UBUNTU")
-    @Test fun archPaste() = checkRuntime("ROOTLESS_ARCH")
+    @Test fun rootlessPaste() = checkRuntime("ROOTLESS")
 
     private fun checkRuntime(runtime: String) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
@@ -90,36 +87,12 @@ class MultilinePasteTest {
                         ready
                     }
                     for (ime in listOf(true, false)) {
-                        instrumentation.runOnMainSync { terminal.write("\r") }
-                        await {
-                            var ready = false
-                            instrumentation.runOnMainSync { ready = terminal.emulator.isShellPromptReady }
-                            ready
-                        }
                         val tag = if (ime) "IME" else "MENU"
-                        // read must time out: sending the next line early would consume it.
-                        val payload = "if read -t 1 stolen; then echo ${tag}_STOLEN; fi\r\n" +
-                            "echo ${tag}_FIRST\necho ${tag}_\\\nJOIN\n" +
-                            "cat <<'PASTE_END'\n${tag}_HEREDOC\nPASTE_END\n" +
-                            "echo '${tag}_QUOTE\nEND'\necho ${tag}_LAST\n"
+                        val payload = "echo ${tag}_FIRST\r\necho ${tag}_\\\nJOIN\necho ${tag}_LAST"
                         instrumentation.runOnMainSync {
                             if (ime) view.onCreateInputConnection(EditorInfo()).commitText(payload, 1)
-                            else terminal.emulator.paste(payload)
-                        }
-                        await {
-                            var text = ""
-                            instrumentation.runOnMainSync { text = terminal.emulator.screen.transcriptText }
-                            text.trimEnd().endsWith("echo ${tag}_LAST")
-                        }
-                        instrumentation.runOnMainSync {
-                            val lines = terminal.emulator.screen.transcriptText.lines()
-                            assertTrue(lines.any { it.startsWith("> ") })
-                            assertTrue("${tag}_FIRST" in lines)
-                            assertTrue("${tag}_JOIN" in lines)
-                            assertTrue("${tag}_HEREDOC" in lines)
-                            assertTrue("${tag}_QUOTE" in lines)
-                            assertFalse("${tag}_STOLEN" in lines)
-                            assertFalse("${tag}_LAST" in lines)
+                            else view.pasteText(payload)
+                            // Accept bracketed paste (also executes the last line in mksh).
                             terminal.write("\r")
                         }
                         await {

@@ -137,10 +137,7 @@ class UnifiedSessionRegistry(
     ): Result<SessionDescriptor> = mutationMutexes.getValue(runtime).withLock {
         runCatching { beforeCreate() }.exceptionOrNull()?.let { return@withLock Result.failure(it) }
         controller(runtime).fold(
-            onSuccess = { controller -> controller.create(shell, cwd,
-                if (runtime == SessionRuntime.AVF && shell.substringAfterLast('/') == "bash" && SessionCommand.decode(env) == null)
-                    env + ("PROMPT_COMMAND" to bashPromptCommand(env["PROMPT_COMMAND"])) else env,
-                rows, cols).onSuccess { created ->
+            onSuccess = { controller -> controller.create(shell, cwd, env, rows, cols).onSuccess { created ->
                 owners[created.id] = runtime
                 lastKnownSessions.compute(runtime) { _, sessions -> sessions.orEmpty().filterNot { it.id == created.id } + created }
             } },

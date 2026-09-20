@@ -11,10 +11,9 @@ class NativeShellRcTest {
     @Test fun `mksh colour escapes are delimited and reset before input`() {
         val home = temporary.newFolder("colours")
         val coloured = prompt(home, home, mapOf("TERM" to "xterm-256color", "KSH_VERSION" to "test-mksh"))
-        val ready = "\u0001\u001b]133;B\u0007\u0001"
-        assertEquals("\u0001\r\u0001\u001b[0;32m\u0001~\u0001\u001b[0m\u0001 $ $ready", coloured)
-        assertEquals("\u0001~ $ $ready", prompt(home, home, mapOf("TERM" to "dumb", "KSH_VERSION" to "test-mksh")))
-        assertEquals("\u0001~ $ $ready", prompt(home, home, mapOf("TERM" to "xterm", "KSH_VERSION" to "test-mksh", "NO_COLOR" to "1")))
+        assertEquals("\u0001\r\u0001\u001b[0;32m\u0001~\u0001\u001b[0m\u0001 $ ", coloured)
+        assertEquals("~ $ ", prompt(home, home, mapOf("TERM" to "dumb", "KSH_VERSION" to "test-mksh")))
+        assertEquals("~ $ ", prompt(home, home, mapOf("TERM" to "xterm", "KSH_VERSION" to "test-mksh", "NO_COLOR" to "1")))
     }
 
     @Test fun `home aliases and children use tilde but outside paths do not`() {

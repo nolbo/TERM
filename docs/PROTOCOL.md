@@ -1,20 +1,19 @@
 # Protocol
 
-## Shell prompt and sequential paste
+## Terminal paste
 
-The app-owned Native mksh defaults and the default Bash launch environment append
-`OSC 133 ; B BEL` to PS1 and PS2, inside shell-specific nonprinting delimiters.
-The terminal sends one physical clipboard line and Enter, then waits for the next
-live prompt notification. The last line is sent without Enter; trailing blank lines
-are removed. The shell parses continuations, compound commands and heredocs.
-Output silence, elapsed time and visible `$`/`>` characters are not completion signals.
+Paste is application input, not a shell command queue. With DECSET 2004 enabled,
+the terminal sends `ESC [ 200 ~`, the complete sanitized clipboard text, and
+`ESC [ 201 ~` in one transport write. LF, CRLF, tabs, blank lines and the presence
+or absence of a final newline are preserved. With 2004 disabled, the legacy LF/CRLF
+to CR (Enter) conversion remains; no lines are trimmed, split into separate writes,
+or delayed for prompt notifications. This applies equally to main and alternate
+screens. Existing ESC/C1 filtering prevents pasted escape characters from breaking
+the framing. The active application controls execution and paste interpretation.
 
-The queue is transient terminal input state, not process ownership. Manual input,
-view detach/session switch, reset, process exit or transcript replay cancels it.
-Replay notifications never send input. Nonintegrated shells and applications retain
-their original bracketed-paste behavior. Prompt notifications are untrusted output
-and grant no Android capability; applications can emit them, so this is shell
-coordination, not an authenticated process-completion or security boundary.
+Explicit paste actions share `TerminalView.pasteText` / `pasteFromClipboard`,
+which delegate to `TerminalEmulator.paste`. Shell PS1, PS2 and PROMPT_COMMAND are
+not modified for paste. OSC 133 output and replay never schedule clipboard input.
 
 ## Shared registered iPhone tools
 

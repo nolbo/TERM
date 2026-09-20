@@ -356,7 +356,6 @@ public final class TerminalView extends View {
     public boolean attachSession(TerminalSession session) {
         if (session != mTermSession) mKittyPressedKeys.clear();
         if (session == mTermSession) return false;
-        if (mEmulator != null) mEmulator.cancelPendingPaste();
         mScaleFactor = 1.f;
         if (mRenderer != null) mRenderer.clearPresentedFrame();
         stopScrollAnimation();
@@ -431,6 +430,15 @@ public final class TerminalView extends View {
         BaseInputConnection connection = new BaseInputConnection(this, true) {
 
             @Override
+            public boolean performContextMenuAction(int id) {
+                if (id == android.R.id.paste || id == android.R.id.pasteAsPlainText) {
+                    pasteFromClipboard();
+                    return true;
+                }
+                return super.performContextMenuAction(id);
+            }
+
+            @Override
             public boolean setComposingText(CharSequence text, int newCursorPosition) {
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED)
                     mClient.logInfo(LOG_TAG, "IME: setComposingText(\"" + text + "\", " + newCursorPosition + ")");
@@ -498,10 +506,11 @@ public final class TerminalView extends View {
             void sendTextToTerminal(CharSequence text) {
                 if (text.length() != 0) scrollToLatest();
                 stopTextSelectionMode();
-                // IME clipboard commits use the same shell-paced paste path as the menu.
+                // IME clipboard commits bypass the selection menu. Preserve multiline pastes
+                // as a unit, including shell line continuations and bracketed-paste framing.
                 if (text.length() > 1 && (TextUtils.indexOf(text, '\n') >= 0 ||
                     TextUtils.indexOf(text, '\r') >= 0)) {
-                    mEmulator.paste(text.toString());
+                    pasteText(text);
                     return;
                 }
                 final int textLengthInChars = text.length();
@@ -854,15 +863,7 @@ public final class TerminalView extends View {
                 if (action == MotionEvent.ACTION_DOWN) showContextMenu();
                 return true;
             } else if (event.isButtonPressed(MotionEvent.BUTTON_TERTIARY)) {
-                ClipboardManager clipboardManager = (ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
-                ClipData clipData = clipboardManager.getPrimaryClip();
-                if (clipData != null) {
-                    ClipData.Item clipItem = clipData.getItemAt(0);
-                    if (clipItem != null) {
-                        CharSequence text = clipItem.coerceToText(getContext());
-                        if (!TextUtils.isEmpty(text)) { scrollToLatest(); mEmulator.paste(text.toString()); }
-                    }
-                }
+                if (action == MotionEvent.ACTION_DOWN) pasteFromClipboard();
             } else if (mEmulator.isMouseTrackingActive()) { // BUTTON_PRIMARY.
                 switch (event.getAction()) {
                     case MotionEvent.ACTION_DOWN:
@@ -1008,6 +1009,12 @@ public final class TerminalView extends View {
         if (TERMINAL_VIEW_KEY_LOGGING_ENABLED)
             mClient.logInfo(LOG_TAG, "onKeyDown(keyCode=" + keyCode + ", isSystem()=" + event.isSystem() + ", event=" + event + ")");
         if (mEmulator == null) return true;
+        if (keyCode == KeyEvent.KEYCODE_PASTE ||
+            (keyCode == KeyEvent.KEYCODE_V && event.isCtrlPressed() && event.isShiftPressed() && !event.isAltPressed()) ||
+            (keyCode == KeyEvent.KEYCODE_INSERT && event.isShiftPressed() && !event.isCtrlPressed() && !event.isAltPressed())) {
+            if (event.getRepeatCount() == 0) pasteFromClipboard();
+            return true;
+        }
         // Hardware and extra-key events bypass the IME. Commit the pre-edit buffer before moving
         // the terminal cursor, but never finalize on a modifier used to build a Hangul consonant.
         if (!KeyEvent.isModifierKey(keyCode)) finalizeComposingIfActive();
@@ -1021,6 +1028,11 @@ public final class TerminalView extends View {
         } else if (event.isSystem() && (!mClient.shouldBackButtonBeMappedToEscape() || keyCode != KeyEvent.KEYCODE_BACK)) {
             return super.onKeyDown(keyCode, event);
         } else if (event.getAction() == KeyEvent.ACTION_MULTIPLE && keyCode == KeyEvent.KEYCODE_UNKNOWN) {
+            String text = event.getCharacters();
+            if (text != null && text.length() > 1 && (text.indexOf('\n') >= 0 || text.indexOf('\r') >= 0)) {
+                pasteText(text);
+                return true;
+            }
             scrollToLatest();
             String committed = mEmulator.getKeyboard().committedText(event.getCharacters());
             mTermSession.write(committed == null ? event.getCharacters() : committed);
@@ -1095,6 +1107,21 @@ public final class TerminalView extends View {
         if (mCombiningAccent != oldCombiningAccent) invalidate();
 
         return true;
+    }
+
+    /** Shared entry point for explicit paste actions, including toolbar integrations. */
+    public void pasteText(CharSequence text) {
+        if (mEmulator == null || TextUtils.isEmpty(text)) return;
+        finalizeComposingIfActive();
+        stopTextSelectionMode();
+        scrollToLatest();
+        mEmulator.paste(text.toString());
+    }
+
+    public void pasteFromClipboard() {
+        ClipboardManager clipboard = (ClipboardManager) getContext().getSystemService(Context.CLIPBOARD_SERVICE);
+        ClipData clip = clipboard == null ? null : clipboard.getPrimaryClip();
+        if (clip != null && clip.getItemCount() > 0) pasteText(clip.getItemAt(0).coerceToText(getContext()));
     }
 
     public void inputCodePoint(int codePoint, boolean controlDownFromEvent, boolean leftAltDownFromEvent) {
@@ -1832,7 +1859,6 @@ public final class TerminalView extends View {
 
     @Override
     protected void onDetachedFromWindow() {
-        if (mEmulator != null) mEmulator.cancelPendingPaste();
         if (mRenderer != null) mRenderer.clearPresentedFrame();
         super.onDetachedFromWindow();
 

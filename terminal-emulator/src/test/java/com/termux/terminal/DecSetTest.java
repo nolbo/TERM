@@ -21,7 +21,7 @@ public class DecSetTest extends TerminalTestCase {
         assertEquals("echo one\\\r two\recho three", mOutput.getOutputAndClear());
         enterString("\033[?2004h");
         mTerminal.paste("echo one\\\r\n two\necho three");
-        assertEquals("\033[200~echo one\\\r two\recho three\033[201~", mOutput.getOutputAndClear());
+        assertEquals("\033[200~echo one\\\r\n two\necho three\033[201~", mOutput.getOutputAndClear());
     }
 
 	/** DECSET 25, DECTCEM, controls visibility of the cursor. */
