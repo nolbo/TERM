@@ -1,0 +1,54 @@
+--- a/src/tracee/tracee.h
++++ b/src/tracee/tracee.h
+@@ -93,6 +93,7 @@
+ 	struct faststat_path_cache *faststat_path_cache;
+ 	struct fastfd_state *fastfd; /* Per tracee, deliberately not inherited. */
+ 	bool fastclose_exec_isolated; /* Starts false; exec establishes isolation. */
++	bool fastfd_single_disabled;
+ 	bool reuse_open_path;
+ 	word_t rewritten_open_path_address;
+ 	char rewritten_open_path[PATH_MAX];
+--- a/src/tracee/event.c
++++ b/src/tracee/event.c
+@@ -808,6 +808,8 @@
+ 			if (((unsigned)tracee_status >> 16) == PTRACE_EVENT_EXEC) {
+ 				/* exec destroys other threads and unshares the FD table. */
+ 				tracee->fastclose_exec_isolated = true;
++				tracee->fastfd_single_disabled = false;
++				fastfd_guest_exec();
+ 				fastfd_reset(tracee);
+ 			}
+ 			signal = 0;
+@@ -945,6 +946,7 @@
+ 	if (tracee->as_ptracer.wait_pid != 0 || signal == -1)
+ 		return false;
+ 
++	if (signal > 0) fastfd_signal(tracee);
+ 	fastfd_sync(tracee);
+ 
+ 	/* Restart the tracee and stop it at the next instruction, or
+--- a/src/syscall/seccomp.c
++++ b/src/syscall/seccomp.c
+@@ -273,6 +273,22 @@
+ 	 * This is a compatibility optimization, never a sandbox boundary. */
+ 	const char *faststat = getenv("PROOT_FASTSTAT");
+ 	if (faststat != NULL && (strcmp(faststat, "1") == 0 || strcmp(faststat, "2") == 0)) {
++		/* Observe async FD activity and guest filter installation before execution. */
++		struct sock_filter fd_owners[] = {
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, arch)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, AUDIT_ARCH_AARCH64, 0, 9),
++			BPF_STMT(BPF_LD+BPF_W+BPF_ABS, offsetof(struct seccomp_data, nr)),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 425, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 426, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 427, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++			BPF_JUMP(BPF_JMP+BPF_JEQ+BPF_K, 277, 0, 1),
++			BPF_STMT(BPF_RET+BPF_K, SECCOMP_RET_TRACE),
++		};
++		status = add_statements(&program, sizeof(fd_owners)/sizeof(fd_owners[0]), fd_owners);
++		if (status < 0) goto end;
+ 		/* These private requests are fully answered at entry. Normal
+ 		 * prctl (notably PR_SET_KEEPCAPS) keeps extension exit tracking. */
+ 		if (strcmp(faststat, "2") == 0) {

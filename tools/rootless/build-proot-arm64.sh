@@ -71,6 +71,7 @@ if [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]]; then
     cp "$repository_root/tools/rootless/faststat/fastfd.c" "$build_directory/proot-5.1.107.92/src/tracee/fastfd.c"
     patch -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-faststat.patch"
     patch --fuzz=0 -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-emulated-links.patch"
+    patch --fuzz=0 -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-single-guard.patch"
 fi
 
 termux_prefix="$prefix/data/data/com.termux/files/usr"

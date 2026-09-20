@@ -702,14 +702,16 @@ int fstat(int fd, struct stat *output)
     pid_t pid = (pid_t)syscall(SYS_getpid);
     struct proot_fastfd_identity *identity = current_identity(pid);
     if (!identity) goto slow_fd;
-    /* Observe the live descriptor name on both sides of fstat. Linking an
-     * already-open ordinary inode renames it to an l2s backing file. Never
-     * infer virtual nlink from the kernel's nlink or a cached FD classification. */
+    /* A single post-stat name check requires an isolated FD table and no
+     * intervening signal/filter/async FD activity. The tracer revokes single_safe
+     * before those can change the descriptor; it cannot re-enable it until exec.
+     * Otherwise retain both live name checks. Never cache an FD classification. */
     char descriptor[64], before[PATH_MAX], after[PATH_MAX];
     int emulated = atomic_load(&identity->active) == 2;
+    int single = emulated && atomic_load(&identity->single_safe);
     long before_length = 0;
-    if (emulated) {
-        snprintf(descriptor, sizeof(descriptor), "/proc/self/fd/%d", fd);
+    if (emulated) snprintf(descriptor, sizeof(descriptor), "/proc/self/fd/%d", fd);
+    if (emulated && !single) {
         before_length = fast_syscall(SYS_readlinkat, AT_FDCWD, (long)descriptor, (long)before, sizeof(before) - 1);
         if (before_length <= 0 || before_length >= (long)sizeof(before) - 1) goto slow_fd;
         before[before_length] = 0;
@@ -721,7 +723,12 @@ int fstat(int fd, struct stat *output)
         !map_identity(identity, &result)) goto slow_fd;
     if (emulated) {
         long length = fast_syscall(SYS_readlinkat, AT_FDCWD, (long)descriptor, (long)after, sizeof(after) - 1);
-        if (length != before_length || memcmp(before, after, before_length)) goto slow_fd;
+        if (single) {
+            if (length <= 0 || length >= (long)sizeof(after) - 1) goto slow_fd;
+            after[length] = 0;
+            if (strstr(after, "/.l2s.") || strstr(after, "/.proot.l2s.") ||
+                !atomic_load(&identity->single_safe)) goto slow_fd;
+        } else if (length != before_length || memcmp(before, after, before_length)) goto slow_fd;
     }
     struct iovec local = { &result, sizeof(result) }, remote = { output, sizeof(result) };
     if (syscall(SYS_process_vm_writev, pid, &local, 1, &remote, 1, 0) != sizeof(result)) goto slow_fd;
@@ -960,3 +967,8 @@ int stat64(const char *path, struct stat64 *out)
 { return fstatat(AT_FDCWD, path, (struct stat *)out, 0); }
 int lstat64(const char *path, struct stat64 *out)
 { return fstatat(AT_FDCWD, path, (struct stat *)out, AT_SYMLINK_NOFOLLOW); }
+
+unsigned proot_fastfd_single_safe(void) {
+    struct proot_fastfd_identity *page = local_identity.page;
+    return page ? atomic_load(&page->single_safe) : 0;
+}

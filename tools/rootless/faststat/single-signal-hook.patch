@@ -1,0 +1,22 @@
+--- a/tools/rootless/faststat/faststat.c
++++ b/tools/rootless/faststat/faststat.c
+@@ -690,6 +690,7 @@
+     return 0;
+ }
+ 
++extern void proot_epoch_test_hook(int) __attribute__((weak));
+ int fstat(int fd, struct stat *output)
+ {
+     int saved_errno = errno;
+@@ -719,8 +720,9 @@
+         if (strstr(before, "/.l2s.") || strstr(before, "/.proot.l2s.")) goto slow_fd;
+     }
+     struct stat result;
+-    if (fast_syscall(SYS_fstat, fd, (long)&result, 0, 0) < 0 ||
+-        (!S_ISREG(result.st_mode) && !S_ISDIR(result.st_mode)) ||
++    if (fast_syscall(SYS_fstat, fd, (long)&result, 0, 0) < 0) goto slow_fd;
++    if (proot_epoch_test_hook) proot_epoch_test_hook(fd);
++    if ((!S_ISREG(result.st_mode) && !S_ISDIR(result.st_mode)) ||
+         !map_identity(identity, &result)) goto slow_fd;
+     if (emulated) {
+         long length = fast_syscall(SYS_readlinkat, AT_FDCWD, (long)descriptor, (long)after, sizeof(after) - 1);

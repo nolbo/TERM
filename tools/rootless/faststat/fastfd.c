@@ -12,6 +12,8 @@
 #include <unistd.h>
 #include <talloc.h>
 #include "tracee/tracee.h"
+#include "tracee/reg.h"
+#include "tracee/abi.h"
 #include "tracee/faststat.h"
 #include "extension/extension.h"
 #include "extension/fake_id0/config.h"
@@ -29,6 +31,12 @@ struct fastfd_state {
 };
 
 static uint64_t path_epoch = 1;
+/* Conservative across the whole traced tree, including later execs. */
+static bool async_fd_seen;
+static bool guest_exec_seen;
+
+/* Ignore only PRoot bootstrap filter installation before the first guest exec. */
+void fastfd_guest_exec(void) { guest_exec_seen = true; }
 
 /* Binding lists may be shared by distinct FileSystemNameSpace objects.
  * Invalidate before mutation, including pages used by running siblings.
@@ -151,8 +159,34 @@ void fastfd_reset(Tracee *tracee)
     TALLOC_FREE(tracee->fastfd);
 }
 
+/* Monotonic until exec: a suspended fstat cannot see re-enabled eligibility. */
+void fastfd_signal(Tracee *tracee)
+{
+    tracee->fastfd_single_disabled = true;
+    if (tracee->fastfd) atomic_store(&tracee->fastfd->page->single_safe, 0);
+}
+
+static void disable_async_fd(void)
+{
+    async_fd_seen = true;
+    Tracees *head = get_tracees_list_head();
+    if (!head) return;
+    Tracee *item;
+    LIST_FOREACH(item, head, link) fastfd_signal(item);
+}
+
 void fastclose_observe_enter(Tracee *tracee)
 {
+#if defined(__aarch64__)
+    word_t number = peek_reg(tracee, ORIGINAL, SYSARG_NUM);
+    if (guest_exec_seen && !is_32on64_mode(tracee) &&
+        ((number >= 425 && number <= 427) || number == 277 ||
+         /* prctl's option is an int; the kernel ignores its high word. */
+         (number == 167 && (uint32_t)peek_reg(tracee, ORIGINAL, SYSARG_1) == 22 &&
+          peek_reg(tracee, ORIGINAL, SYSARG_2) == 2))) {
+        disable_async_fd();
+    }
+#endif
     switch (get_sysnum(tracee, ORIGINAL)) {
     case PR_clone: case PR_clone3: case PR_fork: case PR_vfork: break;
     default: return;
@@ -163,7 +197,10 @@ void fastclose_observe_enter(Tracee *tracee)
     Tracee *item;
     LIST_FOREACH(item, head, link) {
         item->fastclose_exec_isolated = false;
-        if (item->fastfd) atomic_store(&item->fastfd->page->close_safe, 0);
+        if (item->fastfd) {
+            atomic_store(&item->fastfd->page->close_safe, 0);
+            atomic_store(&item->fastfd->page->single_safe, 0);
+        }
     }
 }
 
@@ -182,6 +219,8 @@ void fastfd_sync(Tracee *tracee)
     if (tracee->auxv_fd >= 0 || tracee->fake_netlink_fds_count || tracee->netlink_route_fds_count)
         tracee->fastclose_exec_isolated = false;
     atomic_store(&state->page->close_safe, requested && active && tracee->fastclose_exec_isolated);
+    atomic_store(&state->page->single_safe, requested && active &&
+                 tracee->fastclose_exec_isolated && !tracee->fastfd_single_disabled && !async_fd_seen);
     Extension *identity = get_extension(tracee, fake_id0_callback);
     if (identity) {
         Config *config = identity->config;

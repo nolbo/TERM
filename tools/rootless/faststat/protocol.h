@@ -11,7 +11,7 @@
 #include <stdatomic.h>
 
 #define PROOT_FASTFD_ATTACH 0x50525348
-#define PROOT_FASTFD_VERSION 6
+#define PROOT_FASTFD_VERSION 8
 #define PROOT_FASTFD_MAPPING_SIZE 32768
 #define PROOT_FASTPATH_BINDINGS 32
 #define PROOT_FASTPATH_BYTES 16384
@@ -29,6 +29,8 @@ struct proot_fastpath_rules {
 struct proot_fastfd_identity {
     _Atomic uint32_t sequence, active, host_uid, host_gid, guest_uid, guest_gid;
     _Atomic uint32_t close_safe;
+    /* Revoked before signals, FD sharing, async FD activity or guest filters. */
+    _Atomic uint32_t single_safe;
     /* Immutable ordinary-superblock identity while the tracer holds an O_PATH
      * reference. This is not a file metadata or pathname cache. */
     _Atomic uint32_t storage_active, storage_dev_low, storage_dev_high;
@@ -40,6 +42,8 @@ _Static_assert(ATOMIC_INT_LOCK_FREE == 2, "shared identity needs lock-free atomi
 struct tracee;
 int fastfd_attach(struct tracee *tracee, int fd, unsigned version);
 void fastfd_sync(struct tracee *tracee);
+void fastfd_signal(struct tracee *tracee);
+void fastfd_guest_exec(void);
 void fastfd_reset(struct tracee *tracee);
 void fastclose_observe_enter(struct tracee *tracee);
 void fastpath_invalidate_all(void);

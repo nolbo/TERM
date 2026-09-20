@@ -25,3 +25,5 @@ clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/fd-test.c" -Wl,--export-dynamic-symbol=munmap,--export-dynamic-symbol=pthread_key_create,--export-dynamic-symbol=fcntl -ldl -pthread -o "$output_directory/fd-test"
 clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/close-fallback-test.c" -ldl -o "$output_directory/close-fallback-test"
+clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
+    "$source_directory/single-check-test.c" -ldl -pthread -o "$output_directory/single-check-test"

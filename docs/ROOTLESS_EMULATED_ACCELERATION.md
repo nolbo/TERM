@@ -25,15 +25,16 @@
 
 ## 구현과 호환성
 
-- tracer/DSO 공유 프로토콜을 버전 6으로 함께 변경했다. 일반 stat/open/create/close와
+- tracer/DSO 공유 프로토콜을 버전 8로 함께 변경했다. 일반 stat/open/create/close와
   ID 조회는 에뮬레이션에서도 가속한다. 과거 DSO와 혼용하지 않도록 빌드 해시를 고정했다.
 - `openat2` 호출을 제거했다. 게시된 host 바인딩 루트를 매번 새 FD로 열고,
   guest 경로의 각 요소를 `openat(O_PATH|O_NOFOLLOW)`로 확인하는 기본 경로를 유지한다.
   DSO는 아래의 실제 경로 대조가 성공하면 요소별 확인을 생략한다. 중간 요소는
   디렉터리여야 한다. 링크·복잡한 경로·오류는 PRoot의 기존 해석기로 돌린다.
   host 바인딩 루트의 조상은 host가 선택한 경로이며 guest suffix와 구별한다.
-- 열린 FD의 하드링크 전환을 놓치지 않도록 fstat 앞뒤에 실제 FD 경로를 확인한다.
-  숨겨진 하드링크 backing 파일은 PRoot가 가상 링크 수를 처리한다. 경로나 메타데이터를
+- 열린 FD의 하드링크 전환을 놓치지 않도록 실제 FD 경로를 확인한다. 단독 FD 테이블에서
+  신호·비동기 FD 변경·게스트 필터 이력이 없으면 fstat 뒤 한 번만 확인하고, 나머지는
+  앞뒤 두 번 확인한다. 숨겨진 하드링크 backing 파일은 PRoot가 가상 링크 수를 처리한다. 경로나 메타데이터를
   호출 간 캐시하지 않는다. 마지막 링크 삭제 뒤 열린 FD의 fstat 오류도 수정했다.
 - 에뮬레이션의 unlink는 tracer에서 링크 수 갱신을 거친다. 일반 파일은 진입 시
   완료하여 불필요한 syscall 종료 정지를 줄인다. rename은 확장 콜백에 현재 호출의
@@ -439,7 +440,7 @@ UP-TO-DATE로 재사용했다. 최종 APK payload 해시와 재현 소스 143개
 rename 덮어쓰기·열린 FD 수명 검사도 통과했다. UI·새 배포판 설치 검사는 이번
 삭제 처리 변경 범위에 없어 반복하지 않았다.
 
-## FD 조회의 실행 재개 세대 후보 — 검증 중
+## FD 조회의 실행 재개 세대 후보 — 이전 실험
 
 단독 FD 테이블에서 tracer 재개 세대가 같으면 조회 뒤 한 번만 경로를 확인하는
 실험판을 만들었다. 파일 5,000개 읽기 3회 비교 중앙값은 223.510→217.133ms였고,
@@ -447,3 +448,62 @@ rename 덮어쓰기·열린 FD 수명 검사도 통과했다. UI·새 배포판 
 대조판은 같은 시험에 실패했다. 다만 비동기 FD 변경과 세대 순환 조건의 검증이
 남아 있으므로 **아직 앱에 반영하지 않았다**. 생산 ABI와 두 번 경로 확인은 유지한다.
 [실험 코드·측정·남은 검증](rootless-experiments/resume-epoch-2026-09-20.md).
+
+## 조건을 충족하는 FD의 경로 확인 한 번으로 축소
+
+세대 카운터 후보를 변경해, signal 전달 전과 FD 공유/비동기 작업/게스트 필터 요청
+전에 `single_safe`를 해제하는 방식을 채택했다. 중단된 fstat가 살아 있는 동안 다시
+활성화되지 않으므로 세대 순환 문제도 없다. exec는 새 실행과 FD 테이블 분리를
+확립한다. 이 전제는 [Linux exec 구현](https://github.com/torvalds/linux/blob/v6.6/fs/exec.c)의
+`begin_new_exec`에서도 확인할 수 있다. io_uring 작업은 비동기적으로 남을 수 있어
+[명시적 취소와 수명 처리](https://kernel.googlesource.com/pub/scm/linux/kernel/git/axboe/liburing/+/refs/heads/master/man/io_uring_cancelation.7)를
+고려해야 한다. 여기서는 해당 API 시도를 관찰하면 같은 tracer의 전체 트리에서
+exec 뒤에도 이 단축만 비활성화한다. 파일 속성이나 FD 분류는 캐시하지 않는다.
+
+io_uring 세 syscall과 seccomp syscall(조회 포함), `prctl(PR_SET_SECCOMP)` 요청을
+관찰하며 syscall 자체를 거부하거나 결과를 바꾸지 않는다. PRoot가 첫 guest exec
+전에 설치하는 자체 필터는 구분한다. 이 구분이 없던 첫 후보는 시작부터 단축이 꺼져
+시험에 실패했고 수정 후 활성화/해제 시험을 통과했다. `prctl`의 int 옵션 상위 비트를
+무시하는 커널 동작도 회귀 시험으로 확인해, 원래 옵션 전체를 비교하던 누락을 고쳤다.
+일반 신호·fork·스레드 이후에는 exec에서 재활성화할 수 있지만, 비동기/필터 API
+이력 뒤에는 재활성화하지 않는다. 다른 가속은 유지한다.
+
+공유 ABI는 8이다. 이전 세대 카운터 실험의 7과 생산용 6을 모두 구분해 엔진과 DSO를
+함께 교체한다. 저장 형식 전환이나 rootfs 재설치는 필요 없다. 새 런타임의 세션에
+적용하며 기존 세션을 강제로 종료하지 않는다.
+
+[원본 측정과 검증 기록](../tools/rootless/faststat/results/single-check-2026-09-20.json).
+최종 정수 폭 수정까지 포함한 빌드의 작은 파일 5,000개 읽기 3회 순환 측정은 아래와
+같다. API 35 ARM64 redroid·Ubuntu·warm cache 조건이며 실제 삼성 기기 측정이 아니다.
+
+| 방식 | 중앙값(ms) |
+| --- | ---: |
+| 이전 하드링크 네이티브 기준 | 168.296 |
+| 직전 개발판 | 221.905 |
+| 이번 개발판 | 216.919 |
+
+직전 대비 중앙값은 2.25% 짧지만 세 쌍 중 한 쌍은 더 느렸다. 안정적인 개선율로
+일반화하지 않는다. 이전 네이티브 기준보다 아직 28.89% 길어 전체 목표는 미달성이다.
+정수 폭 보완 전 별도 1,000개 전체 비교는 원본 JSON에 엔진 해시와 함께 구분했다.
+그 시험에서도 조회·읽기·변경·tar·find가 네이티브보다 느리고, ls/du는 빨랐다.
+다른 작업의 추가 속도 향상은 주장하지 않는다.
+
+ARM64 엔진, combined/plain DSO, 시험 전용 신호 주입 DSO 빌드가 통과했다.
+`single-check-test.c`는 실제 io_uring 생성, API 반환값/오류 유지, 신호 및
+fork/thread/exec, 상위 비트가 있는 syscall 번호와 prctl 옵션을 검사한다.
+신호 처리기가 raw fstat 직후 backing FD를 다른 FD로 바꾸는 별도 주입 시험에서는
+마지막 해제 검사를 뺀 대조판이 실패하고 원래 검사가 통과했다. 시험 hook은 생산
+DSO에 없으며 `single-signal-build.sh`로만 별도 산출물을 만든다.
+
+최종 엔진의 두 저장 형식에서 stat/open/create/close/경로 규칙/cwd/rename/unlink,
+메모리 경계, 별도 dpkg 설치·업그레이드·삭제, 신호·8개 스레드·fork/exec·FD 재사용
+검사가 통과했다. statx/dirfd/storage/unlink-memory는 정수 폭 수정 전 후보에서
+통과했다. statx의 의도적 EFAULT 입력에서 기존 POKEDATA 경고가 출력됐지만
+예상 오류 반환과 검사는 통과했다. Android MCP를 사용했으며 incremental 설치는
+거부되어 streamed 설치로 진행했다. UI/새 설치/삼성 Android 17 실측과 공개 배포는
+이번에 실행하지 않았다.
+
+최종 canonical 앱 빌드/runtime/image 검사는 1분 18초에 성공했다. 변경 없는 단위
+검사는 UP-TO-DATE로 재사용했으며, 최종 APK의 엔진·로더·combined DSO 해시를
+검증했다. 재현 소스 아카이브의 저장소 파일 152개도 작업 트리와 일치했다
+(아카이브에서 생성하는 BUILD.md는 별도 항목이다).
