@@ -17,14 +17,22 @@ import dev.terminal.runtime.lifecycle.VmRuntimeService
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import org.json.JSONArray
+import org.json.JSONObject
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
 /** Requires a provisioned Rootless image; creates and terminates only its own test sessions. */
 @RunWith(AndroidJUnit4::class)
 class MultilinePasteTest {
-    @Test fun nativeAndRootlessAcceptImeAndSelectionMultilinePastes() {
+    @Test fun nativePaste() = checkRuntime("NATIVE")
+    @Test fun debianPaste() = checkRuntime("ROOTLESS")
+    @Test fun ubuntuPaste() = checkRuntime("ROOTLESS_UBUNTU")
+    @Test fun archPaste() = checkRuntime("ROOTLESS_ARCH")
+
+    private fun checkRuntime(runtime: String) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val connected = CountDownLatch(1)
@@ -41,7 +49,9 @@ class MultilinePasteTest {
             assertTrue(connected.await(10, TimeUnit.SECONDS))
             service.startRuntime()
             await { service.state == "READY" }
-            for (runtime in listOf("NATIVE", "ROOTLESS")) {
+            assumeTrue("$runtime image must be provisioned",
+                JSONObject(service.runtimeStatusJson).getJSONObject(runtime).getBoolean("available"))
+            run {
                 val previous = ids(service.sessionsJson)
                 service.createSession(runtime, if (runtime == "NATIVE") "/system/bin/sh" else "/bin/bash", "/", 24, 80)
                 var id: String? = null
@@ -80,12 +90,36 @@ class MultilinePasteTest {
                         ready
                     }
                     for (ime in listOf(true, false)) {
+                        instrumentation.runOnMainSync { terminal.write("\r") }
+                        await {
+                            var ready = false
+                            instrumentation.runOnMainSync { ready = terminal.emulator.isShellPromptReady }
+                            ready
+                        }
                         val tag = if (ime) "IME" else "MENU"
-                        val payload = "echo ${tag}_FIRST\r\necho ${tag}_\\\nJOIN\necho ${tag}_LAST"
+                        // read must time out: sending the next line early would consume it.
+                        val payload = "if read -t 1 stolen; then echo ${tag}_STOLEN; fi\r\n" +
+                            "echo ${tag}_FIRST\necho ${tag}_\\\nJOIN\n" +
+                            "cat <<'PASTE_END'\n${tag}_HEREDOC\nPASTE_END\n" +
+                            "echo '${tag}_QUOTE\nEND'\necho ${tag}_LAST\n"
                         instrumentation.runOnMainSync {
                             if (ime) view.onCreateInputConnection(EditorInfo()).commitText(payload, 1)
                             else terminal.emulator.paste(payload)
-                            // Accept bracketed paste (also executes the last line in mksh).
+                        }
+                        await {
+                            var text = ""
+                            instrumentation.runOnMainSync { text = terminal.emulator.screen.transcriptText }
+                            text.trimEnd().endsWith("echo ${tag}_LAST")
+                        }
+                        instrumentation.runOnMainSync {
+                            val lines = terminal.emulator.screen.transcriptText.lines()
+                            assertTrue(lines.any { it.startsWith("> ") })
+                            assertTrue("${tag}_FIRST" in lines)
+                            assertTrue("${tag}_JOIN" in lines)
+                            assertTrue("${tag}_HEREDOC" in lines)
+                            assertTrue("${tag}_QUOTE" in lines)
+                            assertFalse("${tag}_STOLEN" in lines)
+                            assertFalse("${tag}_LAST" in lines)
                             terminal.write("\r")
                         }
                         await {

@@ -262,6 +262,9 @@ internal fun buildRootlessLaunchSpec(
         env.filterKeys { it.matches(ENV_KEY) && it !in RESERVED_ENV &&
             (acceleration == null || (it != "LD_PRELOAD" && !it.startsWith("PROOT_"))) }.forEach { (key, value) -> add("$key=$value") }
         acceleration?.guestEnvironment(env["LD_PRELOAD"])?.forEach { (key, value) -> add("$key=$value") }
+        if (argv == null && guestShell.substringAfterLast('/') == "bash") {
+            add("PROMPT_COMMAND=${dev.terminal.runtime.session.bashPromptCommand(env["PROMPT_COMMAND"])}")
+        }
         usbEnvironment.filterKeys { it in setOf("TERMINAL_USB_SOCKET", "TERMINAL_USB_TOKEN") }
             .forEach { (key, value) -> add("$key=$value") }
         if (argv != null) addAll(argv) else {

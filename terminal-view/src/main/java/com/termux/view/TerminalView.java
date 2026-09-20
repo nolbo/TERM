@@ -356,6 +356,7 @@ public final class TerminalView extends View {
     public boolean attachSession(TerminalSession session) {
         if (session != mTermSession) mKittyPressedKeys.clear();
         if (session == mTermSession) return false;
+        if (mEmulator != null) mEmulator.cancelPendingPaste();
         mScaleFactor = 1.f;
         if (mRenderer != null) mRenderer.clearPresentedFrame();
         stopScrollAnimation();
@@ -497,8 +498,7 @@ public final class TerminalView extends View {
             void sendTextToTerminal(CharSequence text) {
                 if (text.length() != 0) scrollToLatest();
                 stopTextSelectionMode();
-                // IME clipboard commits bypass the selection menu. Preserve multiline pastes
-                // as a unit, including shell line continuations and bracketed-paste framing.
+                // IME clipboard commits use the same shell-paced paste path as the menu.
                 if (text.length() > 1 && (TextUtils.indexOf(text, '\n') >= 0 ||
                     TextUtils.indexOf(text, '\r') >= 0)) {
                     mEmulator.paste(text.toString());
@@ -1832,6 +1832,7 @@ public final class TerminalView extends View {
 
     @Override
     protected void onDetachedFromWindow() {
+        if (mEmulator != null) mEmulator.cancelPendingPaste();
         if (mRenderer != null) mRenderer.clearPresentedFrame();
         super.onDetachedFromWindow();
 

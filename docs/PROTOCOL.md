@@ -1,5 +1,21 @@
 # Protocol
 
+## Shell prompt and sequential paste
+
+The app-owned Native mksh defaults and the default Bash launch environment append
+`OSC 133 ; B BEL` to PS1 and PS2, inside shell-specific nonprinting delimiters.
+The terminal sends one physical clipboard line and Enter, then waits for the next
+live prompt notification. The last line is sent without Enter; trailing blank lines
+are removed. The shell parses continuations, compound commands and heredocs.
+Output silence, elapsed time and visible `$`/`>` characters are not completion signals.
+
+The queue is transient terminal input state, not process ownership. Manual input,
+view detach/session switch, reset, process exit or transcript replay cancels it.
+Replay notifications never send input. Nonintegrated shells and applications retain
+their original bracketed-paste behavior. Prompt notifications are untrusted output
+and grant no Android capability; applications can emit them, so this is shell
+coordination, not an authenticated process-completion or security boundary.
+
 ## Shared registered iPhone tools
 
 Current service revision is 3. Snapshots may contain `changes` with only fixed

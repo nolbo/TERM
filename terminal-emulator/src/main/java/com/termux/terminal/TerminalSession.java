@@ -222,6 +222,7 @@ public final class TerminalSession extends TerminalOutput {
     /** Write data to the shell process. */
     @Override
     public void write(byte[] data, int offset, int count) {
+        if (mEmulator != null) mEmulator.onUserInput();
         if (mBackend != null) {
             if (mBackend.isRunning()) mBackend.write(data, offset, count);
         } else if (mShellPid > 0) {
@@ -412,6 +413,7 @@ public final class TerminalSession extends TerminalOutput {
             }
 
             if (msg.what == MSG_PROCESS_EXITED) {
+                if (mEmulator != null) mEmulator.cancelPendingPaste();
                 int exitCode = (Integer) msg.obj;
                 cleanupResources(exitCode);
 

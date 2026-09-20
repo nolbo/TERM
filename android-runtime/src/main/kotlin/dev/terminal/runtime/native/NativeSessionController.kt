@@ -226,6 +226,22 @@ internal fun prepareNativeShellRc(home: File): File = File(home, ".droid-shrc").
         else
           PS1="${'$'}PS1 \${'$'} "
         fi
+        if [ -n "${'$'}{KSH_VERSION-}" ]; then
+          droid_mark=${'$'}(printf '\001')
+          droid_ready=${'$'}(printf '\033]133;B\007')
+          # mksh uses the first SOH as its non-printing delimiter declaration.
+          case "${'$'}PS1" in
+            "${'$'}droid_mark"*) ;;
+            *) PS1="${'$'}droid_mark${'$'}PS1" ;;
+          esac
+          PS1="${'$'}PS1${'$'}droid_mark${'$'}droid_ready${'$'}droid_mark"
+          case "${'$'}PS2" in
+            "${'$'}droid_mark"*) ;;
+            *) PS2="${'$'}droid_mark> " ;;
+          esac
+          PS2="${'$'}PS2${'$'}droid_mark${'$'}droid_ready${'$'}droid_mark"
+          unset droid_mark droid_ready
+        fi
         """.trimIndent() + System.lineSeparator(),
     )
 }
