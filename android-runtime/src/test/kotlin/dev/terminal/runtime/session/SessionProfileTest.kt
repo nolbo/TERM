@@ -1,0 +1,40 @@
+package dev.terminal.runtime.session
+
+import org.junit.Assert.*
+import org.junit.Test
+
+class SessionProfileTest {
+    private fun profile() = SessionProfile("user-id", "Work", SessionRuntime.NATIVE, "/system/bin/sh")
+
+    @Test fun resolveDefensivelyCopiesCollectionsAndSurvivesProfileEdits() {
+        val args = mutableListOf("-l")
+        val env = mutableMapOf("PROJECT" to "original")
+        val profile = profile().copy(shellArguments = args, environment = env)
+        val spec = profile.resolve()
+        args.add("-x"); env["PROJECT"] = "changed"
+        assertEquals(listOf("-l"), spec.shellArguments)
+        assertEquals("original", spec.environment["PROJECT"])
+        assertTrue(runCatching { (spec.environment as MutableMap)["PROJECT"] = "mutated" }.isFailure)
+        assertEquals(listOf("-l", "-x"), profile.resolve().shellArguments)
+    }
+
+    @Test fun roundTripKeepsAllCreationFieldsAndNoRuntimeState() {
+        val spec = profile().copy(shellArguments = listOf("-l", "space quote' 한글"),
+            workingDirectory = "/workspace/a b", environment = mapOf("X" to "a=b\nline"), startupCommand = "printf hello").resolve()
+        val restored = SessionLaunchSpec.fromJson(spec.toJson().toString())
+        assertEquals(spec.toProfile(), restored.toProfile())
+        assertFalse(spec.toJson().has("rows"))
+        assertFalse(spec.toJson().has("pid"))
+        assertEquals(listOf("/system/bin/sh", "-c", "printf hello\nexec \"\$@\"", "/system/bin/sh", "/system/bin/sh", "-l", "space quote' 한글"), spec.arguments())
+    }
+
+    @Test fun rejectsInvalidAndReservedValuesBeforeLaunch() {
+        for (env in listOf(mapOf("A=B" to "bad"), mapOf("DROID_SESSION_ARGV" to "bad"),
+            mapOf("TERMINAL_USB_TOKEN" to "bad"), mapOf("KITTY_WINDOW_ID" to "1"), mapOf("X" to "\u0000"))) {
+            assertTrue(runCatching { profile().copy(environment = env).resolve() }.isFailure)
+        }
+        assertTrue(runCatching { profile().copy(shell = "relative").resolve() }.isFailure)
+        assertTrue(runCatching { profile().copy(workingDirectory = "relative").resolve() }.isFailure)
+        assertTrue(runCatching { profile().copy(shellArguments = List(65) { "a" }).resolve() }.isFailure)
+    }
+}

@@ -13,7 +13,8 @@ class SettingsActivity : TerminalActivity() {
     }
 
     private fun open(category: String) {
-        if (category == "updates") startActivity(Intent(this, AppUpdatesActivity::class.java))
+        if (category == "profiles") startActivity(Intent(this, ProfilesActivity::class.java))
+        else if (category == "updates") startActivity(Intent(this, AppUpdatesActivity::class.java))
         else startActivity(Intent(this, SettingsDetailActivity::class.java)
             .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, category))
     }

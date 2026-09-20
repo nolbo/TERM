@@ -87,6 +87,18 @@ import java.util.concurrent.ConcurrentHashMap
 /** Compose console projection. Runtime and shell ownership stay in :vmhost. */
 class MainActivity : TerminalActivity() {
     private var sessions by mutableStateOf(emptyList<SessionUi>())
+    private var profiles by mutableStateOf(emptyList<dev.terminal.runtime.session.SessionProfile>())
+    private var rootlessLaunchSpec: dev.terminal.runtime.session.SessionLaunchSpec? = null
+    private var selectedLaunchSpec: dev.terminal.runtime.session.SessionLaunchSpec? = null
+    private fun addProfile() {
+        newSessionMenuVisible = false
+        newSessionSheetVisible = false
+        startActivity(Intent(this, ProfileEditActivity::class.java))
+    }
+    private fun selectProfile(profile: dev.terminal.runtime.session.SessionProfile) {
+        selectedLaunchSpec = profile.resolve()
+        selectRuntime(runtimeChoices.first { it.id == profile.runtime.wireName })
+    }
     private var runtimeChoices by mutableStateOf(emptyList<RuntimeChoiceUi>())
     private var activeSessionId by mutableStateOf<String?>(null)
     private var runtimeMessage by mutableStateOf("")
@@ -224,8 +236,20 @@ class MainActivity : TerminalActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        selectedLaunchSpec?.let { outState.putString("pending-profile-launch", it.toJson().toString()) }
+        rootlessLaunchSpec?.let { outState.putString("pending-rootless-profile-launch", it.toJson().toString()) }
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        selectedLaunchSpec = savedInstanceState?.getString("pending-profile-launch")?.let {
+            dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it)
+        }
+        rootlessLaunchSpec = savedInstanceState?.getString("pending-rootless-profile-launch")?.let {
+            dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it)
+        }
         runtimeMessage = getString(R.string.runtime_connecting_prompt)
         rootlessStatus = getString(R.string.rootless_setup_required)
         rootlessDetail = getString(R.string.rootless_setup_initial)
@@ -345,14 +369,15 @@ class MainActivity : TerminalActivity() {
                 activeSessionId = activeSessionId,
                 appBarContentVisible = activeSessionId == null || terminalAppBarContentVisible,
                 terminatingSessionIds = terminatingSessionIds,
-                runtimeChoices = runtimeChoices,
+                profiles = profiles,
+                onSelectProfile = ::selectProfile,
+                onAddProfile = ::addProfile,
                 newSessionMenuExpanded = newSessionMenuVisible,
                 onSelect = ::attach,
                 onRename = { pendingRename = it },
                 onTerminate = { pendingTermination = it },
                 onNew = ::showNewSessionMenu,
                 onDismissNewSession = { newSessionMenuVisible = false },
-                onSelectRuntime = ::selectRuntime,
                 onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
             )
             if (activeSessionId == null) {
@@ -396,8 +421,9 @@ class MainActivity : TerminalActivity() {
 
         if (newSessionSheetVisible) {
             NewSessionSheet(
-                runtimeChoices = runtimeChoices,
-                onSelectRuntime = ::selectRuntime,
+                profiles = profiles,
+                onSelectProfile = ::selectProfile,
+                onAddProfile = ::addProfile,
                 onDismiss = { newSessionSheetVisible = false },
             )
         }
@@ -412,6 +438,7 @@ class MainActivity : TerminalActivity() {
                 onInstall = {
                     unavailableChoice = null
                     rootlessInstallRuntime = choice.id
+                    rootlessLaunchSpec = selectedLaunchSpec
                     rootlessVisible = true
                     rootlessStatus = getString(R.string.rootless_setup_required)
                     rootlessDetail = choice.detail.ifBlank { getString(R.string.rootless_setup_initial) }
@@ -702,6 +729,7 @@ class MainActivity : TerminalActivity() {
     }
 
     private fun refreshRuntimeChoicesForNewSession(): Boolean {
+        profiles = SessionProfiles(this).all()
         val service = runtime
         if (service == null) {
             feedbackMessage = getString(R.string.runtime_connecting_prompt)
@@ -738,7 +766,7 @@ class MainActivity : TerminalActivity() {
             return
         }
         when (runtimeSelectionAction(choice)) {
-            RuntimeSelectionAction.CREATE -> createSession(choice.id)
+            RuntimeSelectionAction.CREATE -> createSession(selectedLaunchSpec ?: builtInLaunchSpec(choice.id))
             RuntimeSelectionAction.INSTALL,
             RuntimeSelectionAction.SETTINGS -> unavailableChoice = choice
         }
@@ -766,13 +794,14 @@ class MainActivity : TerminalActivity() {
         rootlessStatus = getString(R.string.rootless_installing, getString(runtimeTitleResource(rootlessInstallRuntime)))
         rootlessDetail = getString(R.string.rootless_install_detail)
         rootlessError = null
-        createSession(rootlessInstallRuntime)
+        createSession(rootlessLaunchSpec ?: builtInLaunchSpec(rootlessInstallRuntime))
     }
 
-    private fun createSession(runtimeType: String) = safeRuntimeCall { service ->
-        val shell = sessionShell(runtimeType, defaultShell())
-        val cwd = sessionInitialDirectory(runtimeType)
-        service.createSession(runtimeType, shell, cwd, 24, 80)
+    private fun builtInLaunchSpec(runtimeType: String) =
+        SessionProfiles(this).builtIns().first { it.runtime.wireName == runtimeType }.resolve()
+
+    private fun createSession(spec: dev.terminal.runtime.session.SessionLaunchSpec) = safeRuntimeCall { service ->
+        service.createSessionFromSpec(spec.toJson().toString(), 24, 80)
     }
 
     private fun syncModifierState() {

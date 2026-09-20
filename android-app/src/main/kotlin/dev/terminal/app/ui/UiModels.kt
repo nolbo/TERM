@@ -9,6 +9,10 @@ internal fun parseSessions(json: String): List<SessionUi> = runCatching {
         val item = values.getJSONObject(index)
         SessionUi(
             id = item.getString("id"),
+            profileId = item.optString("profileId").takeIf { it.isNotEmpty() },
+            launchSpec = item.optJSONObject("launchSpec")?.let {
+                runCatching { dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it.toString()) }.getOrNull()
+            },
             runtime = item.optString("runtime", "NATIVE"),
             title = item.optString("title"),
             state = item.optString("state", "UNKNOWN"),

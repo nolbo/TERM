@@ -272,6 +272,8 @@ data class SessionUi(
     val hasExplicitTabTitle: Boolean = false,
     val initialTitle: String = title,
     val subtitle: String? = null,
+    val profileId: String? = null,
+    val launchSpec: dev.terminal.runtime.session.SessionLaunchSpec? = null,
 )
 
 data class RuntimeChoiceUi(
@@ -342,14 +344,15 @@ fun TerminalChrome(
     activeSessionId: String?,
     appBarContentVisible: Boolean,
     terminatingSessionIds: Set<String>,
-    runtimeChoices: List<RuntimeChoiceUi>,
+    profiles: List<dev.terminal.runtime.session.SessionProfile>,
+    onSelectProfile: (dev.terminal.runtime.session.SessionProfile) -> Unit,
+    onAddProfile: () -> Unit,
     newSessionMenuExpanded: Boolean,
     onSelect: (String) -> Unit,
     onRename: (SessionUi) -> Unit,
     onTerminate: (SessionUi) -> Unit,
     onNew: () -> Unit,
     onDismissNewSession: () -> Unit,
-    onSelectRuntime: (RuntimeChoiceUi) -> Unit,
     onSettings: () -> Unit,
 ) {
     val selectedTabIndex = sessions.indexOfFirst { it.id == activeSessionId }
@@ -499,64 +502,20 @@ fun TerminalChrome(
                     }
                 }
                 Box {
-                var rootlessMenuExpanded by remember(newSessionMenuExpanded) { mutableStateOf(false) }
-                val menuChoices = groupedRuntimeChoices(runtimeChoices)
-                val distributions = selectableRuntimeChoices(runtimeChoices).filter { it.id in rootlessRuntimeIds }
-                IconButton(onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                    onNew()
-                }, shapes = IconButtonDefaults.shapes()) {
+                IconButton(onClick = onNew, shapes = IconButtonDefaults.shapes()) {
                     Icon(painterResource(R.drawable.ic_material_symbol_add_24), stringResource(R.string.new_session))
                 }
-                DropdownMenuPopup(
-                    expanded = newSessionMenuExpanded,
-                    onDismissRequest = onDismissNewSession,
-                    modifier = Modifier.widthIn(min = 200.dp),
-                ) {
-                    DropdownMenuGroup(shapes = MenuDefaults.groupShape(index = 0, count = 1)) {
-                        menuChoices.forEachIndexed { index, choice ->
-                            Box {
-                            DropdownMenuItem(
-                                onClick = {
-                                    haptics.performHapticFeedback(
-                                        if (choice.id == ROOTLESS_GROUP) HapticFeedbackType.KeyboardTap else HapticFeedbackType.Confirm,
-                                    )
-                                    if (choice.id == ROOTLESS_GROUP) rootlessMenuExpanded = !rootlessMenuExpanded
-                                    else onSelectRuntime(choice)
-                                },
-                                text = { Text(stringResource(if (choice.id == ROOTLESS_GROUP) R.string.new_session_rootless_group else runtimeTitleResource(choice.id))) },
-                                shape = MenuDefaults.itemShape(index, menuChoices.size).shape,
-                                trailingContent = {
-                                    if (choice.id == ROOTLESS_GROUP) Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null)
-                                },
-                                leadingIcon = {
-                                    RuntimeChoiceIcon(choice)
-                                },
-                            )
-                            if (choice.id == ROOTLESS_GROUP) {
-                                DropdownMenuPopup(
-                                    expanded = rootlessMenuExpanded,
-                                    onDismissRequest = { rootlessMenuExpanded = false },
-                                    popupPositionProvider = MenuDefaults.rememberDropdownMenuPopupPositionProvider(MenuAnchorPosition.End),
-                                ) {
-                                    DropdownMenuGroup(shapes = MenuDefaults.groupShape(0, 1)) {
-                                        distributions.forEachIndexed { childIndex, distribution ->
-                                            DropdownMenuItem(
-                                                text = { Text(stringResource(runtimeTitleResource(distribution.id))) },
-                                                onClick = {
-                                                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                                                    rootlessMenuExpanded = false
-                                                    onSelectRuntime(distribution)
-                                                },
-                                                shape = MenuDefaults.itemShape(childIndex, distributions.size).shape,
-                                                leadingIcon = { RuntimeChoiceIcon(distribution) },
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                            }
+                DropdownMenuPopup(expanded = newSessionMenuExpanded, onDismissRequest = onDismissNewSession,
+                    modifier = Modifier.widthIn(min = 240.dp)) {
+                    DropdownMenuGroup(shapes = MenuDefaults.groupShape(0, 1)) {
+                        profiles.forEachIndexed { index, profile ->
+                            DropdownMenuItem(onClick = { onSelectProfile(profile) },
+                                text = { Column { Text(profile.name); Text(stringResource(runtimeTitleResource(profile.runtime.wireName)), style = MaterialTheme.typography.bodySmall) } },
+                                shape = MenuDefaults.itemShape(index, profiles.size + 1).shape,
+                                leadingIcon = { RuntimeEnvironmentIcon(profile.runtime.wireName, false) })
                         }
+                        DropdownMenuItem(onClick = onAddProfile, text = { Text(stringResource(R.string.add_profile)) },
+                            shape = MenuDefaults.itemShape(profiles.size, profiles.size + 1).shape)
                     }
                 }
             }
@@ -575,24 +534,19 @@ fun TerminalChrome(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun NewSessionSheet(
-    runtimeChoices: List<RuntimeChoiceUi>,
-    onSelectRuntime: (RuntimeChoiceUi) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var distributionStage by rememberSaveable { mutableStateOf(false) }
-    androidx.compose.runtime.key(distributionStage) {
-        RuntimeSelectionSheet(
-            runtimeChoices = if (distributionStage) selectableRuntimeChoices(runtimeChoices).filter { it.id in rootlessRuntimeIds }
-                else groupedRuntimeChoices(runtimeChoices),
-            distributionStage = distributionStage,
-            onSelectRuntime = {
-                if (it.id == ROOTLESS_GROUP) distributionStage = true
-                else { onDismiss(); onSelectRuntime(it) }
-            },
-            onBack = { distributionStage = false },
-            onDismiss = onDismiss,
-        )
+fun NewSessionSheet(profiles: List<dev.terminal.runtime.session.SessionProfile>,
+    onSelectProfile: (dev.terminal.runtime.session.SessionProfile) -> Unit,
+    onAddProfile: () -> Unit, onDismiss: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss) {
+        LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(16.dp)) {
+            items(profiles.size) { index ->
+                val profile = profiles[index]
+                TextButton(onClick = { onSelectProfile(profile) }, modifier = Modifier.fillMaxWidth()) {
+                    Text(profile.name + " · " + stringResource(runtimeTitleResource(profile.runtime.wireName)))
+                }
+            }
+            item { TextButton(onClick = onAddProfile, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.add_profile)) } }
+        }
     }
 }
 
@@ -877,6 +831,7 @@ private fun sessionStateLabel(state: String): String = stringResource(
 @Composable
 fun SettingsOverview(onBack: () -> Unit, onOpen: (String) -> Unit) {
     val rows = listOf(
+        SettingsDestination("profiles", stringResource(R.string.profiles), stringResource(R.string.profiles_summary), R.drawable.ic_material_symbol_add_24),
         SettingsDestination("language", stringResource(R.string.settings_language_title), stringResource(R.string.settings_language_summary), R.drawable.ic_material_symbol_text_format_24),
         SettingsDestination("terminal", stringResource(R.string.settings_terminal_title), stringResource(R.string.settings_terminal_summary), R.drawable.ic_material_symbol_settings_24),
         SettingsDestination("rootless", stringResource(R.string.runtime_rootless_title), stringResource(R.string.settings_rootless_summary), R.drawable.ic_runtime_rootless_group),

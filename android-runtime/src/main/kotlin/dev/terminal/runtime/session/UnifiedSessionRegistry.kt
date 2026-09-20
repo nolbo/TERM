@@ -27,6 +27,7 @@ import kotlinx.coroutines.sync.withLock
 class UnifiedSessionRegistry(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val beforeCreate: () -> Unit = {},
+    private val recordLaunch: (String, SessionLaunchSpec) -> Unit = { _, _ -> },
     private val remoteCommand: (suspend (String, String) -> ByteArray?)? = null,
 ) : SessionController {
     private data class Registration(val controller: SessionController, val jobs: List<Job>)
@@ -127,7 +128,26 @@ class UnifiedSessionRegistry(
         remove()
     }
 
-    suspend fun create(
+    suspend fun create(spec: SessionLaunchSpec, rows: UShort, cols: UShort,
+        runtimeEnvironment: Map<String, String> = emptyMap()): Result<SessionDescriptor> =
+        createResolved(spec.runtime, spec.shell, spec.workingDirectory,
+            spec.environment + runtimeEnvironment + (SessionCommand.KEY to SessionCommand.encode(spec.arguments())),
+            rows, cols).onSuccess { recordLaunch(it.id, spec) }
+
+    /** Compatibility entry point: direct runtime requests still resolve a built-in profile. */
+    suspend fun create(runtime: SessionRuntime, shell: String, cwd: String,
+        env: Map<String, String> = emptyMap(), rows: UShort, cols: UShort): Result<SessionDescriptor> = runCatching {
+        val requestedArgv = SessionCommand.decode(env)
+        val argv = requestedArgv?.let {
+            if (it.first().startsWith('/')) it else listOf(shell, "-c", "exec \"\$@\"", shell) + it
+        }
+        val profile = SessionProfile(SessionProfile.builtInId(runtime), runtime.wireName, runtime,
+            argv?.first() ?: shell, argv?.drop(1) ?: if (runtime != SessionRuntime.AVF && env["DROID_LOGIN_SHELL"] != "false") listOf("-l") else emptyList(),
+            cwd, env.filterKeys { !it.startsWith("DROID_") && !it.startsWith("TERMINAL_USB_") && it != "KITTY_WINDOW_ID" })
+        create(profile.resolve(), rows, cols, env.filterKeys { it != SessionCommand.KEY }).getOrThrow()
+    }
+
+    private suspend fun createResolved(
         runtime: SessionRuntime,
         shell: String,
         cwd: String,

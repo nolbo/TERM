@@ -46,6 +46,28 @@ android-runtime :vmhost (session owner)
 `stopWithTask="false"`. The Activity unregisters its callback and unbinds in
 `onStop`; it never sends a stop request as a lifecycle side effect.
 
+Session creation resolves a persistent `SessionProfile` into a defensively copied,
+immutable `SessionLaunchSpec` before the UI calls `createSessionFromSpec` (versioned,
+bounded JSON over the existing Binder boundary). Native, Debian, Ubuntu, Arch and
+AVF are non-editable built-ins; app-private user profiles are copies with independent
+IDs. Profiles contain creation settings only, never PTY, dimensions or renderer state.
+The registry's `create(spec)` is the common launch path; legacy runtime and Kitty
+requests adapt to a built-in profile and resolve a spec too. Arguments use the
+existing argv envelope understood by Native, PRoot and the AVF guest daemon.
+Startup commands run once via the configured POSIX-compatible shell, then exec the
+configured shell and literal arguments; attachment never reruns startup commands.
+
+The service stores each created session's profile ID and launch snapshot separately
+from the profile store and publishes them with authoritative session snapshots.
+Editing/deleting a profile cannot mutate a live session. Native/Rootless metadata
+is discarded on owner process restart; it never fabricates restoration of a dead
+PTY. AVF metadata remains available when reconnecting to a surviving guest daemon.
+Legacy surviving guests with no launch metadata remain attachable without inventing
+creation settings. The empty Native working directory retains its existing meaning:
+resolve to the backend's app-private home. Broker-issued environment values remain
+runtime-owned and are excluded from user profile settings. No wire protocol or
+PTY ownership changes are required.
+
 `UnifiedSessionRegistry` records the owner runtime of every session and routes
 write, resize, attach, detach, and terminate operations through the same API.
 Runtime selection is explicit. A failed Rootless or AVF request is never moved

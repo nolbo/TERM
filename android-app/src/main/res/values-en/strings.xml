@@ -67,4 +67,24 @@
     <string name="rootless_migrate">Recover interrupted conversion</string>
     <string name="rootless_migrate_description">Recover an interrupted conversion while keeping packages and files. Close all sessions and finish workspace writes first. Acceleration no longer requires storage conversion.</string>
     <string name="rootless_migrate_running">Recovering interrupted conversion</string>
+    <string name="profiles">Profiles</string>
+    <string name="profiles_summary">Manage settings for new terminal sessions.</string>
+    <string name="add_profile">Add profile</string>
+    <string name="builtin_profile">Built-in · duplicate to customize</string>
+    <string name="profile_edit">Edit</string>
+    <string name="profile_duplicate">Duplicate</string>
+    <string name="profile_delete">Delete</string>
+    <string name="profile_delete_message">Delete %1$s? Running sessions will be preserved.</string>
+    <string name="profile_future_only">Changes apply only to sessions created later.</string>
+    <string name="profile_name">Profile name</string>
+    <string name="profile_runtime">Runtime</string>
+    <string name="profile_shell">Shell</string>
+    <string name="profile_arguments">Shell arguments</string>
+    <string name="profile_arguments_hint">JSON string array, e.g. [\"-l\"] or []. Arguments are passed literally.</string>
+    <string name="profile_directory">Working directory</string>
+    <string name="profile_startup">Startup command</string>
+    <string name="profile_environment">Environment variables</string>
+    <string name="profile_environment_hint">One KEY=value per line. The startup command runs once in the configured shell before starting the interactive shell.</string>
+    <string name="profile_save">Save</string>
+    <string name="profile_discard">Discard unsaved changes?</string>
 </resources>

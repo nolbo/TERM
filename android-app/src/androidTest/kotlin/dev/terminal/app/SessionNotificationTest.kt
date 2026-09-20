@@ -51,7 +51,8 @@ class SessionNotificationTest {
                     owned += running(service) - before
                 }
                 await("two-session notification") { notificationTitle().contains("2개") }
-                activity.moveToState(Lifecycle.State.CREATED)
+                // onStop intentionally keeps the renderer transport bound; destruction detaches it.
+                activity.moveToState(Lifecycle.State.DESTROYED)
                 unbind()
                 await("foreground after UI detach") { serviceDump().contains("isForeground=true") }
                 service = bind()
@@ -67,19 +68,20 @@ class SessionNotificationTest {
                 await("started lifetime released") { serviceDump().contains("startRequested=false") }
                 unbind()
                 await("idle service destroyed") { !serviceDump().contains("ServiceRecord{") }
-                activity.moveToState(Lifecycle.State.RESUMED)
-                service = bind()
-                await("reopened idle service") { service.state == "READY" && !hasNotification() }
-                service.createSession("NATIVE", "/system/bin/sh", "", 24, 80)
-                await("new session after idle stop") { running(service).size == 1 && hasNotification() }
-                owned += running(service)
-                service.terminateSession(owned.single())
-                await("explicit final termination") { running(service).isEmpty() && !hasNotification() }
-                owned.clear()
-                service.createSession("INVALID", "/system/bin/sh", "", 24, 80)
-                // Binder operation is asynchronous; wait for it to settle before checking release.
-                SystemClock.sleep(500)
-                await("failed creation releases service") { !hasNotification() && serviceDump().contains("startRequested=false") }
+                ActivityScenario.launch(MainActivity::class.java).use {
+                    service = bind()
+                    await("reopened idle service") { service.state == "READY" && !hasNotification() }
+                    service.createSession("NATIVE", "/system/bin/sh", "", 24, 80)
+                    await("new session after idle stop") { running(service).size == 1 && hasNotification() }
+                    owned += running(service)
+                    service.terminateSession(owned.single())
+                    await("explicit final termination") { running(service).isEmpty() && !hasNotification() }
+                    owned.clear()
+                    service.createSession("INVALID", "/system/bin/sh", "", 24, 80)
+                    // Binder operation is asynchronous; wait for it to settle before checking release.
+                    SystemClock.sleep(500)
+                    await("failed creation releases service") { !hasNotification() && serviceDump().contains("startRequested=false") }
+                }
             } finally {
                 owned.forEach { runCatching { service.terminateSession(it) } }
                 unbind()
@@ -107,7 +109,7 @@ class SessionNotificationTest {
                         .notification.actions.single { it.title.toString() == "모든 세션 종료" }
                     assertTrue(action.actionIntent.isImmutable)
                     if (background) {
-                        activity.moveToState(Lifecycle.State.CREATED)
+                        activity.moveToState(Lifecycle.State.DESTROYED)
                         unbind()
                     }
                     action.actionIntent.send()

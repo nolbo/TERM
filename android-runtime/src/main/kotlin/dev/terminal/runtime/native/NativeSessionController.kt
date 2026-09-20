@@ -67,6 +67,7 @@ class NativeSessionController(
         val argv = dev.terminal.runtime.session.SessionCommand.decode(env)
         val command = argv?.first() ?: shell.takeIf { it.startsWith('/') && File(it).canExecute() } ?: "/system/bin/sh"
         val loginShell = env["DROID_LOGIN_SHELL"]?.toBooleanStrictOrNull() ?: true
+        require(cwd.isEmpty() || (cwd.startsWith('/') && File(cwd).isDirectory)) { "Working directory does not exist: $cwd" }
         val capabilities = hostEnvironment(id)
         val environment = buildList {
             add("HOME=${home.absolutePath}")
@@ -82,8 +83,9 @@ class NativeSessionController(
             add("PS1=~ \\${'$'} ")
             env.filterKeys { it != "DROID_LOGIN_SHELL" && it != dev.terminal.runtime.session.SessionCommand.KEY && !it.startsWith("TERMINAL_USB_") }.forEach { (key, value) -> add("$key=$value") }
             capabilities.forEach { (key, value) -> add("$key=$value") }
-        }.toTypedArray()
-        val workingDirectory = cwd.takeIf { it.startsWith('/') && File(it).isDirectory } ?: home.absolutePath
+        }.associate { assignment -> assignment.substringBefore('=') to assignment.substringAfter('=') }
+            .map { (key, value) -> "$key=$value" }.toTypedArray()
+        val workingDirectory = cwd.ifEmpty { home.absolutePath }
         val process = try { PtyProcess.start(
             command, workingDirectory, argv?.toTypedArray() ?: if (loginShell) arrayOf(command, "-l") else arrayOf(command), environment,
             rows.toInt(), cols.toInt(), 0, 0,

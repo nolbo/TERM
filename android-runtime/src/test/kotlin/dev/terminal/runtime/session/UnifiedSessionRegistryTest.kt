@@ -18,6 +18,41 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UnifiedSessionRegistryTest {
+    @Test fun directRuntimeRequestsResolveProfilesWithoutRedirectingAndKeepPathCommands() = runBlocking {
+        val launches = mutableMapOf<String, SessionLaunchSpec>()
+        val registry = UnifiedSessionRegistry(recordLaunch = { id, spec -> launches[id] = spec })
+        SessionRuntime.entries.forEach { runtime ->
+            registry.register(runtime, FakeController(runtime.idPrefix + "profile"))
+            val result = registry.create(runtime, "/bin/sh", "/", mapOf(SessionCommand.KEY to SessionCommand.encode(listOf("printf", "space quote'"))), 24u, 80u).getOrThrow()
+            val spec = launches.getValue(result.id)
+            assertEquals(SessionProfile.builtInId(runtime), spec.profileId)
+            assertEquals(runtime, spec.runtime)
+            assertEquals(listOf("/bin/sh", "-c", "exec \"\$@\"", "/bin/sh", "printf", "space quote'"), spec.arguments())
+        }
+        registry.close()
+    }
+
+    @Test fun launchSnapshotSurvivesDetachResizeListAndOnlyExplicitTerminationKillsSession() = runBlocking {
+        val launches = mutableMapOf<String, SessionLaunchSpec>()
+        val registry = UnifiedSessionRegistry(recordLaunch = { id, spec -> launches[id] = spec })
+        val controller = FakeController("native-profile")
+        registry.register(SessionRuntime.NATIVE, controller)
+        val profile = SessionProfile("work", "Work", SessionRuntime.NATIVE, "/bin/sh", listOf("-l"), "/", mapOf("WORK" to "old"))
+        val original = profile.resolve()
+        val created = registry.create(original, 24u, 80u).getOrThrow()
+        profile.copy(environment = mapOf("WORK" to "new")).resolve()
+        registry.detach(created.id).getOrThrow()
+        registry.attach(created.id).getOrThrow()
+        registry.resize(created.id, 30u, 90u).getOrThrow()
+        registry.list().getOrThrow()
+        assertEquals("old", launches.getValue(created.id).environment["WORK"])
+        assertFalse(controller.closed)
+        assertTrue(controller.terminatedIds.isEmpty())
+        registry.terminate(created.id, 9).getOrThrow()
+        assertEquals(listOf(created.id), controller.terminatedIds)
+        registry.close()
+    }
+
     @Test fun migrationRejectsLiveOrUnverifiableSiblingSessions() = runBlocking {
         for (failed in listOf(false, true)) {
             val registry = UnifiedSessionRegistry()

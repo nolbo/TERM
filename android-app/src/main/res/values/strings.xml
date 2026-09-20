@@ -311,4 +311,24 @@
     <string name="rootless_migrate">중단된 이전 복구</string>
     <string name="rootless_migrate_description">기존 패키지와 파일을 유지하며 중단된 이전을 복구합니다. 먼저 모든 터미널 세션과 작업 폴더의 파일 작업을 종료하세요. 가속에는 저장 형식 변경이 필요하지 않습니다.</string>
     <string name="rootless_migrate_running">중단된 이전을 복구 중입니다</string>
+    <string name="profiles">Profiles</string>
+    <string name="profiles_summary">세션 생성에 사용할 프로필을 관리합니다.</string>
+    <string name="add_profile">Add profile</string>
+    <string name="builtin_profile">기본 제공 · 복제하여 사용자 설정</string>
+    <string name="profile_edit">편집</string>
+    <string name="profile_duplicate">복제</string>
+    <string name="profile_delete">삭제</string>
+    <string name="profile_delete_message">%1$s 프로필을 삭제할까요? 실행 중인 세션은 유지됩니다.</string>
+    <string name="profile_future_only">변경 사항은 이후 생성하는 세션에만 적용됩니다.</string>
+    <string name="profile_name">Profile name</string>
+    <string name="profile_runtime">Runtime</string>
+    <string name="profile_shell">Shell</string>
+    <string name="profile_arguments">Shell arguments</string>
+    <string name="profile_arguments_hint">JSON 문자열 배열. 예: ["-l"] 또는 []. 각 인수는 그대로 전달됩니다.</string>
+    <string name="profile_directory">Working directory</string>
+    <string name="profile_startup">Startup command</string>
+    <string name="profile_environment">Environment variables</string>
+    <string name="profile_environment_hint">한 줄에 KEY=value 하나. 시작 명령은 설정된 셸에서 한 번 실행한 뒤 대화형 셸로 전환합니다.</string>
+    <string name="profile_save">저장</string>
+    <string name="profile_discard">저장하지 않은 변경 사항을 버릴까요?</string>
 </resources>

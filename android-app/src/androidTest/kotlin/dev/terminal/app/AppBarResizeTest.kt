@@ -41,10 +41,10 @@ class AppBarResizeTest {
                             TerminalChrome(
                                 sessions = emptyList(), activeSessionId = null,
                                 appBarContentVisible = visible.value,
-                                terminatingSessionIds = emptySet(), runtimeChoices = emptyList(),
+                                terminatingSessionIds = emptySet(), profiles = emptyList(),
                                 newSessionMenuExpanded = false, onSelect = {}, onRename = {},
                                 onTerminate = {}, onNew = {}, onDismissNewSession = {},
-                                onSelectRuntime = {}, onSettings = {},
+                                onSelectProfile = {}, onAddProfile = {}, onSettings = {},
                             )
                             AndroidView(factory = { context ->
                                 TerminalView(context, null).apply {

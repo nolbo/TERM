@@ -14,6 +14,7 @@ interface IRuntimeService {
     void prepare();
     void startRuntime();
     void stopRuntime(int mode);
+    void createSessionFromSpec(String launchSpecJson, int rows, int cols);
     void createSession(String runtimeType, String shell, String cwd, int rows, int cols);
     void attachSession(String sessionId);
     void detachSession(String sessionId);

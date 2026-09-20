@@ -1,5 +1,20 @@
 # Protocol
 
+## Session profile launch requests
+
+The app-private Binder `createSessionFromSpec(launchSpecJson, rows, cols)` accepts
+version 1 JSON with `profileId`, `name`, `runtime` (existing wire runtime name),
+`shell`, `arguments` (string array), `cwd`, `environment` (string map), and
+`startupCommand`. Settings are copied and validated before dispatch; payloads are
+limited to 32 KiB, 64 environment entries and the existing 4096-byte/64-argument
+argv envelope. `DROID_*`, `TERMINAL_USB_*` and `KITTY_WINDOW_ID` are reserved.
+Rows/columns remain separate launch-time terminal state. The service snapshot
+includes `profileId` and `launchSpec` for each new session, even after its profile
+is edited or deleted. Missing metadata on legacy guest sessions does not imply
+session loss. The old runtime-based Binder call adapts to a built-in profile.
+No guest protocol change is needed: launch arguments continue through the existing
+`DROID_SESSION_ARGV` envelope, removed before constructing the child environment.
+
 ## Terminal paste
 
 Paste is application input, not a shell command queue. With DECSET 2004 enabled,

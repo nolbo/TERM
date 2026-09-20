@@ -218,52 +218,68 @@ class VmRuntimeService : Service() {
             backend.stop(if (mode == FORCE_STOP) StopMode.FORCE else StopMode.GRACEFUL)
         }
 
-        override fun createSession(runtimeType: String, shell: String, cwd: String, rows: Int, cols: Int) = launchRuntimeOperation(trackAsWork = true, errorOperation = "세션 생성:$runtimeType") {
-            val requestedRuntime = SessionRuntime.fromWireName(runtimeType)
-                ?: throw IllegalArgumentException("알 수 없는 런타임: $runtimeType")
-            Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
-            val client = ensureSessionRegistry()
-                ?: throw IllegalStateException("세션 런타임에 연결할 수 없습니다")
-            if (!ensureRuntimeController(requestedRuntime, client)) {
-                notifyOperationError("세션 생성:${requestedRuntime.wireName}", runtimeUnavailableReason(requestedRuntime))
-                return@launchRuntimeOperation
+        override fun createSessionFromSpec(launchSpecJson: String, rows: Int, cols: Int) =
+            createResolvedSession(launchSpecJson, rows, cols)
+
+        override fun createSession(runtimeType: String, shell: String, cwd: String, rows: Int, cols: Int) {
+            val selected = SessionRuntime.fromWireName(runtimeType)
+            if (selected == null) {
+                launchRuntimeOperation { throw IllegalArgumentException("Unknown runtime: $runtimeType") }
+                return
             }
             val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
-            val kittyId = nextKittyId()
-            val grantKitty = preferences.getBoolean(KEY_KITTY_REMOTE, false)
-            val result = sessionSnapshots.mutateAndRefresh(client) {
-                client.create(
-                    requestedRuntime,
-                    shell,
-                    cwd,
-                    env = buildMap {
-                        put("TERM", preferences.getString(KEY_NATIVE_TERM, "xterm-256color").orEmpty())
-                        put("DROID_LOGIN_SHELL", preferences.getBoolean(KEY_NATIVE_LOGIN, true).toString())
-                        if (preferences.getBoolean(KEY_KITTY_GRAPHICS, false) || grantKitty) {
-                            put("KITTY_WINDOW_ID", kittyId.toString())
-                        }
-                    },
-                    rows = rows.toUShortDimension(),
-                    cols = cols.toUShortDimension(),
-                ).onSuccess {
-                    kittyIdentities[it.id] = kittyId
-                    if (grantKitty && preferences.getBoolean(KEY_KITTY_REMOTE, false)) kittyGrants.add(it.id)
+            val profile = dev.terminal.runtime.session.SessionProfile(
+                dev.terminal.runtime.session.SessionProfile.builtInId(selected), selected.wireName, selected, shell,
+                if (selected != SessionRuntime.AVF && preferences.getBoolean(KEY_NATIVE_LOGIN, true)) listOf("-l") else emptyList(), cwd)
+            createResolvedSession(profile.resolve().toJson().toString(), rows, cols)
+        }
+
+        private fun createResolvedSession(encoded: String, rows: Int, cols: Int) {
+            val parsed = runCatching { dev.terminal.runtime.session.SessionLaunchSpec.fromJson(encoded) }
+            launchRuntimeOperation(trackAsWork = true, errorOperation = "세션 생성:${parsed.getOrNull()?.runtime?.wireName ?: "UNKNOWN"}") {
+                val spec = parsed.getOrThrow()
+                val requestedRuntime = spec.runtime
+                Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
+                val client = ensureSessionRegistry()
+                    ?: throw IllegalStateException("세션 런타임에 연결할 수 없습니다")
+                if (!ensureRuntimeController(requestedRuntime, client)) {
+                    notifyOperationError("세션 생성:${requestedRuntime.wireName}", runtimeUnavailableReason(requestedRuntime))
+                    return@launchRuntimeOperation
                 }
-            }
-            result.operation
-                .onSuccess { created ->
-                    // Publish the new session before requesting focus so the UI
-                    // can attach its renderer and move keyboard input to it.
-                    if (result.snapshot?.isSuccess == true) {
-                        focusedSession = created.id
-                        broadcast { it.onSessionFocusRequested(created.id) }
+                val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
+                val kittyId = nextKittyId()
+                val grantKitty = preferences.getBoolean(KEY_KITTY_REMOTE, false)
+                val result = sessionSnapshots.mutateAndRefresh(client) {
+                    client.create(
+                        spec,
+                        runtimeEnvironment = buildMap {
+                            if ("TERM" !in spec.environment) put("TERM", preferences.getString(KEY_NATIVE_TERM, "xterm-256color").orEmpty())
+                            if (preferences.getBoolean(KEY_KITTY_GRAPHICS, false) || grantKitty) {
+                                put("KITTY_WINDOW_ID", kittyId.toString())
+                            }
+                        },
+                        rows = rows.toUShortDimension(),
+                        cols = cols.toUShortDimension(),
+                    ).onSuccess {
+                        kittyIdentities[it.id] = kittyId
+                        if (grantKitty && preferences.getBoolean(KEY_KITTY_REMOTE, false)) kittyGrants.add(it.id)
                     }
                 }
-                .onFailure {
-                    Log.e(TAG, "session.create failed runtime=${requestedRuntime.wireName} cause=${it.javaClass.simpleName}: ${it.userMessage()}")
-                    notifyOperationError("세션 생성:${requestedRuntime.wireName}", it.userMessage())
-                }
-            result.snapshot?.onFailure { notifyOperationError("세션 목록 새로고침", it.userMessage()) }
+                result.operation
+                    .onSuccess { created ->
+                        // Publish the new session before requesting focus so the UI
+                        // can attach its renderer and move keyboard input to it.
+                        if (result.snapshot?.isSuccess == true) {
+                            focusedSession = created.id
+                            broadcast { it.onSessionFocusRequested(created.id) }
+                        }
+                    }
+                    .onFailure {
+                        Log.e(TAG, "session.create failed runtime=${requestedRuntime.wireName} cause=${it.javaClass.simpleName}: ${it.userMessage()}")
+                        notifyOperationError("세션 생성:${requestedRuntime.wireName}", it.userMessage())
+                    }
+                result.snapshot?.onFailure { notifyOperationError("세션 목록 새로고침", it.userMessage()) }
+            }
         }
 
         override fun attachSession(sessionId: String) = launchRuntimeOperation {
@@ -321,6 +337,7 @@ class VmRuntimeService : Service() {
             val result = sessionSnapshots.mutateAndRefresh(client) { client.terminate(sessionId, SIGKILL) }
             result.operation
                 .onSuccess {
+                    getSharedPreferences("session-launches", MODE_PRIVATE).edit().remove(sessionId).apply()
                     kittyGrants.remove(sessionId)
                     kittyIdentities.remove(sessionId)
                     kittyTitles.remove(sessionId)
@@ -442,6 +459,11 @@ class VmRuntimeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        getSharedPreferences("session-launches", MODE_PRIVATE).let { launches ->
+            launches.edit().apply {
+                launches.all.keys.filter { SessionRuntime.fromSessionId(it) != SessionRuntime.AVF }.forEach { remove(it) }
+            }.apply()
+        }
         createNotificationChannel()
         sharedDirectories = SharedDirectoryManager(applicationContext)
         wakeController = RuntimeWakeController(applicationContext)
@@ -597,7 +619,9 @@ class VmRuntimeService : Service() {
             else -> selectedBackend.connectSessionClient().getOrNull()
         }
         client?.let { primaryController ->
-            val registry = UnifiedSessionRegistry(beforeCreate = {
+            val registry = UnifiedSessionRegistry(recordLaunch = { id, spec ->
+                getSharedPreferences("session-launches", MODE_PRIVATE).edit().putString(id, spec.toJson().toString()).commit()
+            }, beforeCreate = {
                 check(!dev.terminal.runtime.rootless.RootlessNativeMigration.pending(java.io.File(filesDir, "rootless").toPath())) {
                     "중단된 가속 형식 이전이 있습니다. 설정에서 이전을 다시 실행해 복구하세요"
                 }
@@ -800,6 +824,11 @@ class VmRuntimeService : Service() {
     private fun List<SessionDescriptor>.toJson(explicitTitleIds: Set<String> = emptySet(), initialTitles: Map<String, String> = emptyMap()): String = JSONArray().apply {
         forEach { session -> put(JSONObject().apply {
             put("id", session.id)
+            getSharedPreferences("session-launches", MODE_PRIVATE).getString(session.id, null)?.let {
+                val spec = JSONObject(it)
+                put("profileId", spec.getString("profileId"))
+                put("launchSpec", spec)
+            }
             put("runtime", (sessionClient as? UnifiedSessionRegistry)?.runtimeOf(session.id)?.wireName
                 ?: SessionRuntime.fromSessionId(session.id)?.wireName
                 ?: if (backend is NativeBackend) SessionRuntime.NATIVE.wireName else SessionRuntime.AVF.wireName)
