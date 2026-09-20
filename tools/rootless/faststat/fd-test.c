@@ -100,9 +100,11 @@ static void check_teardown_signal(void)
 }
 static _Thread_local sigjmp_buf jump_target;
 static _Thread_local volatile sig_atomic_t jump_on_seal;
-/* Only F_ADD_SEALS is issued through this symbol by these fixtures. */
+/* Inject only at sealing; the combined stdio DSO also queries stream flags. */
 int fcntl(int fd, int command, ...)
 {
+    if (command == F_GETFL || command == F_GETFD)
+        return syscall(SYS_fcntl, fd, command);
     CHECK(command == F_ADD_SEALS);
     va_list arguments;
     va_start(arguments, command);

@@ -25,7 +25,7 @@
 
 ## 구현과 호환성
 
-- tracer/DSO 공유 프로토콜을 버전 5로 함께 변경했다. 일반 stat/open/create/close와
+- tracer/DSO 공유 프로토콜을 버전 6으로 함께 변경했다. 일반 stat/open/create/close와
   ID 조회는 에뮬레이션에서도 가속한다. 과거 DSO와 혼용하지 않도록 빌드 해시를 고정했다.
 - `openat2` 호출을 제거했다. 게시된 host 바인딩 루트를 매번 새 FD로 열고,
   guest 경로의 각 요소를 `openat(O_PATH|O_NOFOLLOW)`로 확인하는 기본 경로를 유지한다.
@@ -276,3 +276,46 @@ API 35 ARM64 redroid, 파일 1,000개, warm cache이며 이번 후보만 openat2
 재사용했다. APK 엔진/loader/DSO 고정 해시와 재현 소스 archive의 코드·시험·측정
 일치를 확인했다. UI 변경이 없어 UI/새 배포판 설치 시험은 반복하지 않았다.
 Android MCP를 사용했으며 incremental APK 설치 거부 뒤 streamed 설치가 성공했다.
+
+## 기준 파일시스템 FD를 이용한 반복 검사 축소
+
+tracer는 등록된 스레드마다 root 바인딩의 일반 파일시스템을 한 번 확인하고 O_PATH
+FD를 보관한다. 이 참조가 살아 있는 동안 파일시스템 장치 번호가 재사용되지 않으므로,
+DSO가 매번 새로 얻은 fstat의 장치 번호와 일치하면 별도 fstatfs를 생략할 수 있다.
+다른 장치는 기존 fstatfs로 확인한다. 기준을 열 수 없거나 지원하지 않는 파일시스템이면
+기존 방식이 유지된다. `PROOT_FASTSTORAGE=0`으로 이 최적화만 끌 수 있다.
+파일 크기·시간·권한·링크 수·경로는 캐시하지 않는다. 열린 FD 앞뒤의 l2s 경로 확인도
+유지한다. 기준 FD는 tracer 소유이며 상태 해제 시 게시를 취소하고 닫는다.
+공유 ABI를 6으로 변경해 엔진·DSO를 함께 고정했다. 저장 형식 마이그레이션은 없다.
+
+[3회 순서 순환 측정 원본](../tools/rootless/faststat/results/pinned-storage-2026-09-20.json).
+같은 API 35 환경, 파일 1,000개, warm cache. 직전/현재 후보만 openat2를 차단했다.
+
+| 작업 | 이전 네이티브(ms) | 직전 99031f9(ms) | 이번 후보(ms) |
+| --- | ---: | ---: | ---: |
+| 파일 정보 조회 | 13.432 | 15.519 | 14.695 |
+| 작은 파일 읽기 | 34.088 | 45.143 | 44.771 |
+| 생성·쓰기·이름 변경·삭제 | 207.149 | 254.981 | 259.391 |
+| tar 압축 해제 | 512.717 | 579.891 | 581.400 |
+| Python import | 437.449 | 440.958 | 440.605 |
+| ls -ln | 129.768 | 92.343 | 92.915 |
+| du | 46.960 | 18.538 | 17.836 |
+| find -ls | 105.947 | 114.666 | 111.971 |
+
+조회는 직전보다 5.31% 짧지만 이전 네이티브보다 9.4% 길다. 작은 파일 읽기·생성·삭제·
+압축 해제·import의 추가 개선은 뚜렷하지 않아 주장하지 않는다. 전체 목표는 미달성이다.
+숫자 PID로 `/proc/self/fd`를 치환한 별도 실험은 5회 결과가 일관되지 않았고 PID
+namespace의 추가 검증도 필요해 채택하지 않았다. 실제 변경에는 포함하지 않는다.
+
+두 저장 형식에서 기존 파일·FD·바인딩·패키지·statx/dirfd 검사를 통과했다.
+`storage-test.py`는 가속 진입, procfs 바인딩 제외, 48개 스레드 생성·종료의 tracer FD
+반납과 fork를 확인했다. 새 ABI로 빌드한 `fd-test`도 신호 처리/비지역 탈출, 8개 스레드,
+fork ID, exec, FD 재사용, EFAULT, seccomp 검사를 통과했다.
+처음에는 시험용 fcntl 후킹이 F_ADD_SEALS만 허용해 stdio DSO의 F_GETFL에서 실패했다.
+후킹이 단순 flags 조회를 전달하도록 수정한 뒤 재시험에 통과했다.
+
+`PROOT_FASTSTORAGE=0`의 기존 방식도 storage 회귀 시험에 통과했다.
+canonical 앱 빌드/runtime/image 검사를 통과했고 변경 없는 단위 테스트는 Gradle의
+UP-TO-DATE 결과를 재사용했다. APK 내부 엔진·DSO·loader 해시와 재현 소스 archive의
+현재 코드/ABI/시험 일치를 확인했다. Android MCP로 검사했으며 UI/새 설치 시험은
+이번 변경 범위에 없어 반복하지 않았다. 삼성 Android 17 실측과 공개 배포는 미실행이다.

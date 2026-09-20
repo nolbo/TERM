@@ -13,13 +13,13 @@ import zipfile
 RELEASE = "rootless-runtime-20260920-emulated.1"
 BASE = f"https://github.com/nolbo/TERM/releases/download/{RELEASE}"
 ARCHIVES = {
-    "rootless-runtime-arm64.tar.gz": "0fde903c5e7e25986c375f9a8f80b1e9026b16e61dba35b01fbf6766e77b1d98",
-    "rootless-runtime-source.tar.gz": "80352ec8b21c692ad98b0d8340cbecf7fbb16e1cf5f485bc97d040fd63ce4630",
+    "rootless-runtime-arm64.tar.gz": "5b9aabfef656b93d58bec89c8748344fe53922fe11ec928042a99014cb7714c3",
+    "rootless-runtime-source.tar.gz": "a4eedb890c2cc06cd2643ac9cefdd57b50b5373fcd71f66b545b7fa33a91374a",
 }
 PAYLOAD = {
-    "proot": "913df1eb802b0c2da6a02e2cc14d146f04cf58296eb58e88807d04ad89785af8",
+    "proot": "7264fcbf333d490bf8730171ca2991c05769765d8b6fab43dda654869411c3e6",
     "proot-loader": "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237",
-    "libproot-faststat.so": "24825201890334d0267807b83d095e4d868eda81e01bda0255bd50bf3ed73c82",
+    "libproot-faststat.so": "44659f5b8bafeb7d0f974b13cff0cca83e2a2d49d5ae6619c2cf309dc9c84e07",
 }
 
 

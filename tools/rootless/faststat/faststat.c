@@ -57,7 +57,7 @@ static _Atomic unsigned long close_hits;
 static _Atomic unsigned long unlink_hits;
 static _Atomic unsigned long create_hits;
 static int (*libc_openat)(int, const char *, int, ...);
-static _Atomic unsigned long open_hits;
+static _Atomic unsigned long open_hits, storage_hits;
 static pthread_key_t fd_key;
 struct local_identity {
     pid_t pid;
@@ -489,6 +489,24 @@ static int ordinary_storage(int pin)
     }
 }
 
+/* A fresh fstat result identifies the same live superblock held by the
+ * tracer. Unknown devices retain the per-call filesystem check. */
+static int ordinary_storage_stat(int pin, struct proot_fastfd_identity *identity,
+                                 const struct stat *info)
+{
+    if (atomic_load(&identity->storage_active)) {
+        uint64_t device = atomic_load(&identity->storage_dev_low);
+        device |= (uint64_t)atomic_load(&identity->storage_dev_high) << 32;
+        if (device == (uint64_t)info->st_dev && atomic_load(&identity->storage_active)) {
+            atomic_fetch_add_explicit(&storage_hits, 1, memory_order_relaxed);
+            return 1;
+        }
+    }
+    return ordinary_storage(pin);
+}
+
+unsigned long proot_faststorage_hits(void) { return atomic_load(&storage_hits); }
+
 /* Regular files/directories on ordinary storage. Pin before reopening so a FIFO
  * substitution cannot block and a device substitution cannot have side effects.
  * Ordinary openat remains the fallback and the final fast call uses openat too,
@@ -537,7 +555,7 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
         (!S_ISREG(info.st_mode) && !S_ISDIR(info.st_mode))) goto slow_open;
     /* procfs regular files (notably auxv) still need tracer emulation. Check
      * the pinned object, not a cached pathname or binding classification. */
-    if (!ordinary_storage(pin)) goto slow_open;
+    if (!ordinary_storage_stat(pin, identity, &info)) goto slow_open;
     char pinned[64];
     snprintf(pinned, sizeof(pinned), "/proc/self/fd/%ld", pin);
     if (creating) {
@@ -776,11 +794,12 @@ static int shared_path_stat(int dirfd, const char *path, struct stat *output, in
         pin = pin_shared_path(translated, anchor_length, 0);
     }
     if (pin < 0 || strstr(translated, "/.l2s.") ||
-        strstr(translated, "/.proot.l2s.") || !ordinary_storage(pin)) goto done;
+        strstr(translated, "/.proot.l2s.")) goto done;
     struct stat result;
     /* Use the original syscall number: guest seccomp denial still wins. */
     if (fast_syscall(SYS_newfstatat, pin, (long)"", (long)&result, AT_EMPTY_PATH) < 0 ||
         (!S_ISREG(result.st_mode) && !S_ISDIR(result.st_mode)) ||
+        !ordinary_storage_stat(pin, identity, &result) ||
         !map_identity(identity, &result) ||
         sequence != atomic_load(&identity->paths.sequence) ||
         !atomic_load(&identity->paths.active)) goto done;

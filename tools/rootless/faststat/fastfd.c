@@ -2,6 +2,8 @@
 /* Tracer side of the experimental per-thread FD identity page. */
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/magic.h>
+#include <sys/vfs.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -22,6 +24,7 @@ struct fastfd_state {
     uint32_t host_uid, host_gid, guest_uid, guest_gid, active;
     uint64_t path_epoch;
     bool path_requested;
+    int storage_fd;
     const Bindings *bindings;
 };
 
@@ -86,8 +89,45 @@ static void publish_paths(Tracee *tracee, struct fastfd_state *state, bool activ
     atomic_fetch_add(&page->sequence, 1);
 }
 
+/* Keep a reference to the classified superblock so its device number cannot
+ * be recycled while the guest relies on it. Guest FDs never own this reference.
+ * Other devices still require a live fstatfs; mount/binding changes therefore
+ * cannot make a procfs file look like an ordinary file on this device. */
+static void publish_storage(Tracee *tracee, struct fastfd_state *state)
+{
+    const char *setting = getenv("PROOT_FASTSTORAGE");
+    atomic_store(&state->page->storage_active, 0);
+    if (!state->path_requested || (setting && !strcmp(setting, "0"))) return;
+    const Bindings *bindings = tracee->fs->bindings.guest;
+    if (!bindings) return;
+    const Binding *binding;
+    CIRCLEQ_FOREACH(binding, bindings, link.guest) {
+        if (strcmp(binding->guest.path, "/")) continue;
+        int fd = open(binding->host.path, O_PATH | O_DIRECTORY | O_CLOEXEC);
+        if (fd < 0) return;
+        struct stat info;
+        struct statfs filesystem;
+        if (fstat(fd, &info) || fstatfs(fd, &filesystem)) { close(fd); return; }
+        switch (filesystem.f_type) {
+        case EXT4_SUPER_MAGIC: case F2FS_SUPER_MAGIC: case TMPFS_MAGIC:
+        case XFS_SUPER_MAGIC: case BTRFS_SUPER_MAGIC: case OVERLAYFS_SUPER_MAGIC:
+        case EROFS_SUPER_MAGIC_V1: case SQUASHFS_MAGIC:
+            state->storage_fd = fd;
+            atomic_store(&state->page->storage_dev_low, (uint32_t)info.st_dev);
+            atomic_store(&state->page->storage_dev_high, (uint32_t)((uint64_t)info.st_dev >> 32));
+            atomic_store(&state->page->storage_active, 1);
+            return;
+        default:
+            close(fd);
+            return;
+        }
+    }
+}
+
 static int release_page(struct fastfd_state *state)
 {
+    atomic_store(&state->page->storage_active, 0);
+    if (state->storage_fd >= 0) close(state->storage_fd);
     munmap(state->page, PROOT_FASTFD_MAPPING_SIZE);
     return 0;
 }
@@ -190,6 +230,7 @@ int fastfd_attach(Tracee *tracee, int guest_fd, unsigned version)
     struct fastfd_state *state = talloc_zero(tracee, struct fastfd_state);
     if (!state) { munmap(page, PROOT_FASTFD_MAPPING_SIZE); return -ENOMEM; }
     state->page = page;
+    state->storage_fd = -1;
     state->host_uid = getuid();
     state->host_gid = getgid();
     const char *paths = getenv("PROOT_FASTPATH");
@@ -200,6 +241,7 @@ int fastfd_attach(Tracee *tracee, int guest_fd, unsigned version)
     atomic_store(&state->page->sequence, 0);
     atomic_store(&state->page->paths.sequence, 0);
     atomic_store(&state->page->paths.active, 0);
+    publish_storage(tracee, state);
     fastfd_sync(tracee);
     return 0;
 }

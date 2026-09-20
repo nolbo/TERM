@@ -11,7 +11,7 @@
 #include <stdatomic.h>
 
 #define PROOT_FASTFD_ATTACH 0x50525348
-#define PROOT_FASTFD_VERSION 5
+#define PROOT_FASTFD_VERSION 6
 #define PROOT_FASTFD_MAPPING_SIZE 32768
 #define PROOT_FASTPATH_BINDINGS 32
 #define PROOT_FASTPATH_BYTES 16384
@@ -29,6 +29,9 @@ struct proot_fastpath_rules {
 struct proot_fastfd_identity {
     _Atomic uint32_t sequence, active, host_uid, host_gid, guest_uid, guest_gid;
     _Atomic uint32_t close_safe;
+    /* Immutable ordinary-superblock identity while the tracer holds an O_PATH
+     * reference. This is not a file metadata or pathname cache. */
+    _Atomic uint32_t storage_active, storage_dev_low, storage_dev_high;
     struct proot_fastpath_rules paths;
 };
 _Static_assert(sizeof(struct proot_fastfd_identity) <= PROOT_FASTFD_MAPPING_SIZE, "fastfd shared ABI fits");
