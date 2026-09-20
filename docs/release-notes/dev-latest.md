@@ -1,7 +1,8 @@
 # TERM 개발 채널 — 가속 이전 실패 진단
 
-- 릴리즈 ID: `dev-latest` (개발 채널 이동 태그)
-- 날짜: 2026-09-20
+- 릴리즈 ID: `dev-latest` → `dev-09afdf17440bed2e3925b52be694dbf07699abc9`
+- 버전: `0.1.0+dev.1000028.09afdf17440b` (versionCode 1000028)
+- 출시일: 2026-09-20
 - 대상: TERM Android ARM64 APK, Rootless 가속 형식 이전
 - 변경 범위: `dev-70c0c6a89be01fbe7053a5b0ebdc551e8c2ad9b6` 이후
 
@@ -23,4 +24,9 @@
 - 가속·stdio 프로필로 canonical `:android-app:assembleDebug :android-runtime:testDebugUnitTest :image:test` 및 `:android-runtime:assembleDebugAndroidTest` 성공.
 - runtime 단위 테스트 161개 중 160개 통과, 기존 선택적 테스트 1개 건너뜀. image 4개 통과.
 - Android MCP: API 35 별도 시험 APK에서 실제 NIO 오류 이유의 메시지 보존, 기존 파일 유지, 이전 임시 상태 정리 검증 1개 통과. 사용자 앱은 교체하지 않았습니다.
-- UI 레이아웃·상호작용은 변경하지 않았으며 화면 조작 재시험은 수행하지 않았습니다. 실제 Android 17 기기의 원인 재현과 공개 APK CI 결과는 이 로컬 검증에 포함하지 않습니다.
+- UI 레이아웃·상호작용은 변경하지 않았으며 화면 조작 재시험은 수행하지 않았습니다. 실제 Android 17 기기의 원인은 아직 재현하지 못했습니다.
+
+- GitHub Actions `35484089094`: 빌드·테스트, USB 호스트 안전성 회귀 검사, 서명 APK 생성, 공개 게시 모두 통과. 실제 USB 장치 시험은 수행하지 않았습니다.
+- 공개 APK의 패키지·버전, 기존 서명 인증서, APK SHA-256, 포함된 PRoot 엔진·loader·가속 DSO 해시 검증 통과.
+- `dev-latest` 업데이트 정보가 이 릴리즈와 일치함을 확인했습니다.
+- APK SHA-256: `00c15333f185e4fdc1832d4937d3232e50fcdb49da527d21cd92c34777bef5d0`
