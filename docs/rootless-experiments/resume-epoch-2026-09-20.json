@@ -1,0 +1,33 @@
+{
+  "date": "2026-09-20",
+  "included": false,
+  "status": "prototype; concurrency audit incomplete",
+  "baseline_commit": "021bce5",
+  "environment": "API 35 ARM64 redroid app UID; Ubuntu guest; warm cache; openat2 denied for baseline and candidate",
+  "workload": "tools/rootless/workloads.py --count 5000 --case small-read",
+  "baseline_ms": [
+    223.51,
+    218.475,
+    240.829
+  ],
+  "candidate_ms": [
+    218.265,
+    217.133,
+    215.528
+  ],
+  "baseline_median_ms": 223.51,
+  "candidate_median_ms": 217.133,
+  "interpretation": "2.85% lower median; 3/3 paired samples faster; small trial only, not Samsung Android 17 evidence and not proof of full objective.",
+  "validation": {
+    "emulated_links": "pass",
+    "fd_test": "pass",
+    "signal_injection_with_epoch": "pass",
+    "signal_injection_without_epoch": "expected failure: wrong inode/size/nlink"
+  },
+  "pending": [
+    "asynchronous FD-table mutation eligibility including io_uring",
+    "32-bit sequence wraparound handling",
+    "broader runtime compatibility and performance gates before adoption"
+  ],
+  "raw_timing_output": "MODE:previous\n{\"case\": \"small-read\", \"round\": 1, \"count\": 5000, \"wall_ms\": 223.51, \"guest_cpu_ms\": 223.534, \"bytes\": 2240000, \"io_mib\": null, \"mib_per_second\": 9.558, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nMODE:restricted\n{\"case\": \"small-read\", \"round\": 1, \"count\": 5000, \"wall_ms\": 218.265, \"guest_cpu_ms\": 218.254, \"bytes\": 2240000, \"io_mib\": null, \"mib_per_second\": 9.787, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nMODE:restricted\n{\"case\": \"small-read\", \"round\": 1, \"count\": 5000, \"wall_ms\": 217.133, \"guest_cpu_ms\": 217.122, \"bytes\": 2240000, \"io_mib\": null, \"mib_per_second\": 9.838, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nMODE:previous\n{\"case\": \"small-read\", \"round\": 1, \"count\": 5000, \"wall_ms\": 218.475, \"guest_cpu_ms\": 218.483, \"bytes\": 2240000, \"io_mib\": null, \"mib_per_second\": 9.778, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nMODE:previous\n{\"case\": \"small-read\", \"round\": 1, \"count\": 5000, \"wall_ms\": 240.829, \"guest_cpu_ms\": 240.805, \"bytes\": 2240000, \"io_mib\": null, \"mib_per_second\": 8.87, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nMODE:restricted\n{\"case\": \"small-read\", \"round\": 1, \"count\": 5000, \"wall_ms\": 215.528, \"guest_cpu_ms\": 215.499, \"bytes\": 2240000, \"io_mib\": null, \"mib_per_second\": 9.912, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}"
+}

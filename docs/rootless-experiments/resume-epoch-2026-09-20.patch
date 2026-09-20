@@ -1,0 +1,51 @@
+--- a/tools/rootless/faststat/protocol.h
++++ b/tools/rootless/faststat/protocol.h
+@@ -11,7 +11,7 @@
+ #include <stdatomic.h>
+ 
+ #define PROOT_FASTFD_ATTACH 0x50525348
+-#define PROOT_FASTFD_VERSION 6
++#define PROOT_FASTFD_VERSION 7
+ #define PROOT_FASTFD_MAPPING_SIZE 32768
+ #define PROOT_FASTPATH_BINDINGS 32
+ #define PROOT_FASTPATH_BYTES 16384
+--- a/tools/rootless/faststat/fastfd.c
++++ b/tools/rootless/faststat/fastfd.c
+@@ -171,6 +171,7 @@
+ {
+     struct fastfd_state *state = tracee->fastfd;
+     if (!state) return;
++    atomic_fetch_add_explicit(&state->page->sequence, 2, memory_order_seq_cst);
+     uint32_t uid = state->host_uid, gid = state->host_gid;
+     uint32_t active = compatible(tracee) ?
+         (get_extension(tracee, link2symlink_callback) ? 2 : 1) : 0;
+--- a/tools/rootless/faststat/faststat.c
++++ b/tools/rootless/faststat/faststat.c
+@@ -707,8 +707,11 @@
+      * infer virtual nlink from the kernel's nlink or a cached FD classification. */
+     char descriptor[64], before[PATH_MAX], after[PATH_MAX];
+     int emulated = atomic_load(&identity->active) == 2;
++    uint32_t resume_sequence = atomic_load(&identity->sequence);
++    int single = emulated && !(resume_sequence & 1) && atomic_load(&identity->close_safe);
+     long before_length = 0;
+-    if (emulated) {
++    if (emulated) snprintf(descriptor, sizeof(descriptor), "/proc/self/fd/%d", fd);
++    if (emulated && !single) {
+         snprintf(descriptor, sizeof(descriptor), "/proc/self/fd/%d", fd);
+         before_length = fast_syscall(SYS_readlinkat, AT_FDCWD, (long)descriptor, (long)before, sizeof(before) - 1);
+         if (before_length <= 0 || before_length >= (long)sizeof(before) - 1) goto slow_fd;
+@@ -721,7 +724,13 @@
+         !map_identity(identity, &result)) goto slow_fd;
+     if (emulated) {
+         long length = fast_syscall(SYS_readlinkat, AT_FDCWD, (long)descriptor, (long)after, sizeof(after) - 1);
+-        if (length != before_length || memcmp(before, after, before_length)) goto slow_fd;
++        if (single) {
++            if (length <= 0 || length >= (long)sizeof(after) - 1) goto slow_fd;
++            after[length] = 0;
++            if (strstr(after, "/.l2s.") || strstr(after, "/.proot.l2s.") ||
++                !atomic_load(&identity->close_safe) ||
++                resume_sequence != atomic_load(&identity->sequence)) goto slow_fd;
++        } else if (length != before_length || memcmp(before, after, before_length)) goto slow_fd;
+     }
+     struct iovec local = { &result, sizeof(result) }, remote = { output, sizeof(result) };
+     if (syscall(SYS_process_vm_writev, pid, &local, 1, &remote, 1, 0) != sizeof(result)) goto slow_fd;
