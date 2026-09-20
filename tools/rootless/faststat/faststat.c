@@ -52,6 +52,7 @@ static int unlink_requested;
 static int shared_stat_requested;
 static int close_requested;
 static int (*libc_close)(int);
+static int (*libc_statx)(int, const char *, int, unsigned, struct statx *);
 static _Atomic unsigned long close_hits;
 static _Atomic unsigned long unlink_hits;
 static _Atomic unsigned long create_hits;
@@ -98,10 +99,28 @@ static long fast_syscall(long nr, long a, long b, long c, long d)
     return x0;
 }
 
+/* statx has five arguments; retain its mask and output pointer verbatim. */
+static long fast_statx(int fd, int flags, unsigned mask, struct statx *output)
+{
+    register long x0 __asm__("x0") = fd;
+    register const char *x1 __asm__("x1") = "";
+    register long x2 __asm__("x2") = flags;
+    register long x3 __asm__("x3") = mask;
+    register struct statx *x4 __asm__("x4") = output;
+    register long x8 __asm__("x8") = SYS_statx;
+    register uintptr_t x16 __asm__("x16") = PROOT_FASTSTAT_ADDRESS;
+    __asm__ volatile("blr x16"
+        : "+r"(x0), "+r"(x1), "+r"(x2), "+r"(x3), "+r"(x4), "+r"(x8), "+r"(x16)
+        : : "x5", "x6", "x7", "x9", "x10", "x11", "x12", "x13", "x14",
+            "x15", "x17", "x30", "cc", "memory");
+    return x0;
+}
+
 __attribute__((constructor)) static void initialize_faststat(void)
 {
     int saved_errno = errno;
     libc_openat = dlsym(RTLD_NEXT, "openat");
+    libc_statx = dlsym(RTLD_NEXT, "statx");
     libc_close = dlsym(RTLD_NEXT, "close");
     const char *path_setting = getenv("PROOT_FASTSTAT_PATH");
     path_enabled = !path_setting || strcmp(path_setting, "0") != 0;
@@ -685,6 +704,58 @@ done:
     if (masked) syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous_signals, NULL, sizeof(previous_signals));
     errno = saved_errno;
     return success;
+}
+
+/* Preserve the extended kernel fields; do not synthesize statx from stat. */
+int statx(int dirfd, const char *path, int flags, unsigned mask, struct statx *output)
+{
+    _Static_assert(sizeof(struct statx) == 256, "statx ABI");
+    int saved_errno = errno, owned = 0, masked = 0, success = 0;
+    long pin = -1;
+    uint64_t all_signals = UINT64_MAX, previous_signals;
+    if (!enabled || !shared_stat_requested ||
+        (flags & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT | AT_STATX_SYNC_TYPE))) goto done;
+    if (atomic_exchange(&local_identity.busy, 1)) goto done;
+    owned = 1;
+    if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &all_signals, &previous_signals,
+                sizeof(previous_signals))) goto done;
+    masked = 1;
+    pid_t pid = syscall(SYS_getpid);
+    struct proot_fastfd_identity *identity = current_identity(pid);
+    char copied[PATH_MAX], translated[PATH_MAX];
+    size_t anchor_length = 0;
+    if (!identity || !copy_path(copied, path, pid)) goto done;
+    uint32_t sequence = atomic_load(&identity->paths.sequence);
+    if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
+        !normalize_simple_path(copied) ||
+        !lookup_shared_path(&identity->paths, copied, translated, &anchor_length)) goto done;
+    /* A guest bind may directly expose an l2s backing inode even though its
+     * guest name is ordinary. Its virtual count still belongs to PRoot. */
+    if (strstr(translated, "/.l2s.") || strstr(translated, "/.proot.l2s.")) goto done;
+    pin = proot_pin_bound_nofollow(fast_syscall, translated, anchor_length, 0);
+    if (pin < 0 || !ordinary_storage(pin)) goto done;
+    struct statx result;
+    if (fast_statx(pin, flags | AT_EMPTY_PATH, mask, &result) < 0 ||
+        !(result.stx_mask & STATX_TYPE) ||
+        (!S_ISREG(result.stx_mode) && !S_ISDIR(result.stx_mode))) goto done;
+    struct stat identity_result = { .st_uid = result.stx_uid, .st_gid = result.stx_gid };
+    if (!map_identity(identity, &identity_result) ||
+        sequence != atomic_load(&identity->paths.sequence) ||
+        !atomic_load(&identity->paths.active)) goto done;
+    if (result.stx_mask & STATX_UID) result.stx_uid = identity_result.st_uid;
+    if (result.stx_mask & STATX_GID) result.stx_gid = identity_result.st_gid;
+    struct iovec local = { &result, sizeof(result) }, remote = { output, sizeof(result) };
+    if (syscall(SYS_process_vm_writev, pid, &local, 1, &remote, 1, 0) != sizeof(result)) goto done;
+    atomic_fetch_add_explicit(&hits, 1, memory_order_relaxed);
+    success = 1;
+done:
+    if (pin >= 0) fast_syscall(SYS_close, pin, 0, 0, 0);
+    if (owned) atomic_store(&local_identity.busy, 0);
+    if (masked) syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous_signals, NULL, sizeof(previous_signals));
+    errno = saved_errno;
+    if (success) return 0;
+    return libc_statx ? libc_statx(dirfd, path, flags, mask, output) :
+        (int)syscall(SYS_statx, dirfd, path, flags, mask, output);
 }
 
 int fstatat(int dirfd, const char *path, struct stat *output, int flags)

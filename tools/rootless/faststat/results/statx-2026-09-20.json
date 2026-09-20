@@ -1,0 +1,241 @@
+{
+  "baseline_commit": "d0828fc",
+  "environment": "API 35 ARM64 redroid, SELinux disabled, app UID, Ubuntu 24.04, warm shared storage",
+  "method": "Five alternating rounds. Both modes emulate hardlinks and trap openat2. 1000 ordinary files. Process startup and output capture are timed; preparation/cleanup excluded. No concurrent agent builds or tests.",
+  "payload": {
+    "proot": "913df1eb802b0c2da6a02e2cc14d146f04cf58296eb58e88807d04ad89785af8",
+    "dso": "a86b6d3021d05ade3597a404bad4879192cb6fa4e7a154a5bc0a09630284bf45"
+  },
+  "summary": [
+    {
+      "case": "ls-long",
+      "before_ms": 134.986841,
+      "after_ms": 95.090403,
+      "reduction_percent": 29.556
+    },
+    {
+      "case": "du",
+      "before_ms": 68.193122,
+      "after_ms": 69.427607,
+      "reduction_percent": -1.81
+    },
+    {
+      "case": "find-ls",
+      "before_ms": 157.437148,
+      "after_ms": 157.420828,
+      "reduction_percent": 0.01
+    }
+  ],
+  "records": [
+    {
+      "case": "ls-long",
+      "wall_ms": 143.908068,
+      "count": 1000,
+      "round": 1,
+      "mode": "previous"
+    },
+    {
+      "case": "du",
+      "wall_ms": 72.745097,
+      "count": 1000,
+      "round": 1,
+      "mode": "previous"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 160.126196,
+      "count": 1000,
+      "round": 1,
+      "mode": "previous"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 95.445844,
+      "count": 1000,
+      "round": 1,
+      "mode": "restricted"
+    },
+    {
+      "case": "du",
+      "wall_ms": 69.427607,
+      "count": 1000,
+      "round": 1,
+      "mode": "restricted"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 157.420828,
+      "count": 1000,
+      "round": 1,
+      "mode": "restricted"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 94.670642,
+      "count": 1000,
+      "round": 2,
+      "mode": "restricted"
+    },
+    {
+      "case": "du",
+      "wall_ms": 68.238923,
+      "count": 1000,
+      "round": 2,
+      "mode": "restricted"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 154.651779,
+      "count": 1000,
+      "round": 2,
+      "mode": "restricted"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 134.986841,
+      "count": 1000,
+      "round": 2,
+      "mode": "previous"
+    },
+    {
+      "case": "du",
+      "wall_ms": 67.637841,
+      "count": 1000,
+      "round": 2,
+      "mode": "previous"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 157.265268,
+      "count": 1000,
+      "round": 2,
+      "mode": "previous"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 134.774681,
+      "count": 1000,
+      "round": 3,
+      "mode": "previous"
+    },
+    {
+      "case": "du",
+      "wall_ms": 68.193122,
+      "count": 1000,
+      "round": 3,
+      "mode": "previous"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 162.995244,
+      "count": 1000,
+      "round": 3,
+      "mode": "previous"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 94.973402,
+      "count": 1000,
+      "round": 3,
+      "mode": "restricted"
+    },
+    {
+      "case": "du",
+      "wall_ms": 69.877208,
+      "count": 1000,
+      "round": 3,
+      "mode": "restricted"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 158.403191,
+      "count": 1000,
+      "round": 3,
+      "mode": "restricted"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 95.109363,
+      "count": 1000,
+      "round": 4,
+      "mode": "restricted"
+    },
+    {
+      "case": "du",
+      "wall_ms": 69.843087,
+      "count": 1000,
+      "round": 4,
+      "mode": "restricted"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 157.708829,
+      "count": 1000,
+      "round": 4,
+      "mode": "restricted"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 135.807644,
+      "count": 1000,
+      "round": 4,
+      "mode": "previous"
+    },
+    {
+      "case": "du",
+      "wall_ms": 67.859641,
+      "count": 1000,
+      "round": 4,
+      "mode": "previous"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 156.156824,
+      "count": 1000,
+      "round": 4,
+      "mode": "previous"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 134.318079,
+      "count": 1000,
+      "round": 5,
+      "mode": "previous"
+    },
+    {
+      "case": "du",
+      "wall_ms": 69.537366,
+      "count": 1000,
+      "round": 5,
+      "mode": "previous"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 157.437148,
+      "count": 1000,
+      "round": 5,
+      "mode": "previous"
+    },
+    {
+      "case": "ls-long",
+      "wall_ms": 95.090403,
+      "count": 1000,
+      "round": 5,
+      "mode": "restricted"
+    },
+    {
+      "case": "du",
+      "wall_ms": 68.924205,
+      "count": 1000,
+      "round": 5,
+      "mode": "restricted"
+    },
+    {
+      "case": "find-ls",
+      "wall_ms": 157.117547,
+      "count": 1000,
+      "round": 5,
+      "mode": "restricted"
+    }
+  ]
+}

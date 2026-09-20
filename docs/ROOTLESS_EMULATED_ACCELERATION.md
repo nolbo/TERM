@@ -104,6 +104,50 @@ APK 빌드·runtime/app/image 테스트와 업데이트 입력 검증도 다시 
 UI 동작과 설치 절차는 변경하지 않아 앞 절의 UI/배포판 전체 설치 시험은 반복하지 않았다.
 Android 17 삼성 실기기 미검증이라는 제한은 같다.
 
+## statx를 사용하는 파일 목록 도구 가속
+
+`statx`는 glibc/Linux의 확장 파일 정보 조회 API다. Ubuntu의 `ls`는 이 심볼을
+사용하지만 기존 DSO는 이를 가속하지 않았다. 일반 파일/디렉터리 경로에서 공유
+바인딩 검증과 no-follow FD 고정을 거쳐 같은 statx syscall을 호출하도록 추가했다.
+하드링크 에뮬레이션·심볼릭 링크·특수 파일·지원하지 않는 인자는 기존 libc/PRoot
+경로로 돌아간다. 닫기 가속의 파일 종류 검사는 파이프와 FD 추적을 보호하므로 유지했다.
+
+[statx 계약](https://man7.org/linux/man-pages/man2/statx.2.html)에 따라 요청 mask와
+동기화 flags를 전달하고 커널이 반환한 256바이트 구조체를 유지한다. 가상 UID/GID만
+기존 fake-root 규칙으로 보정하며 생성 시각·mount ID·attributes를 stat에서 합성하지
+않는다. NDK r28 헤더의 Android 도입 API는 30이며 앱의 최소 API는 31이다.
+새 시스템 권한이나 openat2 허용은 요구하지 않는다.
+
+[5회 교차 비교 원시 결과](../tools/rootless/faststat/results/statx-2026-09-20.json).
+직전 `d0828fc`와 비교했고 양쪽 모두 동일 Ubuntu, 하드링크 에뮬레이션, openat2
+금지 필터를 사용했다. 매 실행마다 일반 파일 1,000개를 준비했다. 명령 시작과 출력
+수집은 시간에 포함하고 파일 준비·삭제는 제외했다. 최종 측정 중 다른 빌드/시험을
+진행하지 않았다.
+
+| 명령 | 직전(ms) | statx 가속(ms) | 시간 감소 |
+| --- | ---: | ---: | ---: |
+| ls -ln --color=never | 134.987 | 95.090 | 29.56% |
+| du -s | 68.193 | 69.428 | -1.81% |
+| find -ls | 157.437 | 157.421 | 0.01% |
+
+ls는 5쌍 모두 개선됐다. du/find는 뚜렷한 변화가 없으며 전체 파일 작업의
+30% 개선으로 해석하지 않는다. 앞 절의 조회/읽기와 다른 작업이므로 개선율을 합산하지 않는다.
+
+`statx-test.py --expect-fast`는 실제 statx 조회 직후 가속 카운터 증가, 전체 결과의
+기존 syscall과 바이트 단위 일치, 다양한 mask/동기화 flags, 실시간 크기 변경,
+링크 수·링크 종류, dirfd/AT_EMPTY_PATH, EFAULT/읽기 전용 출력, seccomp 거부를 검사했다.
+하드링크 별칭을 다른 경로에 bind한 경우도 검증했다. 초기 후보에서 발견한 링크 수
+오류는 host 경로의 에뮬레이션 backing 파일을 판별해 기존 처리로 돌리도록 수정했다.
+에뮬레이션과 네이티브 양쪽에서 통과했고, 기존 stat/open/create/close/경로/cwd/rename/
+unlink/dpkg 시험도 양쪽에서 통과했다. PRoot 없는 호스트의 libc fallback도 확인했다.
+잘못된 출력 포인터 시험에서 PRoot POKEDATA 경고가 출력되지만 EFAULT를 반환하고
+시험 프로세스는 정상 완료한다. 직전 엔진에서도 같은 경고와 결과가 재현된다.
+최종 가속 파일을 포함한 APK 빌드와 runtime/app/image 테스트도 통과했다.
+선택적 외부 압축 파일 테스트 1개는 입력 미지정으로 건너뛰었다. 업데이트/입력 검증
+Python 테스트 19개도 통과했다. 이 변경은 UI나 설치 절차를 바꾸지 않아 새 배포판
+전체 설치/화면 시험은 반복하지 않았다. Android MCP로 실행을 검증했으며 UI 변경이
+없어 이번 추가 작업에서 Replicant는 사용하지 않았다.
+
 ## 검증 및 재현
 
 - 엔진/DSO ARM64 빌드 및 16 KiB 정렬 검사 통과.
