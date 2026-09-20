@@ -1,0 +1,57 @@
+{
+  "base_commit": "dec212e",
+  "environment": "API 35 ARM64 redroid; Ubuntu guest; app UID; emulated links; openat2 denied",
+  "count_per_trial": 10000,
+  "mode_0": "Full /proc/self/fd/N readlinkat",
+  "mode_1": "Retained proc directory, relative readlinkat; no FD replacement check (unsafe production ceiling)",
+  "mode_2": "Retained proc directory, fstat identity comparison then relative readlinkat; does not test signal/shared-table races",
+  "rows": [
+    {
+      "mode": 0,
+      "count": 10000,
+      "ns": 16057970
+    },
+    {
+      "mode": 1,
+      "count": 10000,
+      "ns": 10629233
+    },
+    {
+      "mode": 2,
+      "count": 10000,
+      "ns": 15527928
+    },
+    {
+      "mode": 1,
+      "count": 10000,
+      "ns": 10675673
+    },
+    {
+      "mode": 2,
+      "count": 10000,
+      "ns": 15450088
+    },
+    {
+      "mode": 0,
+      "count": 10000,
+      "ns": 15965249
+    },
+    {
+      "mode": 2,
+      "count": 10000,
+      "ns": 15426088
+    },
+    {
+      "mode": 0,
+      "count": 10000,
+      "ns": 16008090
+    },
+    {
+      "mode": 1,
+      "count": 10000,
+      "ns": 10656593
+    }
+  ],
+  "engine_sha256": "02214cf3d501a41932d2d57133f33fe3d3fa7e887a9d980457c77bec3c5e82b7",
+  "probe_dso_sha256": "71a588eedc278616baccc51dd52ea812ed21464de9fd56c2fdd17f08716804a3"
+}
