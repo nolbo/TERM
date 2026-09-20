@@ -1,0 +1,39 @@
+--- a/src/syscall/enter.c
++++ b/src/syscall/enter.c
+@@ -2161,7 +2161,8 @@
+ 	if (tracee->extensions) {
+ 		Extension *extension;
+ 		LIST_FOREACH(extension, tracee->extensions, link)
+-			if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback)
++			if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback &&
++			    extension->callback != link2symlink_callback)
+ 				return false;
+ 	}
+ 	int fd = (int)peek_reg(tracee, ORIGINAL, SYSARG_1);
+@@ -2169,6 +2170,26 @@
+ 	char path[64];
+ 	snprintf(path, sizeof(path), "/proc/%d/fd/%d", tracee->pid, fd);
+ 	struct stat result = {0};
++	if (get_extension(tracee, link2symlink_callback)) {
++		/* Pin the actual object, not a pathname or cached FD classification.
++		 * Another guest thread can replace its descriptor while we inspect it.
++		 * O_PATH does not open devices/FIFOs or change a shared file offset. */
++		int pinned = open(path, O_PATH | O_CLOEXEC);
++		if (pinned < 0) return false;
++		char descriptor[64], resolved[PATH_MAX];
++		snprintf(descriptor, sizeof(descriptor), "/proc/self/fd/%d", pinned);
++		int status = fstat(pinned, &result);
++		ssize_t length = status == 0 ? readlink(descriptor, resolved, sizeof(resolved) - 1) : -1;
++		close(pinned);
++		if (length <= 0 || length >= (ssize_t)sizeof(resolved) - 1) return false;
++		resolved[length] = '\0';
++		/* The live name is checked after stat: linking an already-open ordinary
++		 * inode moves it into the backing namespace. Let l2s handle its nlink,
++		 * including unlinked backing FDs, and preserve pseudo-file callbacks. */
++		if (stat_entry_special(resolved) || strstr(resolved, "/.l2s.") ||
++		    strstr(resolved, "/.proot.l2s.")) return false;
++		return emit_stat_entry(tracee, &result);
++	}
+ 	/* Follow the live descriptor's magic link, including an unlinked inode.
+ 	 * No name or metadata survives this call. Restricted procfs and errors
+ 	 * fall back to the guest kernel, which retains exact errno precedence. */

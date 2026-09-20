@@ -507,3 +507,64 @@ DSO에 없으며 `single-signal-build.sh`로만 별도 산출물을 만든다.
 검사는 UP-TO-DATE로 재사용했으며, 최종 APK의 엔진·로더·combined DSO 해시를
 검증했다. 재현 소스 아카이브의 저장소 파일 152개도 작업 트리와 일치했다
 (아카이브에서 생성하는 BUILD.md는 별도 항목이다).
+
+## 2026-09-20: 에뮬레이션 형식의 raw fstat 개선
+
+사용자가 보고한 apt update 13.468초와 패키지 설치 10.02초는 전체 시간만 있어
+특정 단계를 병목으로 확정할 수 없다. guest time의 CPU 시간에 tracer 비용이 모두
+포함되는 것도 아니므로 나머지를 전부 디스크 대기로 해석하지 않는다.
+
+실제 엔진에서는 link2symlink 확장이 켜지면 일반 파일까지 fstat 진입 단계 단축을
+포기하고 있었다. preload를 사용하지 않는 정적 바이너리나 직접 syscall 호출도
+혜택을 받도록 `proot-emulated-fstat-entry.patch`를 추가했다. 매 호출마다 실제 FD를
+O_PATH로 고정하고 조회 후 현재 이름을 확인한다. 동시 FD 교체에 오래된 경로/분류를
+사용하지 않는다. 에뮬레이션 backing, 특수 파일, 확인 실패는 기존 처리를 유지한다.
+메타데이터 캐시, fsync 생략, Android 정책 완화는 도입하지 않았다.
+
+API 35 ARM64 redroid의 앱 UID·Ubuntu에서 openat2를 거부한 조건으로 직전 공개
+엔진과 후보를 세 쌍 교차 측정했다. 아래 수치는 중앙값이며 전체 앱 체감 향상률이 아니다.
+
+| 작업 | 직전 공개 엔진(ms) | 새 엔진(ms) | 시간 감소 |
+| --- | ---: | ---: | ---: |
+| 정적 프로그램 raw fstat 10,000회 | 365.357 | 254.638 | 30.30% |
+| 로컬 시험 패키지 1,000개 파일 dpkg unpack | 1106.904 | 1043.350 | 5.74% |
+
+dpkg 시험은 파일당 1,184바이트이며 네트워크·fixture 생성·내용 검증은 타이머에서
+제외한다. PRoot 카운터에는 전체 실행이 포함된다. 실제 linux-libc-dev 설치나
+Codex 대화, apt update 자체의 측정은 아니다. 최초 fixture의 tar 디렉터리 누락을
+고친 뒤 기록된 여섯 번의 설치는 모두 통과했다.
+
+새 정적 시험은 기존/후보 에뮬레이션과 후보 네이티브에서 통과했다. 오류 FD,
+읽기 전용/경계 메모리, O_PATH symlink, pipe/proc, 동시 dup3, 링크 수 변경 및
+unlink 후 열린 FD, seccomp 거부를 검사한다. 두 후보 저장 형식에서 기존 shared
+stat, 8개 스레드·fork/exec·FD 재사용, 별도 dpkg 설치·업그레이드·삭제도 통과했다.
+후보 에뮬레이션 링크 회귀 검사와 후보 네이티브의 기존 stat-entry 검사도 통과했다.
+
+기존 `stat-entry-test.c:108`은 에뮬레이션 형식에서 기존 공개 엔진과 후보 모두
+실패했다. 링크 생성·삭제 후 raw newfstatat가 성공하면서 fake-root UID 대신
+호스트 UID를 반환하는 기존 문제를 별도 조회로 확인했다. 이번 fstat 개선에서
+해결하지 않았으며 에뮬레이션 전체 stat 회귀가 통과했다고 주장하지 않는다.
+
+삼성 Android 17·enforcing SELinux 및 Codex 전체 실행은 미검증이다. 이전 하드링크와
+전체 동등 성능 목표도 이번 국소 결과로 달성했다고 판단하지 않는다.
+Android MCP로 검증했고 incremental APK 설치 거부 후 streamed 설치가 성공했다.
+새 외부 API나 UI 변경이 없어 context7/replicant/codex_apps는 사용하지 않았다.
+
+[원본 측정·검증 기록](../tools/rootless/faststat/results/emulated-fstat-entry-2026-09-20.json).
+`faststat/build.sh`가 만드는 정적 `emulated-fstat-entry-test`를 guest에서 실행하면
+회귀 검사, `bench` 인수를 주면 10,000회 측정을 수행한다. guest Python으로
+`dpkg-file-workload.py`를 실행하면 별도 임시 dpkg root에서 설치 단계를 측정한다.
+로컬 배포 입력 ID는 `rootless-runtime-20260920-emulated.2`이며 아직 공개하지 않았다.
+DSO와 공유 ABI 8은 유지된다. 새 엔진이 포함된 APK로 업데이트 후 새 세션에 적용하며
+기존 파일·패키지 변환이나 재설치는 필요 없다.
+
+canonical `:android-app:assembleDebug :android-runtime:testDebugUnitTest :image:test`
+명령에 새 로컬 `rootlessAcceleratedPayload`와 `rootlessStdioBuffer=true`를 지정한
+빌드는 1분 31초에 성공했다. runtime/image 단위 검사는 UP-TO-DATE로 재사용했다.
+업데이트/런타임 입력 Python 검사 19개, 최종 APK의 엔진·로더·DSO 해시 및 재현
+소스 156개 파일의 작업 트리 일치 검증이 통과했다. 빌드 완료 전 구 APK에 실행한
+해시 검사는 불일치했고, 완료된 새 APK에서는 통과했다.
+
+공개 아카이브는 아직 없으므로 배포 전 로컬 빌드에서는 `prepare-release-runtime.py
+--assets-directory`에 생성한 아카이브 디렉터리를 지정해야 한다. 원격 다운로드를
+사용하는 CI/배포는 `.2` 아카이브를 먼저 게시한 후 진행해야 한다.

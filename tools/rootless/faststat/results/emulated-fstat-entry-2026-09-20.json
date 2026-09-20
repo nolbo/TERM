@@ -1,0 +1,34 @@
+{
+  "date": "2026-09-20",
+  "environment": {
+    "android_api": 35,
+    "architecture": "arm64",
+    "runtime": "redroid Ubuntu app UID",
+    "openat2": "denied by test policy",
+    "selinux": "disabled",
+    "samsung_android17": false
+  },
+  "engines": {
+    "previous": "02214cf3d501a41932d2d57133f33fe3d3fa7e887a9d980457c77bec3c5e82b7",
+    "candidate": "78f73f5866c9ca1a27ca94f5b92d1762a5020ef55c73aa107d9db990a371804c"
+  },
+  "raw_fstat": "MODE:previous\nraw_fstat_ns=363428945 count=10000\nproot-perf: enter_stop=10183 exit_stop=10103 path_translation=42 canon_lstat=153 l2s_exit_lstat=10030 l2s_readlink=49 read_string=91 vm_read=20375 vm_write=10256 vm_fallback=0 path_fast_hit=40 path_fast_miss=33\nMODE:restricted\nraw_fstat_ns=254312906 count=10000\nproot-perf: enter_stop=10183 exit_stop=78 path_translation=42 canon_lstat=153 l2s_exit_lstat=5 l2s_readlink=49 read_string=91 vm_read=326 vm_write=10236 vm_fallback=0 path_fast_hit=40 path_fast_miss=33\nMODE:restricted\nraw_fstat_ns=256662592 count=10000\nproot-perf: enter_stop=10183 exit_stop=78 path_translation=42 canon_lstat=153 l2s_exit_lstat=5 l2s_readlink=49 read_string=91 vm_read=325 vm_write=10236 vm_fallback=0 path_fast_hit=40 path_fast_miss=33\nMODE:previous\nraw_fstat_ns=369084161 count=10000\nproot-perf: enter_stop=10183 exit_stop=10103 path_translation=42 canon_lstat=153 l2s_exit_lstat=10030 l2s_readlink=49 read_string=91 vm_read=20375 vm_write=10256 vm_fallback=0 path_fast_hit=40 path_fast_miss=33\nMODE:previous\nraw_fstat_ns=365356671 count=10000\nproot-perf: enter_stop=10183 exit_stop=10103 path_translation=42 canon_lstat=153 l2s_exit_lstat=10030 l2s_readlink=49 read_string=91 vm_read=20375 vm_write=10256 vm_fallback=0 path_fast_hit=40 path_fast_miss=33\nMODE:restricted\nraw_fstat_ns=254638346 count=10000\nproot-perf: enter_stop=10183 exit_stop=78 path_translation=42 canon_lstat=153 l2s_exit_lstat=5 l2s_readlink=49 read_string=91 vm_read=325 vm_write=10236 vm_fallback=0 path_fast_hit=40 path_fast_miss=33",
+  "dpkg": "MODE:previous\n{\"files\": 1000, \"bytes_per_file\": 1184, \"phases_ms\": {\"unpack\": 1106.904044, \"configure\": 26.478038}}\nproot-perf: enter_stop=17062 exit_stop=7441 path_translation=1226 canon_lstat=7864 l2s_exit_lstat=154 l2s_readlink=4335 read_string=13544 vm_read=19502 vm_write=10096 vm_fallback=0 path_fast_hit=11338 path_fast_miss=3197\nMODE:restricted\n{\"files\": 1000, \"bytes_per_file\": 1184, \"phases_ms\": {\"unpack\": 1067.99445, \"configure\": 25.759755}}\nproot-perf: enter_stop=17062 exit_stop=7299 path_translation=1226 canon_lstat=7864 l2s_exit_lstat=12 l2s_readlink=4335 read_string=13544 vm_read=19222 vm_write=10007 vm_fallback=0 path_fast_hit=11338 path_fast_miss=3197\nMODE:restricted\n{\"files\": 1000, \"bytes_per_file\": 1184, \"phases_ms\": {\"unpack\": 1043.349738, \"configure\": 24.662912}}\nproot-perf: enter_stop=17061 exit_stop=7298 path_translation=1226 canon_lstat=7864 l2s_exit_lstat=12 l2s_readlink=4335 read_string=13544 vm_read=19220 vm_write=10007 vm_fallback=0 path_fast_hit=11338 path_fast_miss=3197\nMODE:previous\n{\"files\": 1000, \"bytes_per_file\": 1184, \"phases_ms\": {\"unpack\": 1145.151436, \"configure\": 27.19944}}\nproot-perf: enter_stop=17062 exit_stop=7441 path_translation=1226 canon_lstat=7864 l2s_exit_lstat=154 l2s_readlink=4335 read_string=13544 vm_read=19504 vm_write=10096 vm_fallback=0 path_fast_hit=11338 path_fast_miss=3197\nMODE:previous\n{\"files\": 1000, \"bytes_per_file\": 1184, \"phases_ms\": {\"unpack\": 1059.621425, \"configure\": 22.294066}}\nproot-perf: enter_stop=17062 exit_stop=7441 path_translation=1226 canon_lstat=7864 l2s_exit_lstat=154 l2s_readlink=4335 read_string=13544 vm_read=19504 vm_write=10096 vm_fallback=0 path_fast_hit=11338 path_fast_miss=3197\nMODE:restricted\n{\"files\": 1000, \"bytes_per_file\": 1184, \"phases_ms\": {\"unpack\": 1026.370448, \"configure\": 23.77063}}\nproot-perf: enter_stop=17061 exit_stop=7298 path_translation=1226 canon_lstat=7864 l2s_exit_lstat=12 l2s_readlink=4335 read_string=13544 vm_read=19219 vm_write=10007 vm_fallback=0 path_fast_hit=11338 path_fast_miss=3197\nSTATUS:0",
+  "method": "Three interleaved pairs; medians; no concurrent builds. Static raw fstat ignores LD_PRELOAD. Dpkg synthetic local package: 1000 files of 1184 bytes; fixture preparation and verification excluded from timer, included in PRoot counters. Normal durability retained. Initial fixture omitted directory entries and was corrected before all six recorded runs.",
+  "validation": {
+    "passed": [
+      "new static raw fstat driver: previous emulated, candidate emulated, candidate native",
+      "memory faults, symlink O_PATH, proc and pipe, concurrent dup3, live hardlink counts, seccomp ERRNO",
+      "isolated dpkg install upgrade remove, shared stat, 8-thread FD reuse/fork/exec: both candidate formats",
+      "emulated-links-test: candidate emulated",
+      "existing stat-entry-test: candidate native"
+    ],
+    "known_failure": "Existing stat-entry-test line108 fails both previous and candidate emulated: raw newfstatat after link/unlink returns size4, nlink1, host UID instead of fake root UID. Separate diagnostic confirmed successful syscall with unmapped UID. Not caused or fixed by this fstat optimization.",
+    "not_run": [
+      "Samsung Android17",
+      "interactive Codex benchmark",
+      "apt update benchmark",
+      "historical native full performance comparison"
+    ]
+  }
+}
