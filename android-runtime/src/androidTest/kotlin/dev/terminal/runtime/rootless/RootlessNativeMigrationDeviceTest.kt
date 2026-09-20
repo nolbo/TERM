@@ -10,6 +10,33 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class RootlessNativeMigrationDeviceTest {
+    @Test fun nativeLinkErrorReasonSurvivesMigrationMessageOnAndroid() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        check(context.packageName == "dev.terminal.runtime.test")
+        val temporary = Files.createTempDirectory(context.filesDir.toPath(), "link-diagnostic-")
+        try {
+            val layout = RootlessDebianLayout(temporary.resolve("rootless/debian").toFile())
+            layout.createHostDirectories()
+            layout.rootfs.mkdirs()
+            val sentinel = File(layout.rootfs, "keep").apply { writeText("unchanged") }
+            // A directory hardlink must fail; obtain a real Android NIO error without
+            // requiring the test device to deny regular-file hardlinks.
+            val original = runCatching {
+                Files.createLink(temporary.resolve("forbidden-link"), layout.rootfs.toPath())
+            }.exceptionOrNull()!!
+            val failure = runCatching {
+                RootlessNativeMigration(layout, createLink = { _, _ -> throw original }).migrate()
+            }.exceptionOrNull()!!
+            assertTrue(failure.message!!.contains("native-migration/hardlink-probe"))
+            assertTrue(failure.message!!.contains(original.javaClass.simpleName))
+            val reason = (original as java.nio.file.FileSystemException).reason
+            assertFalse(reason.isNullOrBlank())
+            assertTrue(failure.message!!.contains(reason!!))
+            assertEquals("unchanged", sentinel.readText())
+            assertFalse(RootlessNativeMigration.pending(layout.root.parentFile.toPath()))
+            assertFalse(RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath()))
+        } finally { deleteRootlessTree(temporary) }
+    }
     private class InterruptedMigration : Error()
     @Test fun restoresInterruptedDirectorySwapsOnAndroidStorage() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext

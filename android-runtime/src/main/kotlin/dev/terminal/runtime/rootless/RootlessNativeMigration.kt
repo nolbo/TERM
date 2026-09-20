@@ -44,7 +44,17 @@ internal class RootlessNativeMigration(
             // Detect Android hardlink restrictions before traversing any user data.
             val probe = Files.write(transaction.resolve("probe"), byteArrayOf(1))
             try { createLink(transaction.resolve("probe-link"), probe) }
-            catch (error: Exception) { throw IllegalStateException("이 기기에서는 네이티브 하드링크를 만들 수 없어 가속 형식으로 이전할 수 없습니다. 기존 설치는 유지됩니다", error) }
+            catch (error: Exception) {
+                throw IllegalStateException(
+                    "하드링크 생성 시험에 실패하여 가속 형식으로 이전하지 못했습니다. 기존 설치는 유지됩니다.\n" +
+                        "진단 단계: native-migration/hardlink-probe (Files.createLink)\n" +
+                        "대상: 앱 내부 저장소의 임시 시험 파일\n" +
+                        describeLinkFailure(error) + "\n" +
+                        "이 메시지만으로 기기 정책 차단이나 하드링크 미지원을 확정할 수 없습니다. " +
+                        "문제 보고 시 위 진단 정보와 앱 버전·Android 버전·기기 모델을 함께 보내주세요.",
+                    error,
+                )
+            }
             Files.delete(transaction.resolve("probe-link")); Files.delete(probe)
             val entries = linkedMapOf<Path, BasicFileAttributes>()
             fun scan(path: Path) {
@@ -283,4 +293,20 @@ internal class RootlessNativeMigration(
         fun pending(rootlessParent: Path) = Files.exists(rootlessParent.resolve(JOURNAL), NOFOLLOW_LINKS) ||
             Files.exists(rootlessParent.resolve(TRANSACTION), NOFOLLOW_LINKS)
     }
+}
+
+/** Preserve NIO's reason and nested Android errno messages across message-only IPC.
+ * The probe touches only generated files. Avoid disclosing its absolute private path.
+ */
+internal fun describeLinkFailure(error: Throwable): String {
+    val seen = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Throwable, Boolean>())
+    val details = mutableListOf<String>()
+    var current: Throwable? = error
+    while (current != null && details.size < 6 && seen.add(current)) {
+        val reason = if (current is java.nio.file.FileSystemException) current.reason else current.message
+        val text = reason?.takeIf { it.isNotBlank() } ?: "운영체제가 상세 이유를 제공하지 않았습니다"
+        details += "${current.javaClass.simpleName}: ${text.replace('\n', ' ').replace('\r', ' ').take(512)}"
+        current = current.cause
+    }
+    return "원인: " + details.joinToString("\n원인 하위: ")
 }

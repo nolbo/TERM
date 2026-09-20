@@ -81,6 +81,30 @@ class RootlessNativeMigrationTest {
             preserved(layout, false)
         }
     }
+    @Test fun deniedProbeIncludesOriginalReasonAndPreservesInstallation() {
+        val layout = fixture("denied-diagnostic")
+        val original = java.nio.file.FileSystemException("/private/probe-link", "/private/probe", "Operation not permitted")
+        original.initCause(java.io.IOException("link failed: EPERM (Operation not permitted)"))
+        val failure = runCatching {
+            RootlessNativeMigration(layout, createLink = { _, _ -> throw original }).migrate()
+        }.exceptionOrNull()!!
+        assertSame(original, failure.cause)
+        assertTrue(failure.message!!.contains("native-migration/hardlink-probe"))
+        assertTrue(failure.message!!.contains("FileSystemException: Operation not permitted"))
+        assertTrue(failure.message!!.contains("EPERM"))
+        assertFalse(failure.message!!.contains("/private/"))
+        preserved(layout, false)
+    }
+    @Test fun missingReasonAndCyclicCausesRemainReadableAndBounded() {
+        val first = java.nio.file.FileSystemException("/private/probe")
+        val second = java.io.IOException("x".repeat(2000))
+        first.initCause(second)
+        second.initCause(first)
+        val details = describeLinkFailure(first)
+        assertTrue(details.contains("상세 이유를 제공하지 않았습니다"))
+        assertFalse(details.contains("/private/"))
+        assertTrue(details.length < 800)
+    }
     private class Crash : Error()
     @Test fun processDeathRecoveryRestoresOldTreesOrFinishesCommittedCleanup() {
         for (point in listOf("staged", "backed-up-0", "published-0", "backed-up-1", "published-1", "backed-up-2", "published-2", "committed")) {
