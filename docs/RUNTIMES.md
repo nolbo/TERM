@@ -55,6 +55,15 @@ starts an APK-packaged, allow-listed PRoot and loader, binds only `/dev`,
 `/proc`, `/sys`, the rootless home and `/workspace` by default, and owns the
 resulting PTY across UI detach.
 
+Channel CI builds now package the pinned accelerated engine (including local rename)
+and combined faststat/stdio DSO from `rootless-runtime-20260920`. They enable both
+Rootless acceleration and regular-file stdio buffering and fail if either build
+setting is missing. Release APK contents are checked against the same hashes.
+The installed app never downloads this runtime. Manual builds still need explicit
+Gradle properties; see `tools/rootless/prepare-release-runtime.py` and the channel
+workflow. Migration is available in these accelerated APKs, subject to hardlink
+support. The older general dev APK from `951bc7b1bf71` did not enable this profile.
+
 New installations probe kernel hardlink support in unpublished staging and record
 `native-hardlinks-1` in `.terminal-storage-format`. Their sessions omit PRoot's
 `--link2symlink` extension while retaining fake-root and the selected binds.

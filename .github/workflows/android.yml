@@ -36,6 +36,12 @@ jobs:
           java-version: '17'
       - name: Install pinned Android Rust toolchain
         run: rustup toolchain install 1.89.0 --profile minimal --target aarch64-linux-android
+      - name: Prepare verified accelerated Rootless runtime
+        run: |
+          python3 tools/rootless/prepare-release-runtime.py --output "$GITHUB_WORKSPACE/android-runtime/build/verifiedRootless"
+          echo "ORG_GRADLE_PROJECT_rootlessAcceleratedPayload=$GITHUB_WORKSPACE/android-runtime/build/verifiedRootless" >> "$GITHUB_ENV"
+          echo "ORG_GRADLE_PROJECT_rootlessStdioBuffer=true" >> "$GITHUB_ENV"
+          echo "TERMINAL_REQUIRE_ROOTLESS_ACCELERATION=true" >> "$GITHUB_ENV"
       - name: Build and test
         run: |
           ./gradlew :android-app:assembleDebug :android-app:testDebugUnitTest :android-runtime:testDebugUnitTest :image:test --console=plain
@@ -84,12 +90,15 @@ jobs:
           printf '%s' "$TERMINAL_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$TERMINAL_SIGNING_STORE_FILE"
           unset TERMINAL_SIGNING_KEYSTORE_BASE64
           bash tools/build-release.sh
+          python3 tools/rootless/prepare-release-runtime.py --verify-apk android-app/build/outputs/apk/release/android-app-release.apk
           mkdir -p android-app/build/update
           python3 tools/updates/create-manifest.py \
             --apk android-app/build/outputs/apk/release/android-app-release.apk \
             --metadata android-app/build/outputs/apk/release/output-metadata.json \
             --commit "$GITHUB_SHA" --channel "$TERMINAL_UPDATE_CHANNEL" --output android-app/build/update/update.json
           cp android-app/build/outputs/apk/release/android-app-release.apk android-app/build/update/TERM.apk
+          cp android-runtime/build/verifiedRootless/rootless-runtime-source.tar.gz android-runtime/build/verifiedRootless/rootless-runtime.json android-app/build/update/
+          cp "docs/release-notes/${TERMINAL_UPDATE_CHANNEL}-latest.md" android-app/build/update/RELEASE_NOTES.ko.md
           cp android-runtime/build/distributions/iphone-worker-source.tar.gz \
             android-runtime/build/iphone-tools/distributions/iphone-tools-source.tar.gz \
             android-runtime/build/sidestore-native/distributions/sidestore-bootstrap-source.tar.gz android-app/build/update/

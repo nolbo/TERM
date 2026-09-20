@@ -11,7 +11,7 @@ internal class RootlessAccelerationProfile(
     val binding = "${library.absolutePath}:$guestLibrary"
     val hostEnvironment = arrayOf(
         "PROOT_STAT_ENTRY=1", "PROOT_STAT_KERNEL=1", "PROOT_PATH_KERNEL=1",
-        "PROOT_MUTATION_ENTRY=1", "PROOT_FSTAT_ENTRY=1", "PROOT_FASTSTAT=2",
+        "PROOT_MUTATION_ENTRY=1", "PROOT_RENAME_LOCAL=1", "PROOT_FSTAT_ENTRY=1", "PROOT_FASTSTAT=2",
         "PROOT_FASTFD=1", "PROOT_FASTCLOSE=1", "PROOT_FASTPATH=1", "PROOT_TCGETS_DIRECT=1", "PROOT_ID_ENTRY=1",
     )
 

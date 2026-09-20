@@ -31,7 +31,7 @@ elif args[:2] == ["release", "view"]:
 
 class PublishTest(unittest.TestCase):
     def run_publisher(self, latest="0.1.0+main.31.111111111111", state="missing", error=None,
-                      channel="main", pointer_draft=False, pointer_upload_error=False):
+                      channel="main", pointer_draft=False, pointer_upload_error=False, notes=False):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
             gh = root / "gh"
@@ -42,6 +42,8 @@ class PublishTest(unittest.TestCase):
             (artifact / "TERM.apk").write_bytes(b"fixture")
             (artifact / "update.json").write_text(json.dumps(dict(
                 commit="2" * 40, versionCode=32, channel=channel, versionName=f"0.1.0+{channel}.32.222222222222")))
+            if notes:
+                (artifact / "RELEASE_NOTES.ko.md").write_text("한국어 릴리즈 노트")
             calls = root / "calls"
             env = dict(os.environ, PATH=f"{root}:{os.environ['PATH']}", GH_TOKEN="test-fixture",
                        GH_CALLS=str(calls), LATEST_NAME=latest, RELEASE_STATE=state,
@@ -53,6 +55,15 @@ class PublishTest(unittest.TestCase):
             script = Path(__file__).resolve().parents[2] / "tools/updates/publish.sh"
             result = subprocess.run(["bash", str(script), str(artifact)], env=env, capture_output=True, text=True)
             return result, [json.loads(line) for line in calls.read_text().splitlines()] if calls.exists() else []
+
+    def test_korean_notes_reach_release_and_dev_pointer(self):
+        result, calls = self.run_publisher(channel="dev", latest="0.1.0+dev.31.111111111111", notes=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        writes = [call for call in calls if call[:2] in (["release", "create"], ["release", "edit"])]
+        self.assertEqual(len(writes), 3)
+        for call in writes:
+            self.assertIn("--notes-file", call)
+            self.assertTrue(call[call.index("--notes-file") + 1].endswith("RELEASE_NOTES.ko.md"))
 
     def test_first_release_and_forward_release_become_latest_only_after_upload(self):
         for error in [None, "gh: Not Found (HTTP 404)"]:

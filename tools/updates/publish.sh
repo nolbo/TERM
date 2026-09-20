@@ -14,6 +14,10 @@ terminal_update_name=$(jq -er '.versionName' "$terminal_update_dir/update.json")
 terminal_update_channel=$(jq -er '.channel // "main"' "$terminal_update_dir/update.json")
 [[ $terminal_update_channel == main || $terminal_update_channel == dev ]]
 terminal_release_tag="$terminal_update_channel-$terminal_update_commit"
+terminal_notes_args=(--notes "TERM $terminal_update_channel update. Android installation requires user confirmation. Save live terminal work before installing.")
+if [[ -s "$terminal_update_dir/RELEASE_NOTES.ko.md" ]]; then
+    terminal_notes_args=(--notes-file "$terminal_update_dir/RELEASE_NOTES.ko.md")
+fi
 terminal_latest_endpoint=repos/nolbo/TERM/releases/latest
 terminal_prerelease=false
 if [[ $terminal_update_channel == dev ]]; then
@@ -58,13 +62,13 @@ else
     gh release create "$terminal_release_tag" --repo nolbo/TERM --draft \
         --prerelease="$terminal_prerelease" --latest=false \
         --title "$terminal_update_name" \
-        --notes "TERM $terminal_update_channel update. Android installation requires user confirmation. Save live terminal work before installing." \
+        "${terminal_notes_args[@]}" \
         "$terminal_update_dir"/*
 fi
 terminal_mark_latest=false
 if [[ $terminal_update_channel == main ]] && (( terminal_update_code > terminal_latest_code )); then terminal_mark_latest=true; fi
 if [[ $terminal_already_published == false ]]; then
-    gh release edit "$terminal_release_tag" --repo nolbo/TERM --draft=false \
+    gh release edit "$terminal_release_tag" --repo nolbo/TERM "${terminal_notes_args[@]}" --draft=false \
         --prerelease="$terminal_prerelease" --latest="$terminal_mark_latest"
 fi
 
@@ -79,5 +83,5 @@ if [[ $terminal_update_channel == dev ]] && { (( terminal_update_code > terminal
             "$terminal_update_dir/update.json"
     fi
     gh release edit dev-latest --repo nolbo/TERM --draft=false --prerelease \
-        --latest=false --title "$terminal_update_name"
+        --latest=false --title "$terminal_update_name" "${terminal_notes_args[@]}"
 fi

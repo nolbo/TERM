@@ -1,5 +1,11 @@
 # Rootless PRoot payload provenance
 
+Channel CI now uses `prepare-release-runtime.py` to fetch and hash-check the pinned
+accelerated engine, loader, combined stdio DSO and corresponding source archive.
+It embeds these files in the APK; the installed app never downloads runtimes.
+The baseline payload and manual source build documented below remain available
+for explicit non-accelerated local builds. Channel release builds require acceleration.
+
 The optional [faststat experiment](faststat/README.md) adds a separate development
 build and guest dispatcher. It is not included in the production payloads below.
 
