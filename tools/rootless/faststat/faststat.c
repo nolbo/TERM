@@ -391,6 +391,29 @@ int proot_fastpath_translate(const char *path, char *output, size_t capacity)
     return success;
 }
 
+/* O_PATH has no device-open side effects. Accept a full-path lookup only
+ * when procfs confirms the pinned object's exact expected host pathname.
+ * Intermediate symlinks resolving elsewhere, deleted/renamed objects and
+ * unavailable procfs all return to the component-by-component resolver.
+ * Neither the descriptor nor this pathname observation survives this call. */
+static long pin_shared_path(const char *path, size_t anchor_length, int flags)
+{
+    size_t length = strlen(path);
+    if (length && length < PATH_MAX && path[length - 1] != '/') {
+        long fd = fast_syscall(SYS_openat, AT_FDCWD, (long)path,
+                              O_PATH | O_CLOEXEC | O_NOFOLLOW | (flags & O_DIRECTORY), 0);
+        if (fd >= 0) {
+            char descriptor[64], resolved[PATH_MAX];
+            snprintf(descriptor, sizeof(descriptor), "/proc/self/fd/%ld", fd);
+            long count = fast_syscall(SYS_readlinkat, AT_FDCWD, (long)descriptor,
+                                     (long)resolved, sizeof(resolved));
+            if (count == (long)length && !memcmp(path, resolved, length)) return fd;
+            fast_syscall(SYS_close, fd, 0, 0, 0);
+        }
+    }
+    return proot_pin_bound_nofollow(fast_syscall, path, anchor_length, flags);
+}
+
 static int ordinary_storage(int pin)
 {
     struct statfs filesystem;
@@ -446,7 +469,7 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
     }
     struct open_how how = { .flags = O_PATH | O_CLOEXEC | (creating ? O_DIRECTORY : 0),
                             .resolve = RESOLVE_NO_SYMLINKS };
-    pin = proot_pin_bound_nofollow(fast_syscall, translated, anchor_length, how.flags);
+    pin = pin_shared_path(translated, anchor_length, how.flags);
     if (pin < 0) goto slow_open;
     struct stat info;
     if (fast_syscall(SYS_fstat, pin, (long)&info, 0, 0) < 0 ||
@@ -497,17 +520,19 @@ int unlinkat(int dirfd, const char *path, int flags)
     if (!enabled || !unlink_requested || flags != 0) goto slow_unlink;
     if (atomic_exchange(&local_identity.busy, 1)) goto slow_unlink;
     owned = 1;
-    if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &all_signals, &previous_signals,
-                sizeof(previous_signals))) goto slow_unlink;
-    masked = 1;
     pid_t pid = syscall(SYS_getpid);
     struct proot_fastfd_identity *identity = current_identity(pid);
     char copied[PATH_MAX], translated[PATH_MAX];
     size_t anchor_length = 0;
     /* Emulated unlink updates virtual link counts; even an ordinary name can
      * become an alias concurrently. Keep the entire mutation in the tracer. */
-    if (!identity || atomic_load(&identity->active) != 1 ||
-        !copy_path(copied, path, pid)) goto slow_unlink;
+    if (!identity || atomic_load(&identity->active) != 1) goto slow_unlink;
+    /* Emulated unlink always belongs to the tracer. Reject it before signal
+     * masking: no temporary FD exists yet, and busy protects reentrant calls. */
+    if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &all_signals, &previous_signals,
+                sizeof(previous_signals))) goto slow_unlink;
+    masked = 1;
+    if (!copy_path(copied, path, pid)) goto slow_unlink;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
     if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
         !normalize_simple_path(copied)) goto slow_unlink;
@@ -517,7 +542,7 @@ int unlinkat(int dirfd, const char *path, int flags)
     *slash = '\0';
     struct open_how how = { .flags = O_PATH | O_DIRECTORY | O_CLOEXEC,
                            .resolve = RESOLVE_NO_SYMLINKS };
-    pin = proot_pin_bound_nofollow(fast_syscall, translated, anchor_length, how.flags);
+    pin = pin_shared_path(translated, anchor_length, how.flags);
     if (pin < 0 || !ordinary_storage(pin) ||
         sequence != atomic_load(&identity->paths.sequence) ||
         !atomic_load(&identity->paths.active)) goto slow_unlink;
@@ -685,7 +710,7 @@ static int shared_path_stat(int dirfd, const char *path, struct stat *output, in
         !normalize_simple_path(copied) ||
         !lookup_shared_path(&identity->paths, copied, translated, &anchor_length)) goto done;
     struct open_how how = { .flags = O_PATH | O_CLOEXEC, .resolve = RESOLVE_NO_SYMLINKS };
-    pin = proot_pin_bound_nofollow(fast_syscall, translated, anchor_length, how.flags);
+    pin = pin_shared_path(translated, anchor_length, how.flags);
     if (pin < 0 || !ordinary_storage(pin)) goto done;
     struct stat result;
     /* Use the original syscall number: guest seccomp denial still wins. */
@@ -732,7 +757,7 @@ int statx(int dirfd, const char *path, int flags, unsigned mask, struct statx *o
     /* A guest bind may directly expose an l2s backing inode even though its
      * guest name is ordinary. Its virtual count still belongs to PRoot. */
     if (strstr(translated, "/.l2s.") || strstr(translated, "/.proot.l2s.")) goto done;
-    pin = proot_pin_bound_nofollow(fast_syscall, translated, anchor_length, 0);
+    pin = pin_shared_path(translated, anchor_length, 0);
     if (pin < 0 || !ordinary_storage(pin)) goto done;
     struct statx result;
     if (fast_statx(pin, flags | AT_EMPTY_PATH, mask, &result) < 0 ||

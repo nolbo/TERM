@@ -46,6 +46,17 @@ try:
     read_file(root + '/link')
     assert hits() == before
     rejects(root + '/link', os.O_RDONLY | os.O_NOFOLLOW, errno.ELOOP)
+    # Full-path O_PATH probes must reject intermediate links whose kernel
+    # resolution differs from the guest namespace, then let PRoot resolve them.
+    os.mkdir(root + '/directory')
+    with open(root + '/directory/nested', 'wb') as output:
+        output.write(b'nested')
+    for name, destination in [('relative-directory', 'directory'),
+                              ('absolute-directory', root + '/directory')]:
+        os.symlink(destination, root + '/' + name)
+        before = hits()
+        read_file(root + '/' + name + '/nested', b'nested')
+        assert hits() == before, 'intermediate symlink bypassed PRoot'
     rejects(path, os.O_RDONLY | os.O_DIRECTORY, errno.ENOTDIR)
     rejects(root + '/missing', os.O_RDONLY, errno.ENOENT)
     assert libc.open(ctypes.c_void_p(1), 0) == -1 and ctypes.get_errno() == errno.EFAULT
@@ -105,7 +116,7 @@ try:
                     ('jf', ctypes.c_ubyte), ('k', ctypes.c_uint)]
     class Program(ctypes.Structure):
         _fields_ = [('length', ctypes.c_ushort), ('filter', ctypes.POINTER(Filter))]
-    for number in (56, 437, 44):  # openat denied; openat2/fstatfs must fall back.
+    for number in (56, 437, 44, 78):  # openat denied; openat2/fstatfs must fall back.
         child = os.fork()
         if child == 0:
             try:

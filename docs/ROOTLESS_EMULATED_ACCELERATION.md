@@ -28,7 +28,8 @@
 - tracer/DSO 공유 프로토콜을 버전 5로 함께 변경했다. 일반 stat/open/create/close와
   ID 조회는 에뮬레이션에서도 가속한다. 과거 DSO와 혼용하지 않도록 빌드 해시를 고정했다.
 - `openat2` 호출을 제거했다. 게시된 host 바인딩 루트를 매번 새 FD로 열고,
-  guest 경로의 각 요소를 `openat(O_PATH|O_NOFOLLOW)`로 확인한다. 중간 요소는
+  guest 경로의 각 요소를 `openat(O_PATH|O_NOFOLLOW)`로 확인하는 기본 경로를 유지한다.
+  DSO는 아래의 실제 경로 대조가 성공하면 요소별 확인을 생략한다. 중간 요소는
   디렉터리여야 한다. 링크·복잡한 경로·오류는 PRoot의 기존 해석기로 돌린다.
   host 바인딩 루트의 조상은 host가 선택한 경로이며 guest suffix와 구별한다.
 - 열린 FD의 하드링크 전환을 놓치지 않도록 fstat 앞뒤에 실제 FD 경로를 확인한다.
@@ -200,3 +201,42 @@ JAVA_HOME=/usr/lib/jvm/java-17-openjdk-arm64 ./gradlew \
 압축 파일의 고정 해시 검증과 APK 내 payload 검증을 수행한다. 공개 입력 저장소에
 새 파일을 게시하기 전에는 해당 입력을 다운로드하는 채널 CI를 실행할 수 없다.
 로컬 빌드는 위 경로 또는 `prepare-release-runtime.py --assets-directory`로 재현한다.
+
+## 실제 경로 대조를 이용한 추가 개선
+
+전체 host 경로를 `openat(O_PATH|O_NOFOLLOW)`로 고정하고 `/proc/self/fd`의
+실제 경로가 예상 경로와 바이트 단위로 일치하면 요소별 open/close를 생략한다.
+O_PATH이므로 FIFO나 장치를 일반 open하는 부작용이 없다. 최종 파일 종류,
+파일시스템, 공유 namespace 세대 확인은 그대로 유지한다. 중간 심볼릭 링크가
+다른 경로로 해석되거나 rename/delete·procfs 제한으로 경로 대조가 실패하면
+기존 요소별 해석으로 돌아간다. 호출 사이에 FD나 경로를 캐시하지 않는다.
+에뮬레이션 unlink는 신호 마스크 변경 전에 tracer 처리로 돌려 두 syscall을 줄였다.
+
+[3회 교대 측정 원본](../tools/rootless/faststat/results/path-confirm-2026-09-20.json).
+기존과 동일한 API 35 시험 환경이며 파일 1,000개, warm cache 조건이다.
+현재 후보에는 openat2 차단을 적용했다. 이전 네이티브 방식은 이 제한 없이 실행했다.
+
+| 작업 | 이전 네이티브(ms) | 현재 후보(ms) | 소요 시간 차이 |
+| --- | ---: | ---: | ---: |
+| 파일 정보 조회 | 13.111 | 15.477 | +18.0% |
+| 작은 파일 읽기 | 34.771 | 45.987 | +32.3% |
+| 생성·쓰기·이름 변경·삭제 | 204.243 | 261.065 | +27.8% |
+| tar 압축 해제 | 514.713 | 589.840 | +14.6% |
+| Python import | 441.425 | 442.893 | +0.3% |
+| ls -ln | 130.128 | 93.272 | -28.3% |
+| du | 47.004 | 68.906 | +46.6% |
+| find -ls | 105.017 | 154.957 | +47.6% |
+
+**이전 네이티브 하드링크 방식과 동등 이상이라는 목표는 미달성이다.**
+파일 정보 조회 격차는 줄었으나 열린 FD의 링크 판별과 tracer 작업은 남아 있다.
+삼성 Android 17 실측과 새 APK 공개도 아직 하지 않았다.
+기존 shared-stat/open/create/close/path/cwd/rename/unlink/dpkg/statx 시험을
+native·emulated 두 형식에서 통과했다. 중간 상대/절대 심볼릭 링크의 읽기·생성,
+readlinkat 차단 시 fallback을 추가로 검사했다.
+
+이번 추가 변경의 canonical 검사 `:android-app:assembleDebug
+:android-runtime:testDebugUnitTest :image:test`는 통과했다(변경 없는 테스트는
+Gradle UP-TO-DATE 재사용). APK 내부 엔진·loader·DSO 고정 해시도 일치한다.
+앱 UI 단위 테스트와 새 배포판 설치는 이번 변경 범위에 없어 재실행하지 않았다.
+Android MCP의 incremental APK 설치는 기기에서 거부되어 자동 streamed 설치로
+성공했다. 회귀 검사 완료와 성능 측정은 이 설치된 시험 APK에서 확인했다.

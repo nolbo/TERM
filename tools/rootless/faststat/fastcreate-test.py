@@ -39,6 +39,16 @@ try:
         assert error.errno == errno.EEXIST
     else:
         raise AssertionError('exclusive creation overwrote existing file')
+    os.mkdir(root + '/directory')
+    for name, destination in [('relative-directory', 'directory'),
+                              ('absolute-directory', root + '/directory')]:
+        os.symlink(destination, root + '/' + name)
+        before = hits()
+        fd = os.open(root + '/' + name + '/' + name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.write(fd, b'correct-parent')
+        os.close(fd)
+        assert hits() == before, 'symlink parent bypassed PRoot'
+        assert open(root + '/directory/' + name, 'rb').read() == b'correct-parent'
     barrier = threading.Barrier(8)
     winners, errors = [], []
     def create():
