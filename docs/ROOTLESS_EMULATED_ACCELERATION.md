@@ -359,3 +359,27 @@ runtime/image 검사를 통과했고 변경 없는 테스트는 UP-TO-DATE로 �
 APK 고정 해시와 소스 archive 일치도 통과했다. Android MCP의 incremental 설치는
 기기 정책으로 거부되었으나 streamed 설치가 성공했다. UI/새 설치/삼성 Android 17
 실측과 공개 배포는 이번에 실행하지 않았다.
+
+## 빠른 close를 사용할 수 없는 경우의 조기 복귀
+
+fork/스레드 생성으로 fast close가 비활성인 경우, signal mask를 바꾸기 전에 기존
+libc close로 돌아가도록 분기를 옮겼다. 이 경우 close마다 보조 rt_sigprocmask 두 번을
+생략한다. 사용 가능한 경우의 FD 종류 검사·신호 보호·실제 close와 errno는 유지한다.
+실제 처리 시간을 별도로 재측정하지 않았으므로 추가 배속은 주장하지 않는다.
+
+`close-fallback-test.c`는 syscall 금지 필터가 실제 작동하는 대조 자식을 먼저 검사하고,
+다른 자식에서는 해당 호출 없이 close가 성공하고 FD가 EBADF가 되는지 검사한다.
+수정 전 DSO에서는 실패하고 수정 후 native/emulated 모두 통과했다. 초기 SIGSYS
+계수 방식은 PRoot의 ENOSYS 처리 때문에 제어 호출 검사에서 실패하여 폐기했다.
+fastclose 기존 검사와 FD 신호/비지역 탈출·8개 스레드·fork/exec·FD 재사용·seccomp
+검사도 통과했다. `faststat/build.sh`가 새 회귀 바이너리도 생성한다.
+
+별도로 단독 FD 테이블에서 신호를 막고 fstat의 readlink 두 번을 한 번으로 줄이는
+후보를 시험했다. 파일 3,000개 읽기 5회 비교 중앙값이 132.057→134.819ms로 늘어
+채택하지 않았다. 원래 fstat 검사를 유지한다. [검사·실험 원본](../tools/rootless/faststat/results/close-fallback-2026-09-20.json).
+전체 이전 네이티브 성능 목표는 미달성으로 유지한다.
+
+canonical 앱 빌드/runtime/image 검사는 통과했다. 변경 없는 단위 테스트는
+UP-TO-DATE로 재사용했다. APK의 고정 payload와 재현 archive의 현재 코드·시험 일치도
+확인했다. Android MCP에서 검증했으며 incremental 설치 거부 후 streamed 설치가
+성공했다. UI/새 설치/삼성 Android 17 실측 및 공개 배포는 반복하지 않았다.

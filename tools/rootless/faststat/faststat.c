@@ -747,12 +747,15 @@ int close(int fd)
     pthread_testcancel();
     if (atomic_exchange(&local_identity.busy, 1)) goto slow_close;
     owned = 1;
+    struct proot_fastfd_identity *identity = current_identity(syscall(SYS_getpid));
+    /* Fork/thread sharing permanently disables this fast path until exec.
+     * There is no temporary FD yet, so reject before changing signal masks. */
+    if (!identity || !atomic_load(&identity->close_safe)) goto slow_close;
     if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &all_signals, &previous_signals,
                 sizeof(previous_signals))) goto slow_close;
     masked = 1;
-    struct proot_fastfd_identity *identity = current_identity(syscall(SYS_getpid));
     struct stat info;
-    if (!identity || !atomic_load(&identity->close_safe) ||
+    if (!atomic_load(&identity->close_safe) ||
         fast_syscall(SYS_fstat, fd, (long)&info, 0, 0) < 0 ||
         (!S_ISREG(info.st_mode) && !S_ISDIR(info.st_mode)) ||
         !atomic_load(&identity->close_safe)) goto slow_close;
