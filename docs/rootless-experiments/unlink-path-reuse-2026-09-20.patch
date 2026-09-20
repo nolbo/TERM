@@ -1,0 +1,21 @@
+--- a/src/syscall/enter.c
++++ b/src/syscall/enter.c
+@@ -2320,6 +2320,18 @@
+ 	const char *open_fast = getenv("PROOT_FASTSTAT_OPEN");
+ 	tracee->reuse_open_path = !(open_fast && strcmp(open_fast, "0") == 0) &&
+ 		(syscall_number == PR_open || syscall_number == PR_openat || syscall_number == PR_openat2);
++	/* Reuse only our injected unlink pathname during this stopped entry.
++	 * Unknown extensions may edit guest memory; retain their original path. */
++	if (syscall_number == PR_unlink || syscall_number == PR_unlinkat) {
++		const char *reuse = getenv("PROOT_UNLINK_PATH");
++		tracee->reuse_open_path = !(reuse && strcmp(reuse, "0") == 0);
++		Extension *extension;
++		if (tracee->extensions)
++			LIST_FOREACH(extension, tracee->extensions, link)
++				if (extension->callback != fake_id0_callback && extension->callback != mountinfo_callback &&
++				    extension->callback != link2symlink_callback)
++					tracee->reuse_open_path = false;
++	}
+ #if defined(__aarch64__)
+ 	const char *faststat = getenv("PROOT_FASTSTAT");
+ 	if (faststat != NULL && (strcmp(faststat, "1") == 0 || strcmp(faststat, "2") == 0)) {

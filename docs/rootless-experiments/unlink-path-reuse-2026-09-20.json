@@ -1,0 +1,49 @@
+{
+  "date": "2026-09-20",
+  "included": false,
+  "baseline_commit": "2aca6a8",
+  "environment": "API 35 ARM64 redroid; Ubuntu guest; app UID; warm cache; openat2 blocked in both modes",
+  "baseline_engine_sha256": "7a6833821e76a7599824ff2125cbf8dd29a18f7cfa5253e8002ed615d1d24cbd",
+  "candidate_engine_sha256": "f1b3020345555ba8b56fde921d22a5e6870feaf38073aab03fa21665d36e626d",
+  "shared_dso_sha256": "ee80d5395091d22a07079e75c9f159f5378a7fb4ebf950804f424a18ea524034",
+  "workload": "tools/rootless/workloads.py --count 1000 --case mutations",
+  "order": [
+    "baseline",
+    "candidate",
+    "candidate",
+    "baseline",
+    "baseline",
+    "candidate"
+  ],
+  "baseline_ms": [
+    253.56,
+    250.752,
+    259.12
+  ],
+  "candidate_ms": [
+    258.287,
+    255.888,
+    250.92
+  ],
+  "baseline_median_ms": 253.56,
+  "candidate_median_ms": 255.888,
+  "diagnostic_separate_run": {
+    "baseline": {
+      "read_string": 9210,
+      "vm_read": 10532,
+      "vm_write": 3429,
+      "enter_stop": 4456,
+      "exit_stop": 272
+    },
+    "candidate": {
+      "read_string": 5208,
+      "vm_read": 6530,
+      "vm_write": 3429,
+      "enter_stop": 4456,
+      "exit_stop": 272
+    }
+  },
+  "validation": "unlink-entry-test.py passed on baseline emulated and candidate emulated/native; tests include nlink with live FD, final unlink, symlink, dirfd, directory fallback, errno/EFAULT, seccomp",
+  "decision": "Not adopted: fewer guest-memory reads, but no consistent wall-time reduction. No production payload or pins changed.",
+  "raw_timing_output": "MODE:previous\n{\"case\": \"mutations\", \"round\": 1, \"count\": 1000, \"wall_ms\": 253.56, \"guest_cpu_ms\": 143.343, \"bytes\": 0, \"io_mib\": null, \"mib_per_second\": null, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nMODE:restricted\n{\"case\": \"mutations\", \"round\": 1, \"count\": 1000, \"wall_ms\": 258.287, \"guest_cpu_ms\": 148.516, \"bytes\": 0, \"io_mib\": null, \"mib_per_second\": null, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nMODE:restricted\n{\"case\": \"mutations\", \"round\": 1, \"count\": 1000, \"wall_ms\": 255.888, \"guest_cpu_ms\": 146.847, \"bytes\": 0, \"io_mib\": null, \"mib_per_second\": null, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nMODE:previous\n{\"case\": \"mutations\", \"round\": 1, \"count\": 1000, \"wall_ms\": 250.752, \"guest_cpu_ms\": 141.026, \"bytes\": 0, \"io_mib\": null, \"mib_per_second\": null, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nMODE:previous\n{\"case\": \"mutations\", \"round\": 1, \"count\": 1000, \"wall_ms\": 259.12, \"guest_cpu_ms\": 148.047, \"bytes\": 0, \"io_mib\": null, \"mib_per_second\": null, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}\nMODE:restricted\n{\"case\": \"mutations\", \"round\": 1, \"count\": 1000, \"wall_ms\": 250.92, \"guest_cpu_ms\": 144.811, \"bytes\": 0, \"io_mib\": null, \"mib_per_second\": null, \"parent_hits\": 0, \"parent_fallbacks\": 0, \"child_reports\": [], \"coverage\": false}"
+}

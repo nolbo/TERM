@@ -383,3 +383,26 @@ canonical 앱 빌드/runtime/image 검사는 통과했다. 변경 없는 단위 
 UP-TO-DATE로 재사용했다. APK의 고정 payload와 재현 archive의 현재 코드·시험 일치도
 확인했다. Android MCP에서 검증했으며 incremental 설치 거부 후 streamed 설치가
 성공했다. UI/새 설치/삼성 Android 17 실측 및 공개 배포는 반복하지 않았다.
+
+## 삭제 경로 재읽기 제거 실험 — 미채택
+
+`2aca6a8`을 기준으로, unlink/unlinkat 진입 처리 동안 PRoot가 방금 주입한
+변환 경로를 재사용하는 후보를 시험했다. fake_id0/mountinfo/link2symlink 이외의
+확장이 있으면 재사용하지 않으며 호출 종료 시 해제한다. 파일 상태·링크 수는
+캐시하지 않는다. [실험 패치](rootless-experiments/unlink-path-reuse-2026-09-20.patch)는
+기존 faststat/emulated-links/rename-local 패치 뒤에 적용한다. 생산 빌드에는 포함하지 않는다.
+
+[측정 원본](rootless-experiments/unlink-path-reuse-2026-09-20.json).
+API 35 ARM64 redroid 앱 UID에서 양쪽 모두 openat2를 차단하고, 같은 최신 DSO를
+사용했다. 별도 진단 실행에서 파일 변경 1,000개 작업의 vm_read가
+10,532→6,530회로 줄었지만 vm_write 3,429회와 진입/종료 정지 4,456/272회는 같았다.
+진단을 끈 3회 교대 측정 중앙값은 253.560→255.888ms였다. 회차별 방향도 달라
+실행 시간 개선은 입증되지 않았다. 따라서 후보를 채택하지 않고 원래 시험 APK로 복원했다.
+
+후보 엔진의 ARM64 빌드와 unlink-entry 검사는 통과했다. 기존 에뮬레이션 및 후보의
+에뮬레이션/네이티브 양쪽에서 열린 FD의 링크 수, 마지막 링크 삭제, dirfd, 심볼릭 링크,
+디렉터리 fallback, 잘못된 포인터와 seccomp 동작을 검사했다. Android MCP를 사용했고
+incremental 설치 거부 후 streamed 설치로 진행했다. 생산 소스·payload가 바뀌지 않아
+canonical 앱 빌드는 반복하지 않았다. 삼성 Android 17 검증과 전체 성능 목표는 여전히
+미완료다. 다음 후보는 삭제 경로를 게스트 메모리에 쓰는 단계까지 생략하는 것으로,
+확장 콜백과 기존 커널 fallback에 올바른 경로를 전달할 수 있는지 먼저 확인해야 한다.
