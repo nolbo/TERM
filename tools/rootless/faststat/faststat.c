@@ -141,7 +141,7 @@ __attribute__((constructor)) static void initialize_faststat(void)
     /* Use only Android-allowed syscalls, including this startup probe. */
     struct open_how how = { .flags = O_PATH | O_CLOEXEC,
         .resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS };
-    long fd = proot_open_nofollow(fast_syscall, AT_FDCWD, ".", how.flags);
+    long fd = proot_pin_nofollow(fast_syscall, AT_FDCWD, ".", how.flags);
     if (fd < 0) {
         initialization_status = (int)fd;
         munmap(page, PROOT_FASTSTAT_MAPPING_SIZE);
@@ -201,14 +201,22 @@ __attribute__((destructor)) static void report_faststat(void)
         (void)syscall(SYS_write, report_fd, buffer, (size_t)length);
 }
 
-static int copy_path(char output[PATH_MAX], const char *input)
+static int copy_path(char output[PATH_MAX], const char *input, pid_t pid)
 {
-    struct iovec local = { output, PATH_MAX };
-    struct iovec remote = { (void *)input, PATH_MAX };
-    /* A faulting pointer must produce the original syscall's EFAULT, not a
-     * SIGSEGV from interposition. Partial reads up to a mapped boundary work. */
-    long length = syscall(SYS_process_vm_readv, getpid(), &local, 1, &remote, 1, 0);
-    return length > 0 && memchr(output, '\0', (size_t)length) != NULL;
+    /* Most guest names fit in 128 bytes. Avoid copying a full page (and
+     * touching the next page) for those names, without dereferencing input.
+     * Long names retain PATH_MAX coverage and original EFAULT fallback. */
+    const size_t first = 128;
+    struct iovec local = { output, first };
+    struct iovec remote = { (void *)input, first };
+    long length = syscall(SYS_process_vm_readv, pid, &local, 1, &remote, 1, 0);
+    if (length <= 0) return 0;
+    if (memchr(output, '\0', (size_t)length)) return 1;
+    if (length != (long)first || (uintptr_t)input > UINTPTR_MAX - first) return 0;
+    local = (struct iovec){ output + first, PATH_MAX - first };
+    remote = (struct iovec){ (void *)((uintptr_t)input + first), PATH_MAX - first };
+    length = syscall(SYS_process_vm_readv, pid, &local, 1, &remote, 1, 0);
+    return length > 0 && memchr(output + first, '\0', (size_t)length) != NULL;
 }
 
 /* A separate page per Linux thread matches fake_id0's per-thread saved IDs.
@@ -351,7 +359,7 @@ int proot_fastpath_translate(const char *path, char *output, size_t capacity)
     struct proot_fastfd_identity *identity = current_identity(pid);
     char copied[PATH_MAX], translated[PATH_MAX];
     size_t anchor_length = 0;
-    if (identity && copy_path(copied, path) &&
+    if (identity && copy_path(copied, path, pid) &&
         lookup_shared_path(&identity->paths, copied, translated, &anchor_length)) {
         size_t length = strlen(translated) + 1;
         if (length <= capacity) {
@@ -401,10 +409,11 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
     if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &all_signals, &previous_signals,
                 sizeof(previous_signals))) goto slow_open;
     masked = 1;
-    struct proot_fastfd_identity *identity = current_identity(syscall(SYS_getpid));
+    pid_t pid = syscall(SYS_getpid);
+    struct proot_fastfd_identity *identity = current_identity(pid);
     char copied[PATH_MAX], translated[PATH_MAX];
     size_t anchor_length = 0;
-    if (!identity || !copy_path(copied, path)) goto slow_open;
+    if (!identity || !copy_path(copied, path, pid)) goto slow_open;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
     if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
         !normalize_simple_path(copied)) goto slow_open;
@@ -418,7 +427,7 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
     }
     struct open_how how = { .flags = O_PATH | O_CLOEXEC | (creating ? O_DIRECTORY : 0),
                             .resolve = RESOLVE_NO_SYMLINKS };
-    pin = proot_open_bound_nofollow(fast_syscall, translated, anchor_length, how.flags);
+    pin = proot_pin_bound_nofollow(fast_syscall, translated, anchor_length, how.flags);
     if (pin < 0) goto slow_open;
     struct stat info;
     if (fast_syscall(SYS_fstat, pin, (long)&info, 0, 0) < 0 ||
@@ -472,13 +481,14 @@ int unlinkat(int dirfd, const char *path, int flags)
     if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &all_signals, &previous_signals,
                 sizeof(previous_signals))) goto slow_unlink;
     masked = 1;
-    struct proot_fastfd_identity *identity = current_identity(syscall(SYS_getpid));
+    pid_t pid = syscall(SYS_getpid);
+    struct proot_fastfd_identity *identity = current_identity(pid);
     char copied[PATH_MAX], translated[PATH_MAX];
     size_t anchor_length = 0;
     /* Emulated unlink updates virtual link counts; even an ordinary name can
      * become an alias concurrently. Keep the entire mutation in the tracer. */
     if (!identity || atomic_load(&identity->active) != 1 ||
-        !copy_path(copied, path)) goto slow_unlink;
+        !copy_path(copied, path, pid)) goto slow_unlink;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
     if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
         !normalize_simple_path(copied)) goto slow_unlink;
@@ -488,7 +498,7 @@ int unlinkat(int dirfd, const char *path, int flags)
     *slash = '\0';
     struct open_how how = { .flags = O_PATH | O_DIRECTORY | O_CLOEXEC,
                            .resolve = RESOLVE_NO_SYMLINKS };
-    pin = proot_open_bound_nofollow(fast_syscall, translated, anchor_length, how.flags);
+    pin = proot_pin_bound_nofollow(fast_syscall, translated, anchor_length, how.flags);
     if (pin < 0 || !ordinary_storage(pin) ||
         sequence != atomic_load(&identity->paths.sequence) ||
         !atomic_load(&identity->paths.active)) goto slow_unlink;
@@ -650,13 +660,13 @@ static int shared_path_stat(int dirfd, const char *path, struct stat *output, in
     struct proot_fastfd_identity *identity = current_identity(pid);
     char copied[PATH_MAX], translated[PATH_MAX];
     size_t anchor_length = 0;
-    if (!identity || !copy_path(copied, path)) goto done;
+    if (!identity || !copy_path(copied, path, pid)) goto done;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
     if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
         !normalize_simple_path(copied) ||
         !lookup_shared_path(&identity->paths, copied, translated, &anchor_length)) goto done;
     struct open_how how = { .flags = O_PATH | O_CLOEXEC, .resolve = RESOLVE_NO_SYMLINKS };
-    pin = proot_open_bound_nofollow(fast_syscall, translated, anchor_length, how.flags);
+    pin = proot_pin_bound_nofollow(fast_syscall, translated, anchor_length, how.flags);
     if (pin < 0 || !ordinary_storage(pin)) goto done;
     struct stat result;
     /* Use the original syscall number: guest seccomp denial still wins. */
@@ -686,7 +696,8 @@ int fstatat(int dirfd, const char *path, struct stat *output, int flags)
     /* PRoot's cwd is virtual. Mode 1 requires a real directory FD;
      * mode 2 obtains an absolute host path before a no-follow directory walk. */
     if (!enabled || !path_enabled || (flags != 0 && flags != AT_SYMLINK_NOFOLLOW)) goto slow;
-    if (!copy_path(copied, path) || !copied[0]) goto slow;
+    pid_t pid = syscall(SYS_getpid);
+    if (!copy_path(copied, path, pid) || !copied[0]) goto slow;
     struct proot_faststat_context context = {0};
     const char *kernel_path = copied;
     int kernel_dirfd = dirfd;
@@ -717,7 +728,7 @@ int fstatat(int dirfd, const char *path, struct stat *output, int flags)
     struct open_how how = { .flags = O_PATH | O_CLOEXEC,
         .resolve = RESOLVE_NO_SYMLINKS |
             (execution_mode == PROOT_FASTSTAT_VERSION ? RESOLVE_BENEATH : 0) };
-    long fd = proot_open_nofollow(fast_syscall, kernel_dirfd, kernel_path, how.flags);
+    long fd = proot_pin_nofollow(fast_syscall, kernel_dirfd, kernel_path, how.flags);
     if (fd < 0) goto slow;
     long status = fast_syscall(SYS_fstat, fd, (long)&result, 0, 0);
     fast_syscall(SYS_close, fd, 0, 0, 0);

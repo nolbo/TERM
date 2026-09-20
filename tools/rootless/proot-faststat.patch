@@ -583,7 +583,7 @@
 +	    stat_entry_special(path)) return false;
 +	struct proot_open_how how = { .flags = O_PATH | O_CLOEXEC,
 +		.resolve = 0x04 /* RESOLVE_NO_SYMLINKS */ };
-+	int fd = proot_open_bound_nofollow(proot_nofollow_call, path, anchor_length, how.flags);
++	int fd = proot_pin_bound_nofollow(proot_nofollow_call, path, anchor_length, how.flags);
 +	if (fd < 0) return false;
 +	struct stat result = {0};
 +	int status = fstat(fd, &result);
@@ -1075,7 +1075,7 @@
 +	struct { uint64_t flags, mode, resolve; } how = {
 +		.flags = O_PATH | O_DIRECTORY | O_CLOEXEC, .resolve = 0x04 /* NO_SYMLINKS */
 +	};
-+	int fd = proot_open_bound_nofollow(proot_nofollow_call, parent, anchor_length, how.flags);
++	int fd = proot_pin_bound_nofollow(proot_nofollow_call, parent, anchor_length, how.flags);
 +	if (fd < 0) return false;
 +	struct stat metadata;
 +	int status = fstatat(fd, last + 1, &metadata, AT_SYMLINK_NOFOLLOW);

@@ -39,6 +39,39 @@ with tempfile.TemporaryDirectory() as directory:
         raise AssertionError('deleted file still exists')
     except FileNotFoundError:
         pass
+    # Exercise both sides of the bounded path-copy prefix, including its NUL.
+    for total in (127, 128, 129, 200):
+        boundary = directory + '/' + 'p' * (total - len(directory) - 1)
+        with open(boundary, 'wb') as output:
+            output.write(b'boundary')
+        before = hits()
+        assert os.stat(boundary).st_size == 8
+        assert open(boundary, 'rb').read() == b'boundary'
+        if os.environ.get('PROOT_FASTSTAT_SHARED') == '1':
+            assert hits() > before
+        page = os.sysconf('SC_PAGESIZE')
+        libc.mmap.restype = ctypes.c_void_p
+        libc.mmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int,
+                             ctypes.c_int, ctypes.c_int, ctypes.c_long]
+        libc.mprotect.argtypes = [ctypes.c_void_p, ctypes.c_size_t, ctypes.c_int]
+        libc.munmap.argtypes = [ctypes.c_void_p, ctypes.c_size_t]
+        memory = libc.mmap(None, page * 2, 3, 0x22, -1, 0)
+        assert memory != ctypes.c_void_p(-1).value
+        assert libc.munmap(memory + page, page) == 0
+        try:
+            encoded = os.fsencode(boundary) + b'\0'
+            address = memory + page - len(encoded)
+            ctypes.memmove(address, encoded, len(encoded))
+            assert libc.mprotect(memory, page, 1) == 0
+            result = ctypes.create_string_buffer(128)
+            assert libc.fstatat(-100, ctypes.c_void_p(address), result, 0) == 0
+            assert libc.mprotect(memory, page, 3) == 0
+            ctypes.memset(memory + page - 1, ord('x'), 1)
+            assert libc.fstatat(-100, ctypes.c_void_p(address), result, 0) == -1
+            assert ctypes.get_errno() == errno.EFAULT
+        finally:
+            assert libc.munmap(memory, page) == 0
+        os.unlink(boundary)
     class Filter(ctypes.Structure):
         _fields_ = [('code', ctypes.c_ushort), ('jt', ctypes.c_ubyte),
                     ('jf', ctypes.c_ubyte), ('k', ctypes.c_uint)]
