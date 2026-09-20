@@ -16,7 +16,7 @@
 +		const char *unlink_local = getenv("PROOT_UNLINK_LOCAL");
 +		const char *mutation = getenv("PROOT_MUTATION_ENTRY");
 +		if (syscall_number == PR_unlinkat && path[0] &&
-+		    !peek_reg(tracee, CURRENT, SYSARG_3) && tracee->seccomp == ENABLED &&
++		    !(peek_reg(tracee, CURRENT, SYSARG_3) & ~(word_t)AT_REMOVEDIR) && tracee->seccomp == ENABLED &&
 +		    !is_32on64_mode(tracee) && mutation && !strcmp(mutation, "1") &&
 +		    !(unlink_local && !strcmp(unlink_local, "0")) && rename_local_enabled(tracee)) {
 +			status = translate_rename_path(tracee, dirfd, path, SYSARG_2, true);

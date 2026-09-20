@@ -568,3 +568,63 @@ canonical `:android-app:assembleDebug :android-runtime:testDebugUnitTest :image:
 공개 아카이브는 아직 없으므로 배포 전 로컬 빌드에서는 `prepare-release-runtime.py
 --assets-directory`에 생성한 아카이브 디렉터리를 지정해야 한다. 원격 다운로드를
 사용하는 CI/배포는 `.2` 아카이브를 먼저 게시한 후 진행해야 한다.
+
+## 2026-09-20: dpkg 압축 해제·배치의 임시 경로 정리
+
+`dpkg-file-workload.py`의 100개 파일 진단에서 unpack 프로세스는 unlinkat를
+320회, fchmod를 105회, fchown을 100회, utimensat를 103회 호출했다. unlinkat의
+대부분은 `AT_REMOVEDIR`로 `.dpkg-new`/`.dpkg-tmp` 경로를 먼저 정리하는 작업이다.
+일반 unlink만 최적화한 기존 경로는 이 호출을 처리하지 못했다.
+
+`proot-unpack-unlink.patch`는 정상 경로 번역과 확장 진입 처리가 끝난 뒤 실제
+`unlinkat(..., AT_REMOVEDIR)`를 tracer에서 한 번 실행하고 결과를 반환한다.
+기존 `proot-unlink-local.patch`의 호출 안에서만 유효한 경로 재사용도 이 flags에
+확장했다. 게스트 메모리에 번역된 경로를 쓰고 다시 읽는 과정과 syscall 종료
+정지가 줄어든다. rootfs 변환·영구 메타데이터 캐시·동기화 생략은 없다.
+
+허용한 ARM64/seccomp/확장 조건에서만 동작하며 USERLAND와 특수 경로, 알려지지
+않은 확장은 기존 처리로 보낸다. 실제 커널의 ENOENT/ENOTDIR/ENOTEMPTY 등 반환값을
+유지하고 삭제를 재시도하지 않는다. 게스트 seccomp 거부도 유지한다. 기존 일반
+unlink의 파일 종류 검사와 에뮬레이션 링크 처리는 유지한다.
+
+최종 엔진 `1f152d00d64b53b7efa932a5cb341e937d9a7472b3af9dc22d99eb6e16245cfb`를
+직전 raw fstat 개선 엔진 `78f73f…`와 세 쌍 교차 비교했다. API 35 ARM64 redroid,
+앱 UID·Ubuntu·openat2 거부·warm cache이며 측정 중 빌드는 실행하지 않았다.
+
+| 항목 | 직전 엔진 | 최종 엔진 |
+| --- | ---: | ---: |
+| 1,000개 파일 dpkg unpack 중앙값 | 1056.239ms | 1008.919ms |
+| 전체 시험의 syscall 종료 정지 | 약 7,300회 | 약 4,275회 |
+| 전체 시험의 guest 메모리 쓰기 | 10,007회 | 6,982회 |
+
+시간 중앙값 감소는 **4.48%**다. 세 쌍 중 한 쌍은 느려졌으므로 안정적인 체감
+개선율로 일반화하지 않는다. 파일당 1,184바이트인 합성 패키지이며 타이머에는
+dpkg unpack만 포함된다. PRoot 카운터에는 fixture 생성·내용 검증·정리도 포함된다.
+순수 gzip/xz/zstd 해제 처리량, 실제 사용자 패키지 설치, apt 다운로드 개선율은 아니다.
+
+처음 두 후보는 주요 AT_REMOVEDIR 경로를 놓쳐 효과가 없었다. lstat로 ENOENT를
+예측한 중간 후보의 중앙값 감소 8.4%는 최종 결과가 아니다. 읽기 전용 파일시스템
+등의 오류 우선순위를 추정하지 않도록 실제 커널 실행으로 대체했다. 경로 복사까지
+줄이기 전 후보도 시간 이득이 불분명했다. 미채택 후보의 측정도
+[원본 결과](../tools/rootless/faststat/results/unpack-unlink-2026-09-20.json)에 남겼다.
+
+최종 엔진의 네이티브/에뮬레이션 두 형식에서 새 unpack-unlink, 기존 unlink-entry,
+unlink-memory, 별도 dpkg 하드링크 설치·업그레이드·삭제 검사가 통과했다. 새 시험은
+직전 엔진에서도 통과했다. 없는 경로 이후 생성, 열린 FD, dirfd, 잘못된 flags,
+비어 있거나 내용이 있는 디렉터리, dangling symlink, 경로 오류 및 seccomp 거부를
+검사한다. 기존 에뮬레이션 raw stat UID 문제는 이번 범위에서 수정하지 않았다.
+
+Android MCP를 사용했으며 시험 APK의 incremental 설치 거부 후 streamed 설치가
+성공했다. UI/외부 API 변경이 없어 다른 MCP는 사용하지 않았다. 삼성 Android 17,
+enforcing SELinux는 미검증이다. 남은 후보 병목은 파일별 권한·소유자·시간 설정과
+경로 변환이며, 이번에는 해당 의미나 dpkg의 fsync를 바꾸지 않았다.
+
+로컬 준비 입력은 `rootless-runtime-20260920-emulated.3`이다. 앞선 raw fstat 개선도
+포함하며 DSO와 ABI 8은 그대로다. APK 업데이트 후 새 세션에서 적용되고 별도 이전은
+필요 없다. 아직 푸시·게시하지 않았으므로 CI 실행 전 `.3` 아카이브 게시가 필요하다.
+
+새 로컬 payload와 stdio 옵션을 지정한 canonical
+`:android-app:assembleDebug :android-runtime:testDebugUnitTest :image:test`는
+1분 19초에 성공했다. 변경 없는 runtime/image 단위 검사는 UP-TO-DATE로 재사용했다.
+업데이트/런타임 입력 Python 검사 19개, 최종 APK의 엔진·로더·DSO 해시, 재현 소스
+159개 파일의 작업 트리 일치 검증이 통과했다.

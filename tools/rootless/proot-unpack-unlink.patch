@@ -1,0 +1,32 @@
+--- a/src/syscall/enter.c
++++ b/src/syscall/enter.c
+@@ -1973,7 +1973,9 @@
+ 	const char *setting = getenv("PROOT_MUTATION_ENTRY");
+ 	if (!setting || strcmp(setting, "1") || tracee->seccomp != ENABLED ||
+ 	    is_32on64_mode(tracee) || get_sysnum(tracee, ORIGINAL) != PR_unlinkat ||
+-	    get_sysnum(tracee, CURRENT) != PR_unlinkat || peek_reg(tracee, CURRENT, SYSARG_3)) return false;
++	    get_sysnum(tracee, CURRENT) != PR_unlinkat) return false;
++	int flags = (int)peek_reg(tracee, CURRENT, SYSARG_3);
++	if (flags != 0 && flags != AT_REMOVEDIR) return false;
+ 	Extension *extension;
+ 	if (tracee->extensions)
+ 		LIST_FOREACH(extension, tracee->extensions, link)
+@@ -1982,9 +1984,15 @@
+ 	char path[PATH_MAX];
+ 	struct stat info;
+ 	if (read_string(tracee, path, peek_reg(tracee, CURRENT, SYSARG_2), sizeof(path)) <= 0 ||
+-	    path[0] != '/' || stat_entry_special(path) ||
+-	    lstat(path, &info) || !S_ISREG(info.st_mode)) return false;
+-	int result = unlinkat(AT_FDCWD, path, 0);
++	    path[0] != '/' || stat_entry_special(path)) return false;
++	/* dpkg tries rmdir on each .dpkg-new/.dpkg-tmp path. Directories cannot
++	 * be emulated hardlinks, and these extensions have no unlink exit fixup.
++	 * Execute the real operation once after translation/entry callbacks:
++	 * retain kernel errno precedence (EROFS, ENOTDIR, ENOTEMPTY, etc.), not
++	 * a guessed ENOENT from a separate lookup. Ordinary unlink still needs
++	 * its type check to preserve emulated-link and special-object handling. */
++	if (!flags && (lstat(path, &info) || !S_ISREG(info.st_mode))) return false;
++	int result = unlinkat(AT_FDCWD, path, flags);
+ 	int status = result < 0 ? -errno : result;
+ 	poke_reg(tracee, SYSARG_RESULT, (word_t)status);
+ 	set_sysnum(tracee, PR_void);

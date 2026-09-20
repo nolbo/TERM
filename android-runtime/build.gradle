@@ -92,7 +92,7 @@ tasks.register('verifyRootlessExecutables') {
             'proot-loader': '2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237',
         ]
         if (acceleratedRootless) {
-            expected.proot = '78f73f5866c9ca1a27ca94f5b92d1762a5020ef55c73aa107d9db990a371804c'
+            expected.proot = '1f152d00d64b53b7efa932a5cb341e937d9a7472b3af9dc22d99eb6e16245cfb'
             expected['libproot-faststat.so'] = stdioRootless ?
                 'f581d328cf0fee01530b9052f76901bbfe975ac1bd61c225e02dfe10e1b5e829' :
                 'b9d1a5b19aaa23e53a20745c92b64d7d27b4aebc06d3d6884c2e297934d13a4e'
