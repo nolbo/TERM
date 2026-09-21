@@ -7,12 +7,20 @@ import dev.terminal.runtime.session.SessionLaunchSpec
 import java.io.File
 import java.util.UUID
 
-/** Built-ins are derived, never stored as user-editable records. */
+/** Default profiles may be overridden or tombstoned without touching live sessions. */
 class SessionProfiles(context: Context) {
     private val preferences = context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE)
     private val runtimePreferences = context.getSharedPreferences(SettingsDetailActivity.RUNTIME_PREFERENCES, Context.MODE_PRIVATE)
-    fun all(): List<SessionProfile> = builtIns() + preferences.all.keys.sorted().map { id ->
-        SessionLaunchSpec.fromJson(requireNotNull(preferences.getString(id, null))).toProfile()
+    fun all(): List<SessionProfile> {
+        val defaults = builtIns()
+        val stored = preferences.all
+        return (defaults.map { it.id } + stored.keys.sorted()).distinct().mapNotNull { id ->
+            if (stored.containsKey(id)) {
+                (stored[id] as String).takeIf { it.isNotEmpty() }?.let {
+                    SessionLaunchSpec.fromJson(it).toProfile()
+                }
+            } else defaults.firstOrNull { it.id == id }
+        }
     }
     fun find(id: String): SessionProfile? = all().firstOrNull { it.id == id }
     fun builtIns(): List<SessionProfile> {
@@ -33,12 +41,12 @@ class SessionProfiles(context: Context) {
     }
     fun duplicate(profile: SessionProfile) = profile.copy(id = UUID.randomUUID().toString(), name = "${profile.name} copy")
     fun save(profile: SessionProfile) {
-        require(!profile.id.startsWith("builtin:")) { "Built-in profiles cannot be edited" }
         val encoded = profile.resolve().toJson().toString()
         check(preferences.edit().putString(profile.id, encoded).commit()) { "Could not save profile" }
     }
     fun delete(id: String) {
-        require(!id.startsWith("builtin:")) { "Built-in profiles cannot be deleted" }
-        check(preferences.edit().remove(id).commit()) { "Could not delete profile" }
+        val editor = preferences.edit()
+        if (builtIns().any { it.id == id }) editor.putString(id, "") else editor.remove(id)
+        check(editor.commit()) { "Could not delete profile" }
     }
 }

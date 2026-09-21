@@ -69,6 +69,10 @@
     <string name="rootless_migrate_running">Recovering interrupted conversion</string>
     <string name="profiles">Profiles</string>
     <string name="profiles_summary">Manage settings for new terminal sessions.</string>
+    <string name="profiles_empty">No profiles yet. Add a profile to start a new session.</string>
+    <string name="profile_settings">Profile settings</string>
+    <string name="profile_identity">Name and runtime</string>
+    <string name="profile_launch">Shell and startup</string>
     <string name="add_profile">Add profile</string>
     <string name="builtin_profile">Built-in · duplicate to customize</string>
     <string name="profile_edit">Edit</string>

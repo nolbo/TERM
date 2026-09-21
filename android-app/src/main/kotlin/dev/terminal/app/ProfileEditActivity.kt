@@ -2,6 +2,7 @@
 package dev.terminal.app
 
 import android.os.Bundle
+import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -27,7 +28,7 @@ class ProfileEditActivity : TerminalActivity() {
         val source = requestedId?.let(store::find)
         if (requestedId != null && source == null) { finish(); return }
         val initial = if (source == null) store.duplicate(store.builtIns().first()).copy(name = "")
-            else if (source.builtIn || intent.getBooleanExtra("duplicate", false)) store.duplicate(source) else source
+            else if (intent.getBooleanExtra("duplicate", false)) store.duplicate(source) else source
         compose {
             val id = rememberSaveable { initial.id }
             var name by rememberSaveable { mutableStateOf(initial.name) }
@@ -41,45 +42,77 @@ class ProfileEditActivity : TerminalActivity() {
             var expanded by remember { mutableStateOf(false) }
             var dirty by rememberSaveable { mutableStateOf(false) }
             var discard by rememberSaveable { mutableStateOf(false) }
+            var deleting by rememberSaveable { mutableStateOf(false) }
+            val editing = source != null && initial.id == source.id
             val back = { if (dirty) discard = true else finish() }
             BackHandler { back() }
-            SettingsPageScaffold(stringResource(if (source == null || initial.id != source.id) R.string.add_profile else R.string.profile_edit), back) { padding ->
+            SettingsPageScaffold(stringResource(if (editing) R.string.profile_settings else R.string.add_profile), back) { padding ->
                 Column(Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(stringResource(R.string.profile_future_only))
-                    ProfileField(R.string.profile_name, name) { name = it; dirty = true }
-                    Box {
-                        OutlinedButton(onClick = { expanded = true }) { Text(stringResource(R.string.profile_runtime) + ": " + stringResource(runtimeTitleResource(runtime))) }
-                        DropdownMenu(expanded, { expanded = false }) {
-                            SessionRuntime.entries.forEach { option -> DropdownMenuItem(text = { Text(stringResource(runtimeTitleResource(option.wireName))) }, onClick = {
-                                val old = store.builtIns().first { it.runtime.wireName == runtime }
-                                val new = store.builtIns().first { it.runtime == option }
-                                if (shell == old.shell) shell = new.shell
-                                if (cwd == old.workingDirectory) cwd = new.workingDirectory
-                                if (arguments == JSONArray(old.shellArguments).toString()) arguments = JSONArray(new.shellArguments).toString()
-                                runtime = option.wireName; expanded = false; dirty = true
-                            }) }
+                    ProfileSection(R.string.profile_identity) {
+                        ProfileField(R.string.profile_name, name) { name = it; dirty = true }
+                        Box {
+                            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.profile_runtime) + ": " + stringResource(runtimeTitleResource(runtime))) }
+                            DropdownMenu(expanded, { expanded = false }) {
+                                SessionRuntime.entries.forEach { option -> DropdownMenuItem(text = { Text(stringResource(runtimeTitleResource(option.wireName))) }, onClick = {
+                                    val old = store.builtIns().first { it.runtime.wireName == runtime }
+                                    val new = store.builtIns().first { it.runtime == option }
+                                    if (shell == old.shell) shell = new.shell
+                                    if (cwd == old.workingDirectory) cwd = new.workingDirectory
+                                    if (arguments == JSONArray(old.shellArguments).toString()) arguments = JSONArray(new.shellArguments).toString()
+                                    runtime = option.wireName; expanded = false; dirty = true
+                                }) }
+                            }
                         }
                     }
-                    ProfileField(R.string.profile_shell, shell) { shell = it; dirty = true }
-                    ProfileField(R.string.profile_arguments, arguments, false) { arguments = it; dirty = true }
-                    Text(stringResource(R.string.profile_arguments_hint), style = MaterialTheme.typography.bodySmall)
-                    ProfileField(R.string.profile_directory, cwd) { cwd = it; dirty = true }
-                    ProfileField(R.string.profile_startup, startup, false) { startup = it; dirty = true }
-                    ProfileField(R.string.profile_environment, environment, false) { environment = it; dirty = true }
-                    Text(stringResource(R.string.profile_environment_hint), style = MaterialTheme.typography.bodySmall)
+                    ProfileSection(R.string.profile_launch) {
+                        ProfileField(R.string.profile_shell, shell) { shell = it; dirty = true }
+                        ProfileField(R.string.profile_arguments, arguments, false) { arguments = it; dirty = true }
+                        Text(stringResource(R.string.profile_arguments_hint), style = MaterialTheme.typography.bodySmall)
+                        ProfileField(R.string.profile_directory, cwd) { cwd = it; dirty = true }
+                        ProfileField(R.string.profile_startup, startup, false) { startup = it; dirty = true }
+                    }
+                    ProfileSection(R.string.profile_environment) {
+                        ProfileField(R.string.profile_environment, environment, false) { environment = it; dirty = true }
+                        Text(stringResource(R.string.profile_environment_hint), style = MaterialTheme.typography.bodySmall)
+                    }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Button(onClick = {
                         runCatching {
                             store.save(SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
                                 parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup))
                         }.onSuccess { finish() }.onFailure { error = it.message }
-                    }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.profile_save)) }
+                    }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.profile_save)) }
+                    if (editing) {
+                        OutlinedButton(onClick = {
+                            startActivity(Intent(this@ProfileEditActivity, ProfileEditActivity::class.java)
+                                .putExtra("profileId", id).putExtra("duplicate", true))
+                        }, enabled = !dirty, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.profile_duplicate)) }
+                        TextButton(onClick = { deleting = true }, modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                            Text(stringResource(R.string.profile_delete))
+                        }
+                    }
                 }
             }
+            if (deleting) AlertDialog(onDismissRequest = { deleting = false },
+                title = { Text(stringResource(R.string.profile_delete)) },
+                text = { Text(stringResource(R.string.profile_delete_message, source?.name.orEmpty())) },
+                confirmButton = { TextButton(onClick = {
+                    runCatching { store.delete(id) }.onSuccess { finish() }.onFailure { error = it.message; deleting = false }
+                }) { Text(stringResource(R.string.profile_delete), color = MaterialTheme.colorScheme.error) } },
+                dismissButton = { TextButton(onClick = { deleting = false }) { Text(stringResource(android.R.string.cancel)) } })
             if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text(stringResource(R.string.profile_discard)) },
                 confirmButton = { TextButton(onClick = { finish() }) { Text(stringResource(android.R.string.ok)) } },
                 dismissButton = { TextButton(onClick = { discard = false }) { Text(stringResource(android.R.string.cancel)) } })
         }
+    }
+}
+
+@Composable private fun ProfileSection(title: Int, content: @Composable ColumnScope.() -> Unit) {
+    Text(stringResource(title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
     }
 }
 

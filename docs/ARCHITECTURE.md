@@ -62,8 +62,9 @@ User output cannot choose Android actions or notification body text.
 Session creation resolves a persistent `SessionProfile` into a defensively copied,
 immutable `SessionLaunchSpec` before the UI calls `createSessionFromSpec` (versioned,
 bounded JSON over the existing Binder boundary). Native, Debian, Ubuntu, Arch and
-AVF are non-editable built-ins; app-private user profiles are copies with independent
-IDs. Profiles contain creation settings only, never PTY, dimensions or renderer state.
+AVF are initial defaults; app-private overrides retain their IDs and deletion markers
+prevent deleted defaults from reappearing. User copies have independent IDs.
+Profiles contain creation settings only, never PTY, dimensions or renderer state.
 The registry's `create(spec)` is the common launch path; legacy runtime and Kitty
 requests adapt to a built-in profile and resolve a spec too. Arguments use the
 existing argv envelope understood by Native, PRoot and the AVF guest daemon.

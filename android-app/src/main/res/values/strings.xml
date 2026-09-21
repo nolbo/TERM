@@ -313,6 +313,10 @@
     <string name="rootless_migrate_running">중단된 이전을 복구 중입니다</string>
     <string name="profiles">Profiles</string>
     <string name="profiles_summary">세션 생성에 사용할 프로필을 관리합니다.</string>
+    <string name="profiles_empty">등록된 프로필이 없습니다. 프로필을 추가해 새 세션을 시작하세요.</string>
+    <string name="profile_settings">프로필 설정</string>
+    <string name="profile_identity">이름 및 실행 환경</string>
+    <string name="profile_launch">셸 및 시작 설정</string>
     <string name="add_profile">Add profile</string>
     <string name="builtin_profile">기본 제공 · 복제하여 사용자 설정</string>
     <string name="profile_edit">편집</string>

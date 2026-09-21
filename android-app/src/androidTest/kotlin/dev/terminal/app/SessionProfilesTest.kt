@@ -23,20 +23,91 @@ import java.util.concurrent.TimeUnit
 class SessionProfilesTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
-    @Test fun persistentProfilesCannotMutateBuiltIns() {
+    @Test fun tappingDefaultOpensEditorAndDeletionRequiresConfirmation() {
+        val store = SessionProfiles(context)
+        val original = store.builtIns().first()
+        val prefs = context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE)
+        val previous = prefs.getString(original.id, null)
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        fun find(predicate: (android.view.accessibility.AccessibilityNodeInfo) -> Boolean): android.view.accessibility.AccessibilityNodeInfo? {
+            fun walk(node: android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
+                if (node == null) return null
+                if (predicate(node)) return node
+                for (i in 0 until node.childCount) walk(node.getChild(i))?.let { return it }
+                return null
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            return walk(automation.rootInActiveWindow)
+        }
+        fun click(text: String) {
+            var node = find { it.text?.toString() == text } ?: error("Missing: $text")
+            while (!node.isClickable) node = node.parent ?: error("Not clickable: $text")
+            assertTrue(node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+        }
+        try {
+            store.save(original)
+            ActivityScenario.launch(ProfilesActivity::class.java).use {
+                await { find { it.text?.toString() == original.name } != null }
+                click(original.name)
+                await { find { it.isEditable && it.text?.toString() == original.name } != null }
+                val delete = context.getString(R.string.profile_delete)
+                await {
+                    if (find { it.text?.toString() == delete } != null) true
+                    else {
+                        find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                        false
+                    }
+                }
+                click(delete)
+                await { find { it.text?.toString() == context.getString(R.string.profile_delete_message, original.name) } != null }
+                click(context.getString(android.R.string.cancel))
+                await { find { it.text?.toString() == context.getString(R.string.profile_delete_message, original.name) } == null }
+                assertNotNull(store.find(original.id))
+                click(delete)
+                await { find { it.text?.toString() == context.getString(R.string.profile_delete_message, original.name) } != null }
+                // The confirmation button is the clickable node with the delete label.
+                var button = find { it.text?.toString() == delete && it.isClickable }
+                if (button == null) {
+                    button = find { it.text?.toString() == delete && it.parent?.isClickable == true }?.parent
+                }
+                assertNotNull(button)
+                assertTrue(button!!.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+                await { store.find(original.id) == null }
+                assertNull(SessionProfiles(context).find(original.id))
+            }
+        } finally {
+            val editor = prefs.edit()
+            if (previous == null) editor.remove(original.id) else editor.putString(original.id, previous)
+            assertTrue(editor.commit())
+        }
+    }
+
+    @Test fun defaultProfilesCanBeEditedDeletedAndStayDeletedAfterReopening() {
         val store = SessionProfiles(context)
         val builtIns = store.builtIns()
         assertEquals(5, builtIns.size)
-        builtIns.forEach {
-            assertTrue(runCatching { store.save(it.copy(name = "overwrite")) }.isFailure)
-            assertTrue(runCatching { store.delete(it.id) }.isFailure)
-        }
-        val copy = store.duplicate(builtIns.first()).copy(name = "instrumented copy")
+        val prefs = context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE)
+        val previous = prefs.all
         try {
+            builtIns.forEach { original ->
+                val launch = original.resolve()
+                val edited = original.copy(name = "Changed default", startupCommand = "echo changed")
+                store.save(edited)
+                assertEquals(edited, SessionProfiles(context).find(original.id))
+                assertEquals(original.startupCommand, launch.startupCommand)
+                store.delete(original.id)
+                assertNull(SessionProfiles(context).find(original.id))
+            }
+            assertTrue(SessionProfiles(context).all().none { it.id in builtIns.map { it.id } })
+            val copy = store.duplicate(store.builtIns().first()).copy(name = "After deletion")
             store.save(copy)
             assertEquals(copy, SessionProfiles(context).find(copy.id))
-            assertEquals(builtIns.first(), store.builtIns().first())
-        } finally { store.delete(copy.id) }
+            store.delete(copy.id)
+        } finally {
+            val editor = prefs.edit().clear()
+            previous.forEach { (key, value) -> editor.putString(key, value as String) }
+            assertTrue(editor.commit())
+        }
     }
 
     @Test fun profileEditorKeepsUnsavedDraftAcrossRecreation() {
@@ -70,9 +141,11 @@ class SessionProfilesTest {
 
     @Test fun editingAndDeletingProfilePreservesLiveSessionThroughActivityRecreation() {
         val store = SessionProfiles(context)
-        val profile = store.duplicate(store.builtIns().first()).copy(name = "Profile lifecycle test",
+        val profile = store.builtIns().first().copy(name = "Profile lifecycle test",
             workingDirectory = "/", environment = mapOf("PROFILE_TEST" to "original"),
             startupCommand = "export PROFILE_STARTUP=once")
+        val preferences = context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE)
+        val previous = preferences.getString(profile.id, null)
         val queue = LinkedBlockingQueue<IRuntimeService>()
         val connection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, binder: IBinder) { queue.offer(IRuntimeService.Stub.asInterface(binder)) }
@@ -114,6 +187,9 @@ class SessionProfilesTest {
             owned.forEach { service.terminateSession(it) }
             store.delete(profile.id)
             context.unbindService(connection)
+            val editor = preferences.edit()
+            if (previous == null) editor.remove(profile.id) else editor.putString(profile.id, previous)
+            assertTrue(editor.commit())
         }
     }
     private fun sessions(service: IRuntimeService): List<JSONObject> {
