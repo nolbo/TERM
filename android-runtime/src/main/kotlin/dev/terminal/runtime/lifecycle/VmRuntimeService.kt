@@ -68,6 +68,7 @@ class VmRuntimeService : Service() {
     private var foreground = false // Accessed only on the main dispatcher.
     private var notificationUpdateJob: Job? = null
     private var lastNotificationContent: Pair<Int, String>? = null
+    private val taskNotifications by lazy { dev.terminal.runtime.notifications.SessionTaskNotifications(this) }
     private val listeners = RemoteCallbackList<IRuntimeStateListener>()
     private val listenerLock = Any()
     private lateinit var backend: RuntimeBackend
@@ -334,9 +335,11 @@ class VmRuntimeService : Service() {
             }
             val runtime = (client as? UnifiedSessionRegistry)?.runtimeOf(sessionId)?.wireName ?: "UNKNOWN"
             Log.i(TAG, "session.terminate start id=$sessionId runtime=$runtime")
+            taskNotifications.forget(sessionId)
             val result = sessionSnapshots.mutateAndRefresh(client) { client.terminate(sessionId, SIGKILL) }
             result.operation
                 .onSuccess {
+                    taskNotifications.forget(sessionId)
                     getSharedPreferences("session-launches", MODE_PRIVATE).edit().remove(sessionId).apply()
                     kittyGrants.remove(sessionId)
                     kittyIdentities.remove(sessionId)
@@ -379,6 +382,8 @@ class VmRuntimeService : Service() {
             getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE).edit()
                 .putBoolean(KEY_KITTY_GRAPHICS, enabled).apply()
         }
+
+        override fun setSessionTaskNotifications(enabled: Boolean) = taskNotifications.setEnabled(enabled)
 
         override fun setKittyRemoteControl(enabled: Boolean) {
             getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE).edit().putBoolean(KEY_KITTY_REMOTE, enabled).apply()
@@ -592,6 +597,7 @@ class VmRuntimeService : Service() {
         val result = sessionSnapshots.mutateAndRefresh(client) {
             val sessions = client.list().getOrThrow()
             sessions.filter { it.state != dev.terminal.protocol.SessionStatus.EXITED }.forEach { session ->
+                taskNotifications.forget(session.id)
                 runCatching { client.terminate(session.id, SIGKILL).getOrThrow() }
                     .onSuccess { latestResizeRequests.forget(session.id) }
                     .onFailure {
@@ -619,7 +625,7 @@ class VmRuntimeService : Service() {
             else -> selectedBackend.connectSessionClient().getOrNull()
         }
         client?.let { primaryController ->
-            val registry = UnifiedSessionRegistry(recordLaunch = { id, spec ->
+            val registry = UnifiedSessionRegistry(onInput = taskNotifications::input, recordLaunch = { id, spec ->
                 getSharedPreferences("session-launches", MODE_PRIVATE).edit().putString(id, spec.toJson().toString()).commit()
             }, beforeCreate = {
                 check(!dev.terminal.runtime.rootless.RootlessNativeMigration.pending(java.io.File(filesDir, "rootless").toPath())) {
@@ -636,6 +642,7 @@ class VmRuntimeService : Service() {
                     when (event) {
                         is SessionEvent.Output -> notifyTerminalOutput(event.sessionId, event.bytes, event.replay)
                         is SessionEvent.Exited -> {
+                            taskNotifications.exited(event.sessionId, event.exitCode, sessionNotificationTitle(event.sessionId))
                             kittyGrants.remove(event.sessionId)
                             broadcast { it.onSessionExited(event.sessionId, event.exitCode) }
                             refreshSessions(registry)
@@ -758,7 +765,13 @@ class VmRuntimeService : Service() {
         broadcast { it.onSessionsChanged(published.revision, published.json) }
     }
 
+    private fun sessionNotificationTitle(sessionId: String): String =
+        kittyTitles[sessionId] ?: getSharedPreferences("session-launches", MODE_PRIVATE).getString(sessionId, null)
+            ?.let { runCatching { JSONObject(it).getString("name") }.getOrNull() }
+            ?: SessionRuntime.fromSessionId(sessionId)?.wireName.orEmpty()
+
     private fun notifyTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) {
+        taskNotifications.output(sessionId, bytes, replay) { sessionNotificationTitle(sessionId) }
         broadcast { it.onTerminalOutput(sessionId, bytes, replay) }
     }
 

@@ -50,6 +50,12 @@ Extra key는 별도의 둥근 wrapper나 그림자 없이 터미널 배경 위�
 
 설정 화면은 Android 17 설정 앱의 계층을 따른다. 설정 홈은 `LargeTopAppBar`, 실제 카테고리 필터로 동작하는 둥근 검색 필드, 40 dp 원형 아이콘과 supporting text를 가진 최소 72 dp 독립 카테고리 surface를 사용한다. 상세 화면은 큰 앱 바 아래 설명을 두고, 섹션 제목별 하나의 `extraLarge` 카드 안에 관련 interactive/non-interactive Expressive `ListItem`을 묶는다. 설명이 여러 줄로 바뀌어도 leading icon과 trailing text·icon·control은 행 전체 높이에서 수직 중앙을 유지한다. 그 밖의 일반 화면 앱 바는 표준 Material 3 `TopAppBar`다. boolean 행 전체가 한 번만 toggle된다. 숫자·경로·단일 선택은 복원 가능한 입력 초안과 저장값을 분리하고, 대화상자의 **저장**에서 전체 값을 검증한 뒤에만 반영한다. Rootless 설정은 화면 상단에 Debian, Ubuntu, Arch Linux ARM의 상태와 개별 동작을 모두 표시하고, 공유 저장소 설정을 그 아래에 배치한다. Rootless 상태 행은 확인 중·설치 필요·환경 보완 필요·준비됨·오류를 구분하고 shape-morphing 로딩 표시, 설치, 환경 보완, 제거, 재시도 동작을 제공한다. 이미지가 있으면 보완 실패 상태에서도 제거할 수 있다. 패키지·설정·검증을 마치기 전에는 준비됨으로 표시하지 않는다. 진단과 크래시 payload는 선택 가능한 고정폭 텍스트로 유지한다. 크래시 화면에서는 복사를 primary action으로, 닫기를 낮은 강조 action으로 제공한다.
 
+설정의 **터미널 설정 → 셸 → 세션 작업 알림**은 기본 꺼짐인 스위치입니다.
+10초 이상 명령 완료 및 프로그램의 확인 요청을 알린다는 설명과 Android 알림
+설정 이동 행을 함께 제공합니다. 알림 권한 거부는 세션 실행을 막지 않으며,
+작업 알림 채널은 기존 세션 유지용 상시 알림 채널과 분리합니다.
+알림을 눌러 세션을 열 때는 서비스의 이전 선택 탭보다 알림 대상을 우선합니다.
+
 ## Insets and adaptive behavior
 
 **터미널 기록 → 부드러운 스크롤**은 기본 꺼짐이다. 켜면 일반 스크롤백의

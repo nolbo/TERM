@@ -46,6 +46,19 @@ android-runtime :vmhost (session owner)
 `stopWithTask="false"`. The Activity unregisters its callback and unbinds in
 `onStop`; it never sends a stop request as a lifecycle side effect.
 
+Task notifications are opt-in and owned by `:vmhost`, independently of the ongoing
+foreground-service notification. A bounded streaming observer reads only fresh PTY
+output (never replay) and recognizes OSC 133 command boundaries, BEL and explicit
+OSC 9/777 attention requests. Native's managed prompt and Bash's initial PS0 /
+PROMPT_COMMAND hooks supply completion boundaries without rewriting user rc files.
+Native submission timing ignores bracketed-paste newlines until Enter is sent.
+The observer uses a monotonic clock, a 10-second long-command threshold and per-session
+plus global rate limits. It owns no process and starts no polling/background timer.
+A separate Android notification channel and immutable, session-specific activity
+PendingIntent provide click-through; missing sessions are never recreated. Disabling
+the preference cancels only task notifications. Permission denial cannot stop PTYs.
+User output cannot choose Android actions or notification body text.
+
 Session creation resolves a persistent `SessionProfile` into a defensively copied,
 immutable `SessionLaunchSpec` before the UI calls `createSessionFromSpec` (versioned,
 bounded JSON over the existing Binder boundary). Native, Debian, Ubuntu, Arch and

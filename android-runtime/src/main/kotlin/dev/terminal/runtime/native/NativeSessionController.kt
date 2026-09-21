@@ -193,7 +193,13 @@ internal fun prepareNativeShellRc(home: File): File = File(home, ".droid-shrc").
         if [ -n "${'$'}{TERMINAL_USB_CLIENT-}" ] && [ -x "${'$'}TERMINAL_USB_CLIENT" ]; then
           alias terminal-usb='"${'$'}TERMINAL_USB_CLIENT"'
         fi
-        PS1='${'$'}(p=${'$'}PWD; h=${'$'}HOME
+        # Emit prompt boundaries directly to the PTY, outside PS1 width accounting.
+        case ${'$'}- in *i*) DROID_PROMPT_MARKERS=1 ;; esac
+        PS1='${'$'}(droid_status=${'$'}?
+        if [ "${'$'}{DROID_PROMPT_MARKERS-}" = 1 ]; then
+          printf "\033]133;D;%s\007\033]133;A\007" "${'$'}droid_status" > /dev/tty
+        fi
+        p=${'$'}PWD; h=${'$'}HOME
         case "${'$'}p" in
           "${'$'}h"|"${'$'}h"/*) ;;
           *) p=${'$'}(pwd -P); h=${'$'}(cd -- "${'$'}HOME" && pwd -P) || h=${'$'}HOME ;;

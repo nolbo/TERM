@@ -1,0 +1,7 @@
+<resources>
+    <string name="session_task_channel">Session task notifications</string>
+    <string name="session_task_completed">TERM · Task completed</string>
+    <string name="session_task_attention">TERM · Attention requested</string>
+    <string name="session_task_exit">%1$s · Exit code %2$d. Tap to open the session.</string>
+    <string name="session_task_open">%1$s · Tap to open the session.</string>
+</resources>

@@ -63,6 +63,9 @@ class SettingsDetailActivity : TerminalActivity() {
     private val terminalPreferences by lazy { getSharedPreferences(TERMINAL_PREFERENCES, MODE_PRIVATE) }
     private val runtimePreferences by lazy { getSharedPreferences(RUNTIME_PREFERENCES, MODE_PRIVATE) }
     private val category get() = intent.getStringExtra(EXTRA_CATEGORY) ?: APPEARANCE
+    private val taskNotificationPermission = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { granted ->
+        if (!granted) Toast.makeText(this, R.string.session_task_permission_required, Toast.LENGTH_LONG).show()
+    }
     private var runtime: IRuntimeService? = null
     private var bound = false
     private var bindingRequested = false
@@ -268,6 +271,7 @@ class SettingsDetailActivity : TerminalActivity() {
                 runtimePreferences.getString(KEY_NATIVE_TERM, DEFAULT_TERMINAL_TYPE) ?: DEFAULT_TERMINAL_TYPE,
                 runtimePreferences.getBoolean(KEY_NATIVE_LOGIN, true),
             )
+            service.setSessionTaskNotifications(runtimePreferences.getBoolean(dev.terminal.runtime.notifications.SessionNotificationSettings.KEY_ENABLED, false))
             service.setKittyRemoteControl(runtimePreferences.getBoolean(KEY_KITTY_REMOTE, false))
             service.setKittyGraphicsCompatibility(runtimePreferences.getBoolean(KEY_KITTY_GRAPHICS, false))
             service.setWakePolicy(runtimePreferences.getString(KEY_WAKE_POLICY, DEFAULT_WAKE_POLICY) ?: DEFAULT_WAKE_POLICY)
@@ -594,6 +598,20 @@ class SettingsDetailActivity : TerminalActivity() {
                 BooleanSetting(R.string.terminal_open_links, R.string.terminal_open_links_support,
                     terminalPreferences.getBoolean(KEY_OPEN_LINKS, false)) {
                     terminalPreferences.edit().putBoolean(KEY_OPEN_LINKS, it).apply()
+                }
+                SettingsDivider()
+                BooleanSetting(R.string.session_task_notifications, R.string.session_task_notifications_support,
+                    runtimePreferences.getBoolean(dev.terminal.runtime.notifications.SessionNotificationSettings.KEY_ENABLED, false)) { enabled ->
+                    saveRuntimeBoolean(dev.terminal.runtime.notifications.SessionNotificationSettings.KEY_ENABLED, enabled)
+                    if (enabled && android.os.Build.VERSION.SDK_INT >= 33 &&
+                        checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        taskNotificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                }
+                SettingsDivider()
+                ActionSetting(R.string.session_task_system_settings, R.string.session_task_permission_required) {
+                    startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+                        .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, packageName))
                 }
                 SettingsDivider()
                 BooleanSetting(R.string.kitty_remote_control, R.string.kitty_remote_control_support,

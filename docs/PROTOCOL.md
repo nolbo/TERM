@@ -15,6 +15,21 @@ session loss. The old runtime-based Binder call adapts to a built-in profile.
 No guest protocol change is needed: launch arguments continue through the existing
 `DROID_SESSION_ARGV` envelope, removed before constructing the child environment.
 
+## Task notification signals
+
+The app-private Binder setting `setSessionTaskNotifications(enabled)` persists an
+opt-in policy in the service process; the default is false. Fresh PTY output accepts
+`OSC 133;C ST` (command start), `OSC 133;D[;exitCode] ST` (completion), and
+`OSC 133;A ST` (prompt return). OSC terminators may be BEL or ST, across chunk
+boundaries. These boundaries follow the [iTerm2 shell integration protocol](https://iterm2.com/documentation-escape-codes.html).
+A bare BEL, `OSC 9;message ST`, or `OSC 777;notify;title;body ST` requests attention.
+OSC 9;4 progress updates, unrelated strings, replayed output, and canceled or
+oversized frames never request a notification. String storage is bounded to 1024
+bytes; embedded bells in unrelated OSC/DCS/APC payloads do not trigger requests.
+Payload titles/bodies are intentionally not displayed or executed. The service uses
+its own notification templates and only permits session navigation on tap.
+No guest RPC or Android capability is granted by these sequences.
+
 ## Terminal paste
 
 Paste is application input, not a shell command queue. With DECSET 2004 enabled,

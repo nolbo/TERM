@@ -100,6 +100,7 @@ class MainActivity : TerminalActivity() {
         selectRuntime(runtimeChoices.first { it.id == profile.runtime.wireName })
     }
     private var runtimeChoices by mutableStateOf(emptyList<RuntimeChoiceUi>())
+    private var notificationSessionId: String? = null
     private var activeSessionId by mutableStateOf<String?>(null)
     private var runtimeMessage by mutableStateOf("")
     private var feedbackMessage by mutableStateOf<String?>(null)
@@ -224,7 +225,17 @@ class MainActivity : TerminalActivity() {
             runCatching {
                 val connected = checkNotNull(runtime)
                 val currentListener = checkNotNull(listener)
+                val notificationTarget = notificationSessionId
+                val connectedGeneration = bindingGeneration
                 connected.registerListener(currentListener)
+                // Registration also replays the service's last focused tab. An explicit
+                // notification target wins after those initial callbacks have drained.
+                if (notificationTarget != null) mainHandler.post {
+                    if (connectedGeneration == bindingGeneration && sessions.any { it.id == notificationTarget }) {
+                        notificationSessionId = null
+                        attach(notificationTarget)
+                    }
+                }
                 updateRuntimeChoices(connected.runtimeStatusJson)
                 renderRuntimeState(connected.state, connected.detail)
                 connected.startRuntime()
@@ -239,11 +250,13 @@ class MainActivity : TerminalActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         selectedLaunchSpec?.let { outState.putString("pending-profile-launch", it.toJson().toString()) }
         rootlessLaunchSpec?.let { outState.putString("pending-rootless-profile-launch", it.toJson().toString()) }
+        notificationSessionId?.let { outState.putString("notification-target", it) }
         super.onSaveInstanceState(outState)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        notificationSessionId = savedInstanceState?.getString("notification-target")
         selectedLaunchSpec = savedInstanceState?.getString("pending-profile-launch")?.let {
             dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it)
         }
@@ -521,6 +534,15 @@ class MainActivity : TerminalActivity() {
         val removedSessionIds = tabUpdate.removedSessionIds
         sessions = updated
         activeSessionId = tabUpdate.activeSessionId
+        notificationSessionId?.let { requested ->
+            if (updated.any { it.id == requested }) {
+                activeSessionId = requested
+                notificationSessionId = null
+            } else if (revision > 0) {
+                notificationSessionId = null
+                feedbackMessage = getString(R.string.session_task_session_missing)
+            }
+        }
         terminatingSessionIds = tabUpdate.pendingTerminationIds
         val ids = updated.mapTo(mutableSetOf()) { it.id }
         pendingRename = pendingRename?.let { pending -> updated.firstOrNull { it.id == pending.id } }
@@ -846,6 +868,12 @@ class MainActivity : TerminalActivity() {
     private fun terminalPreferences() = getSharedPreferences(SettingsDetailActivity.TERMINAL_PREFERENCES, MODE_PRIVATE)
 
     private fun handleLaunchIntent(intent: Intent) {
+        intent.getStringExtra(dev.terminal.runtime.notifications.SessionNotificationSettings.EXTRA_SESSION_ID)?.let { id ->
+            notificationSessionId = id
+            if (sessions.any { it.id == id }) { notificationSessionId = null; attach(id) }
+            // Never create a replacement if the PTY owner has already lost this session.
+            intent.removeExtra(dev.terminal.runtime.notifications.SessionNotificationSettings.EXTRA_SESSION_ID)
+        }
         if (intent.getBooleanExtra(EXTRA_OPEN_IMAGE_PICKER, false)) imagePicker.launch(null)
     }
 

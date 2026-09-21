@@ -1,3 +1,8 @@
 <resources>
     <string name="runtime_library_name">TERM Runtime</string>
+    <string name="session_task_channel">세션 작업 알림</string>
+    <string name="session_task_completed">TERM · 작업 완료</string>
+    <string name="session_task_attention">TERM · 확인이 필요합니다</string>
+    <string name="session_task_exit">%1$s · 종료 코드 %2$d. 눌러서 세션을 확인하세요.</string>
+    <string name="session_task_open">%1$s · 눌러서 세션을 확인하세요.</string>
 </resources>

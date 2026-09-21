@@ -27,6 +27,7 @@ import kotlinx.coroutines.sync.withLock
 class UnifiedSessionRegistry(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val beforeCreate: () -> Unit = {},
+    private val onInput: (String, ByteArray) -> Unit = { _, _ -> },
     private val recordLaunch: (String, SessionLaunchSpec) -> Unit = { _, _ -> },
     private val remoteCommand: (suspend (String, String) -> ByteArray?)? = null,
 ) : SessionController {
@@ -131,7 +132,8 @@ class UnifiedSessionRegistry(
     suspend fun create(spec: SessionLaunchSpec, rows: UShort, cols: UShort,
         runtimeEnvironment: Map<String, String> = emptyMap()): Result<SessionDescriptor> =
         createResolved(spec.runtime, spec.shell, spec.workingDirectory,
-            spec.environment + runtimeEnvironment + (SessionCommand.KEY to SessionCommand.encode(spec.arguments())),
+            dev.terminal.runtime.notifications.shellActivityEnvironment(spec.shell,
+                spec.environment + runtimeEnvironment) + (SessionCommand.KEY to SessionCommand.encode(spec.arguments())),
             rows, cols).onSuccess { recordLaunch(it.id, spec) }
 
     /** Compatibility entry point: direct runtime requests still resolve a built-in profile. */
@@ -197,7 +199,7 @@ class UnifiedSessionRegistry(
     override suspend fun detach(sessionId: String): Result<Unit> = route(sessionId) { it.detach(sessionId) }
     override suspend fun resize(sessionId: String, rows: UShort, cols: UShort): Result<SessionDescriptor> =
         route(sessionId) { it.resize(sessionId, rows, cols) }
-    override suspend fun write(sessionId: String, bytes: ByteArray): Result<Int> = route(sessionId) { it.write(sessionId, bytes) }
+    override suspend fun write(sessionId: String, bytes: ByteArray): Result<Int> = route(sessionId) { onInput(sessionId, bytes); it.write(sessionId, bytes) }
     override suspend fun terminate(sessionId: String, signal: Int): Result<Unit> {
         val runtime = runtimeOf(sessionId) ?: return Result.failure(NoSuchElementException("Session not found"))
         return controller(runtime).fold(
