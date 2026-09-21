@@ -7,10 +7,10 @@ import java.nio.file.Path
 
 /** First-run automation: valid local image wins; otherwise enqueue approved image install. */
 class RuntimeSetupCoordinator(private val context: Context) {
-    fun ensureImage(imageRoot: Path, releaseId: String): SetupState = when (val verification = DebianImageVerifier.verify(imageRoot)) {
+    fun ensureImage(imageRoot: Path, releaseId: String, storageId: String = "legacy"): SetupState = when (val verification = DebianImageVerifier.verify(imageRoot)) {
         is ImageVerification.Ready -> SetupState.Ready
         is ImageVerification.Invalid -> {
-            DebianImageDownloadWorker.enqueue(context, releaseId)
+            DebianImageDownloadWorker.enqueue(context, releaseId, storageId)
             SetupState.Downloading(verification.reason)
         }
     }

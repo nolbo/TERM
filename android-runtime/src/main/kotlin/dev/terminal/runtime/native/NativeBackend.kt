@@ -13,10 +13,10 @@ import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
 
 /** Stock-Android fallback: owns local shell processes in :vmhost, never an Activity. */
-class NativeBackend(context: Context) : RuntimeBackend {
+class NativeBackend(context: Context, storageRoot: File? = null) : RuntimeBackend {
     private val appContext = context.applicationContext
     private val state = MutableStateFlow<RuntimeState>(RuntimeState.Stopped)
-    private val nativeRoot = File(appContext.filesDir, "native")
+    private val nativeRoot = storageRoot ?: File(appContext.filesDir, "native")
     private var sessions: NativeSessionController? = null
     private var hostEnvironment: (String) -> Map<String, String> = { emptyMap() }
     private var releaseHostCapabilities: (String) -> Unit = {}

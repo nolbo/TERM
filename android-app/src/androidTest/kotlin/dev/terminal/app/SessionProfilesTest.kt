@@ -23,6 +23,102 @@ import java.util.concurrent.TimeUnit
 class SessionProfilesTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
+    @Test fun editorSelectsBaseAndExplicitStorageSharing() {
+        val store = SessionProfiles(context)
+        val profile = store.duplicate(store.builtIns().first()).copy(name = "Storage editor")
+        val target = store.duplicate(store.builtIns().first {
+            it.runtime == dev.terminal.runtime.session.SessionRuntime.ROOTLESS_UBUNTU
+        }).copy(name = "Shared Ubuntu fixture")
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        fun find(predicate: (android.view.accessibility.AccessibilityNodeInfo) -> Boolean): android.view.accessibility.AccessibilityNodeInfo? {
+            fun walk(node: android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
+                if (node == null) return null
+                if (predicate(node)) return node
+                for (i in 0 until node.childCount) walk(node.getChild(i))?.let { return it }
+                return null
+            }
+            InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            return walk(automation.rootInActiveWindow)
+        }
+        fun click(text: String) {
+            await { find { it.text?.toString() == text } != null }
+            var node = requireNotNull(find { it.text?.toString() == text })
+            while (!node.isClickable) node = requireNotNull(node.parent)
+            assertTrue(node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+        }
+        try {
+            store.save(profile); store.save(target)
+            ActivityScenario.launch<ProfileEditActivity>(Intent(context, ProfileEditActivity::class.java)
+                .putExtra("profileId", profile.id)).use {
+                click(context.getString(R.string.profile_runtime) + ": " + context.getString(dev.terminal.app.ui.runtimeTitleResource(profile.runtime.wireName)))
+                click(context.getString(R.string.runtime_rootless_title))
+                click(context.getString(R.string.profile_storage_new))
+                click(context.getString(R.string.profile_storage_shared, target.name))
+                await {
+                    if (find { it.text?.toString() == context.getString(R.string.profile_save) } != null) true
+                    else {
+                        find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                        false
+                    }
+                }
+                click(context.getString(R.string.profile_save))
+                await { store.find(profile.id)?.storageId == target.storageId }
+                assertEquals(target.runtime, store.find(profile.id)?.runtime)
+            }
+        } finally {
+            store.delete(profile.id); store.delete(target.id)
+        }
+    }
+
+    @Test fun nativeProfilesHaveIndependentStorageUnlessExplicitlyShared() {
+        val store = SessionProfiles(context)
+        val first = store.duplicate(store.builtIns().first()).copy(name = "Storage first")
+        val separate = store.duplicate(first).copy(name = "Storage separate")
+        val shared = store.duplicate(first).copy(name = "Storage shared", storageId = first.storageId)
+        assertNotEquals(first.storageId, separate.storageId)
+        val profiles = listOf(first, separate, shared)
+        val queue = LinkedBlockingQueue<IRuntimeService>()
+        val connection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, binder: IBinder) { queue.offer(IRuntimeService.Stub.asInterface(binder)) }
+            override fun onServiceDisconnected(name: ComponentName) = Unit
+        }
+        assertTrue(context.bindService(Intent(context, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE))
+        val service = requireNotNull(queue.poll(15, TimeUnit.SECONDS))
+        val owned = mutableListOf<String>()
+        try {
+            service.startRuntime()
+            await { service.state == "READY" }
+            profiles.forEach { profile ->
+                store.save(profile)
+                service.createSessionFromSpec(profile.resolve().toJson().toString(), 24, 80)
+                await { sessions(service).any { it.optString("profileId") == profile.id } }
+                owned += sessions(service).first { it.optString("profileId") == profile.id }.getString("id")
+            }
+            val firstHome = java.io.File(dev.terminal.runtime.session.SessionStorage.root(context.filesDir, first.runtime, first.storageId), "home")
+            val secondHome = java.io.File(dev.terminal.runtime.session.SessionStorage.root(context.filesDir, separate.runtime, separate.storageId), "home")
+            service.writeSessionInput(owned[0], "printf owned > \"\$HOME/profile-storage-marker\"\n".toByteArray())
+            await { java.io.File(firstHome, "profile-storage-marker").readTextOrNull() == "owned" }
+            assertFalse(java.io.File(secondHome, "profile-storage-marker").exists())
+            store.delete(first.id)
+            service.writeSessionInput(owned[2], "cat \"\$HOME/profile-storage-marker\" > \"\$HOME/shared-result\"\n".toByteArray())
+            await { java.io.File(firstHome, "shared-result").readTextOrNull() == "owned" }
+            ActivityScenario.launch(MainActivity::class.java).use { activity ->
+                activity.recreate()
+                owned.forEach { service.attachSession(it); service.detachSession(it) }
+                assertEquals(3, sessions(service).count { it.getString("id") in owned })
+            }
+            service.terminateSession(owned[0])
+            await { sessions(service).none { it.getString("id") == owned[0] } }
+            assertTrue(sessions(service).any { it.getString("id") == owned[2] })
+        } finally {
+            owned.forEach { service.terminateSession(it) }
+            profiles.forEach { store.delete(it.id) }
+            context.unbindService(connection)
+        }
+    }
+
+    private fun java.io.File.readTextOrNull(): String? = if (isFile) readText() else null
+
     @Test fun tappingDefaultOpensEditorAndDeletionRequiresConfirmation() {
         val store = SessionProfiles(context)
         val original = store.builtIns().first()
@@ -89,7 +185,7 @@ class SessionProfilesTest {
         val prefs = context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE)
         val previous = prefs.all
         try {
-            builtIns.forEach { original ->
+            builtIns.filter { it.runtime != dev.terminal.runtime.session.SessionRuntime.AVF || store.hasAvfPrivileges() }.forEach { original ->
                 val launch = original.resolve()
                 val edited = original.copy(name = "Changed default", startupCommand = "echo changed")
                 store.save(edited)
@@ -106,6 +202,23 @@ class SessionProfilesTest {
         } finally {
             val editor = prefs.edit().clear()
             previous.forEach { (key, value) -> editor.putString(key, value as String) }
+            assertTrue(editor.commit())
+        }
+    }
+
+    @Test fun avfDefaultIsVisibleOnlyWithBothPrivilegedPermissions() {
+        val store = SessionProfiles(context)
+        val id = dev.terminal.runtime.session.SessionProfile.builtInId(dev.terminal.runtime.session.SessionRuntime.AVF)
+        val prefs = context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE)
+        val previous = prefs.getString(id, null)
+        try {
+            prefs.edit().remove(id).commit()
+            assertEquals(store.hasAvfPrivileges(), store.find(id) != null)
+            store.save(store.builtIns().first { it.id == id })
+            assertEquals(store.hasAvfPrivileges(), SessionProfiles(context).find(id) != null)
+        } finally {
+            val editor = prefs.edit()
+            if (previous == null) editor.remove(id) else editor.putString(id, previous)
             assertTrue(editor.commit())
         }
     }

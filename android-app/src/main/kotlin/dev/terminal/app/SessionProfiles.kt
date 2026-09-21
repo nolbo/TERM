@@ -9,12 +9,17 @@ import java.util.UUID
 
 /** Default profiles may be overridden or tombstoned without touching live sessions. */
 class SessionProfiles(context: Context) {
+    private val app = context.applicationContext
+    fun hasAvfPrivileges(): Boolean =
+        app.checkSelfPermission("android.permission.MANAGE_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            app.checkSelfPermission("android.permission.USE_CUSTOM_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED
     private val preferences = context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE)
     private val runtimePreferences = context.getSharedPreferences(SettingsDetailActivity.RUNTIME_PREFERENCES, Context.MODE_PRIVATE)
     fun all(): List<SessionProfile> {
         val defaults = builtIns()
         val stored = preferences.all
         return (defaults.map { it.id } + stored.keys.sorted()).distinct().mapNotNull { id ->
+            if (id == SessionProfile.builtInId(SessionRuntime.AVF) && !hasAvfPrivileges()) return@mapNotNull null
             if (stored.containsKey(id)) {
                 (stored[id] as String).takeIf { it.isNotEmpty() }?.let {
                     SessionLaunchSpec.fromJson(it).toProfile()
@@ -39,7 +44,8 @@ class SessionProfiles(context: Context) {
                 mapOf("TERM" to runtimePreferences.getString("native-term", "xterm-256color").orEmpty()))
         }
     }
-    fun duplicate(profile: SessionProfile) = profile.copy(id = UUID.randomUUID().toString(), name = "${profile.name} copy")
+    fun duplicate(profile: SessionProfile) = profile.copy(id = UUID.randomUUID().toString(), name = "${profile.name} copy",
+        storageId = UUID.randomUUID().toString())
     fun save(profile: SessionProfile) {
         val encoded = profile.resolve().toJson().toString()
         check(preferences.edit().putString(profile.id, encoded).commit()) { "Could not save profile" }

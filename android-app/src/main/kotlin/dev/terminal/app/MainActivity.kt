@@ -96,7 +96,22 @@ class MainActivity : TerminalActivity() {
         startActivity(Intent(this, ProfileEditActivity::class.java))
     }
     private fun selectProfile(profile: dev.terminal.runtime.session.SessionProfile) {
+        if (rootlessInstallInFlight) {
+            newSessionMenuVisible = false
+            newSessionSheetVisible = false
+            rootlessVisible = true
+            return
+        }
         selectedLaunchSpec = profile.resolve()
+        if (profile.storageId != "legacy" && profile.runtime.wireName in rootlessRuntimeIds) {
+            newSessionMenuVisible = false
+            newSessionSheetVisible = false
+            rootlessInstallRuntime = profile.runtime.wireName
+            rootlessLaunchSpec = selectedLaunchSpec
+            rootlessVisible = true
+            beginRootlessInstall()
+            return
+        }
         selectRuntime(runtimeChoices.first { it.id == profile.runtime.wireName })
     }
     private var runtimeChoices by mutableStateOf(emptyList<RuntimeChoiceUi>())
@@ -192,6 +207,11 @@ class MainActivity : TerminalActivity() {
         override fun onRootlessProgress(runtimeType: String, phase: String, detail: String) = runOnUiThread {
             if (generation != bindingGeneration) return@runOnUiThread
             if (runtimeType != rootlessInstallRuntime) return@runOnUiThread
+            if (rootlessLaunchSpec?.storageId?.let { it != "legacy" } == true) {
+                rootlessStatus = phase
+                rootlessDetail = detail
+                return@runOnUiThread
+            }
             runCatching { runtime?.runtimeStatusJson?.let(::updateRuntimeChoices) }.onFailure {
                 rootlessStatus = phase
                 rootlessDetail = detail

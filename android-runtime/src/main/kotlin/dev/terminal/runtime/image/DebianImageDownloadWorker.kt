@@ -30,10 +30,16 @@ class DebianImageDownloadWorker(
     override suspend fun doWork(): Result {
         val releaseId = inputData.getString(KEY_RELEASE_ID) ?: return failure("Missing release ID")
         val release = BundledDebianImageCatalog.find(releaseId) ?: return failure("Unknown approved Debian release")
+        val storageId = inputData.getString(KEY_STORAGE_ID) ?: "legacy"
+        val target = runCatching {
+            dev.terminal.runtime.session.SessionStorage.root(applicationContext.filesDir,
+                dev.terminal.runtime.session.SessionRuntime.AVF, storageId).toPath()
+        }.getOrElse { return failure("Invalid storage ID") }
         val stagingRoot = applicationContext.cacheDir.toPath()
             .resolve("image-downloads")
             .resolve("${release.id}-${UUID.randomUUID()}")
         return try {
+            Files.createDirectories(target.parent)
             Files.createDirectories(stagingRoot)
             download(release.manifestUri, stagingRoot.resolve(DebianImageLayout.MANIFEST_FILE), release)
             if (DebianImageVerifier.sha256(stagingRoot.resolve(DebianImageLayout.MANIFEST_FILE)) != release.manifestSha256) {
@@ -50,7 +56,7 @@ class DebianImageDownloadWorker(
                 is ImageVerification.Ready -> when (
                     val installed = DebianImageInstaller.install(
                         stagingRoot,
-                        applicationContext.filesDir.toPath().resolve("vm/default"),
+                        target,
                     )
                 ) {
                     is ImageInstallResult.Installed -> Result.success(Data.Builder().putString(KEY_STATUS, "installed").build())
@@ -119,6 +125,7 @@ class DebianImageDownloadWorker(
 
     companion object {
         private const val KEY_RELEASE_ID = "release_id"
+        private const val KEY_STORAGE_ID = "storage_id"
         private const val KEY_STATUS = "status"
         private const val KEY_ERROR = "error"
         private const val MAX_RETRIES = 3
@@ -126,12 +133,13 @@ class DebianImageDownloadWorker(
         private const val READ_TIMEOUT_MILLIS = 30_000
         private const val UNIQUE_WORK_NAME = "debian-image-download"
 
-        fun enqueue(context: Context, releaseId: String) {
+        fun enqueue(context: Context, releaseId: String, storageId: String = "legacy") {
+            dev.terminal.runtime.session.SessionStorage.validate(storageId)
             val request = OneTimeWorkRequestBuilder<DebianImageDownloadWorker>()
-                .setInputData(Data.Builder().putString(KEY_RELEASE_ID, releaseId).build())
+                .setInputData(Data.Builder().putString(KEY_RELEASE_ID, releaseId).putString(KEY_STORAGE_ID, storageId).build())
                 .build()
             WorkManager.getInstance(context).enqueueUniqueWork(
-                UNIQUE_WORK_NAME,
+                if (storageId == "legacy") UNIQUE_WORK_NAME else "$UNIQUE_WORK_NAME-$storageId",
                 ExistingWorkPolicy.KEEP,
                 request,
             )

@@ -4,6 +4,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SessionProfileTest {
+    @Test fun storageSnapshotSurvivesRoundTripAndLegacyMigration() {
+        val id = java.util.UUID.randomUUID().toString()
+        val spec = profile().copy(storageId = id).resolve()
+        assertEquals(id, SessionLaunchSpec.fromJson(spec.toJson().toString()).storageId)
+        val old = spec.toJson().apply { remove("storageId") }
+        assertEquals("legacy", SessionLaunchSpec.fromJson(old.toString()).storageId)
+        for (bad in listOf("../native", "", "/tmp", "default/path")) {
+            assertTrue(runCatching { profile().copy(storageId = bad).resolve() }.isFailure)
+        }
+        val base = java.io.File("/app/files")
+        assertEquals(java.io.File(base, "native"), SessionStorage.root(base, SessionRuntime.NATIVE, "legacy"))
+        val first = SessionStorage.root(base, SessionRuntime.ROOTLESS, id)
+        val second = SessionStorage.root(base, SessionRuntime.ROOTLESS, java.util.UUID.randomUUID().toString())
+        assertNotEquals(first, second)
+        val layout = dev.terminal.runtime.rootless.RootlessDebianLayout(first, workspaceRoot = java.io.File(first, "workspace"))
+        assertTrue(listOf(layout.rootfs, layout.home, layout.tmp, layout.workspace).all { it.parentFile == first })
+        assertNotEquals(SessionStorage.root(base, SessionRuntime.AVF, id), SessionStorage.root(base, SessionRuntime.AVF, "legacy"))
+    }
     private fun profile() = SessionProfile("user-id", "Work", SessionRuntime.NATIVE, "/system/bin/sh")
 
     @Test fun resolveDefensivelyCopiesCollectionsAndSurvivesProfileEdits() {

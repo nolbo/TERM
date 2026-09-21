@@ -40,11 +40,28 @@ class ProfileEditActivity : TerminalActivity() {
             var environment by rememberSaveable { mutableStateOf(initial.environment.entries.joinToString("\n") { "${it.key}=${it.value}" }) }
             var error by rememberSaveable { mutableStateOf<String?>(null) }
             var expanded by remember { mutableStateOf(false) }
+            var distributionExpanded by remember { mutableStateOf(false) }
+            var storageExpanded by remember { mutableStateOf(false) }
+            var storageId by rememberSaveable { mutableStateOf(initial.storageId) }
+            val otherProfiles = remember { store.all().filter { it.id != initial.id } }
             var dirty by rememberSaveable { mutableStateOf(false) }
             var discard by rememberSaveable { mutableStateOf(false) }
             var deleting by rememberSaveable { mutableStateOf(false) }
             val editing = source != null && initial.id == source.id
             val back = { if (dirty) discard = true else finish() }
+            val selectRuntime: (SessionRuntime) -> Unit = { option ->
+                if (runtime != option.wireName) storageId = java.util.UUID.randomUUID().toString()
+                val old = store.builtIns().first { it.runtime.wireName == runtime }
+                val new = store.builtIns().first { it.runtime == option }
+                if (shell == old.shell) shell = new.shell
+                if (cwd == old.workingDirectory) cwd = new.workingDirectory
+                if (arguments == JSONArray(old.shellArguments).toString()) arguments = JSONArray(new.shellArguments).toString()
+                runtime = option.wireName
+                expanded = false
+                distributionExpanded = false
+                dirty = true
+            }
+            val rootless = runtime in listOf("ROOTLESS", "ROOTLESS_UBUNTU", "ROOTLESS_ARCH")
             BackHandler { back() }
             SettingsPageScaffold(stringResource(if (editing) R.string.profile_settings else R.string.add_profile), back) { padding ->
                 Column(Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -52,18 +69,54 @@ class ProfileEditActivity : TerminalActivity() {
                     ProfileSection(R.string.profile_identity) {
                         ProfileField(R.string.profile_name, name) { name = it; dirty = true }
                         Box {
-                            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.profile_runtime) + ": " + stringResource(runtimeTitleResource(runtime))) }
+                            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text(stringResource(R.string.profile_runtime) + ": " + stringResource(
+                                    if (rootless) R.string.runtime_rootless_title else runtimeTitleResource(runtime)))
+                            }
                             DropdownMenu(expanded, { expanded = false }) {
-                                SessionRuntime.entries.forEach { option -> DropdownMenuItem(text = { Text(stringResource(runtimeTitleResource(option.wireName))) }, onClick = {
-                                    val old = store.builtIns().first { it.runtime.wireName == runtime }
-                                    val new = store.builtIns().first { it.runtime == option }
-                                    if (shell == old.shell) shell = new.shell
-                                    if (cwd == old.workingDirectory) cwd = new.workingDirectory
-                                    if (arguments == JSONArray(old.shellArguments).toString()) arguments = JSONArray(new.shellArguments).toString()
-                                    runtime = option.wireName; expanded = false; dirty = true
-                                }) }
+                                listOf(SessionRuntime.NATIVE, SessionRuntime.ROOTLESS, SessionRuntime.AVF).forEach { option ->
+                                    DropdownMenuItem(text = { Text(stringResource(
+                                        if (option == SessionRuntime.ROOTLESS) R.string.runtime_rootless_title else runtimeTitleResource(option.wireName))) },
+                                        onClick = { selectRuntime(if (option == SessionRuntime.ROOTLESS && rootless) SessionRuntime.valueOf(runtime) else option) })
+                                }
                             }
                         }
+                        if (rootless) Box {
+                            OutlinedButton(onClick = { distributionExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text(stringResource(R.string.profile_distribution) + ": " + stringResource(runtimeTitleResource(runtime)))
+                            }
+                            DropdownMenu(distributionExpanded, { distributionExpanded = false }) {
+                                listOf(SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH).forEach { option ->
+                                    DropdownMenuItem(text = { Text(stringResource(runtimeTitleResource(option.wireName))) },
+                                        onClick = { selectRuntime(option) })
+                                }
+                            }
+                        }
+                    }
+                    ProfileSection(R.string.profile_storage) {
+                        val shared = otherProfiles.firstOrNull { it.runtime.wireName == runtime && it.storageId == storageId }
+                        Box {
+                            OutlinedButton(onClick = { storageExpanded = true }, modifier = Modifier.fillMaxWidth()) {
+                                Text(if (shared != null) stringResource(R.string.profile_storage_shared, shared.name)
+                                    else stringResource(if (editing && storageId == initial.storageId && runtime == initial.runtime.wireName)
+                                        R.string.profile_storage_current else R.string.profile_storage_new))
+                            }
+                            DropdownMenu(storageExpanded, { storageExpanded = false }) {
+                                DropdownMenuItem(text = { Text(stringResource(R.string.profile_storage_new)) }, onClick = {
+                                    storageId = java.util.UUID.randomUUID().toString(); storageExpanded = false; dirty = true
+                                })
+                                otherProfiles.filter {
+                                    if (rootless) it.runtime in listOf(SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH)
+                                    else it.runtime.wireName == runtime
+                                }.forEach { target ->
+                                    DropdownMenuItem(text = { Text(stringResource(R.string.profile_storage_shared, target.name)) }, onClick = {
+                                        selectRuntime(target.runtime)
+                                        storageId = target.storageId; storageExpanded = false; dirty = true
+                                    })
+                                }
+                            }
+                        }
+                        Text(stringResource(R.string.profile_storage_hint), style = MaterialTheme.typography.bodySmall)
                     }
                     ProfileSection(R.string.profile_launch) {
                         ProfileField(R.string.profile_shell, shell) { shell = it; dirty = true }
@@ -80,7 +133,7 @@ class ProfileEditActivity : TerminalActivity() {
                     Button(onClick = {
                         runCatching {
                             store.save(SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
-                                parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup))
+                                parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId))
                         }.onSuccess { finish() }.onFailure { error = it.message }
                     }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.profile_save)) }
                     if (editing) {

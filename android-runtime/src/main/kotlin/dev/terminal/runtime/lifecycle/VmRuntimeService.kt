@@ -73,6 +73,8 @@ class VmRuntimeService : Service() {
     private val listenerLock = Any()
     private lateinit var backend: RuntimeBackend
     private lateinit var rootlessBackends: Map<SessionRuntime, RootlessDebianBackend>
+    private val storageBackends = java.util.concurrent.ConcurrentHashMap<Pair<SessionRuntime, String>, dev.terminal.runtime.api.RuntimeBackend>()
+    private val startedStorageBackends = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<SessionRuntime, String>>()
     private val sessionClientMutex = Mutex()
     private val runtimeControllerMutex = Mutex()
     private val sessionResizeMutex = Mutex()
@@ -132,7 +134,8 @@ class VmRuntimeService : Service() {
                 }
                 val result = sessionSnapshots.mutateAndRefresh(registry) {
                     registry.create(source.runtime, if (source.runtime == SessionRuntime.NATIVE) "/system/bin/sh" else "/bin/sh",
-                        cwd, childEnv, source.session.rows, source.session.cols).onSuccess { kittyIdentities[it.id] = id }
+                        cwd, childEnv, source.session.rows, source.session.cols,
+                        storageId = requireNotNull(registry.storageOf(source.session.id))).onSuccess { kittyIdentities[it.id] = id }
                 }.operation.getOrThrow()
                 // Remote-created children never receive a remote-control grant.
                 val child = dev.terminal.runtime.session.KittyRemoteControl.Window(id, source.runtime, result)
@@ -216,6 +219,9 @@ class VmRuntimeService : Service() {
 
         override fun stopRuntime(mode: Int) = launchRuntimeOperation {
             sessionSnapshots.clear(::closeSessionClient)
+            storageBackends.values.forEach { it.stop(if (mode == FORCE_STOP) StopMode.FORCE else StopMode.GRACEFUL).getOrThrow() }
+            storageBackends.clear()
+            startedStorageBackends.clear()
             backend.stop(if (mode == FORCE_STOP) StopMode.FORCE else StopMode.GRACEFUL)
         }
 
@@ -243,7 +249,7 @@ class VmRuntimeService : Service() {
                 Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
                 val client = ensureSessionRegistry()
                     ?: throw IllegalStateException("세션 런타임에 연결할 수 없습니다")
-                if (!ensureRuntimeController(requestedRuntime, client)) {
+                if (!ensureStorageController(spec, client)) {
                     notifyOperationError("세션 생성:${requestedRuntime.wireName}", runtimeUnavailableReason(requestedRuntime))
                     return@launchRuntimeOperation
                 }
@@ -666,6 +672,77 @@ class VmRuntimeService : Service() {
     }
 
     private suspend fun ensureSessionClient(): SessionController? = ensureSessionRegistry()
+
+    private suspend fun ensureStorageController(spec: dev.terminal.runtime.session.SessionLaunchSpec,
+        registry: UnifiedSessionRegistry): Boolean {
+        if (spec.storageId == "legacy") return ensureRuntimeController(spec.runtime, registry)
+        return runtimeControllerMutex.withLock {
+            if (registry.isRegistered(spec.runtime, spec.storageId)) return@withLock true
+            val key = spec.runtime to spec.storageId
+            val root = dev.terminal.runtime.session.SessionStorage.root(filesDir, spec.runtime, spec.storageId)
+            val owner = storageBackends.getOrPut(key) {
+                when (spec.runtime) {
+                    SessionRuntime.NATIVE -> NativeBackend(applicationContext, root).also { native ->
+                        native.configureUsbTooling({ id ->
+                            usbBroker.register(id, SessionRuntime.NATIVE.wireName) +
+                                dev.terminal.runtime.native.ApkNativeExecutableLoader(applicationContext)
+                                    .resolvePackagedExecutable("terminal-usb").getOrNull()?.let {
+                                        mapOf("TERMINAL_USB_CLIENT" to it.absolutePath)
+                                    }.orEmpty()
+                        }, usbBroker::unregister)
+                    }
+                    SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH ->
+                        RootlessDebianBackend(applicationContext,
+                            distribution = RootlessDistribution.entries.first { it.runtime == spec.runtime },
+                            usbBroker = usbBroker, storageRoot = root) { phase, detail ->
+                            broadcast { it.onRootlessProgress(spec.runtime.wireName, phase.displayName, detail) }
+                        }
+                    SessionRuntime.AVF -> {
+                        require(checkSelfPermission("android.permission.MANAGE_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                            checkSelfPermission("android.permission.USE_CUSTOM_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                            "AVF requires privileged custom VM access"
+                        }
+                        val provider = applicationContext as? RuntimeBackendProvider
+                            ?: error("AVF system runtime provider is unavailable")
+                        provider.createRuntimeBackend(applicationContext).also {
+                            check(it is dev.terminal.runtime.avf.AvfBackend && it !== backend && storageBackends.values.none { existing -> existing === it }) {
+                                "AVF provider must create an independent backend for each storage"
+                            }
+                        }
+                    }
+                }
+            }
+            if (spec.runtime == SessionRuntime.AVF && key !in startedStorageBackends) {
+                check(BundledDebianImageCatalog.find(DEFAULT_DEBIAN_RELEASE_ID) != null ||
+                    DebianImageVerifier.verify(root.toPath()) is ImageVerification.Ready) {
+                    "이 제품 빌드에는 프로필 전용 AVF 이미지 설치 카탈로그가 없습니다."
+                }
+                check(RuntimeSetupCoordinator(applicationContext).ensureImage(root.toPath(), DEFAULT_DEBIAN_RELEASE_ID, spec.storageId) is SetupState.Ready) {
+                    "프로필 전용 AVF 이미지 설치가 필요합니다. 설치 완료 후 다시 시작하세요."
+                }
+            }
+            val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
+            if (key !in startedStorageBackends) {
+                owner.prepare(RuntimeConfig(
+                    instanceId = spec.storageId, imageDirectory = root.path,
+                    memoryMib = preferences.getInt(KEY_AVF_MEMORY, 2048).coerceIn(512, 32768),
+                    cpuCount = preferences.getInt(KEY_AVF_CPU, 2).coerceIn(1, 16),
+                    protectedVm = preferences.getBoolean(KEY_AVF_PROTECTED, false),
+                    enableNetwork = preferences.getBoolean(KEY_AVF_NETWORK, true),
+                    sharedDirectory = if (spec.runtime == SessionRuntime.AVF) sharedDirectories.provision(spec.storageId).getOrThrow().path else null,
+                )).getOrThrow()
+                owner.start().getOrThrow()
+                startedStorageBackends.add(key)
+            }
+            val controller = when (owner) {
+                is NativeBackend -> requireNotNull(owner.sessionController())
+                is RootlessDebianBackend -> requireNotNull(owner.sessionController())
+                else -> owner.connectSessionClient().getOrThrow()
+            }
+            registry.register(spec.runtime, controller, spec.storageId)
+            true
+        }
+    }
 
     private suspend fun ensureRuntimeController(runtime: SessionRuntime, registry: UnifiedSessionRegistry): Boolean {
         val selectedRootless = rootlessBackends[runtime]

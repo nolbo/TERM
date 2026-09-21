@@ -65,6 +65,26 @@ bounded JSON over the existing Binder boundary). Native, Debian, Ubuntu, Arch an
 AVF are initial defaults; app-private overrides retain their IDs and deletion markers
 prevent deleted defaults from reappearing. User copies have independent IDs.
 Profiles contain creation settings only, never PTY, dimensions or renderer state.
+Profiles and immutable launch snapshots carry a validated storage UUID. New and
+duplicated profiles allocate fresh storage by default; explicit sharing copies
+the storage identity, not a reference to another profile. The service owns one
+backend/controller per `(runtime, storageId)` and the registry routes sessions
+to that owner. Deleting or editing a profile neither deletes storage nor changes
+live session ownership. Kitty child sessions inherit their source storage.
+Native home/tmp, Rootless rootfs (including dpkg), home/tmp/workspace, and AVF
+VM instance/disk/image installation are scoped to storage. Android system and
+APK-packaged Native executables remain shared read-only platform resources.
+Sharing a Rootless profile also selects its distribution; different distributions
+cannot share a rootfs. This is filesystem organization, not an Android UID or
+security sandbox boundary.
+Missing storage IDs decode as `legacy`, preserving existing roots and their
+shared workspace without copying or deleting data. Storage changes affect future
+launches only. There is no automatic storage garbage collection.
+Independent AVF storage requires a privileged provider that creates independent
+backends plus a configured image catalog or a verified provisioned image at its
+storage root. Image workers are keyed by storage and never clone a running VM
+disk. The built-in AVF profile is listed only when both custom VM permissions
+are actually granted. Stock APK builds cannot grant themselves these permissions.
 The registry's `create(spec)` is the common launch path; legacy runtime and Kitty
 requests adapt to a built-in profile and resolve a spec too. Arguments use the
 existing argv envelope understood by Native, PRoot and the AVF guest daemon.

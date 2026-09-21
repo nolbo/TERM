@@ -14,6 +14,7 @@ data class SessionProfile(
     val workingDirectory: String = "",
     val environment: Map<String, String> = emptyMap(),
     val startupCommand: String = "",
+    val storageId: String = "legacy",
 ) {
     val builtIn: Boolean get() = id == builtInId(runtime)
     fun resolve(): SessionLaunchSpec = SessionLaunchSpec(this)
@@ -32,7 +33,9 @@ class SessionLaunchSpec(profile: SessionProfile) {
     val workingDirectory = profile.workingDirectory
     val environment: Map<String, String> = Collections.unmodifiableMap(LinkedHashMap(profile.environment))
     val startupCommand = profile.startupCommand
+    val storageId = profile.storageId
     init {
+        SessionStorage.validate(storageId)
         require(profileId.isNotBlank() && profileId.length <= 128) { "Invalid profile ID" }
         require(profileName.isNotBlank() && profileName.length <= 128) { "Profile name must contain 1–128 characters" }
         require(shell.startsWith('/') && '\u0000' !in shell) { "Shell must be an absolute path" }
@@ -52,9 +55,9 @@ class SessionLaunchSpec(profile: SessionProfile) {
     fun toJson(): JSONObject = JSONObject().put("version", 1).put("profileId", profileId)
         .put("name", profileName).put("runtime", runtime.wireName).put("shell", shell)
         .put("arguments", JSONArray(shellArguments)).put("cwd", workingDirectory)
-        .put("environment", JSONObject(environment)).put("startupCommand", startupCommand)
+        .put("environment", JSONObject(environment)).put("startupCommand", startupCommand).put("storageId", storageId)
 
-    fun toProfile() = SessionProfile(profileId, profileName, runtime, shell, shellArguments, workingDirectory, environment, startupCommand)
+    fun toProfile() = SessionProfile(profileId, profileName, runtime, shell, shellArguments, workingDirectory, environment, startupCommand, storageId)
 
     override fun equals(other: Any?): Boolean = other is SessionLaunchSpec && toProfile() == other.toProfile()
     override fun hashCode(): Int = toProfile().hashCode()
@@ -69,7 +72,8 @@ class SessionLaunchSpec(profile: SessionProfile) {
             return SessionProfile(json.getString("profileId"), json.getString("name"),
                 requireNotNull(SessionRuntime.fromWireName(json.getString("runtime"))), json.getString("shell"),
                 List(args.length()) { args.getString(it) }, json.getString("cwd"),
-                env.keys().asSequence().associateWith { env.getString(it) }, json.getString("startupCommand")).resolve()
+                env.keys().asSequence().associateWith { env.getString(it) }, json.getString("startupCommand"),
+                json.optString("storageId", "legacy")).resolve()
         }
     }
 }

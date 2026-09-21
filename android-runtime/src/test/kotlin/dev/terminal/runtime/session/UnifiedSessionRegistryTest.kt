@@ -18,6 +18,30 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UnifiedSessionRegistryTest {
+    @Test fun sameRuntimeStorageOwnersRemainIndependentAndSharingUsesSameOwner() = runBlocking {
+        val registry = UnifiedSessionRegistry()
+        val firstId = java.util.UUID.randomUUID().toString()
+        val secondId = java.util.UUID.randomUUID().toString()
+        val first = FakeController("native-first")
+        val second = FakeController("native-second")
+        registry.register(SessionRuntime.NATIVE, first, firstId)
+        registry.register(SessionRuntime.NATIVE, second, secondId)
+        val profile = SessionProfile("one", "One", SessionRuntime.NATIVE, "/bin/sh", storageId = firstId)
+        registry.create(profile.resolve(), 24u, 80u).getOrThrow()
+        registry.create(profile.copy(id = "shared").resolve(), 24u, 80u).getOrThrow()
+        registry.create(profile.copy(id = "two", storageId = secondId).resolve(), 24u, 80u).getOrThrow()
+        assertEquals(2, first.createCount)
+        assertEquals(1, second.createCount)
+        assertEquals(2, registry.list().getOrThrow().size)
+        registry.write("native-first", byteArrayOf(1)).getOrThrow()
+        assertEquals(1, first.writeCount)
+        assertEquals(0, second.writeCount)
+        registry.terminate("native-first", 9).getOrThrow()
+        assertEquals(listOf("native-second"), registry.list().getOrThrow().map { it.id })
+        assertFalse(second.closed)
+        assertEquals(secondId, registry.storageOf("native-second"))
+        registry.close()
+    }
     @Test fun directRuntimeRequestsResolveProfilesWithoutRedirectingAndKeepPathCommands() = runBlocking {
         val launches = mutableMapOf<String, SessionLaunchSpec>()
         val registry = UnifiedSessionRegistry(recordLaunch = { id, spec -> launches[id] = spec })

@@ -32,6 +32,7 @@ class UnifiedSessionRegistry(
     private val remoteCommand: (suspend (String, String) -> ByteArray?)? = null,
 ) : SessionController {
     private data class Registration(val controller: SessionController, val jobs: List<Job>)
+    private data class StorageKey(val runtime: SessionRuntime, val storageId: String = "legacy")
 
     private val controlStreams = ConcurrentHashMap<String, com.termux.terminal.KittyControlStream>()
     private val keyboardFlags = ConcurrentHashMap<String, Int>()
@@ -47,9 +48,9 @@ class UnifiedSessionRegistry(
     }
     fun keyboardFlags(sessionId: String): Int = keyboardFlags[sessionId] ?: 0
 
-    private val registrations = ConcurrentHashMap<SessionRuntime, Registration>()
-    private val owners = ConcurrentHashMap<String, SessionRuntime>()
-    private val lastKnownSessions = ConcurrentHashMap<SessionRuntime, List<SessionDescriptor>>()
+    private val registrations = ConcurrentHashMap<StorageKey, Registration>()
+    private val owners = ConcurrentHashMap<String, StorageKey>()
+    private val lastKnownSessions = ConcurrentHashMap<StorageKey, List<SessionDescriptor>>()
     private val listMutex = Mutex()
     private val mutationMutexes = SessionRuntime.entries.associateWith { Mutex() }
     private val mutableEvents = MutableSharedFlow<SessionEvent>(extraBufferCapacity = 128)
@@ -58,15 +59,16 @@ class UnifiedSessionRegistry(
     override val events: SharedFlow<SessionEvent> = mutableEvents.asSharedFlow()
     override val connectionState: StateFlow<SessionConnectionState> = mutableConnection.asStateFlow()
 
-    fun register(runtime: SessionRuntime, controller: SessionController) {
-        registrations.remove(runtime)?.jobs?.forEach(Job::cancel)
+    fun register(runtime: SessionRuntime, controller: SessionController, storageId: String = "legacy") {
+        val key = StorageKey(runtime, storageId)
+        registrations.remove(key)?.jobs?.forEach(Job::cancel)
         val eventJob = scope.launch {
             controller.events.collect { event ->
                 val sessionId = when (event) {
                     is SessionEvent.Output -> event.sessionId
                     is SessionEvent.Exited -> event.sessionId
                 }
-                owners.putIfAbsent(sessionId, runtime)
+                owners.putIfAbsent(sessionId, key)
                 if (event is SessionEvent.Output && !event.replay) {
                     val stream = controlStreams.getOrPut(sessionId) { com.termux.terminal.KittyControlStream() }
                     val parts = stream.accept(event.bytes)
@@ -89,14 +91,15 @@ class UnifiedSessionRegistry(
         val stateJob = scope.launch {
             controller.connectionState.collect { state ->
                 if (state == SessionConnectionState.DISCONNECTED) {
-                    owners.entries.removeAll { it.value == runtime }
+                    owners.entries.removeAll { it.value == key }
                 }
             }
         }
-        registrations[runtime] = Registration(controller, listOf(eventJob, stateJob))
+        registrations[key] = Registration(controller, listOf(eventJob, stateJob))
     }
 
-    fun isRegistered(runtime: SessionRuntime): Boolean = registrations.containsKey(runtime)
+    fun isRegistered(runtime: SessionRuntime, storageId: String = "legacy"): Boolean =
+        registrations.containsKey(StorageKey(runtime, storageId))
 
     /** Excludes creation in every runtime while shared workspace trees are replaced. */
     suspend fun migrateIfAllIdle(runtime: SessionRuntime, migrate: suspend () -> Unit) {
@@ -107,9 +110,10 @@ class UnifiedSessionRegistry(
                 check(registrations.values.all { it.controller.list().getOrThrow().isEmpty() }) {
                     "가속 형식 이전 전에 앱의 모든 터미널 세션을 종료하세요. 작업 폴더를 사용하는 파일 작업도 마쳐야 합니다"
                 }
-                registrations.remove(runtime)?.jobs?.forEach(Job::cancel)
-                owners.entries.removeAll { it.value == runtime }
-                lastKnownSessions.remove(runtime)
+                val key = StorageKey(runtime)
+                registrations.remove(key)?.jobs?.forEach(Job::cancel)
+                owners.entries.removeAll { it.value == key }
+                lastKnownSessions.remove(key)
             }
             migrate()
         } finally { held.asReversed().forEach { it.unlock() } }
@@ -117,13 +121,14 @@ class UnifiedSessionRegistry(
 
     suspend fun removeIfIdle(runtime: SessionRuntime, remove: suspend () -> Unit) = mutationMutexes.getValue(runtime).withLock {
         listMutex.withLock {
-            val registration = registrations[runtime]
+            val key = StorageKey(runtime)
+            val registration = registrations[key]
             check(registration?.controller?.list()?.getOrThrow().orEmpty().isEmpty()) {
                 "이 배포판의 모든 세션을 종료한 뒤 제거 또는 환경 보완을 실행하세요."
             }
-            registrations.remove(runtime)?.jobs?.forEach(Job::cancel)
-            owners.entries.removeAll { it.value == runtime }
-            lastKnownSessions.remove(runtime)
+            registrations.remove(key)?.jobs?.forEach(Job::cancel)
+            owners.entries.removeAll { it.value == key }
+            lastKnownSessions.remove(key)
         }
         // Long filesystem/package work must not block listing other runtimes' sessions.
         remove()
@@ -131,37 +136,39 @@ class UnifiedSessionRegistry(
 
     suspend fun create(spec: SessionLaunchSpec, rows: UShort, cols: UShort,
         runtimeEnvironment: Map<String, String> = emptyMap()): Result<SessionDescriptor> =
-        createResolved(spec.runtime, spec.shell, spec.workingDirectory,
+        createResolved(StorageKey(spec.runtime, spec.storageId), spec.shell, spec.workingDirectory,
             dev.terminal.runtime.notifications.shellActivityEnvironment(spec.shell,
                 spec.environment + runtimeEnvironment) + (SessionCommand.KEY to SessionCommand.encode(spec.arguments())),
             rows, cols).onSuccess { recordLaunch(it.id, spec) }
 
     /** Compatibility entry point: direct runtime requests still resolve a built-in profile. */
     suspend fun create(runtime: SessionRuntime, shell: String, cwd: String,
-        env: Map<String, String> = emptyMap(), rows: UShort, cols: UShort): Result<SessionDescriptor> = runCatching {
+        env: Map<String, String> = emptyMap(), rows: UShort, cols: UShort,
+        storageId: String = "legacy"): Result<SessionDescriptor> = runCatching {
         val requestedArgv = SessionCommand.decode(env)
         val argv = requestedArgv?.let {
             if (it.first().startsWith('/')) it else listOf(shell, "-c", "exec \"\$@\"", shell) + it
         }
         val profile = SessionProfile(SessionProfile.builtInId(runtime), runtime.wireName, runtime,
             argv?.first() ?: shell, argv?.drop(1) ?: if (runtime != SessionRuntime.AVF && env["DROID_LOGIN_SHELL"] != "false") listOf("-l") else emptyList(),
-            cwd, env.filterKeys { !it.startsWith("DROID_") && !it.startsWith("TERMINAL_USB_") && it != "KITTY_WINDOW_ID" })
+            cwd, env.filterKeys { !it.startsWith("DROID_") && !it.startsWith("TERMINAL_USB_") && it != "KITTY_WINDOW_ID" },
+            storageId = storageId)
         create(profile.resolve(), rows, cols, env.filterKeys { it != SessionCommand.KEY }).getOrThrow()
     }
 
     private suspend fun createResolved(
-        runtime: SessionRuntime,
+        key: StorageKey,
         shell: String,
         cwd: String,
         env: Map<String, String> = emptyMap(),
         rows: UShort,
         cols: UShort,
-    ): Result<SessionDescriptor> = mutationMutexes.getValue(runtime).withLock {
+    ): Result<SessionDescriptor> = mutationMutexes.getValue(key.runtime).withLock {
         runCatching { beforeCreate() }.exceptionOrNull()?.let { return@withLock Result.failure(it) }
-        controller(runtime).fold(
+        controller(key).fold(
             onSuccess = { controller -> controller.create(shell, cwd, env, rows, cols).onSuccess { created ->
-                owners[created.id] = runtime
-                lastKnownSessions.compute(runtime) { _, sessions -> sessions.orEmpty().filterNot { it.id == created.id } + created }
+                owners[created.id] = key
+                lastKnownSessions.compute(key) { _, sessions -> sessions.orEmpty().filterNot { it.id == created.id } + created }
             } },
             onFailure = { Result.failure(it) },
         )
@@ -177,19 +184,18 @@ class UnifiedSessionRegistry(
 
     override suspend fun list(): Result<List<SessionDescriptor>> = runCatching {
         listMutex.withLock {
-            SessionRuntime.entries.flatMap { runtime ->
-                val registration = registrations[runtime] ?: return@flatMap emptyList()
+            registrations.entries.flatMap { (key, registration) ->
                 registration.controller.list().fold(
                     onSuccess = { current ->
                         val currentIds = current.mapTo(mutableSetOf()) { it.id }
-                        owners.entries.removeAll { (sessionId, owner) -> owner == runtime && sessionId !in currentIds }
-                        current.forEach { owners[it.id] = runtime }
-                        current.also { lastKnownSessions[runtime] = it }
+                        owners.entries.removeAll { (sessionId, owner) -> owner == key && sessionId !in currentIds }
+                        current.forEach { owners[it.id] = key }
+                        current.also { lastKnownSessions[key] = it }
                     },
                     // A transport/list failure is not evidence that the PTY owner
                     // destroyed its sessions. Keep the last authoritative view for
                     // this runtime until a successful list proves otherwise.
-                    onFailure = { lastKnownSessions[runtime].orEmpty() },
+                    onFailure = { lastKnownSessions[key].orEmpty() },
                 )
             }.sortedBy { it.createdAtMs }
         }
@@ -201,19 +207,22 @@ class UnifiedSessionRegistry(
         route(sessionId) { it.resize(sessionId, rows, cols) }
     override suspend fun write(sessionId: String, bytes: ByteArray): Result<Int> = route(sessionId) { onInput(sessionId, bytes); it.write(sessionId, bytes) }
     override suspend fun terminate(sessionId: String, signal: Int): Result<Unit> {
-        val runtime = runtimeOf(sessionId) ?: return Result.failure(NoSuchElementException("Session not found"))
-        return controller(runtime).fold(
+        val key = ownerKey(sessionId) ?: return Result.failure(NoSuchElementException("Session not found"))
+        return controller(key).fold(
             onSuccess = { owner -> owner.terminate(sessionId, signal) },
             onFailure = { Result.failure(it) },
         ).onSuccess {
-            lastKnownSessions.computeIfPresent(runtime) { _, sessions -> sessions.filterNot { it.id == sessionId } }
-            owners.remove(sessionId, runtime)
+            lastKnownSessions.computeIfPresent(key) { _, sessions -> sessions.filterNot { it.id == sessionId } }
+            owners.remove(sessionId, key)
             controlStreams.remove(sessionId)
             keyboardFlags.remove(sessionId)
         }
     }
 
-    fun runtimeOf(sessionId: String): SessionRuntime? = owners[sessionId] ?: SessionRuntime.fromSessionId(sessionId)
+    fun runtimeOf(sessionId: String): SessionRuntime? = owners[sessionId]?.runtime ?: SessionRuntime.fromSessionId(sessionId)
+    fun storageOf(sessionId: String): String? = ownerKey(sessionId)?.storageId
+    private fun ownerKey(sessionId: String): StorageKey? = owners[sessionId]
+        ?: SessionRuntime.fromSessionId(sessionId)?.let { StorageKey(it) }
 
     override fun close() {
         registrations.values.forEach { registration ->
@@ -230,11 +239,11 @@ class UnifiedSessionRegistry(
         scope.cancel()
     }
 
-    private fun controller(runtime: SessionRuntime): Result<SessionController> = registrations[runtime]?.controller?.let(Result.Companion::success)
-        ?: Result.failure(IllegalStateException("${runtime.wireName} runtime is not ready"))
+    private fun controller(key: StorageKey): Result<SessionController> = registrations[key]?.controller?.let(Result.Companion::success)
+        ?: Result.failure(IllegalStateException("${key.runtime.wireName} storage is not ready"))
 
     private suspend fun <T> route(sessionId: String, operation: suspend (SessionController) -> Result<T>): Result<T> {
-        val runtime = runtimeOf(sessionId) ?: return Result.failure(NoSuchElementException("Session not found"))
-        return controller(runtime).fold(onSuccess = { operation(it) }, onFailure = { Result.failure(it) })
+        val key = ownerKey(sessionId) ?: return Result.failure(NoSuchElementException("Session not found"))
+        return controller(key).fold(onSuccess = { operation(it) }, onFailure = { Result.failure(it) })
     }
 }

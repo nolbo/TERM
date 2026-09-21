@@ -23,6 +23,7 @@ class RootlessDebianBackend(
     private val executableLoader: NativeExecutableLoader = ApkNativeExecutableLoader(context),
     private val distribution: RootlessDistribution = RootlessDistribution.DEBIAN,
     private val usbBroker: dev.terminal.runtime.usb.UsbBroker? = null,
+    storageRoot: File? = null,
     reporter: RootlessProgressReporter = RootlessProgressReporter.NONE,
 ) : RuntimeBackend {
     private val appContext = context.applicationContext
@@ -34,7 +35,8 @@ class RootlessDebianBackend(
             if (progressTracker.record(progress)) reporter.report(progress.phase, progressTracker.latest!!.update.detail)
         }
     }
-    private val layout = RootlessDebianLayout(File(appContext.filesDir, "rootless/${distribution.directory}"), distribution)
+    private val layout = RootlessDebianLayout(storageRoot ?: File(appContext.filesDir, "rootless/${distribution.directory}"), distribution,
+        workspaceRoot = storageRoot?.let { File(it, "workspace") })
     private val bootstrapper = RootlessBootstrapper(appContext, layout, progressReporter)
     private val prepareMutex = Mutex()
     private var controller: RootlessSessionController? = null
@@ -203,11 +205,12 @@ sealed interface RootlessStatus {
     data class EnvironmentRequired(val reason: String) : RootlessStatus
 }
 
-class RootlessDebianLayout(val root: File, val distribution: RootlessDistribution = RootlessDistribution.DEBIAN) {
+class RootlessDebianLayout(val root: File, val distribution: RootlessDistribution = RootlessDistribution.DEBIAN,
+    workspaceRoot: File? = null) {
     val rootfs = File(root, "rootfs")
     val home = File(root, "home")
     val tmp = File(root, "tmp")
-    val workspace = File(requireNotNull(root.parentFile?.parentFile) { "Rootless root must have an application parent" }, "workspace")
+    val workspace = workspaceRoot ?: File(requireNotNull(root.parentFile?.parentFile) { "Rootless root must have an application parent" }, "workspace")
 
     fun createHostDirectories() {
         listOf(root, home, tmp, workspace).forEach { require(it.mkdirs() || it.isDirectory) { "Cannot create ${it.path}" } }
