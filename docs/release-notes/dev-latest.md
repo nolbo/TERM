@@ -1,7 +1,7 @@
 # TERM 개발 채널 — 세션 프로필 및 작업 알림
 
-- 릴리즈 ID: `dev-latest` → `dev-b7d83a0a55bffc039c174b6286ae240f41cead1e`
-- 앱 버전: `0.1.0+dev.1000030.b7d83a0a55bf` (versionCode 1000030)
+- 릴리즈 ID: `dev-latest` → `dev-e21444620470c1dc15c22aade559fdc97b91a74c`
+- 앱 버전: `0.1.0+dev.1000030.e21444620470` (versionCode 1000030)
 - 출시일: 2026-09-21
 - 대상: TERM Android ARM64 APK, Native/Rootless Debian/Ubuntu/Arch/AVF 세션
 
