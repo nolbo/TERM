@@ -515,7 +515,12 @@ fun TerminalChrome(
                                 leadingIcon = { RuntimeEnvironmentIcon(profile.runtime.wireName, false) })
                         }
                         DropdownMenuItem(onClick = onAddProfile, text = { Text(stringResource(R.string.add_profile)) },
-                            shape = MenuDefaults.itemShape(profiles.size, profiles.size + 1).shape)
+                            shape = MenuDefaults.itemShape(profiles.size, profiles.size + 1).shape,
+                            leadingIcon = {
+                                Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                                    Icon(painterResource(R.drawable.ic_material_symbol_add_24), null, Modifier.size(24.dp))
+                                }
+                            })
                     }
                 }
             }
