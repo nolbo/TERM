@@ -233,6 +233,16 @@ class UnifiedSessionRegistryTest {
         registry.close()
     }
 
+    @Test fun equalCreationTimesRetainRuntimeOrderRegardlessOfRegistrationOrder() = runBlocking {
+        val registry = UnifiedSessionRegistry()
+        registry.register(SessionRuntime.ROOTLESS, FakeController("rootless-one"))
+        registry.register(SessionRuntime.NATIVE, FakeController("native-one"))
+        repeat(3) {
+            assertEquals(listOf("native-one", "rootless-one"), registry.list().getOrThrow().map { it.id })
+        }
+        registry.close()
+    }
+
     @Test fun duplicateTerminationCannotTouchSiblingOrCloseRegistry() = runBlocking {
         val native = FakeController("native-a", extraIds = listOf("native-b"))
         val registry = UnifiedSessionRegistry()

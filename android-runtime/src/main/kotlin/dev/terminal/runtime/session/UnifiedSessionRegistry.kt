@@ -184,7 +184,10 @@ class UnifiedSessionRegistry(
 
     override suspend fun list(): Result<List<SessionDescriptor>> = runCatching {
         listMutex.withLock {
-            registrations.entries.flatMap { (key, registration) ->
+            // Preserve runtime order for equal creation timestamps, independent
+            // of ConcurrentHashMap iteration order or backend registration timing.
+            registrations.entries.sortedWith(compareBy({ it.key.runtime.ordinal }, { it.key.storageId }))
+                .flatMap { (key, registration) ->
                 registration.controller.list().fold(
                     onSuccess = { current ->
                         val currentIds = current.mapTo(mutableSetOf()) { it.id }
