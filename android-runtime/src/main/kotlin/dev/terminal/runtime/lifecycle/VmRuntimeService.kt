@@ -520,6 +520,9 @@ class VmRuntimeService : Service() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         if (intent?.action == ACTION_TERMINATE_ALL_SESSIONS) terminateAllSessions()
+        // Android 14+ allows swiping ongoing notifications away. Invalidate the
+        // cached content so the lifetime check reposts only while work is live.
+        if (intent?.action == ACTION_RESTORE_SESSION_NOTIFICATION) lastNotificationContent = null
         updateServiceLifetime()
         // A killed PTY owner cannot restore sessions by restarting an empty service.
         return START_NOT_STICKY
@@ -1069,6 +1072,13 @@ class VmRuntimeService : Service() {
             else state.detail(),
         )
         .setOngoing(true)
+        .setAutoCancel(false)
+        .setDeleteIntent(PendingIntent.getService(
+            this,
+            2,
+            Intent(this, VmRuntimeService::class.java).setAction(ACTION_RESTORE_SESSION_NOTIFICATION),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        ))
         .setOnlyAlertOnce(true)
         .setContentIntent(contentIntent)
         .apply {
@@ -1105,6 +1115,7 @@ class VmRuntimeService : Service() {
     private companion object {
         const val TAG = "VmRuntimeService"
         const val ACTION_TERMINATE_ALL_SESSIONS = "dev.terminal.runtime.action.TERMINATE_ALL_SESSIONS"
+        const val ACTION_RESTORE_SESSION_NOTIFICATION = "dev.terminal.runtime.action.RESTORE_SESSION_NOTIFICATION"
         const val CHANNEL_ID = "linux_runtime"
         const val NOTIFICATION_ID = 1001
         const val FORCE_STOP = 1

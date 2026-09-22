@@ -51,10 +51,20 @@ class SessionNotificationTest {
                     owned += running(service) - before
                 }
                 await("two-session notification") { notificationTitle().contains("2개") }
+                val notification = manager.activeNotifications.single { it.id == 1001 }
+                assertTrue(notification.isOngoing)
+                assertTrue(notification.notification.flags and Notification.FLAG_AUTO_CANCEL == 0)
+                val dismissed = checkNotNull(notification.notification.deleteIntent)
+                assertTrue(dismissed.isImmutable)
                 // onStop intentionally keeps the renderer transport bound; destruction detaches it.
                 activity.moveToState(Lifecycle.State.DESTROYED)
                 unbind()
                 await("foreground after UI detach") { serviceDump().contains("isForeground=true") }
+                // Exercise the system dismissal callback with unchanged content and no UI.
+                dismissed.send()
+                await("dismissed notification reposted") {
+                    manager.activeNotifications.any { it.id == 1001 && it.postTime > notification.postTime }
+                }
                 service = bind()
                 assertTrue(running(service).containsAll(owned))
                 val first = owned.first()
@@ -64,6 +74,10 @@ class SessionNotificationTest {
                 // Natural shell exit must release foreground ownership too.
                 service.writeSessionInput(owned.single(), "exit\n".toByteArray())
                 await("last exit removes notification") { running(service).isEmpty() && !hasNotification() }
+                // A delayed dismissal must not resurrect a notification for an empty runtime.
+                dismissed.send()
+                SystemClock.sleep(750)
+                assertTrue("idle dismissal leaves notification absent", !hasNotification())
                 owned.clear()
                 await("started lifetime released") { serviceDump().contains("startRequested=false") }
                 unbind()
