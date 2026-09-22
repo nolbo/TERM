@@ -537,15 +537,49 @@ fun TerminalChrome(
 fun NewSessionSheet(profiles: List<dev.terminal.runtime.session.SessionProfile>,
     onSelectProfile: (dev.terminal.runtime.session.SessionProfile) -> Unit,
     onAddProfile: () -> Unit, onDismiss: () -> Unit) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
-        LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(16.dp)) {
+    val sheetState = rememberBottomSheetState(
+        initialValue = SheetValue.Hidden,
+        enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
+    )
+    val scope = rememberCoroutineScope()
+    val haptics = LocalTerminalHaptics.current
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            item {
+                Text(stringResource(R.string.profiles),
+                    modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                    style = MaterialTheme.typography.titleLarge)
+            }
             items(profiles.size) { index ->
                 val profile = profiles[index]
-                TextButton(onClick = { onSelectProfile(profile) }, modifier = Modifier.fillMaxWidth()) {
-                    Text(profile.name + " · " + stringResource(runtimeTitleResource(profile.runtime.wireName)))
-                }
+                ListItem(
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        scope.launch { sheetState.hide(); onSelectProfile(profile) }
+                    },
+                    shapes = terminalListItemShapes(),
+                    leadingContent = { RuntimeEnvironmentIcon(profile.runtime.wireName, false) },
+                    supportingContent = { Text(stringResource(runtimeTitleResource(profile.runtime.wireName))) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(profile.name) }
             }
-            item { TextButton(onClick = onAddProfile, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.add_profile)) } }
+            item {
+                ListItem(
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        scope.launch { sheetState.hide(); onAddProfile() }
+                    },
+                    shapes = terminalListItemShapes(),
+                    leadingContent = {
+                        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                            Icon(painterResource(R.drawable.ic_material_symbol_add_24), null, Modifier.size(24.dp))
+                        }
+                    },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text(stringResource(R.string.add_profile)) }
+            }
         }
     }
 }
