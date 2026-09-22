@@ -325,6 +325,8 @@
     <string name="profile_delete_message">%1$s 프로필을 삭제할까요? 실행 중인 세션은 유지됩니다.</string>
     <string name="profile_future_only">변경 사항은 이후 생성하는 세션에만 적용됩니다.</string>
     <string name="profile_name">프로필 이름</string>
+    <string name="profile_not_set">설정 안 함</string>
+    <string name="profile_list">등록된 프로필</string>
     <string name="profile_runtime">Runtime</string>
     <string name="profile_distribution">Linux 배포판</string>
     <string name="profile_storage">저장공간</string>

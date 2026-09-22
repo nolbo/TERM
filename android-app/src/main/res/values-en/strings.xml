@@ -87,6 +87,8 @@
     <string name="profile_delete_message">Delete %1$s? Running sessions will be preserved.</string>
     <string name="profile_future_only">Changes apply only to sessions created later.</string>
     <string name="profile_name">Profile name</string>
+    <string name="profile_not_set">Not set</string>
+    <string name="profile_list">Saved profiles</string>
     <string name="profile_runtime">Runtime</string>
     <string name="profile_shell">Shell</string>
     <string name="profile_arguments">Shell arguments</string>

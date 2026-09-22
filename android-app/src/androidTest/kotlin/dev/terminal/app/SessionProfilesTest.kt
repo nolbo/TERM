@@ -41,19 +41,33 @@ class SessionProfilesTest {
             return walk(automation.rootInActiveWindow)
         }
         fun click(text: String) {
-            await { find { it.text?.toString() == text } != null }
-            var node = requireNotNull(find { it.text?.toString() == text })
-            while (!node.isClickable) node = requireNotNull(node.parent)
-            assertTrue(node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+            await {
+                var node = find { it.text?.toString() == text }
+                while (node != null && !node.isClickable) node = node.parent
+                node?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) == true
+            }
         }
         try {
             store.save(profile); store.save(target)
             ActivityScenario.launch<ProfileEditActivity>(Intent(context, ProfileEditActivity::class.java)
                 .putExtra("profileId", profile.id)).use {
-                click(context.getString(R.string.profile_runtime) + ": " + context.getString(dev.terminal.app.ui.runtimeTitleResource(profile.runtime.wireName)))
+                click(context.getString(R.string.profile_runtime))
                 click(context.getString(R.string.runtime_rootless_title))
-                click(context.getString(R.string.profile_storage_new))
+                click(context.getString(R.string.cancel))
+                await { find { it.text?.toString() == context.getString(R.string.profile_distribution) } == null }
+                assertEquals(profile.runtime, store.find(profile.id)?.runtime)
+                click(context.getString(R.string.profile_runtime))
+                click(context.getString(R.string.runtime_rootless_title))
+                click(context.getString(R.string.save))
+                await { find { it.text?.toString() == context.getString(R.string.cancel) } == null }
+                await { find { it.text?.toString() == context.getString(R.string.profile_distribution) } != null }
+                // The storage section and row have the same title; select its clickable row.
+                var storage = requireNotNull(find { it.text?.toString() == context.getString(R.string.profile_storage) && (it.isClickable || it.parent?.isClickable == true) })
+                while (!storage.isClickable) storage = requireNotNull(storage.parent)
+                assertTrue(storage.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
                 click(context.getString(R.string.profile_storage_shared, target.name))
+                click(context.getString(R.string.save))
+                await { find { it.text?.toString() == context.getString(R.string.cancel) } == null }
                 await {
                     if (find { it.text?.toString() == context.getString(R.string.profile_save) } != null) true
                     else {
@@ -145,7 +159,7 @@ class SessionProfilesTest {
             ActivityScenario.launch(ProfilesActivity::class.java).use {
                 await { find { it.text?.toString() == original.name } != null }
                 click(original.name)
-                await { find { it.isEditable && it.text?.toString() == original.name } != null }
+                await { find { it.text?.toString() == context.getString(R.string.profile_name) } != null }
                 val delete = context.getString(R.string.profile_delete)
                 await {
                     if (find { it.text?.toString() == delete } != null) true
@@ -230,16 +244,20 @@ class SessionProfilesTest {
         try {
             val intent = Intent(context, ProfileEditActivity::class.java).putExtra("profileId", profile.id)
             ActivityScenario.launch<ProfileEditActivity>(intent).use { activity ->
-                fun node(text: String): android.view.accessibility.AccessibilityNodeInfo? {
+                fun node(text: String, editable: Boolean = true): android.view.accessibility.AccessibilityNodeInfo? {
                     fun search(current: android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
                         if (current == null) return null
-                        if (current.isEditable && current.text?.toString() == text) return current
+                        if ((!editable || current.isEditable) && current.text?.toString() == text) return current
                         for (index in 0 until current.childCount) search(current.getChild(index))?.let { return it }
                         return null
                     }
                     InstrumentationRegistry.getInstrumentation().waitForIdleSync()
                     return search(InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow)
                 }
+                await { node("Editor original", false) != null }
+                var row = requireNotNull(node("Editor original", false))
+                while (!row.isClickable) row = requireNotNull(row.parent)
+                assertTrue(row.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
                 await { node("Editor original") != null }
                 val arguments = android.os.Bundle().apply {
                     putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "Unsaved profile draft")

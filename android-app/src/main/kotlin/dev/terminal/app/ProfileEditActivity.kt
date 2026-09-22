@@ -10,6 +10,13 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
+import dev.terminal.app.ui.SettingsChoice
+import dev.terminal.app.ui.SettingsChoiceRow
+import dev.terminal.app.ui.terminalListItemShapes
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -39,9 +46,6 @@ class ProfileEditActivity : TerminalActivity() {
             var startup by rememberSaveable { mutableStateOf(initial.startupCommand) }
             var environment by rememberSaveable { mutableStateOf(initial.environment.entries.joinToString("\n") { "${it.key}=${it.value}" }) }
             var error by rememberSaveable { mutableStateOf<String?>(null) }
-            var expanded by remember { mutableStateOf(false) }
-            var distributionExpanded by remember { mutableStateOf(false) }
-            var storageExpanded by remember { mutableStateOf(false) }
             var storageId by rememberSaveable { mutableStateOf(initial.storageId) }
             val otherProfiles = remember { store.all().filter { it.id != initial.id } }
             var dirty by rememberSaveable { mutableStateOf(false) }
@@ -57,77 +61,64 @@ class ProfileEditActivity : TerminalActivity() {
                 if (cwd == old.workingDirectory) cwd = new.workingDirectory
                 if (arguments == JSONArray(old.shellArguments).toString()) arguments = JSONArray(new.shellArguments).toString()
                 runtime = option.wireName
-                expanded = false
-                distributionExpanded = false
                 dirty = true
             }
             val rootless = runtime in listOf("ROOTLESS", "ROOTLESS_UBUNTU", "ROOTLESS_ARCH")
             BackHandler { back() }
             SettingsPageScaffold(stringResource(if (editing) R.string.profile_settings else R.string.add_profile), back) { padding ->
-                Column(Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(stringResource(R.string.profile_future_only))
+                Column(Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Text(stringResource(R.string.profile_future_only), modifier = Modifier.padding(horizontal = 4.dp),
+                        style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     ProfileSection(R.string.profile_identity) {
                         ProfileField(R.string.profile_name, name) { name = it; dirty = true }
-                        Box {
-                            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth()) {
-                                Text(stringResource(R.string.profile_runtime) + ": " + stringResource(
-                                    if (rootless) R.string.runtime_rootless_title else runtimeTitleResource(runtime)))
-                            }
-                            DropdownMenu(expanded, { expanded = false }) {
-                                listOf(SessionRuntime.NATIVE, SessionRuntime.ROOTLESS, SessionRuntime.AVF).forEach { option ->
-                                    DropdownMenuItem(text = { Text(stringResource(
-                                        if (option == SessionRuntime.ROOTLESS) R.string.runtime_rootless_title else runtimeTitleResource(option.wireName))) },
-                                        onClick = { selectRuntime(if (option == SessionRuntime.ROOTLESS && rootless) SessionRuntime.valueOf(runtime) else option) })
-                                }
-                            }
+                        SettingsChoiceRow(stringResource(R.string.profile_runtime), null,
+                            listOf(SessionRuntime.NATIVE, SessionRuntime.ROOTLESS, SessionRuntime.AVF).map {
+                                SettingsChoice(stringResource(if (it == SessionRuntime.ROOTLESS) R.string.runtime_rootless_title
+                                    else runtimeTitleResource(it.wireName)), it.wireName)
+                            }, if (rootless) SessionRuntime.ROOTLESS.wireName else runtime) {
+                            selectRuntime(if (it == SessionRuntime.ROOTLESS.wireName && rootless) SessionRuntime.valueOf(runtime)
+                                else SessionRuntime.valueOf(it))
                         }
-                        if (rootless) Box {
-                            OutlinedButton(onClick = { distributionExpanded = true }, modifier = Modifier.fillMaxWidth()) {
-                                Text(stringResource(R.string.profile_distribution) + ": " + stringResource(runtimeTitleResource(runtime)))
-                            }
-                            DropdownMenu(distributionExpanded, { distributionExpanded = false }) {
-                                listOf(SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH).forEach { option ->
-                                    DropdownMenuItem(text = { Text(stringResource(runtimeTitleResource(option.wireName))) },
-                                        onClick = { selectRuntime(option) })
-                                }
-                            }
-                        }
+                        if (rootless) SettingsChoiceRow(stringResource(R.string.profile_distribution), null,
+                            listOf(SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH).map {
+                                SettingsChoice(stringResource(runtimeTitleResource(it.wireName)), it.wireName)
+                            }, runtime) { selectRuntime(SessionRuntime.valueOf(it)) }
                     }
                     ProfileSection(R.string.profile_storage) {
-                        val shared = otherProfiles.firstOrNull { it.runtime.wireName == runtime && it.storageId == storageId }
-                        Box {
-                            OutlinedButton(onClick = { storageExpanded = true }, modifier = Modifier.fillMaxWidth()) {
-                                Text(if (shared != null) stringResource(R.string.profile_storage_shared, shared.name)
-                                    else stringResource(if (editing && storageId == initial.storageId && runtime == initial.runtime.wireName)
-                                        R.string.profile_storage_current else R.string.profile_storage_new))
-                            }
-                            DropdownMenu(storageExpanded, { storageExpanded = false }) {
-                                DropdownMenuItem(text = { Text(stringResource(R.string.profile_storage_new)) }, onClick = {
-                                    storageId = java.util.UUID.randomUUID().toString(); storageExpanded = false; dirty = true
-                                })
-                                otherProfiles.filter {
-                                    if (rootless) it.runtime in listOf(SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH)
-                                    else it.runtime.wireName == runtime
-                                }.forEach { target ->
-                                    DropdownMenuItem(text = { Text(stringResource(R.string.profile_storage_shared, target.name)) }, onClick = {
-                                        selectRuntime(target.runtime)
-                                        storageId = target.storageId; storageExpanded = false; dirty = true
-                                    })
+                        val targets = otherProfiles.filter {
+                            if (rootless) it.runtime in listOf(SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH)
+                            else it.runtime.wireName == runtime
+                        }
+                        val shared = targets.firstOrNull { it.runtime.wireName == runtime && it.storageId == storageId }
+                        val currentLabel = if (shared != null) stringResource(R.string.profile_storage_shared, shared.name)
+                            else stringResource(if (editing && storageId == initial.storageId && runtime == initial.runtime.wireName)
+                                R.string.profile_storage_current else R.string.profile_storage_new)
+                        SettingsChoiceRow(stringResource(R.string.profile_storage), null,
+                            listOf(SettingsChoice(currentLabel, "current")) +
+                                (if (shared != null || (editing && storageId == initial.storageId && runtime == initial.runtime.wireName))
+                                    listOf(SettingsChoice(stringResource(R.string.profile_storage_new), "new")) else emptyList()) +
+                                targets.filter { it != shared }.map {
+                                    SettingsChoice(stringResource(R.string.profile_storage_shared, it.name), it.id)
+                                }, "current") { selected ->
+                            when (selected) {
+                                "current" -> Unit
+                                "new" -> { storageId = java.util.UUID.randomUUID().toString(); dirty = true }
+                                else -> targets.first { it.id == selected }.let { target ->
+                                    selectRuntime(target.runtime); storageId = target.storageId; dirty = true
                                 }
                             }
                         }
-                        Text(stringResource(R.string.profile_storage_hint), style = MaterialTheme.typography.bodySmall)
                     }
+                    Text(stringResource(R.string.profile_storage_hint), modifier = Modifier.padding(horizontal = 16.dp),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     ProfileSection(R.string.profile_launch) {
                         ProfileField(R.string.profile_shell, shell) { shell = it; dirty = true }
-                        ProfileField(R.string.profile_arguments, arguments, false) { arguments = it; dirty = true }
-                        Text(stringResource(R.string.profile_arguments_hint), style = MaterialTheme.typography.bodySmall)
+                        ProfileField(R.string.profile_arguments, arguments, false, R.string.profile_arguments_hint) { arguments = it; dirty = true }
                         ProfileField(R.string.profile_directory, cwd) { cwd = it; dirty = true }
                         ProfileField(R.string.profile_startup, startup, false) { startup = it; dirty = true }
                     }
                     ProfileSection(R.string.profile_environment) {
-                        ProfileField(R.string.profile_environment, environment, false) { environment = it; dirty = true }
-                        Text(stringResource(R.string.profile_environment_hint), style = MaterialTheme.typography.bodySmall)
+                        ProfileField(R.string.profile_environment, environment, false, R.string.profile_environment_hint) { environment = it; dirty = true }
                     }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Button(onClick = {
@@ -136,14 +127,18 @@ class ProfileEditActivity : TerminalActivity() {
                                 parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId))
                         }.onSuccess { finish() }.onFailure { error = it.message }
                     }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.profile_save)) }
-                    if (editing) {
-                        OutlinedButton(onClick = {
+                    if (editing) ProfileSection(R.string.profile_settings) {
+                        ListItem(onClick = {
                             startActivity(Intent(this@ProfileEditActivity, ProfileEditActivity::class.java)
                                 .putExtra("profileId", id).putExtra("duplicate", true))
-                        }, enabled = !dirty, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.profile_duplicate)) }
-                        TextButton(onClick = { deleting = true }, modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                            Text(stringResource(R.string.profile_delete))
+                        }, enabled = !dirty, modifier = Modifier.fillMaxWidth(), shapes = terminalListItemShapes(),
+                            trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        ) { Text(stringResource(R.string.profile_duplicate)) }
+                        ListItem(onClick = { deleting = true }, modifier = Modifier.fillMaxWidth(), shapes = terminalListItemShapes(),
+                            trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)) {
+                            Text(stringResource(R.string.profile_delete), color = MaterialTheme.colorScheme.error)
                         }
                     }
                 }
@@ -162,15 +157,42 @@ class ProfileEditActivity : TerminalActivity() {
     }
 }
 
-@Composable private fun ProfileSection(title: Int, content: @Composable ColumnScope.() -> Unit) {
-    Text(stringResource(title), style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+@Composable internal fun ProfileSection(title: Int, content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(stringResource(title), modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
+            style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+        Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+            Column(content = content)
+        }
     }
 }
 
-@Composable private fun ProfileField(label: Int, value: String, singleLine: Boolean = true, change: (String) -> Unit) {
-    OutlinedTextField(value, change, label = { Text(stringResource(label)) }, singleLine = singleLine, modifier = Modifier.fillMaxWidth())
+@Composable private fun ProfileField(label: Int, value: String, singleLine: Boolean = true,
+    hint: Int? = null, change: (String) -> Unit) {
+    var visible by rememberSaveable { mutableStateOf(false) }
+    var draft by rememberSaveable { mutableStateOf(value) }
+    ListItem(onClick = { draft = value; visible = true },
+        supportingContent = { Text(value.ifBlank { stringResource(R.string.profile_not_set) },
+            maxLines = 2, overflow = TextOverflow.Ellipsis) },
+        trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
+        verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes(),
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent), modifier = Modifier.fillMaxWidth(),
+    ) { Text(stringResource(label)) }
+    if (visible) AlertDialog(onDismissRequest = { visible = false }, title = { Text(stringResource(label)) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState())) {
+                OutlinedTextField(draft, { draft = it }, label = { Text(stringResource(label)) },
+                    singleLine = singleLine, modifier = Modifier.fillMaxWidth())
+                hint?.let { Text(stringResource(it), style = MaterialTheme.typography.bodySmall) }
+            }
+        },
+        confirmButton = { Button(onClick = { change(draft); visible = false }, shapes = ButtonDefaults.shapes()) {
+            Text(stringResource(R.string.save))
+        } },
+        dismissButton = { TextButton(onClick = { visible = false }, shapes = ButtonDefaults.shapes()) {
+            Text(stringResource(R.string.cancel))
+        } })
 }
 
 internal fun parseProfileArguments(value: String): List<String> {

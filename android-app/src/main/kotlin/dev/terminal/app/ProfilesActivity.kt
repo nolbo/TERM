@@ -9,11 +9,15 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.ui.runtimeTitleResource
+import dev.terminal.app.ui.terminalListItemShapes
 import dev.terminal.runtime.session.SessionProfile
 
 class ProfilesActivity : TerminalActivity() {
@@ -25,17 +29,27 @@ class ProfilesActivity : TerminalActivity() {
         compose {
             val profiles = remember(revision) { store.all() }
             SettingsPageScaffold(stringResource(R.string.profiles), { finish() }) { padding ->
-                Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(stringResource(R.string.profiles_summary))
-                    Button(onClick = { startActivity(Intent(this@ProfilesActivity, ProfileEditActivity::class.java)) }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.add_profile)) }
+                Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                    Text(stringResource(R.string.profiles_summary), modifier = Modifier.padding(horizontal = 4.dp),
+                        style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    ProfileSection(R.string.profiles) {
+                        ListItem(onClick = { startActivity(Intent(this@ProfilesActivity, ProfileEditActivity::class.java)) },
+                            leadingContent = { Icon(painterResource(R.drawable.ic_material_symbol_add_24), null) },
+                            trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
+                            shapes = terminalListItemShapes(), colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            modifier = Modifier.fillMaxWidth(),
+                        ) { Text(stringResource(R.string.add_profile)) }
+                    }
                     if (profiles.isEmpty()) Text(stringResource(R.string.profiles_empty))
-                    profiles.forEach { profile ->
-                        Card(onClick = { edit(profile) }, modifier = Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
-                            Column(Modifier.padding(16.dp)) {
-                                Text(profile.name, style = MaterialTheme.typography.titleMedium)
-                                Text(stringResource(runtimeTitleResource(profile.runtime.wireName)))
-                                Text(profile.shell, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                    if (profiles.isNotEmpty()) ProfileSection(R.string.profile_list) {
+                        profiles.forEach { profile ->
+                            ListItem(onClick = { edit(profile) },
+                                supportingContent = { Text(stringResource(runtimeTitleResource(profile.runtime.wireName)) + " · " + profile.shell) },
+                                trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
+                                verticalAlignment = Alignment.CenterVertically,
+                                shapes = terminalListItemShapes(), colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                modifier = Modifier.fillMaxWidth(),
+                            ) { Text(profile.name) }
                         }
                     }
                 }

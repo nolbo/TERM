@@ -179,6 +179,10 @@ Native, Debian, Ubuntu, Arch, AVF 기본 프로필과 사용자 프로필을 이
 복제는 저장된 설정을 사용하므로 수정 중에는 먼저 저장하세요.
 **+ → Add profile**과 **설정 → Profiles → Add profile**은
 같은 편집 화면을 엽니다.
+프로필 목록은 오른쪽 `>` 화살표가 있는 설정 행으로 표시합니다. 추가·편집 화면의
+텍스트 항목은 행을 눌러 입력하고, 실행 환경·배포판·저장공간은 앱 언어 설정과 같은
+라디오 선택 대화상자에서 고릅니다. 대화상자의 **저장**은 화면 초안에 반영하며,
+화면 하단의 **저장**을 눌러 프로필 전체를 저장합니다. **취소**는 기존 값을 유지합니다.
 실행 환경은 Native, Rootless Linux, AVF 중 선택하고, Rootless Linux에서는
 Debian·Ubuntu·Arch 배포판을 추가로 선택합니다. AVF 기본 프로필은 앱에
 MANAGE_VIRTUAL_MACHINE과 USE_CUSTOM_VIRTUAL_MACHINE 특권이 모두 부여된

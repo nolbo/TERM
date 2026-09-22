@@ -964,51 +964,11 @@ class SettingsDetailActivity : TerminalActivity() {
     @Composable
     private fun ChoiceSetting(@StringRes title: Int, @StringRes supporting: Int, choices: List<Choice>, initial: String, onChange: (String) -> Unit) {
         var selected by rememberSaveable(initial) { mutableStateOf(initial) }
-        var draftSelected by rememberSaveable(initial, "draft") { mutableStateOf(initial) }
-        var dialogVisible by rememberSaveable(initial, "dialog") { mutableStateOf(false) }
-        val selectedLabel = choices.firstOrNull { it.value == selected }?.label ?: choices.first().label
-        ListItem(
-            onClick = {
-                draftSelected = selected
-                dialogVisible = true
-            },
-            supportingContent = { Text(stringResource(supporting)) },
-            trailingContent = { Text(stringResource(selectedLabel), style = MaterialTheme.typography.labelLarge) },
-            verticalAlignment = Alignment.CenterVertically,
-            shapes = terminalListItemShapes(),
-            colors = preferenceListItemColors(),
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(stringResource(title)) }
-        if (dialogVisible) {
-            AlertDialog(
-                onDismissRequest = { dialogVisible = false },
-                title = { Text(stringResource(title)) },
-                text = {
-                    Column {
-                        choices.forEach { choice ->
-                            Row(
-                                Modifier.fillMaxWidth().clickable(role = Role.RadioButton) {
-                                    draftSelected = choice.value
-                                }.heightIn(min = 48.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                RadioButton(selected = draftSelected == choice.value, onClick = null)
-                                Spacer(Modifier.width(8.dp))
-                                Text(stringResource(choice.label))
-                            }
-                        }
-                    }
-                },
-                confirmButton = {
-                    Button(onClick = {
-                        selected = draftSelected
-                        onChange(draftSelected)
-                        dialogVisible = false
-                    }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.save)) }
-                },
-                dismissButton = { TextButton(onClick = { dialogVisible = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } },
-            )
-        }
+        dev.terminal.app.ui.SettingsChoiceRow(
+            title = stringResource(title), supporting = stringResource(supporting),
+            choices = choices.map { dev.terminal.app.ui.SettingsChoice(stringResource(it.label), it.value) },
+            selected = selected,
+        ) { selected = it; onChange(it) }
     }
 
     @Composable
