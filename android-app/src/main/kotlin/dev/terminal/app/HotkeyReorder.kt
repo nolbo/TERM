@@ -1,5 +1,15 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package dev.terminal.app
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntOffsetAsState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
@@ -20,6 +30,7 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
@@ -28,6 +39,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.round
 import androidx.compose.ui.unit.sp
@@ -66,11 +78,19 @@ internal fun ReorderableHotkeyPreview(
     val cells = remember(layout) { mutableMapOf<Int, LayoutCoordinates>() }
     var grid by remember { mutableStateOf<LayoutCoordinates?>(null) }
     var drag by remember(layout) { mutableStateOf<HotkeyDrag?>(null) }
+    var lastDrag by remember { mutableStateOf<HotkeyDrag?>(null) }
     val move by rememberUpdatedState(onMove)
     val viewport by rememberUpdatedState(viewportBounds)
     val haptics = LocalTerminalHaptics.current
     val density = LocalDensity.current
     val targetColor = MaterialTheme.colorScheme.primary
+    val motion = MaterialTheme.motionScheme
+    val sourceAlpha by animateFloatAsState(
+        if (drag == null) 1f else 0.35f, motion.fastEffectsSpec(), label = "Hotkey source fade",
+    )
+    val liftElevation by animateDpAsState(
+        if (drag == null) 0.dp else 12.dp, motion.fastSpatialSpec(), label = "Hotkey lift elevation",
+    )
     val edge = with(density) { 48.dp.toPx() }
     val speed = with(density) { 480.dp.toPx() }
     fun target(pointer: Offset): Int? {
@@ -113,7 +133,10 @@ internal fun ReorderableHotkeyPreview(
                 val source = root?.let { point -> cells.entries.firstOrNull { it.value.isAttached && it.value.rootRect().contains(point) } }
                 if (root != null && source != null) {
                     val rect = source.value.rootRect()
-                    drag = HotkeyDrag(source.key, source.key, root, root - rect.topLeft, rect.size)
+                    HotkeyDrag(source.key, source.key, root, root - rect.topLeft, rect.size).also {
+                        drag = it
+                        lastDrag = it
+                    }
                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
             },
@@ -121,7 +144,10 @@ internal fun ReorderableHotkeyPreview(
                 drag?.let { current ->
                     change.consume()
                     grid?.takeIf { it.isAttached }?.localToRoot(change.position)?.let { root ->
-                        drag = current.copy(pointer = root, target = target(root))
+                        current.copy(pointer = root, target = target(root)).also {
+                            drag = it
+                            lastDrag = it
+                        }
                     }
                 }
             },
@@ -137,10 +163,15 @@ internal fun ReorderableHotkeyPreview(
     }) {
         HotkeyGrid(layout, editing = true, cellModifier = { index ->
             Modifier.onGloballyPositioned { cells[index] = it }
-                .alpha(if (drag?.from == index) 0.35f else 1f)
+                .alpha(if (drag?.from == index) sourceAlpha else 1f)
         }, onKey = { if (drag == null) onEdit(it) })
-        drag?.let { current ->
-            val key = layout.keys[current.from]
+        AnimatedVisibility(
+            visible = drag != null,
+            enter = fadeIn(motion.fastEffectsSpec()) + scaleIn(motion.fastSpatialSpec(), initialScale = 0.93f),
+            exit = fadeOut(motion.fastEffectsSpec()) + scaleOut(motion.fastSpatialSpec(), targetScale = 0.93f),
+        ) {
+            val current = drag ?: lastDrag ?: return@AnimatedVisibility
+            val key = layout.keys.getOrNull(current.from) ?: return@AnimatedVisibility
             Surface(
                 modifier = Modifier.offset {
                     // Reading scroll state keeps the lifted key under the finger as its parent moves.
@@ -149,11 +180,12 @@ internal fun ReorderableHotkeyPreview(
                         current.pointer - current.grabOffset - coordinates.localToRoot(Offset.Zero)
                     } ?: Offset.Zero).round()
                 }.size(with(density) { current.size.width.toDp() }, with(density) { current.size.height.toDp() })
+                    .graphicsLayer { scaleX = 1.06f; scaleY = 1.06f }
                     .clearAndSetSemantics {},
                 shape = CircleShape,
                 color = MaterialTheme.colorScheme.surfaceContainerHigh,
                 contentColor = MaterialTheme.colorScheme.onSurface,
-                shadowElevation = 8.dp,
+                shadowElevation = liftElevation,
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(key.name, fontFamily = FontFamily.Monospace, fontSize = layout.fontSize.sp,
@@ -166,15 +198,17 @@ internal fun ReorderableHotkeyPreview(
             val destination = current.target?.takeIf { it != current.from }
             val coordinates = destination?.let { cells[it]?.takeIf { cell -> cell.isAttached } }
             if (destination != null && coordinates != null) {
-                Box(Modifier.offset {
-                    scrollState.value
-                    val rect = coordinates.rootRect()
-                    val origin = grid?.takeIf { it.isAttached }?.localToRoot(Offset.Zero) ?: Offset.Zero
-                    Offset(
-                        (if (destination < current.from) rect.left else rect.right) - origin.x - 2.dp.toPx(),
-                        rect.top - origin.y,
-                    ).round()
-                }.width(4.dp).height(with(density) { coordinates.size.height.toDp() })
+                val rect = coordinates.rootRect()
+                val origin = grid?.takeIf { it.isAttached }?.localToRoot(Offset.Zero) ?: Offset.Zero
+                val markerTarget = Offset(
+                    (if (destination < current.from) rect.left else rect.right) - origin.x - with(density) { 2.dp.toPx() },
+                    rect.top - origin.y,
+                ).round()
+                val markerPosition by animateIntOffsetAsState(
+                    markerTarget, motion.fastSpatialSpec(), label = "Hotkey insertion position",
+                )
+                Box(Modifier.offset { markerPosition }
+                    .width(4.dp).height(with(density) { coordinates.size.height.toDp() })
                     .background(targetColor, CircleShape))
             }
         }
