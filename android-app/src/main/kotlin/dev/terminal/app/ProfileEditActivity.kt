@@ -127,19 +127,27 @@ class ProfileEditActivity : TerminalActivity() {
                                 parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId))
                         }.onSuccess { finish() }.onFailure { error = it.message }
                     }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.profile_save)) }
-                    if (editing) ProfileSection(R.string.profile_settings) {
-                        ListItem(onClick = {
-                            startActivity(Intent(this@ProfileEditActivity, ProfileEditActivity::class.java)
-                                .putExtra("profileId", id).putExtra("duplicate", true))
-                        }, enabled = !dirty, modifier = Modifier.fillMaxWidth(), shapes = terminalListItemShapes(),
-                            trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                        ) { Text(stringResource(R.string.profile_duplicate)) }
-                        ListItem(onClick = { deleting = true }, modifier = Modifier.fillMaxWidth(), shapes = terminalListItemShapes(),
-                            trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
-                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)) {
-                            Text(stringResource(R.string.profile_delete), color = MaterialTheme.colorScheme.error)
+                    if (editing) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                            OutlinedButton(onClick = {
+                                startActivity(Intent(this@ProfileEditActivity, ProfileEditActivity::class.java)
+                                    .putExtra("profileId", id).putExtra("duplicate", true))
+                            }, enabled = !dirty, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                shapes = ButtonDefaults.shapes()) {
+                                Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), null, Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(stringResource(R.string.profile_duplicate))
+                            }
+                            TextButton(onClick = { deleting = true }, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                                shapes = ButtonDefaults.shapes(),
+                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                                Icon(painterResource(R.drawable.ic_material_symbol_delete_24), null, Modifier.size(20.dp))
+                                Spacer(Modifier.width(8.dp))
+                                Text(stringResource(R.string.profile_delete))
+                            }
                         }
+                        if (dirty) Text(stringResource(R.string.profile_duplicate_save_first),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
