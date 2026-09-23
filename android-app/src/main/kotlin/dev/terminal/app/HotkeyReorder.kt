@@ -1,13 +1,14 @@
 package dev.terminal.app
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.border
+import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
@@ -78,6 +79,13 @@ internal fun ReorderableHotkeyPreview(
         return hotkeyDropTarget(pointer, cells.filterValues { it.isAttached }.mapValues { it.value.rootRect() }, bounds, visible)
     }
 
+    LaunchedEffect(drag?.target) {
+        val current = drag ?: return@LaunchedEffect
+        if (current.target != null && current.target != current.from) {
+            haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+        }
+    }
+
     // Keep scrolling even when the finger rests at an edge. Only the settings viewport scrolls.
     LaunchedEffect(drag != null) {
         if (drag == null) return@LaunchedEffect
@@ -130,7 +138,6 @@ internal fun ReorderableHotkeyPreview(
         HotkeyGrid(layout, editing = true, cellModifier = { index ->
             Modifier.onGloballyPositioned { cells[index] = it }
                 .alpha(if (drag?.from == index) 0.35f else 1f)
-                .then(if (drag?.target == index) Modifier.border(BorderStroke(2.dp, targetColor), CircleShape) else Modifier)
         }, onKey = { if (drag == null) onEdit(it) })
         drag?.let { current ->
             val key = layout.keys[current.from]
@@ -152,6 +159,23 @@ internal fun ReorderableHotkeyPreview(
                     Text(key.name, fontFamily = FontFamily.Monospace, fontSize = layout.fontSize.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
+            }
+        }
+        // Show the actual insertion edge above the lifted key, so its shadow cannot hide the destination.
+        drag?.let { current ->
+            val destination = current.target?.takeIf { it != current.from }
+            val coordinates = destination?.let { cells[it]?.takeIf { cell -> cell.isAttached } }
+            if (destination != null && coordinates != null) {
+                Box(Modifier.offset {
+                    scrollState.value
+                    val rect = coordinates.rootRect()
+                    val origin = grid?.takeIf { it.isAttached }?.localToRoot(Offset.Zero) ?: Offset.Zero
+                    Offset(
+                        (if (destination < current.from) rect.left else rect.right) - origin.x - 2.dp.toPx(),
+                        rect.top - origin.y,
+                    ).round()
+                }.width(4.dp).height(with(density) { coordinates.size.height.toDp() })
+                    .background(targetColor, CircleShape))
             }
         }
     }
