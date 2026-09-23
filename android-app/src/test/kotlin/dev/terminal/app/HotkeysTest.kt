@@ -1,6 +1,7 @@
 package dev.terminal.app
 
 import android.view.KeyEvent
+import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -26,9 +27,17 @@ class HotkeysTest {
 
     @Test fun defaultsPreserveExistingKeysAndOrder() {
         val layout = parseHotkeyLayout(null)
+        assertTrue(layout.enabled)
         assertEquals(14, layout.keys.size)
         assertEquals(listOf((0..6).toList(), (7..13).toList()), hotkeyRows(layout.keys, 7))
         assertTrue(layout.keys.all(::validHotkey))
+    }
+
+    @Test fun toolbarVisibilityRoundTripsAndLegacyLayoutsStayEnabled() {
+        val disabled = HotkeyLayout(enabled = false)
+        val encoded = serializeHotkeyLayout(disabled)
+        assertEquals(disabled, parseHotkeyLayout(encoded))
+        assertEquals(HotkeyLayout(), parseHotkeyLayout(JSONObject(encoded).apply { remove("enabled") }.toString()))
     }
 
     @Test fun customizedLayoutRoundTripsIncludingUnicodeNamesAndOrder() {

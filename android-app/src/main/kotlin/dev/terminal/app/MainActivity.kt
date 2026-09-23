@@ -511,7 +511,7 @@ class MainActivity : TerminalActivity() {
     }
 
     private fun sendToolbarKey(key: TerminalToolbarKey) {
-        if (!toolbarInputActive) return
+        if (!toolbarInputActive || !hotkeyLayout.enabled) return
         when (key) {
             is TerminalToolbarKey.Shortcut -> sendHotkeyShortcut(key.value)
             TerminalToolbarKey.Control -> {

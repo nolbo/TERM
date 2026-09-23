@@ -12,6 +12,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
@@ -19,6 +20,8 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
@@ -28,6 +31,7 @@ import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalOnStatusBlueContainer
 import dev.terminal.app.ui.TerminalStatusBlueContainer
 import dev.terminal.app.ui.LocalTerminalHaptics
+import dev.terminal.app.ui.terminalListItemShapes
 import java.util.Locale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -168,6 +172,15 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
             Column(Modifier.weight(1f).onGloballyPositioned { viewport = it }.verticalScroll(scrollState).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(stringResource(R.string.settings_hotkeys_description), style = MaterialTheme.typography.bodyLarge)
+                ListItem(
+                    onClick = { update(layout.copy(enabled = !layout.enabled)) },
+                    supportingContent = { Text(stringResource(R.string.hotkey_enabled_support)) },
+                    trailingContent = { Switch(checked = layout.enabled, onCheckedChange = null) },
+                    verticalAlignment = Alignment.CenterVertically,
+                    shapes = terminalListItemShapes(),
+                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
+                    modifier = Modifier.fillMaxWidth().semantics { role = Role.Switch },
+                ) { Text(stringResource(R.string.hotkey_enabled)) }
                 Card(shape = MaterialTheme.shapes.extraLarge) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         HotkeySizeControl(R.string.hotkey_columns, layout.columns, 2..10) { update(layout.copy(columns = it)) }
@@ -233,7 +246,7 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
     if (resetVisible) AlertDialog(
         onDismissRequest = { resetVisible = false }, title = { Text(stringResource(R.string.hotkey_reset)) },
         text = { Text(stringResource(R.string.hotkey_reset_support)) },
-        confirmButton = { TextButton(onClick = { update(HotkeyLayout()); resetVisible = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.confirm)) } },
+        confirmButton = { TextButton(onClick = { update(HotkeyLayout(enabled = layout.enabled)); resetVisible = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.confirm)) } },
         dismissButton = { TextButton(onClick = { resetVisible = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } },
     )
     if (discardVisible) AlertDialog(

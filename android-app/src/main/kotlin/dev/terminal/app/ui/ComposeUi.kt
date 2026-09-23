@@ -793,20 +793,23 @@ internal fun ExtraKeys(
 ) {
     Column(
         Modifier.fillMaxWidth().background(terminalBackgroundColor)
-            .windowInsetsPadding(WindowInsets.navigationBars).padding(4.dp),
+            .windowInsetsPadding(WindowInsets.navigationBars)
+            .padding(if (layout.enabled) 4.dp else 0.dp),
     ) {
-        dev.terminal.app.HotkeyGrid(
-            layout = layout,
-            modifier = Modifier.heightIn(max = 160.dp).verticalScroll(rememberScrollState()),
-            control = control, alt = alt,
-            enabled = enabled,
-        ) { index ->
-            val shortcut = layout.keys[index].shortcut
-            onKey(when (shortcut) {
-                "CTRL" -> TerminalToolbarKey.Control
-                "ALT" -> TerminalToolbarKey.Alt
-                else -> TerminalToolbarKey.Shortcut(shortcut)
-            })
+        if (layout.enabled) {
+            dev.terminal.app.HotkeyGrid(
+                layout = layout,
+                modifier = Modifier.heightIn(max = 160.dp).verticalScroll(rememberScrollState()),
+                control = control, alt = alt,
+                enabled = enabled,
+            ) { index ->
+                val shortcut = layout.keys[index].shortcut
+                onKey(when (shortcut) {
+                    "CTRL" -> TerminalToolbarKey.Control
+                    "ALT" -> TerminalToolbarKey.Alt
+                    else -> TerminalToolbarKey.Shortcut(shortcut)
+                })
+            }
         }
     }
 }
