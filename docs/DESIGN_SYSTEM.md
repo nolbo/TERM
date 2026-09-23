@@ -6,6 +6,8 @@ TERM의 활성 Android UI는 Jetpack Compose와 Material 3 Expressive를 기준�
 
 터미널 캔버스는 예외다. `TerminalView`와 `TerminalAppearance`가 사용자 선택 팔레트, ANSI 색상, 커서, 선택 영역과 배경을 독립적으로 관리하며 Material 앱 색상표가 이를 덮어쓰지 않는다.
 
+팔레트 편집은 별도 화면에서 전경·배경·커서와 ANSI 표준/밝은 색상을 견본으로 보여 준다. 색상 견본을 누르면 Material 3 바텀시트의 색조·채도·밝기 슬라이더와 HEX 입력으로 색을 조정한다. 편집 화면의 미리보기는 저장 전 초안만 표시하며 전체 저장 시 사용자 지정 팔레트로 전환한다. 저장하지 않고 나가면 변경사항 폐기를 확인한다.
+
 ## Foundations
 
 - 비동적 다크 색상표는 primary/secondary/tertiary, 모든 on/container, surface container 단계, inverse, outline, error, scrim 역할을 명시한다. 일반 동작과 강조는 `MaterialTheme.colorScheme` 역할을 사용하고, 활성·가용·준비·진행 상태는 이름이 명시된 파란색 semantic token을 사용한다.
