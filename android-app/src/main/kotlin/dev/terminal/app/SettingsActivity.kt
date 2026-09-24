@@ -2,6 +2,7 @@ package dev.terminal.app
 
 import android.content.Intent
 import android.os.Bundle
+import dev.terminal.app.ui.SettingsSearchTarget
 import dev.terminal.app.ui.SettingsOverview
 import dev.terminal.app.ui.TerminalActivity
 
@@ -12,10 +13,16 @@ class SettingsActivity : TerminalActivity() {
         compose { SettingsOverview({ finish() }, ::open) }
     }
 
-    private fun open(category: String) {
-        if (category == "profiles") startActivity(Intent(this, ProfilesActivity::class.java))
-        else if (category == "updates") startActivity(Intent(this, AppUpdatesActivity::class.java))
-        else startActivity(Intent(this, SettingsDetailActivity::class.java)
-            .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, category))
+    private fun open(target: SettingsSearchTarget) {
+        val activity = when (target.screen) {
+            "profiles" -> ProfilesActivity::class.java
+            "updates" -> AppUpdatesActivity::class.java
+            "usb" -> UsbDevicesActivity::class.java
+            "palette" -> PaletteEditorActivity::class.java
+            else -> SettingsDetailActivity::class.java
+        }
+        startActivity(Intent(this, activity)
+            .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, target.screen)
+            .putExtra(SettingsDetailActivity.EXTRA_SECTION_INDEX, target.sectionIndex))
     }
 }

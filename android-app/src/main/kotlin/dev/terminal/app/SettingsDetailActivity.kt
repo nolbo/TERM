@@ -20,6 +20,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -347,6 +348,8 @@ class SettingsDetailActivity : TerminalActivity() {
         SettingsPageScaffold(title, { finish() }) { padding ->
             LazyColumn(
                 Modifier.fillMaxSize().padding(padding),
+                state = rememberLazyListState(initialFirstVisibleItemIndex =
+                    intent.getIntExtra(EXTRA_SECTION_INDEX, 0).coerceAtLeast(0)),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
@@ -1049,6 +1052,7 @@ class SettingsDetailActivity : TerminalActivity() {
 
     companion object {
         const val EXTRA_CATEGORY = "category"
+        const val EXTRA_SECTION_INDEX = "section-index"
         const val HOTKEYS = "hotkeys"
         const val LANGUAGE = "language"
         const val APPEARANCE = "appearance"

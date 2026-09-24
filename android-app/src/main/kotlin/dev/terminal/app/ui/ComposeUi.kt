@@ -884,23 +884,15 @@ private fun sessionStateLabel(state: String): String = stringResource(
 )
 
 @Composable
-fun SettingsOverview(onBack: () -> Unit, onOpen: (String) -> Unit) {
-    val rows = listOf(
-        SettingsDestination("profiles", stringResource(R.string.profiles), stringResource(R.string.profiles_summary), R.drawable.ic_material_symbol_add_24),
-        SettingsDestination("language", stringResource(R.string.settings_language_title), stringResource(R.string.settings_language_summary), R.drawable.ic_material_symbol_text_format_24),
-        SettingsDestination("terminal", stringResource(R.string.settings_terminal_title), stringResource(R.string.settings_terminal_summary), R.drawable.ic_material_symbol_settings_24),
-        SettingsDestination("rootless", stringResource(R.string.runtime_rootless_title), stringResource(R.string.settings_rootless_summary), R.drawable.ic_runtime_rootless_group),
-        SettingsDestination("avf", stringResource(R.string.settings_avf_title), stringResource(R.string.settings_avf_summary), R.drawable.ic_material_symbol_memory_24),
-        SettingsDestination("native", stringResource(R.string.settings_native_title), stringResource(R.string.settings_native_summary), R.drawable.ic_runtime_native),
-        SettingsDestination("updates", stringResource(R.string.app_updates), stringResource(R.string.update_settings_summary), R.drawable.ic_material_symbol_download_24),
-    )
-    var query by rememberSaveable { mutableStateOf("") }
-    val normalizedQuery = query.trim()
-    val visibleRows = rows.filter { destination ->
-        normalizedQuery.isEmpty() ||
-            destination.title.contains(normalizedQuery, ignoreCase = true) ||
-            destination.summary.contains(normalizedQuery, ignoreCase = true)
+internal fun SettingsOverview(onBack: () -> Unit, onOpen: (SettingsSearchTarget) -> Unit) {
+    val rows = settingsSearchEntries.map { entry ->
+        LocalizedSettingsEntry(entry, stringResource(entry.title),
+            entry.summary?.let { stringResource(it) }.orEmpty(),
+            entry.path.map { stringResource(it) }.joinToString(" › "))
     }
+    var query by rememberSaveable { mutableStateOf("") }
+    val visibleRows = if (query.isBlank()) rows.filter { it.entry.path.isEmpty() }
+        else rows.filter { it.matches(query) }
     SettingsPageScaffold(stringResource(R.string.settings), onBack) { padding ->
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
@@ -946,10 +938,10 @@ fun SettingsOverview(onBack: () -> Unit, onOpen: (String) -> Unit) {
                     )
                 }
             } else {
-                items(visibleRows, key = { it.key }) { destination ->
+                items(visibleRows, key = { "${it.entry.target.screen}:${it.entry.title}" }) { destination ->
                     ListItem(
-                        onClick = { onOpen(destination.key) },
-                        supportingContent = { Text(destination.summary) },
+                        onClick = { onOpen(destination.entry.target) },
+                        supportingContent = { Text(listOf(destination.path, destination.summary).filter { it.isNotEmpty() }.joinToString("\n")) },
                         leadingContent = {
                             Surface(
                                 modifier = Modifier.size(40.dp),
@@ -959,7 +951,7 @@ fun SettingsOverview(onBack: () -> Unit, onOpen: (String) -> Unit) {
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
-                                        painterResource(destination.icon),
+                                        painterResource(destination.entry.icon),
                                         contentDescription = null,
                                         modifier = Modifier.size(24.dp),
                                     )
@@ -981,13 +973,6 @@ fun SettingsOverview(onBack: () -> Unit, onOpen: (String) -> Unit) {
         }
     }
 }
-
-private data class SettingsDestination(
-    val key: String,
-    val title: String,
-    val summary: String,
-    @param:DrawableRes val icon: Int,
-)
 
 @Composable
 fun DiagnosticsScreen(onBack: () -> Unit, text: String, onRefresh: () -> Unit) {
