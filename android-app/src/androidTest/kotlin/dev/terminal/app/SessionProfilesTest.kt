@@ -23,6 +23,63 @@ import java.util.concurrent.TimeUnit
 class SessionProfilesTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
+    @Test fun newProfileUsesSettingsRowsAndPreservesDialogDraftUntilSaved() {
+        val store = SessionProfiles(context)
+        val name = "New profile ${java.util.UUID.randomUUID()}"
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        fun find(predicate: (android.view.accessibility.AccessibilityNodeInfo) -> Boolean): android.view.accessibility.AccessibilityNodeInfo? {
+            fun walk(node: android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
+                if (node == null) return null
+                if (predicate(node)) return node
+                for (i in 0 until node.childCount) walk(node.getChild(i))?.let { return it }
+                return null
+            }
+            instrumentation.waitForIdleSync()
+            return walk(instrumentation.uiAutomation.rootInActiveWindow)
+        }
+        fun click(label: Int) {
+            await {
+                var node = find { it.text?.toString() == context.getString(label) }
+                while (node != null && !node.isClickable) node = node.parent
+                node?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) == true
+            }
+        }
+        fun typeName() {
+            await { find { it.isEditable } != null }
+            assertTrue(requireNotNull(find { it.isEditable }).performAction(
+                android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT,
+                android.os.Bundle().apply {
+                    putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, name)
+                }))
+        }
+        try {
+            ActivityScenario.launch(ProfileEditActivity::class.java).use { activity ->
+                await { find { it.text?.toString() == context.getString(R.string.profile_name) } != null }
+                assertNull(find { it.isEditable })
+                click(R.string.profile_name); typeName(); click(R.string.cancel)
+                await { find { it.isEditable } == null }
+                assertNull(find { it.text?.toString() == name })
+                click(R.string.profile_name); typeName()
+                activity.recreate()
+                await { find { it.isEditable && it.text?.toString() == name } != null }
+                click(R.string.save)
+                await { find { it.isEditable } == null }
+                assertTrue(store.all().none { it.name == name })
+                activity.recreate()
+                await { find { it.text?.toString() == name } != null }
+                await {
+                    if (find { it.text?.toString() == context.getString(R.string.profile_save) } != null) true
+                    else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
+                }
+                click(R.string.profile_save)
+                await { store.all().any { it.name == name } }
+                val saved = store.all().single { it.name == name }
+                assertEquals("auto", saved.icon)
+                assertNotEquals("legacy", saved.storageId)
+            }
+        } finally { store.all().filter { it.name == name }.forEach { store.delete(it.id) } }
+    }
+
     @Test fun editorSelectsBaseAndExplicitStorageSharing() {
         val store = SessionProfiles(context)
         val profile = store.duplicate(store.builtIns().first()).copy(name = "Storage editor")
