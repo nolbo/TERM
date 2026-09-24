@@ -44,6 +44,7 @@ class DirectLinuxLoaderTest {
         val execProfiles = JSONArray()
         val applicationProfiles = JSONArray()
         val ptyResults = JSONArray()
+        val networkResults = JSONArray()
         fun launch(path: String, args: Array<out String>, useProot: Boolean, terminal: Boolean = false): ProcessBuilder {
             val engine = if (useProot) packaged.resolvePackagedExecutable("proot").getOrThrow() else executable
             val profile = if (useProot) RootlessAccelerationProfile(File(engine.parentFile, "libproot-faststat.so")) else null
@@ -177,6 +178,23 @@ class DirectLinuxLoaderTest {
                     ptyResults.put(result.put("engine", name))
                 }
             }
+            if (arguments.getString("directLinuxNetwork") == "true") {
+                check(manifest.optBoolean("applications"))
+                for (reference in listOf(false, true)) {
+                    val checks = JSONArray()
+                    for (kind in listOf("static", "dynamic")) {
+                        val output = run("/bin/network-$kind", if (reference) "common" else "direct-policy", useProot = reference)
+                        assertTrue(output, output.contains("PASS Linux network syscalls\n"))
+                        output.lineSequence().filter { it.startsWith("PASS ") }.forEach { checks.put("$kind: $it") }
+                    }
+                    val output = run("/usr/bin/python3", "/network.py", useProot = reference)
+                    assertTrue(output, output.contains("PASS Linux network applications\n"))
+                    output.lineSequence().filter { it.startsWith("PASS ") }.forEach { checks.put(it) }
+                    networkResults.put(JSONObject().put("engine", if (reference) "proot" else "direct-linux").put("checks", checks)
+                        .put("local_glibc_dns_verified", true).put("external_dns_verified", false)
+                        .put("named_unix_sockets_verified", false))
+                }
+            }
             val filesScenario = """
                 set -e
                 mkdir -p /tmp/tools/source/nested
@@ -293,9 +311,10 @@ class DirectLinuxLoaderTest {
                 .put("benchmarks", benchmarks).put("exec_profiles", execProfiles)
                 .put("application_profiles", applicationProfiles)
                 .put("pty_results", ptyResults)
+                .put("network_results", networkResults)
                 .put("exec_profile_stages", JSONArray(listOf("arguments", "read_validate", "reset", "unmap", "map", "entry", "dispose")))
                 .put("exec_profile_map_stages", JSONArray(listOf("reserve", "file_map", "verify", "bss", "final_protect")))
-            if (benchmarks.length() > 0 || ptyResults.length() > 0) {
+            if (benchmarks.length() > 0 || ptyResults.length() > 0 || networkResults.length() > 0) {
                 val proot = packaged.resolvePackagedExecutable("proot").getOrThrow()
                 report.put("proot_sha256", digest(proot.readBytes()))
                     .put("proot_loader_sha256", digest(packaged.resolvePackagedExecutable("proot-loader").getOrThrow().readBytes()))

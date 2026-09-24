@@ -113,6 +113,13 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
         if ((int)a[0] == dl_state.root_fd || (int)a[0] == dl_state.vfork_fd) return -EBADF;
         return DL_CALL(nr, a[0], 0, 0, 0, 0, 0);
     case SYS_close_range: return dl_close_range((unsigned)a[0], (unsigned)a[1], (unsigned)a[2]);
+    case SYS_socket: case SYS_socketpair: case SYS_bind: case SYS_connect:
+    case SYS_sendto: case SYS_sendmsg:
+        {
+            unsigned long mask;
+            dl_copy(&mask, &context->uc_sigmask, 8);
+            return dl_network(nr, a, mask);
+        }
     case SYS_dup3:
         if ((int)a[1] == dl_state.root_fd || (int)a[1] == dl_state.vfork_fd) return -EBADF;
         return DL_CALL(nr, a[0], a[1], a[2], 0, 0, 0);
@@ -266,6 +273,14 @@ int dl_install(void *signal_stack, size_t size)
         // Terminal ioctls must retain the guest signal mask: background
         // tcsetpgrp/tcsetattr can stop with SIGTTOU, and drains can block.
         DIRECT(SYS_ioctl),
+        // Untranslated network operations retain normal signal/restart and
+        // blocking behavior. Input addresses are checked in dl_network.
+        DIRECT(SYS_listen), DIRECT(SYS_accept), DIRECT(SYS_accept4),
+        DIRECT(SYS_getsockname), DIRECT(SYS_getpeername),
+        DIRECT(SYS_getsockopt), DIRECT(SYS_setsockopt), DIRECT(SYS_shutdown),
+        DIRECT(SYS_recvfrom), DIRECT(SYS_recvmsg), DIRECT(SYS_recvmmsg),
+        DIRECT(SYS_epoll_create1), DIRECT(SYS_epoll_ctl), DIRECT(SYS_epoll_pwait),
+        DIRECT(SYS_eventfd2),
         DIRECT(SYS_fsync), DIRECT(SYS_fdatasync), DIRECT(SYS_futex),
         DIRECT(SYS_sendfile), DIRECT(SYS_copy_file_range),
         DIRECT(SYS_clock_gettime), DIRECT(SYS_clock_getres),

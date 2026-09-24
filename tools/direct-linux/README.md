@@ -19,6 +19,11 @@ enforcing-device validation remain incomplete.
 signals, resize and terminal hangup against the existing accelerated Rootless.
 This does not establish overall compatibility parity or product session support.
 
+[Networking and resolver checks](NETWORK.md) add IPv4/IPv6, anonymous socket IPC,
+signal interruption, real glibc UDP/TCP DNS and Python HTTP/TLS comparisons against
+Rootless. Named Unix sockets, DNS/NSS integration, external networking and stock
+Android policy validation remain incomplete.
+
 `probe.c` handles raw ARM64 `openat` in the calling thread with seccomp TRAP and
 SIGSYS. `syscall.S` supplies separate host/guest SVC sites. The host site is exempt
 only from our own filter, including both halves of its 64-bit instruction pointer.

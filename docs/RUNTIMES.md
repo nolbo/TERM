@@ -5,11 +5,16 @@ in-process Linux syscall translation without a PRoot tracer. Its current APK
 probe and experimental ELF loader are not a usable distribution backend or a
 selectable runtime. The loader can run static/dynamic glibc programs, scripts and shell external
 commands through fork/exec, GNU file operations and local Python/Git workflows.
-Threads, full Linux semantics and package/session integration remain incomplete.
-[Current measurements](../tools/direct-linux/APPLICATIONS.md) show faster file calls
+Shared [PTY](../tools/direct-linux/PTY.md) and
+[network/resolver](../tools/direct-linux/NETWORK.md) checks also pass against the
+existing accelerated Rootless, including local glibc UDP/TCP DNS and Python TLS.
+Named Unix sockets, DNS/NSS integration, external networking, threads, full Linux
+semantics and package/session integration remain incomplete.
+[Current measurements](../tools/direct-linux/SUBPROCESS_PERFORMANCE.md) show faster file calls
 and a 128-file tree workload, but slower repeated command execution than accelerated Rootless.
 The full Python/Git comparison remains incomplete because the Rootless reference
-fails during repository cleanup; Direct's Git costs also need optimization.
+fails during repository cleanup. Direct's subprocess FD cleanup reduced its own
+Git workload time, but establishes no completed paired Git comparison.
 Neither replaces existing Rootless installations.
 
 ## Runtime matrix

@@ -252,6 +252,29 @@ master 종료 시 Direct guest는 세션 리더로 SIGHUP 종료하며, Rootless
 devpts/ttyname/중첩 PTY와 enforcing 기기는 아직 검증하지 않았다. 이 좁은
 비교를 기존 Rootless 전체와의 호환성 동등성으로 확대 해석하지 않는다.
 
+## 네트워크·DNS 비교: 2026-09-24
+
+[네트워크 단계](../tools/direct-linux/NETWORK.md)는 IPv4/IPv6 소켓, 익명 socketpair와
+파일 FD 전달, epoll을 추가했다. 주소가 있는 호출은 안전하게 복사·검사하며,
+블로킹 송신 중에는 guest 신호 마스크를 적용한다. 이때 정리가 필요한 내부
+잠금·임시 FD를 보유하지 않아 신호 처리기의 재진입과 siglongjmp를 허용한다.
+이름 있는 Unix 소켓의 경로·FD 수명 처리는 미완료이며 호스트 경로로 넘기지 않는다.
+
+Direct와 기존 가속 Rootless 모두 정적·동적 glibc의 TCP/UDP, half-close, 메시지
+절단·peek, SCM_RIGHTS/CLOEXEC, EINTR·신호 처리기 재진입·비지역 복귀를 통과했다.
+수정하지 않은 Python 표준 라이브러리의 HTTP/TLS 전송, 인증서·호스트 이름 검증,
+hosts 파일 조회와 selector도 통과했다. 별도의 정적·동적 glibc resolver는 일반
+loopback 포트의 시험 서버에 실제 DNS 질의를 보낸다. A/AAAA, NXDOMAIN, 검색
+도메인, 잘못된 질의 ID 거부와 UDP 절단 후 TCP 재시도까지 두 엔진에서 확인했다.
+이 시험은 외부 DNS, Android DNS 자동 설정이나 getaddrinfo의 DNS/NSS 통합 검증은 아니다.
+
+기존 ELF·파일·프로세스·Direct Python/Git 및 두 엔진의 PTY 검사와 함께 Android
+instrumentation이 8.118초에 통과했다. [원시 결과](../tools/direct-linux/results/network-runtime-2026-09-24.json)는
+712개 fixture hash, 46개 일반 실행, 두 PTY 시나리오와 네트워크 결과를 기록한다.
+성능 표본은 없으며 이전 Rootless Git 정리 실패도 재검증하지 않았다. 실제 앱 UID와
+기존 일반 INTERNET 권한으로 실행했지만 SELinux Disabled redroid이므로 일반
+enforcing 기기 검증을 대신하지 않는다. 전체 호환성 동등성은 아직 달성하지 못했다.
+
 ## 남은 구현과 완료 증거
 
 1. **정책:** fixture/redroid 검증은 완료. stock enforcing 기기에서 같은 APK의
@@ -270,7 +293,9 @@ devpts/ttyname/중첩 PTY와 enforcing 기기는 아직 검증하지 않았다. 
    signal/CLOEXEC 검증은 완료했다. guest exec는 APK 런타임과 필터를 유지한다.
 5. **Linux 환경:** 별도 fixture에서 shell/Python/로컬 Git을 실행했다.
    독립 설치·복구/package DB에서 shell, Python, Git, apt/dpkg
-   설치·업그레이드·삭제, 네트워크와 devpts/중첩 PTY/대화형 앱 검증. 기존 rootfs를 공유하거나 패키지
+   설치·업그레이드·삭제, 이름 있는 Unix 소켓·추가 소켓 family·DNS/NSS 통합·외부
+   DNS/인터넷·배포판 CA 설정과 devpts/중첩 PTY/대화형 앱 검증. loopback HTTP/TLS와
+   로컬 glibc DNS 전송 검사를 전체 네트워크 지원으로 간주하지 않는다. 기존 rootfs를 공유하거나 패키지
    관리를 도구 몇 개로 축소해 완료를 주장하지 않는다.
 6. **제품 통합:** 공통 backend/session, 명시적 선택·지원 상태·오류, 독립 storage
    identity, capability broker, detach/Activity 재생성 뒤 세션 유지, terminate.
