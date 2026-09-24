@@ -115,6 +115,8 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_close_range: return dl_close_range((unsigned)a[0], (unsigned)a[1], (unsigned)a[2]);
     case SYS_socket: case SYS_socketpair: case SYS_bind: case SYS_connect:
     case SYS_sendto: case SYS_sendmsg:
+    case SYS_getsockname: case SYS_getpeername: case SYS_accept: case SYS_accept4:
+    case SYS_recvfrom: case SYS_recvmsg: case SYS_recvmmsg:
         {
             unsigned long mask;
             dl_copy(&mask, &context->uc_sigmask, 8);
@@ -273,12 +275,10 @@ int dl_install(void *signal_stack, size_t size)
         // Terminal ioctls must retain the guest signal mask: background
         // tcsetpgrp/tcsetattr can stop with SIGTTOU, and drains can block.
         DIRECT(SYS_ioctl),
-        // Untranslated network operations retain normal signal/restart and
-        // blocking behavior. Input addresses are checked in dl_network.
-        DIRECT(SYS_listen), DIRECT(SYS_accept), DIRECT(SYS_accept4),
-        DIRECT(SYS_getsockname), DIRECT(SYS_getpeername),
+        // Operations with no socket names retain native signal/blocking behavior.
+        // Input/output addresses are translated in dl_network when present.
+        DIRECT(SYS_listen),
         DIRECT(SYS_getsockopt), DIRECT(SYS_setsockopt), DIRECT(SYS_shutdown),
-        DIRECT(SYS_recvfrom), DIRECT(SYS_recvmsg), DIRECT(SYS_recvmmsg),
         DIRECT(SYS_epoll_create1), DIRECT(SYS_epoll_ctl), DIRECT(SYS_epoll_pwait),
         DIRECT(SYS_eventfd2),
         DIRECT(SYS_fsync), DIRECT(SYS_fdatasync), DIRECT(SYS_futex),
@@ -288,6 +288,19 @@ int dl_install(void *signal_stack, size_t size)
         DIRECT(SYS_wait4), DIRECT(SYS_waitid), DIRECT(SYS_ppoll), DIRECT(SYS_pselect6),
         DIRECT(SYS_nanosleep), DIRECT(SYS_clock_nanosleep),
 #undef DIRECT
+        // Bulk connected I/O and accept without a peer address need no name
+        // translation. Check both halves of the pointer before allowing them.
+#define DIRECT_NULL(n,index) \
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (n), 0, 5), \
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[index])), \
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 3), \
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[index]) + 4), \
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0, 0, 1), \
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW), \
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr))
+        DIRECT_NULL(SYS_recvfrom, 4), DIRECT_NULL(SYS_sendto, 4),
+        DIRECT_NULL(SYS_accept, 1), DIRECT_NULL(SYS_accept4, 1),
+#undef DIRECT_NULL
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP | DL_TAG),
     };
     struct sock_fprog program = {sizeof(filters) / sizeof(filters[0]), filters};

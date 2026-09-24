@@ -5,6 +5,8 @@ anonymous socket IPC, real glibc DNS queries and Python HTTP/TLS. The same
 positive scenarios pass against the pinned accelerated Rootless engine. This
 does not establish complete socket compatibility, external Internet readiness,
 stock Android policy support or overall Rootless parity.
+The later [pathname Unix milestone](UNIX_SOCKETS.md) supersedes the initial blanket
+pathname-socket restriction below and records the remaining compatibility gaps.
 
 ## Runtime and signal ownership
 

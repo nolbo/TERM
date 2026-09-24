@@ -8,7 +8,8 @@ commands through fork/exec, GNU file operations and local Python/Git workflows.
 Shared [PTY](../tools/direct-linux/PTY.md) and
 [network/resolver](../tools/direct-linux/NETWORK.md) checks also pass against the
 existing accelerated Rootless, including local glibc UDP/TCP DNS and Python TLS.
-Named Unix sockets, DNS/NSS integration, external networking, threads, full Linux
+[Pathname Unix sockets](../tools/direct-linux/UNIX_SOCKETS.md) work within recorded
+name-length/message limits. Full Unix sockets, DNS/NSS integration, external networking, threads, full Linux
 semantics and package/session integration remain incomplete.
 [Current measurements](../tools/direct-linux/SUBPROCESS_PERFORMANCE.md) show faster file calls
 and a 128-file tree workload, but slower repeated command execution than accelerated Rootless.

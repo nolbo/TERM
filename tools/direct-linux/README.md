@@ -24,6 +24,10 @@ signal interruption, real glibc UDP/TCP DNS and Python HTTP/TLS comparisons agai
 Rootless. Named Unix sockets, DNS/NSS integration, external networking and stock
 Android policy validation remain incomplete.
 
+[Pathname Unix sockets](UNIX_SOCKETS.md) now support stream and datagram paths,
+returned addresses and interrupted calls. The paired results explicitly record
+Direct's long-name limitation and the reference engine's named-datagram failure.
+
 `probe.c` handles raw ARM64 `openat` in the calling thread with seccomp TRAP and
 SIGSYS. `syscall.S` supplies separate host/guest SVC sites. The host site is exempt
 only from our own filter, including both halves of its 64-bit instruction pointer.

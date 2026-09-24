@@ -182,16 +182,33 @@ class DirectLinuxLoaderTest {
                 check(manifest.optBoolean("applications"))
                 for (reference in listOf(false, true)) {
                     val checks = JSONArray()
+                    val limitations = JSONArray()
                     for (kind in listOf("static", "dynamic")) {
                         val output = run("/bin/network-$kind", if (reference) "common" else "direct-policy", useProot = reference)
                         assertTrue(output, output.contains("PASS Linux network syscalls\n"))
                         output.lineSequence().filter { it.startsWith("PASS ") }.forEach { checks.put("$kind: $it") }
+                        val unix = run("/bin/unix-$kind", if (reference) "common" else "direct", useProot = reference)
+                        assertTrue(unix, unix.contains("PASS common Unix socket calls\n"))
+                        unix.lineSequence().filter { it.startsWith("PASS ") }.forEach { checks.put("$kind: $it") }
+                        if (reference) {
+                            val failure = run("/bin/unix-$kind", "datagrams", expectedCode = 1, useProot = true)
+                            assertTrue(failure, failure.contains("UNIX DATAGRAM sendto result=-1 errno=2\n"))
+                            limitations.put("$kind: named Unix datagram sendto failed with ENOENT")
+                        }
+                        val longName = run("/bin/unix-$kind", "long-name", expectedCode = if (reference) 0 else 78, useProot = reference)
+                        if (reference) assertTrue(longName, longName.contains("PASS Unix 100-byte pathname bind\n"))
+                        else {
+                            assertTrue(longName, longName.contains("UNIX LIMIT 100-byte pathname bind errno=36\n"))
+                            limitations.put("$kind: 100-byte Unix pathname bind failed with ENAMETOOLONG")
+                        }
                     }
                     val output = run("/usr/bin/python3", "/network.py", useProot = reference)
                     assertTrue(output, output.contains("PASS Linux network applications\n"))
                     output.lineSequence().filter { it.startsWith("PASS ") }.forEach { checks.put(it) }
                     networkResults.put(JSONObject().put("engine", if (reference) "proot" else "direct-linux").put("checks", checks)
                         .put("local_glibc_dns_verified", true).put("external_dns_verified", false)
+                        .put("pathname_unix_stream_verified", true).put("pathname_unix_datagram_verified", !reference)
+                        .put("unix_100_byte_name_verified", reference).put("observed_limitations", limitations)
                         .put("named_unix_sockets_verified", false))
                 }
             }

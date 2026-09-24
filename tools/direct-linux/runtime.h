@@ -43,6 +43,7 @@ long dl_close_range(unsigned first, unsigned last, unsigned flags);
 long dl_close_exec_fds(int main_fd, int interpreter_fd);
 long dl_network(long nr, unsigned long args[6], unsigned long mask);
 long dl_file_path(int fd, char out[DL_PATH]);
+long dl_socket_path(const char *path, char out[DL_PATH], int binding);
 long dl_executable(int fd);
 long dl_virtual_cwd(char path[DL_PATH]);
 int dl_install(void *signal_stack, size_t size);

@@ -185,6 +185,29 @@ long dl_open(int dirfd, const char *path, int flags, unsigned mode)
     return walk(dirfd, path, flags, mode, NULL);
 }
 
+long dl_socket_path(const char *path, char out[DL_PATH], int binding)
+{
+    // Snapshot a root-relative name before entering an interruptible socket
+    // call. No temporary descriptor survives a guest handler or siglongjmp.
+    // This is pathname translation, not an atomic lookup across concurrent
+    // renames: the kernel resolves the resulting name when the socket call runs.
+    char leaf[DL_PATH];
+    long fd = binding ? walk(AT_FDCWD, path, 0, 0, leaf)
+        : dl_open(AT_FDCWD, path, O_PATH | O_CLOEXEC, 0);
+    if (fd < 0) return fd;
+    long r = binding ? dl_device_change((int)fd, leaf, 0) : 0;
+    if (!r) r = dl_file_path((int)fd, out);
+    if (!r && binding) {
+        size_t n = dl_length(out), length = dl_length(leaf);
+        if (n + 1 + length + 1 > DL_PATH) r = -ENAMETOOLONG;
+        else {
+            if (n > 1) out[n++] = '/';
+            dl_copy(out + n, leaf, length + 1);
+        }
+    }
+    release((int)fd); return r;
+}
+
 static long name_change(long nr, unsigned long *a)
 {
     char path[DL_PATH], first[DL_PATH], second[DL_PATH];

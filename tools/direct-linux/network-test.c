@@ -162,16 +162,15 @@ int main(int argc, char **argv)
     CHECK(setvbuf(stdout, NULL, _IONBF, 0) == 0);
     CHECK(streams() == 0 && datagrams() == 0 && rights() == 0 && interruptions() == 0);
     if (argc == 2 && !strcmp(argv[1], "direct-policy")) {
-        CHECK(socket(AF_UNIX, SOCK_STREAM, 0) == -1 && errno == EAFNOSUPPORT);
         int pair[2]; CHECK(socketpair(AF_UNIX, SOCK_DGRAM, 0, pair) == 0);
         struct sockaddr_un address = {.sun_family = AF_UNIX};
         strcpy(address.sun_path, "/dev/socket/forbidden");
-        CHECK(bind(pair[0], (void *)&address, sizeof(address)) == -1 && errno == EOPNOTSUPP);
+        CHECK(bind(pair[0], (void *)&address, sizeof(address)) == -1 && errno == ENOENT);
         address.sun_path[0] = 0;
         CHECK(connect(pair[0], (void *)&address, sizeof(address)) == -1 && errno == EOPNOTSUPP);
         CHECK(sendto(pair[0], "x", 1, 0, (void *)1, 4) == -1 && errno == EFAULT);
         CHECK(close(pair[0]) == 0 && close(pair[1]) == 0);
-        puts("PASS unsupported named IPC denied before host lookup");
+        puts("PASS host socket path and abstract address denied");
     }
     puts("PASS Linux network syscalls"); return 0;
 }

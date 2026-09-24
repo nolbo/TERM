@@ -277,6 +277,15 @@ enforcing 기기 검증을 대신하지 않는다. 전체 호환성 동등성은
 
 ## 남은 구현과 완료 증거
 
+이후 [Unix pathname 단계](../tools/direct-linux/UNIX_SOCKETS.md)에서 지속되는 root FD
+별칭으로 경로와 반환 주소를 변환했다. 임시 FD는 블로킹 호출 전에 모두 닫으므로
+신호 처리기의 chdir와 siglongjmp 후에도 남지 않는다. 정적·동적 stream 검사는
+두 엔진 모두 통과했다. Direct의 named datagram 검사는 통과했지만 Rootless의
+sendto는 ENOENT로 실패했다. 반대로 100바이트 이름은 Rootless에서 성공하고
+Direct에서 ENAMETOOLONG으로 실패한다. [비교 결과](../tools/direct-linux/results/unix-runtime-2026-09-24.json)에
+이 차이를 명시했으며, 긴 이름 별칭·abstract·이름 있는 배치 수신·동시 경로 의미는
+미완료다. 일부 pathname 지원을 전체 Unix 소켓 호환성으로 간주하지 않는다.
+
 1. **정책:** fixture/redroid 검증은 완료. stock enforcing 기기에서 같은 APK의
    seccomp/메모리/포인터 복사를 재검증해야 한다.
 2. **ELF 수직 실행:** 초기 loader/auxv/stack/TLS/PT_INTERP와 실제 glibc 프로그램
@@ -293,7 +302,7 @@ enforcing 기기 검증을 대신하지 않는다. 전체 호환성 동등성은
    signal/CLOEXEC 검증은 완료했다. guest exec는 APK 런타임과 필터를 유지한다.
 5. **Linux 환경:** 별도 fixture에서 shell/Python/로컬 Git을 실행했다.
    독립 설치·복구/package DB에서 shell, Python, Git, apt/dpkg
-   설치·업그레이드·삭제, 이름 있는 Unix 소켓·추가 소켓 family·DNS/NSS 통합·외부
+   설치·업그레이드·삭제, 전체 Unix 소켓 의미·추가 소켓 family·DNS/NSS 통합·외부
    DNS/인터넷·배포판 CA 설정과 devpts/중첩 PTY/대화형 앱 검증. loopback HTTP/TLS와
    로컬 glibc DNS 전송 검사를 전체 네트워크 지원으로 간주하지 않는다. 기존 rootfs를 공유하거나 패키지
    관리를 도구 몇 개로 축소해 완료를 주장하지 않는다.
