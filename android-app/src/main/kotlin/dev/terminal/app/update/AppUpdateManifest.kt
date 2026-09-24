@@ -3,6 +3,8 @@ package dev.terminal.app.update
 import org.json.JSONObject
 import java.io.InputStream
 import java.io.OutputStream
+import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.security.MessageDigest
 
 internal const val UPDATE_REPOSITORY = "nolbo/TERM"
@@ -19,6 +21,7 @@ internal enum class UpdateChannel(val wireName: String) {
 }
 internal const val MAX_UPDATE_APK_BYTES = 128L * 1024 * 1024
 internal const val MAX_UPDATE_MANIFEST_BYTES = 16 * 1024
+internal const val MAX_RELEASE_NOTES_BYTES = 128 * 1024
 
 internal data class AppUpdateManifest(
     val commit: String,
@@ -28,8 +31,10 @@ internal data class AppUpdateManifest(
     val sha256: String,
     val minSdk: Int,
     val channel: UpdateChannel = UpdateChannel.MAIN,
+    val releaseNotes: String? = null,
 ) {
     val apkUrl: String get() = "https://github.com/$UPDATE_REPOSITORY/releases/download/${channel.wireName}-$commit/TERM.apk"
+    val releaseNotesUrl: String get() = "https://github.com/$UPDATE_REPOSITORY/releases/download/${channel.wireName}-$commit/RELEASE_NOTES.ko.md"
 
     companion object {
         fun parse(text: String, expectedChannel: UpdateChannel = UpdateChannel.MAIN): AppUpdateManifest {
@@ -59,6 +64,21 @@ internal data class AppUpdateManifest(
             return AppUpdateManifest(commit, code.toInt(), name, size, sha256, minSdk.toInt(), channel)
         }
     }
+}
+
+/** Bound remote text by bytes and elapsed time, including responses without Content-Length. */
+internal fun readUpdateText(input: InputStream, maxBytes: Int): String {
+    val bytes = ByteArrayOutputStream()
+    val deadline = System.nanoTime() + 45_000_000_000L
+    val buffer = ByteArray(4096)
+    while (true) {
+        if (System.nanoTime() > deadline) throw IOException("Deadline exceeded")
+        val count = input.read(buffer)
+        if (count < 0) break
+        if (bytes.size() + count > maxBytes) throw IOException("Text response too large")
+        bytes.write(buffer, 0, count)
+    }
+    return bytes.toString("UTF-8")
 }
 
 internal enum class UpdateAvailability { CURRENT, AVAILABLE, OLDER, INCOMPATIBLE, NON_FORWARD }

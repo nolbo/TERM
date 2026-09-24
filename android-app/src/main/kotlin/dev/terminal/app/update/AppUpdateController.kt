@@ -11,7 +11,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import dev.terminal.app.BuildConfig
 import dev.terminal.app.R
-import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.IOException
 import java.net.URL
@@ -66,26 +65,15 @@ internal class AppUpdateController(context: Context) {
                     if (connection.responseCode == 404) null
                     else {
                         if (connection.responseCode != 200) throw IOException("HTTP response rejected")
-                        val bytes = ByteArrayOutputStream()
-                        val deadline = System.nanoTime() + 45_000_000_000L
-                        connection.inputStream.use { input ->
-                            val buffer = ByteArray(4096)
-                            while (true) {
-                                if (System.nanoTime() > deadline) throw IOException("Deadline exceeded")
-                                val count = input.read(buffer)
-                                if (count < 0) break
-                                if (bytes.size() + count > MAX_UPDATE_MANIFEST_BYTES) throw UpdateRejected(UpdateRejection.INTEGRITY)
-                                bytes.write(buffer, 0, count)
-                            }
-                        }
-                        AppUpdateManifest.parse(bytes.toString("UTF-8"), requestedChannel)
+                        val text = connection.inputStream.use { readUpdateText(it, MAX_UPDATE_MANIFEST_BYTES) }
+                        AppUpdateManifest.parse(text, requestedChannel)
                     }
                 } finally { connection.disconnect() }
                 val result = if (manifest == null) AppUpdateState.NoRelease else when (
                     updateAvailability(BuildConfig.VERSION_CODE, BuildConfig.UPDATE_REVISION, Build.VERSION.SDK_INT, manifest)
                 ) {
                     UpdateAvailability.CURRENT -> AppUpdateState.Current
-                    UpdateAvailability.AVAILABLE -> AppUpdateState.Available(manifest)
+                    UpdateAvailability.AVAILABLE -> AppUpdateState.Available(manifest.copy(releaseNotes = loadReleaseNotes(manifest)))
                     UpdateAvailability.OLDER -> AppUpdateState.Failed(R.string.update_channel_older)
                     UpdateAvailability.INCOMPATIBLE -> AppUpdateState.Failed(R.string.update_incompatible)
                     UpdateAvailability.NON_FORWARD -> AppUpdateState.Failed(R.string.update_non_forward)
@@ -93,6 +81,18 @@ internal class AppUpdateController(context: Context) {
                 publish(result)
             } catch (error: Exception) { fail(error) }
         }
+    }
+
+    private fun loadReleaseNotes(manifest: AppUpdateManifest): String? = try {
+        val connection = open(manifest.releaseNotesUrl)
+        try {
+            if (connection.responseCode != 200) null
+            else connection.inputStream.use { readUpdateText(it, MAX_RELEASE_NOTES_BYTES) }
+                .trim().takeIf { it.isNotEmpty() }
+        } finally { connection.disconnect() }
+    } catch (_: IOException) {
+        // Missing notes or a network failure must not prevent downloading a valid update.
+        null
     }
 
     fun download() {

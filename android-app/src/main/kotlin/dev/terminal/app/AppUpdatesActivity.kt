@@ -78,6 +78,22 @@ class AppUpdatesActivity : TerminalActivity() {
                             }
                         }
                     }
+                    val manifest = when (state) {
+                        is AppUpdateState.Available -> state.manifest
+                        is AppUpdateState.Downloading -> state.manifest
+                        is AppUpdateState.Ready -> state.manifest
+                        else -> null
+                    }
+                    if (manifest != null) {
+                        Card(shape = MaterialTheme.shapes.extraLarge,
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                            Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                Text(stringResource(R.string.update_release_notes), style = MaterialTheme.typography.titleMedium)
+                                Text(manifest.releaseNotes ?: stringResource(R.string.update_release_notes_unavailable),
+                                    style = MaterialTheme.typography.bodyMedium)
+                            }
+                        }
+                    }
                     Text(stringResource(R.string.update_download_lifetime), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }

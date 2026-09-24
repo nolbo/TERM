@@ -29,4 +29,6 @@
     <string name="update_installer_missing">Could not open the Android installer.</string>
     <string name="update_install_title">Update the app?</string>
     <string name="update_install_warning">Android may stop the app and runtime processes during installation, interrupting live terminal sessions. Save your work before continuing. App data and Linux files are retained.</string>
+    <string name="update_release_notes">Release notes</string>
+    <string name="update_release_notes_unavailable">Could not load release notes for this version. Check for updates again to retry. You can still download the update.</string>
 </resources>
