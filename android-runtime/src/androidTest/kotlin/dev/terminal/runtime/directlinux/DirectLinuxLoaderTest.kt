@@ -20,11 +20,14 @@ class DirectLinuxLoaderTest {
     @Test fun runsLinuxElfFromDataWithoutPtraceOrKernelExec() {
         val arguments = InstrumentationRegistry.getArguments()
         assumeTrue(arguments.getString("directLinuxLoader") == "true")
-        require(arguments.getString("directLinuxBenchmark") != "true" || arguments.getString("directLinuxTrace") != "true") {
-            "Trace logging must be disabled for performance comparisons"
+        require(arguments.getString("directLinuxBenchmark") != "true" ||
+            (arguments.getString("directLinuxTrace") != "true" && arguments.getString("directLinuxProfile") != "true")) {
+            "Trace and profile logging must be disabled for performance comparisons"
         }
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         check(context.packageName == "dev.terminal.runtime.test")
+        val reportFile = File(context.filesDir, "direct-linux-loader-result.json")
+        check(!reportFile.exists() || reportFile.delete()) { "Cannot remove stale result" }
         val packaged = ApkNativeExecutableLoader(context)
         val executable = packaged.resolvePackagedExecutable("direct-linux-loader").getOrThrow()
         fun digest(data: ByteArray) = MessageDigest.getInstance("SHA-256").digest(data).joinToString("") { "%02x".format(it) }
@@ -37,6 +40,7 @@ class DirectLinuxLoaderTest {
         val results = JSONArray()
         var policy: List<String> = emptyList()
         val benchmarks = JSONArray()
+        val execProfiles = JSONArray()
         fun run(path: String, vararg args: String, expectedCode: Int = 0, useProot: Boolean = false): String {
             val log = File(temporary, "output")
             val engine = if (useProot) packaged.resolvePackagedExecutable("proot").getOrThrow() else executable
@@ -48,7 +52,7 @@ class DirectLinuxLoaderTest {
             val builder = ProcessBuilder(command)
                 .directory(temporary).redirectErrorStream(true).redirectOutput(log)
             builder.environment().apply {
-                keys.filter { it.startsWith("PROOT_") || it == "LD_PRELOAD" }.toList().forEach { remove(it) }
+                keys.filter { it.startsWith("PROOT_") || it.startsWith("DIRECT_LINUX_") || it == "LD_PRELOAD" }.toList().forEach { remove(it) }
                 if (profile != null) {
                     profile.hostEnvironment.forEach { put(it.substringBefore('='), it.substringAfter('=')) }
                     put("PROOT_LOADER", packaged.resolvePackagedExecutable("proot-loader").getOrThrow().path)
@@ -57,6 +61,8 @@ class DirectLinuxLoaderTest {
             }
             builder.environment()["DIRECT_LINUX_POLICY"] = "1"
             if (arguments.getString("directLinuxTrace") == "true") builder.environment()["DIRECT_LINUX_TRACE"] = "1"
+            if (arguments.getString("directLinuxProfile") == "true" && args.contentEquals(arrayOf("shell-benchmark")))
+                builder.environment()["DIRECT_LINUX_EXEC_PROFILE"] = "1"
             val started = System.nanoTime()
             val process = builder.start()
             process.outputStream.close()
@@ -100,6 +106,20 @@ class DirectLinuxLoaderTest {
                 Files.createSymbolicLink(File(root, name).toPath(), File(target).toPath())
             }
             run("/bin/true")
+            val replaceable = File(root, "replaceable")
+            replaceable.writeBytes(File(root, "bin/true").readBytes())
+            assertTrue(replaceable.setExecutable(true))
+            run("/replaceable")
+            // A warm inode must expose new program bytes after an in-place update.
+            replaceable.writeBytes(File(root, "bin/printf").readBytes())
+            assertTrue(run("/replaceable", "%s\n", "updated").contains("updated\n"))
+            // Atomic package replacement must also select the new inode.
+            val replacement = File(root, "replacement")
+            replacement.writeBytes(File(root, "bin/true").readBytes())
+            assertTrue(replacement.setExecutable(true))
+            Files.move(replacement.toPath(), replaceable.toPath(), java.nio.file.StandardCopyOption.ATOMIC_MOVE,
+                java.nio.file.StandardCopyOption.REPLACE_EXISTING)
+            run("/replaceable")
             assertTrue(run("/bin/printf", "%s:%d\n", "linux", "42").contains("linux:42\n"))
             assertTrue(run("/bin/sh", "-c", "read value < /input; cd /tmp; printf '%s:%s\\n' \"\$value\" \"\$PWD\"")
                 .contains("fixture:/tmp\n"))
@@ -154,17 +174,31 @@ class DirectLinuxLoaderTest {
                     }
                 }
             }
+            if (arguments.getString("directLinuxProfile") == "true") {
+                val output = run("/bin/process-dynamic", "shell-benchmark")
+                output.lineSequence().filter { it.startsWith("EXEC_PROFILE ") }.forEach {
+                    execProfiles.put(JSONObject(it.removePrefix("EXEC_PROFILE ")))
+                }
+                assertEquals("Outer program + shell + thirty commands", 32, execProfiles.length())
+            }
+            // MAP_PRIVATE writes and BSS initialization must leave package bytes intact.
+            for (i in 0 until files.length()) {
+                val entry = files.getJSONObject(i)
+                assertEquals(entry.getString("sha256"), digest(File(root, entry.getString("path")).readBytes()))
+            }
             val report = JSONObject().put("schema", 1).put("loader_sha256", expected)
                 .put("fixtures", manifest).put("android_api", android.os.Build.VERSION.SDK_INT)
                 .put("initial_process_policy", JSONArray(policy))
                 .put("results", results).put("stock_policy_verified", false)
-                .put("benchmarks", benchmarks)
+                .put("benchmarks", benchmarks).put("exec_profiles", execProfiles)
+                .put("exec_profile_stages", JSONArray(listOf("arguments", "read_validate", "reset", "unmap", "map", "entry", "dispose")))
+                .put("exec_profile_map_stages", JSONArray(listOf("reserve", "file_map", "verify", "bss", "final_protect")))
             if (benchmarks.length() > 0) {
                 val proot = packaged.resolvePackagedExecutable("proot").getOrThrow()
                 report.put("proot_sha256", digest(proot.readBytes()))
                     .put("preload_sha256", digest(File(proot.parentFile, "libproot-faststat.so").readBytes()))
             }
-            File(context.filesDir, "direct-linux-loader-result.json").writeText(report.toString(2) + "\n")
+            reportFile.writeText(report.toString(2) + "\n")
         } finally {
             // Files.walk does not follow symlinks by default.
             Files.walk(temporary.toPath()).use { paths ->

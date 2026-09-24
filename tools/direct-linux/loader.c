@@ -48,6 +48,7 @@ int main(int argc, char **argv)
     if (dl_state.page < 4096 || dl_state.page > 65536 || (dl_state.page & (dl_state.page - 1))) return 2;
     if (!realpath(argv[1], dl_state.root) || dl_equal(dl_state.root, "/")) { fail("an independent root directory is required"); return 2; }
     dl_state.trace = getenv("DIRECT_LINUX_TRACE") && !strcmp(getenv("DIRECT_LINUX_TRACE"), "1");
+    dl_state.exec_profile = getenv("DIRECT_LINUX_EXEC_PROFILE") && !strcmp(getenv("DIRECT_LINUX_EXEC_PROFILE"), "1");
     dl_state.hwcap = getauxval(AT_HWCAP); dl_state.hwcap2 = getauxval(AT_HWCAP2);
     dl_state.vdso = getauxval(AT_SYSINFO_EHDR); dl_state.minsigstksz = getauxval(AT_MINSIGSTKSZ);
     dl_state.clktck = sysconf(_SC_CLK_TCK);

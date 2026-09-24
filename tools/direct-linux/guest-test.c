@@ -15,6 +15,7 @@
 #include <time.h>
 #include <unistd.h>
 
+extern unsigned char _end[];
 static _Thread_local unsigned long tls_value = 0x11223344;
 static unsigned char zeroed[65539];
 extern unsigned long proot_faststat_hits(void) __attribute__((weak));
@@ -69,6 +70,11 @@ int main(int argc, char **argv)
     CHECK(!strcmp((char *)getauxval(AT_EXECFN), argv[0]));
     CHECK(tls_value == 0x11223344); tls_value++;
     for (unsigned i = 0; i < sizeof(zeroed); i++) CHECK(zeroed[i] == 0);
+    // Linux padzero semantics include the page tail beyond p_memsz. Non-load
+    // ELF sections on disk must not appear in the initial BSS padding.
+    uintptr_t end = (uintptr_t)_end;
+    uintptr_t tail = (end + getauxval(AT_PAGESZ) - 1) & ~(getauxval(AT_PAGESZ) - 1);
+    for (uintptr_t at = end; at < tail; at++) CHECK(*(unsigned char *)at == 0);
     char cwd[4096], text[64] = {0};
     CHECK(getcwd(cwd, sizeof(cwd)) && !strcmp(cwd, "/"));
     int fd = open("/absolute-link", O_RDONLY | O_CLOEXEC);

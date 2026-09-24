@@ -63,6 +63,9 @@ int main(int argc, char **argv)
     if (argc == 3 && !strcmp(argv[1], "repeat")) {
         int remaining = atoi(argv[2]);
         CHECK(value == 1234); value = 999;
+        // Exec's private source descriptors must close after mapping, including
+        // every iteration of repeated static/dynamic image replacement.
+        for (int fd = 3; fd < 256; fd++) CHECK(fcntl(fd, F_GETFD) == -1 && errno == EBADF);
         // A deterministic mapping must be available again after every exec.
         CHECK(mmap((void *)0x620000000000UL, 4096, PROT_READ | PROT_WRITE,
             MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE, -1, 0) == (void *)0x620000000000UL);

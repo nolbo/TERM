@@ -27,7 +27,17 @@ long dl_track(uintptr_t address, size_t size)
 {
     if (count >= MAP_LIMIT) return -ENOMEM;
     size = (size + dl_state.page - 1) & ~(dl_state.page - 1);
-    regions[count++] = (struct region){address, address + size};
+    uintptr_t end = address + size;
+    // Ownership does not depend on current protection or file backing. Merge
+    // adjacent owned intervals so exec can unmap each contiguous span once.
+    // An untracked hole is never crossed (it may hold surviving runtime data).
+    for (size_t i = 0; i < count;) {
+        if (end < regions[i].begin || address > regions[i].end) { i++; continue; }
+        if (regions[i].begin < address) address = regions[i].begin;
+        if (regions[i].end > end) end = regions[i].end;
+        regions[i] = regions[--count]; i = 0;
+    }
+    regions[count++] = (struct region){address, end};
     return 0;
 }
 

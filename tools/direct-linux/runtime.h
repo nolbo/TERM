@@ -16,6 +16,7 @@ struct dl_state {
     int root_fd;
     int vfork_fd;
     int trace;
+    int exec_profile;
     size_t page;
     unsigned long hwcap, hwcap2, vdso, minsigstksz, clktck;
     char root[DL_PATH];
@@ -26,6 +27,7 @@ struct dl_state {
 extern struct dl_state dl_state;
 size_t dl_length(const char *s);
 void dl_copy(void *destination, const void *source, size_t size);
+int dl_equal_memory(const void *a, const void *b, size_t size);
 int dl_equal(const char *a, const char *b);
 long dl_read_memory(void *destination, const void *source, size_t size);
 long dl_write_memory(void *destination, const void *source, size_t size);

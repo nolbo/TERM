@@ -39,9 +39,11 @@ Bionic after the guest changes TPIDR_EL0. This removes the first probe's TLS
 restriction. The [process milestone](PROCESS.md) describes later exec support
 and the remaining thread/signal work.
 
-The main ELF and interpreter are copied as data into anonymous RW pages and then
-given their final permissions. Guest shared-library `mmap` retains the kernel's
-file-backed semantics, including lazy paging, shared mappings and EOF/SIGBUS.
+The initial milestone copied main ELF/interpreter bytes into anonymous RW pages
+and then applied final permissions. The subsequent [exec cost reduction](EXEC_PERFORMANCE.md)
+uses validated MAP_PRIVATE file mappings for those images, with anonymous full
+BSS pages and private partial-page zeroing. Guest shared-library `mmap` also retains
+the kernel's file-backed semantics, including paging, sharing and EOF/SIGBUS.
 The original copy-every-executable-mapping candidate failed on glibc's larger
 reservation and was removed. A successful `mmap` is distinct from `execve` of app
 data. Android's mapping restrictions are authoritative; failures are returned,

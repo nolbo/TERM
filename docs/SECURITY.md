@@ -109,7 +109,10 @@ The separate `direct-linux-probe` and `direct-linux-loader` entries exist only f
 opt-in standalone instrumentation APK. These test unprivileged in-process syscall
 translation, anonymous W-to-X mappings and actual Linux ELF using temporary
 fixture data. Guest exec replaces tracked guest mappings inside the surviving APK
-runtime; it never kernel-executes a data ELF or clears inherited filters. The
+runtime; it never kernel-executes a data ELF or clears inherited filters. Initial
+ELF/interpreter pages now use validated private file mappings; mapping denial
+is not bypassed with an anonymous-copy fallback. Source-file changes after entry
+retain ordinary file-mapping behavior, not a frozen-image guarantee. The
 [process milestone](../tools/direct-linux/PROCESS.md) documents its bounded semantics.
 They are not bundled in the product APK and do not loosen inherited
 Android policy. Their results do not establish support on stock enforcing devices. See the

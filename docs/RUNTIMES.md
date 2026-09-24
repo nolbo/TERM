@@ -5,7 +5,7 @@ in-process Linux syscall translation without a PRoot tracer. Its current APK
 probe and experimental ELF loader are not a usable distribution backend or a
 selectable runtime. The loader can run static/dynamic glibc programs, scripts and shell external
 commands through fork/exec. Threads, full Linux semantics and package/session
-integration remain incomplete. [Process measurements](../tools/direct-linux/PROCESS.md)
+integration remain incomplete. [Current measurements](../tools/direct-linux/EXEC_PERFORMANCE.md)
 show faster file calls but slower repeated command execution than accelerated Rootless.
 Neither replaces existing Rootless installations.
 

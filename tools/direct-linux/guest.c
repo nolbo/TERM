@@ -22,10 +22,6 @@
 struct dl_state dl_state = {.vfork_fd = -1};
 
 size_t dl_length(const char *s) { size_t n = 0; while (s[n]) n++; return n; }
-void dl_copy(void *d, const void *s, size_t n) {
-    unsigned char *to = d; const unsigned char *from = s;
-    for (size_t i = 0; i < n; i++) to[i] = from[i];
-}
 int dl_equal(const char *a, const char *b) {
     size_t i = 0; while (a[i] && a[i] == b[i]) i++; return a[i] == b[i];
 }

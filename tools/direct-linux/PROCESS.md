@@ -118,10 +118,11 @@ reaping, but excludes the outer APK/PRoot launcher. Trace logging is disabled.
 | 5,000 open/read/close calls | 59.066 ms | 44.694 ms | Direct Linux 1.32x faster |
 | Shell + thirty external commands | 49.595 ms | 84.300 ms | Direct Linux 1.70x slower |
 
-The process result is a **remaining performance regression against the reference**,
-not a successful overall speed improvement. Its cause is not yet profiled; image
-staging/copy, fork and state reset are candidates, not proven explanations. The
-next performance work is to measure these costs and improve the real command
-workload without weakening ELF validation, cleanup, policy or signal behavior.
+This table records the initial process milestone. The subsequent
+[exec cost reduction](EXEC_PERFORMANCE.md) profiled the image-mapping bottleneck
+and reduced repeated-command time to 51.995 ms. The current paired Rootless
+reference is 47.911 ms, so this remains an incomplete performance improvement.
+The later document also explains the change to validated file-backed main and
+interpreter mappings and the resulting concurrent-file semantics.
 Broader Linux semantics, independent installation/packages, common session/PTY
 integration and enforcing-device verification are still required by the goal.

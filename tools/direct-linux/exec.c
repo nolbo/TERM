@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
+#include <time.h>
 
 #define IMAGE_LIMIT (128UL * 1024 * 1024)
 #define STACK_SIZE (8UL * 1024 * 1024)
@@ -23,6 +24,7 @@ struct image {
     Elf64_Phdr ph[PH_LIMIT];
     unsigned char *bytes;
     size_t bytes_size;
+    int source_fd;
     size_t phnum;
     void *reservation;
     size_t reservation_size;
@@ -35,6 +37,7 @@ static int range(uint64_t start, uint64_t size, uint64_t limit) { return start <
 
 static long read_image(const char *path, struct image *out, int interpreter)
 {
+    out->source_fd = -1;
     int fd = (int)dl_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC, 0);
     if (fd < 0) return fd;
     struct stat st;
@@ -130,11 +133,16 @@ static long read_image(const char *path, struct image *out, int interpreter)
     out->header = header; out->low = low; out->high = high; out->alignment = alignment; out->phdr = phdr;
     result = 0;
 done:
-    DL_CALL(SYS_close, fd, 0, 0, 0, 0, 0); return result;
+    if (!result) out->source_fd = fd;
+    else DL_CALL(SYS_close, fd, 0, 0, 0, 0, 0);
+    return result;
 }
 
-static long map_image(struct image *out)
+static unsigned long profile_clock(void);
+
+static long map_image(struct image *out, unsigned long costs[5])
 {
+    unsigned long before = profile_clock(), now;
     Elf64_Ehdr header = out->header;
     Elf64_Phdr *ph = out->ph;
     uintptr_t low = out->low, high = out->high, alignment = out->alignment;
@@ -155,18 +163,52 @@ static long map_image(struct image *out)
         // The load bias, not merely the first mapping, satisfies p_align.
         out->base = ((uintptr_t)reserved - low + alignment - 1) & ~(alignment - 1);
     }
+    now = profile_clock(); costs[0] += now - before;
     out->reservation = reserved;
     for (unsigned i = 0; i < header.e_phnum; i++) {
         Elf64_Phdr *p = ph + i;
         if (p->p_type != PT_LOAD || !p->p_memsz) continue;
         uintptr_t begin = out->base + down(p->p_vaddr);
         size_t size = up(p->p_vaddr + p->p_memsz) - down(p->p_vaddr);
-        if (DL_CALL(SYS_mprotect, begin, size, PROT_READ | PROT_WRITE, 0, 0, 0)) { goto unmap; }
-        dl_copy((void *)(out->base + p->p_vaddr), out->bytes + p->p_offset, p->p_filesz);
-        dl_clear_cache(begin, begin + size);
         int prot = ((p->p_flags & PF_R) ? PROT_READ : 0) | ((p->p_flags & PF_W) ? PROT_WRITE : 0) |
             ((p->p_flags & PF_X) ? PROT_EXEC : 0);
-        if (DL_CALL(SYS_mprotect, begin, size, prot, 0, 0, 0)) { goto unmap; }
+        before = profile_clock();
+        size_t file_size = p->p_filesz ? up(p->p_vaddr + p->p_filesz) - down(p->p_vaddr) : 0;
+        if (file_size) {
+            // Ordinary MAP_PRIVATE mappings preserve the kernel page cache and
+            // mapping policy. No executable memfd, disk cache or policy bypass.
+            long mapped = dl_mmap(begin, file_size, prot | PROT_READ, MAP_PRIVATE | MAP_FIXED,
+                out->source_fd, down(p->p_offset));
+            if (mapped < 0) return mapped;
+        }
+        now = profile_clock(); costs[1] += now - before; before = now;
+        // The ELF metadata was parsed from a private snapshot. Check that the
+        // mapped file bytes still match before entering any guest code. Later
+        // writes/truncation have normal file-mapping semantics, as for DSOs.
+        if (!dl_equal_memory((void *)(out->base + p->p_vaddr), out->bytes + p->p_offset, p->p_filesz)) return -EAGAIN;
+        now = profile_clock(); costs[2] += now - before; before = now;
+        if (file_size < size) {
+            long mapped = dl_mmap(begin + file_size, size - file_size, prot,
+                MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED, -1, 0);
+            if (mapped < 0) return mapped;
+        }
+        uintptr_t zero_begin = out->base + p->p_vaddr + p->p_filesz;
+        // Linux clears the entire partial page after file bytes when BSS is
+        // present, including padding beyond p_memsz. glibc's early allocator
+        // uses that zeroed tail at _end before requesting another mapping.
+        uintptr_t zero_end = p->p_memsz > p->p_filesz ? begin + file_size : zero_begin;
+        if (zero_begin < zero_end) {
+            // The file-backed final page may contain non-BSS bytes on disk.
+            // Zero the private partial page without ever granting W+X.
+            uintptr_t page = down(zero_begin);
+            if (DL_CALL(SYS_mprotect, page, dl_state.page, PROT_READ | PROT_WRITE, 0, 0, 0)) goto unmap;
+            for (uintptr_t at = zero_begin; at < zero_end; at++) *(unsigned char *)at = 0;
+            if (p->p_flags & PF_X) dl_clear_cache(page, page + dl_state.page);
+            if (DL_CALL(SYS_mprotect, page, dl_state.page, prot | PROT_READ, 0, 0, 0)) goto unmap;
+        }
+        now = profile_clock(); costs[3] += now - before; before = now;
+        if (!(prot & PROT_READ) && file_size && DL_CALL(SYS_mprotect, begin, file_size, prot, 0, 0, 0)) goto unmap;
+        now = profile_clock(); costs[4] += now - before;
     }
     out->entry = out->base + header.e_entry;
     out->phdr = out->base + out->phdr;
@@ -265,9 +307,11 @@ static void dispose_image(struct image *image)
 {
     if (image->bytes) DL_CALL(SYS_munmap, image->bytes, image->bytes_size, 0, 0, 0, 0);
     image->bytes = NULL;
+    if (image->source_fd >= 0) DL_CALL(SYS_close, image->source_fd, 0, 0, 0, 0, 0);
+    image->source_fd = -1;
 }
 
-static long close_exec_fds(void)
+static long close_exec_fds(int main_fd, int interpreter_fd)
 {
     // Single-threaded execution only: the FD table cannot change underneath us.
     long fd = DL_CALL(SYS_openat, AT_FDCWD, "/proc/self/fd", O_RDONLY | O_DIRECTORY | O_CLOEXEC, 0, 0, 0);
@@ -287,7 +331,8 @@ static long close_exec_fds(void)
                 value = value * 10 + d->name[i++] - '0';
             }
             if (i && i < d->size - offsetof(struct dent, name) && !d->name[i] &&
-                    value != (unsigned)fd && value != (unsigned)dl_state.root_fd && value != (unsigned)dl_state.vfork_fd) {
+                    value != (unsigned)fd && value != (unsigned)dl_state.root_fd && value != (unsigned)dl_state.vfork_fd &&
+                    value != (unsigned)main_fd && value != (unsigned)interpreter_fd) {
                 long flags = DL_CALL(SYS_fcntl, value, F_GETFD, 0, 0, 0, 0);
                 if (flags >= 0 && (flags & FD_CLOEXEC)) DL_CALL(SYS_close, value, 0, 0, 0, 0, 0);
             }
@@ -298,7 +343,7 @@ done:
     DL_CALL(SYS_close, fd, 0, 0, 0, 0, 0); return result;
 }
 
-static long reset_exec_state(void)
+static long reset_exec_state(int main_fd, int interpreter_fd)
 {
     struct { uintptr_t handler, flags, restorer, mask; } action;
     for (int s = 1; s <= 64; s++) {
@@ -312,7 +357,7 @@ static long reset_exec_state(void)
     // Old glibc pointers must not be consulted by the kernel after unmapping.
     long r = DL_CALL(SYS_set_robust_list, 0, 24, 0, 0, 0, 0); if (r) return r;
     DL_CALL(SYS_set_tid_address, 0, 0, 0, 0, 0, 0);
-    return close_exec_fds();
+    return close_exec_fds(main_fd, interpreter_fd);
 }
 
 static long script_arguments(struct preparation *p)
@@ -348,12 +393,53 @@ static long script_arguments(struct preparation *p)
     return 0;
 }
 
+static unsigned long profile_clock(void)
+{
+    if (!dl_state.exec_profile) return 0;
+    struct timespec t;
+    if (DL_CALL(SYS_clock_gettime, CLOCK_MONOTONIC, &t, 0, 0, 0, 0)) return 0;
+    return (unsigned long)t.tv_sec * 1000000000UL + t.tv_nsec;
+}
+
+static size_t number(char *text, unsigned long value)
+{
+    char digits[24]; size_t n = 0, size = 0;
+    do { digits[n++] = '0' + value % 10; value /= 10; } while (value);
+    while (n) text[size++] = digits[--n];
+    return size;
+}
+
+static void profile_report(unsigned long times[8], unsigned long costs[5], unsigned long bytes, int replacing)
+{
+    char out[384]; const char prefix[] = "EXEC_PROFILE {\"replacing\":";
+    dl_copy(out, prefix, sizeof(prefix) - 1); size_t n = sizeof(prefix) - 1;
+    n += number(out + n, replacing);
+    const char size_key[] = ",\"bytes\":";
+    dl_copy(out + n, size_key, sizeof(size_key) - 1); n += sizeof(size_key) - 1;
+    n += number(out + n, bytes);
+    const char times_key[] = ",\"ns\":[";
+    dl_copy(out + n, times_key, sizeof(times_key) - 1); n += sizeof(times_key) - 1;
+    for (unsigned i = 1; i < 8; i++) {
+        n += number(out + n, times[i] - times[i - 1]); out[n++] = i == 7 ? ']' : ',';
+    }
+    const char costs_key[] = ",\"map_ns\":[";
+    dl_copy(out + n, costs_key, sizeof(costs_key) - 1); n += sizeof(costs_key) - 1;
+    for (unsigned i = 0; i < 5; i++) {
+        n += number(out + n, costs[i]); out[n++] = i == 4 ? ']' : ',';
+    }
+    out[n++] = '}'; out[n++] = '\n';
+    DL_CALL(SYS_write, 2, out, n, 0, 0, 0);
+}
+
 long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_entry *entry, int replacing)
 {
+    unsigned long times[8] = {0}, costs[5] = {0}, bytes = 0;
+    times[0] = profile_clock();
     long memory = DL_CALL(SYS_mmap, 0, sizeof(struct preparation), PROT_READ | PROT_WRITE,
         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (memory < 0) return memory;
     struct preparation *p = (void *)memory;
+    p->main.source_fd = p->interpreter.source_fd = -1;
     long r = dl_string(p->path, path);
     if (r) goto done;
     long stack = DL_CALL(SYS_mmap, 0, STACK_SIZE + 2 * dl_state.page, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -364,6 +450,7 @@ long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_en
     r = vector(p, env, p->env, &p->envc, ENV_LIMIT); if (r) goto done;
     if (!p->argc) { p->argc = 1; r = stack_string(p, "", &p->argv[0]); if (r) goto done; }
     r = stack_string(p, p->path, &p->execfn); if (r) goto done;
+    times[1] = profile_clock();
     for (unsigned depth = 0;; depth++) {
         r = read_image(p->path, &p->main, 0);
         if (r != 1) break;
@@ -374,14 +461,19 @@ long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_en
     if (p->main.interpreter[0]) {
         r = read_image(p->main.interpreter, &p->interpreter, 1); if (r) goto done;
     }
+    times[2] = profile_clock();
+    bytes = p->main.bytes_size + p->interpreter.bytes_size;
     // Commit point: validated input snapshots and strings no longer refer to
     // the old image. Failures before here return errno without changing it.
     // Failures after here cannot return into unmapped guest code.
     if (replacing) {
-        if (reset_exec_state()) goto fatal;
-        dl_unmap_all();
+        if (reset_exec_state(p->main.source_fd, p->interpreter.source_fd)) goto fatal;
     }
-    if (map_image(&p->main) || (p->interpreter.bytes && map_image(&p->interpreter))) goto fatal;
+    times[3] = profile_clock();
+    if (replacing) dl_unmap_all();
+    times[4] = profile_clock();
+    if (map_image(&p->main, costs) || (p->interpreter.bytes && map_image(&p->interpreter, costs))) goto fatal;
+    times[5] = profile_clock();
     long heap = dl_mmap(0, DL_HEAP, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (heap < 0 || dl_track((uintptr_t)stack, STACK_SIZE + 2 * dl_state.page)) goto fatal;
     dl_state.heap_start = dl_state.heap_end = dl_state.heap_mapped = (uintptr_t)heap;
@@ -395,10 +487,13 @@ long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_en
         DL_CALL(SYS_close, dl_state.vfork_fd, 0, 0, 0, 0, 0); dl_state.vfork_fd = -1;
     }
     p->stack = NULL; r = 0;
+    times[6] = profile_clock();
 done:
     if (p->stack) DL_CALL(SYS_munmap, p->stack - dl_state.page, STACK_SIZE + 2 * dl_state.page, 0, 0, 0, 0);
     dispose_image(&p->main); dispose_image(&p->interpreter);
     DL_CALL(SYS_munmap, p, sizeof(*p), 0, 0, 0, 0);
+    times[7] = profile_clock();
+    if (!r && dl_state.exec_profile) profile_report(times, costs, bytes, replacing);
     return r;
 fatal:
     {
