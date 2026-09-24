@@ -17,6 +17,7 @@ struct dl_state {
     int vfork_fd;
     int trace;
     int exec_profile;
+    int startup_profile;
     size_t page;
     unsigned long hwcap, hwcap2, vdso, minsigstksz, clktck;
     char root[DL_PATH];

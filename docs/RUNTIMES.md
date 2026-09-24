@@ -21,6 +21,12 @@ accelerated Rootless on redroid. This narrow result does not establish overall p
 [Later short-command measurements](../tools/direct-linux/SHORT_COMMAND_PERFORMANCE.md)
 compare old/new loaders inside the same APK: the median paired time reduction is
 2.3% across 54 pairs, after removing unnecessary syscall traps and startup checks.
+[Fork/exit profiling](../tools/direct-linux/STARTUP_PERFORMANCE.md) then identifies
+unneeded Bionic bootstrap mappings inherited by guest children. Excluding them
+with MADV_DONTFORK, while retaining runtime/BSS, host TLS and kernel clock maps,
+reduces the same warm short-command workload by a further 24.3% across 54 pairs.
+Guest and signal-stack mappings retain their usual inheritance. This relies on
+the loader's existing freestanding execution boundary after initial preparation.
 The full Python/Git comparison remains incomplete because the Rootless reference
 fails during repository cleanup. Direct's subprocess FD cleanup reduced its own
 Git workload time, but establishes no completed paired Git comparison.

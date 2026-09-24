@@ -336,6 +336,28 @@ Rootless는 변경 범위에서 제외했으며, stock enforcing 정책 검증�
 [회귀 결과](../tools/direct-linux/results/short-command-runtime-2026-09-25.json)를 보존한다.
 기존 스레드 작업은 이번 로더에서 제외했으며 stock enforcing 정책 검증은 여전히 없다.
 
+### exec 밖의 생성·종료 비용: 2026-09-25
+
+[시작 비용 계측](../tools/direct-linux/STARTUP_PERFORMANCE.md)을 추가해 fork 복귀,
+exec 처리, main 진입, 종료와 reap을 같은 시계로 구분했다. 초기 APK의 Bionic·링커·
+할당자 매핑이 게스트 자식에게 상속되면서 생성·정리 비용을 만들고 있었다.
+게스트 준비 전 해당 매핑에 MADV_DONTFORK를 적용하고 런타임 LOAD/BSS, 호스트 TLS,
+vDSO/vvar를 보존했다. 나중에 만드는 게스트·신호 스택은 원래대로 상속한다.
+초기 핸들러와 robust-list/clear-child-TID 포인터도 정리한다. 커널의 rseq 참조를
+고려해 호스트 TLS는 유지하며, 실제 자식·손자 검사로 상속과 부모 분리를 검증했다.
+
+같은 APK에서 이전 단계 `6bf6203` 대비 **54쌍의 시간 감소율 중앙값은 24.3%**였고
+54쌍 모두 빨라졌다. 마지막 차수의 셸+명령 30회 중앙값은 46.825→35.049ms,
+동일 Rootless는 48.426ms였다. 진단의 fork/exit 전체는 평균 602→327µs였지만
+보고서 출력 비용을 포함하므로 벤치마크와 구분한다. 초기 APK 준비의 일회성
+maps 조회 비용은 이 반복 명령 시간에서 제외되며 전체 앱의 추가 가속을 뜻하지 않는다.
+
+네이티브/호스트/표준 Gradle 검증과 Android 신호·네트워크·PTY 회귀가 통과했다.
+[원시 표본](../tools/direct-linux/results/startup-performance-2026-09-25.json)과
+[회귀 결과](../tools/direct-linux/results/startup-runtime-2026-09-25.json)를 보존한다.
+이후 Bionic 호출이나 새로운 커널 등록 포인터를 도입하면 상속 정책을 재검토해야 한다.
+기존 스레드 작업은 보존했으며, stock enforcing 기기와 제품 통합 검증은 남아 있다.
+
 ## 신호 마스크 호환성: 2026-09-24
 
 [신호 마스크 단계](../tools/direct-linux/SIGNAL_MASKS.md)는 일반 프로그램의

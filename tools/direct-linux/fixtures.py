@@ -70,7 +70,7 @@ def prepare(output, applications=False):
                         "-Wl,-z,noexecstack,-z,max-page-size=65536",
                         *(["-static"] if variant == "static" else []), str(source), "-o", str(target)], check=True)
         mapping[str(target.relative_to(output))] = target
-    for program in ("process", "files", "fds", "tty", "network", "dns", "unix", "signals"):
+    for program in ("process", "startup", "files", "fds", "tty", "network", "dns", "unix", "signals"):
         for variant in ("static", "dynamic"):
             target = output / "bin" / f"{program}-{variant}"
             subprocess.run(["clang", "-O2", "-Wall", "-Wextra", "-Werror",

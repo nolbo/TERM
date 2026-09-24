@@ -23,7 +23,7 @@ class DirectLinuxLoaderTest {
         val baselineDigest = arguments.getString("directLinuxBaselineSha256")
         require((arguments.getString("directLinuxBenchmark") != "true" && baselineDigest == null) ||
             (arguments.getString("directLinuxTrace") != "true" && arguments.getString("directLinuxProfile") != "true" &&
-                arguments.getString("directLinuxApplicationProfile") != "true")) {
+                arguments.getString("directLinuxApplicationProfile") != "true" && arguments.getString("directLinuxStartupProfile") != "true")) {
             "Trace and profile logging must be disabled for performance comparisons"
         }
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -52,6 +52,7 @@ class DirectLinuxLoaderTest {
         val benchmarks = JSONArray()
         val execProfiles = JSONArray()
         val applicationProfiles = JSONArray()
+        val startupProfiles = JSONArray()
         val ptyResults = JSONArray()
         val networkResults = JSONArray()
         val signalResults = JSONArray()
@@ -81,6 +82,9 @@ class DirectLinuxLoaderTest {
                 builder.environment()["DIRECT_LINUX_EXEC_PROFILE"] = "1"
             if (arguments.getString("directLinuxApplicationProfile") == "true" && args.contentEquals(arrayOf("/applications.py", "profile")))
                 builder.environment()["DIRECT_LINUX_EXEC_PROFILE"] = "1"
+            if (arguments.getString("directLinuxStartupProfile") == "true" &&
+                (path == "/bin/startup-dynamic" || args.contentEquals(arrayOf("shell-benchmark"))))
+                builder.environment()["DIRECT_LINUX_STARTUP_PROFILE"] = "1"
             return builder
         }
         fun run(path: String, vararg args: String, expectedCode: Int = 0, useProot: Boolean = false, useBaseline: Boolean = false): String {
@@ -347,6 +351,25 @@ class DirectLinuxLoaderTest {
                     }
                 }
             }
+            if (arguments.getString("directLinuxStartupProfile") == "true") {
+                for (scenario in listOf("fork-exit", "exec-static", "exec-dynamic", "shell-benchmark")) {
+                    val output = if (scenario == "shell-benchmark") run("/bin/process-dynamic", scenario)
+                        else run("/bin/startup-dynamic", scenario)
+                    output.lineSequence().filter { it.startsWith("STARTUP_HOST ") }.forEach {
+                        startupProfiles.put(JSONObject(it.removePrefix("STARTUP_HOST ")).put("kind", "host").put("case", scenario))
+                    }
+                    val samples = output.lineSequence().filter { it.startsWith("STARTUP_SAMPLE ") }.toList()
+                    assertEquals(if (scenario == "shell-benchmark") 0 else 30, samples.size)
+                    val runtime = output.lineSequence().filter { it.startsWith("STARTUP_RUNTIME ") }.toList()
+                    assertEquals(32.takeIf { scenario == "shell-benchmark" } ?: 31, runtime.size)
+                    samples.forEach { startupProfiles.put(JSONObject(it.removePrefix("STARTUP_SAMPLE ")).put("kind", "sample")) }
+                    runtime.forEach {
+                        val entry = JSONObject(it.removePrefix("STARTUP_RUNTIME "))
+                        assertEquals(0, entry.getInt("truncated"))
+                        startupProfiles.put(entry.put("kind", "runtime").put("case", scenario))
+                    }
+                }
+            }
             if (arguments.getString("directLinuxProfile") == "true") {
                 val output = run("/bin/process-dynamic", "shell-benchmark")
                 output.lineSequence().filter { it.startsWith("EXEC_PROFILE ") }.forEach {
@@ -376,6 +399,7 @@ class DirectLinuxLoaderTest {
                 .put("results", results).put("stock_policy_verified", false)
                 .put("benchmarks", benchmarks).put("exec_profiles", execProfiles)
                 .put("application_profiles", applicationProfiles)
+                .put("startup_profiles", startupProfiles)
                 .put("pty_results", ptyResults)
                 .put("network_results", networkResults)
                 .put("signal_results", signalResults)

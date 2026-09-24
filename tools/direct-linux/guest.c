@@ -17,6 +17,8 @@
 #include <ucontext.h>
 #include <unistd.h>
 
+#include "startup-profile.h"
+
 #define DL_TAG 0xd1
 struct dl_state dl_state = {.vfork_fd = -1};
 
@@ -231,7 +233,20 @@ static void dispatch(int signal, siginfo_t *info, void *context)
     dl_signal_collect(state->uc_mcontext.sp);
     unsigned long args[6];
     for (int i = 0; i < 6; i++) args[i] = state->uc_mcontext.regs[i];
+    unsigned long before = 0;
+    if (dl_state.startup_profile) {
+        before = startup_clock();
+        if (info->si_syscall == SYS_exit || info->si_syscall == SYS_exit_group) startup_report(before);
+    }
     long result = handle(info->si_syscall, args, state);
+    if (dl_state.startup_profile) {
+        unsigned long after = startup_clock();
+        if (info->si_syscall == SYS_execve && !result) startup_exec(before, after);
+        else if ((unsigned)info->si_syscall < 512) {
+            startup_calls[info->si_syscall].count++;
+            startup_calls[info->si_syscall].ns += after - before;
+        }
+    }
     if (dl_state.trace) trace_number(info->si_syscall, result);
     state->uc_mcontext.regs[0] = result;
 }
@@ -259,7 +274,9 @@ int dl_install(void *signal_stack, size_t size)
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
         // Untranslated I/O stays outside signal handling, retaining normal
         // blocking/EINTR behavior and avoiding one signal per read/write.
-#define DIRECT(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (n), 0, 1), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
+#define DIRECT(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (n), 0, 1), \
+    BPF_STMT(BPF_RET | BPF_K, dl_state.startup_profile && ((n) == SYS_exit || (n) == SYS_exit_group) \
+        ? SECCOMP_RET_TRAP | DL_TAG : SECCOMP_RET_ALLOW)
         // These calls are already forwarded unchanged by handle(). Keeping
         // them native avoids a SIGSYS frame during every libc startup and
         // preserves the caller's mask for potentially blocking getrandom.

@@ -15,6 +15,8 @@
 #include <sys/syscall.h>
 #include <unistd.h>
 
+#include "bootstrap.h"
+
 static int fail(const char *message)
 {
     fprintf(stderr, "Direct Linux: %s\n", message); return -1;
@@ -49,6 +51,7 @@ int main(int argc, char **argv)
     if (!realpath(argv[1], dl_state.root) || dl_equal(dl_state.root, "/")) { fail("an independent root directory is required"); return 2; }
     dl_state.trace = getenv("DIRECT_LINUX_TRACE") && !strcmp(getenv("DIRECT_LINUX_TRACE"), "1");
     dl_state.exec_profile = getenv("DIRECT_LINUX_EXEC_PROFILE") && !strcmp(getenv("DIRECT_LINUX_EXEC_PROFILE"), "1");
+    dl_state.startup_profile = getenv("DIRECT_LINUX_STARTUP_PROFILE") && !strcmp(getenv("DIRECT_LINUX_STARTUP_PROFILE"), "1");
     dl_state.hwcap = getauxval(AT_HWCAP); dl_state.hwcap2 = getauxval(AT_HWCAP2);
     dl_state.vdso = getauxval(AT_SYSINFO_EHDR); dl_state.minsigstksz = getauxval(AT_MINSIGSTKSZ);
     dl_state.clktck = sysconf(_SC_CLK_TCK);
@@ -60,6 +63,7 @@ int main(int argc, char **argv)
     if (devices) { fprintf(stderr, "Direct Linux: device view setup failed (%ld)\n", -devices); return 2; }
     char *environment[] = {"PATH=/usr/bin:/bin", "HOME=/", "LANG=C", "TMPDIR=/tmp", NULL, NULL};
     if (isatty(STDIN_FILENO)) environment[4] = "TERM=xterm-256color";
+    if (bootstrap_fork_policy()) { fail("cannot prepare bootstrap mapping inheritance"); return 126; }
     struct dl_entry entry;
     long result = dl_exec(argv[2], argv + 2, environment, &entry, 0);
     if (result) { fprintf(stderr, "Direct Linux: ELF preparation failed (%ld)\n", -result); return 126; }
@@ -67,6 +71,10 @@ int main(int argc, char **argv)
     if (signals == MAP_FAILED || mprotect((char *)signals + dl_state.page, 256 * 1024, PROT_READ | PROT_WRITE)) {
         fail("cannot construct signal stack"); return 126;
     }
+    // Kernel exec would discard these inherited Bionic pointers. No child
+    // may retain a handler, robust list or clear-child-TID in omitted memory.
+    if (dl_signal_reset_exec() || DL_CALL(SYS_set_robust_list, 0, 24, 0, 0, 0, 0) < 0 ||
+            DL_CALL(SYS_set_tid_address, 0, 0, 0, 0, 0, 0) < 0) return 126;
     fflush(NULL);
     int installed = dl_install((char *)signals + dl_state.page, 256 * 1024);
     if (installed) {

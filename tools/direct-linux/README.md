@@ -13,6 +13,9 @@ startup by another 9.8–10.7%, slightly ahead of Rootless in the measured workl
 [Short-command startup](SHORT_COMMAND_PERFORMANCE.md) removes redundant syscall
 traps, signal-action scans and directory checks; 54 same-APK pairs show a median
 paired time reduction of 2.3% for thirty short commands.
+[Fork/exit startup costs](STARTUP_PERFORMANCE.md) separate process creation,
+exec, libc startup and reaping. Omitting bootstrap-only mappings from fork
+inheritance reduces the same short workload by a further 24.3% across 54 pairs.
 These experiments are not a complete
 distribution backend or user-selectable runtime. The
 [design and remaining work](../../docs/DIRECT_LINUX_EXPERIMENT.md) retain the full
