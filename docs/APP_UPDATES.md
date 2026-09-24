@@ -14,6 +14,10 @@ is disabled while checking/downloading. It never changes runtime selection.
 
 ### Version ordering and compatibility
 
+Base-version promotion follows [Versioning policy](VERSIONING.md). The base
+describes product changes; Android installation ordering still uses the shared
+`versionCode` sequence below. Increasing the base does not authorize publication.
+
 Independent branch commit counts can collide or make returning from dev to
 main impossible until main catches up. Commit timestamps also allow collisions
 and clock regressions. Published CI APKs therefore use

@@ -71,6 +71,10 @@ and still satisfy the requested outcome.
 
 ## 3. Release patch notes
 
+App base-version decisions MUST follow `docs/VERSIONING.md`. Assess the complete
+unreleased scope, use the highest applicable increment, and record the reason.
+Build numbers and commits alone do not trigger a base-version increase.
+
 Every release, including prereleases, MUST have Korean patch notes in
 `docs/release-notes/<release-id>.md`. Use the actual version or release tag as the
 release ID, including any prerelease suffix. Create the directory when preparing
@@ -522,6 +526,7 @@ Read only the documents relevant to the task:
 | AVF platform and image constraints | docs/AVF_NOTES.md |
 | privileged deployment | docs/DEPLOYMENT.md |
 | image publication | docs/IMAGE_RELEASE.md |
+| app version promotion criteria | docs/VERSIONING.md |
 | per-release patch notes | `docs/release-notes/` (one `<release-id>.md` per release) |
 | UI tokens and interaction rules | docs/DESIGN_SYSTEM.md |
 | Korean user behavior | docs/USER_GUIDE.ko.md |

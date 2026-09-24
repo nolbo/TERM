@@ -42,6 +42,10 @@ android-app/build/outputs/apk/debug/android-app-debug.apk
 
 ## Update versions
 
+Base versions follow the [version promotion policy](docs/VERSIONING.md): fixes
+increment patch, compatible features increment minor, and incompatible changes
+after 1.0 increment major. The current development baseline is `0.2.0`.
+
 `origin/main` advances provide stable updates; `origin/dev` advances provide
 development prereleases. Settings → App updates selects either channel, with
 the installed APK's channel as the initial default. Both use the same app ID
