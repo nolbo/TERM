@@ -1,0 +1,79 @@
+{
+  "loader_sha256": "54e56976a5dd7989a58a435cecc9a2d41d28af4d20b45ccc3192c639955c95ef",
+  "instrumentation_seconds": 5.396,
+  "result": "FAILURES (1 test)",
+  "reference": "Static and dynamic Rootless actions/waits completed before the first Direct signal test",
+  "program": "/bin/signals-static",
+  "arguments": [
+    "actions"
+  ],
+  "expected_exit": 0,
+  "actual_exit": 159,
+  "initial_process_policy": [
+    "TracerPid: 0",
+    "CapEff: 0000000000000000",
+    "NoNewPrivs: 0",
+    "Seccomp: 0"
+  ],
+  "test_fixtures": [
+    {
+      "path": "bin/signals-dynamic",
+      "size": 72656,
+      "sha256": "78dd0efa087a93aab6616adaa5768fa45470d04ab1c3967d8e2936773e26f924",
+      "executable": true
+    },
+    {
+      "path": "bin/signals-static",
+      "size": 710840,
+      "sha256": "d8ed49547b601dac8552a806afde3a17b62ea11f98e8371ded6daddfb0f352ed",
+      "executable": true
+    }
+  ],
+  "after_fix_on_identical_initial_fixtures": {
+    "loader_sha256": "1aec608bb23cda90dd92b9a44506ded8358f74ec5b0af156ed04169694bf11c7",
+    "instrumentation": "OK (1 test)",
+    "seconds": 7.282,
+    "signal_results": [
+      {
+        "engine": "proot",
+        "checks": [
+          "static: PASS full signal-action mask, recursive syscalls, NODEFER, RESETHAND and action roundtrip",
+          "static: PASS ppoll/pselect/epoll/sigsuspend temporary masks, saved ucontext mask and EINTR",
+          "static: PASS repeated siglongjmp, nested waits and jumps back into a signal handler",
+          "static: PASS wait errors/timeouts and sigtimedwait selection/interruption",
+          "dynamic: PASS full signal-action mask, recursive syscalls, NODEFER, RESETHAND and action roundtrip",
+          "dynamic: PASS ppoll/pselect/epoll/sigsuspend temporary masks, saved ucontext mask and EINTR",
+          "dynamic: PASS repeated siglongjmp, nested waits and jumps back into a signal handler",
+          "dynamic: PASS wait errors/timeouts and sigtimedwait selection/interruption"
+        ]
+      },
+      {
+        "engine": "direct-linux",
+        "checks": [
+          "static: PASS full signal-action mask, recursive syscalls, NODEFER, RESETHAND and action roundtrip",
+          "static: PASS ppoll/pselect/epoll/sigsuspend temporary masks, saved ucontext mask and EINTR",
+          "static: PASS repeated siglongjmp, nested waits and jumps back into a signal handler",
+          "static: PASS wait errors/timeouts and sigtimedwait selection/interruption",
+          "dynamic: PASS full signal-action mask, recursive syscalls, NODEFER, RESETHAND and action roundtrip",
+          "dynamic: PASS ppoll/pselect/epoll/sigsuspend temporary masks, saved ucontext mask and EINTR",
+          "dynamic: PASS repeated siglongjmp, nested waits and jumps back into a signal handler",
+          "dynamic: PASS wait errors/timeouts and sigtimedwait selection/interruption"
+        ]
+      }
+    ]
+  },
+  "final_test_expansion": "Final runtime report adds distinct mask/ucontext edits and invalid sigsuspend size tests; final signal fixture hashes differ from the initial reproducer.",
+  "intermediate_regression": {
+    "loader_sha256": "15f1e17f983cc05dabb76564b249db0722830e89db6ba4bf3135a3bb0619796b",
+    "instrumentation_seconds": 5.401,
+    "program": "/bin/signals-static",
+    "arguments": [
+      "waits"
+    ],
+    "expected_exit": 0,
+    "actual_exit": 1,
+    "error": "Nested handler's saved SIGSYS mask was incorrectly taken from the outer suspended wait during accept",
+    "reference": "Both Rootless variants passed",
+    "fix": "Mark the outer wait suspended while invoking its guest handler"
+  }
+}

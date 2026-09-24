@@ -5,6 +5,9 @@ commands and scripts. It remains an independent standalone test APK. Existing
 Rootless data, production payloads and session ownership are unchanged. This is
 functional progress, **not completion of the Linux environment or speed goal**.
 
+The later [signal-mask milestone](SIGNAL_MASKS.md) corrects handler/wait masks and
+nested nonlocal-return handling; the limitations below record this earlier step.
+
 ## Implementation and ownership
 
 The APK runtime survives guest `execve`; the Android kernel never executes the

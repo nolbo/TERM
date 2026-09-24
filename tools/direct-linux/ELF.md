@@ -29,11 +29,14 @@ results supersede the initial process limitations recorded below.
   statx, access, readlink, chdir and the later [filesystem mutation operations](FILESYSTEM.md)
   are present. Internal root FD close/replacement is rejected. This is not yet the
   complete Linux filesystem/FD contract or a security namespace.
-- Normal signal actions are forwarded. sigprocmask changes the **saved guest
+- [Signal actions and mask-bearing waits](SIGNAL_MASKS.md) use a freestanding
+  bridge that separates guest SIGSYS masking from the private transport.
+  sigprocmask changes the **saved guest
   signal frame**, not merely the handler's temporary mask; rt_sigreturn applies
   the requested mask. SIGSYS stays available to the runtime with its requested
   mask bit separately tracked. User SIGSYS handlers and guest altstacks are still
-  unsupported, as are arbitrary asynchronous handler reentrancy and thread state.
+  unsupported, as are full register-context virtualization and thread state.
+  Nested handlers, waits and siglongjmp now have explicit paired regressions.
 
 The loader's setup uses Bionic before entry. Nothing in the guest dispatcher calls
 Bionic after the guest changes TPIDR_EL0. This removes the first probe's TLS

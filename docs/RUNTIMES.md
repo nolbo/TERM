@@ -11,6 +11,9 @@ existing accelerated Rootless, including local glibc UDP/TCP DNS and Python TLS.
 [Pathname Unix sockets](../tools/direct-linux/UNIX_SOCKETS.md) work within recorded
 name-length/message limits. Full Unix sockets, DNS/NSS integration, external networking, threads, full Linux
 semantics and package/session integration remain incomplete.
+[Signal-mask checks](../tools/direct-linux/SIGNAL_MASKS.md) now match the reference
+for full handler masks, temporary wait masks, nested handlers and nonlocal jumps;
+this is still short of full signal/thread compatibility.
 [Current measurements](../tools/direct-linux/COMMAND_PERFORMANCE.md) show faster file calls
 and a 128-file tree workload. Bounded ELF metadata loading reduced repeated command
 execution by 9.8–10.7%; final paired shell samples took 2.2–4.2% less time than

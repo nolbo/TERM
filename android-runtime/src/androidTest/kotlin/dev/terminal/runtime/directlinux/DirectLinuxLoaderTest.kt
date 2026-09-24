@@ -45,6 +45,7 @@ class DirectLinuxLoaderTest {
         val applicationProfiles = JSONArray()
         val ptyResults = JSONArray()
         val networkResults = JSONArray()
+        val signalResults = JSONArray()
         fun launch(path: String, args: Array<out String>, useProot: Boolean, terminal: Boolean = false): ProcessBuilder {
             val engine = if (useProot) packaged.resolvePackagedExecutable("proot").getOrThrow() else executable
             val profile = if (useProot) RootlessAccelerationProfile(File(engine.parentFile, "libproot-faststat.so")) else null
@@ -168,6 +169,20 @@ class DirectLinuxLoaderTest {
                 assertTrue(run("/bin/process-$kind", "repeat", "30").contains("PASS repeated exec memory/TLS cleanup"))
                 assertTrue(run("/bin/files-$kind").contains("PASS filesystem rename/dirfd/cwd/symlinks/modes/timestamps/unlinked-FDs"))
                 assertTrue(run("/bin/tty-$kind", "no-terminal").contains("PASS no controlling terminal"))
+            }
+            if (arguments.getString("directLinuxSignalMasks") == "true") {
+                for (reference in listOf(true, false)) {
+                    val checks = JSONArray()
+                    for (kind in listOf("static", "dynamic")) {
+                        for (scenario in listOf("actions", "waits")) {
+                            val output = run("/bin/signals-$kind", scenario, useProot = reference)
+                            assertTrue(output, output.contains("PASS "))
+                            output.lineSequence().filter { it.startsWith("PASS ") || it.startsWith("SKIP ") }
+                                .forEach { checks.put("$kind: $it") }
+                        }
+                    }
+                    signalResults.put(JSONObject().put("engine", if (reference) "proot" else "direct-linux").put("checks", checks))
+                }
             }
             if (arguments.getString("directLinuxPty") == "true") {
                 for (reference in listOf(false, true)) {
@@ -329,9 +344,10 @@ class DirectLinuxLoaderTest {
                 .put("application_profiles", applicationProfiles)
                 .put("pty_results", ptyResults)
                 .put("network_results", networkResults)
+                .put("signal_results", signalResults)
                 .put("exec_profile_stages", JSONArray(listOf("arguments", "read_validate", "reset", "unmap", "map", "entry", "dispose")))
                 .put("exec_profile_map_stages", JSONArray(listOf("reserve", "file_map", "verify", "bss", "final_protect")))
-            if (benchmarks.length() > 0 || ptyResults.length() > 0 || networkResults.length() > 0) {
+            if (benchmarks.length() > 0 || ptyResults.length() > 0 || networkResults.length() > 0 || signalResults.length() > 0) {
                 val proot = packaged.resolvePackagedExecutable("proot").getOrThrow()
                 report.put("proot_sha256", digest(proot.readBytes()))
                     .put("proot_loader_sha256", digest(packaged.resolvePackagedExecutable("proot-loader").getOrThrow().readBytes()))

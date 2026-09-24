@@ -298,6 +298,24 @@ Android 네트워크·PTY 포함 검사가 통과했다. 후자는 56개 일반 
 기존 Unix 호환성 차이도 기록한다. 표준 Gradle 검증은 성공했고 변경 없는 단위
 테스트 결과는 UP-TO-DATE로 재사용했다. stock enforcing 기기 검증은 여전히 없다.
 
+## 신호 마스크 호환성: 2026-09-24
+
+[신호 마스크 단계](../tools/direct-linux/SIGNAL_MASKS.md)는 일반 프로그램의
+전체 신호 마스크가 내부 SIGSYS 전달까지 막는 충돌을 고쳤다. 같은 초기
+테스트에서 Rootless는 통과했지만 이전 Direct는 종료 코드 159로 죽었다.
+신호 action과 임시 대기 마스크를 논리 상태와 실제 커널 상태로 나누고,
+중첩 대기·siglongjmp로 버린 상태를 안전하게 정리한다. 신호 처리기가
+네트워크 대기에 들어갔을 때 바깥 대기의 마스크를 잘못 쓰던 중간 회귀도
+재현하여 수정했다. 변경 없는 기존 Rootless와 정적·동적 glibc로 비교했다.
+
+[최종 결과](../tools/direct-linux/results/signals-runtime-2026-09-24.json)는
+716개 fixture hash, 113개 일반 실행, 두 PTY 시나리오, 77개 시간 표본을 담는다.
+신호·파일·exec·Direct Python/Git·네트워크·PTY 검사가 통과했고, 명령 30회
+중앙값은 Direct 48.958ms, Rootless 50.162ms였다. 이는 신호 수정의 추가 성능
+향상을 입증하는 비교가 아니며 전체 호환성 동등성의 증거도 아니다.
+스레드별 상태, 사용자 altstack, 외부 SIGSYS와 전체 context 가상화는 아직
+미완료다. 일반 enforcing Android 기기 검증도 남아 있다.
+
 ## 남은 구현과 완료 증거
 
 이후 [Unix pathname 단계](../tools/direct-linux/UNIX_SOCKETS.md)에서 지속되는 root FD
@@ -319,10 +337,11 @@ Direct에서 ENAMETOOLONG으로 실패한다. [비교 결과](../tools/direct-li
    에뮬레이션 hardlink, 전체 ACL 의미, proc/devpts와 전체 동시성 의미가 남았다.
    기본 xattr 및 null/zero/random/urandom의 고정 장치 보기는 검증했다.
    symlink 시간 변경은 Linux 5.8+이며 오래된 커널의 오류를 숨기지 않는다.
-4. **프로세스·신호:** guest sigaction/mask/altstack 가상화, TLS 독립 handler,
+4. **프로세스·신호:** 사용자 altstack·외부 SIGSYS·전체 신호 context 가상화,
    thread/shared-VM spawn/execveat, 전체 vfork 의미, EINTR/cancellation과 robust
    mutex·확장 CPU 상태, guest seccomp가 남았다. 기본 fork/wait와 exec의
-   signal/CLOEXEC 검증은 완료했다. guest exec는 APK 런타임과 필터를 유지한다.
+   signal/CLOEXEC와 일반 action/대기 마스크·중첩 nonlocal 복귀 검증은 완료했다.
+   guest exec는 APK 런타임과 필터를 유지한다.
 5. **Linux 환경:** 별도 fixture에서 shell/Python/로컬 Git을 실행했다.
    독립 설치·복구/package DB에서 shell, Python, Git, apt/dpkg
    설치·업그레이드·삭제, 전체 Unix 소켓 의미·추가 소켓 family·DNS/NSS 통합·외부

@@ -134,9 +134,7 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
         // SELinux/mmap policy is authoritative; no execve of app-data ELF occurs.
         return dl_mmap(a[0], a[1], a[2], a[3], a[4], a[5]);
     case SYS_munmap: return dl_munmap(a[0], a[1]);
-    case SYS_rt_sigaction:
-        if (a[0] == SIGSYS) return -EOPNOTSUPP;
-        return DL_CALL(nr, a[0], a[1], a[2], a[3], 0, 0);
+    case SYS_rt_sigaction: return dl_signal_action(a);
     case SYS_rt_sigprocmask:
         {
             if (a[3] != 8) return -EINVAL;
@@ -158,18 +156,9 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
             }
             return a[2] ? dl_write_memory((void *)a[2], &old, 8) : 0;
         }
-    case SYS_rt_sigsuspend:
-    case SYS_rt_sigtimedwait:
-        {
-            if ((nr == SYS_rt_sigsuspend ? a[1] : a[3]) != 8) return -EINVAL;
-            unsigned long mask;
-            r = dl_read_memory(&mask, (void *)a[0], 8); if (r) return r;
-            mask &= ~(1UL << (SIGSYS - 1));
-            // No mutable runtime transition is active while waiting. Nested
-            // guest handlers may call back into the dispatcher on this stack.
-            return nr == SYS_rt_sigsuspend ? DL_CALL(nr, &mask, 8, 0, 0, 0, 0)
-                : DL_CALL(nr, &mask, a[1], a[2], 8, 0, 0);
-        }
+    case SYS_rt_sigsuspend: case SYS_rt_sigtimedwait:
+    case SYS_ppoll: case SYS_pselect6: case SYS_epoll_pwait: case SYS_epoll_pwait2:
+        return dl_signal_wait(nr, a, context);
     case SYS_clone: return guest_clone(a, context->uc_mcontext.sp);
     case SYS_execve:
         {
@@ -198,7 +187,7 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_fchmod: case SYS_fchown: case SYS_ftruncate: case SYS_fstatfs:
     case SYS_umask: case SYS_sendfile: case SYS_copy_file_range:
     case SYS_fgetxattr: case SYS_fsetxattr: case SYS_flistxattr: case SYS_fremovexattr:
-    case SYS_wait4: case SYS_waitid: case SYS_ppoll: case SYS_pselect6:
+    case SYS_wait4: case SYS_waitid:
     case SYS_nanosleep: case SYS_clock_nanosleep:
     case SYS_getpgid: case SYS_setpgid: case SYS_getsid: case SYS_setsid:
     case SYS_mprotect: case SYS_madvise: case SYS_mincore:
@@ -239,6 +228,7 @@ static void dispatch(int signal, siginfo_t *info, void *context)
         DL_CALL(SYS_exit_group, 159, 0, 0, 0, 0, 0); return;
     }
     ucontext_t *state = context;
+    dl_signal_collect(state->uc_mcontext.sp);
     unsigned long args[6];
     for (int i = 0; i < 6; i++) args[i] = state->uc_mcontext.regs[i];
     long result = handle(info->si_syscall, args, state);
@@ -248,6 +238,7 @@ static void dispatch(int signal, siginfo_t *info, void *context)
 
 int dl_install(void *signal_stack, size_t size)
 {
+    dl_signal_stack(signal_stack, size);
     stack_t stack = {.ss_sp = signal_stack, .ss_size = size};
     struct { void (*handler)(int, siginfo_t *, void *); unsigned long flags; void (*restorer)(void); unsigned long mask; }
         action = {dispatch, SA_SIGINFO | SA_ONSTACK | 0x04000000UL, dl_sigreturn, ~0UL};
@@ -279,13 +270,13 @@ int dl_install(void *signal_stack, size_t size)
         // Input/output addresses are translated in dl_network when present.
         DIRECT(SYS_listen),
         DIRECT(SYS_getsockopt), DIRECT(SYS_setsockopt), DIRECT(SYS_shutdown),
-        DIRECT(SYS_epoll_create1), DIRECT(SYS_epoll_ctl), DIRECT(SYS_epoll_pwait),
+        DIRECT(SYS_epoll_create1), DIRECT(SYS_epoll_ctl),
         DIRECT(SYS_eventfd2),
         DIRECT(SYS_fsync), DIRECT(SYS_fdatasync), DIRECT(SYS_futex),
         DIRECT(SYS_sendfile), DIRECT(SYS_copy_file_range),
         DIRECT(SYS_clock_gettime), DIRECT(SYS_clock_getres),
         DIRECT(SYS_exit), DIRECT(SYS_exit_group),
-        DIRECT(SYS_wait4), DIRECT(SYS_waitid), DIRECT(SYS_ppoll), DIRECT(SYS_pselect6),
+        DIRECT(SYS_wait4), DIRECT(SYS_waitid),
         DIRECT(SYS_nanosleep), DIRECT(SYS_clock_nanosleep),
 #undef DIRECT
         // Bulk connected I/O and accept without a peer address need no name
@@ -300,6 +291,10 @@ int dl_install(void *signal_stack, size_t size)
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr))
         DIRECT_NULL(SYS_recvfrom, 4), DIRECT_NULL(SYS_sendto, 4),
         DIRECT_NULL(SYS_accept, 1), DIRECT_NULL(SYS_accept4, 1),
+        // Mask-bearing waits must never block the private SIGSYS transport.
+        // Ordinary no-mask waits keep the native fast path and signal delivery.
+        DIRECT_NULL(SYS_ppoll, 3), DIRECT_NULL(SYS_pselect6, 5),
+        DIRECT_NULL(SYS_epoll_pwait, 4), DIRECT_NULL(SYS_epoll_pwait2, 4),
 #undef DIRECT_NULL
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP | DL_TAG),
     };

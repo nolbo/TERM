@@ -30,6 +30,10 @@ Android policy validation remain incomplete.
 returned addresses and interrupted calls. The paired results explicitly record
 Direct's long-name limitation and the reference engine's named-datagram failure.
 
+[Signal mask compatibility](SIGNAL_MASKS.md) fixes full handler/wait masks killing
+the private SIGSYS transport. Nested handlers, waits and nonlocal jumps are now
+compared against Rootless; threads and guest alternate stacks remain unfinished.
+
 `probe.c` handles raw ARM64 `openat` in the calling thread with seccomp TRAP and
 SIGSYS. `syscall.S` supplies separate host/guest SVC sites. The host site is exempt
 only from our own filter, including both halves of its 64-bit instruction pointer.
