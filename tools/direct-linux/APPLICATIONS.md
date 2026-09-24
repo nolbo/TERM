@@ -4,6 +4,9 @@ The later [subprocess optimization](SUBPROCESS_PERFORMANCE.md) fixes FD cleanup
 cost and records updated measurements. The results below preserve this initial
 application milestone and its unresolved reference cleanup failure.
 
+The subsequent [PTY milestone](PTY.md) adds `/dev/tty` as a fifth fixed device
+and verifies an interactive shell against the same Rootless reference.
+
 2026-09-24. Unmodified Ubuntu ARM64 Python 3.12 and Git now complete a local
 development workflow in the standalone test APK. This adds executable evidence
 beyond shell/coreutils. It is still an experimental runtime, not an installed

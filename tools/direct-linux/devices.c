@@ -12,6 +12,7 @@
 static const struct { const char *name, *host; unsigned device; } devices[] = {
     {"null", "/dev/null", 0x103}, {"zero", "/dev/zero", 0x105},
     {"random", "/dev/random", 0x108}, {"urandom", "/dev/urandom", 0x109},
+    {"tty", "/dev/tty", 0x500},
 };
 static unsigned long directory_device, directory_inode;
 

@@ -43,16 +43,17 @@ class DirectLinuxLoaderTest {
         val benchmarks = JSONArray()
         val execProfiles = JSONArray()
         val applicationProfiles = JSONArray()
-        fun run(path: String, vararg args: String, expectedCode: Int = 0, useProot: Boolean = false): String {
-            val log = File(temporary, "output")
+        val ptyResults = JSONArray()
+        fun launch(path: String, args: Array<out String>, useProot: Boolean, terminal: Boolean = false): ProcessBuilder {
             val engine = if (useProot) packaged.resolvePackagedExecutable("proot").getOrThrow() else executable
             val profile = if (useProot) RootlessAccelerationProfile(File(engine.parentFile, "libproot-faststat.so")) else null
             val command = if (profile != null) listOf(engine.path, "--link2symlink", "-0", "-r", root.path,
                 "-b", "/dev", "-b", "/proc", "-b", profile.binding, "-w", "/", "/bin/env", "-i", "PATH=/bin:/usr/bin") +
+                (if (terminal) listOf("TERM=xterm-256color") else emptyList()) +
                 profile.guestEnvironment(null).map { (name, value) -> "$name=$value" } + listOf(path) + args
                 else listOf(executable.path, root.path, path) + args
             val builder = ProcessBuilder(command)
-                .directory(temporary).redirectErrorStream(true).redirectOutput(log)
+                .directory(temporary)
             builder.environment().apply {
                 keys.filter { it.startsWith("PROOT_") || it.startsWith("DIRECT_LINUX_") || it == "LD_PRELOAD" }.toList().forEach { remove(it) }
                 if (profile != null) {
@@ -67,6 +68,11 @@ class DirectLinuxLoaderTest {
                 builder.environment()["DIRECT_LINUX_EXEC_PROFILE"] = "1"
             if (arguments.getString("directLinuxApplicationProfile") == "true" && args.contentEquals(arrayOf("/applications.py", "profile")))
                 builder.environment()["DIRECT_LINUX_EXEC_PROFILE"] = "1"
+            return builder
+        }
+        fun run(path: String, vararg args: String, expectedCode: Int = 0, useProot: Boolean = false): String {
+            val log = File(temporary, "output")
+            val builder = launch(path, args, useProot).redirectErrorStream(true).redirectOutput(log)
             val started = System.nanoTime()
             val process = builder.start()
             process.outputStream.close()
@@ -160,6 +166,16 @@ class DirectLinuxLoaderTest {
                 assertTrue(run("/bin/fds-$kind").contains("PASS close_range bounds/flags/sparse/CLOEXEC/fork/vfork/private FDs"))
                 assertTrue(run("/bin/process-$kind", "repeat", "30").contains("PASS repeated exec memory/TLS cleanup"))
                 assertTrue(run("/bin/files-$kind").contains("PASS filesystem rename/dirfd/cwd/symlinks/modes/timestamps/unlinked-FDs"))
+                assertTrue(run("/bin/tty-$kind", "no-terminal").contains("PASS no controlling terminal"))
+            }
+            if (arguments.getString("directLinuxPty") == "true") {
+                for (reference in listOf(false, true)) {
+                    val name = if (reference) "proot" else "direct-linux"
+                    val result = try {
+                        DirectLinuxPtyScenario.verify { path, args -> launch(path, args, reference, terminal = true) }
+                    } catch (failure: Exception) { throw IllegalStateException("$name PTY: ${failure.message}", failure) }
+                    ptyResults.put(result.put("engine", name))
+                }
             }
             val filesScenario = """
                 set -e
@@ -276,11 +292,13 @@ class DirectLinuxLoaderTest {
                 .put("results", results).put("stock_policy_verified", false)
                 .put("benchmarks", benchmarks).put("exec_profiles", execProfiles)
                 .put("application_profiles", applicationProfiles)
+                .put("pty_results", ptyResults)
                 .put("exec_profile_stages", JSONArray(listOf("arguments", "read_validate", "reset", "unmap", "map", "entry", "dispose")))
                 .put("exec_profile_map_stages", JSONArray(listOf("reserve", "file_map", "verify", "bss", "final_protect")))
-            if (benchmarks.length() > 0) {
+            if (benchmarks.length() > 0 || ptyResults.length() > 0) {
                 val proot = packaged.resolvePackagedExecutable("proot").getOrThrow()
                 report.put("proot_sha256", digest(proot.readBytes()))
+                    .put("proot_loader_sha256", digest(packaged.resolvePackagedExecutable("proot-loader").getOrThrow().readBytes()))
                     .put("preload_sha256", digest(File(proot.parentFile, "libproot-faststat.so").readBytes()))
             }
             reportFile.writeText(report.toString(2) + "\n")

@@ -51,7 +51,7 @@ def prepare(output, applications=False):
         "lib/ld-linux-aarch64.so.1": Path("/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"),
         "lib/aarch64-linux-gnu/libc.so.6": Path("/usr/lib/aarch64-linux-gnu/libc.so.6"),
     }
-    for name in ("cp", "mv", "mkdir", "rm", "chmod", "touch", "ln", "cat"):
+    for name in ("cp", "mv", "mkdir", "rm", "chmod", "touch", "ln", "cat", "stty"):
         mapping[f"bin/{name}"] = Path(f"/usr/bin/{name}")
     for name in ("libselinux.so.1", "libacl.so.1", "libattr.so.1", "libpcre2-8.so.0"):
         mapping[f"lib/aarch64-linux-gnu/{name}"] = Path(f"/usr/lib/aarch64-linux-gnu/{name}")
@@ -69,7 +69,7 @@ def prepare(output, applications=False):
                         "-Wl,-z,noexecstack,-z,max-page-size=65536",
                         *(["-static"] if variant == "static" else []), str(source), "-o", str(target)], check=True)
         mapping[str(target.relative_to(output))] = target
-    for program in ("process", "files", "fds"):
+    for program in ("process", "files", "fds", "tty"):
         for variant in ("static", "dynamic"):
             target = output / "bin" / f"{program}-{variant}"
             subprocess.run(["clang", "-O2", "-Wall", "-Wextra", "-Werror",

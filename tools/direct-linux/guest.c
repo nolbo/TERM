@@ -263,6 +263,9 @@ int dl_install(void *signal_stack, size_t size)
         DIRECT(SYS_rt_sigreturn), DIRECT(SYS_read), DIRECT(SYS_write),
         DIRECT(SYS_readv), DIRECT(SYS_writev), DIRECT(SYS_pread64), DIRECT(SYS_pwrite64),
         DIRECT(SYS_lseek), DIRECT(SYS_fstat),
+        // Terminal ioctls must retain the guest signal mask: background
+        // tcsetpgrp/tcsetattr can stop with SIGTTOU, and drains can block.
+        DIRECT(SYS_ioctl),
         DIRECT(SYS_fsync), DIRECT(SYS_fdatasync), DIRECT(SYS_futex),
         DIRECT(SYS_sendfile), DIRECT(SYS_copy_file_range),
         DIRECT(SYS_clock_gettime), DIRECT(SYS_clock_getres),

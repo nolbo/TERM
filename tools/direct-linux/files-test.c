@@ -172,7 +172,7 @@ int main(void)
         CHECK(entry->d_type == DT_CHR && fstatat(dirfd(device_directory), entry->d_name, &st, 0) == 0);
         CHECK(entry->d_ino == st.st_ino && S_ISCHR(st.st_mode)); found++;
     }
-    CHECK(found == 4 && closedir(device_directory) == 0);
+    CHECK(found == 5 && closedir(device_directory) == 0);
     CHECK(chmod("/dev", 0000) == 0);
     file = open("/dev/null", O_RDONLY); int search_error = errno;
     CHECK(chmod("/dev", 0755) == 0);

@@ -11,6 +11,33 @@
 벗어날 수 있지만 Android 정책 때문에 실제 사용이 곤란한 설계는 채택하지
 않는다. 기존 Rootless를 대체하지 않고 별도 유형으로 개발한다.
 
+사용자가 추가한 완료 조건은 **기존 Rootless와 동등하거나 그 이상의 호환성**이다.
+현재 Direct Linux는 이 조건을 충족하지 못한다. 아래 단계별 성공이나 일부
+벤치마크의 개선을 전체 호환성의 증거로 대신하지 않는다.
+
+## 호환성 동등성 기준
+
+비교 대상은 저장소가 제공하는 PRoot + preload 가속 Rootless다. 같은 기기·정책·
+배포판·패키지·입력으로 동작을 비교하고 엔진/라이브러리 hash와 실패를 기록한다.
+fixture에 복사한 Ubuntu 도구의 성공은 독립 Debian 설치와 패키지 관리 검증을
+대신하지 않는다. 구체적인 비교 범위는 다음과 같다.
+
+- 공식 Debian apt/dpkg의 설치·업그레이드·삭제, 스크립트와 패키지 DB 정합성.
+- 기존 Rootless가 지원하는 경로·링크·가상 소유권·권한·FD·proc/device 의미.
+- fork/exec/스레드, TLS, 신호·대기·취소, 메모리 매핑과 동시 실행.
+- PTY, 터미널 모드·작업 제어·크기 변경, 셸과 일반 대화형 프로그램.
+- DNS·소켓·네트워크 도구, Python/Git/빌드 등 실제 개발 작업.
+- 동일한 세션 생성·재연결·명시적 종료, UI 분리·재생성 시 실행 유지.
+- 일반 enforcing Android 기기의 정책과 기존 지원 범위에서의 실행 가능성.
+
+Rootless에서 통과하는 동작이 새 유형에서 실패하면 해결해야 할 호환성 결손이다.
+프로그램 기능을 끄거나 특정 명령을 몰래 기존 런타임으로 재실행해 통과 처리하지
+않는다. Rootless 자체의 실패도 그대로 남기며, 그것으로 다른 미구현 기능을
+면제하지 않는다. 좁은 회귀 테스트의 통과만으로 위 범위 전체를 보장하지 않는다.
+동등성을 막는 구조적 문제가 확인되면 새 유형의 구조를 변경해야 하며, 성능을
+이유로 호환성 요구를 낮추지 않는다. 현재 스레드·가상 identity/hardlink·전체
+신호·네트워크·설치기·제품 세션 통합과 enforcing 검증은 명백한 미완료 항목이다.
+
 현재 Rootless는 PRoot와 glibc preload 가속을 결합한다. 일반 파일, 프로세스,
 신호 처리는 여전히 tracer와 결합되어 있다. 기존 순차 I/O 측정에서는 실제
 저장소 비용이 지배적이었고, 추적 제거만으로 모든 작업을 2배로 만들 근거는
@@ -209,6 +236,22 @@ fork·vfork·내부 FD 보존 검사를 포함해 87개 상위 실행과 77개 �
 [원시 결과](../tools/direct-linux/results/close-range-2026-09-24.json). enforcing 기기,
 패키지 설치와 사용자용 세션은 아직 미검증·미구현이다.
 
+## PTY·작업 제어 비교: 2026-09-24
+
+[PTY 단계](../tools/direct-linux/PTY.md)는 기존 `PtyProcess`로 실제 Linux 셸을
+시작한다. 고정 장치 보기에 `/dev/tty`를 추가하고, 변환 없는 ioctl을 커널로
+직접 보내 호출자의 신호 마스크와 SIGTTOU 의미를 보존한다. 같은 dash·GNU stty·
+정적/동적 glibc 검사에서 Direct와 기존 가속 Rootless 모두 제어 터미널·foreground
+group·setsid·SIGTTOU·한글 입력·SIGWINCH·Ctrl-C·Ctrl-Z·jobs/bg·명시적 종료가 통과했다.
+
+master 종료 시 Direct guest는 세션 리더로 SIGHUP 종료하며, Rootless guest는
+별도 추적기의 자식으로 POLLHUP·EOF·제어 터미널 상실을 확인했다. 초기 테스트의
+동일 종료 코드 가정은 관찰된 세션 역할과 Linux 커널 계약에 맞게 수정했다.
+40개 일반 실행과 두 엔진의 PTY 시나리오를 포함한
+[결과](../tools/direct-linux/results/pty-runtime-2026-09-24.json)를 기록했다. UI 수명주기,
+devpts/ttyname/중첩 PTY와 enforcing 기기는 아직 검증하지 않았다. 이 좁은
+비교를 기존 Rootless 전체와의 호환성 동등성으로 확대 해석하지 않는다.
+
 ## 남은 구현과 완료 증거
 
 1. **정책:** fixture/redroid 검증은 완료. stock enforcing 기기에서 같은 APK의
@@ -227,7 +270,7 @@ fork·vfork·내부 FD 보존 검사를 포함해 87개 상위 실행과 77개 �
    signal/CLOEXEC 검증은 완료했다. guest exec는 APK 런타임과 필터를 유지한다.
 5. **Linux 환경:** 별도 fixture에서 shell/Python/로컬 Git을 실행했다.
    독립 설치·복구/package DB에서 shell, Python, Git, apt/dpkg
-   설치·업그레이드·삭제, 네트워크/PTY 검증. 기존 rootfs를 공유하거나 패키지
+   설치·업그레이드·삭제, 네트워크와 devpts/중첩 PTY/대화형 앱 검증. 기존 rootfs를 공유하거나 패키지
    관리를 도구 몇 개로 축소해 완료를 주장하지 않는다.
 6. **제품 통합:** 공통 backend/session, 명시적 선택·지원 상태·오류, 독립 storage
    identity, capability broker, detach/Activity 재생성 뒤 세션 유지, terminate.

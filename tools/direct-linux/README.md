@@ -15,6 +15,10 @@ The [Python/Git milestone](APPLICATIONS.md) and subsequent
 and isolate a major process-launch bottleneck. A general Linux environment and
 enforcing-device validation remain incomplete.
 
+[PTY and job-control checks](PTY.md) now compare interactive dash, GNU stty,
+signals, resize and terminal hangup against the existing accelerated Rootless.
+This does not establish overall compatibility parity or product session support.
+
 `probe.c` handles raw ARM64 `openat` in the calling thread with seccomp TRAP and
 SIGSYS. `syscall.S` supplies separate host/guest SVC sites. The host site is exempt
 only from our own filter, including both halves of its 64-bit instruction pointer.
