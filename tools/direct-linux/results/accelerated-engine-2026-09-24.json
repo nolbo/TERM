@@ -1,0 +1,220 @@
+{
+  "schema": 1,
+  "probe_sha256": "303368a4c3e463278bf62e5f54953e41fe02f2c4ca99c169b29b0a4f6f018ec6",
+  "proot_sha256": "1f152d00d64b53b7efa932a5cb341e937d9a7472b3af9dc22d99eb6e16245cfb",
+  "loader_sha256": "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237",
+  "proot_engine_acceleration": true,
+  "android_api": 35,
+  "page_size": 4096,
+  "initial_process_policy": [
+    "TracerPid:\t0",
+    "CapEff:\t0000000000000000",
+    "NoNewPrivs:\t0",
+    "Seccomp:\t0"
+  ],
+  "checks_passed": true,
+  "scope": "Single warm file, raw open/read/fcntl/close; no general rootfs, ELF loader, or end-to-end performance claim",
+  "samples": [
+    {
+      "mode": "direct",
+      "count": 5000,
+      "elapsed_ms": 8.861425,
+      "traps": 0,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 0
+    },
+    {
+      "mode": "trap",
+      "count": 5000,
+      "elapsed_ms": 26.514914,
+      "traps": 5000,
+      "voluntary_switches": 0,
+      "involuntary_switches": 1,
+      "round": 0
+    },
+    {
+      "mode": "guest",
+      "count": 5000,
+      "elapsed_ms": 261.583484,
+      "traps": 0,
+      "voluntary_switches": 10000,
+      "involuntary_switches": 0,
+      "round": 0
+    },
+    {
+      "mode": "guest",
+      "count": 5000,
+      "elapsed_ms": 269.607626,
+      "traps": 0,
+      "voluntary_switches": 10000,
+      "involuntary_switches": 0,
+      "round": 1
+    },
+    {
+      "mode": "trap",
+      "count": 5000,
+      "elapsed_ms": 26.311513,
+      "traps": 5000,
+      "voluntary_switches": 0,
+      "involuntary_switches": 2,
+      "round": 1
+    },
+    {
+      "mode": "direct",
+      "count": 5000,
+      "elapsed_ms": 8.921905,
+      "traps": 0,
+      "voluntary_switches": 0,
+      "involuntary_switches": 1,
+      "round": 1
+    },
+    {
+      "mode": "direct",
+      "count": 5000,
+      "elapsed_ms": 8.680544,
+      "traps": 0,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 2
+    },
+    {
+      "mode": "trap",
+      "count": 5000,
+      "elapsed_ms": 26.455393,
+      "traps": 5000,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 2
+    },
+    {
+      "mode": "guest",
+      "count": 5000,
+      "elapsed_ms": 259.214558,
+      "traps": 0,
+      "voluntary_switches": 10000,
+      "involuntary_switches": 0,
+      "round": 2
+    },
+    {
+      "mode": "guest",
+      "count": 5000,
+      "elapsed_ms": 266.438858,
+      "traps": 0,
+      "voluntary_switches": 10000,
+      "involuntary_switches": 1,
+      "round": 3
+    },
+    {
+      "mode": "trap",
+      "count": 5000,
+      "elapsed_ms": 26.378874,
+      "traps": 5000,
+      "voluntary_switches": 0,
+      "involuntary_switches": 1,
+      "round": 3
+    },
+    {
+      "mode": "direct",
+      "count": 5000,
+      "elapsed_ms": 9.411306,
+      "traps": 0,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 3
+    },
+    {
+      "mode": "direct",
+      "count": 5000,
+      "elapsed_ms": 8.797384,
+      "traps": 0,
+      "voluntary_switches": 0,
+      "involuntary_switches": 1,
+      "round": 4
+    },
+    {
+      "mode": "trap",
+      "count": 5000,
+      "elapsed_ms": 26.610714,
+      "traps": 5000,
+      "voluntary_switches": 0,
+      "involuntary_switches": 2,
+      "round": 4
+    },
+    {
+      "mode": "guest",
+      "count": 5000,
+      "elapsed_ms": 258.492636,
+      "traps": 0,
+      "voluntary_switches": 10000,
+      "involuntary_switches": 0,
+      "round": 4
+    },
+    {
+      "mode": "guest",
+      "count": 5000,
+      "elapsed_ms": 263.475289,
+      "traps": 0,
+      "voluntary_switches": 10000,
+      "involuntary_switches": 0,
+      "round": 5
+    },
+    {
+      "mode": "trap",
+      "count": 5000,
+      "elapsed_ms": 26.290072,
+      "traps": 5000,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 5
+    },
+    {
+      "mode": "direct",
+      "count": 5000,
+      "elapsed_ms": 8.728824,
+      "traps": 0,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 5
+    },
+    {
+      "mode": "direct",
+      "count": 5000,
+      "elapsed_ms": 8.691024,
+      "traps": 0,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 6
+    },
+    {
+      "mode": "trap",
+      "count": 5000,
+      "elapsed_ms": 26.435793,
+      "traps": 5000,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 6
+    },
+    {
+      "mode": "guest",
+      "count": 5000,
+      "elapsed_ms": 257.777394,
+      "traps": 0,
+      "voluntary_switches": 10000,
+      "involuntary_switches": 0,
+      "round": 6
+    }
+  ],
+  "environment": {
+    "device_type": "ARM64 API 35 redroid",
+    "selinux": "Disabled",
+    "launch": "Android instrumentation target app -> NativeExecutableLoader -> ProcessBuilder",
+    "stock_policy_verified": false
+  },
+  "notes": [
+    "Current pinned rootless-runtime-20260920-emulated.3 engine with RootlessAccelerationProfile host flags.",
+    "Raw SVC calls bypass glibc preload wrappers. This is not a comparison of accelerated glibc application workloads.",
+    "Warm single-file fixture, no general path walker, fake-root emulation, ELF loading, or process startup in timed region.",
+    "Native process initial Seccomp=0. Additional EACCES filter test is not stock Android policy verification."
+  ]
+}

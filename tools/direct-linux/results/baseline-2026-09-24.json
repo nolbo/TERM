@@ -1,0 +1,217 @@
+{
+  "schema": 1,
+  "probe_sha256": "303368a4c3e463278bf62e5f54953e41fe02f2c4ca99c169b29b0a4f6f018ec6",
+  "proot_sha256": "9edb5ff81998a990b014797c9acc05f31b9eb5d84cb16105d4e8c1179d7d382b",
+  "loader_sha256": "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237",
+  "android_api": 35,
+  "page_size": 4096,
+  "initial_process_policy": [
+    "TracerPid:\t0",
+    "CapEff:\t0000000000000000",
+    "NoNewPrivs:\t0",
+    "Seccomp:\t0"
+  ],
+  "checks_passed": true,
+  "scope": "Single warm file, raw open/read/fcntl/close; no general rootfs, ELF loader, or end-to-end performance claim",
+  "samples": [
+    {
+      "mode": "direct",
+      "count": 5000,
+      "elapsed_ms": 8.699905,
+      "traps": 0,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 0
+    },
+    {
+      "mode": "trap",
+      "count": 5000,
+      "elapsed_ms": 26.461595,
+      "traps": 5000,
+      "voluntary_switches": 0,
+      "involuntary_switches": 1,
+      "round": 0
+    },
+    {
+      "mode": "guest",
+      "count": 5000,
+      "elapsed_ms": 248.35051,
+      "traps": 0,
+      "voluntary_switches": 10000,
+      "involuntary_switches": 1,
+      "round": 0
+    },
+    {
+      "mode": "guest",
+      "count": 5000,
+      "elapsed_ms": 250.175476,
+      "traps": 0,
+      "voluntary_switches": 10000,
+      "involuntary_switches": 1,
+      "round": 1
+    },
+    {
+      "mode": "trap",
+      "count": 5000,
+      "elapsed_ms": 26.531556,
+      "traps": 5000,
+      "voluntary_switches": 0,
+      "involuntary_switches": 2,
+      "round": 1
+    },
+    {
+      "mode": "direct",
+      "count": 5000,
+      "elapsed_ms": 8.953266,
+      "traps": 0,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 1
+    },
+    {
+      "mode": "direct",
+      "count": 5000,
+      "elapsed_ms": 8.829945,
+      "traps": 0,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 2
+    },
+    {
+      "mode": "trap",
+      "count": 5000,
+      "elapsed_ms": 26.467756,
+      "traps": 5000,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 2
+    },
+    {
+      "mode": "guest",
+      "count": 5000,
+      "elapsed_ms": 252.361801,
+      "traps": 0,
+      "voluntary_switches": 10000,
+      "involuntary_switches": 0,
+      "round": 2
+    },
+    {
+      "mode": "guest",
+      "count": 5000,
+      "elapsed_ms": 249.285233,
+      "traps": 0,
+      "voluntary_switches": 10000,
+      "involuntary_switches": 0,
+      "round": 3
+    },
+    {
+      "mode": "trap",
+      "count": 5000,
+      "elapsed_ms": 26.434315,
+      "traps": 5000,
+      "voluntary_switches": 0,
+      "involuntary_switches": 2,
+      "round": 3
+    },
+    {
+      "mode": "direct",
+      "count": 5000,
+      "elapsed_ms": 8.680664,
+      "traps": 0,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 3
+    },
+    {
+      "mode": "direct",
+      "count": 5000,
+      "elapsed_ms": 8.744505,
+      "traps": 0,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 4
+    },
+    {
+      "mode": "trap",
+      "count": 5000,
+      "elapsed_ms": 26.435756,
+      "traps": 5000,
+      "voluntary_switches": 0,
+      "involuntary_switches": 1,
+      "round": 4
+    },
+    {
+      "mode": "guest",
+      "count": 5000,
+      "elapsed_ms": 249.847714,
+      "traps": 0,
+      "voluntary_switches": 10000,
+      "involuntary_switches": 0,
+      "round": 4
+    },
+    {
+      "mode": "guest",
+      "count": 5000,
+      "elapsed_ms": 250.429396,
+      "traps": 0,
+      "voluntary_switches": 10000,
+      "involuntary_switches": 0,
+      "round": 5
+    },
+    {
+      "mode": "trap",
+      "count": 5000,
+      "elapsed_ms": 26.498716,
+      "traps": 5000,
+      "voluntary_switches": 0,
+      "involuntary_switches": 1,
+      "round": 5
+    },
+    {
+      "mode": "direct",
+      "count": 5000,
+      "elapsed_ms": 8.850226,
+      "traps": 0,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 5
+    },
+    {
+      "mode": "direct",
+      "count": 5000,
+      "elapsed_ms": 8.681504,
+      "traps": 0,
+      "voluntary_switches": 0,
+      "involuntary_switches": 0,
+      "round": 6
+    },
+    {
+      "mode": "trap",
+      "count": 5000,
+      "elapsed_ms": 26.301155,
+      "traps": 5000,
+      "voluntary_switches": 0,
+      "involuntary_switches": 2,
+      "round": 6
+    },
+    {
+      "mode": "guest",
+      "count": 5000,
+      "elapsed_ms": 254.046206,
+      "traps": 0,
+      "voluntary_switches": 10000,
+      "involuntary_switches": 2,
+      "round": 6
+    }
+  ],
+  "environment": {
+    "device_type": "ARM64 API 35 redroid",
+    "selinux": "Disabled",
+    "launch": "Android instrumentation target app -> NativeExecutableLoader -> ProcessBuilder",
+    "stock_policy_verified": false
+  },
+  "notes": [
+    "Initial baseline engine comparison. Superseded for performance decisions by the accelerated engine result in the companion file.",
+    "Warm single-file raw syscalls only; not a Linux distribution workload; initial inherited Seccomp=0."
+  ]
+}

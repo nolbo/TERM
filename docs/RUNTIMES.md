@@ -1,5 +1,10 @@
 # Runtimes
 
+The separate [Direct Linux experiment](DIRECT_LINUX_EXPERIMENT.md) explores
+in-process Linux syscall translation without a PRoot tracer. Its current APK
+probe is not a usable distribution backend or a selectable runtime, and does
+not replace existing Rootless installations.
+
 ## Runtime matrix
 
 | Runtime | Availability | Userspace | Kernel | Package system |
