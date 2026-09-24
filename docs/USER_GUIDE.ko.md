@@ -197,7 +197,8 @@ Native, Debian, Ubuntu, Arch, AVF 기본 프로필과 사용자 프로필을 이
 실행 환경은 Native, Rootless Linux, AVF 중 선택하고, Rootless Linux에서는
 Debian·Ubuntu·Arch 배포판을 추가로 선택합니다. AVF 기본 프로필은 앱에
 MANAGE_VIRTUAL_MACHINE과 USE_CUSTOM_VIRTUAL_MACHINE 특권이 모두 부여된
-경우에만 목록에 나타납니다.
+경우에만 목록에 나타납니다. **가상 머신** 설정과 해당 세부 설정의 검색 결과도
+두 특권이 모두 부여된 경우에만 표시됩니다.
 **저장공간**에서 새 독립 공간 또는 같은 기반의 다른 프로필과 공유를 선택합니다.
 새 프로필과 복제한 프로필은 기본적으로 독립 공간을 사용합니다. 공유하면 홈·작업
 폴더뿐 아니라 Rootless 설치 패키지·루트 파일시스템, AVF VM 디스크도 함께 사용합니다.

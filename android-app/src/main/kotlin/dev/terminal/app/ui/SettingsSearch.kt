@@ -5,6 +5,9 @@ import dev.terminal.app.R
 /** A search result opens a screen, never executes a setting's action. */
 internal data class SettingsSearchTarget(val screen: String, val sectionIndex: Int = 0)
 
+internal fun visibleSettingsSearchEntries(hasAvfPrivileges: Boolean): List<SettingsSearchEntry> =
+    settingsSearchEntries.filter { hasAvfPrivileges || it.target.screen != "avf" }
+
 internal data class SettingsSearchEntry(
     val title: Int,
     val summary: Int?,

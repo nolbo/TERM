@@ -144,6 +144,10 @@ class SettingsDetailActivity : TerminalActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (category == AVF && !SessionProfiles(this).hasAvfPrivileges()) {
+            finish()
+            return
+        }
         setRootlessStates(RootlessSettingsStatus.CHECKING, getString(R.string.rootless_status_connecting))
         wakePolicy = runtimePreferences.getString(KEY_WAKE_POLICY, DEFAULT_WAKE_POLICY) ?: DEFAULT_WAKE_POLICY
         customFonts = customTerminalFonts(terminalPreferences)
@@ -171,6 +175,10 @@ class SettingsDetailActivity : TerminalActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (category == AVF && !SessionProfiles(this).hasAvfPrivileges()) {
+            finish()
+            return
+        }
         activityStarted = true
         bindingRequested = runCatching {
             bindService(Intent(this, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE)

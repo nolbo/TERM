@@ -884,8 +884,8 @@ private fun sessionStateLabel(state: String): String = stringResource(
 )
 
 @Composable
-internal fun SettingsOverview(onBack: () -> Unit, onOpen: (SettingsSearchTarget) -> Unit) {
-    val rows = settingsSearchEntries.map { entry ->
+internal fun SettingsOverview(onBack: () -> Unit, onOpen: (SettingsSearchTarget) -> Unit, hasAvfPrivileges: Boolean) {
+    val rows = visibleSettingsSearchEntries(hasAvfPrivileges).map { entry ->
         LocalizedSettingsEntry(entry, stringResource(entry.title),
             entry.summary?.let { stringResource(it) }.orEmpty(),
             entry.path.map { stringResource(it) }.joinToString(" › "))
