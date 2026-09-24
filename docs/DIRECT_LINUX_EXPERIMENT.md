@@ -125,22 +125,40 @@ Ubuntu의 수정하지 않은 GNU true/printf와 dash의 내부 명령·입력 �
 (1.30배)였다. 각 5,000회이고 Rootless 가속 counter도 매번 5,000회 증가했다.
 [원시 결과](../tools/direct-linux/results/elf-runtime-2026-09-24.json).
 이는 단일 warm 파일 작업의 결과이며 전체 Linux 성능 개선의 증거는 아니다.
-새 유형의 fake-root/hardlink 의미, fork/exec, 패키지·세션 통합은 아직 남았다.
+이 초기 ELF 단계에는 fork/exec가 없었다. 아래 프로세스 단계에서 기본 경로를
+추가했으며 fake-root/hardlink, 패키지·세션 통합은 아직 남았다.
+
+## 프로세스 실행 단계: 2026-09-24
+
+[프로세스 구현·검증](../tools/direct-linux/PROCESS.md)은 실제 dash의 외부 명령,
+파이프, command substitution, background wait와 shebang script를 실행한다.
+libc/TLS 독립 exec 준비·교체와 guest 매핑 수명을 구현했다. 실패한 준비는 기존
+이미지/FD를 보존하며 성공한 exec는 PID·cwd·환경·CLOEXEC·signal 의미를 처리한다.
+vfork 호환 경로는 copy-on-write와 부모 대기 barrier를 사용하며 공유 VM을
+구현했다고 주장하지 않는다. pthread/shared-VM spawn과 전체 exec 의미는 남았다.
+
+56개 상위 실행과 내부 자식·반복 exec 검사, 42개 시간 표본이 통과했다.
+[원시 결과](../tools/direct-linux/results/process-runtime-2026-09-24.json).
+최신 가속 Rootless 대비 파일 조회·읽기는 1.47배·1.32배 빨랐지만 셸+외부 명령
+30회는 **84.300ms 대 49.595ms로 1.70배 느렸다**. Android waitFor 관찰 시간은
+측정 해상도 때문에 제외하고 guest CLOCK_MONOTONIC으로 실제 작업을 측정했다.
+프로세스 준비·교체 비용의 원인은 아직 프로파일링하지 않았으며 다음 최적화
+대상이다. 전체 성능 목표는 달성하지 못했다. enforcing 기기 검증도 여전히 없다.
 
 ## 남은 구현과 완료 증거
 
 1. **정책:** fixture/redroid 검증은 완료. stock enforcing 기기에서 같은 APK의
    seccomp/메모리/포인터 복사를 재검증해야 한다.
 2. **ELF 수직 실행:** 초기 loader/auxv/stack/TLS/PT_INTERP와 실제 glibc 프로그램
-   실행·손상 입력 검증 완료. exec 교체 때의 메모리 수명, 더 넓은 ELF·JIT,
+   실행·손상 입력 검증과 기본 exec 교체/메모리 수명 검사 완료. 더 넓은 ELF·JIT,
    stock 기기 매핑 정책 검증이 남았다.
 3. **파일 의미:** 일반 경로·symlink·dirfd·cwd·동시 rename, 생성/삭제/권한/ID,
    에뮬레이션 hardlink와 열린 FD/링크 수, 실제 errno 보존. `..` 문자열 제거만으로
    가상 루트를 구현하지 않는다.
 4. **프로세스·신호:** guest sigaction/mask/altstack 가상화, TLS 독립 handler,
-   thread/fork/vfork/exec/wait, EINTR/cancellation, exec의 signal/CLOEXEC 의미,
-   guest seccomp. launcher를 단순 exec하면 필터 주소와 handler가 깨지므로
-   런타임을 유지하는 guest exec가 필요하다.
+   thread/shared-VM spawn/execveat, 전체 vfork 의미, EINTR/cancellation과 robust
+   mutex·확장 CPU 상태, guest seccomp가 남았다. 기본 fork/wait와 exec의
+   signal/CLOEXEC 검증은 완료했다. guest exec는 APK 런타임과 필터를 유지한다.
 5. **Linux 환경:** 독립 설치·복구/package DB에서 shell, Python, Git, apt/dpkg
    설치·업그레이드·삭제, 네트워크/PTY 검증. 기존 rootfs를 공유하거나 패키지
    관리를 도구 몇 개로 축소해 완료를 주장하지 않는다.

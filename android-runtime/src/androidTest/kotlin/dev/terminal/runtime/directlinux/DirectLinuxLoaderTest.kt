@@ -57,16 +57,25 @@ class DirectLinuxLoaderTest {
             }
             builder.environment()["DIRECT_LINUX_POLICY"] = "1"
             if (arguments.getString("directLinuxTrace") == "true") builder.environment()["DIRECT_LINUX_TRACE"] = "1"
+            val started = System.nanoTime()
             val process = builder.start()
             process.outputStream.close()
             try {
-                assertTrue("ELF process timeout: $path", process.waitFor(20, TimeUnit.SECONDS))
+                if (!process.waitFor(20, TimeUnit.SECONDS)) {
+                    process.destroyForcibly(); process.waitFor(5, TimeUnit.SECONDS)
+                    val tail = java.io.RandomAccessFile(log, "r").use { file ->
+                        file.seek((file.length() - 8192).coerceAtLeast(0))
+                        ByteArray((file.length() - file.filePointer).toInt()).also { file.readFully(it) }.decodeToString()
+                    }
+                    fail("ELF process timeout: $path $tail")
+                }
                 assertTrue("Unbounded output", log.length() <= 65536)
                 val output = log.readText()
                 val observedPolicy = output.lineSequence().filter { it.startsWith("POLICY ") }.map { it.removePrefix("POLICY ") }.toList()
                 if (observedPolicy.isNotEmpty()) policy = observedPolicy
                 assertEquals("$path: $output", expectedCode, process.exitValue())
-                results.put(JSONObject().put("program", path).put("exit", process.exitValue()).put("engine", if (useProot) "proot" else "direct-linux"))
+                results.put(JSONObject().put("program", path).put("exit", process.exitValue()).put("engine", if (useProot) "proot" else "direct-linux")
+                    .put("arguments", JSONArray(args.toList())).put("observation_ms", (System.nanoTime() - started) / 1e6))
                 return output
             } finally {
                 if (process.isAlive) { process.destroyForcibly(); process.waitFor(5, TimeUnit.SECONDS) }
@@ -98,6 +107,22 @@ class DirectLinuxLoaderTest {
                 assertTrue(run("/bin/guest-$kind", "hello guest").contains("PASS Linux ELF auxv/BSS/TLS/heap/path/errno/mask"))
                 run("/bin/guest-$kind", "sigbus", expectedCode = 77)
             }
+            File(root, "script").apply {
+                writeText("#!/bin/sh -e\nprintf 'script:%s:%s\\n' \"\$1\" \"\$DL_TEST\"\n/bin/true\n")
+                assertTrue(setExecutable(true))
+            }
+            File(root, "script-loop").apply { writeText("#!/script-loop\n"); assertTrue(setExecutable(true)) }
+            File(root, "no-execute").apply { writeText("#!/bin/sh\n"); assertTrue(setExecutable(false, false)) }
+            assertTrue(run("/script", "space argument").contains("script:space argument:"))
+            assertTrue(run("/bin/sh", "-c", "DL_TEST=environment /script 'shell argument'").contains("script:shell argument:environment"))
+            assertTrue(run("/bin/sh", "-c", "/bin/printf 'pipe\\n' | /bin/sh -c 'read value; printf \"external:%s\\n\" \"\$value\"'; /bin/true; printf 'status:%s\\n' \"\$?\"")
+                .contains("external:pipe\nstatus:0\n"))
+            assertTrue(run("/bin/sh", "-c", "value=\$(/bin/printf substitution); /bin/true & wait; printf '%s\\n' \"\$value\"")
+                .contains("substitution\n"))
+            for (kind in listOf("static", "dynamic")) {
+                assertTrue(run("/bin/process-$kind", "processes").contains("PASS exec PID/argv/env/cwd/CLOEXEC/signals/mapping/TLS"))
+                assertTrue(run("/bin/process-$kind", "repeat", "30").contains("PASS repeated exec memory/TLS cleanup"))
+            }
             File(root, "not-elf").apply { writeText("not an ELF"); setExecutable(true) }
             assertTrue(run("/not-elf", expectedCode = 126).contains("Direct Linux:"))
             val rejected = manifest.getJSONArray("rejected_elfs")
@@ -118,6 +143,14 @@ class DirectLinuxLoaderTest {
                             if (useProot) assertEquals("Rootless preload path was not used", 5000, sample.getInt("acceleration_hits"))
                             benchmarks.put(sample.put("engine", if (useProot) "proot" else "direct-linux").put("round", round))
                         }
+                    }
+                    modes.forEach { useProot ->
+                        val output = run("/bin/process-dynamic", "shell-benchmark", useProot = useProot)
+                        assertTrue(output, output.contains("PASS shell-exec\n"))
+                        val lines = output.lineSequence().filter { it.startsWith("BENCH ") }.toList()
+                        assertEquals(output, 1, lines.size)
+                        benchmarks.put(JSONObject(lines.single().removePrefix("BENCH "))
+                            .put("engine", if (useProot) "proot" else "direct-linux").put("round", round))
                     }
                 }
             }

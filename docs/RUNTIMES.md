@@ -3,8 +3,10 @@
 The separate [Direct Linux experiment](DIRECT_LINUX_EXPERIMENT.md) explores
 in-process Linux syscall translation without a PRoot tracer. Its current APK
 probe and experimental ELF loader are not a usable distribution backend or a
-selectable runtime. The loader can run static/dynamic glibc programs and shell
-builtins, but process creation/exec and full Linux semantics remain incomplete.
+selectable runtime. The loader can run static/dynamic glibc programs, scripts and shell external
+commands through fork/exec. Threads, full Linux semantics and package/session
+integration remain incomplete. [Process measurements](../tools/direct-linux/PROCESS.md)
+show faster file calls but slower repeated command execution than accelerated Rootless.
 Neither replaces existing Rootless installations.
 
 ## Runtime matrix

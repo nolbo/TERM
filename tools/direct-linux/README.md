@@ -2,7 +2,8 @@
 
 This develops a **separate**, unprivileged Linux runtime. The original syscall
 transport probe is documented below; the subsequent [ELF runtime](ELF.md) now runs
-real static/dynamic ARM64 glibc programs and shell builtins. Neither is a complete
+real static/dynamic ARM64 glibc programs. The [process milestone](PROCESS.md)
+adds shell external commands, scripts, fork/exec and measured process workloads. Neither is a complete
 distribution backend or user-selectable runtime. The
 [design and remaining work](../../docs/DIRECT_LINUX_EXPERIMENT.md) retain the full
 goal. Existing Rootless remains unchanged.

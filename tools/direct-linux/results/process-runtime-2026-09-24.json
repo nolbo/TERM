@@ -1,0 +1,973 @@
+{
+  "schema": 1,
+  "loader_sha256": "81ea1cd19904b8bd246d5a5641d67eeba4aea169ff44ded71be4db59a0a5291c",
+  "fixtures": {
+    "schema": 1,
+    "source": "Existing Ubuntu ARM64 host packages; local test fixture only",
+    "package_versions": [
+      "coreutils 9.4-3ubuntu6.2",
+      "dash 0.5.12-6ubuntu5",
+      "libc6 2.39-0ubuntu8.8"
+    ],
+    "files": [
+      {
+        "path": "bin/dash",
+        "size": 133608,
+        "sha256": "c883d9c27228339580994a1d0ea960645368c7d1b960a712bd0c655860c2d0d7"
+      },
+      {
+        "path": "bin/env",
+        "size": 68368,
+        "sha256": "dde57443115af498aa981159ba6517b156547173342af36487ed58631d9e47c3"
+      },
+      {
+        "path": "bin/guest-dynamic",
+        "size": 73056,
+        "sha256": "740ed784c82b9a523096abfa31a5c0b030bd931a6e4f0b9b31f63c82fb62d88d"
+      },
+      {
+        "path": "bin/guest-static",
+        "size": 707888,
+        "sha256": "b30a9378552abdc6bcd5c31d9859db49cf46fd369edbc6a25fe100cedc96e58a"
+      },
+      {
+        "path": "bin/printf",
+        "size": 67872,
+        "sha256": "f431071e7304e8448a4565facfc27afefd2578a993da3f1942b3e457d70f8730"
+      },
+      {
+        "path": "bin/process-dynamic",
+        "size": 73120,
+        "sha256": "cc44c15429a9905ddc64dd8eab6f7815721c303b6661fc74b703fd57b7901517"
+      },
+      {
+        "path": "bin/process-static",
+        "size": 710632,
+        "sha256": "e06d1bd114ab4f165dd90e79885cb1e061dcfec3ce5fc06e55e8933711d5b160"
+      },
+      {
+        "path": "bin/true",
+        "size": 67792,
+        "sha256": "69851c424c4519cd11af710b69d52ddf44b929b74470a02e62e0aab227c07543"
+      },
+      {
+        "path": "lib/aarch64-linux-gnu/libc.so.6",
+        "size": 1722920,
+        "sha256": "6e3cc56b98887cb3cc2a9fe78b6dd4610184aa27bd05d592cb287db93e82d494"
+      },
+      {
+        "path": "lib/ld-linux-aarch64.so.1",
+        "size": 203968,
+        "sha256": "49005ef8e9db9a45691ff875e6ca18dd8723c7ec5c1a863a276a1186dbf22774"
+      },
+      {
+        "path": "bad/wrong-machine",
+        "size": 67792,
+        "sha256": "e2f19dd4a3cf443437bddbf52c753b9c720d3667bd9c2e94d2b3e736737413d6"
+      },
+      {
+        "path": "bad/wrong-class",
+        "size": 67792,
+        "sha256": "584bc518155afe8d73ce28dbeb5fe87cfca63eb4cd42e151806b02ee8af0ec2d"
+      },
+      {
+        "path": "bad/phoff-overflow",
+        "size": 67792,
+        "sha256": "da7ef32c8c5e1b293a6bde62166884a3d25b9c1846a13dae426165bb470dbfc2"
+      },
+      {
+        "path": "bad/phnum-overflow",
+        "size": 67792,
+        "sha256": "78894c871e34176bc7a4fcc6945d9a9ef3fb9fd53a96e4e99095dac1e2b8d5de"
+      },
+      {
+        "path": "bad/phentsize",
+        "size": 67792,
+        "sha256": "4305ff0b61db871a3bd1f74c5e082667789b52e8cc444c601e05b6fa1e67c828"
+      },
+      {
+        "path": "bad/entry-outside",
+        "size": 67792,
+        "sha256": "b3585f1bd45337313e9c4eedaec0e928284bbacba10fb9161f5285433a2dc279"
+      },
+      {
+        "path": "bad/load-offset",
+        "size": 67792,
+        "sha256": "237830da7031770c3c1a660138cac80cc319a353bb5bd249e217135ae7c59746"
+      },
+      {
+        "path": "bad/load-filesz",
+        "size": 67792,
+        "sha256": "1e2eb833f4fe9dd1bc3e3383d43c17144c59734d5c8a6b67a1ca5c7bd61caa4c"
+      },
+      {
+        "path": "bad/load-zero-memory",
+        "size": 67792,
+        "sha256": "dc76401323f569166fff96f52b4bad76eefdc0346b9339fa41af9a908d699379"
+      },
+      {
+        "path": "bad/load-rwx",
+        "size": 67792,
+        "sha256": "96223396ff68e2e7ae67ef7aad6117ca1edb12ab9acecd56597f2d2542c67d03"
+      },
+      {
+        "path": "bad/load-alignment",
+        "size": 67792,
+        "sha256": "2afbb1a406b8ae358b01fbb176f24bfb8f7c2f8cc1ad83cac5ba1cf6efae9e16"
+      },
+      {
+        "path": "bad/interp-unterminated",
+        "size": 67792,
+        "sha256": "db434e9d0f37eaf1212a698cd8d1b77cb523d42be9d49600c03a39fb114e5ef2"
+      }
+    ],
+    "rejected_elfs": [
+      "/bad/wrong-machine",
+      "/bad/wrong-class",
+      "/bad/phoff-overflow",
+      "/bad/phnum-overflow",
+      "/bad/phentsize",
+      "/bad/entry-outside",
+      "/bad/load-offset",
+      "/bad/load-filesz",
+      "/bad/load-zero-memory",
+      "/bad/load-rwx",
+      "/bad/load-alignment",
+      "/bad/interp-unterminated"
+    ]
+  },
+  "android_api": 35,
+  "initial_process_policy": [
+    "TracerPid:\t0",
+    "CapEff:\t0000000000000000",
+    "NoNewPrivs:\t0",
+    "Seccomp:\t0"
+  ],
+  "results": [
+    {
+      "program": "/bin/true",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [],
+      "observation_ms": 104.534963
+    },
+    {
+      "program": "/bin/printf",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "%s:%d\n",
+        "linux",
+        "42"
+      ],
+      "observation_ms": 101.841796
+    },
+    {
+      "program": "/bin/sh",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "-c",
+        "read value < /input; cd /tmp; printf '%s:%s\\n' \"$value\" \"$PWD\""
+      ],
+      "observation_ms": 101.439235
+    },
+    {
+      "program": "/bin/guest-static",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "hello guest"
+      ],
+      "observation_ms": 101.428715
+    },
+    {
+      "program": "/bin/guest-static",
+      "exit": 77,
+      "engine": "direct-linux",
+      "arguments": [
+        "sigbus"
+      ],
+      "observation_ms": 101.457555
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "hello guest"
+      ],
+      "observation_ms": 101.392515
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 77,
+      "engine": "direct-linux",
+      "arguments": [
+        "sigbus"
+      ],
+      "observation_ms": 101.393315
+    },
+    {
+      "program": "/script",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "space argument"
+      ],
+      "observation_ms": 101.392915
+    },
+    {
+      "program": "/bin/sh",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "-c",
+        "DL_TEST=environment /script 'shell argument'"
+      ],
+      "observation_ms": 101.428435
+    },
+    {
+      "program": "/bin/sh",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "-c",
+        "/bin/printf 'pipe\\n' | /bin/sh -c 'read value; printf \"external:%s\\n\" \"$value\"'; /bin/true; printf 'status:%s\\n' \"$?\""
+      ],
+      "observation_ms": 101.417795
+    },
+    {
+      "program": "/bin/sh",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "-c",
+        "value=$(/bin/printf substitution); /bin/true & wait; printf '%s\\n' \"$value\""
+      ],
+      "observation_ms": 101.408594
+    },
+    {
+      "program": "/bin/process-static",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "processes"
+      ],
+      "observation_ms": 201.587747
+    },
+    {
+      "program": "/bin/process-static",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "repeat",
+        "30"
+      ],
+      "observation_ms": 201.639467
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "processes"
+      ],
+      "observation_ms": 201.625627
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "repeat",
+        "30"
+      ],
+      "observation_ms": 101.401355
+    },
+    {
+      "program": "/not-elf",
+      "exit": 126,
+      "engine": "direct-linux",
+      "arguments": [],
+      "observation_ms": 101.406795
+    },
+    {
+      "program": "/bad/wrong-machine",
+      "exit": 126,
+      "engine": "direct-linux",
+      "arguments": [],
+      "observation_ms": 101.458035
+    },
+    {
+      "program": "/bad/wrong-class",
+      "exit": 126,
+      "engine": "direct-linux",
+      "arguments": [],
+      "observation_ms": 101.445875
+    },
+    {
+      "program": "/bad/phoff-overflow",
+      "exit": 126,
+      "engine": "direct-linux",
+      "arguments": [],
+      "observation_ms": 101.390075
+    },
+    {
+      "program": "/bad/phnum-overflow",
+      "exit": 126,
+      "engine": "direct-linux",
+      "arguments": [],
+      "observation_ms": 101.423874
+    },
+    {
+      "program": "/bad/phentsize",
+      "exit": 126,
+      "engine": "direct-linux",
+      "arguments": [],
+      "observation_ms": 101.404475
+    },
+    {
+      "program": "/bad/entry-outside",
+      "exit": 126,
+      "engine": "direct-linux",
+      "arguments": [],
+      "observation_ms": 101.457435
+    },
+    {
+      "program": "/bad/load-offset",
+      "exit": 126,
+      "engine": "direct-linux",
+      "arguments": [],
+      "observation_ms": 101.466595
+    },
+    {
+      "program": "/bad/load-filesz",
+      "exit": 126,
+      "engine": "direct-linux",
+      "arguments": [],
+      "observation_ms": 101.410794
+    },
+    {
+      "program": "/bad/load-zero-memory",
+      "exit": 126,
+      "engine": "direct-linux",
+      "arguments": [],
+      "observation_ms": 101.401195
+    },
+    {
+      "program": "/bad/load-rwx",
+      "exit": 126,
+      "engine": "direct-linux",
+      "arguments": [],
+      "observation_ms": 101.373755
+    },
+    {
+      "program": "/bad/load-alignment",
+      "exit": 126,
+      "engine": "direct-linux",
+      "arguments": [],
+      "observation_ms": 101.334795
+    },
+    {
+      "program": "/bad/interp-unterminated",
+      "exit": 126,
+      "engine": "direct-linux",
+      "arguments": [],
+      "observation_ms": 101.407035
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "benchmark"
+      ],
+      "observation_ms": 101.370274
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "proot",
+      "arguments": [
+        "benchmark"
+      ],
+      "observation_ms": 201.544666
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "shell-benchmark"
+      ],
+      "observation_ms": 101.411515
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "proot",
+      "arguments": [
+        "shell-benchmark"
+      ],
+      "observation_ms": 101.385155
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "proot",
+      "arguments": [
+        "benchmark"
+      ],
+      "observation_ms": 201.573187
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "benchmark"
+      ],
+      "observation_ms": 101.452395
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "proot",
+      "arguments": [
+        "shell-benchmark"
+      ],
+      "observation_ms": 101.352555
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "shell-benchmark"
+      ],
+      "observation_ms": 101.373995
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "benchmark"
+      ],
+      "observation_ms": 101.309915
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "proot",
+      "arguments": [
+        "benchmark"
+      ],
+      "observation_ms": 201.498746
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "shell-benchmark"
+      ],
+      "observation_ms": 101.420755
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "proot",
+      "arguments": [
+        "shell-benchmark"
+      ],
+      "observation_ms": 101.297314
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "proot",
+      "arguments": [
+        "benchmark"
+      ],
+      "observation_ms": 201.624587
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "benchmark"
+      ],
+      "observation_ms": 101.451035
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "proot",
+      "arguments": [
+        "shell-benchmark"
+      ],
+      "observation_ms": 101.352955
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "shell-benchmark"
+      ],
+      "observation_ms": 101.408115
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "benchmark"
+      ],
+      "observation_ms": 101.412555
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "proot",
+      "arguments": [
+        "benchmark"
+      ],
+      "observation_ms": 201.559387
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "shell-benchmark"
+      ],
+      "observation_ms": 101.409155
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "proot",
+      "arguments": [
+        "shell-benchmark"
+      ],
+      "observation_ms": 101.350875
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "proot",
+      "arguments": [
+        "benchmark"
+      ],
+      "observation_ms": 201.829667
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "benchmark"
+      ],
+      "observation_ms": 101.477315
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "proot",
+      "arguments": [
+        "shell-benchmark"
+      ],
+      "observation_ms": 101.417835
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "shell-benchmark"
+      ],
+      "observation_ms": 101.418955
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "benchmark"
+      ],
+      "observation_ms": 101.393114
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "proot",
+      "arguments": [
+        "benchmark"
+      ],
+      "observation_ms": 201.518987
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "direct-linux",
+      "arguments": [
+        "shell-benchmark"
+      ],
+      "observation_ms": 101.402515
+    },
+    {
+      "program": "/bin/process-dynamic",
+      "exit": 0,
+      "engine": "proot",
+      "arguments": [
+        "shell-benchmark"
+      ],
+      "observation_ms": 101.337115
+    }
+  ],
+  "stock_policy_verified": false,
+  "benchmarks": [
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 27.296674,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 0
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 45.560484,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 0
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 39.379707,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 0
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 59.065761,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 0
+    },
+    {
+      "case": "shell-exec-30",
+      "count": 30,
+      "elapsed_ms": 84.203788,
+      "engine": "direct-linux",
+      "round": 0
+    },
+    {
+      "case": "shell-exec-30",
+      "count": 30,
+      "elapsed_ms": 50.286176,
+      "engine": "proot",
+      "round": 0
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 39.468587,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 1
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 61.634167,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 1
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 26.715872,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 1
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 44.694481,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 1
+    },
+    {
+      "case": "shell-exec-30",
+      "count": 30,
+      "elapsed_ms": 48.794412,
+      "engine": "proot",
+      "round": 1
+    },
+    {
+      "case": "shell-exec-30",
+      "count": 30,
+      "elapsed_ms": 84.610469,
+      "engine": "direct-linux",
+      "round": 1
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 26.761232,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 2
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 44.780681,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 2
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 39.767708,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 2
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 59.769762,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 2
+    },
+    {
+      "case": "shell-exec-30",
+      "count": 30,
+      "elapsed_ms": 84.299548,
+      "engine": "direct-linux",
+      "round": 2
+    },
+    {
+      "case": "shell-exec-30",
+      "count": 30,
+      "elapsed_ms": 49.595175,
+      "engine": "proot",
+      "round": 2
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 39.738627,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 3
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 60.587124,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 3
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 26.597992,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 3
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 44.488601,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 3
+    },
+    {
+      "case": "shell-exec-30",
+      "count": 30,
+      "elapsed_ms": 48.788972,
+      "engine": "proot",
+      "round": 3
+    },
+    {
+      "case": "shell-exec-30",
+      "count": 30,
+      "elapsed_ms": 81.14986,
+      "engine": "direct-linux",
+      "round": 3
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 27.275274,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 4
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 44.655841,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 4
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 39.059786,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 4
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 58.9182,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 4
+    },
+    {
+      "case": "shell-exec-30",
+      "count": 30,
+      "elapsed_ms": 89.078722,
+      "engine": "direct-linux",
+      "round": 4
+    },
+    {
+      "case": "shell-exec-30",
+      "count": 30,
+      "elapsed_ms": 49.855175,
+      "engine": "proot",
+      "round": 4
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 38.772426,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 5
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 58.211238,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 5
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 26.718073,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 5
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 44.579201,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 5
+    },
+    {
+      "case": "shell-exec-30",
+      "count": 30,
+      "elapsed_ms": 48.26753,
+      "engine": "proot",
+      "round": 5
+    },
+    {
+      "case": "shell-exec-30",
+      "count": 30,
+      "elapsed_ms": 83.689187,
+      "engine": "direct-linux",
+      "round": 5
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 27.112714,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 6
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 45.198202,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 6
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 38.506305,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 6
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 57.776597,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 6
+    },
+    {
+      "case": "shell-exec-30",
+      "count": 30,
+      "elapsed_ms": 90.805286,
+      "engine": "direct-linux",
+      "round": 6
+    },
+    {
+      "case": "shell-exec-30",
+      "count": 30,
+      "elapsed_ms": 50.935458,
+      "engine": "proot",
+      "round": 6
+    }
+  ],
+  "proot_sha256": "1f152d00d64b53b7efa932a5cb341e937d9a7472b3af9dc22d99eb6e16245cfb",
+  "preload_sha256": "f581d328cf0fee01530b9052f76901bbfe975ac1bd61c225e02dfe10e1b5e829",
+  "validation_environment": {
+    "date": "2026-09-24",
+    "device": "redroid ARM64 API 35",
+    "selinux": "Disabled",
+    "stock_enforcing_device": false,
+    "instrumentation_result": "OK (1 test), 6.807 seconds",
+    "notes": [
+      "56 top-level process runs; fork children and repeated exec are additional internal operations.",
+      "42 clock_gettime(CLOCK_MONOTONIC) timing samples, seven alternating pairs per workload.",
+      "observation_ms is Android Process.waitFor observation latency and is not a benchmark.",
+      "Shell timing includes fork, shell startup, thirty /bin/true invocations and child reaping; excludes the outer launcher.",
+      "COW vfork compatibility preserves parent waiting, but does not implement arbitrary shared-VM clone/spawn."
+    ]
+  }
+}

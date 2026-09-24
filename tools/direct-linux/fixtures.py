@@ -30,6 +30,12 @@ def prepare(output):
         subprocess.run(["clang", "-O2", "-Wall", "-Wextra", "-Werror",
                         "-Wl,-z,noexecstack,-z,max-page-size=65536",
                         *(["-static"] if variant == "static" else []), str(source), "-o", str(target)], check=True)
+    for variant in ("static", "dynamic"):
+        target = output / "bin" / f"process-{variant}"
+        subprocess.run(["clang", "-O2", "-Wall", "-Wextra", "-Werror",
+                        "-Wl,-z,noexecstack,-z,max-page-size=65536",
+                        *(["-static"] if variant == "static" else []),
+                        str(Path(__file__).with_name("process-test.c")), "-o", str(target)], check=True)
     files = []
     for path in sorted(output.glob("bin/*")) + sorted(output.glob("lib/**/*")):
         if path.is_file() and path.name != "manifest.json":

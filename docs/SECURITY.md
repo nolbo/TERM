@@ -108,7 +108,10 @@ execution path. Its fixture-only FD transport is not a guest capability API.
 The separate `direct-linux-probe` and `direct-linux-loader` entries exist only for an
 opt-in standalone instrumentation APK. These test unprivileged in-process syscall
 translation, anonymous W-to-X mappings and actual Linux ELF using temporary
-fixture data. They are not bundled in the product APK and do not loosen inherited
+fixture data. Guest exec replaces tracked guest mappings inside the surviving APK
+runtime; it never kernel-executes a data ELF or clears inherited filters. The
+[process milestone](../tools/direct-linux/PROCESS.md) documents its bounded semantics.
+They are not bundled in the product APK and do not loosen inherited
 Android policy. Their results do not establish support on stock enforcing devices. See the
 [Direct Linux experiment](DIRECT_LINUX_EXPERIMENT.md) for the remaining gates.
 Bootstrap downloads are catalog-pinned Debian, Ubuntu and Arch Linux ARM rootfs

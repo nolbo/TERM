@@ -4,20 +4,22 @@
 ARM64 Linux ELF** in an ordinary Android application process. It remains an
 experimental executable in a standalone test APK, not a complete/selectable Linux
 environment. Existing Rootless payloads, rootfs data and sessions are unchanged.
+The subsequent [process milestone](PROCESS.md) adds fork/exec and scripts; its
+results supersede the initial process limitations recorded below.
 
 ## What exists
 
-- `loader.c`: checked ELF64/ARM64 ET_EXEC/ET_DYN parsing, PT_INTERP loading inside
+- `exec.c` (initially in `loader.c`): checked ELF64/ARM64 ET_EXEC/ET_DYN parsing, PT_INTERP loading inside
   the independent root, mapped program headers, argument/environment/auxiliary
   vectors, zeroed BSS, guarded guest/signal stacks and a separately reserved brk
-  heap. Rejects file/segment overflow, overlapping LOAD pages, invalid entry,
+  heap. `loader.c` retains initial Android policy/Bionic setup. Rejects file/segment overflow, overlapping LOAD pages, invalid entry,
   invalid interpreter, executable stack and writable-executable LOAD segments.
   Limits: 128 program headers, 128 MiB file/image span, 128 arguments, 8 MiB stack,
   64 MiB brk reservation. Fixed-address mappings never replace existing memory.
 - `enter.S`: transfers control with a 16-byte aligned guest stack and cleared TLS
   pointer. The Linux interpreter or static libc initializes its own TLS.
 - `guest.c`: signal dispatch with raw syscalls, no Bionic/glibc/TLS/heap dependency.
-  `build.sh` rejects every unresolved dispatcher symbol except the three assembly
+  `build.sh` audits the combined guest/exec/memory objects and rejects every unresolved symbol except the three assembly
   entry points. Read/write and other untranslated I/O go directly through the
   kernel. Other supported calls use the internal dispatcher; unsupported calls
   return explicit errors. There is no PRoot/Native fallback.
@@ -34,7 +36,8 @@ environment. Existing Rootless payloads, rootfs data and sessions are unchanged.
 
 The loader's setup uses Bionic before entry. Nothing in the guest dispatcher calls
 Bionic after the guest changes TPIDR_EL0. This removes the first probe's TLS
-restriction, not the remaining thread/exec/signal work.
+restriction. The [process milestone](PROCESS.md) describes later exec support
+and the remaining thread/signal work.
 
 The main ELF and interpreter are copied as data into anonymous RW pages and then
 given their final permissions. Guest shared-library `mmap` retains the kernel's
@@ -137,8 +140,8 @@ provided additional context. Raw kernel-source web URLs failed; no runtime claim
 depends on those failed fetches. Replicant/codex_apps were unnecessary because
 this step changes neither UI interaction nor connected-app state.
 
-Remaining implementation: fork/thread/vfork/exec and wait ownership; full signal
-virtualization and interruption; FD sharing/lifecycle and filesystem mutation
+Remaining implementation after the process milestone: threads/shared-VM spawn,
+execveat and complete signal virtualization/interruption; FD sharing/lifecycle and filesystem mutation
 semantics; fake identity/hardlinks; installer/package environment; backend/PTY/UI
-integration and lifecycle tests. Unsupported process operations currently return
-EOPNOTSUPP. This is a concrete ELF milestone, **not completion of the user goal**.
+integration and lifecycle tests. Unsupported process variants return EOPNOTSUPP or ENOSYS; ordinary fork/exec/wait
+and bounded vfork compatibility now work. This is a concrete ELF milestone, **not completion of the user goal**.
