@@ -786,6 +786,7 @@ fun TerminalEmptyState(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ExtraKeys(
     control: Boolean,
@@ -793,19 +794,27 @@ internal fun ExtraKeys(
     terminalBackgroundColor: Color,
     layout: dev.terminal.app.HotkeyLayout,
     enabled: Boolean = true,
+    visible: Boolean = true,
     onKey: (TerminalToolbarKey) -> Unit,
 ) {
     Column(
         Modifier.fillMaxWidth().background(terminalBackgroundColor)
-            .windowInsetsPadding(WindowInsets.navigationBars)
-            .padding(if (layout.enabled) 4.dp else 0.dp),
+            .windowInsetsPadding(WindowInsets.navigationBars),
     ) {
-        if (layout.enabled) {
+        AnimatedVisibility(
+            visible = layout.enabled && visible,
+            enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec(), expandFrom = Alignment.Bottom) +
+                slideInVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { it } +
+                fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()),
+            exit = shrinkVertically(MaterialTheme.motionScheme.defaultSpatialSpec(), shrinkTowards = Alignment.Bottom) +
+                slideOutVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { it } +
+                fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
+        ) {
             dev.terminal.app.HotkeyGrid(
                 layout = layout,
-                modifier = Modifier.heightIn(max = 160.dp).verticalScroll(rememberScrollState()),
+                modifier = Modifier.padding(4.dp).heightIn(max = 160.dp).verticalScroll(rememberScrollState()),
                 control = control, alt = alt,
-                enabled = enabled,
+                enabled = enabled && visible,
             ) { index ->
                 val shortcut = layout.keys[index].shortcut
                 onKey(when (shortcut) {

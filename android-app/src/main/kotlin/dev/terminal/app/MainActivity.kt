@@ -138,6 +138,7 @@ class MainActivity : TerminalActivity() {
     private var terminalPaddingDp by mutableStateOf(TerminalAppearance.DEFAULT_PADDING_DP)
     private var applicationTerminalTitles by mutableStateOf(emptyMap<String, String>())
     private var terminalAppBarContentVisible by mutableStateOf(true)
+    private var terminalExtraKeysVisible by mutableStateOf(true)
 
     private var runtime: IRuntimeService? = null
     private var bound = false
@@ -268,6 +269,7 @@ class MainActivity : TerminalActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("terminal-extra-keys-visible", terminalExtraKeysVisible)
         selectedLaunchSpec?.let { outState.putString("pending-profile-launch", it.toJson().toString()) }
         rootlessLaunchSpec?.let { outState.putString("pending-rootless-profile-launch", it.toJson().toString()) }
         notificationSessionId?.let { outState.putString("notification-target", it) }
@@ -276,6 +278,7 @@ class MainActivity : TerminalActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        terminalExtraKeysVisible = savedInstanceState?.getBoolean("terminal-extra-keys-visible", true) ?: true
         notificationSessionId = savedInstanceState?.getString("notification-target")
         selectedLaunchSpec = savedInstanceState?.getString("pending-profile-launch")?.let {
             dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it)
@@ -293,6 +296,7 @@ class MainActivity : TerminalActivity() {
             onModifierStateChanged = ::syncModifierState,
             onShowKeyboard = ::requestTerminalKeyboard,
             onToggleTerminalChrome = ::toggleTerminalChrome,
+            onExtraKeysVisibility = { terminalExtraKeysVisible = it },
             onPinchScale = ::scaleTerminalFont,
             onWebLink = ::openTerminalWebLink,
         )
@@ -440,6 +444,7 @@ class MainActivity : TerminalActivity() {
                 val toolbarSessionId = activeSessionId
                 androidx.compose.runtime.key(toolbarSessionId) { ExtraKeys(
                     layout = hotkeyLayout,
+                    visible = terminalExtraKeysVisible,
                     control = controlPressed,
                     alt = altPressed,
                     terminalBackgroundColor = terminalBackgroundColor,

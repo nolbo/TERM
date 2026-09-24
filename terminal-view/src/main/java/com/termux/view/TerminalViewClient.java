@@ -37,6 +37,9 @@ public interface TerminalViewClient {
      */
     boolean onDoubleTap(MotionEvent e);
 
+    /** Two fingers moving vertically together; positive direction hides extra keys. */
+    default void onTwoFingerSwipe(boolean downward) {}
+
     boolean shouldBackButtonBeMappedToEscape();
 
     boolean shouldEnforceCharBasedInput();

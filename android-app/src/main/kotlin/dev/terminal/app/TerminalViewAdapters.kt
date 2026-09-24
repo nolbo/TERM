@@ -26,9 +26,11 @@ class TerminalInputCallbacks(
     private val onPinchScale: (Float) -> Float = { 1f },
     private val onWebLink: (String) -> Boolean = { false },
     private val onToggleTerminalChrome: () -> Unit = {},
+    private val onExtraKeysVisibility: (Boolean) -> Unit = {},
 ) : TerminalViewClient {
     var controlPressed = false
     var altPressed = false
+    override fun onTwoFingerSwipe(downward: Boolean) = onExtraKeysVisibility(!downward)
     override fun onSingleTapUp(e: MotionEvent) = onShowKeyboard()
     override fun onDoubleTap(e: MotionEvent): Boolean {
         onToggleTerminalChrome()
