@@ -2,12 +2,67 @@ package dev.terminal.app
 
 import android.content.Context
 import androidx.test.platform.app.InstrumentationRegistry
+import com.termux.terminal.TerminalSession
+import com.termux.view.TerminalView
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertSame
+import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class TerminalAppearanceTest {
+    @Test fun resumeKeepsSessionGeometryAndRendererUntilFontSettingsChange() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val context = instrumentation.targetContext
+        val preferences = context.getSharedPreferences("resume-test-${java.util.UUID.randomUUID()}", Context.MODE_PRIVATE)
+        instrumentation.runOnMainSync {
+            var resizes = 0
+            val backend = RemoteTerminalBackend(write = {}, resize = { _, _ -> resizes++ })
+            try {
+                preferences.edit().putInt("font-size-sp", 10).commit()
+                val view = TerminalView(context, null).apply {
+                    setTerminalViewClient(TerminalInputCallbacks())
+                    TerminalAppearance.apply(preferences, this, 18)
+                    layout(0, 0, 800, 600)
+                }
+                val session = TerminalSession("", "/", emptyArray(), emptyArray(), 1000, TerminalCallbacks {}, backend)
+                view.attachSession(session)
+                val output = (1..200).joinToString("\r\n") { "line-$it" }.toByteArray()
+                session.emulator.append(output, output.size)
+                view.onScreenUpdated()
+                view.topRow = -30
+                val columns = session.emulator.mColumns
+                val history = session.emulator.screen.transcriptText
+                val rendererField = TerminalView::class.java.getDeclaredField("mRenderer").apply { isAccessible = true }
+                val renderer = rendererField.get(view)
+                resizes = 0
+                repeat(5) {
+                    TerminalAppearance.apply(preferences, view, 18)
+                    view.refresh()
+                }
+                assertEquals(0, resizes)
+                assertSame(renderer, rendererField.get(view))
+                assertEquals(columns, session.emulator.mColumns)
+                assertEquals(history, session.emulator.screen.transcriptText)
+                assertEquals(-30, view.topRow)
+
+                preferences.edit().putString("font-family", "SANS_MONOSPACE").commit()
+                TerminalAppearance.apply(preferences, view, 18)
+                assertNotSame(renderer, rendererField.get(view))
+                val updated = rendererField.get(view)
+                TerminalAppearance.apply(preferences, view, 18)
+                assertSame(updated, rendererField.get(view))
+                TerminalAppearance.apply(preferences, view, 22)
+                assertTrue(resizes > 0)
+                assertTrue(session.emulator.mColumns < columns)
+            } finally {
+                backend.close()
+                preferences.edit().clear().commit()
+            }
+        }
+    }
+
     @Test fun customPalettePersistsValidRgbColorsAndRejectsInvalidValues() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val preferences = context.getSharedPreferences("palette-test-${java.util.UUID.randomUUID()}", Context.MODE_PRIVATE)

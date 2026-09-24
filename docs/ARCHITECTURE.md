@@ -116,6 +116,12 @@ Runtime selection is explicit. A failed Rootless or AVF request is never moved
 to another backend.
 
 The UI tracks runtime attachment separately from its cached terminal renderer.
+Background/foreground transitions retain the live UI mirror and transport. On
+resume, appearance is applied at the session's effective font size without an
+intermediate default-size resize. Unchanged text size and font settings reuse
+the renderer and loaded fonts; changing the font list, order, style or built-in
+fallback reloads fonts. Each view owns its cache lifetime, so a new view loads
+fonts again (including changes to the contents of an existing font URI).
 Selecting a cached tab still attaches that exact session to the runtime
 transport, while closing a background tab leaves the active attachment
 unchanged. UI unbinding detaches only the session actually attached to that

@@ -10,6 +10,7 @@ import android.util.TypedValue
 import com.termux.terminal.TerminalColors
 import com.termux.view.TerminalFontFamily
 import java.util.Properties
+import java.util.WeakHashMap
 import kotlin.math.roundToInt
 
 /** Applies persisted renderer-only preferences; it never changes the runtime process. */
@@ -44,17 +45,28 @@ object TerminalAppearance {
     }
 
     private var appliedPalette: PaletteColors? = null
+    private data class FontSettings(val fallback: String, val custom: List<CustomTerminalFont>)
+    // Main-thread-only, per-view cache: it must not retain an Activity after destruction.
+    private val appliedFonts = WeakHashMap<com.termux.view.TerminalView, FontSettings>()
 
     fun paddingDp(preferences: SharedPreferences): Int =
         preferences.getInt(KEY_PADDING, DEFAULT_PADDING_DP).coerceIn(PADDING_RANGE)
 
-    fun apply(preferences: SharedPreferences, terminalView: com.termux.view.TerminalView): Boolean {
+    fun apply(
+        preferences: SharedPreferences,
+        terminalView: com.termux.view.TerminalView,
+        fontSizeSp: Int = preferences.getInt(KEY_FONT_SIZE, DEFAULT_FONT_SIZE_SP),
+    ): Boolean {
         terminalView.setTextSize(
-            fontSizeSpToPx(preferences.getInt(KEY_FONT_SIZE, DEFAULT_FONT_SIZE_SP)) { value ->
+            fontSizeSpToPx(fontSizeSp) { value ->
                 TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, terminalView.resources.displayMetrics)
             },
         )
-        terminalView.setTypefaceFamily(fontFamily(preferences, terminalView))
+        val fonts = FontSettings(builtInSystemFallback(preferences), customTerminalFonts(preferences))
+        if (appliedFonts[terminalView] != fonts) {
+            terminalView.setTypefaceFamily(fontFamily(preferences, terminalView))
+            appliedFonts[terminalView] = fonts
+        }
         terminalView.setForceFixedWidth(preferences.getBoolean(KEY_FIXED_WIDTH, true))
         terminalView.setNaturalWideGlyphRendering(preferences.getBoolean(KEY_NATURAL_WIDE_GLYPHS, false))
         val colors = paletteColors(preferences)

@@ -670,6 +670,7 @@ public final class TerminalView extends View {
      * @param textSize the new font size, in physical pixels.
      */
     public void setTextSize(int textSize) {
+        if (mRenderer != null && mRenderer.mTextSize == textSize) return;
         mRenderer = mRenderer == null ? new TerminalRenderer(textSize, Typeface.MONOSPACE)
             : new TerminalRenderer(textSize, mRenderer.mFontFamily, mRenderer.mForceFixedWidth,
                 mRenderer.mGlyphRenderOptions);
