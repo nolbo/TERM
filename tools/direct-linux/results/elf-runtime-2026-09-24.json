@@ -1,0 +1,551 @@
+{
+  "schema": 1,
+  "loader_sha256": "1340a7ca2af2eefaa6bc3c317f9ca033d5a42a37e6b77d10511177a5351ccc6a",
+  "fixtures": {
+    "schema": 1,
+    "source": "Existing Ubuntu ARM64 host packages; local test fixture only",
+    "package_versions": [
+      "coreutils 9.4-3ubuntu6.2",
+      "dash 0.5.12-6ubuntu5",
+      "libc6 2.39-0ubuntu8.8"
+    ],
+    "files": [
+      {
+        "path": "bin/dash",
+        "size": 133608,
+        "sha256": "c883d9c27228339580994a1d0ea960645368c7d1b960a712bd0c655860c2d0d7"
+      },
+      {
+        "path": "bin/env",
+        "size": 68368,
+        "sha256": "dde57443115af498aa981159ba6517b156547173342af36487ed58631d9e47c3"
+      },
+      {
+        "path": "bin/guest-dynamic",
+        "size": 73056,
+        "sha256": "740ed784c82b9a523096abfa31a5c0b030bd931a6e4f0b9b31f63c82fb62d88d"
+      },
+      {
+        "path": "bin/guest-static",
+        "size": 707888,
+        "sha256": "b30a9378552abdc6bcd5c31d9859db49cf46fd369edbc6a25fe100cedc96e58a"
+      },
+      {
+        "path": "bin/printf",
+        "size": 67872,
+        "sha256": "f431071e7304e8448a4565facfc27afefd2578a993da3f1942b3e457d70f8730"
+      },
+      {
+        "path": "bin/true",
+        "size": 67792,
+        "sha256": "69851c424c4519cd11af710b69d52ddf44b929b74470a02e62e0aab227c07543"
+      },
+      {
+        "path": "lib/aarch64-linux-gnu/libc.so.6",
+        "size": 1722920,
+        "sha256": "6e3cc56b98887cb3cc2a9fe78b6dd4610184aa27bd05d592cb287db93e82d494"
+      },
+      {
+        "path": "lib/ld-linux-aarch64.so.1",
+        "size": 203968,
+        "sha256": "49005ef8e9db9a45691ff875e6ca18dd8723c7ec5c1a863a276a1186dbf22774"
+      },
+      {
+        "path": "bad/wrong-machine",
+        "size": 67792,
+        "sha256": "e2f19dd4a3cf443437bddbf52c753b9c720d3667bd9c2e94d2b3e736737413d6"
+      },
+      {
+        "path": "bad/wrong-class",
+        "size": 67792,
+        "sha256": "584bc518155afe8d73ce28dbeb5fe87cfca63eb4cd42e151806b02ee8af0ec2d"
+      },
+      {
+        "path": "bad/phoff-overflow",
+        "size": 67792,
+        "sha256": "da7ef32c8c5e1b293a6bde62166884a3d25b9c1846a13dae426165bb470dbfc2"
+      },
+      {
+        "path": "bad/phnum-overflow",
+        "size": 67792,
+        "sha256": "78894c871e34176bc7a4fcc6945d9a9ef3fb9fd53a96e4e99095dac1e2b8d5de"
+      },
+      {
+        "path": "bad/phentsize",
+        "size": 67792,
+        "sha256": "4305ff0b61db871a3bd1f74c5e082667789b52e8cc444c601e05b6fa1e67c828"
+      },
+      {
+        "path": "bad/entry-outside",
+        "size": 67792,
+        "sha256": "b3585f1bd45337313e9c4eedaec0e928284bbacba10fb9161f5285433a2dc279"
+      },
+      {
+        "path": "bad/load-offset",
+        "size": 67792,
+        "sha256": "237830da7031770c3c1a660138cac80cc319a353bb5bd249e217135ae7c59746"
+      },
+      {
+        "path": "bad/load-filesz",
+        "size": 67792,
+        "sha256": "1e2eb833f4fe9dd1bc3e3383d43c17144c59734d5c8a6b67a1ca5c7bd61caa4c"
+      },
+      {
+        "path": "bad/load-zero-memory",
+        "size": 67792,
+        "sha256": "dc76401323f569166fff96f52b4bad76eefdc0346b9339fa41af9a908d699379"
+      },
+      {
+        "path": "bad/load-rwx",
+        "size": 67792,
+        "sha256": "96223396ff68e2e7ae67ef7aad6117ca1edb12ab9acecd56597f2d2542c67d03"
+      },
+      {
+        "path": "bad/load-alignment",
+        "size": 67792,
+        "sha256": "2afbb1a406b8ae358b01fbb176f24bfb8f7c2f8cc1ad83cac5ba1cf6efae9e16"
+      },
+      {
+        "path": "bad/interp-unterminated",
+        "size": 67792,
+        "sha256": "db434e9d0f37eaf1212a698cd8d1b77cb523d42be9d49600c03a39fb114e5ef2"
+      }
+    ],
+    "rejected_elfs": [
+      "/bad/wrong-machine",
+      "/bad/wrong-class",
+      "/bad/phoff-overflow",
+      "/bad/phnum-overflow",
+      "/bad/phentsize",
+      "/bad/entry-outside",
+      "/bad/load-offset",
+      "/bad/load-filesz",
+      "/bad/load-zero-memory",
+      "/bad/load-rwx",
+      "/bad/load-alignment",
+      "/bad/interp-unterminated"
+    ]
+  },
+  "android_api": 35,
+  "initial_process_policy": [
+    "TracerPid:\t0",
+    "CapEff:\t0000000000000000",
+    "NoNewPrivs:\t0",
+    "Seccomp:\t0"
+  ],
+  "results": [
+    {
+      "program": "/bin/true",
+      "exit": 0,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bin/printf",
+      "exit": 0,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bin/sh",
+      "exit": 0,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bin/guest-static",
+      "exit": 0,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bin/guest-static",
+      "exit": 77,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 77,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/not-elf",
+      "exit": 126,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bad/wrong-machine",
+      "exit": 126,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bad/wrong-class",
+      "exit": 126,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bad/phoff-overflow",
+      "exit": 126,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bad/phnum-overflow",
+      "exit": 126,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bad/phentsize",
+      "exit": 126,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bad/entry-outside",
+      "exit": 126,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bad/load-offset",
+      "exit": 126,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bad/load-filesz",
+      "exit": 126,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bad/load-zero-memory",
+      "exit": 126,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bad/load-rwx",
+      "exit": 126,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bad/load-alignment",
+      "exit": 126,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bad/interp-unterminated",
+      "exit": 126,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "proot"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "proot"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "proot"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "proot"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "proot"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "proot"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "direct-linux"
+    },
+    {
+      "program": "/bin/guest-dynamic",
+      "exit": 0,
+      "engine": "proot"
+    }
+  ],
+  "stock_policy_verified": false,
+  "benchmarks": [
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 27.003881,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 0
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 45.504656,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 0
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 38.591636,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 0
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 58.384895,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 0
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 39.553358,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 1
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 59.492219,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 1
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 26.864481,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 1
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 44.866255,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 1
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 27.081242,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 2
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 45.342816,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 2
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 39.369398,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 2
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 58.883537,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 2
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 39.327519,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 3
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 60.119541,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 3
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 27.423123,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 3
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 45.406216,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 3
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 27.182762,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 4
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 44.968256,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 4
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 39.414878,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 4
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 59.693499,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 4
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 39.485719,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 5
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 59.004418,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 5
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 26.997841,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 5
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 45.317416,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 5
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 27.502602,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 6
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 45.772297,
+      "acceleration_hits": 0,
+      "engine": "direct-linux",
+      "round": 6
+    },
+    {
+      "case": "stat",
+      "count": 5000,
+      "elapsed_ms": 39.430558,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 6
+    },
+    {
+      "case": "open-read-close",
+      "count": 5000,
+      "elapsed_ms": 58.675736,
+      "acceleration_hits": 5000,
+      "engine": "proot",
+      "round": 6
+    }
+  ],
+  "proot_sha256": "1f152d00d64b53b7efa932a5cb341e937d9a7472b3af9dc22d99eb6e16245cfb",
+  "preload_sha256": "f581d328cf0fee01530b9052f76901bbfe975ac1bd61c225e02dfe10e1b5e829",
+  "environment": {
+    "device_type": "ARM64 API 35 redroid",
+    "selinux": "Disabled",
+    "launch": "Standalone instrumentation app -> APK-owned NativeExecutableLoader -> Direct Linux ELF loader",
+    "stock_policy_verified": false
+  },
+  "scope": [
+    "Existing Ubuntu ARM64 dash/coreutils/glibc binaries; static and dynamic glibc regression fixtures.",
+    "No kernel execve of guest files, no ptrace, no capabilities, independent disposable root.",
+    "Benchmark uses the same dynamic glibc guest and same warm file; 5000 operations, 7 alternating pairs; excludes process startup.",
+    "Latest pinned PRoot engine plus combined faststat/stdio preload; acceleration_hits must equal 5000 for each baseline case.",
+    "Direct Linux does not yet implement fake root, process creation/exec, full signals, package management, or session integration. These timings do not prove end-to-end Linux performance.",
+    "34 subprocess results: 7 positive program/check runs, 13 rejected ELF inputs, 14 benchmark processes."
+  ]
+}

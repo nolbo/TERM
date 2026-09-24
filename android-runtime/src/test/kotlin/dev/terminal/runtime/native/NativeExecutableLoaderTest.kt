@@ -36,7 +36,7 @@ class NativeExecutableLoaderTest {
     @Test fun toolingIsPackagedOnlyAndNeverAUsbmuxDaemonOrDownloadedWorker() {
         val directory = temporary.newFolder("bootstrap-lib")
         val resolver = PackagedExecutableResolver(directory) { listOf("arm64-v8a") }
-        listOf("terminal-usb", "iphone-tool-probe", "isideload", "rootless-notify-probe", "direct-linux-probe").forEach { name ->
+        listOf("terminal-usb", "iphone-tool-probe", "isideload", "rootless-notify-probe", "direct-linux-probe", "direct-linux-loader").forEach { name ->
             assertTrue(resolver.resolvePackagedExecutable(name).isFailure)
             val binary = File(directory, "lib$name.so").apply { writeText("test"); setExecutable(true) }
             assertEquals(binary.canonicalFile, resolver.resolvePackagedExecutable(name).getOrThrow())
@@ -58,10 +58,12 @@ class NativeExecutableLoaderTest {
     @Test fun directLinuxProbeCannotResolveOutsideTheApkLibraryDirectory() {
         val directory = temporary.newFolder("direct-linux-lib")
         val outside = temporary.newFile("downloaded-direct-linux").apply { setExecutable(true) }
-        Files.createSymbolicLink(File(directory, "libdirect-linux-probe.so").toPath(), outside.toPath())
-        val result = PackagedExecutableResolver(directory) { listOf("arm64-v8a") }
-            .resolvePackagedExecutable("direct-linux-probe")
-        assertTrue(result.exceptionOrNull()?.message?.contains("escaped APK") == true)
+        listOf("direct-linux-probe", "direct-linux-loader").forEach { name ->
+            Files.createSymbolicLink(File(directory, "lib$name.so").toPath(), outside.toPath())
+            val result = PackagedExecutableResolver(directory) { listOf("arm64-v8a") }
+                .resolvePackagedExecutable(name)
+            assertTrue(result.exceptionOrNull()?.message?.contains("escaped APK") == true)
+        }
     }
 
     @Test fun iphoneWorkerMustBeAnImmutablePackagedExecutable() {

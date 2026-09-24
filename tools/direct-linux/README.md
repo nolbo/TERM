@@ -1,9 +1,11 @@
 # Direct Linux syscall transport experiment
 
-This is the first executable experiment for a **separate**, unprivileged Linux
-runtime. It is not a distribution backend, ELF loader, general path translator,
-or user-selectable runtime. The [design and remaining work](../../docs/DIRECT_LINUX_EXPERIMENT.md)
-retain the full goal. Existing Rootless remains unchanged.
+This develops a **separate**, unprivileged Linux runtime. The original syscall
+transport probe is documented below; the subsequent [ELF runtime](ELF.md) now runs
+real static/dynamic ARM64 glibc programs and shell builtins. Neither is a complete
+distribution backend or user-selectable runtime. The
+[design and remaining work](../../docs/DIRECT_LINUX_EXPERIMENT.md) retain the full
+goal. Existing Rootless remains unchanged.
 
 `probe.c` handles raw ARM64 `openat` in the calling thread with seccomp TRAP and
 SIGSYS. `syscall.S` supplies separate host/guest SVC sites. The host site is exempt
@@ -13,8 +15,10 @@ Kernel/Android restrictions remain in force. This is not a malicious-guest sandb
 Only read-only `/probe/NAME` fixture paths without dots or slashes are supported.
 O_NOFOLLOW is forced. These are experiment restrictions, not the intended Linux
 filesystem semantics. The handler uses page-bounded self `process_vm_readv`, raw
-syscalls, stack storage, and a thread-local diagnostic counter. No guest ELF or
-guest TLS is present yet. Do not transplant this Bionic TLS code into glibc.
+syscalls, stack storage, and a thread-local diagnostic counter. This transport
+probe does not load guest ELF or replace guest TLS. The separate ELF runtime uses
+a libc/TLS-independent dispatcher; do not transplant the probe's Bionic TLS counter
+into glibc.
 
 ## Build and run from an actual Android application
 
@@ -94,8 +98,9 @@ packager validates ELF architecture/alignment and refuses a production app APK.
 Central resolver tests cover absent, valid, and escaping-symlink probe paths.
 Canonical app build, 181 runtime tests (one external archive fixture skipped),
 four image tests, instrumentation APK build, and the opt-in Android test passed.
-The stock-device, actual-ELF, signal/TLS virtualization and application benchmarks
-remain open in the design document.
+At this initial transport milestone, actual-ELF execution was still open; the
+subsequent [ELF runtime results](ELF.md) supersede that limitation. Stock-device
+support, complete signal virtualization and application benchmarks remain open.
 
 The canonical validation used JDK 17 and the existing wrapper/cache:
 

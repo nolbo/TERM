@@ -105,16 +105,35 @@ ARM64 API 35 redroid에서 최신 가속 PRoot 엔진과 7회 교대 비교했�
 사용하지 않는다. 일반 rootfs path walker, 가상 ID, ELF/exec, 시작 시간도
 비교에 없으므로 최신 Rootless 전체가 9.9배 빨라진다는 증거가 아니다.
 기기는 SELinux Disabled, 최초 Seccomp=0이다. enforcing 휴대폰의 정책 적합성은
-미검증이다. Bionic TLS를 사용하는 시험 카운터와 pthread 초기화를 그대로
-glibc guest에 이식할 수 없으며 freestanding dispatcher가 필요하다.
+미검증이다. 이 첫 probe의 Bionic TLS 카운터는 glibc guest에 이식하지 않는다.
+
+## ELF 실행 단계: 2026-09-24
+
+[새 ELF 실행기](../tools/direct-linux/ELF.md)는 실제 ARM64 Linux ET_EXEC/ET_DYN,
+PT_INTERP, auxv/stack/BSS/heap을 구성하고 별도 root에서 glibc를 실행한다.
+TLS·libc·할당기에 의존하지 않는 dispatcher를 구현했으며 빌드가 외부 함수
+참조를 검사한다. glibc가 TLS를 초기화한 뒤에도 파일 호출이 동작한다.
+
+Ubuntu의 수정하지 않은 GNU true/printf와 dash의 내부 명령·입력 리디렉션·chdir,
+정적/동적 glibc 회귀 프로그램을 Android 앱 프로세스에서 실행했다. ELF 손상
+12종과 비 ELF 파일 거부, 실제 SIGBUS, signal mask 보류·해제도 검증했다.
+초기 주 ELF/링커는 익명 메모리에 적재하지만 guest 공유 라이브러리의 mmap은
+파일 매핑·EOF/SIGBUS 의미를 유지한다. mmap 정책의 거부는 그대로 전달한다.
+
+같은 glibc 프로그램·파일로 최신 Rootless preload 가속을 실제 사용한 7쌍
+비교에서 stat 39.415→27.081ms(1.46배), open/read/close 59.004→45.343ms
+(1.30배)였다. 각 5,000회이고 Rootless 가속 counter도 매번 5,000회 증가했다.
+[원시 결과](../tools/direct-linux/results/elf-runtime-2026-09-24.json).
+이는 단일 warm 파일 작업의 결과이며 전체 Linux 성능 개선의 증거는 아니다.
+새 유형의 fake-root/hardlink 의미, fork/exec, 패키지·세션 통합은 아직 남았다.
 
 ## 남은 구현과 완료 증거
 
 1. **정책:** fixture/redroid 검증은 완료. stock enforcing 기기에서 같은 APK의
    seccomp/메모리/포인터 복사를 재검증해야 한다.
-2. **ELF 수직 실행:** 독립 ARM64 loader, auxv/stack/TLS, PT_INTERP, executable
-   mapping과 메모리 수명, 종료 결과. 실제 배포판 ELF와 동적 링커·shell을
-   실행하고 잘못된 ELF는 매핑 전에 거부한다.
+2. **ELF 수직 실행:** 초기 loader/auxv/stack/TLS/PT_INTERP와 실제 glibc 프로그램
+   실행·손상 입력 검증 완료. exec 교체 때의 메모리 수명, 더 넓은 ELF·JIT,
+   stock 기기 매핑 정책 검증이 남았다.
 3. **파일 의미:** 일반 경로·symlink·dirfd·cwd·동시 rename, 생성/삭제/권한/ID,
    에뮬레이션 hardlink와 열린 FD/링크 수, 실제 errno 보존. `..` 문자열 제거만으로
    가상 루트를 구현하지 않는다.

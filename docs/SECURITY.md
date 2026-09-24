@@ -105,11 +105,11 @@ The fixed `rootless-notify-probe` name supports an opt-in standalone test APK;
 the production APK does not bundle this probe. It remains subject to the same
 canonical library-directory and executable checks and grants no downloaded-file
 execution path. Its fixture-only FD transport is not a guest capability API.
-The separate `direct-linux-probe` allow-list entry likewise exists only for an
-opt-in standalone instrumentation APK. It tests unprivileged in-process syscall
-translation and anonymous W-to-X mappings using temporary fixture data. It is
-not bundled in the product APK, does not loosen inherited Android policy, and
-does not establish support on stock enforcing devices. See the
+The separate `direct-linux-probe` and `direct-linux-loader` entries exist only for an
+opt-in standalone instrumentation APK. These test unprivileged in-process syscall
+translation, anonymous W-to-X mappings and actual Linux ELF using temporary
+fixture data. They are not bundled in the product APK and do not loosen inherited
+Android policy. Their results do not establish support on stock enforcing devices. See the
 [Direct Linux experiment](DIRECT_LINUX_EXPERIMENT.md) for the remaining gates.
 Bootstrap downloads are catalog-pinned Debian, Ubuntu and Arch Linux ARM rootfs
 archives. The installer limits their size, verifies SHA-256 before extraction, rejects path
