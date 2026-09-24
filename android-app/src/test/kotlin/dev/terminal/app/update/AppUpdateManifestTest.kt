@@ -5,6 +5,7 @@ import org.junit.Assert.*
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.IOException
 
 class AppUpdateManifestTest {
     private val commit = "1".repeat(40)
@@ -13,6 +14,26 @@ class AppUpdateManifestTest {
         .put("commit", commit).put("versionCode", 32).put("versionName", "0.1.0+main.32.${commit.take(12)}")
         .put("size", payload.size).put("sha256", payload.sha256Hex()).put("minSdk", 31)
     private fun manifest() = AppUpdateManifest.parse(json().toString())
+
+    @Test fun releaseNotesArePinnedToTheSameChannelAndCommitAsTheApk() {
+        for (channel in UpdateChannel.entries) {
+            val update = manifest().copy(channel = channel)
+            assertEquals("https://github.com/nolbo/TERM/releases/download/${channel.wireName}-$commit/RELEASE_NOTES.ko.md", update.releaseNotesUrl)
+        }
+        assertNull(manifest().releaseNotes)
+    }
+
+    @Test fun remoteTextPreservesKoreanAndLineBreaksAndRejectsOversizedResponses() {
+        val notes = "# 새 버전\n\n- 업데이트 안내\n".toByteArray(Charsets.UTF_8)
+        assertEquals(String(notes, Charsets.UTF_8), readUpdateText(ByteArrayInputStream(notes), notes.size))
+        assertEquals("", readUpdateText(ByteArrayInputStream(byteArrayOf()), MAX_RELEASE_NOTES_BYTES))
+        assertThrows(IOException::class.java) {
+            readUpdateText(ByteArrayInputStream(notes), notes.size - 1)
+        }
+        assertThrows(IOException::class.java) {
+            readUpdateText(ByteArrayInputStream(ByteArray(MAX_RELEASE_NOTES_BYTES + 1)), MAX_RELEASE_NOTES_BYTES)
+        }
+    }
 
     @Test fun updateComesOnlyFromTheNamedPublicRepositoryAndImmutableMainCommit() {
         val update = AppUpdateManifest.parse(json().put("apkUrl", "http://attacker.invalid/app.apk").toString())
