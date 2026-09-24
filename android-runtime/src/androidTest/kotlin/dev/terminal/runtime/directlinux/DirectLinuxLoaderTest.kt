@@ -284,13 +284,15 @@ class DirectLinuxLoaderTest {
                             benchmarks.put(sample.put("engine", if (useProot) "proot" else "direct-linux").put("round", round))
                         }
                     }
-                    modes.forEach { useProot ->
-                        val output = run("/bin/process-dynamic", "shell-benchmark", useProot = useProot)
-                        assertTrue(output, output.contains("PASS shell-exec\n"))
-                        val lines = output.lineSequence().filter { it.startsWith("BENCH ") }.toList()
-                        assertEquals(output, 1, lines.size)
-                        benchmarks.put(JSONObject(lines.single().removePrefix("BENCH "))
-                            .put("engine", if (useProot) "proot" else "direct-linux").put("round", round))
+                    for (scenario in listOf("shell-benchmark", "arguments-benchmark")) {
+                        modes.forEach { useProot ->
+                            val output = run("/bin/process-dynamic", scenario, useProot = useProot)
+                            assertTrue(output, output.contains("PASS shell-exec\n"))
+                            val lines = output.lineSequence().filter { it.startsWith("BENCH ") }.toList()
+                            assertEquals(output, 1, lines.size)
+                            benchmarks.put(JSONObject(lines.single().removePrefix("BENCH "))
+                                .put("engine", if (useProot) "proot" else "direct-linux").put("round", round))
+                        }
                     }
                     modes.forEach { useProot ->
                         val output = run("/bin/process-dynamic", "files-benchmark", "/filesystem-scenario", useProot = useProot)

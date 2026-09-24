@@ -23,14 +23,25 @@ static void caught(int sig) {
 
 int main(int argc, char **argv)
 {
+    int arguments_benchmark = argc == 2 && !strcmp(argv[1], "arguments-benchmark");
     int files_benchmark = argc == 3 && !strcmp(argv[1], "files-benchmark");
     int apps_benchmark = argc == 2 && !strcmp(argv[1], "apps-benchmark");
-    if ((argc == 2 && !strcmp(argv[1], "shell-benchmark")) || files_benchmark || apps_benchmark) {
+    if ((argc == 2 && !strcmp(argv[1], "shell-benchmark")) || arguments_benchmark || files_benchmark || apps_benchmark) {
         struct timespec before, after;
         CHECK(clock_gettime(CLOCK_MONOTONIC, &before) == 0);
         pid_t child = fork(); CHECK(child >= 0);
         if (!child) {
             char *args[] = {"/bin/sh", "-c", "i=0; while [ \"$i\" -lt 30 ]; do /bin/true || exit; i=$((i+1)); done; printf 'PASS shell-exec\\n'", NULL};
+            char argument_script[4096];
+            if (arguments_benchmark) {
+                size_t n = (size_t)snprintf(argument_script, sizeof(argument_script),
+                    "i=0; while [ \"$i\" -lt 30 ]; do /bin/true");
+                for (int i = 0; i < 96; i++)
+                    n += (size_t)snprintf(argument_script + n, sizeof(argument_script) - n, " argument-%d", i);
+                snprintf(argument_script + n, sizeof(argument_script) - n,
+                    " || exit; i=$((i+1)); done; printf 'PASS shell-exec\\n'");
+                args[2] = argument_script;
+            }
             if (files_benchmark) { args[1] = argv[2]; args[2] = NULL; }
             if (apps_benchmark) { args[0] = "/usr/bin/python3"; args[1] = "/applications.py"; args[2] = "benchmark"; }
             execve(args[0], args, environ); _exit(99);
@@ -40,9 +51,18 @@ int main(int argc, char **argv)
         CHECK(clock_gettime(CLOCK_MONOTONIC, &after) == 0);
         double ms = (after.tv_sec - before.tv_sec) * 1000.0 + (after.tv_nsec - before.tv_nsec) / 1000000.0;
         printf("BENCH {\"case\":\"%s\",\"count\":%d,\"elapsed_ms\":%.6f}\n",
-            apps_benchmark ? "python-git-workflow-128" : files_benchmark ? "file-tree-128" : "shell-exec-30",
+            apps_benchmark ? "python-git-workflow-128" : files_benchmark ? "file-tree-128" : arguments_benchmark ? "shell-args-30" : "shell-exec-30",
             files_benchmark || apps_benchmark ? 128 : 30, ms);
         return 0;
+    }
+    if (argc >= 2 && !strcmp(argv[1], "arguments-after")) {
+        CHECK(argc == 100 && !strcmp(argv[99], ""));
+        for (int i = 2; i < 98; i++) CHECK(!strcmp(argv[i], "shared string"));
+        size_t length = (size_t)sysconf(_SC_PAGESIZE) + 17;
+        CHECK(strlen(argv[98]) == length);
+        for (size_t i = 0; i < length; i++) CHECK(argv[98][i] == 'x');
+        CHECK(getenv("DL_ARGUMENTS") && !strcmp(getenv("DL_ARGUMENTS"), "fresh environment"));
+        puts("PASS exec shared/long/empty arguments and environment"); return 0;
     }
     if (argc >= 2 && !strcmp(argv[1], "after")) {
         CHECK(argc == 4 && !strcmp(argv[0], "custom argv zero") && !strcmp(argv[2], "space argument"));
@@ -85,6 +105,22 @@ int main(int argc, char **argv)
     }
     CHECK(argc == 2 && !strcmp(argv[1], "processes"));
     int pipes[2], status;
+    pid_t argument_child = fork(); CHECK(argument_child >= 0);
+    if (!argument_child) {
+        size_t page = (size_t)sysconf(_SC_PAGESIZE), length = page + 17;
+        char *large = malloc(length + 1); CHECK(large);
+        memset(large, 'x', length); large[length] = 0;
+        char *guarded = mmap(NULL, 2 * page, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        CHECK(guarded != MAP_FAILED && !mprotect(guarded, page, PROT_READ | PROT_WRITE));
+        // The final NULL is exactly at the end of the readable page.
+        char **args = (void *)(guarded + page - 101 * sizeof(char *));
+        args[0] = argv[0]; args[1] = "arguments-after";
+        for (int i = 2; i < 98; i++) args[i] = "shared string";
+        args[98] = large; args[99] = ""; args[100] = NULL;
+        char *environment[] = {"DL_ARGUMENTS=fresh environment", NULL};
+        execve(argv[0], args, environment); _exit(99);
+    }
+    CHECK(waitpid(argument_child, &status, 0) == argument_child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
     CHECK(pipe2(pipes, O_CLOEXEC) == 0);
     pid_t child = fork(); CHECK(child >= 0);
     if (!child) {

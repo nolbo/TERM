@@ -249,6 +249,14 @@ unmap:
 }
 
 #define ENV_LIMIT 256
+// A bounded snapshot used only while copying one argv/env vector. Two slots
+// keep its pointer table and strings from evicting each other. The loader
+// allocates exactly two host pages rather than a worst-case fixed buffer.
+struct source_page {
+    uintptr_t address;
+    int valid;
+    unsigned char *bytes;
+};
 struct preparation {
     struct image main, interpreter;
     char path[DL_PATH];
@@ -256,6 +264,8 @@ struct preparation {
     size_t argc, envc;
     char *stack, *top;
     uintptr_t execfn;
+    struct source_page pointers, strings;
+    unsigned char source_pages[];
 };
 
 static void zero(void *destination, size_t size)
@@ -264,7 +274,21 @@ static void zero(void *destination, size_t size)
     for (size_t i = 0; i < size; i++) p[i] = 0;
 }
 
-static long stack_string(struct preparation *p, const char *source, uintptr_t *result)
+static long source_bytes(struct source_page *cache, uintptr_t address, const unsigned char **bytes, size_t *size)
+{
+    uintptr_t page = down(address);
+    if (!cache->valid || cache->address != page) {
+        cache->valid = 0;
+        long r = dl_read_memory(cache->bytes, (void *)page, dl_state.page);
+        if (r) return r;
+        cache->address = page; cache->valid = 1;
+    }
+    *bytes = cache->bytes + address - page;
+    *size = dl_state.page - (address - page);
+    return 0;
+}
+
+static long stack_string(struct preparation *p, const char *source, uintptr_t *result, struct source_page *cache)
 {
     // Copy bounded pages before committing, so invalid pointers leave the old
     // image intact. Reserve 128 KiB per string; unused bytes are recovered.
@@ -273,11 +297,23 @@ static long stack_string(struct preparation *p, const char *source, uintptr_t *r
     size_t used = 0;
     while (used < 131072) {
         size_t n = dl_state.page - ((uintptr_t)source % dl_state.page);
+        const unsigned char *bytes = (void *)(destination + used);
+        if (cache) {
+            long r = source_bytes(cache, (uintptr_t)source, &bytes, &n);
+            if (r) return r;
+        }
         if (n > 131072 - used) n = 131072 - used;
-        long r = dl_read_memory(destination + used, source, n);
-        if (r) return r;
-        for (size_t i = 0; i < n; i++) if (!destination[used + i]) {
-            size_t length = used + i + 1;
+        if (!cache) {
+            long r = dl_read_memory(destination + used, source, n);
+            if (r) return r;
+        }
+        size_t size = 0;
+        while (size < n && bytes[size]) size++;
+        int terminated = size < n;
+        if (terminated) size++;
+        if (cache) dl_copy(destination + used, bytes, size);
+        if (terminated) {
+            size_t length = used + size;
             p->top -= length;
             // May overlap: move toward the higher address backwards.
             for (size_t j = length; j; j--) p->top[j - 1] = destination[j - 1];
@@ -292,13 +328,23 @@ static long stack_string(struct preparation *p, const char *source, uintptr_t *r
 static long vector(struct preparation *p, char *const *source, uintptr_t *out, size_t *count, size_t limit)
 {
     *count = 0;
+    p->pointers.valid = p->strings.valid = 0;
     if (!source) return 0;
     for (;;) {
         uintptr_t pointer;
-        long r = dl_read_memory(&pointer, source, sizeof(pointer)); if (r) return r;
+        size_t copied = 0;
+        // Also accept an unaligned pointer table spanning two readable pages.
+        while (copied < sizeof(pointer)) {
+            const unsigned char *bytes; size_t n;
+            if ((uintptr_t)source > UINTPTR_MAX - copied) return -EFAULT;
+            long r = source_bytes(&p->pointers, (uintptr_t)source + copied, &bytes, &n);
+            if (r) return r;
+            if (n > sizeof(pointer) - copied) n = sizeof(pointer) - copied;
+            dl_copy((char *)&pointer + copied, bytes, n); copied += n;
+        }
         if (!pointer) return 0;
         if (*count == limit) return -E2BIG;
-        r = stack_string(p, (void *)pointer, out + (*count)++); if (r) return r;
+        long r = stack_string(p, (void *)pointer, out + (*count)++, &p->strings); if (r) return r;
         if ((uintptr_t)source > UINTPTR_MAX - sizeof(pointer)) return -EFAULT;
         source++;
     }
@@ -376,9 +422,9 @@ static long script_arguments(struct preparation *p)
     int optional = line[next] != 0;
     if (p->argc + 1 + optional > ARG_LIMIT) return -E2BIG;
     uintptr_t script, interpreter, option = 0;
-    long r = stack_string(p, p->path, &script); if (r) return r;
-    r = stack_string(p, line + start, &interpreter); if (r) return r;
-    if (optional) { r = stack_string(p, line + next, &option); if (r) return r; }
+    long r = stack_string(p, p->path, &script, NULL); if (r) return r;
+    r = stack_string(p, line + start, &interpreter, NULL); if (r) return r;
+    if (optional) { r = stack_string(p, line + next, &option, NULL); if (r) return r; }
     for (size_t i = p->argc; i > 1; i--) p->argv[i + optional] = p->argv[i - 1];
     p->argv[0] = interpreter;
     if (optional) p->argv[1] = option;
@@ -435,10 +481,12 @@ long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_en
 {
     unsigned long times[8] = {0}, costs[5] = {0}, bytes = 0, read_bytes = 0;
     times[0] = profile_clock();
-    long memory = DL_CALL(SYS_mmap, 0, sizeof(struct preparation), PROT_READ | PROT_WRITE,
+    long memory = DL_CALL(SYS_mmap, 0, sizeof(struct preparation) + 2 * dl_state.page, PROT_READ | PROT_WRITE,
         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (memory < 0) return memory;
     struct preparation *p = (void *)memory;
+    p->pointers.bytes = p->source_pages;
+    p->strings.bytes = p->source_pages + dl_state.page;
     p->main.source_fd = p->interpreter.source_fd = -1;
     long r = dl_string(p->path, path);
     if (r) goto done;
@@ -448,8 +496,8 @@ long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_en
     r = DL_CALL(SYS_mprotect, p->stack, STACK_SIZE, PROT_READ | PROT_WRITE, 0, 0, 0); if (r) goto done;
     r = vector(p, argv, p->argv, &p->argc, ARG_LIMIT); if (r) goto done;
     r = vector(p, env, p->env, &p->envc, ENV_LIMIT); if (r) goto done;
-    if (!p->argc) { p->argc = 1; r = stack_string(p, "", &p->argv[0]); if (r) goto done; }
-    r = stack_string(p, p->path, &p->execfn); if (r) goto done;
+    if (!p->argc) { p->argc = 1; r = stack_string(p, "", &p->argv[0], NULL); if (r) goto done; }
+    r = stack_string(p, p->path, &p->execfn, NULL); if (r) goto done;
     times[1] = profile_clock();
     for (unsigned depth = 0;; depth++) {
         r = read_image(p->path, &p->main, 0);
@@ -492,7 +540,7 @@ long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_en
 done:
     if (p->stack) DL_CALL(SYS_munmap, p->stack - dl_state.page, STACK_SIZE + 2 * dl_state.page, 0, 0, 0, 0);
     dispose_image(&p->main); dispose_image(&p->interpreter);
-    DL_CALL(SYS_munmap, p, sizeof(*p), 0, 0, 0, 0);
+    DL_CALL(SYS_munmap, p, sizeof(*p) + 2 * dl_state.page, 0, 0, 0, 0);
     times[7] = profile_clock();
     if (!r && dl_state.exec_profile) profile_report(times, costs, bytes, read_bytes, replacing);
     return r;

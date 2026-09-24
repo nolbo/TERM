@@ -7,7 +7,10 @@ adds shell external commands, scripts, fork/exec and measured process workloads.
 [Exec cost reduction](EXEC_PERFORMANCE.md) records the first mapping improvement;
 [bounded metadata loading](COMMAND_PERFORMANCE.md) reduces repeated-command
 startup by another 9.8–10.7%, slightly ahead of Rootless in the measured workload.
-Neither is a complete
+[Argument snapshot reuse](ARGUMENT_PERFORMANCE.md) subsequently reduces the
+96-argument command workload by 9.3–12.1%, bringing that measured gap to within
+0.4% of Rootless; short commands and whole applications have no clear new gain.
+These experiments are not a complete
 distribution backend or user-selectable runtime. The
 [design and remaining work](../../docs/DIRECT_LINUX_EXPERIMENT.md) retain the full
 goal. Existing Rootless remains unchanged.
