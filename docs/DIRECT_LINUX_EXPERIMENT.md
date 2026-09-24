@@ -191,6 +191,24 @@ Android의 실제 권한 오류를 유지한다. fake identity/hardlink는 아�
 약 12% 느렸다. [최종 보고서](../tools/direct-linux/results/applications-2026-09-24.json)는
 애플리케이션 기준 비교를 명시적으로 제외했다고 표시한다.
 
+## Python 자식 프로세스 정리 비용 개선: 2026-09-24
+
+[FD 정리 프로파일과 검증](../tools/direct-linux/SUBPROCESS_PERFORMANCE.md)은 Python의
+자식 실행에서 `close_range` 미지원과 guest proc FD 목록 부재가 반복 close를
+유발하는 경로를 확인했다. 내부 FD를 보존하며 실제 열린 FD만 순회하는 호환
+처리를 추가하고, exec의 CLOEXEC 정리와 공유했다. FD table을 공유하지 않는
+현재 clone 범위에서만 UNSHARE가 추가 작업 없이 성립한다. 스레드 지원 시 이
+전제를 다시 검토해야 하며, FD가 가득 차면 scanner를 열지 못하는 한계가 남는다.
+
+기존 Direct 측정 대비 7회 중앙값은 Git **1,381.658→454.317ms**, Python 시작부터
+전체 작업과 정리까지 **1,518.684→586.068ms**로 줄었다. 전후 측정은 순차 실행이며
+교대 비교는 아니다. 같은 최종 실행의 Rootless 대비 파일 트리 작업은 약 1.83배
+빠르고 외부 명령 반복은 약 11% 느렸다. Rootless 전체 애플리케이션 비교는 앞서
+확인한 삭제 실패로 계속 명시적으로 제외했다. 정적·동적 glibc의 범위·CLOEXEC·
+fork·vfork·내부 FD 보존 검사를 포함해 87개 상위 실행과 77개 시간 표본이 통과했다.
+[원시 결과](../tools/direct-linux/results/close-range-2026-09-24.json). enforcing 기기,
+패키지 설치와 사용자용 세션은 아직 미검증·미구현이다.
+
 ## 남은 구현과 완료 증거
 
 1. **정책:** fixture/redroid 검증은 완료. stock enforcing 기기에서 같은 APK의

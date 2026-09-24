@@ -21,7 +21,8 @@ class DirectLinuxLoaderTest {
         val arguments = InstrumentationRegistry.getArguments()
         assumeTrue(arguments.getString("directLinuxLoader") == "true")
         require(arguments.getString("directLinuxBenchmark") != "true" ||
-            (arguments.getString("directLinuxTrace") != "true" && arguments.getString("directLinuxProfile") != "true")) {
+            (arguments.getString("directLinuxTrace") != "true" && arguments.getString("directLinuxProfile") != "true" &&
+                arguments.getString("directLinuxApplicationProfile") != "true")) {
             "Trace and profile logging must be disabled for performance comparisons"
         }
         val context = InstrumentationRegistry.getInstrumentation().targetContext
@@ -41,6 +42,7 @@ class DirectLinuxLoaderTest {
         var policy: List<String> = emptyList()
         val benchmarks = JSONArray()
         val execProfiles = JSONArray()
+        val applicationProfiles = JSONArray()
         fun run(path: String, vararg args: String, expectedCode: Int = 0, useProot: Boolean = false): String {
             val log = File(temporary, "output")
             val engine = if (useProot) packaged.resolvePackagedExecutable("proot").getOrThrow() else executable
@@ -62,6 +64,8 @@ class DirectLinuxLoaderTest {
             builder.environment()["DIRECT_LINUX_POLICY"] = "1"
             if (arguments.getString("directLinuxTrace") == "true") builder.environment()["DIRECT_LINUX_TRACE"] = "1"
             if (arguments.getString("directLinuxProfile") == "true" && args.contentEquals(arrayOf("shell-benchmark")))
+                builder.environment()["DIRECT_LINUX_EXEC_PROFILE"] = "1"
+            if (arguments.getString("directLinuxApplicationProfile") == "true" && args.contentEquals(arrayOf("/applications.py", "profile")))
                 builder.environment()["DIRECT_LINUX_EXEC_PROFILE"] = "1"
             val started = System.nanoTime()
             val process = builder.start()
@@ -153,6 +157,7 @@ class DirectLinuxLoaderTest {
                 .contains("substitution\n"))
             for (kind in listOf("static", "dynamic")) {
                 assertTrue(run("/bin/process-$kind", "processes").contains("PASS exec PID/argv/env/cwd/CLOEXEC/signals/mapping/TLS"))
+                assertTrue(run("/bin/fds-$kind").contains("PASS close_range bounds/flags/sparse/CLOEXEC/fork/vfork/private FDs"))
                 assertTrue(run("/bin/process-$kind", "repeat", "30").contains("PASS repeated exec memory/TLS cleanup"))
                 assertTrue(run("/bin/files-$kind").contains("PASS filesystem rename/dirfd/cwd/symlinks/modes/timestamps/unlinked-FDs"))
             }
@@ -250,6 +255,15 @@ class DirectLinuxLoaderTest {
                 }
                 assertEquals("Outer program + shell + thirty commands", 32, execProfiles.length())
             }
+            if (arguments.getString("directLinuxApplicationProfile") == "true") {
+                check(manifest.optBoolean("applications"))
+                val output = run("/usr/bin/python3", "/applications.py", "profile")
+                assertTrue(output, output.contains("PASS Linux applications\n"))
+                output.lineSequence().filter { it.startsWith("APPLICATION_PROFILE ") }.forEach {
+                    applicationProfiles.put(JSONObject(it.removePrefix("APPLICATION_PROFILE ")))
+                }
+                assertEquals(14, applicationProfiles.length())
+            }
             // MAP_PRIVATE writes and BSS initialization must leave package bytes intact.
             for (i in 0 until files.length()) {
                 val entry = files.getJSONObject(i)
@@ -261,6 +275,7 @@ class DirectLinuxLoaderTest {
                 .put("initial_process_policy", JSONArray(policy))
                 .put("results", results).put("stock_policy_verified", false)
                 .put("benchmarks", benchmarks).put("exec_profiles", execProfiles)
+                .put("application_profiles", applicationProfiles)
                 .put("exec_profile_stages", JSONArray(listOf("arguments", "read_validate", "reset", "unmap", "map", "entry", "dispose")))
                 .put("exec_profile_map_stages", JSONArray(listOf("reserve", "file_map", "verify", "bss", "final_protect")))
             if (benchmarks.length() > 0) {

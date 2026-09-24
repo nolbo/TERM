@@ -311,38 +311,6 @@ static void dispose_image(struct image *image)
     image->source_fd = -1;
 }
 
-static long close_exec_fds(int main_fd, int interpreter_fd)
-{
-    // Single-threaded execution only: the FD table cannot change underneath us.
-    long fd = DL_CALL(SYS_openat, AT_FDCWD, "/proc/self/fd", O_RDONLY | O_DIRECTORY | O_CLOEXEC, 0, 0, 0);
-    if (fd < 0) return fd;
-    char buffer[4096]; long result = 0;
-    struct dent { uint64_t ino; int64_t off; unsigned short size; unsigned char type; char name[]; };
-    for (;;) {
-        long n = DL_CALL(SYS_getdents64, fd, buffer, sizeof(buffer), 0, 0, 0);
-        if (n == -EINTR) continue;
-        if (n <= 0) { result = n; break; }
-        for (long offset = 0; offset < n;) {
-            struct dent *d = (void *)(buffer + offset);
-            if (d->size < offsetof(struct dent, name) + 2 || d->size > n - offset) { result = -EIO; goto done; }
-            unsigned value = 0; size_t i = 0;
-            while (i < d->size - offsetof(struct dent, name) && d->name[i] >= '0' && d->name[i] <= '9') {
-                if (value > 214748364U) { result = -EIO; goto done; }
-                value = value * 10 + d->name[i++] - '0';
-            }
-            if (i && i < d->size - offsetof(struct dent, name) && !d->name[i] &&
-                    value != (unsigned)fd && value != (unsigned)dl_state.root_fd && value != (unsigned)dl_state.vfork_fd &&
-                    value != (unsigned)main_fd && value != (unsigned)interpreter_fd) {
-                long flags = DL_CALL(SYS_fcntl, value, F_GETFD, 0, 0, 0, 0);
-                if (flags >= 0 && (flags & FD_CLOEXEC)) DL_CALL(SYS_close, value, 0, 0, 0, 0, 0);
-            }
-            offset += d->size;
-        }
-    }
-done:
-    DL_CALL(SYS_close, fd, 0, 0, 0, 0, 0); return result;
-}
-
 static long reset_exec_state(int main_fd, int interpreter_fd)
 {
     struct { uintptr_t handler, flags, restorer, mask; } action;
@@ -357,7 +325,7 @@ static long reset_exec_state(int main_fd, int interpreter_fd)
     // Old glibc pointers must not be consulted by the kernel after unmapping.
     long r = DL_CALL(SYS_set_robust_list, 0, 24, 0, 0, 0, 0); if (r) return r;
     DL_CALL(SYS_set_tid_address, 0, 0, 0, 0, 0, 0);
-    return close_exec_fds(main_fd, interpreter_fd);
+    return dl_close_exec_fds(main_fd, interpreter_fd);
 }
 
 static long script_arguments(struct preparation *p)

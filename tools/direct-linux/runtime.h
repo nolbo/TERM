@@ -39,6 +39,8 @@ int dl_device_index(int dirfd, const char *name);
 long dl_device_open(int index, int dirfd, int flags, unsigned mode);
 long dl_device_change(int parent, const char *name, int removing);
 long dl_getdents(int fd, void *buffer, unsigned count);
+long dl_close_range(unsigned first, unsigned last, unsigned flags);
+long dl_close_exec_fds(int main_fd, int interpreter_fd);
 long dl_file_path(int fd, char out[DL_PATH]);
 long dl_executable(int fd);
 long dl_virtual_cwd(char path[DL_PATH]);

@@ -112,6 +112,7 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_close:
         if ((int)a[0] == dl_state.root_fd || (int)a[0] == dl_state.vfork_fd) return -EBADF;
         return DL_CALL(nr, a[0], 0, 0, 0, 0, 0);
+    case SYS_close_range: return dl_close_range((unsigned)a[0], (unsigned)a[1], (unsigned)a[2]);
     case SYS_dup3:
         if ((int)a[1] == dl_state.root_fd || (int)a[1] == dl_state.vfork_fd) return -EBADF;
         return DL_CALL(nr, a[0], a[1], a[2], 0, 0, 0);

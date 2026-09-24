@@ -60,8 +60,15 @@ def main():
         git_environment = dict(os.environ, GIT_AUTHOR_DATE="2000-01-01T00:00:00Z", GIT_COMMITTER_DATE="2000-01-01T00:00:00Z")
 
         def git(*args):
+            started = time.monotonic_ns()
             result = subprocess.run(["/usr/bin/git", "-C", str(repo), *args], env=git_environment,
                                     stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+            if sys.argv[1:] == ["profile"]:
+                lines = result.stdout.splitlines(keepends=True)
+                exec_profiles = [json.loads(line.removeprefix("EXEC_PROFILE ")) for line in lines if line.startswith("EXEC_PROFILE ")]
+                result.stdout = "".join(line for line in lines if not line.startswith("EXEC_PROFILE "))
+                print("APPLICATION_PROFILE " + json.dumps({"command": args[0],
+                    "elapsed_ms": (time.monotonic_ns() - started) / 1e6, "exec": exec_profiles}), flush=True)
             if result.returncode:
                 print(result.stdout, flush=True)
             result.check_returncode()

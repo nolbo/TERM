@@ -10,6 +10,11 @@ distribution backend or user-selectable runtime. The
 [design and remaining work](../../docs/DIRECT_LINUX_EXPERIMENT.md) retain the full
 goal. Existing Rootless remains unchanged.
 
+The [Python/Git milestone](APPLICATIONS.md) and subsequent
+[subprocess FD cleanup](SUBPROCESS_PERFORMANCE.md) add real application checks
+and isolate a major process-launch bottleneck. A general Linux environment and
+enforcing-device validation remain incomplete.
+
 `probe.c` handles raw ARM64 `openat` in the calling thread with seccomp TRAP and
 SIGSYS. `syscall.S` supplies separate host/guest SVC sites. The host site is exempt
 only from our own filter, including both halves of its 64-bit instruction pointer.
