@@ -47,6 +47,7 @@ class ProfileEditActivity : TerminalActivity() {
             var environment by rememberSaveable { mutableStateOf(initial.environment.entries.joinToString("\n") { "${it.key}=${it.value}" }) }
             var error by rememberSaveable { mutableStateOf<String?>(null) }
             var storageId by rememberSaveable { mutableStateOf(initial.storageId) }
+            var icon by rememberSaveable { mutableStateOf(initial.icon) }
             val otherProfiles = remember { store.all().filter { it.id != initial.id } }
             var dirty by rememberSaveable { mutableStateOf(false) }
             var discard by rememberSaveable { mutableStateOf(false) }
@@ -71,6 +72,7 @@ class ProfileEditActivity : TerminalActivity() {
                         style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     ProfileSection(R.string.profile_identity) {
                         ProfileField(R.string.profile_name, name) { name = it; dirty = true }
+                        dev.terminal.app.ui.ProfileIconSetting(icon, runtime) { icon = it; dirty = true }
                         SettingsChoiceRow(stringResource(R.string.profile_runtime), null,
                             listOf(SessionRuntime.NATIVE, SessionRuntime.ROOTLESS, SessionRuntime.AVF).map {
                                 SettingsChoice(stringResource(if (it == SessionRuntime.ROOTLESS) R.string.runtime_rootless_title
@@ -124,7 +126,7 @@ class ProfileEditActivity : TerminalActivity() {
                     Button(onClick = {
                         runCatching {
                             store.save(SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
-                                parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId))
+                                parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon))
                         }.onSuccess { finish() }.onFailure { error = it.message }
                     }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.profile_save)) }
                     if (editing) {

@@ -466,10 +466,10 @@ fun TerminalChrome(
                                         },
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Icon(
-                                        painterResource(runtimeTabIcon(session.runtime)),
+                                    ProfileIcon(
+                                        session.launchSpec?.icon ?: "auto", session.runtime,
                                         contentDescription = stringResource(runtimeTitleResource(session.runtime)),
-                                        modifier = Modifier.size(20.dp),
+                                        size = 20.dp,
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Column {
@@ -512,7 +512,9 @@ fun TerminalChrome(
                             DropdownMenuItem(onClick = { onSelectProfile(profile) },
                                 text = { Column { Text(profile.name); Text(stringResource(runtimeTitleResource(profile.runtime.wireName)), style = MaterialTheme.typography.bodySmall) } },
                                 shape = MenuDefaults.itemShape(index, profiles.size + 1).shape,
-                                leadingIcon = { RuntimeEnvironmentIcon(profile.runtime.wireName, false) })
+                                leadingIcon = { Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                                    ProfileIcon(profile.icon, profile.runtime.wireName, tint = TerminalStatusBlue)
+                                } })
                         }
                         DropdownMenuItem(onClick = onAddProfile, text = { Text(stringResource(R.string.add_profile)) },
                             shape = MenuDefaults.itemShape(profiles.size, profiles.size + 1).shape,
@@ -563,7 +565,9 @@ fun NewSessionSheet(profiles: List<dev.terminal.runtime.session.SessionProfile>,
                         scope.launch { sheetState.hide(); onSelectProfile(profile) }
                     },
                     shapes = terminalListItemShapes(),
-                    leadingContent = { RuntimeEnvironmentIcon(profile.runtime.wireName, false) },
+                    leadingContent = { Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                        ProfileIcon(profile.icon, profile.runtime.wireName, tint = TerminalStatusBlue)
+                    } },
                     supportingContent = { Text(stringResource(runtimeTitleResource(profile.runtime.wireName))) },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     modifier = Modifier.fillMaxWidth(),

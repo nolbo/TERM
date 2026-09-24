@@ -65,6 +65,14 @@ bounded JSON over the existing Binder boundary). Native, Debian, Ubuntu, Arch an
 AVF are initial defaults; app-private overrides retain their IDs and deletion markers
 prevent deleted defaults from reappearing. User copies have independent IDs.
 Profiles contain creation settings only, never PTY, dimensions or renderer state.
+Profile icons use a stable `auto`, built-in key, or validated content-addressed image
+identity in both the profile and launch snapshot. Missing keys retain automatic
+runtime icons. The UI imports bounded PNG/WebP/JPEG streams into immutable normalized
+app-private PNGs; no URI grants, arbitrary paths or image bytes enter Binder or the
+runtime owner. Duplicates retain the icon identity and files are not removed when a
+profile changes or is deleted. Tabs use their launch snapshot, not the mutable profile.
+All icon surfaces share the same tint/fallback renderer; cached decoding is off the UI
+thread. Missing imported files fall back to the snapshot runtime's default icon.
 Profiles and immutable launch snapshots carry a validated storage UUID. New and
 duplicated profiles allocate fresh storage by default; explicit sharing copies
 the storage identity, not a reference to another profile. The service owns one

@@ -4,6 +4,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SessionProfileTest {
+    @Test fun iconDefaultsSnapshotsAndCopiesRemainIndependent() {
+        val original = profile().copy(icon = "keyboard")
+        val snapshot = original.resolve()
+        assertEquals("keyboard", SessionLaunchSpec.fromJson(snapshot.toJson().toString()).icon)
+        assertEquals("keyboard", original.copy(id = "duplicate").icon)
+        assertEquals("keyboard", snapshot.icon)
+        assertEquals("terminal", original.copy(icon = "terminal").resolve().icon)
+        assertEquals("auto", SessionLaunchSpec.fromJson(snapshot.toJson().apply { remove("icon") }.toString()).icon)
+        val expected = listOf("native", "debian", "ubuntu", "arch", "avf")
+        assertEquals(expected, SessionRuntime.entries.map { SessionProfileIcon.resolve("auto", it) })
+        assertEquals("keyboard", SessionProfileIcon.resolve("keyboard", SessionRuntime.AVF))
+        for (bad in listOf("../icon.png", "image:../file:mask", "file:///secret", "https://example.com/icon", "unknown")) {
+            assertTrue(runCatching { profile().copy(icon = bad).resolve() }.isFailure)
+        }
+        for (mode in listOf("mask", "color")) {
+            val id = "image:" + "a".repeat(64) + ":$mode"
+            assertEquals(id, SessionLaunchSpec.fromJson(profile().copy(icon = id).resolve().toJson().toString()).icon)
+        }
+    }
     @Test fun storageSnapshotSurvivesRoundTripAndLegacyMigration() {
         val id = java.util.UUID.randomUUID().toString()
         val spec = profile().copy(storageId = id).resolve()

@@ -274,7 +274,7 @@ class SessionProfilesTest {
         val store = SessionProfiles(context)
         val profile = store.builtIns().first().copy(name = "Profile lifecycle test",
             workingDirectory = "/", environment = mapOf("PROFILE_TEST" to "original"),
-            startupCommand = "export PROFILE_STARTUP=once")
+            startupCommand = "export PROFILE_STARTUP=once", icon = "keyboard")
         val preferences = context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE)
         val previous = preferences.getString(profile.id, null)
         val queue = LinkedBlockingQueue<IRuntimeService>()
@@ -293,7 +293,7 @@ class SessionProfilesTest {
             await { sessions(service).any { it.optString("profileId") == profile.id } }
             val original = sessions(service).first { it.optString("profileId") == profile.id }
             owned += original.getString("id")
-            store.save(profile.copy(name = "Changed", environment = mapOf("PROFILE_TEST" to "changed")))
+            store.save(profile.copy(name = "Changed", environment = mapOf("PROFILE_TEST" to "changed"), icon = "terminal"))
             service.createSessionFromSpec(requireNotNull(store.find(profile.id)).resolve().toJson().toString(), 24, 80)
             await { sessions(service).count { it.optString("profileId") == profile.id } == 2 }
             owned += sessions(service).first { it.optString("profileId") == profile.id && it.getString("id") != owned.first() }.getString("id")
@@ -304,6 +304,8 @@ class SessionProfilesTest {
                 activity.recreate()
                 await { sessions(service).filter { it.getString("id") in owned }.size == 2 }
                 val restored = sessions(service).first { it.getString("id") == owned.first() }
+                assertEquals("keyboard", restored.getJSONObject("launchSpec").getString("icon"))
+                assertEquals("terminal", sessions(service).first { it.getString("id") == owned.last() }.getJSONObject("launchSpec").getString("icon"))
                 assertEquals("original", restored.getJSONObject("launchSpec").getJSONObject("environment").getString("PROFILE_TEST"))
                 assertEquals("changed", sessions(service).first { it.getString("id") == owned.last() }.getJSONObject("launchSpec").getJSONObject("environment").getString("PROFILE_TEST"))
                 val marker = java.io.File(context.cacheDir, "profile-test-${profile.id}")

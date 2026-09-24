@@ -44,6 +44,7 @@ class ProfilesActivity : TerminalActivity() {
                     if (profiles.isNotEmpty()) ProfileSection(R.string.profile_list) {
                         profiles.forEach { profile ->
                             ListItem(onClick = { edit(profile) },
+                                leadingContent = { dev.terminal.app.ui.ProfileIcon(profile.icon, profile.runtime.wireName) },
                                 supportingContent = { Text(stringResource(runtimeTitleResource(profile.runtime.wireName)) + " · " + profile.shell) },
                                 trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
                                 verticalAlignment = Alignment.CenterVertically,
