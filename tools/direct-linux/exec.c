@@ -387,15 +387,7 @@ static void dispose_image(struct image *image)
 
 static long reset_exec_state(int main_fd, int interpreter_fd)
 {
-    struct { uintptr_t handler, flags, restorer, mask; } action;
-    for (int s = 1; s <= 64; s++) {
-        if (s == SIGKILL || s == SIGSTOP || s == SIGSYS) continue;
-        long r = DL_CALL(SYS_rt_sigaction, s, 0, &action, 8, 0, 0); if (r) return r;
-        if (action.handler > 1) {
-            zero(&action, sizeof(action));
-            r = DL_CALL(SYS_rt_sigaction, s, &action, 0, 8, 0, 0); if (r) return r;
-        }
-    }
+    long reset = dl_signal_reset_exec(); if (reset) return reset;
     // Old glibc pointers must not be consulted by the kernel after unmapping.
     long r = DL_CALL(SYS_set_robust_list, 0, 24, 0, 0, 0, 0); if (r) return r;
     DL_CALL(SYS_set_tid_address, 0, 0, 0, 0, 0, 0);

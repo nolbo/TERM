@@ -131,6 +131,15 @@ static long walk(int dirfd, const char *path, int flags, unsigned mode, char *le
         }
         if (dl_equal(component, ".") && !last) continue;
         int device = dl_device_index((int)current, component);
+        // O_DIRECTORY proves a successful prefix handle is a directory; no
+        // second fstat is needed. A symlink returns ENOTDIR with O_NOFOLLOW,
+        // then uses the existing pinned-link expansion below.
+        if (!last && device < 0) {
+            long prefix = DL_CALL(SYS_openat, current, component,
+                O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC, 0, 0, 0);
+            if (prefix >= 0) { release((int)current); current = prefix; continue; }
+            if (prefix != -ENOTDIR) { result = prefix; break; }
+        }
         long pin = device >= 0 ? dl_device_open(device, (int)current, O_PATH | O_CLOEXEC, 0)
             : DL_CALL(SYS_openat, current, component, O_PATH | O_NOFOLLOW | O_CLOEXEC, 0, 0, 0);
         if (pin < 0) {

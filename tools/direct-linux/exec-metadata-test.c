@@ -38,6 +38,7 @@ long dl_executable(int fd)
     char name[64]; snprintf(name, sizeof(name), "/proc/self/fd/%d", fd);
     return access(name, X_OK) ? -errno : 0;
 }
+long dl_signal_reset_exec(void) { return 0; }
 long dl_close_exec_fds(int a, int b) { (void)a; (void)b; return 0; }
 
 static void argument_snapshots(void)

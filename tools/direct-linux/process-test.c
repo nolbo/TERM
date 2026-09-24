@@ -89,6 +89,17 @@ int main(int argc, char **argv)
     if (argc == 3 && !strcmp(argv[1], "repeat")) {
         int remaining = atoi(argv[2]);
         CHECK(value == 1234); value = 999;
+        // Each successful exec resets newly installed handlers, including on
+        // the repeated path after inherited dispositions have been scanned.
+        if (getenv("DL_REPEAT")) {
+            struct sigaction previous;
+            CHECK(sigaction(SIGUSR1, NULL, &previous) == 0 && previous.sa_handler == SIG_DFL);
+            CHECK(sigaction(SIGUSR2, NULL, &previous) == 0 && previous.sa_handler == SIG_IGN);
+        }
+        struct sigaction repeat_action = {.sa_handler = caught}; sigemptyset(&repeat_action.sa_mask);
+        CHECK(sigaction(SIGUSR1, &repeat_action, NULL) == 0);
+        repeat_action.sa_handler = SIG_IGN;
+        CHECK(sigaction(SIGUSR2, &repeat_action, NULL) == 0);
         // Exec's private source descriptors must close after mapping, including
         // every iteration of repeated static/dynamic image replacement.
         for (int fd = 3; fd < 256; fd++) CHECK(fcntl(fd, F_GETFD) == -1 && errno == EBADF);
@@ -98,7 +109,7 @@ int main(int argc, char **argv)
         if (remaining) {
             char next[16]; snprintf(next, sizeof(next), "%d", remaining - 1);
             char *args[] = {argv[0], "repeat", next, NULL};
-            char *env[] = {NULL};
+            char *env[] = {"DL_REPEAT=1", NULL};
             execve(argv[0], args, env); CHECK(0);
         }
         puts("PASS repeated exec memory/TLS cleanup"); return 0;

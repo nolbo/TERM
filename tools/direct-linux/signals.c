@@ -14,6 +14,28 @@
 struct action { uintptr_t handler, flags, restorer; unsigned long mask; };
 static struct action actions[65];
 static unsigned char wrapped[65];
+// Unknown inherited Bionic dispositions are scanned on the first replacement.
+// Subsequent replacements only inspect signals which may have a handler.
+// Guest action updates are serialized with exec (and with the action lock in
+// the thread implementation). A one-shot reset may leave a harmless extra bit.
+static unsigned long exec_candidates = ~0UL;
+
+long dl_signal_reset_exec(void)
+{
+    for (int signal = 1; signal <= 64; signal++) {
+        unsigned long bit = 1UL << (signal - 1);
+        if (!(exec_candidates & bit) || signal == SIGKILL || signal == SIGSTOP || signal == SIGSYS) continue;
+        struct action action;
+        long r = DL_CALL(SYS_rt_sigaction, signal, 0, &action, 8, 0, 0); if (r) return r;
+        if (action.handler > 1) {
+            action = (struct action){0};
+            r = DL_CALL(SYS_rt_sigaction, signal, &action, 0, 8, 0, 0); if (r) return r;
+            actions[signal] = action; wrapped[signal] = 0;
+        }
+    }
+    exec_candidates = 0;
+    return 0;
+}
 struct waiting {
     ucontext_t *guest;
     uintptr_t stack;
@@ -110,7 +132,10 @@ long dl_signal_action(unsigned long a[6])
         previous.flags = (previous.flags & ~SA_SIGINFO) | (saved.flags & SA_SIGINFO);
     } else if (previous.handler <= 1 && previous.handler == actions[a[0]].handler)
         previous.mask |= actions[a[0]].mask & SYS_BIT;
-    if (a[1]) { actions[a[0]] = requested; wrapped[a[0]] = requested.handler > 1; }
+    if (a[1]) {
+        actions[a[0]] = requested; wrapped[a[0]] = requested.handler > 1;
+        if (requested.handler > 1) exec_candidates |= 1UL << (a[0] - 1);
+    }
     return a[2] ? dl_write_memory((void *)a[2], &previous, sizeof(previous)) : 0;
 }
 

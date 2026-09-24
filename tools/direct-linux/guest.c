@@ -260,6 +260,14 @@ int dl_install(void *signal_stack, size_t size)
         // Untranslated I/O stays outside signal handling, retaining normal
         // blocking/EINTR behavior and avoiding one signal per read/write.
 #define DIRECT(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (n), 0, 1), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
+        // These calls are already forwarded unchanged by handle(). Keeping
+        // them native avoids a SIGSYS frame during every libc startup and
+        // preserves the caller's mask for potentially blocking getrandom.
+        DIRECT(SYS_mprotect), DIRECT(SYS_madvise), DIRECT(SYS_mincore),
+        DIRECT(SYS_set_tid_address), DIRECT(SYS_set_robust_list),
+        DIRECT(SYS_getpid), DIRECT(SYS_getppid), DIRECT(SYS_gettid),
+        DIRECT(SYS_getuid), DIRECT(SYS_geteuid), DIRECT(SYS_getgid), DIRECT(SYS_getegid),
+        DIRECT(SYS_getrandom), DIRECT(SYS_prlimit64), DIRECT(SYS_uname), DIRECT(SYS_getrusage),
         DIRECT(SYS_rt_sigreturn), DIRECT(SYS_read), DIRECT(SYS_write),
         DIRECT(SYS_readv), DIRECT(SYS_writev), DIRECT(SYS_pread64), DIRECT(SYS_pwrite64),
         DIRECT(SYS_lseek), DIRECT(SYS_fstat),

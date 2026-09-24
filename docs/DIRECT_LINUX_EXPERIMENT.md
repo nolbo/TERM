@@ -316,6 +316,26 @@ Android 네트워크·PTY 포함 검사가 통과했다. 후자는 56개 일반 
 최종 Android 검사는 64개 실행과 두 PTY 시나리오를 통과했다. 기존 스레드 작업과
 Rootless는 변경 범위에서 제외했으며, stock enforcing 정책 검증도 아직 없다.
 
+### 짧은 명령의 추가 개선: 2026-09-25
+
+[짧은 명령 실행 비용](../tools/direct-linux/SHORT_COMMAND_PERFORMANCE.md)을 줄이기 위해
+그대로 전달하던 syscall의 SIGSYS 왕복, 매 exec의 전체 신호 action 조회, 경로
+중간 디렉터리의 중복 fstat을 줄였다. 실제 핸들러 초기화·IGN 보존·루트 상대 링크
+처리는 유지하고 호스트 및 Android 회귀 검사로 확인했다.
+
+같은 테스트 APK에 이전/개선 로더를 함께 넣고 Rootless를 포함한 실행 순서를
+균등하게 바꿔 측정했다. 18쌍씩 세 차수, 총 **54쌍의 시간 감소율 중앙값은 2.3%**,
+54쌍 중 48쌍에서 개선 로더가 빨랐다. 마지막 차수의 짧은 명령 30회 중앙값은
+이전 48.613ms, 개선 47.152ms, Rootless 48.859ms였다. 초기 APK 교체 측정의
+1.1–6.0% 변동보다 이 교차 측정을 주 근거로 사용한다. 일반 앱·cold cache·물리
+기기 성능으로 확대하지 않는다.
+
+표준 Gradle 및 네이티브 검증이 통과했고 변경 없는 단위 검사는 UP-TO-DATE로
+재사용했다. 최종 Android 검사도 118개 실행과 두 PTY 시나리오를 통과했다.
+[원시 표본](../tools/direct-linux/results/short-command-performance-2026-09-25.json)과
+[회귀 결과](../tools/direct-linux/results/short-command-runtime-2026-09-25.json)를 보존한다.
+기존 스레드 작업은 이번 로더에서 제외했으며 stock enforcing 정책 검증은 여전히 없다.
+
 ## 신호 마스크 호환성: 2026-09-24
 
 [신호 마스크 단계](../tools/direct-linux/SIGNAL_MASKS.md)는 일반 프로그램의

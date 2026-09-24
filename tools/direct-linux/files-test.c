@@ -64,6 +64,9 @@ int main(void)
     CHECK(stat("parent/child/through", &st) == 0 && S_ISDIR(st.st_mode));
     CHECK(rename("alias/through", "relocated") == 0 && rmdir("relocated/") == 0);
     CHECK(symlink("/input", "absolute") == 0 && contains(AT_FDCWD, "absolute", "fixture\n"));
+    CHECK(open("parent/child/identity/not-a-directory", O_RDONLY) == -1 && errno == ENOTDIR);
+    CHECK(open("absolute/not-a-directory", O_RDONLY) == -1 && errno == ENOTDIR);
+    CHECK(contains(AT_FDCWD, "alias/identity", "original"));
     CHECK(symlink("/outside-never-created", "dangling") == 0);
     CHECK(unlink("dangling/") == -1 && errno == ENOTDIR);
     CHECK(rename("dangling", "dangling-moved") == 0);

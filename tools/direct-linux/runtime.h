@@ -43,6 +43,7 @@ long dl_close_range(unsigned first, unsigned last, unsigned flags);
 long dl_close_exec_fds(int main_fd, int interpreter_fd);
 long dl_network(long nr, unsigned long args[6], unsigned long mask);
 long dl_signal_action(unsigned long args[6]);
+long dl_signal_reset_exec(void);
 long dl_signal_wait(long nr, unsigned long args[6], void *context);
 void dl_signal_collect(uintptr_t stack);
 void dl_signal_stack(void *stack, size_t size);

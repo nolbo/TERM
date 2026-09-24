@@ -20,7 +20,8 @@ class DirectLinuxLoaderTest {
     @Test fun runsLinuxElfFromDataWithoutPtraceOrKernelExec() {
         val arguments = InstrumentationRegistry.getArguments()
         assumeTrue(arguments.getString("directLinuxLoader") == "true")
-        require(arguments.getString("directLinuxBenchmark") != "true" ||
+        val baselineDigest = arguments.getString("directLinuxBaselineSha256")
+        require((arguments.getString("directLinuxBenchmark") != "true" && baselineDigest == null) ||
             (arguments.getString("directLinuxTrace") != "true" && arguments.getString("directLinuxProfile") != "true" &&
                 arguments.getString("directLinuxApplicationProfile") != "true")) {
             "Trace and profile logging must be disabled for performance comparisons"
@@ -35,6 +36,14 @@ class DirectLinuxLoaderTest {
         val expected = requireNotNull(arguments.getString("directLinuxLoaderSha256"))
         require(expected.matches(Regex("[0-9a-f]{64}")))
         assertEquals(expected, digest(executable.readBytes()))
+        // A comparison-only APK puts the old loader in the existing test probe
+        // slot. Both binaries still pass through the central APK resolver.
+        val baseline = baselineDigest?.let {
+            require(it.matches(Regex("[0-9a-f]{64}")))
+            packaged.resolvePackagedExecutable("direct-linux-probe").getOrThrow().also { file ->
+                assertEquals(it, digest(file.readBytes()))
+            }
+        }
         val manifest = JSONObject(context.assets.open("direct-linux-fixtures/manifest.json").bufferedReader().use { it.readText() })
         val temporary = Files.createTempDirectory(context.filesDir.toPath(), "direct-linux-elf-").toFile()
         val root = File(temporary, "root").apply { mkdir() }
@@ -46,14 +55,16 @@ class DirectLinuxLoaderTest {
         val ptyResults = JSONArray()
         val networkResults = JSONArray()
         val signalResults = JSONArray()
-        fun launch(path: String, args: Array<out String>, useProot: Boolean, terminal: Boolean = false): ProcessBuilder {
-            val engine = if (useProot) packaged.resolvePackagedExecutable("proot").getOrThrow() else executable
+        fun launch(path: String, args: Array<out String>, useProot: Boolean, terminal: Boolean = false, useBaseline: Boolean = false): ProcessBuilder {
+            check(!useProot || !useBaseline)
+            val engine = if (useProot) packaged.resolvePackagedExecutable("proot").getOrThrow()
+                else if (useBaseline) requireNotNull(baseline) else executable
             val profile = if (useProot) RootlessAccelerationProfile(File(engine.parentFile, "libproot-faststat.so")) else null
             val command = if (profile != null) listOf(engine.path, "--link2symlink", "-0", "-r", root.path,
                 "-b", "/dev", "-b", "/proc", "-b", profile.binding, "-w", "/", "/bin/env", "-i", "PATH=/bin:/usr/bin") +
                 (if (terminal) listOf("TERM=xterm-256color") else emptyList()) +
                 profile.guestEnvironment(null).map { (name, value) -> "$name=$value" } + listOf(path) + args
-                else listOf(executable.path, root.path, path) + args
+                else listOf(engine.path, root.path, path) + args
             val builder = ProcessBuilder(command)
                 .directory(temporary)
             builder.environment().apply {
@@ -72,9 +83,9 @@ class DirectLinuxLoaderTest {
                 builder.environment()["DIRECT_LINUX_EXEC_PROFILE"] = "1"
             return builder
         }
-        fun run(path: String, vararg args: String, expectedCode: Int = 0, useProot: Boolean = false): String {
+        fun run(path: String, vararg args: String, expectedCode: Int = 0, useProot: Boolean = false, useBaseline: Boolean = false): String {
             val log = File(temporary, "output")
-            val builder = launch(path, args, useProot).redirectErrorStream(true).redirectOutput(log)
+            val builder = launch(path, args, useProot, useBaseline = useBaseline).redirectErrorStream(true).redirectOutput(log)
             val started = System.nanoTime()
             val process = builder.start()
             process.outputStream.close()
@@ -97,8 +108,8 @@ class DirectLinuxLoaderTest {
                             .limit(12).map { root.toPath().relativize(it).toString() }.toArray().joinToString("\n")
                     }
                 } else ""
-                assertEquals("${if (useProot) "proot" else "direct-linux"} $path: $output\n$residuals", expectedCode, process.exitValue())
-                results.put(JSONObject().put("program", path).put("exit", process.exitValue()).put("engine", if (useProot) "proot" else "direct-linux")
+                assertEquals("${if (useProot) "proot" else if (useBaseline) "baseline" else "direct-linux"} $path: $output\n$residuals", expectedCode, process.exitValue())
+                results.put(JSONObject().put("program", path).put("exit", process.exitValue()).put("engine", if (useProot) "proot" else if (useBaseline) "baseline" else "direct-linux")
                     .put("arguments", JSONArray(args.toList())).put("observation_ms", (System.nanoTime() - started) / 1e6))
                 return output
             } finally {
@@ -260,6 +271,26 @@ class DirectLinuxLoaderTest {
             for (i in 0 until rejected.length()) {
                 assertTrue(run(rejected.getString(i), expectedCode = 126).contains("Direct Linux:"))
             }
+            if (baseline != null) {
+                check(dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION)
+                File(root, "usr/local/lib").mkdirs()
+                val orders = listOf(
+                    listOf("baseline", "direct-linux", "proot"), listOf("baseline", "proot", "direct-linux"),
+                    listOf("direct-linux", "baseline", "proot"), listOf("direct-linux", "proot", "baseline"),
+                    listOf("proot", "baseline", "direct-linux"), listOf("proot", "direct-linux", "baseline"),
+                )
+                repeat(18) { round ->
+                    orders[round % orders.size].forEach { engine ->
+                        val output = run("/bin/process-dynamic", "shell-benchmark",
+                            useProot = engine == "proot", useBaseline = engine == "baseline")
+                        assertTrue(output, output.contains("PASS shell-exec\n"))
+                        val lines = output.lineSequence().filter { it.startsWith("BENCH ") }.toList()
+                        assertEquals(output, 1, lines.size)
+                        benchmarks.put(JSONObject(lines.single().removePrefix("BENCH "))
+                            .put("engine", engine).put("round", round).put("comparison", "same-apk"))
+                    }
+                }
+            }
             if (arguments.getString("directLinuxBenchmark") == "true") {
                 check(dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION) { "Compare with the current accelerated payload" }
                 File(root, "usr/local/lib").mkdirs()
@@ -338,6 +369,7 @@ class DirectLinuxLoaderTest {
                 assertEquals(entry.getString("sha256"), digest(File(root, entry.getString("path")).readBytes()))
             }
             val report = JSONObject().put("schema", 1).put("loader_sha256", expected)
+                .put("baseline_sha256", baselineDigest ?: JSONObject.NULL)
                 .put("application_reference_skipped", arguments.getString("directLinuxSkipApplicationReference") == "true")
                 .put("fixtures", manifest).put("android_api", android.os.Build.VERSION.SDK_INT)
                 .put("initial_process_policy", JSONArray(policy))

@@ -14,10 +14,13 @@ semantics and package/session integration remain incomplete.
 [Signal-mask checks](../tools/direct-linux/SIGNAL_MASKS.md) now match the reference
 for full handler masks, temporary wait masks, nested handlers and nonlocal jumps;
 this is still short of full signal/thread compatibility.
-[Current measurements](../tools/direct-linux/COMMAND_PERFORMANCE.md) show faster file calls
+[ELF measurements](../tools/direct-linux/COMMAND_PERFORMANCE.md) show faster file calls
 and a 128-file tree workload. Bounded ELF metadata loading reduced repeated command
 execution by 9.8–10.7%; final paired shell samples took 2.2–4.2% less time than
 accelerated Rootless on redroid. This narrow result does not establish overall parity.
+[Later short-command measurements](../tools/direct-linux/SHORT_COMMAND_PERFORMANCE.md)
+compare old/new loaders inside the same APK: the median paired time reduction is
+2.3% across 54 pairs, after removing unnecessary syscall traps and startup checks.
 The full Python/Git comparison remains incomplete because the Rootless reference
 fails during repository cleanup. Direct's subprocess FD cleanup reduced its own
 Git workload time, but establishes no completed paired Git comparison.
