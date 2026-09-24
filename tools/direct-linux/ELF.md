@@ -43,7 +43,9 @@ and the remaining thread/signal work.
 The initial milestone copied main ELF/interpreter bytes into anonymous RW pages
 and then applied final permissions. The subsequent [exec cost reduction](EXEC_PERFORMANCE.md)
 uses validated MAP_PRIVATE file mappings for those images, with anonymous full
-BSS pages and private partial-page zeroing. Guest shared-library `mmap` also retains
+BSS pages and private partial-page zeroing. The later [command startup change](COMMAND_PERFORMANCE.md)
+reads and rechecks bounded ELF metadata; ordinary code/data bytes are demand-paged,
+without a full-image snapshot comparison. Guest shared-library `mmap` also retains
 the kernel's file-backed semantics, including paging, sharing and EOF/SIGBUS.
 The original copy-every-executable-mapping candidate failed on glibc's larger
 reservation and was removed. A successful `mmap` is distinct from `execve` of app

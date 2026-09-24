@@ -1,0 +1,4913 @@
+{
+  "schema": 1,
+  "date": "2026-09-24",
+  "environment": "redroid ARM64 API 35",
+  "selinux": "Disabled",
+  "stock_policy_verified": false,
+  "fixture_report": "command-runtime-2026-09-24.json",
+  "fixtures_identical_across_all_runs": true,
+  "fixture_file_count": 714,
+  "initial_process_policy": [
+    "TracerPid:\t0",
+    "CapEff:\t0000000000000000",
+    "NoNewPrivs:\t0",
+    "Seccomp:\t0"
+  ],
+  "proot_sha256": "1f152d00d64b53b7efa932a5cb341e937d9a7472b3af9dc22d99eb6e16245cfb",
+  "proot_loader_sha256": "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237",
+  "preload_sha256": "f581d328cf0fee01530b9052f76901bbfe975ac1bd61c225e02dfe10e1b5e829",
+  "exec_profile_stages": [
+    "arguments",
+    "read_validate",
+    "reset",
+    "unmap",
+    "map",
+    "entry",
+    "dispose"
+  ],
+  "exec_profile_map_stages": [
+    "reserve",
+    "file_map",
+    "verify",
+    "bss",
+    "final_protect"
+  ],
+  "methodology": "Runs listed in execution order. Each benchmark has seven alternating Direct/accelerated Rootless rounds, profile and trace disabled. Application reference explicitly skipped because of its previously recorded cleanup failure. Profile samples: outer process, shell, thirty /bin/true execs; compare samples[2:]. Same fixture bytes and environment in every run.",
+  "runs": [
+    {
+      "variant": "baseline",
+      "mode": "profile",
+      "loader_sha256": "5f6a714c8789cb3f13efb31af2e824ec0a8c3bf1779775f51fe6c4fbfd8b74aa",
+      "instrumentation": "OK (1 test)",
+      "instrumentation_seconds": 6.589,
+      "process_runs": 41,
+      "application_reference_skipped": false,
+      "exec_profiles": [
+        {
+          "replacing": 0,
+          "bytes": 277088,
+          "ns": [
+            48480,
+            165961,
+            440,
+            200,
+            207280,
+            8440,
+            57840
+          ],
+          "map_ns": [
+            5520,
+            20880,
+            165840,
+            12360,
+            840
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 337576,
+          "ns": [
+            52240,
+            209881,
+            38880,
+            215481,
+            222400,
+            12440,
+            66600
+          ],
+          "map_ns": [
+            5920,
+            20840,
+            175720,
+            16200,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            48400,
+            181921,
+            39320,
+            183960,
+            236121,
+            23080,
+            59480
+          ],
+          "map_ns": [
+            4480,
+            23880,
+            190841,
+            13400,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            49640,
+            178161,
+            37720,
+            225361,
+            215000,
+            20440,
+            60600
+          ],
+          "map_ns": [
+            5200,
+            20600,
+            171320,
+            14400,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            42841,
+            154000,
+            39200,
+            181121,
+            245320,
+            22680,
+            62920
+          ],
+          "map_ns": [
+            4440,
+            18720,
+            169040,
+            49480,
+            1280
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            52320,
+            158720,
+            39640,
+            188961,
+            217880,
+            25320,
+            58921
+          ],
+          "map_ns": [
+            4880,
+            21360,
+            174480,
+            13800,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            45880,
+            159480,
+            41360,
+            218601,
+            212400,
+            22321,
+            59520
+          ],
+          "map_ns": [
+            5240,
+            21360,
+            168160,
+            14200,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            46920,
+            164600,
+            66401,
+            188440,
+            241161,
+            25000,
+            62920
+          ],
+          "map_ns": [
+            5160,
+            24280,
+            193361,
+            14920,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            69360,
+            161641,
+            39920,
+            181560,
+            225161,
+            24120,
+            59840
+          ],
+          "map_ns": [
+            4720,
+            20440,
+            179681,
+            16280,
+            1640
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            46281,
+            176800,
+            40760,
+            212641,
+            218920,
+            25160,
+            59680
+          ],
+          "map_ns": [
+            5640,
+            22440,
+            172840,
+            14440,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            52960,
+            179640,
+            40880,
+            195841,
+            297041,
+            22040,
+            59720
+          ],
+          "map_ns": [
+            4920,
+            23800,
+            248081,
+            15440,
+            2480
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            54240,
+            160001,
+            41840,
+            183880,
+            220041,
+            34440,
+            60320
+          ],
+          "map_ns": [
+            4960,
+            19720,
+            175161,
+            16280,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            51440,
+            193560,
+            39760,
+            183921,
+            211200,
+            27280,
+            60840
+          ],
+          "map_ns": [
+            4640,
+            20440,
+            168960,
+            13360,
+            1600
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            50480,
+            171920,
+            43281,
+            213840,
+            214161,
+            28600,
+            64720
+          ],
+          "map_ns": [
+            5560,
+            20480,
+            169921,
+            13960,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            48320,
+            159041,
+            67960,
+            180560,
+            242161,
+            21840,
+            60840
+          ],
+          "map_ns": [
+            5280,
+            21840,
+            196121,
+            15000,
+            1560
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            45481,
+            163160,
+            38960,
+            190441,
+            214800,
+            26920,
+            59720
+          ],
+          "map_ns": [
+            5080,
+            21160,
+            170560,
+            14520,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            47000,
+            160040,
+            40080,
+            220241,
+            215480,
+            21880,
+            59041
+          ],
+          "map_ns": [
+            5680,
+            21600,
+            170640,
+            14120,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            52440,
+            155080,
+            39680,
+            180761,
+            255201,
+            25840,
+            62960
+          ],
+          "map_ns": [
+            4560,
+            26160,
+            206441,
+            14560,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            48400,
+            168001,
+            42640,
+            204320,
+            215121,
+            30320,
+            63720
+          ],
+          "map_ns": [
+            4680,
+            21840,
+            171281,
+            13760,
+            1240
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            47241,
+            200480,
+            42160,
+            194761,
+            215600,
+            24080,
+            65280
+          ],
+          "map_ns": [
+            5840,
+            20520,
+            171240,
+            14720,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            47840,
+            163360,
+            42280,
+            193041,
+            286721,
+            29200,
+            59240
+          ],
+          "map_ns": [
+            5640,
+            87880,
+            174721,
+            15080,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            57600,
+            184040,
+            37920,
+            187441,
+            274040,
+            23321,
+            64840
+          ],
+          "map_ns": [
+            5000,
+            23400,
+            227280,
+            15000,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            55840,
+            166681,
+            38960,
+            202720,
+            238921,
+            31360,
+            88760
+          ],
+          "map_ns": [
+            4880,
+            19880,
+            194601,
+            16040,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            72961,
+            169360,
+            39520,
+            195521,
+            274080,
+            24400,
+            62280
+          ],
+          "map_ns": [
+            4960,
+            21360,
+            228320,
+            16120,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            49840,
+            170640,
+            39841,
+            207920,
+            237681,
+            28520,
+            61680
+          ],
+          "map_ns": [
+            5240,
+            20960,
+            192601,
+            15440,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            48000,
+            181281,
+            44560,
+            189680,
+            323881,
+            29520,
+            64600
+          ],
+          "map_ns": [
+            5400,
+            27960,
+            268320,
+            18520,
+            1241
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            48080,
+            170440,
+            40761,
+            187600,
+            270161,
+            26120,
+            65920
+          ],
+          "map_ns": [
+            5400,
+            24360,
+            222321,
+            14720,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            45680,
+            163121,
+            42840,
+            192600,
+            216921,
+            27120,
+            58560
+          ],
+          "map_ns": [
+            4680,
+            20040,
+            174441,
+            14320,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            50240,
+            200880,
+            45840,
+            184321,
+            226400,
+            29481,
+            61680
+          ],
+          "map_ns": [
+            5960,
+            22360,
+            180040,
+            14520,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            50680,
+            175561,
+            39560,
+            218280,
+            233241,
+            25000,
+            62720
+          ],
+          "map_ns": [
+            5680,
+            22080,
+            185481,
+            16320,
+            1320
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            54080,
+            189120,
+            43160,
+            189961,
+            250400,
+            24080,
+            63321
+          ],
+          "map_ns": [
+            5440,
+            23720,
+            202040,
+            15760,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            47560,
+            157400,
+            40721,
+            182200,
+            215681,
+            29800,
+            57440
+          ],
+          "map_ns": [
+            4720,
+            20320,
+            173641,
+            13560,
+            1160
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "baseline",
+      "mode": "benchmark",
+      "loader_sha256": "5f6a714c8789cb3f13efb31af2e824ec0a8c3bf1779775f51fe6c4fbfd8b74aa",
+      "instrumentation": "OK (1 test)",
+      "instrumentation_seconds": 16.492,
+      "process_runs": 89,
+      "application_reference_skipped": true,
+      "benchmarks": [
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.068908,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.099033,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.371779,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.952031,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 50.276407,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.54272,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 50.611208,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 93.678596,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 43.992511,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 423.115104,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 558.430165,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.005658,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 60.786993,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.65455,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.615955,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.382319,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 52.705653,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 92.433993,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 50.144446,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 42.527587,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 424.290908,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 550.542425,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.211309,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.183674,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.62774,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 61.790396,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 51.70933,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.367879,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 50.697487,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 94.619838,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 44.142271,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 418.820533,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 551.530988,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.8005,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.727871,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.300149,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.150794,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 49.380044,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 54.132137,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 96.140482,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 51.64137,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 44.241071,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 466.996375,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 603.434558,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.040028,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.262714,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.506139,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 61.096914,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 53.447054,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.013239,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 52.220812,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 94.085156,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 43.380949,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 454.332863,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 589.114042,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 41.933905,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 62.283557,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.438909,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.322434,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 49.054603,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 52.350972,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 94.712158,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 51.222929,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 42.461107,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 423.338945,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 551.293027,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.055788,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 46.734998,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 41.334344,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 62.033556,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 52.139371,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.386479,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 51.142288,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 93.305115,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 41.913065,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 427.257914,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 551.133026,
+          "engine": "direct-linux",
+          "round": 6
+        }
+      ]
+    },
+    {
+      "variant": "map_populate_rejected",
+      "mode": "profile",
+      "loader_sha256": "bb54705b4cb55965a043dbdba4abfd2bf54917f4e2607a57a3bd77045a09b279",
+      "instrumentation": "OK (1 test)",
+      "instrumentation_seconds": 6.597,
+      "process_runs": 41,
+      "application_reference_skipped": false,
+      "exec_profiles": [
+        {
+          "replacing": 0,
+          "bytes": 277088,
+          "ns": [
+            50760,
+            200440,
+            320,
+            200,
+            219001,
+            10200,
+            59200
+          ],
+          "map_ns": [
+            5920,
+            191641,
+            13720,
+            4160,
+            1960
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 337576,
+          "ns": [
+            55200,
+            237080,
+            41121,
+            216800,
+            227521,
+            10360,
+            66440
+          ],
+          "map_ns": [
+            6360,
+            185281,
+            21360,
+            10160,
+            2040
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            50200,
+            188880,
+            36880,
+            205041,
+            218000,
+            24001,
+            55280
+          ],
+          "map_ns": [
+            5800,
+            189040,
+            14720,
+            4960,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            50600,
+            187640,
+            38121,
+            182880,
+            214601,
+            55280,
+            58600
+          ],
+          "map_ns": [
+            5600,
+            185441,
+            14440,
+            5040,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            50840,
+            162241,
+            38600,
+            175160,
+            209561,
+            24840,
+            57200
+          ],
+          "map_ns": [
+            5400,
+            181361,
+            13600,
+            5800,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            50480,
+            157801,
+            37400,
+            196840,
+            213121,
+            23560,
+            56880
+          ],
+          "map_ns": [
+            5760,
+            184681,
+            13800,
+            5560,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            49960,
+            154001,
+            41240,
+            196960,
+            212121,
+            21640,
+            55040
+          ],
+          "map_ns": [
+            6840,
+            182601,
+            13800,
+            5480,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            49240,
+            185521,
+            64480,
+            177440,
+            214001,
+            24560,
+            57640
+          ],
+          "map_ns": [
+            5880,
+            185241,
+            14680,
+            4840,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            50920,
+            161081,
+            41520,
+            180280,
+            254361,
+            20320,
+            57880
+          ],
+          "map_ns": [
+            5200,
+            192321,
+            47920,
+            5400,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            50841,
+            160720,
+            36040,
+            182801,
+            215760,
+            27520,
+            57720
+          ],
+          "map_ns": [
+            4880,
+            188720,
+            13560,
+            4720,
+            1680
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            51441,
+            156440,
+            39760,
+            208401,
+            222440,
+            23880,
+            55680
+          ],
+          "map_ns": [
+            5560,
+            193560,
+            14280,
+            4920,
+            1760
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            51441,
+            157840,
+            39880,
+            219161,
+            248320,
+            49120,
+            63521
+          ],
+          "map_ns": [
+            5440,
+            219960,
+            13920,
+            4880,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            50440,
+            185320,
+            41760,
+            189201,
+            244560,
+            24281,
+            59040
+          ],
+          "map_ns": [
+            5080,
+            217240,
+            13880,
+            4960,
+            1240
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            53200,
+            163680,
+            42881,
+            256880,
+            217601,
+            27800,
+            57640
+          ],
+          "map_ns": [
+            7000,
+            186921,
+            14760,
+            5320,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            53841,
+            165400,
+            37640,
+            176800,
+            237681,
+            24760,
+            57640
+          ],
+          "map_ns": [
+            5040,
+            208601,
+            14800,
+            5160,
+            1800
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            63601,
+            157680,
+            41760,
+            183040,
+            210321,
+            26840,
+            57560
+          ],
+          "map_ns": [
+            5081,
+            182240,
+            14360,
+            4760,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            52120,
+            167760,
+            39040,
+            248161,
+            218360,
+            26040,
+            55761
+          ],
+          "map_ns": [
+            6240,
+            188600,
+            15080,
+            4880,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            56760,
+            168241,
+            42080,
+            188200,
+            238121,
+            28160,
+            57680
+          ],
+          "map_ns": [
+            5440,
+            210041,
+            14160,
+            5080,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            57120,
+            185040,
+            38240,
+            207961,
+            223600,
+            25120,
+            75161
+          ],
+          "map_ns": [
+            5720,
+            194480,
+            14280,
+            5680,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            53880,
+            187840,
+            40040,
+            188081,
+            212760,
+            29161,
+            57840
+          ],
+          "map_ns": [
+            5720,
+            182960,
+            15760,
+            5040,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            53120,
+            168641,
+            39960,
+            223440,
+            231841,
+            25720,
+            59360
+          ],
+          "map_ns": [
+            6240,
+            201681,
+            14920,
+            5040,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            50600,
+            164201,
+            39440,
+            182000,
+            210881,
+            30240,
+            76800
+          ],
+          "map_ns": [
+            4920,
+            182961,
+            14640,
+            5000,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            54081,
+            185840,
+            41680,
+            213321,
+            217160,
+            20720,
+            58040
+          ],
+          "map_ns": [
+            6120,
+            186800,
+            15840,
+            4960,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            55880,
+            179000,
+            39400,
+            201401,
+            214080,
+            20521,
+            56880
+          ],
+          "map_ns": [
+            5800,
+            184920,
+            14680,
+            5160,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            55200,
+            166480,
+            39960,
+            180761,
+            211720,
+            27241,
+            59480
+          ],
+          "map_ns": [
+            4880,
+            183320,
+            15160,
+            4960,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            53840,
+            186361,
+            39760,
+            185000,
+            245761,
+            23640,
+            58560
+          ],
+          "map_ns": [
+            5320,
+            215761,
+            15480,
+            5280,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            57680,
+            168601,
+            38960,
+            213761,
+            215280,
+            20400,
+            57360
+          ],
+          "map_ns": [
+            6560,
+            185560,
+            14680,
+            4960,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            53680,
+            167600,
+            40560,
+            180121,
+            212360,
+            25600,
+            76240
+          ],
+          "map_ns": [
+            5520,
+            184040,
+            14560,
+            4880,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            66160,
+            164360,
+            40960,
+            182041,
+            210960,
+            25800,
+            56321
+          ],
+          "map_ns": [
+            5240,
+            181640,
+            14720,
+            5440,
+            1680
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            55600,
+            164760,
+            43281,
+            222360,
+            219321,
+            21760,
+            56360
+          ],
+          "map_ns": [
+            6640,
+            188161,
+            15440,
+            5560,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            55881,
+            196040,
+            44320,
+            182761,
+            251880,
+            23040,
+            55600
+          ],
+          "map_ns": [
+            5200,
+            222000,
+            15480,
+            5640,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "ns": [
+            54240,
+            165800,
+            40760,
+            211201,
+            214920,
+            29280,
+            58721
+          ],
+          "map_ns": [
+            6120,
+            185200,
+            14960,
+            5160,
+            1160
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "map_populate_rejected",
+      "mode": "benchmark",
+      "loader_sha256": "bb54705b4cb55965a043dbdba4abfd2bf54917f4e2607a57a3bd77045a09b279",
+      "instrumentation": "OK (1 test)",
+      "instrumentation_seconds": 16.583,
+      "process_runs": 89,
+      "application_reference_skipped": true,
+      "benchmarks": [
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.171589,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.053473,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.59806,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 62.456317,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 52.308252,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 49.165284,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 52.491452,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 94.795319,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 44.640313,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 444.070439,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 579.917462,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.62778,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 60.303672,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.189789,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.124994,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 50.717528,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 53.167494,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 95.2222,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 51.92293,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 44.195112,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 480.401371,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 621.490166,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.145549,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 44.981473,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.325379,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 61.264674,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 54.416938,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 50.065166,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 52.334572,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 95.43504,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 43.94791,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 439.129827,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 573.571365,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 38.317817,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 58.280226,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.331829,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.479714,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 50.303487,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 55.060298,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 96.881644,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 52.691092,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 43.413709,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 439.597788,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 568.402993,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.247508,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.749435,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.73646,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 61.359914,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 55.54454,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.996161,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 52.833293,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 95.749881,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 44.502393,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 428.977281,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 563.32886,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.523299,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.78687,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.039068,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 44.867953,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 56.949343,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 53.416335,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 95.852722,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 52.065931,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 42.519867,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 437.146942,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 569.465875,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.599669,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.206634,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.116058,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 61.126674,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 52.396972,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 48.002561,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 51.168809,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 95.436681,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 42.686147,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 494.378366,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 625.693217,
+          "engine": "direct-linux",
+          "round": 6
+        }
+      ]
+    },
+    {
+      "variant": "metadata_paging",
+      "mode": "profile",
+      "loader_sha256": "54e56976a5dd7989a58a435cecc9a2d41d28af4d20b45ccc3192c639955c95ef",
+      "instrumentation": "OK (1 test)",
+      "instrumentation_seconds": 6.57,
+      "process_runs": 41,
+      "application_reference_skipped": false,
+      "exec_profiles": [
+        {
+          "replacing": 0,
+          "bytes": 277088,
+          "metadata_read_bytes": 1491,
+          "ns": [
+            41400,
+            40960,
+            280,
+            200,
+            46560,
+            9000,
+            11840
+          ],
+          "map_ns": [
+            4600,
+            18600,
+            4320,
+            16520,
+            840
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 337576,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            52160,
+            79560,
+            36840,
+            197841,
+            49320,
+            8400,
+            9800
+          ],
+          "map_ns": [
+            4720,
+            18680,
+            4280,
+            18120,
+            1240
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            49520,
+            79640,
+            38440,
+            172721,
+            61960,
+            56440,
+            11000
+          ],
+          "map_ns": [
+            5160,
+            36320,
+            4760,
+            12240,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            56080,
+            79560,
+            37360,
+            240681,
+            43920,
+            20480,
+            10240
+          ],
+          "map_ns": [
+            5960,
+            19200,
+            4800,
+            10320,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            50920,
+            70760,
+            40600,
+            171401,
+            62480,
+            19160,
+            10720
+          ],
+          "map_ns": [
+            4760,
+            37520,
+            4240,
+            11960,
+            1800
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            48041,
+            78640,
+            37600,
+            172760,
+            41200,
+            28640,
+            8920
+          ],
+          "map_ns": [
+            4600,
+            17800,
+            4200,
+            11240,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            43960,
+            72600,
+            35761,
+            170160,
+            39320,
+            24920,
+            9800
+          ],
+          "map_ns": [
+            4600,
+            16880,
+            4160,
+            10320,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            50600,
+            73240,
+            36040,
+            171281,
+            38560,
+            24560,
+            11280
+          ],
+          "map_ns": [
+            5360,
+            16040,
+            4000,
+            9840,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            43920,
+            75440,
+            38520,
+            173120,
+            40040,
+            26401,
+            10160
+          ],
+          "map_ns": [
+            4720,
+            17920,
+            4320,
+            9680,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            93520,
+            74961,
+            38400,
+            165440,
+            40240,
+            25680,
+            8760
+          ],
+          "map_ns": [
+            5160,
+            17200,
+            4320,
+            10280,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            53600,
+            79120,
+            37520,
+            175361,
+            40480,
+            27360,
+            11520
+          ],
+          "map_ns": [
+            4800,
+            18000,
+            4040,
+            10320,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            63200,
+            80400,
+            40040,
+            175441,
+            39560,
+            41000,
+            11600
+          ],
+          "map_ns": [
+            5240,
+            15840,
+            4360,
+            10160,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            43840,
+            82080,
+            36840,
+            170441,
+            41000,
+            24280,
+            10040
+          ],
+          "map_ns": [
+            4880,
+            18680,
+            4320,
+            9680,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            87401,
+            77040,
+            38840,
+            167640,
+            39840,
+            22881,
+            8480
+          ],
+          "map_ns": [
+            4680,
+            16800,
+            4400,
+            10560,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            42120,
+            73921,
+            37560,
+            170160,
+            40920,
+            24720,
+            9480
+          ],
+          "map_ns": [
+            4840,
+            18600,
+            4200,
+            9880,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            44120,
+            90600,
+            35880,
+            172361,
+            42560,
+            22960,
+            9880
+          ],
+          "map_ns": [
+            5600,
+            18400,
+            4520,
+            10640,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            46000,
+            82520,
+            36680,
+            167560,
+            40881,
+            26000,
+            11040
+          ],
+          "map_ns": [
+            5160,
+            17441,
+            4400,
+            10120,
+            1600
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            44480,
+            96921,
+            38400,
+            173160,
+            40400,
+            21880,
+            10160
+          ],
+          "map_ns": [
+            5160,
+            16800,
+            4880,
+            10200,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            44200,
+            73840,
+            39480,
+            169521,
+            38440,
+            24240,
+            10160
+          ],
+          "map_ns": [
+            4920,
+            16200,
+            4040,
+            10000,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            46560,
+            84840,
+            36240,
+            198161,
+            42960,
+            23960,
+            10320
+          ],
+          "map_ns": [
+            5400,
+            18200,
+            5040,
+            10240,
+            1680
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            44601,
+            73000,
+            36120,
+            172640,
+            47360,
+            24241,
+            11640
+          ],
+          "map_ns": [
+            4960,
+            17760,
+            4240,
+            17040,
+            1240
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            46080,
+            74720,
+            36721,
+            202240,
+            42360,
+            24080,
+            9400
+          ],
+          "map_ns": [
+            5360,
+            17480,
+            4920,
+            11240,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            46280,
+            119200,
+            38800,
+            177641,
+            43160,
+            19600,
+            10560
+          ],
+          "map_ns": [
+            6040,
+            18400,
+            4360,
+            10880,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            49400,
+            104120,
+            38160,
+            190481,
+            44240,
+            20400,
+            9800
+          ],
+          "map_ns": [
+            6040,
+            18560,
+            4920,
+            11360,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            57000,
+            80160,
+            40720,
+            174440,
+            41961,
+            23280,
+            11080
+          ],
+          "map_ns": [
+            5080,
+            17961,
+            4960,
+            10440,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            56680,
+            78760,
+            38881,
+            169760,
+            39000,
+            25160,
+            9320
+          ],
+          "map_ns": [
+            4560,
+            16600,
+            4120,
+            10400,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            43360,
+            76880,
+            34880,
+            169041,
+            41120,
+            26960,
+            11200
+          ],
+          "map_ns": [
+            4600,
+            18760,
+            4760,
+            9640,
+            1160
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            48400,
+            104241,
+            36480,
+            178680,
+            42120,
+            26680,
+            10520
+          ],
+          "map_ns": [
+            5560,
+            18560,
+            4080,
+            10080,
+            1600
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            52560,
+            74560,
+            39241,
+            175800,
+            39480,
+            25280,
+            11320
+          ],
+          "map_ns": [
+            5040,
+            17000,
+            4520,
+            9680,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            45840,
+            112040,
+            35760,
+            241801,
+            49160,
+            23320,
+            9880
+          ],
+          "map_ns": [
+            5920,
+            17800,
+            4800,
+            17200,
+            1200
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            53080,
+            72480,
+            34920,
+            174281,
+            40840,
+            26600,
+            10960
+          ],
+          "map_ns": [
+            4680,
+            17880,
+            4440,
+            10440,
+            1120
+          ]
+        },
+        {
+          "replacing": 1,
+          "bytes": 271760,
+          "metadata_read_bytes": 1435,
+          "ns": [
+            64320,
+            75200,
+            36720,
+            173280,
+            40361,
+            20680,
+            9600
+          ],
+          "map_ns": [
+            5280,
+            17320,
+            5121,
+            9320,
+            1120
+          ]
+        }
+      ]
+    },
+    {
+      "variant": "metadata_paging",
+      "mode": "benchmark",
+      "loader_sha256": "54e56976a5dd7989a58a435cecc9a2d41d28af4d20b45ccc3192c639955c95ef",
+      "instrumentation": "OK (1 test)",
+      "instrumentation_seconds": 16.383,
+      "process_runs": 89,
+      "application_reference_skipped": true,
+      "benchmarks": [
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.172868,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.047034,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 38.436897,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 58.698548,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 48.738604,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 49.227205,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 60.534753,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 96.066002,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 44.452712,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 417.165174,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 548.631266,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.504859,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 62.924519,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.090429,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 44.802153,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 49.066044,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.911121,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 95.712882,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 51.44897,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 44.516352,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 416.099612,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 543.629894,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.361509,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.269755,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.26734,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.14371,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.65196,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 48.819044,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 50.546567,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 95.967602,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 44.858593,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 415.919691,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 553.564518,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.121299,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.033069,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 26.971988,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.125114,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 49.469525,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 46.331117,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 95.232481,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 48.376402,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 42.719068,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 418.562897,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 542.144249,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 26.999948,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 44.991754,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 38.800658,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 60.498153,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 46.753398,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 46.288677,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 48.416883,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 93.850598,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 43.224229,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 404.302101,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 525.334087,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.254659,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 62.160037,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 26.964548,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.416435,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.54336,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 46.387677,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 91.766352,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 49.132604,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 42.822788,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 426.439517,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 550.11675,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 26.982868,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.190794,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.245379,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.57119,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 45.648996,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.172159,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 49.115684,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 92.139433,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 43.51375,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 420.035221,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 545.525018,
+          "engine": "direct-linux",
+          "round": 6
+        }
+      ]
+    },
+    {
+      "variant": "baseline_repeat",
+      "mode": "benchmark",
+      "loader_sha256": "5f6a714c8789cb3f13efb31af2e824ec0a8c3bf1779775f51fe6c4fbfd8b74aa",
+      "instrumentation": "OK (1 test)",
+      "instrumentation_seconds": 16.479,
+      "process_runs": 89,
+      "application_reference_skipped": true,
+      "benchmarks": [
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.111388,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.347715,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 38.622378,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.13295,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 52.415532,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.154079,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 51.33033,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 95.17924,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 43.127189,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 429.071844,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 560.125735,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.72906,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 61.141634,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.077348,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.266475,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 46.260997,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 52.046452,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 92.861235,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 50.146567,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 42.874668,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 427.57824,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 556.263885,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 26.973308,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 44.902874,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.133498,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.20047,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 51.904091,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 48.695363,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 51.52097,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 94.089238,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 42.437668,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 424.230952,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 554.0878,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.5973,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 61.608316,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 26.952348,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 46.011956,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.891001,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 53.415655,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 93.323876,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 52.148052,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 43.020269,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 455.582111,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 583.648034,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.059229,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.058314,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.55282,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.52487,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 51.850371,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.8554,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 51.32353,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 96.005082,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 43.033308,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 449.404255,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 578.966583,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.073979,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 61.593035,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 26.907388,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.445075,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 48.618483,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 52.340732,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 94.256598,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 50.306687,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 42.563667,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 486.53807,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 613.25823,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.343989,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 46.018556,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.54022,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.897751,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 52.325772,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.66176,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 51.70733,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 96.425083,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 43.60843,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 431.829451,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 560.500536,
+          "engine": "direct-linux",
+          "round": 6
+        }
+      ]
+    },
+    {
+      "variant": "metadata_paging_repeat",
+      "mode": "benchmark",
+      "loader_sha256": "54e56976a5dd7989a58a435cecc9a2d41d28af4d20b45ccc3192c639955c95ef",
+      "instrumentation": "OK (1 test)",
+      "instrumentation_seconds": 16.502,
+      "process_runs": 89,
+      "application_reference_skipped": true,
+      "benchmarks": [
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.274108,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.286634,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.101259,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.182749,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.194959,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 46.891838,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 48.699443,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 95.158041,
+          "engine": "proot",
+          "round": 0
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 43.426509,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 426.031436,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 550.012709,
+          "engine": "direct-linux",
+          "round": 0
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.47534,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 58.521748,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.016748,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.314634,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 50.077087,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 46.615357,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 94.353479,
+          "engine": "proot",
+          "round": 1
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 49.065564,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 42.821189,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 406.637347,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 528.782976,
+          "engine": "direct-linux",
+          "round": 1
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.244149,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.447395,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.65654,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.47567,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.220959,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 48.949684,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 50.137206,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 93.078795,
+          "engine": "proot",
+          "round": 2
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 44.219792,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 435.62982,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 561.157257,
+          "engine": "direct-linux",
+          "round": 2
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 40.286021,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.861951,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.208269,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.214154,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.51612,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 46.825199,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 97.278966,
+          "engine": "proot",
+          "round": 3
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 50.237407,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 43.320349,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 425.691035,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 551.006952,
+          "engine": "direct-linux",
+          "round": 3
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.386309,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.493755,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.49162,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.12327,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.622681,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 48.243361,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 49.831206,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 95.492241,
+          "engine": "proot",
+          "round": 4
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 43.54347,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 468.860625,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 599.930075,
+          "engine": "direct-linux",
+          "round": 4
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.110058,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 60.548993,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.348149,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.355315,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 47.4164,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 45.875276,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 94.78912,
+          "engine": "proot",
+          "round": 5
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 49.607446,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 42.361227,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 434.276457,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 561.267258,
+          "engine": "direct-linux",
+          "round": 5
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 27.103668,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 45.207035,
+          "acceleration_hits": 0,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "stat",
+          "count": 5000,
+          "elapsed_ms": 39.232939,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "open-read-close",
+          "count": 5000,
+          "elapsed_ms": 59.873071,
+          "acceleration_hits": 5000,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 48.830763,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "shell-exec-30",
+          "count": 30,
+          "elapsed_ms": 48.250002,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 48.967524,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "file-tree-128",
+          "count": 128,
+          "elapsed_ms": 94.477519,
+          "engine": "proot",
+          "round": 6
+        },
+        {
+          "case": "python-imports",
+          "count": 14,
+          "elapsed_ms": 43.64611,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 460.541444,
+          "engine": "direct-linux",
+          "round": 6
+        },
+        {
+          "case": "python-git-workflow-128",
+          "count": 128,
+          "elapsed_ms": 584.954477,
+          "engine": "direct-linux",
+          "round": 6
+        }
+      ]
+    }
+  ]
+}

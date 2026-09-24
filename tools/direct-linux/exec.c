@@ -22,8 +22,8 @@ struct image {
     uintptr_t base, entry, phdr, low, high, alignment;
     Elf64_Ehdr header;
     Elf64_Phdr ph[PH_LIMIT];
-    unsigned char *bytes;
-    size_t bytes_size;
+    unsigned char prefix[256];
+    size_t file_size, read_bytes;
     int source_fd;
     size_t phnum;
     void *reservation;
@@ -34,6 +34,18 @@ struct image {
 static uintptr_t down(uintptr_t x) { return x & ~(dl_state.page - 1); }
 static uintptr_t up(uintptr_t x) { return (x + dl_state.page - 1) & ~(dl_state.page - 1); }
 static int range(uint64_t start, uint64_t size, uint64_t limit) { return start <= limit && size <= limit - start; }
+
+static long read_exact(int fd, void *destination, size_t size, size_t offset, struct image *image)
+{
+    size_t copied = 0;
+    while (copied < size) {
+        long n = DL_CALL(SYS_pread64, fd, (char *)destination + copied, size - copied, offset + copied, 0, 0);
+        if (n == -EINTR) continue;
+        if (n <= 0) return n < 0 ? n : -ENOEXEC;
+        copied += n; image->read_bytes += n;
+    }
+    return 0;
+}
 
 static long read_image(const char *path, struct image *out, int interpreter)
 {
@@ -51,23 +63,16 @@ static long read_image(const char *path, struct image *out, int interpreter)
         goto done;
     }
     if (dl_executable(fd) < 0 || !(st.st_mode & 0111) || (st.st_mode & (S_ISUID | S_ISGID))) { result = -EACCES; goto done; }
-    out->bytes_size = (size_t)st.st_size;
-    long memory = DL_CALL(SYS_mmap, 0, out->bytes_size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (memory < 0) { result = memory; goto done; }
-    out->bytes = (void *)memory;
-    size_t offset = 0;
-    while (offset < out->bytes_size) {
-        long n = DL_CALL(SYS_pread64, fd, out->bytes + offset, out->bytes_size - offset, offset, 0, 0);
-        if (n == -EINTR) continue;
-        if (n <= 0) { result = n < 0 ? n : -ENOEXEC; goto done; }
-        offset += n;
-    }
+    out->file_size = (size_t)st.st_size;
+    size_t prefix_size = out->file_size < sizeof(out->prefix) ? out->file_size : sizeof(out->prefix);
+    long read = read_exact(fd, out->prefix, prefix_size, 0, out);
+    if (read) { result = read; goto done; }
     if (dl_file_path(fd, out->canonical)) goto done;
-    if (!interpreter && out->bytes_size >= 2 && out->bytes[0] == '#' && out->bytes[1] == '!') {
+    if (!interpreter && out->file_size >= 2 && out->prefix[0] == '#' && out->prefix[1] == '!') {
         result = 1; goto done;
     }
-    if (out->bytes_size < sizeof(header)) goto done;
-    dl_copy(&header, out->bytes, sizeof(header));
+    if (out->file_size < sizeof(header)) goto done;
+    dl_copy(&header, out->prefix, sizeof(header));
     if (!(header.e_ident[0] == 127 && header.e_ident[1] == 'E' && header.e_ident[2] == 'L' && header.e_ident[3] == 'F') || header.e_ident[EI_CLASS] != ELFCLASS64 ||
             header.e_ident[EI_DATA] != ELFDATA2LSB || header.e_ident[EI_VERSION] != EV_CURRENT ||
             header.e_machine != EM_AARCH64 || header.e_version != EV_CURRENT ||
@@ -77,7 +82,8 @@ static long read_image(const char *path, struct image *out, int interpreter)
             !range(header.e_phoff, header.e_phnum * sizeof(Elf64_Phdr), (uint64_t)st.st_size)) {
         goto done;
     }
-    dl_copy(ph, out->bytes + header.e_phoff, header.e_phnum * sizeof(Elf64_Phdr));
+    read = read_exact(fd, ph, header.e_phnum * sizeof(Elf64_Phdr), header.e_phoff, out);
+    if (read) { result = read; goto done; }
     for (unsigned i = 0; i < header.e_phnum; i++) {
         Elf64_Phdr *p = ph + i;
         if (p->p_type == PT_INTERP) {
@@ -85,7 +91,8 @@ static long read_image(const char *path, struct image *out, int interpreter)
                     !range(p->p_offset, p->p_filesz, st.st_size)) {
                 goto done;
             }
-            dl_copy(out->interpreter, out->bytes + p->p_offset, p->p_filesz);
+            read = read_exact(fd, out->interpreter, p->p_filesz, p->p_offset, out);
+            if (read) { result = read; goto done; }
             if (out->interpreter[0] != '/' || out->interpreter[p->p_filesz - 1] ||
                     dl_length(out->interpreter) != p->p_filesz - 1) {
                 goto done;
@@ -140,6 +147,29 @@ done:
 
 static unsigned long profile_clock(void);
 
+static int metadata_matches(const struct image *image, const Elf64_Phdr *segment,
+    size_t offset, const void *snapshot, size_t size)
+{
+    size_t start = offset > segment->p_offset ? offset : segment->p_offset;
+    size_t end = offset + size < segment->p_offset + segment->p_filesz
+        ? offset + size : segment->p_offset + segment->p_filesz;
+    return start >= end || dl_equal_memory((void *)(image->base + segment->p_vaddr + start - segment->p_offset),
+        (const char *)snapshot + start - offset, end - start);
+}
+
+static int verified_metadata(const struct image *image, const Elf64_Phdr *segment)
+{
+    if (!metadata_matches(image, segment, 0, &image->header, sizeof(image->header)) ||
+            !metadata_matches(image, segment, image->header.e_phoff, image->ph,
+                image->header.e_phnum * sizeof(Elf64_Phdr))) return 0;
+    for (unsigned i = 0; i < image->header.e_phnum; i++) {
+        const Elf64_Phdr *p = image->ph + i;
+        if (p->p_type == PT_INTERP &&
+                !metadata_matches(image, segment, p->p_offset, image->interpreter, p->p_filesz)) return 0;
+    }
+    return 1;
+}
+
 static long map_image(struct image *out, unsigned long costs[5])
 {
     unsigned long before = profile_clock(), now;
@@ -182,10 +212,10 @@ static long map_image(struct image *out, unsigned long costs[5])
             if (mapped < 0) return mapped;
         }
         now = profile_clock(); costs[1] += now - before; before = now;
-        // The ELF metadata was parsed from a private snapshot. Check that the
-        // mapped file bytes still match before entering any guest code. Later
-        // writes/truncation have normal file-mapping semantics, as for DSOs.
-        if (!dl_equal_memory((void *)(out->base + p->p_vaddr), out->bytes + p->p_offset, p->p_filesz)) return -EAGAIN;
+        // Recheck every mapped byte of the metadata used to choose mappings and
+        // the interpreter. Code/data are ordinary demand-paged file contents,
+        // not authenticated immutable snapshots. The same FD pins the inode.
+        if (!verified_metadata(out, p)) return -EAGAIN;
         now = profile_clock(); costs[2] += now - before; before = now;
         if (file_size < size) {
             long mapped = dl_mmap(begin + file_size, size - file_size, prot,
@@ -305,8 +335,6 @@ static uintptr_t finish_stack(struct preparation *p)
 
 static void dispose_image(struct image *image)
 {
-    if (image->bytes) DL_CALL(SYS_munmap, image->bytes, image->bytes_size, 0, 0, 0, 0);
-    image->bytes = NULL;
     if (image->source_fd >= 0) DL_CALL(SYS_close, image->source_fd, 0, 0, 0, 0, 0);
     image->source_fd = -1;
 }
@@ -330,13 +358,13 @@ static long reset_exec_state(int main_fd, int interpreter_fd)
 
 static long script_arguments(struct preparation *p)
 {
-    char line[257]; size_t size = p->main.bytes_size;
+    char line[257]; size_t size = p->main.file_size;
     if (size > 256) size = 256;
     size_t end = 2;
-    while (end < size && p->main.bytes[end] != '\n' && p->main.bytes[end]) end++;
+    while (end < size && p->main.prefix[end] != '\n' && p->main.prefix[end]) end++;
     // Reject a truncated first line instead of executing a truncated pathname.
     if (end == 256) return -ENOEXEC;
-    dl_copy(line, p->main.bytes, end); line[end] = 0;
+    dl_copy(line, p->main.prefix, end); line[end] = 0;
     while (end > 2 && (line[end - 1] == ' ' || line[end - 1] == '\t')) line[--end] = 0;
     size_t start = 2;
     while (line[start] == ' ' || line[start] == '\t') start++;
@@ -377,14 +405,18 @@ static size_t number(char *text, unsigned long value)
     return size;
 }
 
-static void profile_report(unsigned long times[8], unsigned long costs[5], unsigned long bytes, int replacing)
+static void profile_report(unsigned long times[8], unsigned long costs[5], unsigned long bytes,
+    unsigned long read_bytes, int replacing)
 {
-    char out[384]; const char prefix[] = "EXEC_PROFILE {\"replacing\":";
+    char out[512]; const char prefix[] = "EXEC_PROFILE {\"replacing\":";
     dl_copy(out, prefix, sizeof(prefix) - 1); size_t n = sizeof(prefix) - 1;
     n += number(out + n, replacing);
     const char size_key[] = ",\"bytes\":";
     dl_copy(out + n, size_key, sizeof(size_key) - 1); n += sizeof(size_key) - 1;
     n += number(out + n, bytes);
+    const char read_key[] = ",\"metadata_read_bytes\":";
+    dl_copy(out + n, read_key, sizeof(read_key) - 1); n += sizeof(read_key) - 1;
+    n += number(out + n, read_bytes);
     const char times_key[] = ",\"ns\":[";
     dl_copy(out + n, times_key, sizeof(times_key) - 1); n += sizeof(times_key) - 1;
     for (unsigned i = 1; i < 8; i++) {
@@ -401,7 +433,7 @@ static void profile_report(unsigned long times[8], unsigned long costs[5], unsig
 
 long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_entry *entry, int replacing)
 {
-    unsigned long times[8] = {0}, costs[5] = {0}, bytes = 0;
+    unsigned long times[8] = {0}, costs[5] = {0}, bytes = 0, read_bytes = 0;
     times[0] = profile_clock();
     long memory = DL_CALL(SYS_mmap, 0, sizeof(struct preparation), PROT_READ | PROT_WRITE,
         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -430,8 +462,9 @@ long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_en
         r = read_image(p->main.interpreter, &p->interpreter, 1); if (r) goto done;
     }
     times[2] = profile_clock();
-    bytes = p->main.bytes_size + p->interpreter.bytes_size;
-    // Commit point: validated input snapshots and strings no longer refer to
+    bytes = p->main.file_size + p->interpreter.file_size;
+    read_bytes = p->main.read_bytes + p->interpreter.read_bytes;
+    // Commit point: validated metadata snapshots and strings no longer refer to
     // the old image. Failures before here return errno without changing it.
     // Failures after here cannot return into unmapped guest code.
     if (replacing) {
@@ -440,7 +473,7 @@ long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_en
     times[3] = profile_clock();
     if (replacing) dl_unmap_all();
     times[4] = profile_clock();
-    if (map_image(&p->main, costs) || (p->interpreter.bytes && map_image(&p->interpreter, costs))) goto fatal;
+    if (map_image(&p->main, costs) || (p->interpreter.source_fd >= 0 && map_image(&p->interpreter, costs))) goto fatal;
     times[5] = profile_clock();
     long heap = dl_mmap(0, DL_HEAP, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (heap < 0 || dl_track((uintptr_t)stack, STACK_SIZE + 2 * dl_state.page)) goto fatal;
@@ -461,7 +494,7 @@ done:
     dispose_image(&p->main); dispose_image(&p->interpreter);
     DL_CALL(SYS_munmap, p, sizeof(*p), 0, 0, 0, 0);
     times[7] = profile_clock();
-    if (!r && dl_state.exec_profile) profile_report(times, costs, bytes, replacing);
+    if (!r && dl_state.exec_profile) profile_report(times, costs, bytes, read_bytes, replacing);
     return r;
 fatal:
     {

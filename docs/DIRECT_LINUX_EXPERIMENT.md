@@ -275,6 +275,29 @@ instrumentation이 8.118초에 통과했다. [원시 결과](../tools/direct-lin
 기존 일반 INTERNET 권한으로 실행했지만 SELinux Disabled redroid이므로 일반
 enforcing 기기 검증을 대신하지 않는다. 전체 호환성 동등성은 아직 달성하지 못했다.
 
+## 명령 실행 성능 개선: 2026-09-24
+
+[추가 프로파일과 개선](../tools/direct-linux/COMMAND_PERFORMANCE.md)에서 매 exec마다
+실행 파일·인터프리터 전체를 임시 메모리에 읽고 매핑 후 다시 비교하는 중복을
+확인했다. 필요한 ELF 헤더·프로그램 헤더·인터프리터 문자열만 보존·재검증하고
+코드·데이터는 일반 파일 매핑으로 필요할 때 읽는다. 파일·매핑 범위, 권한,
+실행 진입점, 중첩 세그먼트와 RWX 거부 검사는 유지했다. 전체 바이트 스냅샷을
+비교하는 의미는 제거했으며, ETXTBSY·파일 불변성과 보안 격리를 보장하지 않는다.
+
+같은 714개 fixture와 기존 가속 Rootless를 사용한 7쌍 측정에서 외부 명령 30회는
+Direct **52.351→46.753ms**, 이전 APK로 되돌린 뒤 반복한 측정에서는
+**52.326→47.195ms**였다. 각각 10.7%, 9.8% 감소했고 개선 버전과 짝지은 Rootless는
+48.819ms, 48.243ms였다. 작은 차이를 전체 Linux 성능 우위로 확대하지 않는다.
+Python/Git 전체 작업에는 일관된 추가 개선이 없었다.
+[원시 표본](../tools/direct-linux/results/command-performance-2026-09-24.json)에
+효과가 뚜렷하지 않아 제거한 MAP_POPULATE 실험도 포함했다.
+
+ELF 메타데이터 변조·페이지 경계를 넘는 헤더·원본 inode 고정의 호스트 회귀와
+Android 네트워크·PTY 포함 검사가 통과했다. 후자는 56개 일반 실행과 두 PTY
+시나리오이며 [결과](../tools/direct-linux/results/command-runtime-2026-09-24.json)에
+기존 Unix 호환성 차이도 기록한다. 표준 Gradle 검증은 성공했고 변경 없는 단위
+테스트 결과는 UP-TO-DATE로 재사용했다. stock enforcing 기기 검증은 여전히 없다.
+
 ## 남은 구현과 완료 증거
 
 이후 [Unix pathname 단계](../tools/direct-linux/UNIX_SOCKETS.md)에서 지속되는 root FD

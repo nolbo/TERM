@@ -3,6 +3,9 @@
 2026-09-24. This changes the separate experimental runtime, not the existing
 Rootless engine or product backend.
 
+The later [bounded metadata loader](COMMAND_PERFORMANCE.md) addresses the remaining
+repeated-command gap. Measurements below describe this earlier FD-cleanup step.
+
 ## Diagnosis
 
 The [application milestone](APPLICATIONS.md) completed Python/Git work, but its

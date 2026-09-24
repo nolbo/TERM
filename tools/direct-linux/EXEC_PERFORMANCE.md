@@ -5,6 +5,10 @@ was 1.70x slower than current accelerated Rootless for a shell plus thirty exter
 commands. This step measures and reduces that cost. It does not replace Rootless,
 add a user-selectable environment, or establish completion of the overall goal.
 
+Historical milestone: [bounded metadata loading](COMMAND_PERFORMANCE.md) later
+removes the full-image byte snapshot/comparison described here. It preserves
+structural validation and updates the measured repeated-command result.
+
 ## Evidence and decision
 
 [Diagnostic profiles](results/exec-profile-2026-09-24.json) time seven exec phases

@@ -4,8 +4,10 @@ This develops a **separate**, unprivileged Linux runtime. The original syscall
 transport probe is documented below; the subsequent [ELF runtime](ELF.md) now runs
 real static/dynamic ARM64 glibc programs. The [process milestone](PROCESS.md)
 adds shell external commands, scripts, fork/exec and measured process workloads.
-[Exec cost reduction](EXEC_PERFORMANCE.md) records current mapping behavior,
-regressions and the remaining performance gap. Neither is a complete
+[Exec cost reduction](EXEC_PERFORMANCE.md) records the first mapping improvement;
+[bounded metadata loading](COMMAND_PERFORMANCE.md) reduces repeated-command
+startup by another 9.8–10.7%, slightly ahead of Rootless in the measured workload.
+Neither is a complete
 distribution backend or user-selectable runtime. The
 [design and remaining work](../../docs/DIRECT_LINUX_EXPERIMENT.md) retain the full
 goal. Existing Rootless remains unchanged.
