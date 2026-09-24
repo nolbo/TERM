@@ -10,13 +10,13 @@ bash "$repository_root/tools/iphone/android-clang.sh" \
     -O2 -Wall -Wextra -Werror -fPIE -pie -Wl,-z,now,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/probe.c" "$source_directory/syscall.S" -o "$output_directory/libdirect-linux-probe.so"
 sha256sum "$output_directory/libdirect-linux-probe.so"
-for source in guest exec memory files; do
+for source in guest exec memory files devices; do
     bash "$repository_root/tools/iphone/android-clang.sh" \
         -O2 -Wall -Wextra -Werror -fPIE -fno-builtin -fno-stack-protector \
         -mgeneral-regs-only -c "$source_directory/$source.c" -o "$output_directory/$source.o"
 done
 bash "$repository_root/tools/iphone/android-clang.sh" -c "$source_directory/copy.S" -o "$output_directory/copy.o"
-ld -r "$output_directory/copy.o" "$output_directory/guest.o" "$output_directory/exec.o" "$output_directory/memory.o" "$output_directory/files.o" -o "$output_directory/runtime.o"
+ld -r "$output_directory/copy.o" "$output_directory/guest.o" "$output_directory/exec.o" "$output_directory/memory.o" "$output_directory/files.o" "$output_directory/devices.o" -o "$output_directory/runtime.o"
 # Audit the complete guest-reachable call graph, including image replacement.
 unexpected=$(nm -u "$output_directory/runtime.o" | \
     awk '$2 != "dl_host_syscall" && $2 != "dl_host_return" && $2 != "dl_sigreturn" { print $2 }')

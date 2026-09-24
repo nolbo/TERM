@@ -118,6 +118,10 @@ The [filesystem milestone](../tools/direct-linux/FILESYSTEM.md) retains real And
 UID/permission errors and uses pinned directory handles for name changes. Its
 guest-root path translation is not a security namespace against same-UID code or
 host processes concurrently moving directories outside that root.
+The [application milestone](../tools/direct-linux/APPLICATIONS.md) adds real xattr
+operations and a fixed null/zero/random/urandom device table. It checks device
+types, preserves Android permissions and denies guest namespace changes to those
+entries. It does not bind the host device directory or expose Binder/input devices.
 They are not bundled in the product APK and do not loosen inherited
 Android policy. Their results do not establish support on stock enforcing devices. See the
 [Direct Linux experiment](DIRECT_LINUX_EXPERIMENT.md) for the remaining gates.

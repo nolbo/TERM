@@ -4,10 +4,12 @@ The separate [Direct Linux experiment](DIRECT_LINUX_EXPERIMENT.md) explores
 in-process Linux syscall translation without a PRoot tracer. Its current APK
 probe and experimental ELF loader are not a usable distribution backend or a
 selectable runtime. The loader can run static/dynamic glibc programs, scripts and shell external
-commands through fork/exec and GNU file-tree create/copy/move/remove operations.
+commands through fork/exec, GNU file operations and local Python/Git workflows.
 Threads, full Linux semantics and package/session integration remain incomplete.
-[Current measurements](../tools/direct-linux/FILESYSTEM.md) show faster file calls
+[Current measurements](../tools/direct-linux/APPLICATIONS.md) show faster file calls
 and a 128-file tree workload, but slower repeated command execution than accelerated Rootless.
+The full Python/Git comparison remains incomplete because the Rootless reference
+fails during repository cleanup; Direct's Git costs also need optimization.
 Neither replaces existing Rootless installations.
 
 ## Runtime matrix

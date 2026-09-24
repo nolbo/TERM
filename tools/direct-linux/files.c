@@ -130,11 +130,14 @@ static long walk(int dirfd, const char *path, int flags, unsigned mode, char *le
             component[0] = '.'; component[1] = 0;
         }
         if (dl_equal(component, ".") && !last) continue;
-        long pin = DL_CALL(SYS_openat, current, component, O_PATH | O_NOFOLLOW | O_CLOEXEC, 0, 0, 0);
+        int device = dl_device_index((int)current, component);
+        long pin = device >= 0 ? dl_device_open(device, (int)current, O_PATH | O_CLOEXEC, 0)
+            : DL_CALL(SYS_openat, current, component, O_PATH | O_NOFOLLOW | O_CLOEXEC, 0, 0, 0);
         if (pin < 0) {
-            if (pin == -ENOENT && last && !trailing && (flags & O_CREAT))
-                result = DL_CALL(SYS_openat, current, component, flags | O_NOFOLLOW, mode, 0, 0);
-            else result = pin;
+            if (pin == -ENOENT && last && !trailing && (flags & O_CREAT)) {
+                result = dl_device_change((int)current, component, 0);
+                if (!result) result = DL_CALL(SYS_openat, current, component, flags | O_NOFOLLOW, mode, 0, 0);
+            } else result = pin;
             break;
         }
         struct stat st;
@@ -166,8 +169,9 @@ static long walk(int dirfd, const char *path, int flags, unsigned mode, char *le
             result = pin;
         } else {
             release((int)pin);
-            result = DL_CALL(SYS_openat, current, component,
-                flags | O_NOFOLLOW | (trailing ? O_DIRECTORY : 0), mode, 0, 0);
+            int final_flags = flags | O_NOFOLLOW | (trailing ? O_DIRECTORY : 0);
+            result = device >= 0 ? dl_device_open(device, (int)current, final_flags, mode)
+                : DL_CALL(SYS_openat, current, component, final_flags, mode, 0, 0);
         }
         break;
     }
@@ -190,6 +194,8 @@ static long name_change(long nr, unsigned long *a)
     long r = dl_string(path, source); if (r) return r;
     long parent = walk(dirfd, path, 0, 0, first);
     if (parent < 0) return parent;
+    r = dl_device_change((int)parent, first, nr != SYS_mkdirat && nr != SYS_symlinkat);
+    if (r) { release((int)parent); return r; }
     if (nr == SYS_mkdirat || nr == SYS_unlinkat) r = DL_CALL(nr, parent, first, a[2], 0, 0, 0);
     else if (nr == SYS_symlinkat) {
         r = dl_string(path, (void *)a[0]);
@@ -200,7 +206,8 @@ static long name_change(long nr, unsigned long *a)
             long destination = walk((int)a[2], path, 0, 0, second);
             if (destination < 0) r = destination;
             else {
-                r = DL_CALL(nr, parent, first, destination, second, nr == SYS_renameat2 ? a[4] : 0, 0);
+                r = dl_device_change((int)destination, second, 1);
+                if (!r) r = DL_CALL(nr, parent, first, destination, second, nr == SYS_renameat2 ? a[4] : 0, 0);
                 release((int)destination);
             }
         }
@@ -208,10 +215,53 @@ static long name_change(long nr, unsigned long *a)
     release((int)parent); return r;
 }
 
+static long attributes(long nr, unsigned long *a)
+{
+    long plain = nr;
+    switch (nr) {
+    case SYS_lgetxattr: plain = SYS_getxattr; break;
+    case SYS_lsetxattr: plain = SYS_setxattr; break;
+    case SYS_llistxattr: plain = SYS_listxattr; break;
+    case SYS_lremovexattr: plain = SYS_removexattr; break;
+    }
+    char path[DL_PATH];
+    long r = dl_string(path, (void *)a[0]); if (r) return r;
+    long pin = dl_open(AT_FDCWD, path, O_PATH | O_CLOEXEC | (plain != nr ? O_NOFOLLOW : 0), 0);
+    if (pin < 0) return pin;
+    struct stat st;
+    r = DL_CALL(SYS_fstat, pin, &st, 0, 0, 0, 0);
+    if (!r && S_ISLNK(st.st_mode)) {
+        // Older Android kernels cannot operate on an O_PATH symlink through
+        // f*xattr. Pin its parent and use a no-follow leaf operation instead.
+        // Like the original pathname API, concurrent leaf replacement may select
+        // either inode; it must never follow the leaf to a host absolute target.
+        char leaf[DL_PATH];
+        long parent = walk(AT_FDCWD, path, 0, 0, leaf);
+        if (parent < 0) r = parent;
+        else {
+            fd_name(path, (int)parent);
+            size_t prefix = dl_length(path), length = dl_length(leaf);
+            if (prefix + 1 + length + 1 > DL_PATH) r = -ENAMETOOLONG;
+            else {
+                path[prefix++] = '/'; dl_copy(path + prefix, leaf, length + 1);
+                r = DL_CALL(nr, path, a[1], a[2], a[3], a[4], 0);
+            }
+            release((int)parent);
+        }
+    } else if (!r) {
+        fd_name(path, (int)pin);
+        r = DL_CALL(plain, path, a[1], a[2], a[3], a[4], 0);
+    }
+    release((int)pin); return r;
+}
+
 long dl_filesystem(long nr, unsigned long *a)
 {
     char path[DL_PATH]; long r, fd;
     switch (nr) {
+    case SYS_getxattr: case SYS_lgetxattr: case SYS_setxattr: case SYS_lsetxattr:
+    case SYS_listxattr: case SYS_llistxattr: case SYS_removexattr: case SYS_lremovexattr:
+        return attributes(nr, a);
     case SYS_mkdirat: case SYS_unlinkat: case SYS_renameat: case SYS_renameat2: case SYS_symlinkat:
         return name_change(nr, a);
     case SYS_openat:

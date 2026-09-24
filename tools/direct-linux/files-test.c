@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* Unmodified Linux ABI regression fixture, compiled against glibc. */
 #define _GNU_SOURCE
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/fs.h>
@@ -10,6 +11,7 @@
 #include <sys/statfs.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
+#include <sys/xattr.h>
 #include <unistd.h>
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "FILES FAIL %d errno=%d\n", __LINE__, errno); return 1; } } while (0)
@@ -131,6 +133,50 @@ int main(void)
     CHECK(syscall(SYS_mkdirat, AT_FDCWD, (void *)1, 0700) == -1 && errno == EFAULT);
     CHECK(syscall(SYS_renameat2, AT_FDCWD, "first", AT_FDCWD, (void *)1, 0) == -1 && errno == EFAULT);
     CHECK(contains(AT_FDCWD, "first", "se"));
+    const char attr[] = "user.direct-linux-test";
+    CHECK(setxattr("first", attr, "a\0b", 3, XATTR_CREATE) == 0);
+    CHECK(setxattr("first", attr, "x", 1, XATTR_CREATE) == -1 && errno == EEXIST);
+    CHECK(getxattr("first", attr, NULL, 0) == 3);
+    CHECK(getxattr("first", attr, bytes, 1) == -1 && errno == ERANGE);
+    CHECK(getxattr("first", attr, bytes, sizeof(bytes)) == 3 && !memcmp(bytes, "a\0b", 3));
+    CHECK(lgetxattr("time-link", attr, bytes, sizeof(bytes)) == -1 && errno == ENODATA);
+    CHECK(lsetxattr("time-link", attr, "link", 4, 0) == -1 && (errno == EPERM || errno == EOPNOTSUPP));
+    CHECK(getxattr("first", attr, bytes, sizeof(bytes)) == 3 && !memcmp(bytes, "a\0b", 3));
+    file = open("first", O_RDONLY); CHECK(file >= 0);
+    CHECK(flistxattr(file, NULL, 0) >= (ssize_t)sizeof(attr));
+    CHECK(fsetxattr(file, attr, "fd", 2, XATTR_REPLACE) == 0);
+    CHECK(unlink("first") == 0 && fgetxattr(file, attr, bytes, sizeof(bytes)) == 2 && !memcmp(bytes, "fd", 2));
+    CHECK(fremovexattr(file, attr) == 0 && fgetxattr(file, attr, bytes, sizeof(bytes)) == -1 && errno == ENODATA);
+    CHECK(close(file) == 0);
+    file = open("/dev/null", O_RDWR | O_CLOEXEC); CHECK(file >= 0);
+    CHECK(fstat(file, &st) == 0 && S_ISCHR(st.st_mode) && st.st_rdev == 0x103);
+    CHECK(write(file, "discard", 7) == 7 && read(file, bytes, sizeof(bytes)) == 0 && close(file) == 0);
+    file = open("/dev/zero", O_RDONLY); CHECK(file >= 0);
+    memset(bytes, 0x5a, sizeof(bytes));
+    CHECK(read(file, bytes, sizeof(bytes)) == sizeof(bytes) && close(file) == 0);
+    for (unsigned i = 0; i < sizeof(bytes); i++) CHECK(bytes[i] == 0);
+    file = open("/dev/urandom", O_RDONLY); CHECK(file >= 0);
+    CHECK(read(file, bytes, sizeof(bytes)) == sizeof(bytes) && close(file) == 0);
+    CHECK(open("/dev/binder", O_RDWR) == -1 && errno == ENOENT);
+    CHECK(open("/dev/null", O_CREAT | O_EXCL | O_RDWR, 0600) == -1 && errno == EEXIST);
+    CHECK(unlink("/dev/null") == -1 && errno == EROFS);
+    CHECK(rename("/dev", "moved-dev") == -1 && errno == EBUSY);
+    CHECK(mkdir("/dev/new", 0700) == -1 && errno == EROFS);
+    CHECK(open("/dev/new", O_CREAT | O_RDWR, 0600) == -1 && errno == EROFS);
+    CHECK(symlink("/dev/null", "null-alias") == 0);
+    file = open("null-alias", O_RDWR); CHECK(file >= 0 && read(file, bytes, sizeof(bytes)) == 0 && close(file) == 0);
+    DIR *device_directory = opendir("/dev"); CHECK(device_directory);
+    unsigned found = 0; struct dirent *entry;
+    while ((entry = readdir(device_directory))) {
+        if (!strcmp(entry->d_name, ".") || !strcmp(entry->d_name, "..")) continue;
+        CHECK(entry->d_type == DT_CHR && fstatat(dirfd(device_directory), entry->d_name, &st, 0) == 0);
+        CHECK(entry->d_ino == st.st_ino && S_ISCHR(st.st_mode)); found++;
+    }
+    CHECK(found == 4 && closedir(device_directory) == 0);
+    CHECK(chmod("/dev", 0000) == 0);
+    file = open("/dev/null", O_RDONLY); int search_error = errno;
+    CHECK(chmod("/dev", 0755) == 0);
+    CHECK(file == -1 && search_error == EACCES);
     CHECK(fchdir(root) == 0 && close(root) == 0);
     for (int fd = 3; fd < 256; fd++) CHECK(fcntl(fd, F_GETFD) == -1 && errno == EBADF);
     umask(previous);

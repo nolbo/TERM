@@ -106,6 +106,8 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_mkdirat: case SYS_unlinkat: case SYS_renameat: case SYS_renameat2:
     case SYS_symlinkat: case SYS_fchmodat: case SYS_fchownat: case SYS_utimensat:
     case SYS_statfs: case SYS_truncate:
+    case SYS_getxattr: case SYS_lgetxattr: case SYS_setxattr: case SYS_lsetxattr:
+    case SYS_listxattr: case SYS_llistxattr: case SYS_removexattr: case SYS_lremovexattr:
         return dl_filesystem(nr, a);
     case SYS_close:
         if ((int)a[0] == dl_state.root_fd || (int)a[0] == dl_state.vfork_fd) return -EBADF;
@@ -179,11 +181,13 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
         }
     case SYS_execveat: case SYS_sigaltstack:
         return -EOPNOTSUPP;
+    case SYS_getdents64: return dl_getdents((int)a[0], (void *)a[1], (unsigned)a[2]);
     case SYS_read: case SYS_write: case SYS_readv: case SYS_writev:
     case SYS_pread64: case SYS_pwrite64: case SYS_lseek: case SYS_fstat:
     case SYS_ioctl: case SYS_pipe2:
     case SYS_fchmod: case SYS_fchown: case SYS_ftruncate: case SYS_fstatfs:
     case SYS_umask: case SYS_sendfile: case SYS_copy_file_range:
+    case SYS_fgetxattr: case SYS_fsetxattr: case SYS_flistxattr: case SYS_fremovexattr:
     case SYS_wait4: case SYS_waitid: case SYS_ppoll: case SYS_pselect6:
     case SYS_nanosleep: case SYS_clock_nanosleep:
     case SYS_getpgid: case SYS_setpgid: case SYS_getsid: case SYS_setsid:
@@ -195,7 +199,7 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_getrandom: case SYS_clock_gettime: case SYS_clock_getres:
     case SYS_prlimit64: case SYS_uname: case SYS_getrusage:
     case SYS_rt_sigreturn: case SYS_exit: case SYS_exit_group:
-    case SYS_getdents64: case SYS_fsync: case SYS_fdatasync:
+    case SYS_fsync: case SYS_fdatasync:
         return DL_CALL(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
     default: return -ENOSYS;
     }
@@ -257,7 +261,7 @@ int dl_install(void *signal_stack, size_t size)
 #define DIRECT(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (n), 0, 1), BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
         DIRECT(SYS_rt_sigreturn), DIRECT(SYS_read), DIRECT(SYS_write),
         DIRECT(SYS_readv), DIRECT(SYS_writev), DIRECT(SYS_pread64), DIRECT(SYS_pwrite64),
-        DIRECT(SYS_lseek), DIRECT(SYS_fstat), DIRECT(SYS_getdents64),
+        DIRECT(SYS_lseek), DIRECT(SYS_fstat),
         DIRECT(SYS_fsync), DIRECT(SYS_fdatasync), DIRECT(SYS_futex),
         DIRECT(SYS_sendfile), DIRECT(SYS_copy_file_range),
         DIRECT(SYS_clock_gettime), DIRECT(SYS_clock_getres),

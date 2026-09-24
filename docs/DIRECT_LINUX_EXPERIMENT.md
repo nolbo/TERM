@@ -175,6 +175,22 @@ Android의 실제 권한 오류를 유지한다. fake identity/hardlink는 아�
 실행·56개 시간 표본을 담는다. stock enforcing 검증과 전체 Linux 환경 완성은
 별도 완료 조건이다.
 
+## Python·Git 실행 확장: 2026-09-24
+
+[실제 애플리케이션 단계](../tools/direct-linux/APPLICATIONS.md)는 xattr와 고정된
+4개 기본 문자 장치를 추가했다. 수정하지 않은 Python 3.12의 압축·SQLite·아카이브·
+메타데이터 복사와 Git의 128개 파일 커밋·상태·브랜치 전환·객체 검사 및 Python의
+전체 임시 저장소 삭제가 Direct Linux에서 통과했다. 임의 Android 장치나 전체
+`/dev`를 노출하지 않으며 설치기·PTY·사용자용 세션은 아직 없다.
+
+기준 Rootless는 같은 작업의 마지막 삭제에서 ENOTEMPTY가 두 번 재현됐고
+`.l2s.*` 메타데이터가 남았다. [실패 기록](../tools/direct-linux/results/applications-reference-failure-2026-09-24.json)을
+보존했으며 완전한 애플리케이션 배속은 주장하지 않는다. 기준의 실패 전 Git
+구간 약 0.99–1.00초에 비해 Direct의 7회 중앙값은 1.38초여서 최적화가 필요하다.
+기존 파일 트리 작업은 같은 최종 실행에서 약 1.84배 빨랐고 외부 명령 반복은
+약 12% 느렸다. [최종 보고서](../tools/direct-linux/results/applications-2026-09-24.json)는
+애플리케이션 기준 비교를 명시적으로 제외했다고 표시한다.
+
 ## 남은 구현과 완료 증거
 
 1. **정책:** fixture/redroid 검증은 완료. stock enforcing 기기에서 같은 APK의
@@ -184,13 +200,15 @@ Android의 실제 권한 오류를 유지한다. fake identity/hardlink는 아�
    stock 기기 매핑 정책 검증이 남았다.
 3. **파일 의미:** 기본 경로·symlink·dirfd·cwd·동시 rename 및 생성/삭제/메타데이터,
    실제 UID/권한/errno, 열린 FD의 unlink 의미를 검증했다. fake identity와
-   에뮬레이션 hardlink, ACL/xattr, proc/device, 전체 동시성 의미가 남았다.
+   에뮬레이션 hardlink, 전체 ACL 의미, proc/devpts와 전체 동시성 의미가 남았다.
+   기본 xattr 및 null/zero/random/urandom의 고정 장치 보기는 검증했다.
    symlink 시간 변경은 Linux 5.8+이며 오래된 커널의 오류를 숨기지 않는다.
 4. **프로세스·신호:** guest sigaction/mask/altstack 가상화, TLS 독립 handler,
    thread/shared-VM spawn/execveat, 전체 vfork 의미, EINTR/cancellation과 robust
    mutex·확장 CPU 상태, guest seccomp가 남았다. 기본 fork/wait와 exec의
    signal/CLOEXEC 검증은 완료했다. guest exec는 APK 런타임과 필터를 유지한다.
-5. **Linux 환경:** 독립 설치·복구/package DB에서 shell, Python, Git, apt/dpkg
+5. **Linux 환경:** 별도 fixture에서 shell/Python/로컬 Git을 실행했다.
+   독립 설치·복구/package DB에서 shell, Python, Git, apt/dpkg
    설치·업그레이드·삭제, 네트워크/PTY 검증. 기존 rootfs를 공유하거나 패키지
    관리를 도구 몇 개로 축소해 완료를 주장하지 않는다.
 6. **제품 통합:** 공통 backend/session, 명시적 선택·지원 상태·오류, 독립 storage

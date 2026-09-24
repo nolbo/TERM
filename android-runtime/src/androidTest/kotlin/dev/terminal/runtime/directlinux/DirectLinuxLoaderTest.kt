@@ -79,7 +79,13 @@ class DirectLinuxLoaderTest {
                 val output = log.readText()
                 val observedPolicy = output.lineSequence().filter { it.startsWith("POLICY ") }.map { it.removePrefix("POLICY ") }.toList()
                 if (observedPolicy.isNotEmpty()) policy = observedPolicy
-                assertEquals("$path: $output", expectedCode, process.exitValue())
+                val residuals = if (process.exitValue() != expectedCode && useProot) {
+                    Files.walk(root.toPath()).use { paths ->
+                        paths.filter { it.fileName.toString().startsWith(".l2s.") || it.fileName.toString().startsWith(".proot.") }
+                            .limit(12).map { root.toPath().relativize(it).toString() }.toArray().joinToString("\n")
+                    }
+                } else ""
+                assertEquals("${if (useProot) "proot" else "direct-linux"} $path: $output\n$residuals", expectedCode, process.exitValue())
                 results.put(JSONObject().put("program", path).put("exit", process.exitValue()).put("engine", if (useProot) "proot" else "direct-linux")
                     .put("arguments", JSONArray(args.toList())).put("observation_ms", (System.nanoTime() - started) / 1e6))
                 return output
@@ -97,13 +103,19 @@ class DirectLinuxLoaderTest {
                 val data = context.assets.open("direct-linux-fixtures/$relative").use { it.readBytes() }
                 assertEquals(entry.getLong("size"), data.size.toLong())
                 assertEquals(entry.getString("sha256"), digest(data))
-                File(root, relative).apply { parentFile!!.mkdirs(); writeBytes(data); assertTrue(setExecutable(true)) }
+                File(root, relative).apply {
+                    parentFile!!.mkdirs(); writeBytes(data)
+                    assertTrue(setExecutable(entry.optBoolean("executable", true)))
+                }
             }
             File(root, "tmp").mkdir()
             File(root, "input").writeText("fixture\n")
             mapOf("absolute-link" to "/input", "relative-link" to "input", "cycle-a" to "cycle-b",
                 "cycle-b" to "cycle-a", "outside-link" to "/system/build.prop", "bin/sh" to "dash").forEach { (name, target) ->
                 Files.createSymbolicLink(File(root, name).toPath(), File(target).toPath())
+            }
+            if (manifest.optBoolean("applications")) {
+                assertTrue(run("/usr/bin/python3", "/applications.py").contains("PASS Linux applications"))
             }
             run("/bin/true")
             val replaceable = File(root, "replaceable")
@@ -218,6 +230,17 @@ class DirectLinuxLoaderTest {
                         benchmarks.put(JSONObject(lines.single().removePrefix("BENCH "))
                             .put("engine", if (useProot) "proot" else "direct-linux").put("round", round))
                     }
+                    if (manifest.optBoolean("applications")) modes.forEach { useProot ->
+                        if (useProot && arguments.getString("directLinuxSkipApplicationReference") == "true") return@forEach
+                        val output = run("/bin/process-dynamic", "apps-benchmark", useProot = useProot)
+                        assertTrue(output, output.contains("PASS Linux applications\n"))
+                        val lines = output.lineSequence().filter { it.startsWith("BENCH ") }.toList()
+                        assertEquals(output, 3, lines.size)
+                        lines.forEach { line ->
+                            benchmarks.put(JSONObject(line.removePrefix("BENCH "))
+                                .put("engine", if (useProot) "proot" else "direct-linux").put("round", round))
+                        }
+                    }
                 }
             }
             if (arguments.getString("directLinuxProfile") == "true") {
@@ -233,6 +256,7 @@ class DirectLinuxLoaderTest {
                 assertEquals(entry.getString("sha256"), digest(File(root, entry.getString("path")).readBytes()))
             }
             val report = JSONObject().put("schema", 1).put("loader_sha256", expected)
+                .put("application_reference_skipped", arguments.getString("directLinuxSkipApplicationReference") == "true")
                 .put("fixtures", manifest).put("android_api", android.os.Build.VERSION.SDK_INT)
                 .put("initial_process_policy", JSONArray(policy))
                 .put("results", results).put("stock_policy_verified", false)

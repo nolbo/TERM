@@ -19,7 +19,7 @@ results supersede the initial process limitations recorded below.
 - `enter.S`: transfers control with a 16-byte aligned guest stack and cleared TLS
   pointer. The Linux interpreter or static libc initializes its own TLS.
 - `guest.c`: signal dispatch with raw syscalls, no Bionic/glibc/TLS/heap dependency.
-  `build.sh` audits the combined guest/exec/memory/files objects and rejects every unresolved symbol except the three assembly
+  `build.sh` audits the combined guest/exec/memory/files/devices objects and rejects every unresolved symbol except the three assembly
   entry points. Read/write and other untranslated I/O go directly through the
   kernel. Other supported calls use the internal dispatcher; unsupported calls
   return explicit errors. There is no PRoot/Native fallback.

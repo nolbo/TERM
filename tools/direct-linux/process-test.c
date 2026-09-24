@@ -24,13 +24,15 @@ static void caught(int sig) {
 int main(int argc, char **argv)
 {
     int files_benchmark = argc == 3 && !strcmp(argv[1], "files-benchmark");
-    if ((argc == 2 && !strcmp(argv[1], "shell-benchmark")) || files_benchmark) {
+    int apps_benchmark = argc == 2 && !strcmp(argv[1], "apps-benchmark");
+    if ((argc == 2 && !strcmp(argv[1], "shell-benchmark")) || files_benchmark || apps_benchmark) {
         struct timespec before, after;
         CHECK(clock_gettime(CLOCK_MONOTONIC, &before) == 0);
         pid_t child = fork(); CHECK(child >= 0);
         if (!child) {
             char *args[] = {"/bin/sh", "-c", "i=0; while [ \"$i\" -lt 30 ]; do /bin/true || exit; i=$((i+1)); done; printf 'PASS shell-exec\\n'", NULL};
             if (files_benchmark) { args[1] = argv[2]; args[2] = NULL; }
+            if (apps_benchmark) { args[0] = "/usr/bin/python3"; args[1] = "/applications.py"; args[2] = "benchmark"; }
             execve(args[0], args, environ); _exit(99);
         }
         int status;
@@ -38,7 +40,8 @@ int main(int argc, char **argv)
         CHECK(clock_gettime(CLOCK_MONOTONIC, &after) == 0);
         double ms = (after.tv_sec - before.tv_sec) * 1000.0 + (after.tv_nsec - before.tv_nsec) / 1000000.0;
         printf("BENCH {\"case\":\"%s\",\"count\":%d,\"elapsed_ms\":%.6f}\n",
-            files_benchmark ? "file-tree-128" : "shell-exec-30", files_benchmark ? 128 : 30, ms);
+            apps_benchmark ? "python-git-workflow-128" : files_benchmark ? "file-tree-128" : "shell-exec-30",
+            files_benchmark || apps_benchmark ? 128 : 30, ms);
         return 0;
     }
     if (argc >= 2 && !strcmp(argv[1], "after")) {

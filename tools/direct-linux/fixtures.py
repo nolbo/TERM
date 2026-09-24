@@ -4,12 +4,44 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
 import struct
 import subprocess
 
 
-def prepare(output):
+def application_files():
+    """Existing distro programs/stdlib and their ELF dependencies, not downloads."""
+    mapping = {"usr/bin/python3": Path("/usr/bin/python3"), "usr/bin/git": Path("/usr/bin/git")}
+    for root in (Path("/usr/lib/python3.12"), Path("/usr/share/git-core/templates")):
+        for source in root.rglob("*"):
+            if source.is_file() and "__pycache__" not in source.parts and not source.name.endswith(".pyc"):
+                mapping[str(source.relative_to("/"))] = source
+    pending = list(mapping.values())
+    seen = set()
+    while pending:
+        source = pending.pop()
+        if source.resolve() in seen:
+            continue
+        seen.add(source.resolve())
+        with source.open("rb") as stream:
+            if stream.read(4) != b"\x7fELF":
+                continue
+        dynamic = subprocess.check_output(["readelf", "-d", str(source)], text=True)
+        for name in re.findall(r"\(NEEDED\).*\[([^]]+)\]", dynamic):
+            if "/" in name:
+                raise ValueError(f"Unexpected dependency path: {name}")
+            dependency = Path("/usr/lib/aarch64-linux-gnu") / name
+            if not dependency.is_file():
+                raise ValueError(f"Missing existing dependency: {name}")
+            destination = f"lib/aarch64-linux-gnu/{name}"
+            mapping[destination] = dependency
+            pending.append(dependency)
+    mapping["applications.py"] = Path(__file__).with_name("application-test.py")
+    return mapping
+
+
+def prepare(output, applications=False):
     output.mkdir(parents=True, exist_ok=True)
     mapping = {
         "bin/dash": Path("/usr/bin/dash"),
@@ -23,17 +55,20 @@ def prepare(output):
         mapping[f"bin/{name}"] = Path(f"/usr/bin/{name}")
     for name in ("libselinux.so.1", "libacl.so.1", "libattr.so.1", "libpcre2-8.so.0"):
         mapping[f"lib/aarch64-linux-gnu/{name}"] = Path(f"/usr/lib/aarch64-linux-gnu/{name}")
+    if applications:
+        mapping.update(application_files())
     for destination, source in mapping.items():
         target = output / destination
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(source, target)
-        target.chmod(0o755)
+        target.chmod(0o755 if source.stat().st_mode & 0o111 else 0o644)
     source = Path(__file__).with_name("guest-test.c")
     for variant in ("static", "dynamic"):
         target = output / "bin" / f"guest-{variant}"
         subprocess.run(["clang", "-O2", "-Wall", "-Wextra", "-Werror",
                         "-Wl,-z,noexecstack,-z,max-page-size=65536",
                         *(["-static"] if variant == "static" else []), str(source), "-o", str(target)], check=True)
+        mapping[str(target.relative_to(output))] = target
     for program in ("process", "files"):
         for variant in ("static", "dynamic"):
             target = output / "bin" / f"{program}-{variant}"
@@ -41,13 +76,16 @@ def prepare(output):
                             "-Wl,-z,noexecstack,-z,max-page-size=65536",
                             *(["-static"] if variant == "static" else []),
                             str(Path(__file__).with_name(f"{program}-test.c")), "-o", str(target)], check=True)
+            mapping[str(target.relative_to(output))] = target
     files = []
-    for path in sorted(output.glob("bin/*")) + sorted(output.glob("lib/**/*")):
-        if path.is_file() and path.name != "manifest.json":
-            data = path.read_bytes()
+    for relative in sorted(mapping):
+        path = output / relative
+        data = path.read_bytes()
+        if data[:4] == b"\x7fELF":
             if data[:6] != b"\x7fELF\x02\x01" or data[18:20] != b"\xb7\x00":
                 raise ValueError(f"Not an ARM64 Linux ELF: {path.name}")
-            files.append({"path": str(path.relative_to(output)), "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
+        files.append({"path": relative, "size": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+                      "executable": bool(path.stat().st_mode & 0o111)})
     # Corrupt real ELF metadata, retaining valid payload bytes; the loader must
     # reject these rather than jump to the otherwise valid program entry.
     original = (output / "bin/true").read_bytes()
@@ -83,12 +121,16 @@ def prepare(output):
         rejected.append("/" + relative)
         files.append({"path": relative, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
     versions = subprocess.check_output(["dpkg-query", "-W", "-f=${Package} ${Version}\n", "dash", "coreutils", "libc6:arm64",
-                                       "libselinux1:arm64", "libacl1:arm64", "libattr1:arm64", "libpcre2-8-0:arm64"], text=True)
-    (output / "manifest.json").write_text(json.dumps({"schema": 1, "source": "Existing Ubuntu ARM64 host packages; local test fixture only",
+                                       "libselinux1:arm64", "libacl1:arm64", "libattr1:arm64", "libpcre2-8-0:arm64",
+                                       *(["python3.12", "libpython3.12-stdlib:arm64", "git"] if applications else [])], text=True)
+    (output / "manifest.json").write_text(json.dumps({"schema": 1, "applications": applications,
+        "source": "Existing Ubuntu ARM64 host packages; local test fixture only",
         "package_versions": versions.splitlines(), "files": files, "rejected_elfs": rejected}, indent=2) + "\n")
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("output", type=Path)
-    prepare(parser.parse_args().output)
+    parser.add_argument("--applications", action="store_true")
+    args = parser.parse_args()
+    prepare(args.output, args.applications)

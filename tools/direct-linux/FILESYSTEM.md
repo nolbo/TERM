@@ -3,6 +3,8 @@
 2026-09-24. The standalone experiment now runs ordinary GNU filesystem tools
 against its disposable app-owned Linux root. It remains an opt-in test APK, with
 no production backend, installer or change to existing Rootless installations.
+The subsequent [application milestone](APPLICATIONS.md) adds xattrs and a fixed
+four-device view, validates Python/Git and records the remaining reference failure.
 
 ## Implementation and semantics
 

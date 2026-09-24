@@ -56,6 +56,8 @@ int main(int argc, char **argv)
     if (root < 0) { fail("cannot open root directory"); return 2; }
     dl_state.root_fd = fcntl(root, F_DUPFD_CLOEXEC, 256); close(root);
     if (dl_state.root_fd < 0 || fchdir(dl_state.root_fd)) { fail("cannot enter root directory"); return 2; }
+    long devices = dl_devices_init();
+    if (devices) { fprintf(stderr, "Direct Linux: device view setup failed (%ld)\n", -devices); return 2; }
     char *environment[] = {"PATH=/usr/bin:/bin", "HOME=/", "LANG=C", "TMPDIR=/tmp", NULL};
     struct dl_entry entry;
     long result = dl_exec(argv[2], argv + 2, environment, &entry, 0);
