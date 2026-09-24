@@ -114,6 +114,10 @@ ELF/interpreter pages now use validated private file mappings; mapping denial
 is not bypassed with an anonymous-copy fallback. Source-file changes after entry
 retain ordinary file-mapping behavior, not a frozen-image guarantee. The
 [process milestone](../tools/direct-linux/PROCESS.md) documents its bounded semantics.
+The [filesystem milestone](../tools/direct-linux/FILESYSTEM.md) retains real Android
+UID/permission errors and uses pinned directory handles for name changes. Its
+guest-root path translation is not a security namespace against same-UID code or
+host processes concurrently moving directories outside that root.
 They are not bundled in the product APK and do not loosen inherited
 Android policy. Their results do not establish support on stock enforcing devices. See the
 [Direct Linux experiment](DIRECT_LINUX_EXPERIMENT.md) for the remaining gates.

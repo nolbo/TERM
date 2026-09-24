@@ -23,19 +23,22 @@ static void caught(int sig) {
 
 int main(int argc, char **argv)
 {
-    if (argc == 2 && !strcmp(argv[1], "shell-benchmark")) {
+    int files_benchmark = argc == 3 && !strcmp(argv[1], "files-benchmark");
+    if ((argc == 2 && !strcmp(argv[1], "shell-benchmark")) || files_benchmark) {
         struct timespec before, after;
         CHECK(clock_gettime(CLOCK_MONOTONIC, &before) == 0);
         pid_t child = fork(); CHECK(child >= 0);
         if (!child) {
             char *args[] = {"/bin/sh", "-c", "i=0; while [ \"$i\" -lt 30 ]; do /bin/true || exit; i=$((i+1)); done; printf 'PASS shell-exec\\n'", NULL};
+            if (files_benchmark) { args[1] = argv[2]; args[2] = NULL; }
             execve(args[0], args, environ); _exit(99);
         }
         int status;
         CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
         CHECK(clock_gettime(CLOCK_MONOTONIC, &after) == 0);
         double ms = (after.tv_sec - before.tv_sec) * 1000.0 + (after.tv_nsec - before.tv_nsec) / 1000000.0;
-        printf("BENCH {\"case\":\"shell-exec-30\",\"count\":30,\"elapsed_ms\":%.6f}\n", ms);
+        printf("BENCH {\"case\":\"%s\",\"count\":%d,\"elapsed_ms\":%.6f}\n",
+            files_benchmark ? "file-tree-128" : "shell-exec-30", files_benchmark ? 128 : 30, ms);
         return 0;
     }
     if (argc >= 2 && !strcmp(argv[1], "after")) {

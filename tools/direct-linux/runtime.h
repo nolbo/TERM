@@ -33,6 +33,7 @@ long dl_read_memory(void *destination, const void *source, size_t size);
 long dl_write_memory(void *destination, const void *source, size_t size);
 long dl_string(char *destination, const char *source);
 long dl_open(int dirfd, const char *path, int flags, unsigned mode);
+long dl_filesystem(long nr, unsigned long args[6]);
 long dl_file_path(int fd, char out[DL_PATH]);
 long dl_executable(int fd);
 long dl_virtual_cwd(char path[DL_PATH]);

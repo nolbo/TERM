@@ -1,0 +1,309 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+/* Guest filesystem compatibility; Android permissions remain authoritative. */
+#define _GNU_SOURCE
+#include "runtime.h"
+#include <errno.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/syscall.h>
+#include <time.h>
+#include <unistd.h>
+
+static void fd_name(char *out, int fd)
+{
+    const char prefix[] = "/proc/self/fd/";
+    size_t n = sizeof(prefix) - 1;
+    dl_copy(out, prefix, n);
+    char digits[16]; size_t count = 0;
+    unsigned value = (unsigned)fd;
+    do { digits[count++] = '0' + value % 10; value /= 10; } while (value);
+    while (count) out[n++] = digits[--count];
+    out[n] = 0;
+}
+
+static long virtual_path(int fd, char out[DL_PATH], int directory)
+{
+    char host[DL_PATH]; long n;
+    if (fd == AT_FDCWD) {
+        n = DL_CALL(SYS_getcwd, host, DL_PATH, 0, 0, 0, 0);
+        if (n < 0) return n;
+    } else {
+        if (fd < 0) return -EBADF;
+        struct stat st;
+        n = DL_CALL(SYS_fstat, fd, &st, 0, 0, 0, 0);
+        if (n < 0) return n;
+        if (directory && !S_ISDIR(st.st_mode)) return -ENOTDIR;
+        char link[40]; fd_name(link, fd);
+        n = DL_CALL(SYS_readlinkat, AT_FDCWD, link, host, DL_PATH - 1, 0, 0);
+        if (n < 0) return n;
+        if (n == DL_PATH - 1) return -ENAMETOOLONG;
+        host[n] = 0;
+    }
+    size_t i = 0;
+    while (dl_state.root[i] && dl_state.root[i] == host[i]) i++;
+    if (dl_state.root[i] || (host[i] && host[i] != '/')) return -EXDEV;
+    if (!host[i]) { out[0] = '/'; out[1] = 0; }
+    else dl_copy(out, host + i, dl_length(host + i) + 1);
+    return 0;
+}
+long dl_virtual_cwd(char out[DL_PATH]) { return virtual_path(AT_FDCWD, out, 1); }
+
+long dl_file_path(int fd, char out[DL_PATH]) { return virtual_path(fd, out, 0); }
+long dl_executable(int fd)
+{
+    char path[40]; fd_name(path, fd);
+    return DL_CALL(SYS_faccessat, AT_FDCWD, path, X_OK, 0, 0, 0);
+}
+
+static void release(int fd)
+{
+    if (fd >= 0 && fd != dl_state.root_fd) DL_CALL(SYS_close, fd, 0, 0, 0, 0, 0);
+}
+
+static long directory(int fd)
+{
+    // Keep the actual directory, including an unlinked cwd. Its printed path
+    // only checks root membership; it must never become the lookup starting point.
+    long pin = DL_CALL(SYS_openat, fd, ".", O_PATH | O_DIRECTORY | O_CLOEXEC, 0, 0, 0);
+    if (pin < 0) return pin;
+    char path[DL_PATH];
+    long r = virtual_path((int)pin, path, 0);
+    if (r) { release((int)pin); return r; }
+    return pin;
+}
+
+static long parent_directory(int fd)
+{
+    struct stat current, root;
+    long r = DL_CALL(SYS_fstat, fd, &current, 0, 0, 0, 0); if (r) return r;
+    r = DL_CALL(SYS_fstat, dl_state.root_fd, &root, 0, 0, 0, 0); if (r) return r;
+    if (current.st_dev == root.st_dev && current.st_ino == root.st_ino) return dl_state.root_fd;
+    long pin = DL_CALL(SYS_openat, fd, "..", O_PATH | O_DIRECTORY | O_CLOEXEC, 0, 0, 0);
+    if (pin < 0) return pin;
+    char path[DL_PATH];
+    r = virtual_path((int)pin, path, 0);
+    if (r) { release((int)pin); return r; }
+    return pin;
+}
+
+/* Follow prefixes with pinned no-follow handles. Absolute symlink targets
+ * restart at the guest root; '..' uses the current inode's live parent.
+ * A non-null leaf requests a pinned parent and an unresolved final component,
+ * including its trailing slash, for a single atomic kernel namespace operation.
+ * This compatibility walk is not an openat2-equivalent security sandbox against
+ * a same-UID host process concurrently moving directories outside the root. */
+static long walk(int dirfd, const char *path, int flags, unsigned mode, char *leaf)
+{
+    char pending[DL_PATH], component[DL_PATH], target[DL_PATH];
+    size_t length = dl_length(path);
+    if (!length) return -ENOENT;
+    if (length >= DL_PATH) return -ENAMETOOLONG;
+    dl_copy(pending, path, length + 1);
+    long current = path[0] == '/' ? dl_state.root_fd : directory(dirfd);
+    if (current < 0) return current;
+    int links = 0;
+    size_t position = 0;
+    long result = -ENOENT;
+    for (;;) {
+        while (pending[position] == '/') position++;
+        size_t start = position;
+        while (pending[position] && pending[position] != '/') position++;
+        size_t size = position - start;
+        int trailing = pending[position] == '/';
+        while (pending[position] == '/') position++;
+        int last = !pending[position];
+        if (!size) { component[0] = '.'; component[1] = 0; size = 1; }
+        else { dl_copy(component, pending + start, size); component[size] = 0; }
+        if (leaf && last) {
+            if (size + (unsigned)trailing + 1 > DL_PATH) { result = -ENAMETOOLONG; break; }
+            dl_copy(leaf, component, size);
+            if (trailing) leaf[size++] = '/';
+            leaf[size] = 0;
+            if (current != dl_state.root_fd) return current;
+            return DL_CALL(SYS_fcntl, current, F_DUPFD_CLOEXEC, 0, 0, 0, 0);
+        }
+        if (dl_equal(component, "..")) {
+            long parent = parent_directory((int)current);
+            if (parent < 0) { result = parent; break; }
+            release((int)current); current = parent;
+            if (!last) continue;
+            component[0] = '.'; component[1] = 0;
+        }
+        if (dl_equal(component, ".") && !last) continue;
+        long pin = DL_CALL(SYS_openat, current, component, O_PATH | O_NOFOLLOW | O_CLOEXEC, 0, 0, 0);
+        if (pin < 0) {
+            if (pin == -ENOENT && last && !trailing && (flags & O_CREAT))
+                result = DL_CALL(SYS_openat, current, component, flags | O_NOFOLLOW, mode, 0, 0);
+            else result = pin;
+            break;
+        }
+        struct stat st;
+        result = DL_CALL(SYS_fstat, pin, &st, 0, 0, 0, 0);
+        if (result < 0) { release((int)pin); break; }
+        if (last && S_ISLNK(st.st_mode) && (flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL)) {
+            result = -EEXIST; release((int)pin); break;
+        }
+        if (S_ISLNK(st.st_mode) && (!last || trailing || !(flags & O_NOFOLLOW))) {
+            if (++links > 40) { result = -ELOOP; release((int)pin); break; }
+            long n = DL_CALL(SYS_readlinkat, pin, "", target, DL_PATH - 1, 0, 0);
+            release((int)pin);
+            if (n < 0) { result = n; break; }
+            if (!n || n == DL_PATH - 1) { result = n ? -ENAMETOOLONG : -ENOENT; break; }
+            size_t rest = dl_length(pending + position);
+            if ((size_t)n + 1 + rest + 1 > DL_PATH) { result = -ENAMETOOLONG; break; }
+            target[n++] = '/'; dl_copy(target + n, pending + position, rest + 1);
+            if (!rest && !trailing) target[n - 1] = 0;
+            dl_copy(pending, target, dl_length(target) + 1); position = 0;
+            if (target[0] == '/') { release((int)current); current = dl_state.root_fd; }
+            continue;
+        }
+        if ((!last || trailing || (flags & O_DIRECTORY)) && !S_ISDIR(st.st_mode)) {
+            result = -ENOTDIR; release((int)pin); break;
+        }
+        if (!last) { release((int)current); current = pin; continue; }
+        if (flags & O_PATH) {
+            if (!(flags & O_CLOEXEC)) DL_CALL(SYS_fcntl, pin, F_SETFD, 0, 0, 0, 0);
+            result = pin;
+        } else {
+            release((int)pin);
+            result = DL_CALL(SYS_openat, current, component,
+                flags | O_NOFOLLOW | (trailing ? O_DIRECTORY : 0), mode, 0, 0);
+        }
+        break;
+    }
+    release((int)current);
+    return result;
+}
+
+long dl_open(int dirfd, const char *path, int flags, unsigned mode)
+{
+    if (flags & O_PATH) flags &= O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
+    return walk(dirfd, path, flags, mode, NULL);
+}
+
+static long name_change(long nr, unsigned long *a)
+{
+    char path[DL_PATH], first[DL_PATH], second[DL_PATH];
+    const char *source = (void *)a[1];
+    int dirfd = (int)a[0];
+    if (nr == SYS_symlinkat) { source = (void *)a[2]; dirfd = (int)a[1]; }
+    long r = dl_string(path, source); if (r) return r;
+    long parent = walk(dirfd, path, 0, 0, first);
+    if (parent < 0) return parent;
+    if (nr == SYS_mkdirat || nr == SYS_unlinkat) r = DL_CALL(nr, parent, first, a[2], 0, 0, 0);
+    else if (nr == SYS_symlinkat) {
+        r = dl_string(path, (void *)a[0]);
+        if (!r) r = DL_CALL(nr, path, parent, first, 0, 0, 0);
+    } else {
+        r = dl_string(path, (void *)a[3]);
+        if (!r) {
+            long destination = walk((int)a[2], path, 0, 0, second);
+            if (destination < 0) r = destination;
+            else {
+                r = DL_CALL(nr, parent, first, destination, second, nr == SYS_renameat2 ? a[4] : 0, 0);
+                release((int)destination);
+            }
+        }
+    }
+    release((int)parent); return r;
+}
+
+long dl_filesystem(long nr, unsigned long *a)
+{
+    char path[DL_PATH]; long r, fd;
+    switch (nr) {
+    case SYS_mkdirat: case SYS_unlinkat: case SYS_renameat: case SYS_renameat2: case SYS_symlinkat:
+        return name_change(nr, a);
+    case SYS_openat:
+        r = dl_string(path, (void *)a[1]); if (r) return r;
+        if ((a[2] & O_TMPFILE) == O_TMPFILE) return -EOPNOTSUPP;
+        return dl_open((int)a[0], path, (int)a[2], (unsigned)a[3]);
+    case SYS_newfstatat:
+    case SYS_statx:
+        r = dl_string(path, (void *)a[1]); if (r) return r;
+        {
+            unsigned flags = nr == SYS_statx ? a[2] : a[3];
+            unsigned allowed = AT_SYMLINK_NOFOLLOW | AT_EMPTY_PATH | AT_NO_AUTOMOUNT;
+            if (nr == SYS_statx) allowed |= 0x6000;
+            if (flags & ~allowed) return -EINVAL;
+            if (!path[0] && (flags & AT_EMPTY_PATH)) return DL_CALL(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+            fd = dl_open((int)a[0], path, O_PATH | O_CLOEXEC | ((flags & AT_SYMLINK_NOFOLLOW) ? O_NOFOLLOW : 0), 0);
+            if (fd < 0) return fd;
+            r = nr == SYS_statx ? DL_CALL(SYS_statx, fd, "", (flags | AT_EMPTY_PATH) & ~AT_SYMLINK_NOFOLLOW, a[3], a[4], 0)
+                : DL_CALL(SYS_fstat, fd, a[2], 0, 0, 0, 0);
+            release((int)fd); return r;
+        }
+    case SYS_faccessat: case SYS_fchmodat:
+        r = dl_string(path, (void *)a[1]); if (r) return r;
+        fd = dl_open((int)a[0], path, O_PATH | O_CLOEXEC, 0); if (fd < 0) return fd;
+        fd_name(path, (int)fd);
+        r = DL_CALL(nr, AT_FDCWD, path, a[2], 0, 0, 0);
+        release((int)fd); return r;
+    case SYS_fchownat:
+        if (a[4] & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW)) return -EINVAL;
+        r = dl_string(path, (void *)a[1]); if (r) return r;
+        if (!path[0] && (a[4] & AT_EMPTY_PATH)) return DL_CALL(nr, a[0], path, a[2], a[3], a[4], 0);
+        fd = dl_open((int)a[0], path, O_PATH | O_CLOEXEC | ((a[4] & AT_SYMLINK_NOFOLLOW) ? O_NOFOLLOW : 0), 0);
+        if (fd < 0) return fd;
+        r = DL_CALL(nr, fd, "", a[2], a[3], AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW, 0);
+        release((int)fd); return r;
+    case SYS_utimensat:
+        if (a[3] & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW)) return -EINVAL;
+        if (!a[1]) return DL_CALL(nr, a[0], 0, a[2], a[3], 0, 0); // futimens
+        if (a[2]) {
+            struct timespec times[2];
+            r = dl_read_memory(times, (void *)a[2], sizeof(times)); if (r) return r;
+            // Linux performs no pathname lookup when both fields are omitted.
+            if (times[0].tv_nsec == UTIME_OMIT && times[1].tv_nsec == UTIME_OMIT)
+                return DL_CALL(nr, dl_state.root_fd, "", times, a[3], 0, 0);
+        }
+        r = dl_string(path, (void *)a[1]); if (r) return r;
+        if (!path[0] && (a[3] & AT_EMPTY_PATH)) return DL_CALL(nr, a[0], path, a[2], a[3], 0, 0);
+        fd = dl_open((int)a[0], path, O_PATH | O_CLOEXEC | ((a[3] & AT_SYMLINK_NOFOLLOW) ? O_NOFOLLOW : 0), 0);
+        if (fd < 0) return fd;
+        {
+            struct stat st;
+            r = DL_CALL(SYS_fstat, fd, &st, 0, 0, 0, 0);
+            if (!r) {
+                if (S_ISLNK(st.st_mode)) {
+                    // Requires Linux 5.8 AT_EMPTY_PATH support for a pinned
+                    // symlink. Older kernels report the real unsupported error.
+                    r = DL_CALL(nr, fd, "", a[2], AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW, 0, 0);
+                } else {
+                    fd_name(path, (int)fd);
+                    r = DL_CALL(nr, AT_FDCWD, path, a[2], 0, 0, 0);
+                }
+            }
+        }
+        release((int)fd); return r;
+    case SYS_statfs: case SYS_truncate:
+        r = dl_string(path, (void *)a[0]); if (r) return r;
+        fd = dl_open(AT_FDCWD, path, O_PATH | O_CLOEXEC, 0); if (fd < 0) return fd;
+        fd_name(path, (int)fd);
+        r = DL_CALL(nr, path, a[1], 0, 0, 0, 0);
+        release((int)fd); return r;
+    case SYS_readlinkat:
+        r = dl_string(path, (void *)a[1]); if (r) return r;
+        if (dl_equal(path, "/proc/self/exe")) {
+            if (!a[3]) return -EINVAL;
+            size_t size = dl_length(dl_state.executable); if (size > a[3]) size = a[3];
+            r = dl_write_memory((void *)a[2], dl_state.executable, size); return r ? r : (long)size;
+        }
+        if (!path[0]) return DL_CALL(SYS_readlinkat, a[0], a[1], a[2], a[3], 0, 0);
+        fd = dl_open((int)a[0], path, O_PATH | O_CLOEXEC | O_NOFOLLOW, 0); if (fd < 0) return fd;
+        r = DL_CALL(SYS_readlinkat, fd, "", a[2], a[3], 0, 0);
+        release((int)fd); return r;
+    case SYS_getcwd:
+        r = dl_virtual_cwd(path); if (r) return r;
+        { size_t size = dl_length(path) + 1; if (size > a[1]) return -ERANGE;
+          r = dl_write_memory((void *)a[0], path, size); return r ? r : (long)size; }
+    case SYS_chdir:
+        r = dl_string(path, (void *)a[0]); if (r) return r;
+        fd = dl_open(AT_FDCWD, path, O_PATH | O_DIRECTORY | O_CLOEXEC, 0); if (fd < 0) return fd;
+        r = DL_CALL(SYS_fchdir, fd, 0, 0, 0, 0, 0); release((int)fd); return r;
+    case SYS_fchdir:
+        fd = directory((int)a[0]); if (fd < 0) return fd;
+        r = DL_CALL(SYS_fchdir, fd, 0, 0, 0, 0, 0); release((int)fd); return r;
+    default: return -ENOSYS;
+    }
+}

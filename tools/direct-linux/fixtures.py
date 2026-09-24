@@ -19,6 +19,10 @@ def prepare(output):
         "lib/ld-linux-aarch64.so.1": Path("/usr/lib/aarch64-linux-gnu/ld-linux-aarch64.so.1"),
         "lib/aarch64-linux-gnu/libc.so.6": Path("/usr/lib/aarch64-linux-gnu/libc.so.6"),
     }
+    for name in ("cp", "mv", "mkdir", "rm", "chmod", "touch", "ln", "cat"):
+        mapping[f"bin/{name}"] = Path(f"/usr/bin/{name}")
+    for name in ("libselinux.so.1", "libacl.so.1", "libattr.so.1", "libpcre2-8.so.0"):
+        mapping[f"lib/aarch64-linux-gnu/{name}"] = Path(f"/usr/lib/aarch64-linux-gnu/{name}")
     for destination, source in mapping.items():
         target = output / destination
         target.parent.mkdir(parents=True, exist_ok=True)
@@ -30,12 +34,13 @@ def prepare(output):
         subprocess.run(["clang", "-O2", "-Wall", "-Wextra", "-Werror",
                         "-Wl,-z,noexecstack,-z,max-page-size=65536",
                         *(["-static"] if variant == "static" else []), str(source), "-o", str(target)], check=True)
-    for variant in ("static", "dynamic"):
-        target = output / "bin" / f"process-{variant}"
-        subprocess.run(["clang", "-O2", "-Wall", "-Wextra", "-Werror",
-                        "-Wl,-z,noexecstack,-z,max-page-size=65536",
-                        *(["-static"] if variant == "static" else []),
-                        str(Path(__file__).with_name("process-test.c")), "-o", str(target)], check=True)
+    for program in ("process", "files"):
+        for variant in ("static", "dynamic"):
+            target = output / "bin" / f"{program}-{variant}"
+            subprocess.run(["clang", "-O2", "-Wall", "-Wextra", "-Werror",
+                            "-Wl,-z,noexecstack,-z,max-page-size=65536",
+                            *(["-static"] if variant == "static" else []),
+                            str(Path(__file__).with_name(f"{program}-test.c")), "-o", str(target)], check=True)
     files = []
     for path in sorted(output.glob("bin/*")) + sorted(output.glob("lib/**/*")):
         if path.is_file() and path.name != "manifest.json":
@@ -77,7 +82,8 @@ def prepare(output):
         relative = str(target.relative_to(output))
         rejected.append("/" + relative)
         files.append({"path": relative, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
-    versions = subprocess.check_output(["dpkg-query", "-W", "-f=${Package} ${Version}\n", "dash", "coreutils", "libc6:arm64"], text=True)
+    versions = subprocess.check_output(["dpkg-query", "-W", "-f=${Package} ${Version}\n", "dash", "coreutils", "libc6:arm64",
+                                       "libselinux1:arm64", "libacl1:arm64", "libattr1:arm64", "libpcre2-8-0:arm64"], text=True)
     (output / "manifest.json").write_text(json.dumps({"schema": 1, "source": "Existing Ubuntu ARM64 host packages; local test fixture only",
         "package_versions": versions.splitlines(), "files": files, "rejected_elfs": rejected}, indent=2) + "\n")
 

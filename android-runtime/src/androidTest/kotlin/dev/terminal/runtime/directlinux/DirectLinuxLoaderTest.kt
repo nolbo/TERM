@@ -142,7 +142,35 @@ class DirectLinuxLoaderTest {
             for (kind in listOf("static", "dynamic")) {
                 assertTrue(run("/bin/process-$kind", "processes").contains("PASS exec PID/argv/env/cwd/CLOEXEC/signals/mapping/TLS"))
                 assertTrue(run("/bin/process-$kind", "repeat", "30").contains("PASS repeated exec memory/TLS cleanup"))
+                assertTrue(run("/bin/files-$kind").contains("PASS filesystem rename/dirfd/cwd/symlinks/modes/timestamps/unlinked-FDs"))
             }
+            val filesScenario = """
+                set -e
+                mkdir -p /tmp/tools/source/nested
+                i=0
+                while [ "${'$'}i" -lt 128 ]; do
+                    printf 'file:%s\n' "${'$'}i" > "/tmp/tools/source/file-${'$'}i"
+                    i=${'$'}((i + 1))
+                done
+                chmod 640 /tmp/tools/source/file-0
+                touch -t 202001020304.05 /tmp/tools/source/file-0
+                ln -s ../file-0 /tmp/tools/source/nested/link
+                cp -R --reflink=never --preserve=mode,timestamps /tmp/tools/source /tmp/tools/copied
+                mv /tmp/tools/copied /tmp/tools/moved
+                cat /tmp/tools/moved/nested/link
+                rm -r /tmp/tools/source
+                printf 'PASS GNU filesystem tools\n'
+            """.trimIndent()
+            val filesOutput = run("/bin/sh", "-c", filesScenario)
+            assertTrue(filesOutput, filesOutput.contains("file:0\nPASS GNU filesystem tools\n"))
+            val moved = File(root, "tmp/tools/moved")
+            repeat(128) { assertEquals("file:$it\n", File(moved, "file-$it").readText()) }
+            assertEquals(416, android.system.Os.stat(File(moved, "file-0").path).st_mode and 511) // 0640
+            assertEquals(1577934245L, android.system.Os.stat(File(moved, "file-0").path).st_mtime)
+            assertEquals("../file-0", Files.readSymbolicLink(File(moved, "nested/link").toPath()).toString())
+            assertFalse(File(root, "tmp/tools/source").exists())
+            run("/bin/rm", "-r", "/tmp/tools")
+            assertFalse(File(root, "tmp/tools").exists())
             File(root, "not-elf").apply { writeText("not an ELF"); setExecutable(true) }
             assertTrue(run("/not-elf", expectedCode = 126).contains("Direct Linux:"))
             val rejected = manifest.getJSONArray("rejected_elfs")
@@ -152,6 +180,15 @@ class DirectLinuxLoaderTest {
             if (arguments.getString("directLinuxBenchmark") == "true") {
                 check(dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION) { "Compare with the current accelerated payload" }
                 File(root, "usr/local/lib").mkdirs()
+                File(root, "filesystem-scenario").writeText(filesScenario + "\n" + """
+                    i=0
+                    while [ "${'$'}i" -lt 128 ]; do
+                        read value < "/tmp/tools/moved/file-${'$'}i"
+                        [ "${'$'}value" = "file:${'$'}i" ] || exit 77
+                        i=${'$'}((i + 1))
+                    done
+                    rm -r /tmp/tools
+                """.trimIndent() + "\n")
                 repeat(7) { round ->
                     val modes = if (round % 2 == 0) listOf(false, true) else listOf(true, false)
                     modes.forEach { useProot ->
@@ -167,6 +204,15 @@ class DirectLinuxLoaderTest {
                     modes.forEach { useProot ->
                         val output = run("/bin/process-dynamic", "shell-benchmark", useProot = useProot)
                         assertTrue(output, output.contains("PASS shell-exec\n"))
+                        val lines = output.lineSequence().filter { it.startsWith("BENCH ") }.toList()
+                        assertEquals(output, 1, lines.size)
+                        benchmarks.put(JSONObject(lines.single().removePrefix("BENCH "))
+                            .put("engine", if (useProot) "proot" else "direct-linux").put("round", round))
+                    }
+                    modes.forEach { useProot ->
+                        val output = run("/bin/process-dynamic", "files-benchmark", "/filesystem-scenario", useProot = useProot)
+                        assertTrue(output, output.contains("file:0\nPASS GNU filesystem tools\n"))
+                        assertFalse(File(root, "tmp/tools").exists())
                         val lines = output.lineSequence().filter { it.startsWith("BENCH ") }.toList()
                         assertEquals(output, 1, lines.size)
                         benchmarks.put(JSONObject(lines.single().removePrefix("BENCH "))

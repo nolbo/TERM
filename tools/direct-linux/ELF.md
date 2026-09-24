@@ -19,15 +19,16 @@ results supersede the initial process limitations recorded below.
 - `enter.S`: transfers control with a 16-byte aligned guest stack and cleared TLS
   pointer. The Linux interpreter or static libc initializes its own TLS.
 - `guest.c`: signal dispatch with raw syscalls, no Bionic/glibc/TLS/heap dependency.
-  `build.sh` audits the combined guest/exec/memory objects and rejects every unresolved symbol except the three assembly
+  `build.sh` audits the combined guest/exec/memory/files objects and rejects every unresolved symbol except the three assembly
   entry points. Read/write and other untranslated I/O go directly through the
   kernel. Other supported calls use the internal dispatcher; unsupported calls
   return explicit errors. There is no PRoot/Native fallback.
-- Component handles implement root-relative absolute and relative symlinks,
-  dot/dot-dot, cwd and directory-FD lookup. The initial limit is 255 directory
-  levels and 40 symlink expansions. open/create, stat/lstat, statx, access,
-  readlink and chdir are present. Internal root FD close/replacement is rejected.
-  This is not yet the complete Linux filesystem/FD contract.
+- `files.c` implements root-relative symlinks, dot/dot-dot and pinned cwd/dirfd
+  lookup, with 4,096-byte paths and 40 symlink expansions. The original 255-level
+  parent stack has been replaced by live parent lookup. open/create, stat/lstat,
+  statx, access, readlink, chdir and the later [filesystem mutation operations](FILESYSTEM.md)
+  are present. Internal root FD close/replacement is rejected. This is not yet the
+  complete Linux filesystem/FD contract or a security namespace.
 - Normal signal actions are forwarded. sigprocmask changes the **saved guest
   signal frame**, not merely the handler's temporary mask; rt_sigreturn applies
   the requested mask. SIGSYS stays available to the runtime with its requested
@@ -143,7 +144,7 @@ depends on those failed fetches. Replicant/codex_apps were unnecessary because
 this step changes neither UI interaction nor connected-app state.
 
 Remaining implementation after the process milestone: threads/shared-VM spawn,
-execveat and complete signal virtualization/interruption; FD sharing/lifecycle and filesystem mutation
-semantics; fake identity/hardlinks; installer/package environment; backend/PTY/UI
+execveat and complete signal virtualization/interruption; FD sharing/lifecycle and complete filesystem
+semantics (basic mutations now work); fake identity/hardlinks; installer/package environment; backend/PTY/UI
 integration and lifecycle tests. Unsupported process variants return EOPNOTSUPP or ENOSYS; ordinary fork/exec/wait
 and bounded vfork compatibility now work. This is a concrete ELF milestone, **not completion of the user goal**.

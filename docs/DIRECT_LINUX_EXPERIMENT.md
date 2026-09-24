@@ -160,6 +160,21 @@ vfork 호환 경로는 copy-on-write와 부모 대기 barrier를 사용하며 �
 전체 Linux 작업과 enforcing 기기 적합성 검증을 대신하지 않는다.
 [최종 원시 결과](../tools/direct-linux/results/exec-performance-2026-09-24.json).
 
+## 파일 작업 확장: 2026-09-24
+
+[파일시스템 단계](../tools/direct-linux/FILESYSTEM.md)는 이름이 바뀌거나 삭제된
+디렉터리에서도 실제 FD로 상대 경로를 찾고, 생성·삭제·이동·symlink·권한·시간
+변경을 처리한다. 같은 UID의 외부 프로세스에 대한 보안 sandbox는 아니며,
+Android의 실제 권한 오류를 유지한다. fake identity/hardlink는 아직 없다.
+
+정적·동적 glibc의 동시 rename/열린 FD/삭제된 cwd 회귀 시험과 GNU 파일 도구를
+검증했다. 128개 파일 생성·복사·이동·내용 확인·삭제는 7쌍 중앙값에서
+**51.328ms 대 95.214ms**로 최신 가속 Rootless보다 **1.85배** 빨랐다.
+외부 명령 30회는 **53.458ms 대 48.438ms**로 여전히 약 10% 느렸다.
+[원시 결과](../tools/direct-linux/results/filesystem-2026-09-24.json)는 77개 상위
+실행·56개 시간 표본을 담는다. stock enforcing 검증과 전체 Linux 환경 완성은
+별도 완료 조건이다.
+
 ## 남은 구현과 완료 증거
 
 1. **정책:** fixture/redroid 검증은 완료. stock enforcing 기기에서 같은 APK의
@@ -167,9 +182,10 @@ vfork 호환 경로는 copy-on-write와 부모 대기 barrier를 사용하며 �
 2. **ELF 수직 실행:** 초기 loader/auxv/stack/TLS/PT_INTERP와 실제 glibc 프로그램
    실행·손상 입력 검증과 기본 exec 교체/메모리 수명 검사 완료. 더 넓은 ELF·JIT,
    stock 기기 매핑 정책 검증이 남았다.
-3. **파일 의미:** 일반 경로·symlink·dirfd·cwd·동시 rename, 생성/삭제/권한/ID,
-   에뮬레이션 hardlink와 열린 FD/링크 수, 실제 errno 보존. `..` 문자열 제거만으로
-   가상 루트를 구현하지 않는다.
+3. **파일 의미:** 기본 경로·symlink·dirfd·cwd·동시 rename 및 생성/삭제/메타데이터,
+   실제 UID/권한/errno, 열린 FD의 unlink 의미를 검증했다. fake identity와
+   에뮬레이션 hardlink, ACL/xattr, proc/device, 전체 동시성 의미가 남았다.
+   symlink 시간 변경은 Linux 5.8+이며 오래된 커널의 오류를 숨기지 않는다.
 4. **프로세스·신호:** guest sigaction/mask/altstack 가상화, TLS 독립 handler,
    thread/shared-VM spawn/execveat, 전체 vfork 의미, EINTR/cancellation과 robust
    mutex·확장 CPU 상태, guest seccomp가 남았다. 기본 fork/wait와 exec의
