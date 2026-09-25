@@ -517,17 +517,27 @@ fun TerminalChrome(
                 }
                 DropdownMenuPopup(expanded = newSessionMenuExpanded, onDismissRequest = onDismissNewSession,
                     modifier = Modifier.widthIn(min = 240.dp)) {
-                    DropdownMenuGroup(shapes = MenuDefaults.groupShape(0, 1)) {
+                    DropdownMenuGroup(shapes = MenuDefaults.groupShape(0, 1), containerColor = colors.container) {
+                        val itemColors = MenuDefaults.itemColors(
+                            textColor = colors.onContainer,
+                            leadingIconColor = colors.accent,
+                            trailingIconColor = colors.onContainer,
+                            disabledTextColor = colors.onContainer.copy(alpha = 0.38f),
+                            disabledLeadingIconColor = colors.onContainer.copy(alpha = 0.38f),
+                            disabledTrailingIconColor = colors.onContainer.copy(alpha = 0.38f),
+                        )
                         profiles.forEachIndexed { index, profile ->
                             DropdownMenuItem(onClick = { onSelectProfile(profile) },
                                 text = { Column { Text(profile.name); Text(stringResource(runtimeTitleResource(profile.runtime.wireName)), style = MaterialTheme.typography.bodySmall) } },
                                 shape = MenuDefaults.itemShape(index, profiles.size + 1).shape,
+                                colors = itemColors,
                                 leadingIcon = { Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-                                    ProfileIcon(profile.icon, profile.runtime.wireName, tint = TerminalStatusBlue)
+                                    ProfileIcon(profile.icon, profile.runtime.wireName, tint = colors.accent)
                                 } })
                         }
                         DropdownMenuItem(onClick = onAddProfile, text = { Text(stringResource(R.string.add_profile)) },
                             shape = MenuDefaults.itemShape(profiles.size, profiles.size + 1).shape,
+                            colors = itemColors,
                             leadingIcon = {
                                 Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
                                     Icon(painterResource(R.drawable.ic_material_symbol_add_24), null, Modifier.size(24.dp))

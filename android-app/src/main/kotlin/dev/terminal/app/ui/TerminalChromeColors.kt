@@ -3,7 +3,7 @@ package dev.terminal.app.ui
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 
-/** Local terminal chrome colors; settings and popup surfaces retain the app theme. */
+/** Local terminal chrome colors; shared by tabs, hotkeys, and the new-session menu. */
 internal data class TerminalChromeColors(val background: Color) {
     val foreground = readableForeground(background)
     val container = mix(background, foreground, 0.14f)
