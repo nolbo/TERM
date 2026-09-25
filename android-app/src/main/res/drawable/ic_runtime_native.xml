@@ -1,6 +1,10 @@
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
-    <!-- Original simplified Android robot silhouette. -->
+    <!-- Original Android robot with rounded antenna tips, base corners, and lower bar. -->
+    <path android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFFFF" android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:pathData="M5.8,4.9L8,8M18.2,4.9L16,8" />
     <path android:fillColor="#FFFFFFFF" android:fillType="evenOdd"
-        android:pathData="M5,5L6.4,4.2L8,6.9Q12,5.1 16,6.9L17.6,4.2L19,5L17.4,7.8Q21,10.4 21,16H3Q3,10.4 6.6,7.8ZM7,11.5a1,1 0,1 0,2 0a1,1 0,1 0,-2 0M15,11.5a1,1 0,1 0,2 0a1,1 0,1 0,-2 0M5,18H19V20H5Z"/>
+        android:pathData="M3,14.75C3.2,9.1 7,6.1 12,6.1C17,6.1 20.8,9.1 21,14.75Q21,16 19.75,16H4.25Q3,16 3,14.75ZM7,11.5a1,1 0,1 0,2 0a1,1 0,1 0,-2 0M15,11.5a1,1 0,1 0,2 0a1,1 0,1 0,-2 0M6,18H18a1,1 0,0 1,0 2H6a1,1 0,0 1,0 -2Z"/>
 </vector>
