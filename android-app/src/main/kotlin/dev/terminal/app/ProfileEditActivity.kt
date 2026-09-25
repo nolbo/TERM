@@ -28,9 +28,17 @@ import dev.terminal.runtime.session.SessionRuntime
 import org.json.JSONArray
 
 class ProfileEditActivity : TerminalActivity() {
+    private var hasAvfPrivileges by mutableStateOf(false)
+
+    override fun onResume() {
+        super.onResume()
+        hasAvfPrivileges = SessionProfiles(this).hasAvfPrivileges()
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val store = SessionProfiles(this)
+        hasAvfPrivileges = store.hasAvfPrivileges()
         val requestedId = intent.getStringExtra("profileId")
         val source = requestedId?.let(store::find)
         if (requestedId != null && source == null) { finish(); return }
@@ -75,10 +83,12 @@ class ProfileEditActivity : TerminalActivity() {
                         ProfileField(R.string.profile_name, name) { name = it; dirty = true }
                         dev.terminal.app.ui.ProfileIconSetting(icon, runtime) { icon = it; dirty = true }
                         SettingsChoiceRow(stringResource(R.string.profile_runtime), null,
-                            listOf(SessionRuntime.NATIVE, SessionRuntime.ROOTLESS, SessionRuntime.AVF).map {
+                            listOf(SessionRuntime.NATIVE, SessionRuntime.ROOTLESS, SessionRuntime.AVF)
+                                .filter { it != SessionRuntime.AVF || hasAvfPrivileges }.map {
                                 SettingsChoice(stringResource(if (it == SessionRuntime.ROOTLESS) R.string.runtime_rootless_title
                                     else runtimeTitleResource(it.wireName)), it.wireName)
-                            }, if (rootless) SessionRuntime.ROOTLESS.wireName else runtime) {
+                            }, if (rootless) SessionRuntime.ROOTLESS.wireName else runtime,
+                            selectedLabel = stringResource(runtimeTitleResource(runtime))) {
                             selectRuntime(if (it == SessionRuntime.ROOTLESS.wireName && rootless) SessionRuntime.valueOf(runtime)
                                 else SessionRuntime.valueOf(it))
                         }

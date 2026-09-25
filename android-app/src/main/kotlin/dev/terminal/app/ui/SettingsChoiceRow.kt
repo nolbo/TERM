@@ -22,10 +22,10 @@ internal data class SettingsChoice(val label: String, val value: String)
 /** Shared by language, terminal type and profile choices. Changes apply only on Save. */
 @Composable
 internal fun SettingsChoiceRow(title: String, supporting: String?, choices: List<SettingsChoice>,
-    selected: String, onChange: (String) -> Unit) {
+    selected: String, selectedLabel: String? = null, onChange: (String) -> Unit) {
     var draft by rememberSaveable(selected) { mutableStateOf(selected) }
     var visible by rememberSaveable { mutableStateOf(false) }
-    val label = choices.firstOrNull { it.value == selected }?.label.orEmpty()
+    val label = choices.firstOrNull { it.value == selected }?.label ?: selectedLabel.orEmpty()
     ListItem(
         onClick = { draft = selected; visible = true },
         supportingContent = supporting?.let { { Text(it) } },
