@@ -50,6 +50,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -398,6 +399,7 @@ class MainActivity : TerminalActivity() {
     private fun TerminalScreen() {
         val edgeToEdgeTerminal = activeSessionId != null && !terminalAppBarContentVisible
         val topInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top)
+        val terminalTopInset = if (edgeToEdgeTerminal) topInsets.getTop(LocalDensity.current) else 0
         val screenBackgroundColor = if (activeSessionId == null) {
             MaterialTheme.colorScheme.background
         } else {
@@ -451,7 +453,10 @@ class MainActivity : TerminalActivity() {
                             TerminalAppearance.apply(terminalPreferences(), this)
                         }
                     },
-                    update = { view -> attachRenderer(view) },
+                    update = { view ->
+                        view.setScrollbackTopInset(terminalTopInset)
+                        attachRenderer(view)
+                    },
                     onRelease = { view ->
                         view.removeCallbacks(showTerminalKeyboard)
                         if (terminalView === view) terminalView = null
@@ -480,9 +485,9 @@ class MainActivity : TerminalActivity() {
                 Spacer(
                     Modifier.fillMaxWidth().windowInsetsTopHeight(topInsets)
                         .background(Brush.verticalGradient(listOf(
-                            MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f),
-                            MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.6f),
-                            Color.Transparent,
+                            terminalBackgroundColor,
+                            terminalBackgroundColor.copy(alpha = 0.6f),
+                            terminalBackgroundColor.copy(alpha = 0f),
                         ))),
                 )
             }
