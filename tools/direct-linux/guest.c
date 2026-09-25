@@ -132,7 +132,7 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_getxattr: case SYS_lgetxattr: case SYS_setxattr: case SYS_lsetxattr:
     case SYS_listxattr: case SYS_llistxattr: case SYS_removexattr: case SYS_lremovexattr:
         dl_lock(&dl_files_lock);
-        r = dl_filesystem(nr, a);
+        r = dl_filesystem(nr, a, context);
         dl_unlock(&dl_files_lock); return r;
     case SYS_close:
         dl_lock(&dl_files_lock);
@@ -144,11 +144,7 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_sendto: case SYS_sendmsg:
     case SYS_getsockname: case SYS_getpeername: case SYS_accept: case SYS_accept4:
     case SYS_recvfrom: case SYS_recvmsg: case SYS_recvmmsg:
-        {
-            unsigned long mask;
-            dl_copy(&mask, &context->uc_sigmask, 8);
-            return dl_network(nr, a, mask);
-        }
+        return dl_network(nr, a, context);
     case SYS_dup3:
         dl_lock(&dl_files_lock);
         if (dl_internal_fd((int)a[1])) { dl_unlock(&dl_files_lock); return -EBADF; }
@@ -156,6 +152,8 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
         dl_unlock(&dl_files_lock); return r;
     case SYS_fcntl: case SYS_dup:
         if (dl_internal_fd((int)a[0])) return -EBADF;
+        if (nr == SYS_fcntl && (a[1] == F_SETLKW || a[1] == F_OFD_SETLKW))
+            return dl_blocking(nr, a, context);
         if (nr == SYS_fcntl && a[1] != F_DUPFD && a[1] != F_DUPFD_CLOEXEC && a[1] != F_SETFD)
             return DL_CALL(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
         dl_lock(&dl_files_lock);
@@ -170,6 +168,7 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_munmap: return dl_munmap(a[0], a[1]);
     case SYS_madvise: return dl_madvise(a[0], a[1], (int)a[2]);
     case SYS_rt_sigaction: return dl_signal_action(a);
+    case SYS_rt_sigreturn: dl_signal_return(context);
     case SYS_rt_sigprocmask:
         {
             if (a[3] != 8) return -EINVAL;
@@ -208,6 +207,7 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
             r = dl_exec((void *)a[0], (void *)a[1], (void *)a[2], &entry, 1);
             dl_exec_end();
             if (r) return r;
+            dl_signal_collect(0);
             // The signal frame is on the surviving runtime alternate stack.
             // sigreturn restores the guest mask and enters the new image.
             for (unsigned i = 0; i < 31; i++) context->uc_mcontext.regs[i] = 0;
@@ -241,7 +241,7 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_getuid: case SYS_geteuid: case SYS_getgid: case SYS_getegid:
     case SYS_getrandom: case SYS_clock_gettime: case SYS_clock_getres:
     case SYS_prlimit64: case SYS_uname: case SYS_getrusage:
-    case SYS_rt_sigreturn: case SYS_exit_group:
+    case SYS_exit_group:
     case SYS_fsync: case SYS_fdatasync:
         return DL_CALL(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
     default: return -ENOSYS;
@@ -302,16 +302,18 @@ int dl_install(void *signal_stack, size_t size)
     r = DL_CALL(SYS_rt_sigaction, SIGSYS, &action, NULL, 8, 0, 0); if (r) return (int)r;
     unsigned long bit = 1UL << (SIGSYS - 1);
     r = DL_CALL(SYS_rt_sigprocmask, SIG_UNBLOCK, &bit, NULL, 8, 0, 0); if (r) return (int)r;
-    uintptr_t pc = (uintptr_t)dl_host_return;
     struct sock_filter filters[] = {
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_AARCH64, 1, 0),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_KILL_PROCESS),
-        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer) + 4),
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, pc >> 32, 0, 3),
-        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)),
-        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)pc, 0, 1),
-        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
+#define RUNTIME_SITE(site) \
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer) + 4), \
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uintptr_t)(site) >> 32, 0, 3), \
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, instruction_pointer)), \
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)(uintptr_t)(site), 0, 1), \
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW)
+        RUNTIME_SITE(dl_host_return), RUNTIME_SITE(dl_sigreturn_return), RUNTIME_SITE(dl_resume_return),
+#undef RUNTIME_SITE
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
         // Only inheritance-changing hints need ownership bookkeeping. Keep
         // ordinary allocator advice on its existing native fast path. The
@@ -335,7 +337,7 @@ int dl_install(void *signal_stack, size_t size)
         DIRECT(SYS_getpid), DIRECT(SYS_getppid), DIRECT(SYS_gettid),
         DIRECT(SYS_getuid), DIRECT(SYS_geteuid), DIRECT(SYS_getgid), DIRECT(SYS_getegid),
         DIRECT(SYS_getrandom), DIRECT(SYS_prlimit64), DIRECT(SYS_uname), DIRECT(SYS_getrusage),
-        DIRECT(SYS_rt_sigreturn), DIRECT(SYS_read), DIRECT(SYS_write),
+        DIRECT(SYS_read), DIRECT(SYS_write),
         DIRECT(SYS_readv), DIRECT(SYS_writev), DIRECT(SYS_pread64), DIRECT(SYS_pwrite64),
         DIRECT(SYS_lseek), DIRECT(SYS_fstat),
         // Terminal ioctls must retain the guest signal mask: background

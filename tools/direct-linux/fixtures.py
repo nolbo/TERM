@@ -73,7 +73,7 @@ def prepare(output, applications=False):
                         "-Wl,-z,noexecstack,-z,max-page-size=65536",
                         *(["-static"] if variant == "static" else []), str(source), "-o", str(target)], check=True)
         mapping[str(target.relative_to(output))] = target
-    for program in ("process", "startup", "files", "fds", "tty", "network", "dns", "unix", "signals", "threads"):
+    for program in ("process", "startup", "files", "fds", "tty", "network", "dns", "unix", "signals", "threads", "blocking"):
         for variant in ("static", "dynamic"):
             target = output / "bin" / f"{program}-{variant}"
             subprocess.run(["clang", "-O2", "-Wall", "-Wextra", "-Werror",
@@ -81,7 +81,7 @@ def prepare(output, applications=False):
                             *(["-static"] if variant == "static" else []),
                             str(Path(__file__).with_name(f"{program}-test.c")),
                             *(["-lresolv"] if program == "dns" else []),
-                            *(["-pthread"] if program == "threads" else []), "-o", str(target)], check=True)
+                            *(["-pthread"] if program in ("threads", "blocking") else []), "-o", str(target)], check=True)
             mapping[str(target.relative_to(output))] = target
     if applications:
         # Disposable, freshly generated test credentials. Never commit the key

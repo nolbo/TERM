@@ -108,6 +108,35 @@ am instrument -w \
   dev.terminal.runtime.test/androidx.test.runner.AndroidJUnitRunner
 ```
 
+## 2026-09-25: C14 blocking과 신호 복귀
+
+[구현·재현·제한 상세](BLOCKING_SIGNALS.md),
+[최종 실행 결과](results/blocking-runtime-2026-09-25.json).
+최종 guest open(생성·일반 파일 lease 포함), POSIX/OFD blocking lock, 번역된
+network 호출은 guest mask로 대기한다. 신호 처리기는 guest PC/SP/GP context를
+받고 kernel signal frame으로 진입한다. 별도 host 복귀 상태를 보관하여 정상
+재시작과 명시적인 context 편집을 구분하며 pthread 취소의 unwinding도 보존한다.
+중첩 임시 FD는 thread별로 보호하고, longjmp 후 다음 runtime 진입·thread 종료·
+성공한 exec에서 회수한다.
+
+정적·동적 glibc의 FIFO EINTR/SA_RESTART, 반복·중첩 longjmp, 중첩 FD close_range
+보호, SIGINT/SIGTERM 처리/종료, 파일 lease·POSIX/OFD lock 중단, open/accept 취소와
+pthread cleanup을 Android 및 ARM64 host에서 통과했다. Android 최종 묶음은
+**25.747초, 142회 실행, OK (1 test)**이며 54개 비교 표본을 포함한다.
+724개 fixture hash가 패키징 입력과 일치한다. Native 감사·서명·signal exec host
+회귀·canonical Gradle 통과(runtime 180 pass/1 optional skip, image 4 pass).
+
+같은 APK의 18회 교차 비교에서 shell+30 외부 명령 중앙값은 이전 Direct
+35.603ms → 현재 36.829ms(**3.4% 비용 증가**), Rootless 47.698ms였다.
+Rootless의 FIFO 재시작 ENOENT는 두 linking variant에서 별도 limitation으로
+기록했다. 초기 test mask 누락과 설치 공간 부족, 진단 경로 실패 및 복구도 상세
+문서에 남겼다. 여전히 stock enforcing/16 KiB 근거는 없다.
+
+Linux vfork의 부모 신호 지연은 일반 I/O EINTR와 다른 계약이다. 부모 pipe wait를
+임의로 unmask하지 않았으며 C04/C05에서 전체 spawn/vfork 의미와 함께 검증한다.
+느린 준비 단계 파일 연산과 C17의 전체 확장 context/stop-continue 재시작까지
+완료한 것은 아니다.
+
 ## 전체 목표 추적
 
 각 행의 원래 완료 조건은 감사 문서의 같은 ID를 따른다. 현 기기의 통과를
@@ -128,10 +157,10 @@ stock enforcing/다른 페이지 크기/모든 앱에 일반화하지 않는다.
 | C11 | DONTFORK 소유권 | 현 구현 수정·host/Android 검증 완료. C01/C02의 다른 플랫폼 gate는 별도 미완료. |
 | C12 | 메모리 API | 미완료: mremap/msync/memfd 등. |
 | C13 | 자원 한도 | 미완료: thread stack 1 MiB로 확장했지만 고정 한도와 RLIMIT 계약 남음. |
-| C14 | blocking과 신호 | 일부 진행: FIFO thread lock 교착 제거. EINTR/restart/cancellation/nonlocal cleanup 미완료. |
+| C14 | blocking과 신호 | open/lease·FD lock·network의 EINTR/restart/cancellation/nonlocal FD cleanup 구현·host/Android 검증. 준비 단계의 느린 파일 연산과 C04/C05 vfork 계약은 미완료. |
 | C15 | guest altstack | 미완료. |
 | C16 | guest SIGSYS | 미완료. |
-| C17 | signal context/restart | 미완료: 전체 register/확장 CPU state/재시작. |
+| C17 | signal context/restart | GP PC/SP/결과 노출·편집, 취소 unwind와 재시작 일부 검증. SVE/SME·전체 setcontext/manual frame·stop/continue·restart_syscall은 미완료. |
 | C18 | timer·queued signal | 미완료. |
 | C19 | identity·소유권 | 미완료. |
 | C20 | hardlink/FIFO/node | 미완료: FIFO 검사는 host가 fixture를 준비한 것이며 guest mkfifo 구현이 아님. |
@@ -161,5 +190,5 @@ stock enforcing/다른 페이지 크기/모든 앱에 일반화하지 않는다.
 | C44 | kernel 기능 범위 | 미완료: syscall별 가능/제한/플랫폼 불가 분류와 증거 필요. |
 | C45 | 회귀/비교 기준 | 진행: thread/매핑/FD 회귀와 reference 실패 기록 추가. 전체 matrix 미완료. |
 
-다음 구현은 C14의 interruptible filesystem/FD 호출과 정리 수명, C04/C05의
-spawn·다중 thread fork/exec로 이어간다. 전체 목표는 계속 진행 중이다.
+다음 구현은 C04/C05의 spawn·다중 thread fork/exec와 남은 C14/C17 동작으로
+이어간다. 전체 목표는 계속 진행 중이다.

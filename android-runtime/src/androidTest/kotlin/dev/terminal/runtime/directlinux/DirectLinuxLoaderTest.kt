@@ -214,9 +214,21 @@ class DirectLinuxLoaderTest {
                 }
             }
             if (arguments.getString("directLinuxSignalMasks") == "true") {
-                for (reference in listOf(true, false)) {
+                android.system.Os.mkfifo(File(root, "tmp/blocking-fifo").path, 384)
+                android.system.Os.mkfifo(File(root, "tmp/blocking-inner").path, 384)
+                for (reference in listOf(false, true)) {
                     val checks = JSONArray()
+                    val limitations = JSONArray()
                     for (kind in listOf("static", "dynamic")) {
+                        for (scenario in listOf("signals", "cancel")) {
+                            val selected = if (reference && scenario == "signals") "signals-reference" else scenario
+                            val output = run("/bin/blocking-$kind", selected, useProot = reference)
+                            assertTrue(output, output.contains("PASS "))
+                            assertFalse(output, output.contains("FAIL "))
+                            output.lineSequence().filter { it.startsWith("PASS ") }.forEach { checks.put("$kind: $it") }
+                            output.lineSequence().filter { it.startsWith("LIMIT ") || it.startsWith("SKIP ") }
+                                .forEach { limitations.put("$kind: $it") }
+                        }
                         for (scenario in listOf("actions", "waits")) {
                             val output = run("/bin/signals-$kind", scenario, useProot = reference)
                             assertTrue(output, output.contains("PASS "))
@@ -224,7 +236,8 @@ class DirectLinuxLoaderTest {
                                 .forEach { checks.put("$kind: $it") }
                         }
                     }
-                    signalResults.put(JSONObject().put("engine", if (reference) "proot" else "direct-linux").put("checks", checks))
+                    signalResults.put(JSONObject().put("engine", if (reference) "proot" else "direct-linux")
+                        .put("checks", checks).put("observed_limitations", limitations))
                 }
             }
             if (arguments.getString("directLinuxPty") == "true") {

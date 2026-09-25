@@ -34,15 +34,33 @@ long dl_signal_reset_exec(void)
     exec_candidates = 0;
     return 0;
 }
+struct frame { siginfo_t info; ucontext_t context; };
+
+static int runtime_stack(struct dl_thread *thread, uintptr_t stack)
+{
+    return stack >= thread->stack_begin && stack < thread->stack_end;
+}
 void dl_signal_collect(uintptr_t stack)
 {
     struct dl_thread *thread = dl_thread_self();
     struct dl_signal_state *state = &thread->signals;
-    // siglongjmp may abandon any number of blocked calls. Records live in
-    // static storage, not abandoned signal frames, so collecting cannot read
-    // an overwritten frame. AArch64 stacks grow down and have no red zone.
-    if (stack < thread->stack_begin || stack >= thread->stack_end) { state->wait_count = 0; return; }
-    while (state->wait_count && stack > state->waits[state->wait_count - 1].stack) state->wait_count--;
+    // Records are outside abandoned frames. AArch64 stacks grow down and
+    // have no red zone. A guest longjmp can discard several nested waits.
+    dl_io_collect(stack);
+    int inside = runtime_stack(thread, stack);
+    while (state->wait_count && (!inside || stack > state->waits[state->wait_count - 1].stack))
+        state->wait_count--;
+    while (state->delivery_count) {
+        uintptr_t frame = state->deliveries[state->delivery_count - 1].frame;
+        int frame_inside = runtime_stack(thread, frame);
+        if (frame_inside ? (inside && stack <= frame) : (inside || stack <= frame)) break;
+        state->delivery_count--;
+    }
+}
+
+static _Noreturn void signal_failure(void)
+{
+    DL_CALL(SYS_exit_group, 126, 0, 0, 0, 0, 0); __builtin_unreachable();
 }
 
 static void guest_signal(int signal, siginfo_t *info, void *pointer)
@@ -61,45 +79,148 @@ static void guest_signal(int signal, siginfo_t *info, void *pointer)
     unsigned long kernel_mask, restore_mask, delivery_mask;
     dl_copy(&kernel_mask, &context->uc_sigmask, 8);
     dl_signal_collect(context->uc_mcontext.sp);
-    uintptr_t pc = context->uc_mcontext.pc;
-    struct dl_waiting *wait = state->wait_count && !state->waits[state->wait_count - 1].suspended &&
-        (pc == (uintptr_t)dl_host_return || pc == (uintptr_t)dl_host_return - 4)
+    struct dl_waiting *wait = state->wait_count && !state->waits[state->wait_count - 1].suspended
         ? &state->waits[state->wait_count - 1] : NULL;
+    if (state->delivery_count == DL_WAIT_LIMIT) signal_failure();
+    struct dl_delivery *delivery = &state->deliveries[state->delivery_count++];
+    delivery->frame = (uintptr_t)context - offsetof(struct frame, context);
+    delivery->wait = wait ? (int)state->wait_count - 1 : -1;
+    delivery->host_mask = kernel_mask;
+    dl_copy(delivery->host_gp, &context->uc_mcontext, DL_GP_SIZE);
     if (wait) {
         dl_copy(&restore_mask, &wait->guest->uc_sigmask, 8);
         restore_mask = (restore_mask & ~SYS_BIT) | wait->return_bit;
         delivery_mask = wait->mask;
+        // The host continuation may be anywhere between unmask and remask,
+        // including the syscall that unblocks an already pending signal.
+        // Expose the guest call site for unwind/cancellation and SA_SIGINFO.
+        uintptr_t pc = context->uc_mcontext.pc;
+        long result = -EINTR;
+        int in_call = context->uc_mcontext.regs[8] == (unsigned long)wait->syscall &&
+            (pc == (uintptr_t)dl_host_return || pc == (uintptr_t)dl_host_return - 4);
+        if (in_call) result = (long)context->uc_mcontext.regs[0];
+        dl_copy(&context->uc_mcontext, &wait->guest->uc_mcontext, DL_GP_SIZE);
+        if (in_call && pc == (uintptr_t)dl_host_return - 4) context->uc_mcontext.pc -= 4;
+        else context->uc_mcontext.regs[0] = result;
+        wait->suspended = 1;
     } else {
         restore_mask = (kernel_mask & ~SYS_BIT) | state->virtual_sigsys_mask;
         delivery_mask = restore_mask;
     }
+    dl_copy(delivery->exposed_gp, &context->uc_mcontext, DL_GP_SIZE);
+    dl_copy(&context->uc_sigmask, &restore_mask, 8);
     delivery_mask |= action.mask;
     if (!(action.flags & SA_NODEFER)) delivery_mask |= 1UL << (signal - 1);
     delivery_mask &= ~UNBLOCKABLE;
     state->virtual_sigsys_mask = delivery_mask & SYS_BIT;
-    unsigned long physical = delivery_mask & ~SYS_BIT;
-    dl_copy(&context->uc_sigmask, &restore_mask, 8);
-    // A handler can enter a different translated blocking call at the same
-    // raw syscall site. That call must not inherit this suspended wait's mask.
-    if (wait) wait->suspended = 1;
-    // No locks, allocated state or temporary FDs survive this boundary. The
-    // guest may recursively trap, wait, replace its action, exec or longjmp.
+    delivery_mask &= ~SYS_BIT;
+
+    // Enter the guest directly from a kernel signal frame. A C call here
+    // would hide its original frame behind runtime frames with no guest
+    // unwind information, breaking pthread cancellation through a wrapper.
+    // rt_sigreturn also changes the mask and PC atomically.
+    size_t size = sizeof(struct frame), extra_offset = 0;
+    uintptr_t extra_pointer = 0;
+    for (size_t offset = 0; offset + sizeof(struct _aarch64_ctx) <= sizeof(context->uc_mcontext.__reserved);) {
+        struct _aarch64_ctx *head = (void *)(context->uc_mcontext.__reserved + offset);
+        if (!head->magic && !head->size) break;
+        if (head->size < sizeof(*head) || head->size % 16 || head->size > sizeof(context->uc_mcontext.__reserved) - offset)
+            signal_failure();
+        if (head->magic == EXTRA_MAGIC) {
+            struct extra_context *extra = (void *)head;
+            if (extra_offset || head->size != sizeof(*extra) || extra->datap < delivery->frame ||
+                    extra->datap - delivery->frame > DL_SIGNAL_STACK_SIZE / 2 ||
+                    extra->size > DL_SIGNAL_STACK_SIZE / 2 - (extra->datap - delivery->frame)) signal_failure();
+            extra_offset = (uintptr_t)extra - delivery->frame; extra_pointer = extra->datap;
+            if (extra->datap + extra->size - delivery->frame > size) size = extra->datap + extra->size - delivery->frame;
+        }
+        offset += head->size;
+    }
+    void *storage = __builtin_alloca(size + 15);
+    struct frame *activation = (void *)(((uintptr_t)storage + 15) & ~15UL);
+    dl_copy(activation, (void *)delivery->frame, size);
+    if (extra_offset) ((struct extra_context *)((char *)activation + extra_offset))->datap =
+        (uintptr_t)activation + extra_pointer - delivery->frame;
+    activation->context.uc_mcontext.pc = action.handler;
+    activation->context.uc_mcontext.sp = delivery->frame;
+    activation->context.uc_mcontext.regs[0] = signal;
+    activation->context.uc_mcontext.regs[1] = (uintptr_t)info;
+    activation->context.uc_mcontext.regs[2] = (uintptr_t)context;
+    activation->context.uc_mcontext.regs[30] = (uintptr_t)__builtin_return_address(0);
+    dl_copy(&activation->context.uc_sigmask, &delivery_mask, 8);
+    dl_resume(activation);
+}
+
+static void copy_fpsimd(ucontext_t *destination, const ucontext_t *source)
+{
+    // The runtime uses only GP registers. Keep explicit handler FPSIMD edits
+    // when an outer SIGSYS frame subsequently restores the guest state.
+    struct fpsimd_context *to = (void *)destination->uc_mcontext.__reserved;
+    const struct fpsimd_context *from = (const void *)source->uc_mcontext.__reserved;
+    if (to->head.magic == FPSIMD_MAGIC && from->head.magic == FPSIMD_MAGIC &&
+            to->head.size == sizeof(*to) && from->head.size == sizeof(*from)) dl_copy(to, from, sizeof(*to));
+}
+
+_Noreturn void dl_signal_return(void *pointer)
+{
+    ucontext_t *trap = pointer;
+    struct dl_signal_state *state = &dl_thread_self()->signals;
+    struct frame *frame = (void *)trap->uc_mcontext.sp;
+    struct dl_delivery *delivery = state->delivery_count ? &state->deliveries[state->delivery_count - 1] : NULL;
+    if (!delivery || delivery->frame != (uintptr_t)frame) {
+        // A manually constructed frame still receives the kernel's normal
+        // validation; only the virtual transport bit needs interception.
+        unsigned long mask;
+        if (!dl_read_memory(&mask, &frame->context.uc_sigmask, 8)) {
+            state->virtual_sigsys_mask = mask & SYS_BIT; mask &= ~SYS_BIT;
+            dl_write_memory(&frame->context.uc_sigmask, &mask, 8);
+        }
+        dl_resume(frame);
+    }
+    unsigned long mask;
+    dl_copy(&mask, &frame->context.uc_sigmask, 8);
+    state->virtual_sigsys_mask = mask & SYS_BIT;
+    mask &= ~(SYS_BIT | UNBLOCKABLE);
+    state->delivery_count--;
+    if (delivery->wait >= 0) {
+        struct dl_waiting *wait = &state->waits[delivery->wait];
+        wait->suspended = 0; wait->return_bit = state->virtual_sigsys_mask;
+        dl_copy(&wait->guest->uc_sigmask, &mask, 8);
+        copy_fpsimd(wait->guest, &frame->context);
+        if (!dl_equal_memory(&frame->context.uc_mcontext, delivery->exposed_gp, DL_GP_SIZE)) {
+            // setcontext-like edits explicitly leave the emulated syscall.
+            // Resume its original guest frame without completing stale I/O.
+            ucontext_t *guest = wait->guest;
+            dl_copy(&guest->uc_mcontext, &frame->context.uc_mcontext, DL_GP_SIZE);
+            dl_signal_collect(guest->uc_mcontext.sp);
+            dl_resume((char *)guest - offsetof(struct frame, context));
+        }
+        dl_copy(&frame->context.uc_mcontext, delivery->host_gp, DL_GP_SIZE);
+        mask = delivery->host_mask & ~SYS_BIT;
+    }
+    dl_copy(&frame->context.uc_sigmask, &mask, 8);
+    dl_resume(frame);
+}
+
+long dl_blocking(long nr, unsigned long a[6], void *pointer)
+{
+    ucontext_t *context = pointer;
+    struct dl_signal_state *state = &dl_thread_self()->signals;
+    if (state->wait_count == DL_WAIT_LIMIT) return -EAGAIN;
+    unsigned long mask;
+    dl_copy(&mask, &context->uc_sigmask, 8);
+    mask = (mask & ~SYS_BIT) | state->virtual_sigsys_mask;
+    uintptr_t stack; __asm__ volatile("mov %0, sp" : "=r"(stack));
+    unsigned index = state->wait_count++;
+    state->waits[index] = (struct dl_waiting){context, stack, mask, state->virtual_sigsys_mask, 0, nr};
+    unsigned long physical = mask & ~SYS_BIT;
     DL_CALL(SYS_rt_sigprocmask, SIG_SETMASK, &physical, NULL, 8, 0, 0);
-    if (action.flags & SA_SIGINFO)
-        ((void (*)(int, siginfo_t *, void *))action.handler)(signal, info, context);
-    else ((void (*)(int))action.handler)(signal);
+    long result = DL_CALL(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
     unsigned long all = ~0UL;
     DL_CALL(SYS_rt_sigprocmask, SIG_SETMASK, &all, NULL, 8, 0, 0);
-    dl_copy(&restore_mask, &context->uc_sigmask, 8);
-    state->virtual_sigsys_mask = restore_mask & SYS_BIT;
-    restore_mask &= ~(SYS_BIT | UNBLOCKABLE);
-    if (wait) {
-        wait->suspended = 0;
-        wait->return_bit = state->virtual_sigsys_mask;
-        dl_copy(&wait->guest->uc_sigmask, &restore_mask, 8);
-        // The enclosing runtime transition must resume with its own mask.
-        dl_copy(&context->uc_sigmask, &kernel_mask, 8);
-    } else dl_copy(&context->uc_sigmask, &restore_mask, 8);
+    state->virtual_sigsys_mask = state->waits[index].return_bit;
+    state->wait_count = index;
+    return result;
 }
 
 long dl_signal_action(unsigned long a[6])
@@ -166,7 +287,7 @@ long dl_signal_wait(long nr, unsigned long a[6], void *pointer)
     if (state->wait_count == DL_WAIT_LIMIT) return -EAGAIN;
     uintptr_t stack; __asm__ volatile("mov %0, sp" : "=r"(stack));
     unsigned index = state->wait_count++;
-    state->waits[index] = (struct dl_waiting){context, stack, mask, original_bit, 0};
+    state->waits[index] = (struct dl_waiting){context, stack, mask, original_bit, 0, nr};
     state->virtual_sigsys_mask = mask & SYS_BIT;
     unsigned long physical = mask & ~SYS_BIT;
     long result;

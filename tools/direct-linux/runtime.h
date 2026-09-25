@@ -8,6 +8,7 @@
 #define DL_HEAP (64UL * 1024 * 1024)
 extern long dl_host_syscall(long, long, long, long, long, long, long);
 extern char dl_host_return[];
+extern char dl_sigreturn_return[], dl_resume_return[];
 extern void dl_sigreturn(void);
 extern _Noreturn void dl_enter(uintptr_t entry, uintptr_t stack);
 #define DL_CALL(n,a,b,c,d,e,f) dl_host_syscall(n,(long)(a),(long)(b),(long)(c),(long)(d),(long)(e),(long)(f))
@@ -33,7 +34,7 @@ long dl_read_memory(void *destination, const void *source, size_t size);
 long dl_write_memory(void *destination, const void *source, size_t size);
 long dl_string(char *destination, const char *source);
 long dl_open(int dirfd, const char *path, int flags, unsigned mode);
-long dl_filesystem(long nr, unsigned long args[6]);
+long dl_filesystem(long nr, unsigned long args[6], void *context);
 long dl_devices_init(void);
 int dl_device_index(int dirfd, const char *name);
 long dl_device_open(int index, int dirfd, int flags, unsigned mode);
@@ -41,7 +42,9 @@ long dl_device_change(int parent, const char *name, int removing);
 long dl_getdents(int fd, void *buffer, unsigned count);
 long dl_close_range(unsigned first, unsigned last, unsigned flags);
 long dl_close_exec_fds(int main_fd, int interpreter_fd);
-long dl_network(long nr, unsigned long args[6], unsigned long mask);
+long dl_network(long nr, unsigned long args[6], void *context);
+long dl_blocking(long nr, unsigned long args[6], void *context);
+_Noreturn void dl_signal_return(void *context);
 long dl_signal_action(unsigned long args[6]);
 long dl_signal_reset_exec(void);
 long dl_signal_wait(long nr, unsigned long args[6], void *context);

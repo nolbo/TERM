@@ -29,6 +29,9 @@ dl_resume:
     mov sp, x0
     mov x8, #139
     svc #0
+.global dl_resume_return
+.hidden dl_resume_return
+dl_resume_return:
     brk #0
 .size dl_resume, .-dl_resume
 .section .note.GNU-stack,"",%progbits

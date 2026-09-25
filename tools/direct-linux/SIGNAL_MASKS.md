@@ -8,6 +8,11 @@ transport. These ordinary Linux operations worked in the Rootless reference.
 needed for translation. This is a compatibility fix in the standalone test APK,
 not full signal virtualization, thread support or completion of the Linux goal.
 
+This page records the September 24 implementation and measurements. The current
+per-thread implementation and signal-frame return path are described in
+[blocking calls and signal frames](BLOCKING_SIGNALS.md) and the
+[compatibility progress tracker](COMPATIBILITY_PROGRESS.md).
+
 ## Reproduction and implementation
 
 [The recorded failure](results/signals-diagnosis-2026-09-24.json) used loader
@@ -116,10 +121,12 @@ setcontext/raw sigreturn virtualization and full register-context translation
 when a signal interrupts a translated syscall remain unsupported/incomplete.
 The wait-mask checks do not establish arbitrary context-switching semantics.
 
-Shared-VM/thread clone is still rejected. Action tables must become shared
-sighand state, while virtual masks, wait records and runtime stacks must become
-per-thread before pthread support can be enabled. The current record bound is
-64 nested translated waits, further limited by the 256 KiB runtime stack.
+At the time of these measurements shared-VM/thread clone was rejected. The
+September 25 implementation now supports basic pthreads with shared dispositions
+and per-thread masks, wait records and 1 MiB runtime stacks. It also translates
+GP context and return paths for blocking calls. Full shared-VM spawn, guest
+alternate stacks, extended-state edits and all context-switching semantics
+remain unfinished. Tables still bound nested waits/deliveries at 64.
 There are no new privileges or changes to Android's signal/seccomp policy.
 Packages, complete identity/filesystem behavior, product sessions and overall
 Rootless compatibility remain required by the active goal.

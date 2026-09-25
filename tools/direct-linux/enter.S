@@ -7,6 +7,9 @@
 dl_sigreturn:
     mov x8, #139
     svc #0
+.global dl_sigreturn_return
+.hidden dl_sigreturn_return
+dl_sigreturn_return:
     brk #0
 .size dl_sigreturn, .-dl_sigreturn
 

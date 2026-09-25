@@ -8,21 +8,32 @@
 #define DL_THREAD_LIMIT 128
 #define DL_SIGNAL_STACK_SIZE (1024UL * 1024)
 #define DL_WAIT_LIMIT 64
+#define DL_GP_SIZE offsetof(mcontext_t, __reserved)
+struct dl_delivery {
+    uintptr_t frame;
+    int wait;
+    unsigned long host_mask;
+    unsigned char host_gp[DL_GP_SIZE], exposed_gp[DL_GP_SIZE];
+};
 struct dl_waiting {
     ucontext_t *guest;
     uintptr_t stack;
     unsigned long mask, return_bit;
     int suspended;
+    long syscall;
 };
 struct dl_signal_state {
     unsigned long virtual_sigsys_mask;
     struct dl_waiting waits[DL_WAIT_LIMIT];
     unsigned wait_count;
+    struct dl_delivery deliveries[DL_WAIT_LIMIT];
+    unsigned delivery_count;
 };
 struct dl_thread {
     unsigned state;
     int tid;
-    int protected_fd;
+    struct { int fd; uintptr_t stack; } io[DL_WAIT_LIMIT];
+    unsigned io_count;
     uintptr_t stack_begin, stack_end;
     void *allocation;
     size_t allocation_size;
@@ -39,6 +50,10 @@ void dl_exec_end(void);
 int dl_files_may_be_shared(void);
 int dl_internal_fd(int fd);
 unsigned dl_next_internal_fd(unsigned first);
+long dl_io_hold(int fd, uintptr_t stack);
+void dl_io_release(unsigned slot);
+void dl_io_collect(uintptr_t stack);
+extern _Noreturn void dl_resume(void *frame);
 _Noreturn void dl_thread_exit(int code);
 void dl_lock(unsigned *lock);
 void dl_unlock(unsigned *lock);

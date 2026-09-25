@@ -50,7 +50,7 @@ struct dl_thread *dl_thread_self(void)
 void dl_thread_init(void *allocation, size_t size, void *stack, size_t stack_size)
 {
     struct dl_thread *t = threads;
-    __atomic_store_n(&t->protected_fd, -1, __ATOMIC_RELAXED);
+    __atomic_store_n(&t->io_count, 0, __ATOMIC_RELAXED);
     t->allocation = allocation; t->allocation_size = size;
     __atomic_store_n(&t->stack_begin, (uintptr_t)stack, __ATOMIC_RELAXED);
     __atomic_store_n(&t->stack_end, (uintptr_t)stack + stack_size, __ATOMIC_RELAXED);
@@ -140,7 +140,7 @@ long dl_thread_clone(unsigned long a[6], ucontext_t *context)
     if (allocation < 0) { dl_unlock(&thread_lock); return allocation; }
     long r = DL_CALL(SYS_mprotect, allocation + dl_state.page, DL_SIGNAL_STACK_SIZE, PROT_READ | PROT_WRITE, 0, 0, 0);
     child->allocation = (void *)allocation; child->allocation_size = size;
-    __atomic_store_n(&child->protected_fd, -1, __ATOMIC_RELAXED);
+    __atomic_store_n(&child->io_count, 0, __ATOMIC_RELAXED);
     __atomic_store_n(&child->stack_begin, allocation + dl_state.page, __ATOMIC_RELAXED);
     __atomic_store_n(&child->stack_end, allocation + dl_state.page + DL_SIGNAL_STACK_SIZE, __ATOMIC_RELAXED);
     for (size_t i = 0; i < sizeof(child->signals); i++) ((char *)&child->signals)[i] = 0;
@@ -166,6 +166,7 @@ long dl_thread_clone(unsigned long a[6], ucontext_t *context)
 _Noreturn void dl_thread_exit(int code)
 {
     struct dl_thread *t = dl_thread_self();
+    dl_io_collect(0);
     __atomic_store_n(&t->state, EXITING, __ATOMIC_RELEASE);
     // Keep both kernel clear-child-TID and robust-list cleanup intact. Another
     // live thread reclaims this private stack only after the task is gone.
@@ -210,11 +211,7 @@ void dl_exec_end(void) { dl_unlock(&thread_lock); }
 int dl_files_may_be_shared(void) { return __atomic_load_n(&files_shared, __ATOMIC_ACQUIRE) != 0; }
 int dl_internal_fd(int fd)
 {
-    if (fd == dl_state.root_fd || fd == dl_state.vfork_fd) return 1;
-    for (unsigned i = 0; i < DL_THREAD_LIMIT; i++)
-        if (__atomic_load_n(&threads[i].state, __ATOMIC_ACQUIRE) != FREE &&
-                __atomic_load_n(&threads[i].protected_fd, __ATOMIC_RELAXED) == fd) return 1;
-    return 0;
+    return fd >= 0 && dl_next_internal_fd((unsigned)fd) == (unsigned)fd;
 }
 
 unsigned dl_next_internal_fd(unsigned first)
@@ -225,8 +222,43 @@ unsigned dl_next_internal_fd(unsigned first)
         if (fixed[i] >= 0 && (unsigned)fixed[i] >= first && (unsigned)fixed[i] < result) result = fixed[i];
     for (unsigned i = 0; i < DL_THREAD_LIMIT; i++) {
         if (__atomic_load_n(&threads[i].state, __ATOMIC_ACQUIRE) == FREE) continue;
-        int fd = __atomic_load_n(&threads[i].protected_fd, __ATOMIC_RELAXED);
-        if (fd >= 0 && (unsigned)fd >= first && (unsigned)fd < result) result = fd;
+        unsigned count = __atomic_load_n(&threads[i].io_count, __ATOMIC_ACQUIRE);
+        for (unsigned j = 0; j < count; j++) {
+            int fd = __atomic_load_n(&threads[i].io[j].fd, __ATOMIC_RELAXED);
+            if (fd >= 0 && (unsigned)fd >= first && (unsigned)fd < result) result = fd;
+        }
     }
     return result;
+}
+
+// Mutations happen with signals blocked and the filesystem lock held. The
+// stack marker identifies operations abandoned by cancellation or siglongjmp.
+long dl_io_hold(int fd, uintptr_t stack)
+{
+    struct dl_thread *t = dl_thread_self();
+    unsigned slot = __atomic_load_n(&t->io_count, __ATOMIC_RELAXED);
+    if (slot == DL_WAIT_LIMIT) return -EAGAIN;
+    t->io[slot].stack = stack;
+    __atomic_store_n(&t->io[slot].fd, fd, __ATOMIC_RELAXED);
+    __atomic_store_n(&t->io_count, slot + 1, __ATOMIC_RELEASE);
+    return slot;
+}
+void dl_io_release(unsigned slot)
+{
+    struct dl_thread *t = dl_thread_self();
+    int fd = __atomic_exchange_n(&t->io[slot].fd, -1, __ATOMIC_RELAXED);
+    if (fd >= 0) DL_CALL(SYS_close, fd, 0, 0, 0, 0, 0);
+    __atomic_store_n(&t->io_count, slot, __ATOMIC_RELEASE);
+}
+void dl_io_collect(uintptr_t stack)
+{
+    struct dl_thread *t = dl_thread_self();
+    unsigned count = __atomic_load_n(&t->io_count, __ATOMIC_RELAXED);
+    if (!count) return;
+    int outside = stack < t->stack_begin || stack >= t->stack_end;
+    if (!outside && stack <= t->io[count - 1].stack) return;
+    dl_lock(&dl_files_lock);
+    do { dl_io_release(--count); }
+    while (count && (outside || stack > t->io[count - 1].stack));
+    dl_unlock(&dl_files_lock);
 }

@@ -69,6 +69,21 @@ static void release(int fd)
     if (fd >= 0 && fd != dl_state.root_fd) DL_CALL(SYS_close, fd, 0, 0, 0, 0, 0);
 }
 
+// Consume an owned pin (or borrow the fixed root). No filesystem lock may
+// survive a guest handler, cancellation, or a nonlocal return from that handler.
+static long blocking_open(int pin, const char *name, int flags, unsigned mode, void *context)
+{
+    uintptr_t stack; __asm__ volatile("mov %0, sp" : "=r"(stack));
+    long slot = dl_io_hold(pin == dl_state.root_fd ? -1 : pin, stack);
+    if (slot < 0) { release(pin); return slot; }
+    unsigned long args[6] = {pin, (uintptr_t)name, flags, mode, 0, 0};
+    dl_unlock(&dl_files_lock);
+    long result = dl_blocking(SYS_openat, args, context);
+    dl_lock(&dl_files_lock);
+    dl_io_release((unsigned)slot);
+    return result;
+}
+
 static long directory(int fd)
 {
     // Keep the actual directory, including an unlinked cwd. Its printed path
@@ -101,7 +116,7 @@ static long parent_directory(int fd)
  * including its trailing slash, for a single atomic kernel namespace operation.
  * This compatibility walk is not an openat2-equivalent security sandbox against
  * a same-UID host process concurrently moving directories outside the root. */
-static long walk(int dirfd, const char *path, int flags, unsigned mode, char *leaf)
+static long walk(int dirfd, const char *path, int flags, unsigned mode, char *leaf, void *context)
 {
     char pending[DL_PATH], component[DL_PATH], target[DL_PATH];
     size_t length = dl_length(path);
@@ -154,7 +169,10 @@ static long walk(int dirfd, const char *path, int flags, unsigned mode, char *le
         if (pin < 0) {
             if (pin == -ENOENT && last && !trailing && (flags & O_CREAT)) {
                 result = dl_device_change((int)current, component, 0);
-                if (!result) result = DL_CALL(SYS_openat, current, component, flags | O_NOFOLLOW, mode, 0, 0);
+                if (!result && context) {
+                    result = blocking_open((int)current, component, flags | O_NOFOLLOW, mode, context);
+                    current = dl_state.root_fd;
+                } else if (!result) result = DL_CALL(SYS_openat, current, component, flags | O_NOFOLLOW, mode, 0, 0);
             } else result = pin;
             break;
         }
@@ -185,22 +203,18 @@ static long walk(int dirfd, const char *path, int flags, unsigned mode, char *le
         if (flags & O_PATH) {
             if (!(flags & O_CLOEXEC)) DL_CALL(SYS_fcntl, pin, F_SETFD, 0, 0, 0, 0);
             result = pin;
-        } else if (!(flags & O_NONBLOCK) && (S_ISFIFO(st.st_mode) || S_ISCHR(st.st_mode)) && dl_files_may_be_shared()) {
+        } else if (context && !S_ISLNK(st.st_mode)) {
             if ((flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL)) {
                 result = -EEXIST; release((int)pin); break;
             }
             // Reopen the pinned, approved inode without holding a lock while
-            // waiting for a FIFO peer or device. Only this descriptor survives
+            // waiting for a FIFO peer, device or regular-file lease. Only this descriptor survives
             // the wait, and destructive guest FD calls explicitly protect it.
             char host[64]; dl_fd_path(host, (int)pin);
-            struct dl_thread *thread = dl_thread_self();
-            __atomic_store_n(&thread->protected_fd, (int)pin, __ATOMIC_RELEASE);
             release((int)current); current = dl_state.root_fd;
-            dl_unlock(&dl_files_lock);
-            result = DL_CALL(SYS_openat, AT_FDCWD, host, flags & ~O_NOFOLLOW, mode, 0, 0);
-            dl_lock(&dl_files_lock);
-            __atomic_store_n(&thread->protected_fd, -1, __ATOMIC_RELEASE);
-            release((int)pin);
+            // The name is absolute, so the pin can also supply dirfd while
+            // remaining owned by blocking_open until completion or collection.
+            result = blocking_open((int)pin, host, flags & ~O_NOFOLLOW, mode, context);
         } else {
             release((int)pin);
             int final_flags = flags | O_NOFOLLOW | (trailing ? O_DIRECTORY : 0);
@@ -216,7 +230,7 @@ static long walk(int dirfd, const char *path, int flags, unsigned mode, char *le
 long dl_open(int dirfd, const char *path, int flags, unsigned mode)
 {
     if (flags & O_PATH) flags &= O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
-    return walk(dirfd, path, flags, mode, NULL);
+    return walk(dirfd, path, flags, mode, NULL, NULL);
 }
 
 long dl_socket_path(const char *path, char out[DL_PATH], int binding)
@@ -226,7 +240,7 @@ long dl_socket_path(const char *path, char out[DL_PATH], int binding)
     // This is pathname translation, not an atomic lookup across concurrent
     // renames: the kernel resolves the resulting name when the socket call runs.
     char leaf[DL_PATH];
-    long fd = binding ? walk(AT_FDCWD, path, 0, 0, leaf)
+    long fd = binding ? walk(AT_FDCWD, path, 0, 0, leaf, NULL)
         : dl_open(AT_FDCWD, path, O_PATH | O_CLOEXEC, 0);
     if (fd < 0) return fd;
     long r = binding ? dl_device_change((int)fd, leaf, 0) : 0;
@@ -249,7 +263,7 @@ static long name_change(long nr, unsigned long *a)
     int dirfd = (int)a[0];
     if (nr == SYS_symlinkat) { source = (void *)a[2]; dirfd = (int)a[1]; }
     long r = dl_string(path, source); if (r) return r;
-    long parent = walk(dirfd, path, 0, 0, first);
+    long parent = walk(dirfd, path, 0, 0, first, NULL);
     if (parent < 0) return parent;
     r = dl_device_change((int)parent, first, nr != SYS_mkdirat && nr != SYS_symlinkat);
     if (r) { release((int)parent); return r; }
@@ -260,7 +274,7 @@ static long name_change(long nr, unsigned long *a)
     } else {
         r = dl_string(path, (void *)a[3]);
         if (!r) {
-            long destination = walk((int)a[2], path, 0, 0, second);
+            long destination = walk((int)a[2], path, 0, 0, second, NULL);
             if (destination < 0) r = destination;
             else {
                 r = dl_device_change((int)destination, second, 1);
@@ -293,7 +307,7 @@ static long attributes(long nr, unsigned long *a)
         // Like the original pathname API, concurrent leaf replacement may select
         // either inode; it must never follow the leaf to a host absolute target.
         char leaf[DL_PATH];
-        long parent = walk(AT_FDCWD, path, 0, 0, leaf);
+        long parent = walk(AT_FDCWD, path, 0, 0, leaf, NULL);
         if (parent < 0) r = parent;
         else {
             dl_fd_path(path, (int)parent);
@@ -312,7 +326,7 @@ static long attributes(long nr, unsigned long *a)
     release((int)pin); return r;
 }
 
-long dl_filesystem(long nr, unsigned long *a)
+long dl_filesystem(long nr, unsigned long *a, void *context)
 {
     char path[DL_PATH]; long r, fd;
     switch (nr) {
@@ -324,7 +338,9 @@ long dl_filesystem(long nr, unsigned long *a)
     case SYS_openat:
         r = dl_string(path, (void *)a[1]); if (r) return r;
         if ((a[2] & O_TMPFILE) == O_TMPFILE) return -EOPNOTSUPP;
-        return dl_open((int)a[0], path, (int)a[2], (unsigned)a[3]);
+        int flags = (int)a[2];
+        if (flags & O_PATH) flags &= O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC;
+        return walk((int)a[0], path, flags, (unsigned)a[3], NULL, context);
     case SYS_newfstatat:
     case SYS_statx:
         r = dl_string(path, (void *)a[1]); if (r) return r;

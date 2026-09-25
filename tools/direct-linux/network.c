@@ -74,21 +74,7 @@ static long output_address(struct sockaddr_storage *value, unsigned *size, void 
     return count ? dl_write_memory(destination, value, count) : 0;
 }
 
-static long interruptible(long nr, unsigned long a[6], unsigned long mask)
-{
-    // No runtime lock, temporary FD, or allocated memory is live here. Guest
-    // handlers may reenter the dispatcher or siglongjmp out of this call.
-    // In particular, never leave SIGSYS blocked while a guest handler runs.
-    mask &= ~(1UL << (SIGSYS - 1));
-    unsigned long previous;
-    long r = DL_CALL(SYS_rt_sigprocmask, SIG_SETMASK, &mask, &previous, 8, 0, 0);
-    if (r) return r;
-    r = DL_CALL(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
-    long restored = DL_CALL(SYS_rt_sigprocmask, SIG_SETMASK, &previous, 0, 8, 0, 0);
-    return restored ? restored : r;
-}
-
-long dl_network(long nr, unsigned long a[6], unsigned long mask)
+long dl_network(long nr, unsigned long a[6], void *context)
 {
     struct sockaddr_storage peer;
     struct msghdr message;
@@ -130,7 +116,7 @@ long dl_network(long nr, unsigned long a[6], unsigned long mask)
             if (capacity > 0x7fffffffU) return -EINVAL;
             length = sizeof(peer);
             a[index] = (unsigned long)&peer; a[index + 1] = (unsigned long)&length;
-            r = interruptible(nr, a, mask);
+            r = dl_blocking(nr, a, context);
             if (r < 0) return r;
             long copied = output_address(&peer, &length, destination, capacity);
             if (!copied) copied = dl_write_memory(size_pointer, &length, sizeof(length));
@@ -145,7 +131,7 @@ long dl_network(long nr, unsigned long a[6], unsigned long mask)
             void *destination = message.msg_name; unsigned capacity = message.msg_namelen;
             message.msg_name = &peer; message.msg_namelen = sizeof(peer);
             a[1] = (unsigned long)&message;
-            r = interruptible(nr, a, mask); if (r < 0) return r;
+            r = dl_blocking(nr, a, context); if (r < 0) return r;
             long copied = output_address(&peer, &message.msg_namelen, destination, capacity);
             if (!copied) copied = dl_write_memory((char *)header + offsetof(struct msghdr, msg_namelen),
                 &message.msg_namelen, sizeof(message.msg_namelen));
@@ -176,5 +162,5 @@ long dl_network(long nr, unsigned long a[6], unsigned long mask)
         }
     default: return -ENOSYS;
     }
-    return interruptible(nr, a, mask);
+    return dl_blocking(nr, a, context);
 }

@@ -20,6 +20,9 @@ void dl_lock(unsigned *lock) { assert(!*lock); *lock = 1; }
 void dl_unlock(unsigned *lock) { assert(*lock); *lock = 0; }
 #endif
 void dl_copy(void *d, const void *s, size_t n) { memcpy(d, s, n); }
+int dl_equal_memory(const void *a, const void *b, size_t n) { return !memcmp(a, b, n); }
+void dl_io_collect(uintptr_t stack) { (void)stack; }
+_Noreturn void dl_resume(void *frame) { (void)frame; assert(0); __builtin_unreachable(); }
 long dl_read_memory(void *d, const void *s, size_t n) { memcpy(d, s, n); return 0; }
 long dl_write_memory(void *d, const void *s, size_t n)
 {
