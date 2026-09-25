@@ -14,6 +14,7 @@ internal data class TerminalChromeColors(
     val checkedContainer: Color = readableAccent(background),
     val onCheckedContainer: Color = readableForeground(checkedContainer),
     val unselectedTabContent: Color = mutedForeground(background, foreground),
+    val appBarIcon: Color = mutedForeground(background, foreground, minimumPercent = 70),
 ) {
     val darkSystemIcons = readableForeground(background) == Color.Black
 
@@ -27,6 +28,7 @@ internal data class TerminalChromeColors(
         androidx.compose.ui.graphics.lerp(checkedContainer, to.checkedContainer, fraction),
         androidx.compose.ui.graphics.lerp(onCheckedContainer, to.onCheckedContainer, fraction),
         androidx.compose.ui.graphics.lerp(unselectedTabContent, to.unselectedTabContent, fraction),
+        androidx.compose.ui.graphics.lerp(appBarIcon, to.appBarIcon, fraction),
     )
 }
 
@@ -39,9 +41,9 @@ internal fun colorContrast(first: Color, second: Color): Float {
 private fun readableForeground(background: Color): Color =
     if (colorContrast(Color.Black, background) >= colorContrast(Color.White, background)) Color.Black else Color.White
 
-private fun mutedForeground(background: Color, foreground: Color): Color =
-    (12..20).asSequence()
-        .map { mix(background, foreground, it / 20f) }
+private fun mutedForeground(background: Color, foreground: Color, minimumPercent: Int = 60): Color =
+    (minimumPercent..100 step 5).asSequence()
+        .map { mix(background, foreground, it / 100f) }
         .firstOrNull { colorContrast(it, background) >= 4.5f }
         ?: foreground
 

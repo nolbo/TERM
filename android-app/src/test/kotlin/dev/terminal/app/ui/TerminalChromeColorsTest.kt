@@ -11,6 +11,7 @@ class TerminalChromeColorsTest {
             listOf(
                 colors.foreground to colors.background,
                 colors.unselectedTabContent to colors.background,
+                colors.appBarIcon to colors.background,
                 colors.onContainer to colors.container,
                 colors.accent to colors.container,
                 colors.onCheckedContainer to colors.checkedContainer,
@@ -20,10 +21,12 @@ class TerminalChromeColorsTest {
         }
     }
 
-    @Test fun inactiveTabsHaveLessContrastThanPrimaryContent() {
+    @Test fun tabsAndAppBarIconsHaveLessContrastThanPrimaryContent() {
         for (background in listOf(Color.Black, Color.White, Color(0xFF121212))) {
             val colors = TerminalChromeColors(background)
             assertTrue(colorContrast(colors.unselectedTabContent, background) <
+                colorContrast(colors.appBarIcon, background))
+            assertTrue(colorContrast(colors.appBarIcon, background) <
                 colorContrast(colors.foreground, background))
         }
     }
