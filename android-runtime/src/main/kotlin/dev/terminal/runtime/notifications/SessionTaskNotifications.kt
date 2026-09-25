@@ -37,7 +37,8 @@ internal class SessionTaskNotifications(private val context: Context) {
 
     private fun post(alert: SessionActivityTracker.Alert, title: String) = synchronized(lock) {
         if (!enabled || !manager.areNotificationsEnabled()) return@synchronized
-        val intent = Intent().setClassName(context.packageName, "${context.packageName}.MainActivity")
+        // The installed application ID may have a suffix; the Activity's code namespace does not.
+        val intent = Intent().setClassName(context.packageName, "dev.terminal.app.MainActivity")
             .setData(Uri.Builder().scheme("terminal").authority("session").appendPath(alert.sessionId).build())
             .putExtra(EXTRA_SESSION_ID, alert.sessionId)
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)

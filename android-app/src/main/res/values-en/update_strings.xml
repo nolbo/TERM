@@ -9,6 +9,7 @@
     <string name="update_description">Check for a new app version and download it. Installation proceeds in Android’s confirmation screen.</string>
     <string name="update_installed_version">Installed version · %1$s</string>
     <string name="update_idle">Use the button below to check for updates.</string>
+    <string name="update_debug_manual">TERM Debug is a separate app. To update it, install a new debug APK signed with the same debug key. Stable and development channel updates do not apply.</string>
     <string name="update_check">Check for updates</string>
     <string name="update_checking">Checking for a new version…</string>
     <string name="update_no_release">No updates have been published yet.</string>

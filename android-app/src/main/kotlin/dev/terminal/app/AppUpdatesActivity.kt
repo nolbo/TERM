@@ -43,7 +43,7 @@ class AppUpdatesActivity : TerminalActivity() {
                     Text(stringResource(R.string.update_channel_label), style = MaterialTheme.typography.labelLarge)
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         UpdateChannel.entries.forEach { channel ->
-                            FilterChip(selected = updates.channel == channel, enabled = !updates.busy,
+                            FilterChip(selected = updates.channel == channel, enabled = updates.releaseUpdatesSupported && !updates.busy,
                                 onClick = { updates.selectChannel(channel) },
                                 label = { Text(stringResource(if (channel == UpdateChannel.MAIN) R.string.update_channel_main else R.string.update_channel_dev)) })
                         }
@@ -54,7 +54,7 @@ class AppUpdatesActivity : TerminalActivity() {
                         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             Text(stringResource(R.string.update_installed_version, BuildConfig.VERSION_NAME), style = MaterialTheme.typography.titleMedium)
                             Text(when (state) {
-                                AppUpdateState.Idle -> stringResource(R.string.update_idle)
+                                AppUpdateState.Idle -> stringResource(if (updates.releaseUpdatesSupported) R.string.update_idle else R.string.update_debug_manual)
                                 AppUpdateState.Checking -> stringResource(R.string.update_checking)
                                 AppUpdateState.NoRelease -> stringResource(R.string.update_no_release)
                                 AppUpdateState.Current -> stringResource(R.string.update_current)
@@ -74,7 +74,8 @@ class AppUpdatesActivity : TerminalActivity() {
                                 else -> Unit
                             }
                             if (state !is AppUpdateState.Checking && state !is AppUpdateState.Downloading) {
-                                TextButton(onClick = updates::check, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.update_check)) }
+                                TextButton(onClick = updates::check, enabled = updates.releaseUpdatesSupported,
+                                    shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.update_check)) }
                             }
                         }
                     }
