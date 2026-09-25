@@ -364,8 +364,7 @@ fun TerminalChrome(
         color = terminalBackgroundColor,
         contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
-        // Keep the safe top area stable while the app bar expands or collapses.
-        Column(Modifier.fillMaxWidth().windowInsetsPadding(topInsets)) {
+        Column(Modifier.fillMaxWidth()) {
             Box(Modifier.fillMaxWidth()) {
                 androidx.compose.animation.AnimatedVisibility(
                     visible = appBarContentVisible,
@@ -384,7 +383,7 @@ fun TerminalChrome(
                         ),
                 ) {
                     Row(
-                        Modifier.fillMaxWidth().height(56.dp),
+                        Modifier.fillMaxWidth().windowInsetsPadding(topInsets).height(56.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(Modifier.weight(1f).padding(vertical = 4.dp).height(48.dp)) {

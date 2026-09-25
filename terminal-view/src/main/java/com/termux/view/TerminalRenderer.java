@@ -55,6 +55,7 @@ public final class TerminalRenderer {
     private TerminalEmulator mPresentedEmulator;
     private int mPresentedTopRow, mPresentedColumns, mPresentedRows;
     private float mPresentedScrollOffset;
+    private int mPresentedTopInset;
     public void clearPresentedFrame() { mPresentedFrame = null; mPresentedEmulator = null; mImageBitmaps.clear(); }
 
     private final float[] asciiMeasures = new float[127];
@@ -104,10 +105,16 @@ public final class TerminalRenderer {
     public final void render(TerminalEmulator emulator, Canvas canvas, int topRow,
                              int selectionY1, int selectionY2, int selectionX1, int selectionX2,
                              float scrollOffset) {
+        render(emulator, canvas, topRow, selectionY1, selectionY2, selectionX1, selectionX2, scrollOffset, 0);
+    }
+
+    public final void render(TerminalEmulator emulator, Canvas canvas, int topRow,
+                             int selectionY1, int selectionY2, int selectionX1, int selectionX2,
+                             float scrollOffset, int topInset) {
         boolean sameViewport = mPresentedEmulator == emulator && mPresentedFrame != null &&
             mPresentedFrame.getWidth() == canvas.getWidth() && mPresentedFrame.getHeight() == canvas.getHeight() &&
             mPresentedColumns == emulator.mColumns && mPresentedRows == emulator.mRows && mPresentedTopRow == topRow
-            && mPresentedScrollOffset == scrollOffset;
+            && mPresentedScrollOffset == scrollOffset && mPresentedTopInset == topInset;
         // A user scroll/viewport change must remain visible during output batching.
         // Freeze only the viewport the presented frame actually represents.
         if (emulator.getSynchronizedOutputDelayMillis() > 0 &&
@@ -120,13 +127,20 @@ public final class TerminalRenderer {
         Picture frame = new Picture();
         Canvas recording = frame.beginRecording(Math.max(1, canvas.getWidth()), Math.max(1, canvas.getHeight()));
         int visibleRows = emulator.mRows + (scrollOffset > 0 && topRow < 0 ? 1 : 0);
-        recording.translate(0, -scrollOffset * mFontLineSpacing);
-        try { renderFrame(emulator, recording, topRow, selectionY1, selectionY2, selectionX1, selectionX2, visibleRows); }
+        int firstRow = TerminalViewport.firstDrawnRow(topRow, emulator.getScreen().getActiveTranscriptRows(),
+            topInset, mFontLineSpacing);
+        // Include preceding transcript in the inset rather than clipping it at the safe boundary.
+        recording.drawColor(emulator.mColors.mCurrentColors[emulator.isReverseVideo()
+            ? TextStyle.COLOR_INDEX_FOREGROUND : TextStyle.COLOR_INDEX_BACKGROUND]);
+        recording.translate(0, topInset + (firstRow - topRow - scrollOffset) * mFontLineSpacing);
+        try { renderFrame(emulator, recording, firstRow, selectionY1, selectionY2, selectionX1, selectionX2,
+            visibleRows + topRow - firstRow); }
         finally { frame.endRecording(); }
         mPresentedFrame = frame;
         mPresentedEmulator = emulator;
         mPresentedColumns = emulator.mColumns; mPresentedRows = emulator.mRows; mPresentedTopRow = topRow;
         mPresentedScrollOffset = scrollOffset;
+        mPresentedTopInset = topInset;
         canvas.drawPicture(frame);
     }
 
