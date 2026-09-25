@@ -6,7 +6,7 @@ import android.app.Activity
 import android.view.KeyEvent
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -16,6 +16,8 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -366,8 +368,6 @@ internal fun TerminalChrome(
 ) {
     val selectedTabIndex = sessions.indexOfFirst { it.id == activeSessionId }
     val layoutDirection = LocalLayoutDirection.current
-    val tabAnimationScope = rememberCoroutineScope()
-    val tabShapeAnimationSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
     val haptics = LocalTerminalHaptics.current
     Surface(
         modifier = Modifier.zIndex(1f),
@@ -411,8 +411,15 @@ internal fun TerminalChrome(
                                 ) {
                             sessions.forEachIndexed { index, session ->
                         val selected = index == selectedTabIndex
-                        val cornerRadius = remember(session.id) { Animatable(20f) }
-                        val tabShape = RoundedCornerShape(cornerRadius.value.coerceIn(0f, 20f).dp)
+                        val tabInteractionSource = remember(session.id) { MutableInteractionSource() }
+                        val tabPressed by tabInteractionSource.collectIsPressedAsState()
+                        // Match the empty-state Button: release/cancel immediately targets the resting shape.
+                        val cornerRadius by animateDpAsState(
+                            targetValue = if (tabPressed) 8.dp else 20.dp,
+                            animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+                            label = "Session tab corner radius",
+                        )
+                        val tabShape = RoundedCornerShape(cornerRadius)
                         val sessionTitle = session.title.ifBlank { stringResource(R.string.shell_default_title) }
                         val stateLabel = sessionStateLabel(session.state)
                         val renameLabel = stringResource(R.string.rename_session_description, sessionTitle)
@@ -422,10 +429,6 @@ internal fun TerminalChrome(
                             onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                                 onSelect(session.id)
-                                tabAnimationScope.launch {
-                                    cornerRadius.animateTo(8f, tabShapeAnimationSpec)
-                                    cornerRadius.animateTo(20f, tabShapeAnimationSpec)
-                                }
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -443,6 +446,7 @@ internal fun TerminalChrome(
                                 },
                             selectedContentColor = colors.accent,
                             unselectedContentColor = colors.unselectedTabContent,
+                            interactionSource = tabInteractionSource,
                         ) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Row(
