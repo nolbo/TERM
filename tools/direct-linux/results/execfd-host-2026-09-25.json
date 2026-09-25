@@ -1,0 +1,251 @@
+{
+  "schema": 1,
+  "loader_sha256": "e226f8aac1219a684146640a375cdf1209d99bd08f476f1553abd9fbcb63c248",
+  "fixture_source_sha256": "083b541fc297497d4b2d9e61c81b328896022dfe8b373c4615cfbe95bad21c72",
+  "results": [
+    {
+      "engine": "native-linux",
+      "kind": "static",
+      "scenario": "single",
+      "exit": 0,
+      "checks": [
+        "PASS execfd single empty-read",
+        "PASS execfd single empty-path",
+        "PASS execfd single empty-cloexec",
+        "PASS execfd single deleted",
+        "PASS execfd single relative",
+        "PASS execfd single relative-cloexec",
+        "PASS execfd single cwd",
+        "PASS execfd single absolute",
+        "PASS execfd single symlink",
+        "PASS execfd single nofollow",
+        "PASS execfd single empty-nofollow",
+        "PASS execfd single fexecve",
+        "PASS execfd single proc-fallback",
+        "PASS execfd single script-fd",
+        "PASS execfd single script-relative",
+        "PASS execfd single script-deleted",
+        "PASS execfd single script-proc",
+        "PASS execfd single shell-script"
+      ]
+    },
+    {
+      "engine": "native-linux",
+      "kind": "static",
+      "scenario": "worker",
+      "exit": 0,
+      "checks": [
+        "PASS execfd worker empty-read",
+        "PASS execfd worker empty-path",
+        "PASS execfd worker empty-cloexec",
+        "PASS execfd worker deleted",
+        "PASS execfd worker relative",
+        "PASS execfd worker relative-cloexec",
+        "PASS execfd worker cwd",
+        "PASS execfd worker absolute",
+        "PASS execfd worker symlink",
+        "PASS execfd worker nofollow",
+        "PASS execfd worker empty-nofollow",
+        "PASS execfd worker fexecve",
+        "PASS execfd worker proc-fallback",
+        "PASS execfd worker script-fd",
+        "PASS execfd worker script-relative",
+        "PASS execfd worker script-deleted",
+        "PASS execfd worker script-proc",
+        "PASS execfd worker shell-script"
+      ]
+    },
+    {
+      "engine": "native-linux",
+      "kind": "static",
+      "scenario": "errors",
+      "exit": 0,
+      "checks": [
+        "PASS execfd errno, original image/signal/FD state and 100 low-NOFILE failure cycles"
+      ]
+    },
+    {
+      "engine": "native-linux",
+      "kind": "dynamic",
+      "scenario": "single",
+      "exit": 0,
+      "checks": [
+        "PASS execfd single empty-read",
+        "PASS execfd single empty-path",
+        "PASS execfd single empty-cloexec",
+        "PASS execfd single deleted",
+        "PASS execfd single relative",
+        "PASS execfd single relative-cloexec",
+        "PASS execfd single cwd",
+        "PASS execfd single absolute",
+        "PASS execfd single symlink",
+        "PASS execfd single nofollow",
+        "PASS execfd single empty-nofollow",
+        "PASS execfd single fexecve",
+        "PASS execfd single proc-fallback",
+        "PASS execfd single script-fd",
+        "PASS execfd single script-relative",
+        "PASS execfd single script-deleted",
+        "PASS execfd single script-proc",
+        "PASS execfd single shell-script"
+      ]
+    },
+    {
+      "engine": "native-linux",
+      "kind": "dynamic",
+      "scenario": "worker",
+      "exit": 0,
+      "checks": [
+        "PASS execfd worker empty-read",
+        "PASS execfd worker empty-path",
+        "PASS execfd worker empty-cloexec",
+        "PASS execfd worker deleted",
+        "PASS execfd worker relative",
+        "PASS execfd worker relative-cloexec",
+        "PASS execfd worker cwd",
+        "PASS execfd worker absolute",
+        "PASS execfd worker symlink",
+        "PASS execfd worker nofollow",
+        "PASS execfd worker empty-nofollow",
+        "PASS execfd worker fexecve",
+        "PASS execfd worker proc-fallback",
+        "PASS execfd worker script-fd",
+        "PASS execfd worker script-relative",
+        "PASS execfd worker script-deleted",
+        "PASS execfd worker script-proc",
+        "PASS execfd worker shell-script"
+      ]
+    },
+    {
+      "engine": "native-linux",
+      "kind": "dynamic",
+      "scenario": "errors",
+      "exit": 0,
+      "checks": [
+        "PASS execfd errno, original image/signal/FD state and 100 low-NOFILE failure cycles"
+      ]
+    },
+    {
+      "engine": "direct-linux",
+      "kind": "static",
+      "scenario": "single",
+      "exit": 0,
+      "checks": [
+        "PASS execfd single empty-read",
+        "PASS execfd single empty-path",
+        "PASS execfd single empty-cloexec",
+        "PASS execfd single deleted",
+        "PASS execfd single relative",
+        "PASS execfd single relative-cloexec",
+        "PASS execfd single cwd",
+        "PASS execfd single absolute",
+        "PASS execfd single symlink",
+        "PASS execfd single nofollow",
+        "PASS execfd single empty-nofollow",
+        "PASS execfd single fexecve",
+        "PASS execfd single proc-fallback",
+        "PASS execfd single script-fd",
+        "PASS execfd single script-relative",
+        "PASS execfd single script-deleted",
+        "PASS execfd single script-proc",
+        "PASS execfd single shell-script"
+      ]
+    },
+    {
+      "engine": "direct-linux",
+      "kind": "static",
+      "scenario": "worker",
+      "exit": 0,
+      "checks": [
+        "PASS execfd worker empty-read",
+        "PASS execfd worker empty-path",
+        "PASS execfd worker empty-cloexec",
+        "PASS execfd worker deleted",
+        "PASS execfd worker relative",
+        "PASS execfd worker relative-cloexec",
+        "PASS execfd worker cwd",
+        "PASS execfd worker absolute",
+        "PASS execfd worker symlink",
+        "PASS execfd worker nofollow",
+        "PASS execfd worker empty-nofollow",
+        "PASS execfd worker fexecve",
+        "PASS execfd worker proc-fallback",
+        "PASS execfd worker script-fd",
+        "PASS execfd worker script-relative",
+        "PASS execfd worker script-deleted",
+        "PASS execfd worker script-proc",
+        "PASS execfd worker shell-script"
+      ]
+    },
+    {
+      "engine": "direct-linux",
+      "kind": "static",
+      "scenario": "errors",
+      "exit": 0,
+      "checks": [
+        "PASS execfd errno, original image/signal/FD state and 100 low-NOFILE failure cycles"
+      ]
+    },
+    {
+      "engine": "direct-linux",
+      "kind": "dynamic",
+      "scenario": "single",
+      "exit": 0,
+      "checks": [
+        "PASS execfd single empty-read",
+        "PASS execfd single empty-path",
+        "PASS execfd single empty-cloexec",
+        "PASS execfd single deleted",
+        "PASS execfd single relative",
+        "PASS execfd single relative-cloexec",
+        "PASS execfd single cwd",
+        "PASS execfd single absolute",
+        "PASS execfd single symlink",
+        "PASS execfd single nofollow",
+        "PASS execfd single empty-nofollow",
+        "PASS execfd single fexecve",
+        "PASS execfd single proc-fallback",
+        "PASS execfd single script-fd",
+        "PASS execfd single script-relative",
+        "PASS execfd single script-deleted",
+        "PASS execfd single script-proc",
+        "PASS execfd single shell-script"
+      ]
+    },
+    {
+      "engine": "direct-linux",
+      "kind": "dynamic",
+      "scenario": "worker",
+      "exit": 0,
+      "checks": [
+        "PASS execfd worker empty-read",
+        "PASS execfd worker empty-path",
+        "PASS execfd worker empty-cloexec",
+        "PASS execfd worker deleted",
+        "PASS execfd worker relative",
+        "PASS execfd worker relative-cloexec",
+        "PASS execfd worker cwd",
+        "PASS execfd worker absolute",
+        "PASS execfd worker symlink",
+        "PASS execfd worker nofollow",
+        "PASS execfd worker empty-nofollow",
+        "PASS execfd worker fexecve",
+        "PASS execfd worker proc-fallback",
+        "PASS execfd worker script-fd",
+        "PASS execfd worker script-relative",
+        "PASS execfd worker script-deleted",
+        "PASS execfd worker script-proc",
+        "PASS execfd worker shell-script"
+      ]
+    },
+    {
+      "engine": "direct-linux",
+      "kind": "dynamic",
+      "scenario": "errors",
+      "exit": 0,
+      "checks": [
+        "PASS execfd errno, original image/signal/FD state and 100 low-NOFILE failure cycles"
+      ]
+    }
+  ]
+}

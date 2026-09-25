@@ -31,6 +31,8 @@ after the leader exits. [Concurrent exec](CONCURRENT_EXEC.md) adds kernel-owned
 thread teardown and nonleader conversion through a freestanding APK bootstrap.
 [Concurrent fork and FD-table ownership](FORK_FD_TABLES.md) preserve copied runtime
 state and clean private pins across fork, private-table clone and interrupted unshare.
+[FD-based exec](EXEC_FD.md) adds execveat/fexecve, unlinked-inode execution,
+script FD paths and precommit CLOEXEC errors, checked against native Linux.
 It retains the full audit scope and remaining gates.
 
 The [Python/Git milestone](APPLICATIONS.md) and subsequent

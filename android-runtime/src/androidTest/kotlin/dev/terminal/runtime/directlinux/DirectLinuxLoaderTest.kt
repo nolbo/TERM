@@ -57,6 +57,7 @@ class DirectLinuxLoaderTest {
         val networkResults = JSONArray()
         val signalResults = JSONArray()
         val threadResults = JSONArray()
+        val execFdResults = JSONArray()
         fun launch(path: String, args: Array<out String>, useProot: Boolean, terminal: Boolean = false, useBaseline: Boolean = false): ProcessBuilder {
             check(!useProot || !useBaseline)
             val engine = if (useProot) packaged.resolvePackagedExecutable("proot").getOrThrow()
@@ -188,6 +189,18 @@ class DirectLinuxLoaderTest {
                 assertTrue(run("/bin/process-$kind", "inheritance").contains("PASS fork inheritance, partial madvise errors and subsequent exec"))
                 assertTrue(run("/bin/files-$kind").contains("PASS filesystem rename/dirfd/cwd/symlinks/modes/timestamps/unlinked-FDs"))
                 assertTrue(run("/bin/tty-$kind", "no-terminal").contains("PASS no controlling terminal"))
+            }
+            if (arguments.getString("directLinuxExecFd") == "true") {
+                for (kind in listOf("static", "dynamic")) {
+                    for (scenario in listOf("single", "worker", "errors")) {
+                        val output = run("/bin/execfd-$kind", scenario)
+                        assertFalse(output, output.contains("FAIL "))
+                        val checks = output.lineSequence().filter { it.startsWith("PASS execfd ") }.toList()
+                        assertEquals(output, if (scenario == "errors") 1 else 18, checks.size)
+                        execFdResults.put(JSONObject().put("engine", "direct-linux").put("kind", kind)
+                            .put("scenario", scenario).put("checks", JSONArray(checks)))
+                    }
+                }
             }
             if (arguments.getString("directLinuxThreads") == "true") {
                 check(manifest.optBoolean("applications"))
@@ -491,6 +504,7 @@ class DirectLinuxLoaderTest {
                 .put("network_results", networkResults)
                 .put("signal_results", signalResults)
                 .put("thread_results", threadResults)
+                .put("exec_fd_results", execFdResults)
                 .put("exec_profile_stages", JSONArray(listOf("arguments", "read_validate", "reset", "unmap", "map", "entry", "dispose")))
                 .put("exec_profile_map_stages", JSONArray(listOf("reserve", "file_map", "verify", "bss", "final_protect")))
             if (benchmarks.length() > 0 || ptyResults.length() > 0 || networkResults.length() > 0 || signalResults.length() > 0 || threadResults.length() > 0) {

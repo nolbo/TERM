@@ -207,13 +207,15 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
             return dl_thread_clone(a, context);
         }
         return guest_clone(a, context->uc_mcontext.sp);
-    case SYS_execve:
+    case SYS_execve: case SYS_execveat:
         {
             struct dl_entry entry;
             dl_copy(&entry.mask, &context->uc_sigmask, 8);
             entry.virtual_sigsys = dl_thread_self()->signals.virtual_sigsys_mask;
             int kernel = (int)dl_exec_begin();
-            r = dl_exec((void *)a[0], (void *)a[1], (void *)a[2], &entry, kernel ? 2 : 1);
+            r = nr == SYS_execve
+                ? dl_exec((void *)a[0], (void *)a[1], (void *)a[2], &entry, kernel ? 2 : 1)
+                : dl_execat((int)a[0], (void *)a[1], (void *)a[2], (void *)a[3], (int)a[4], &entry, kernel ? 2 : 1);
             dl_exec_end();
             if (r) return r;
             dl_signal_collect(0);
@@ -230,7 +232,7 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
             __asm__ volatile("msr tpidr_el0, xzr" ::: "memory");
             return 0;
         }
-    case SYS_execveat: case SYS_sigaltstack:
+    case SYS_sigaltstack:
         return -EOPNOTSUPP;
     case SYS_exit: dl_thread_exit((int)a[0]);
     case SYS_getdents64: return dl_getdents((int)a[0], (void *)a[1], (unsigned)a[2]);

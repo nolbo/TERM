@@ -5,6 +5,7 @@
 #include "threads.h"
 #include <errno.h>
 #include <fcntl.h>
+#include <limits.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <time.h>
@@ -62,6 +63,40 @@ long dl_executable(int fd)
 {
     char path[40]; dl_fd_path(path, fd);
     return DL_CALL(SYS_faccessat, AT_FDCWD, path, X_OK, 0, 0, 0);
+}
+
+long dl_reopen(int fd, int flags)
+{
+    if (fd < 0 || dl_internal_fd(fd)) return -EBADF;
+    // A descriptor can outlive unlink/rename. Reopen its inode, not the text
+    // returned by readlink. Only guest-root files are eligible for this alias.
+    char path[DL_PATH];
+    long r = dl_file_path(fd, path); if (r) return r;
+    dl_fd_path(path, fd);
+    return DL_CALL(SYS_openat, AT_FDCWD, path, flags, 0, 0, 0);
+}
+
+// Bounded descriptor aliases required by execveat scripts and libc's older
+// fexecve fallback. This does not mount or expose the host proc filesystem.
+static int fd_alias(const char *path, int *fd, const char **tail)
+{
+    const char *prefixes[] = {"/dev/fd/", "/proc/self/fd/"};
+    for (unsigned i = 0; i < 2; i++) {
+        size_t n = 0;
+        while (prefixes[i][n] && prefixes[i][n] == path[n]) n++;
+        if (prefixes[i][n]) continue;
+        const char *start = path + n; unsigned value = 0;
+        *fd = -1; *tail = start;
+        if (*start < '0' || *start > '9' || (*start == '0' && start[1] >= '0' && start[1] <= '9')) return 1;
+        while (path[n] >= '0' && path[n] <= '9') {
+            unsigned digit = (unsigned)(path[n++] - '0');
+            if (value > (INT_MAX - digit) / 10) return 1;
+            value = value * 10 + digit;
+        }
+        if (path[n] && path[n] != '/') return 1;
+        *fd = (int)value; *tail = path + n; return 1;
+    }
+    return 0;
 }
 
 static void release(int fd)
@@ -129,6 +164,35 @@ static long walk(int dirfd, const char *path, int flags, unsigned mode, char *le
     size_t position = 0;
     long result = -ENOENT;
     for (;;) {
+        if (!position && pending[0] == '/') {
+            int alias; const char *tail;
+            if (fd_alias(pending, &alias, &tail)) {
+                if (alias < 0 || dl_internal_fd(alias)) { result = -ENOENT; break; }
+                long present = DL_CALL(SYS_fcntl, alias, F_GETFD, 0, 0, 0, 0);
+                if (present < 0) { result = present == -EBADF ? -ENOENT : present; break; }
+                if (!*tail) {
+                    if (leaf) { result = -EROFS; break; }
+                    if (flags & O_NOFOLLOW) {
+                        // A real magic-link O_PATH handle needs a guest proc
+                        // inode model (C23); never return a host proc handle.
+                        result = flags & O_PATH ? -EOPNOTSUPP : -ELOOP; break;
+                    }
+                    if ((flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL)) { result = -EEXIST; break; }
+                    if (context && !(flags & O_PATH)) {
+                        long pin = dl_reopen(alias, O_PATH | O_CLOEXEC);
+                        if (pin < 0) { result = pin == -EBADF ? -ENOENT : pin; break; }
+                        char host[40]; dl_fd_path(host, (int)pin);
+                        release((int)current); current = dl_state.root_fd;
+                        result = blocking_open((int)pin, host, flags, mode, context);
+                    } else result = dl_reopen(alias, flags);
+                    if (result == -EBADF) result = -ENOENT;
+                    break;
+                }
+                long pin = directory(alias);
+                if (pin < 0) { result = pin == -EBADF ? -ENOENT : pin; break; }
+                release((int)current); current = pin; position = (size_t)(tail - pending);
+            }
+        }
         while (pending[position] == '/') position++;
         size_t start = position;
         while (pending[position] && pending[position] != '/') position++;
@@ -407,6 +471,16 @@ long dl_filesystem(long nr, unsigned long *a, void *context)
         release((int)fd); return r;
     case SYS_readlinkat:
         r = dl_string(path, (void *)a[1]); if (r) return r;
+        {
+            int alias; const char *tail;
+            if (fd_alias(path, &alias, &tail) && !*tail) {
+                if (!a[3]) return -EINVAL;
+                if (alias < 0 || dl_internal_fd(alias)) return -ENOENT;
+                r = dl_file_path(alias, path); if (r) return r == -EBADF ? -ENOENT : r;
+                size_t size = dl_length(path); if (size > a[3]) size = a[3];
+                r = dl_write_memory((void *)a[2], path, size); return r ? r : (long)size;
+            }
+        }
         if (dl_equal(path, "/proc/self/exe")) {
             if (!a[3]) return -EINVAL;
             size_t size = dl_length(dl_state.executable); if (size > a[3]) size = a[3];

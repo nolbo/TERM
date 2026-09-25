@@ -59,7 +59,11 @@ static long read_image_fd(int fd, struct image *out, int interpreter)
     long result = -ENOEXEC;
     uintptr_t low = UINTPTR_MAX, high = 0, alignment = dl_state.page, phdr = 0;
     int loads = 0, interpreters = 0, executable_entry = 0;
-    if (DL_CALL(SYS_fstat, fd, &st, 0, 0, 0, 0) || !S_ISREG(st.st_mode) || st.st_size <= 0 ||
+    result = DL_CALL(SYS_fstat, fd, &st, 0, 0, 0, 0);
+    if (result) goto done;
+    if (!S_ISREG(st.st_mode)) { result = -EACCES; goto done; }
+    result = -ENOEXEC;
+    if (st.st_size <= 0 ||
             (uint64_t)st.st_size > IMAGE_LIMIT) {
         goto done;
     }
@@ -146,9 +150,14 @@ done:
     return result;
 }
 
-static long read_image(const char *path, struct image *out, int interpreter)
+static long read_image(int dirfd, const char *path, int flags, struct image *out, int interpreter)
 {
-    return read_image_fd((int)dl_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC | O_NONBLOCK, 0), out, interpreter);
+    int open_flags = O_RDONLY | O_CLOEXEC | O_NONBLOCK;
+    long fd;
+    if (!path[0] && (flags & AT_EMPTY_PATH)) fd = dirfd == AT_FDCWD
+        ? -EACCES : dl_reopen(dirfd, open_flags);
+    else fd = dl_open(dirfd, path, open_flags | ((flags & AT_SYMLINK_NOFOLLOW) ? O_NOFOLLOW : 0), 0);
+    return read_image_fd((int)fd, out, interpreter);
 }
 
 static unsigned long profile_clock(void);
@@ -265,7 +274,7 @@ struct source_page {
 };
 struct preparation {
     struct image main, interpreter;
-    char path[DL_PATH];
+    char path[DL_PATH + 40]; // execveat adds /dev/fd/N/ to an input pathname
     uintptr_t argv[ARG_LIMIT], env[ENV_LIMIT];
     size_t argc, envc;
     char *stack, *top;
@@ -392,10 +401,19 @@ static void dispose_image(struct image *image)
     image->source_fd = -1;
 }
 
-static long protect_image(const char *path, struct image *image, int interpreter, int *slot, uintptr_t stack, int replacing)
+static long protect_image(int dirfd, const char *path, int flags, struct image *image, int interpreter,
+    int *slot, uintptr_t stack, int replacing, int *inaccessible)
 {
     dl_lock(&dl_files_lock);
-    long r = read_image(path, image, interpreter);
+    long r = dirfd != AT_FDCWD && path[0] != '/' && dl_internal_fd(dirfd)
+        ? -EBADF : read_image(dirfd, path, flags, image, interpreter);
+    if (inaccessible) {
+        *inaccessible = 0;
+        if (r == 1 && dirfd != AT_FDCWD && path[0] != '/') {
+            long state = DL_CALL(SYS_fcntl, dirfd, F_GETFD, 0, 0, 0, 0);
+            *inaccessible = state < 0 || (state & FD_CLOEXEC);
+        }
+    }
     if (!r && replacing) {
         r = dl_io_hold(image->source_fd, stack);
         if (r >= 0) { *slot = (int)r; r = 0; }
@@ -422,7 +440,7 @@ static long reset_exec_state(int main_fd, int interpreter_fd)
     return dl_close_exec_fds(main_fd, interpreter_fd);
 }
 
-static long script_arguments(struct preparation *p)
+static long script_arguments(struct preparation *p, int inaccessible)
 {
     char line[257]; size_t size = p->main.file_size;
     if (size > 256) size = 256;
@@ -440,6 +458,9 @@ static long script_arguments(struct preparation *p)
     if (line[next]) line[next++] = 0;
     while (line[next] == ' ' || line[next] == '\t') next++;
     int optional = line[next] != 0;
+    // Linux rejects a script whose generated /dev/fd path will disappear at
+    // exec. Do this before committing or changing any guest descriptor flags.
+    if (inaccessible) return -ENOENT;
     if (p->argc + 1 + optional > ARG_LIMIT) return -E2BIG;
     uintptr_t script, interpreter, option = 0;
     long r = stack_string(p, p->path, &script, NULL); if (r) return r;
@@ -629,7 +650,7 @@ long dl_exec_resume(int fd, struct dl_entry *entry)
             saved->interpreter.source_fd == wire->root_fd || wire->root_fd == fd ||
             saved->main.source_fd == fd || saved->interpreter.source_fd == fd ||
             !terminated(wire->root, DL_PATH) || wire->root[0] != '/' || dl_equal(wire->root, "/") ||
-            !terminated(saved->path, DL_PATH) || (wire->flags & ~7) ||
+            !terminated(saved->path, sizeof(saved->path)) || (wire->flags & ~7) ||
             DL_CALL(SYS_fstat, fd, &st, 0, 0, 0, 0) || st.st_size != (long)(sizeof(*wire) + wire->string_size))) r = -EINVAL;
     if (r) goto done;
     dl_state.root_fd = wire->root_fd;
@@ -658,7 +679,7 @@ long dl_exec_resume(int fd, struct dl_entry *entry)
         }
     }
     if (r) goto prepared;
-    dl_copy(p->path, saved->path, DL_PATH); times[1] = profile_clock();
+    dl_copy(p->path, saved->path, sizeof(p->path)); times[1] = profile_clock();
     r = read_image_fd(saved->main.source_fd, &p->main, 0);
     if (!r && !same_metadata(&p->main, &saved->main)) r = -EAGAIN;
     if (!r && saved->interpreter.source_fd >= 0) {
@@ -684,8 +705,10 @@ done:
     DL_CALL(SYS_munmap, wire, sizeof(*wire), 0, 0, 0, 0); return r;
 }
 
-long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_entry *entry, int replacing)
+long dl_execat(int dirfd, const char *path, char *const *argv, char *const *env, int flags,
+    struct dl_entry *entry, int replacing)
 {
+    if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW)) return -EINVAL;
     unsigned long times[8] = {0}, costs[5] = {0}, bytes = 0, read_bytes = 0;
     times[0] = profile_clock();
     long memory = DL_CALL(SYS_mmap, 0, sizeof(struct preparation) + 2 * dl_state.page, PROT_READ | PROT_WRITE,
@@ -696,8 +719,19 @@ long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_en
     p->pointers.bytes = p->source_pages;
     p->strings.bytes = p->source_pages + dl_state.page;
     p->main.source_fd = p->interpreter.source_fd = -1;
-    long r = dl_string(p->path, path);
+    char lookup[DL_PATH];
+    long r = dl_string(lookup, path);
     if (r) goto done;
+    if (!lookup[0] && !(flags & AT_EMPTY_PATH)) { r = -ENOENT; goto done; }
+    if (dirfd == AT_FDCWD || lookup[0] == '/') dl_copy(p->path, lookup, dl_length(lookup) + 1);
+    else {
+        if (dirfd < 0 || dl_internal_fd(dirfd)) { r = -EBADF; goto done; }
+        const char prefix[] = "/dev/fd/";
+        size_t count = sizeof(prefix) - 1; dl_copy(p->path, prefix, count);
+        count += number(p->path + count, (unsigned)dirfd);
+        if (lookup[0]) p->path[count++] = '/';
+        dl_copy(p->path + count, lookup, dl_length(lookup) + 1);
+    }
     long stack = DL_CALL(SYS_mmap, 0, STACK_SIZE + 2 * dl_state.page, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (stack < 0) { r = stack; goto done; }
     p->stack = (char *)stack + dl_state.page; p->top = p->stack + STACK_SIZE;
@@ -709,14 +743,17 @@ long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_en
     times[1] = profile_clock();
     uintptr_t runtime_stack; __asm__ volatile("mov %0, sp" : "=r"(runtime_stack));
     for (unsigned depth = 0;; depth++) {
-        r = protect_image(p->path, &p->main, 0, &p->main_slot, runtime_stack, replacing);
+        int inaccessible;
+        r = protect_image(depth ? AT_FDCWD : dirfd, depth ? p->path : lookup, depth ? 0 : flags,
+            &p->main, 0, &p->main_slot, runtime_stack, replacing, &inaccessible);
         if (r != 1) break;
         if (depth == 4) { r = -ELOOP; goto done; }
-        r = script_arguments(p); if (r) goto done;
+        r = script_arguments(p, inaccessible); if (r) goto done;
     }
     if (r) goto done;
     if (p->main.interpreter[0]) {
-        r = protect_image(p->main.interpreter, &p->interpreter, 1, &p->interpreter_slot, runtime_stack, replacing); if (r) goto done;
+        r = protect_image(AT_FDCWD, p->main.interpreter, 0, &p->interpreter, 1,
+            &p->interpreter_slot, runtime_stack, replacing, NULL); if (r) goto done;
     }
     times[2] = profile_clock();
     bytes = p->main.file_size + p->interpreter.file_size;
@@ -747,4 +784,9 @@ fatal:
         DL_CALL(SYS_exit_group, 126, 0, 0, 0, 0, 0);
         __builtin_unreachable();
     }
+}
+
+long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_entry *entry, int replacing)
+{
+    return dl_execat(AT_FDCWD, path, argv, env, 0, entry, replacing);
 }

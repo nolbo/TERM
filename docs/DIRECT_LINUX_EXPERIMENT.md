@@ -389,6 +389,8 @@ maps 조회 비용은 이 반복 명령 시간에서 제외되며 전체 앱의 
 freestanding APK 런타임에 kernel 재진입하여 다중 thread/nonleader exec를 지원한다.
 런타임 자체는 고정 주소이고 guest ASLR과 RELRO는 유지한다.
 [다중 thread fork/FD-table 소유권](../tools/direct-linux/FORK_FD_TABLES.md)도 구현·검증했다.
+[FD 기반 exec](../tools/direct-linux/EXEC_FD.md)는 execveat/fexecve와 unlink된 파일,
+스크립트의 FD 경로·CLOEXEC 오류를 native Linux와 대조하고 Android에서 검증했다.
 shared-VM spawn과 추가 FD/FS 조합을 비롯한
 전체 45개 목표는 그 문서의 항목별 상태로 계속 추적한다.
 
@@ -412,7 +414,7 @@ Direct에서 ENAMETOOLONG으로 실패한다. [비교 결과](../tools/direct-li
    기본 xattr 및 null/zero/random/urandom의 고정 장치 보기는 검증했다.
    symlink 시간 변경은 Linux 5.8+이며 오래된 커널의 오류를 숨기지 않는다.
 4. **프로세스·신호:** 사용자 altstack·외부 SIGSYS·전체 신호 context 가상화,
-   전체 thread/FD/FS 조합/shared-VM spawn/execveat, 전체 vfork 의미와
+   전체 thread/FD/FS 조합/shared-VM spawn, 전체 vfork 의미와
    확장 CPU 상태, guest seccomp가 남았다. 기본 pthread/robust owner death와
    [blocking EINTR/cancellation](../tools/direct-linux/BLOCKING_SIGNALS.md)을 검증했다. 기본 fork/wait와 exec의
    signal/CLOEXEC와 일반 action/대기 마스크·중첩 nonlocal 복귀 검증은 완료했다.

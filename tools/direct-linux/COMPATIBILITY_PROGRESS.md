@@ -178,6 +178,25 @@ restart ENOENT를 별도 기록했다. Android 상속 mask의 fixture 누락, �
 조회, APK 설치 공간 부족을 수정/복구한 과정도 보존한다. shared-VM spawn과
 추가 FD/FS/자원 조합, stock enforcing/16 KiB, 제품 통합은 여전히 미완료다.
 
+## 2026-09-25: C06 FD 기반 exec
+
+[구현·범위·재현](EXEC_FD.md), [host 비교](results/execfd-host-2026-09-25.json),
+[Android 실행](results/execfd-runtime-2026-09-25.json).
+`execveat/fexecve`의 AT_EMPTY_PATH·O_PATH·상대 dirfd·unlink 실행과 스크립트
+FD 경로/CLOEXEC 의미를 구현했다. 단일 스레드와 병행 exec는 같은 준비·복원
+경로를 사용한다. `/dev/fd/N`과 `/proc/self/fd/N`의 제한된 파일 별칭도 제공한다.
+
+native Linux와 Direct host에서 정적·동적 각 18개 성공 경로를 single/worker
+모드로 검증했다. NOFILE=16에서 16종 실패 후 상태/FD 용량 보존을 각 100회
+검사했다. Android 새 6개 suite와 기존 회귀, kernel 재진입 200회가 통과했다.
+최종 32.556초/2 tests/180회 실행(비교 54회 포함)/730 fixture hash,
+native 감사·서명·canonical Gradle·host ELF/FD/매핑 회귀가 통과했다.
+
+직전 작업은 C04 설계 검토까지였고 shared-VM 구현은 아직 없다. 이번 변경은
+독립적으로 필요한 C06을 달성했으며 C04를 COW fork로 대체해 완료 처리하지 않는다.
+전체 proc/devfs, stock enforcing/16 KiB, 제품 통합과 다른 45개 항목의 미완료
+조건은 그대로 남는다. root 밖/익명 FD의 proc 별칭은 이번 범위에 포함하지 않는다.
+
 ## 전체 목표 추적
 
 각 행의 원래 완료 조건은 감사 문서의 같은 ID를 따른다. 현 기기의 통과를
@@ -190,7 +209,7 @@ stock enforcing/다른 페이지 크기/모든 앱에 일반화하지 않는다.
 | C03 | pthread | 부분 구현·실행 검증: 기본 pthread/Python 통과. clone3/rseq/PI·추가 cancellation/CPU migration 남음. |
 | C04 | spawn/vfork | 미완료: shared-VM spawn, 전체 vfork 의미. |
 | C05 | thread 수명·병행 exec | 다중 thread/nonleader/leader 선종료 fork·exec, kernel 거부 복원, 비공유 FD clone 검증. 전체 FD/FS/생성 실패·장시간 조합은 미완료. |
-| C06 | execveat/fexecve | 미완료. |
+| C06 | execveat/fexecve | 현재 환경 구현·host native 비교·Android 검증 완료: 빈/상대 경로, O_PATH/unlink, script+CLOEXEC, errno·실패 복원. C01/C02 플랫폼 gate는 별도. |
 | C07 | argv/env 한도 | 미완료. |
 | C08 | ELF 허용 범위 | 미완료: 큰 ELF/다양한 linker/CPU property. |
 | C09 | 실행 권한·동시 쓰기 | 미완료: 가상 mode와 ETXTBSY 수명. |
@@ -207,8 +226,8 @@ stock enforcing/다른 페이지 크기/모든 앱에 일반화하지 않는다.
 | C20 | hardlink/FIFO/node | 미완료: FIFO 검사는 host가 fixture를 준비한 것이며 guest mkfifo 구현이 아님. |
 | C21 | 최신 pathname API | 미완료. |
 | C22 | ACL/xattr/경쟁 | 미완료. |
-| C23 | guest proc | 미완료: live-TID 경로는 내부 구현만 변경. |
-| C24 | devpts/중첩 PTY | 미완료. |
+| C23 | guest proc | 미완료: guest-root FD 파일의 `/proc/self/fd/N` 별칭 추가. 전체 proc/열거/magic-link/익명 FD는 남음. |
+| C24 | devpts/중첩 PTY | 미완료: script용 `/dev/fd/N` 파일 별칭 추가. 전체 devfs·devpts·중첩 PTY는 남음. |
 | C25 | FD 고갈 복구 | 현 kernel 수정·host/Android 검증. close_range 미지원 구형 kernel의 EMFILE/ENFILE fallback 남음. |
 | C26 | private FD·한도 | table identity와 복사 pin 정리, signal wait 중 unshare, 낮은 NOFILE 회귀 추가. 모든 FD 전달·분리 조합과 초기 FD 한도는 미완료. |
 | C27 | lock/고급 I/O | 미완료. |

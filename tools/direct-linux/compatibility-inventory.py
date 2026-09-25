@@ -37,8 +37,10 @@ def main():
     conditional = set(re.findall(r"DIRECT_NULL\(SYS_(\w+),", source))
     handled = set(re.findall(r"case SYS_(\w+):", handler))
     forwarded = set(re.findall(r"case SYS_(\w+):", handler[handler.index("case SYS_read:"):]))
-    rejected = {"execveat", "sigaltstack"}
-    if not rejected <= handled or not calls or (direct | conditional | handled) - calls.keys():
+    rejected = set()
+    for group in re.findall(r"((?:\s*case SYS_\w+:)+)\s*return -EOPNOTSUPP;", handler):
+        rejected.update(re.findall(r"case SYS_(\w+):", group))
+    if not rejected or not rejected <= handled or not calls or (direct | conditional | handled) - calls.keys():
         raise ValueError("source/macros changed; review classifier before updating the inventory")
     counts = collections.Counter()
     rows = ["number\tsyscall\troute\n"]

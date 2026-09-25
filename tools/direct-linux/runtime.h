@@ -34,6 +34,8 @@ long dl_read_memory(void *destination, const void *source, size_t size);
 long dl_write_memory(void *destination, const void *source, size_t size);
 long dl_string(char *destination, const char *source);
 long dl_open(int dirfd, const char *path, int flags, unsigned mode);
+// Reopen a guest descriptor's pinned inode; caller holds dl_files_lock.
+long dl_reopen(int fd, int flags);
 long dl_filesystem(long nr, unsigned long args[6], void *context);
 long dl_devices_init(void);
 int dl_device_index(int dirfd, const char *name);
@@ -58,6 +60,8 @@ long dl_virtual_cwd(char path[DL_PATH]);
 int dl_install(void *signal_stack, size_t size, int filtering);
 struct dl_entry { uintptr_t pc, sp; unsigned long mask, virtual_sigsys; };
 long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_entry *entry, int replacing);
+long dl_execat(int dirfd, const char *path, char *const *argv, char *const *env, int flags,
+    struct dl_entry *entry, int replacing);
 long dl_exec_resume(int fd, struct dl_entry *entry);
 long dl_mmap(uintptr_t address, size_t size, int prot, int flags, int fd, unsigned long offset);
 long dl_munmap(uintptr_t address, size_t size);

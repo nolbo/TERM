@@ -33,6 +33,12 @@ long dl_open(int fd, const char *path, int flags, unsigned mode)
 {
     int result = openat(fd, path, flags, mode); return result < 0 ? -errno : result;
 }
+int dl_internal_fd(int fd) { (void)fd; return 0; }
+long dl_reopen(int fd, int flags)
+{
+    char name[64]; snprintf(name, sizeof(name), "/proc/self/fd/%d", fd);
+    return dl_open(AT_FDCWD, name, flags, 0);
+}
 long dl_file_path(int fd, char out[DL_PATH])
 {
     char name[64]; snprintf(name, sizeof(name), "/proc/self/fd/%d", fd);
@@ -131,7 +137,7 @@ int main(void)
     const size_t mutations[] = {offsetof(Elf64_Ehdr, e_entry), phoff + sizeof(Elf64_Phdr), interp + 1};
     for (unsigned i = 0; i < sizeof(mutations) / sizeof(mutations[0]); i++) {
         struct image image = {0}; unsigned long costs[5] = {0};
-        assert(read_image(path, &image, 0) == 0);
+        assert(read_image(AT_FDCWD, path, 0, &image, 0) == 0);
         assert(image.read_bytes == 256 + 2 * sizeof(Elf64_Phdr) + sizeof(interpreter));
         unsigned char changed = bytes[mutations[i]] ^ 1;
         assert(pwrite(fd, &changed, 1, mutations[i]) == 1);
@@ -140,13 +146,13 @@ int main(void)
         assert(pwrite(fd, bytes + mutations[i], 1, mutations[i]) == 1);
     }
     struct image image = {0}; unsigned long costs[5] = {0};
-    assert(read_image(path, &image, 0) == 0);
+    assert(read_image(AT_FDCWD, path, 0, &image, 0) == 0);
     // Ordinary payload bytes are demand-paged contents, not a promised immutable
     // executable snapshot. Metadata checks above must remain strict regardless.
     unsigned char changed = 0x69; assert(pwrite(fd, &changed, 1, 512) == 1);
     assert(map_image(&image, costs) == 0 && *(unsigned char *)(image.base + 512) == changed);
     dl_unmap_all(); dispose_image(&image);
-    assert(read_image(path, &image, 0) == 0);
+    assert(read_image(AT_FDCWD, path, 0, &image, 0) == 0);
     assert(unlink(path) == 0);
     int replacement = open(path, O_CREAT | O_EXCL | O_WRONLY, 0700); assert(replacement >= 0);
     assert(write(replacement, "not an ELF", 10) == 10 && !close(replacement));

@@ -47,6 +47,8 @@ reentry under the same inherited seccomp filter for [concurrent/nonleader exec](
 The runtime image is fixed-address, with guest ASLR and runtime RELRO maintained;
 stock enforcing policy remains unverified. Single-thread exec keeps its existing
 in-process path. See [current compatibility status](COMPATIBILITY_PROGRESS.md).
+[FD-based exec](EXEC_FD.md) now uses this same path for execveat/fexecve,
+including O_PATH, unlinked files and script descriptor lifetime rules.
 
 The initial milestone copied main ELF/interpreter bytes into anonymous RW pages
 and then applied final permissions. The subsequent [exec cost reduction](EXEC_PERFORMANCE.md)
@@ -155,7 +157,7 @@ this step changes neither UI interaction nor connected-app state.
 
 Remaining implementation after the process milestone: broader thread semantics,
 shared-VM spawn and further FD/FS sharing combinations,
-execveat and complete signal virtualization/interruption; FD sharing/lifecycle and complete filesystem
+complete signal virtualization/interruption; FD sharing/lifecycle and complete filesystem
 semantics (basic mutations now work); fake identity/hardlinks; installer/package environment; backend/PTY/UI
 integration and lifecycle tests. Unsupported process variants return EOPNOTSUPP or ENOSYS; ordinary fork/exec/wait
 and bounded vfork compatibility now work. This is a concrete ELF milestone, **not completion of the user goal**.
