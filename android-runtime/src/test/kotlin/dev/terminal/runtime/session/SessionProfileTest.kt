@@ -41,6 +41,29 @@ class SessionProfileTest {
         assertTrue(listOf(layout.rootfs, layout.home, layout.tmp, layout.workspace).all { it.parentFile == first })
         assertNotEquals(SessionStorage.root(base, SessionRuntime.AVF, id), SessionStorage.root(base, SessionRuntime.AVF, "legacy"))
     }
+    @Test fun paletteRoundTripIsOptionalValidatedAndDefensivelyCopied() {
+        val original = profile()
+        assertNull(original.palette)
+        assertNull(SessionLaunchSpec.fromJson(original.resolve().toJson().toString()).palette)
+        val colors = MutableList(19) { "#123456" }
+        val snapshot = original.copy(palette = colors).resolve()
+        colors[0] = "#FFFFFF"
+        assertEquals("#123456", snapshot.palette!![0])
+        assertEquals(snapshot, SessionLaunchSpec.fromJson(snapshot.toJson().toString()))
+        assertTrue(runCatching { (snapshot.palette as MutableList)[0] = "#000000" }.isFailure)
+        for (bad in listOf(emptyList(), List(18) { "#123456" }, List(20) { "#123456" },
+            List(19) { "#12345" }, List(19) { "red" })) {
+            assertTrue(runCatching { original.copy(palette = bad).resolve() }.isFailure)
+            assertTrue(runCatching {
+                SessionLaunchSpec.fromJson(original.resolve().toJson().put("palette", org.json.JSONArray(bad)).toString())
+            }.isFailure)
+        }
+        assertTrue(runCatching {
+            SessionLaunchSpec.fromJson(original.resolve().toJson().put("palette", "invalid").toString())
+        }.isFailure)
+        assertNull(SessionLaunchSpec.fromJson(snapshot.toJson().apply { remove("palette") }.toString()).palette)
+    }
+
     private fun profile() = SessionProfile("user-id", "Work", SessionRuntime.NATIVE, "/system/bin/sh")
 
     @Test fun resolveDefensivelyCopiesCollectionsAndSurvivesProfileEdits() {

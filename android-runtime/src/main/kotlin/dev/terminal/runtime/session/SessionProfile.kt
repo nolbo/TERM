@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Collections
 
-/** Persistent creation settings only; no process, renderer or terminal state belongs here. */
+/** Persistent creation and appearance preferences; no live process or renderer state belongs here. */
 data class SessionProfile(
     val id: String,
     val name: String,
@@ -16,6 +16,8 @@ data class SessionProfile(
     val startupCommand: String = "",
     val storageId: String = "legacy",
     val icon: String = "auto",
+    /** Null follows the global palette; otherwise foreground, background, cursor and 16 ANSI colors. */
+    val palette: List<String>? = null,
 ) {
     val builtIn: Boolean get() = id == builtInId(runtime)
     fun resolve(): SessionLaunchSpec = SessionLaunchSpec(this)
@@ -36,7 +38,9 @@ class SessionLaunchSpec(profile: SessionProfile) {
     val startupCommand = profile.startupCommand
     val storageId = profile.storageId
     val icon = profile.icon
+    val palette: List<String>? = profile.palette?.let { Collections.unmodifiableList(ArrayList(it)) }
     init {
+        require(palette == null || (palette.size == 19 && palette.all { it.matches(Regex("#[0-9a-fA-F]{6}")) })) { "Invalid profile palette" }
         SessionProfileIcon.validate(icon)
         SessionStorage.validate(storageId)
         require(profileId.isNotBlank() && profileId.length <= 128) { "Invalid profile ID" }
@@ -59,8 +63,9 @@ class SessionLaunchSpec(profile: SessionProfile) {
         .put("name", profileName).put("runtime", runtime.wireName).put("shell", shell)
         .put("arguments", JSONArray(shellArguments)).put("cwd", workingDirectory)
         .put("environment", JSONObject(environment)).put("startupCommand", startupCommand).put("storageId", storageId).put("icon", icon)
+        .apply { palette?.let { put("palette", JSONArray(it)) } }
 
-    fun toProfile() = SessionProfile(profileId, profileName, runtime, shell, shellArguments, workingDirectory, environment, startupCommand, storageId, icon)
+    fun toProfile() = SessionProfile(profileId, profileName, runtime, shell, shellArguments, workingDirectory, environment, startupCommand, storageId, icon, palette)
 
     override fun equals(other: Any?): Boolean = other is SessionLaunchSpec && toProfile() == other.toProfile()
     override fun hashCode(): Int = toProfile().hashCode()
@@ -76,7 +81,10 @@ class SessionLaunchSpec(profile: SessionProfile) {
                 requireNotNull(SessionRuntime.fromWireName(json.getString("runtime"))), json.getString("shell"),
                 List(args.length()) { args.getString(it) }, json.getString("cwd"),
                 env.keys().asSequence().associateWith { env.getString(it) }, json.getString("startupCommand"),
-                json.optString("storageId", "legacy"), json.optString("icon", "auto")).resolve()
+                json.optString("storageId", "legacy"), json.optString("icon", "auto"),
+                if (!json.has("palette") || json.isNull("palette")) null else json.getJSONArray("palette").let { colors ->
+                    List(colors.length()) { index -> require(colors.get(index) is String); colors.getString(index) }
+                }).resolve()
         }
     }
 }

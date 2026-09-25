@@ -99,7 +99,7 @@
     <string name="profile_duplicate_save_first">Save your changes before duplicating this profile.</string>
     <string name="profile_delete">Delete</string>
     <string name="profile_delete_message">Delete %1$s? Running sessions will be preserved.</string>
-    <string name="profile_future_only">Changes apply only to sessions created later.</string>
+    <string name="profile_future_only">Palette changes also apply to running sessions. Other changes apply only to sessions created later.</string>
     <string name="profile_name">Profile name</string>
     <string name="profile_icon">Profile icon</string>
     <string name="profile_icon_auto">Match runtime</string>

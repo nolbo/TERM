@@ -1,0 +1,11 @@
+<resources>
+    <string name="profile_palette">Color palette</string>
+    <string name="profile_palette_global">Follow global palette</string>
+    <string name="profile_palette_custom">Independent profile palette</string>
+    <string name="profile_palette_copy_global">Copy global palette</string>
+    <string name="profile_palette_copy_hint">Copy current colors without following future global changes.</string>
+    <string name="profile_palette_import">Import from another profile</string>
+    <string name="profile_palette_import_hint">Make an independent copy of the selected profile’s current colors.</string>
+    <string name="profile_palette_reset">Reset palette</string>
+    <string name="profile_palette_reset_hint">Follow the global palette, including future changes.</string>
+</resources>

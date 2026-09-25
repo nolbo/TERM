@@ -64,7 +64,12 @@ immutable `SessionLaunchSpec` before the UI calls `createSessionFromSpec` (versi
 bounded JSON over the existing Binder boundary). Native, Debian, Ubuntu, Arch and
 AVF are initial defaults; app-private overrides retain their IDs and deletion markers
 prevent deleted defaults from reappearing. User copies have independent IDs.
-Profiles contain creation settings only, never PTY, dimensions or renderer state.
+Profiles contain creation settings and a palette preference, never PTY, dimensions
+or live renderer state. Palettes are either global inheritance or 19 explicit RGB
+colors. Live UI mirrors resolve the current saved profile; deleted profiles fall
+back to their launch snapshot. Each emulator owns its palette defaults so OSC
+resets cannot pick up another session’s colors. Transition colors are render-only,
+with one Activity-owned animation clock for terminal and chrome.
 Profile icons use a stable `auto`, built-in key, or validated content-addressed image
 identity in both the profile and launch snapshot. Missing keys retain automatic
 runtime icons. The UI imports bounded PNG/WebP/JPEG streams into immutable normalized

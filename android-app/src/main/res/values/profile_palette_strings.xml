@@ -1,0 +1,11 @@
+<resources>
+    <string name="profile_palette">컬러 팔레트</string>
+    <string name="profile_palette_global">전역 팔레트 따름</string>
+    <string name="profile_palette_custom">이 프로필의 독립 팔레트</string>
+    <string name="profile_palette_copy_global">전역 팔레트 복제</string>
+    <string name="profile_palette_copy_hint">현재 색상만 복사하며 이후 전역 변경은 따르지 않습니다.</string>
+    <string name="profile_palette_import">다른 프로필에서 가져오기</string>
+    <string name="profile_palette_import_hint">선택한 프로필의 현재 색상을 독립 복사합니다.</string>
+    <string name="profile_palette_reset">팔레트 초기화</string>
+    <string name="profile_palette_reset_hint">전역 팔레트를 따르고 앞으로의 변경도 반영합니다.</string>
+</resources>

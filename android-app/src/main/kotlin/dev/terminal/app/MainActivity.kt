@@ -151,6 +151,13 @@ class MainActivity : TerminalActivity() {
     private var controlPressed by mutableStateOf(false)
     private var altPressed by mutableStateOf(false)
     private var terminalBackgroundColor by mutableStateOf(Color.Black)
+    private var terminalChromeColors by mutableStateOf(dev.terminal.app.ui.TerminalChromeColors(Color.Black))
+    private val paletteTransition = TerminalPaletteTransition { colors ->
+        terminalChromeColors = colors
+        terminalBackgroundColor = colors.background
+    }
+    private var paletteSessionId: String? = null
+    private var paletteView: TerminalView? = null
     private var terminalPaddingDp by mutableStateOf(TerminalAppearance.DEFAULT_PADDING_DP)
     private var applicationTerminalTitles by mutableStateOf(emptyMap<String, String>())
     private var terminalAppBarContentVisible by mutableStateOf(true)
@@ -349,12 +356,14 @@ class MainActivity : TerminalActivity() {
         toolbarInputActive = true
         val preferences = terminalPreferences()
         hotkeyLayout = readHotkeyLayout(preferences)
-        terminalBackgroundColor = Color(TerminalAppearance.backgroundColor(preferences))
+        profiles = SessionProfiles(this).all()
         terminalPaddingDp = TerminalAppearance.paddingDp(preferences)
         terminalView?.let {
-            val paletteChanged = TerminalAppearance.apply(preferences, it, sessionFontSize())
-            if (paletteChanged) terminalSessions.values.forEach { session ->
-                session.emulator?.mColors?.reset()
+            paletteTransition.capture(it)
+            TerminalAppearance.apply(preferences, it, sessionFontSize(), applyPalette = false)
+            updateTerminalPalette(it)
+            terminalSessions.filterKeys { id -> id != activeSessionId }.forEach { (id, session) ->
+                session.emulator?.mColors?.setDefaultColors(sessionPalette(id).asProperties())
             }
             applyScrollSettings(it, preferences)
             it.refresh()
@@ -379,6 +388,8 @@ class MainActivity : TerminalActivity() {
     override fun onDestroy() {
         // The Activity is no longer a valid Binder callback target. Runtime processes remain
         // service-owned; this only releases the UI-side mirror and its listener.
+        paletteTransition.cancel()
+        paletteView = null
         bindingGeneration++
         terminalView?.removeCallbacks(showTerminalKeyboard)
         mainHandler.removeCallbacks(reconnectRuntime)
@@ -434,6 +445,7 @@ class MainActivity : TerminalActivity() {
                 activeSessionId = activeSessionId,
                 appBarContentVisible = activeSessionId == null || terminalAppBarContentVisible,
                 terminalBackgroundColor = screenBackgroundColor,
+                colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,
                 topInsets = topInsets,
                 terminatingSessionIds = terminatingSessionIds,
                 profiles = profiles,
@@ -458,7 +470,7 @@ class MainActivity : TerminalActivity() {
                             terminalView = this
                             setTerminalViewClient(terminalInputCallbacks)
                             applyScrollSettings(this, terminalPreferences())
-                            TerminalAppearance.apply(terminalPreferences(), this)
+                            TerminalAppearance.apply(terminalPreferences(), this, applyPalette = false)
                         }
                     },
                     update = { view ->
@@ -467,7 +479,11 @@ class MainActivity : TerminalActivity() {
                     },
                     onRelease = { view ->
                         view.removeCallbacks(showTerminalKeyboard)
-                        if (terminalView === view) terminalView = null
+                        if (terminalView === view) {
+                            paletteTransition.cancel()
+                            paletteView = null
+                            terminalView = null
+                        }
                     },
                     modifier = Modifier.weight(1f).fillMaxWidth()
                         .clipToBounds()
@@ -481,6 +497,7 @@ class MainActivity : TerminalActivity() {
                     control = controlPressed,
                     alt = altPressed,
                     terminalBackgroundColor = terminalBackgroundColor,
+                    colors = terminalChromeColors,
                     onKey = { key ->
                         // A state change can precede the frame which disposes a held button.
                         if (activeSessionId == toolbarSessionId) sendToolbarKey(key)
@@ -648,6 +665,7 @@ class MainActivity : TerminalActivity() {
 
     private fun attach(id: String) {
         if (id !in sessions.map { it.id }) return
+        paletteTransition.capture(terminalView)
         activeSessionId = id
         val session = terminalSessions.getOrPut(id) {
             TerminalSession(
@@ -690,6 +708,7 @@ class MainActivity : TerminalActivity() {
 
     private fun attachRuntimeWhenReady(id: String) {
         if (activeSessionId != id || terminalSessions[id]?.emulator == null) return
+        terminalView?.let(::updateTerminalPalette)
         val firstAttachment = initializedRuntimeTerminals.add(id)
         runtimeAttachment.select(id, replayTranscript = firstAttachment)?.let { selectedId ->
             safeRuntimeCall { it.attachSession(selectedId) }
@@ -699,12 +718,36 @@ class MainActivity : TerminalActivity() {
     private fun attachRenderer(view: TerminalView) {
         val id = activeSessionId ?: return
         val session = terminalSessions[id] ?: return
-        if (view.currentSession === session) return
+        if (view.currentSession === session) {
+            updateTerminalPalette(view)
+            return
+        }
         view.attachSession(session)
         applySessionFontSize(view)
+        updateTerminalPalette(view)
         // A different shell must get a fresh IME connection/composition buffer.
         getSystemService(InputMethodManager::class.java).restartInput(view)
         requestTerminalKeyboard()
+    }
+
+    private fun sessionPalette(id: String): TerminalAppearance.PaletteColors {
+        val session = sessions.firstOrNull { it.id == id }
+        val profile = profiles.firstOrNull { it.id == session?.profileId } ?: session?.launchSpec?.toProfile()
+        return TerminalAppearance.profilePalette(terminalPreferences(), profile)
+    }
+
+    private fun updateTerminalPalette(view: TerminalView) {
+        val id = activeSessionId ?: return
+        val session = terminalSessions[id] ?: return
+        if (view.currentSession !== session) return
+        val colors = session.emulator?.mColors ?: return
+        val changed = colors.setDefaultColors(sessionPalette(id).asProperties())
+        if (paletteSessionId != id || paletteView !== view || changed) {
+            val animate = paletteView === view && paletteSessionId != null
+            paletteSessionId = id
+            paletteView = view
+            paletteTransition.show(view, animate)
+        }
     }
 
     private fun requestTerminalKeyboard() {
