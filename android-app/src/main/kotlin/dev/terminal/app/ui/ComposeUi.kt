@@ -137,6 +137,21 @@ internal fun terminalListItemShapes(): ListItemShapes = ListItemDefaults.shapes(
     shape = MaterialTheme.shapes.extraLarge,
 )
 
+/** Disabled settings retain their surface and dim only their foreground content. */
+@Composable
+internal fun terminalSettingsListItemColors(containerColor: Color = Color.Transparent): ListItemColors {
+    val disabledContent = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+    return ListItemDefaults.colors(
+        containerColor = containerColor,
+        disabledContainerColor = containerColor,
+        disabledContentColor = disabledContent,
+        disabledSupportingContentColor = disabledContent,
+        disabledOverlineContentColor = disabledContent,
+        disabledLeadingContentColor = disabledContent,
+        disabledTrailingContentColor = disabledContent,
+    )
+}
+
 @Composable
 fun DroidTheme(
     systemBarBackground: Color? = null,
