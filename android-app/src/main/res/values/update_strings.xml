@@ -9,6 +9,7 @@
     <string name="update_description">새 앱 버전이 있는지 확인하고 내려받을 수 있습니다. 설치는 Android의 확인 화면에서 진행합니다.</string>
     <string name="update_installed_version">설치된 버전 · %1$s</string>
     <string name="update_idle">업데이트를 확인하려면 아래 버튼을 누르세요.</string>
+    <string name="update_debug_manual">TERM Debug는 별도 앱입니다. 업데이트하려면 같은 디버그 키로 서명한 새 디버그 APK를 직접 설치하세요. 정식·개발 채널 업데이트는 적용하지 않습니다.</string>
     <string name="update_check">업데이트 확인</string>
     <string name="update_checking">새 버전을 확인하고 있습니다…</string>
     <string name="update_no_release">아직 배포된 업데이트가 없습니다.</string>

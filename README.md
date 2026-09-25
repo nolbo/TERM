@@ -40,6 +40,12 @@ The debug APK is written to:
 android-app/build/outputs/apk/debug/android-app-debug.apk
 ```
 
+Debug builds install as **TERM Debug** (`dev.terminal.app.debug`) alongside stable
+and prerelease builds (`dev.terminal.app`). Their settings, runtime data, and
+sessions are separate. Update debug builds by installing a new APK signed with
+the same debug key; release-channel updates are disabled in the debug app.
+See [debug build details](docs/DEBUG_BUILDS.md).
+
 ## Update versions
 
 Base versions follow the [version promotion policy](docs/VERSIONING.md): fixes

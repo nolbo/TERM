@@ -38,6 +38,7 @@ internal class AppUpdateController(context: Context) {
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
     private val preferences = app.getSharedPreferences("app-updates", Context.MODE_PRIVATE)
+    val releaseUpdatesSupported = BuildConfig.APPLICATION_ID == "dev.terminal.app"
     var channel: UpdateChannel by mutableStateOf(
         UpdateChannel.entries.firstOrNull { it.wireName == preferences.getString("channel", BuildConfig.UPDATE_CHANNEL) }
             ?: UpdateChannel.fromWire(BuildConfig.UPDATE_CHANNEL)
@@ -48,14 +49,14 @@ internal class AppUpdateController(context: Context) {
     val busy: Boolean get() = state is AppUpdateState.Checking || state is AppUpdateState.Downloading
 
     fun selectChannel(value: UpdateChannel) {
-        if (busy || value == channel) return
+        if (!releaseUpdatesSupported || busy || value == channel) return
         preferences.edit().putString("channel", value.wireName).apply()
         channel = value
         state = AppUpdateState.Idle
     }
 
     fun check() {
-        if (busy) return
+        if (!releaseUpdatesSupported || busy) return
         val requestedChannel = channel
         state = AppUpdateState.Checking
         worker.execute {
@@ -96,6 +97,7 @@ internal class AppUpdateController(context: Context) {
     }
 
     fun download() {
+        if (!releaseUpdatesSupported) return
         val manifest = (state as? AppUpdateState.Available)?.manifest ?: return
         state = AppUpdateState.Downloading(manifest, 0)
         worker.execute {
@@ -140,6 +142,7 @@ internal class AppUpdateController(context: Context) {
         val installed = pm.getPackageInfo(app.packageName, PackageManager.GET_SIGNING_CERTIFICATES)
         val candidate = pm.getPackageArchiveInfo(apk.absolutePath, PackageManager.GET_SIGNING_CERTIFICATES)
             ?: throw UpdateRejected(UpdateRejection.IDENTITY)
+        if (candidate.packageName != app.packageName) throw UpdateRejected(UpdateRejection.IDENTITY)
         fun signers(info: PackageInfo) = info.signingInfo?.apkContentsSigners?.map { it.toByteArray().sha256Hex() }?.toSet().orEmpty()
         validateUpdateIdentity(manifest, candidate.packageName, candidate.longVersionCode, candidate.versionName, signers(installed), signers(candidate))
         if ((candidate.applicationInfo?.minSdkVersion ?: Int.MAX_VALUE) > Build.VERSION.SDK_INT) throw UpdateRejected(UpdateRejection.INCOMPATIBLE)
