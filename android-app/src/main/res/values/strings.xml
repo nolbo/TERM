@@ -154,7 +154,7 @@
     <string name="palette_amoled">AMOLED Black</string>
     <string name="palette_custom">사용자 지정</string>
     <string name="customize_palette">팔레트 색상 편집</string>
-    <string name="customize_palette_support">전경, 배경, 커서와 ANSI 16색을 미리 보며 색조·채도·밝기 또는 HEX 값으로 편집합니다.</string>
+    <string name="customize_palette_support">전경, 배경, 커서와 ANSI 16색을 미리 보며 채도·밝기 사각형, 색조 막대 또는 HEX·RGB 값으로 편집합니다.</string>
     <string name="palette_foreground">전경</string>
     <string name="palette_background">배경</string>
     <string name="palette_cursor">커서</string>
@@ -377,4 +377,15 @@
     <string name="session_task_system_settings">Android 알림 설정</string>
     <string name="session_task_permission_required">알림을 받으려면 Android 알림 권한과 세션 작업 알림 채널을 허용하세요.</string>
     <string name="session_task_session_missing">이 세션은 더 이상 실행 중이 아닙니다.</string>
+    <string name="palette_sv_hint">가로: 채도 · 세로: 밝기 (위쪽이 밝음)</string>
+    <string name="palette_sv_value">채도 %1$d%%, 밝기 %2$d%%</string>
+    <string name="palette_more_saturation">채도 높이기</string>
+    <string name="palette_less_saturation">채도 낮추기</string>
+    <string name="palette_more_brightness">밝기 높이기</string>
+    <string name="palette_less_brightness">밝기 낮추기</string>
+    <string name="palette_hex_error">6자리 HEX 값을 입력하세요. 예: #F1F3F5</string>
+    <string name="palette_rgb_red">빨강 (R)</string>
+    <string name="palette_rgb_green">초록 (G)</string>
+    <string name="palette_rgb_blue">파랑 (B)</string>
+    <string name="palette_rgb_support">RGB: 각 값을 0–255로 입력하세요.</string>
 </resources>
