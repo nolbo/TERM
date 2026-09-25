@@ -4,15 +4,28 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.luminance
 
 /** Local terminal chrome colors; shared by tabs, hotkeys, and the new-session menu. */
-internal data class TerminalChromeColors(val background: Color) {
-    val foreground = readableForeground(background)
-    val container = mix(background, foreground, 0.14f)
-    val onContainer = readableForeground(container)
-    val accent = readableAccent(container)
-    val divider = mix(background, foreground, 0.4f)
-    val checkedContainer = readableAccent(background)
-    val onCheckedContainer = readableForeground(checkedContainer)
-    val darkSystemIcons = foreground == Color.Black
+internal data class TerminalChromeColors(
+    val background: Color,
+    val foreground: Color = readableForeground(background),
+    val container: Color = mix(background, foreground, 0.14f),
+    val onContainer: Color = readableForeground(container),
+    val accent: Color = readableAccent(container),
+    val divider: Color = mix(background, foreground, 0.4f),
+    val checkedContainer: Color = readableAccent(background),
+    val onCheckedContainer: Color = readableForeground(checkedContainer),
+) {
+    val darkSystemIcons = readableForeground(background) == Color.Black
+
+    fun interpolate(to: TerminalChromeColors, fraction: Float) = TerminalChromeColors(
+        androidx.compose.ui.graphics.lerp(background, to.background, fraction),
+        androidx.compose.ui.graphics.lerp(foreground, to.foreground, fraction),
+        androidx.compose.ui.graphics.lerp(container, to.container, fraction),
+        androidx.compose.ui.graphics.lerp(onContainer, to.onContainer, fraction),
+        androidx.compose.ui.graphics.lerp(accent, to.accent, fraction),
+        androidx.compose.ui.graphics.lerp(divider, to.divider, fraction),
+        androidx.compose.ui.graphics.lerp(checkedContainer, to.checkedContainer, fraction),
+        androidx.compose.ui.graphics.lerp(onCheckedContainer, to.onCheckedContainer, fraction),
+    )
 }
 
 internal fun colorContrast(first: Color, second: Color): Float {

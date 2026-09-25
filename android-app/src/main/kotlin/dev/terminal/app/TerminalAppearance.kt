@@ -7,7 +7,6 @@ import android.graphics.fonts.Font
 import android.graphics.fonts.FontFamily
 import android.net.Uri
 import android.util.TypedValue
-import com.termux.terminal.TerminalColors
 import com.termux.view.TerminalFontFamily
 import java.util.Properties
 import java.util.WeakHashMap
@@ -36,6 +35,8 @@ object TerminalAppearance {
             require(ansi.size == ANSI_COLOR_COUNT)
         }
 
+        fun toList(): List<String> = listOf(foreground, background, cursor) + ansi
+
         fun asProperties(): Properties = Properties().apply {
             setProperty("foreground", foreground)
             setProperty("background", background)
@@ -44,7 +45,6 @@ object TerminalAppearance {
         }
     }
 
-    private var appliedPalette: PaletteColors? = null
     private data class FontSettings(val fallback: String, val custom: List<CustomTerminalFont>)
     // Main-thread-only, per-view cache: it must not retain an Activity after destruction.
     private val appliedFonts = WeakHashMap<com.termux.view.TerminalView, FontSettings>()
@@ -56,6 +56,8 @@ object TerminalAppearance {
         preferences: SharedPreferences,
         terminalView: com.termux.view.TerminalView,
         fontSizeSp: Int = preferences.getInt(KEY_FONT_SIZE, DEFAULT_FONT_SIZE_SP),
+        colors: PaletteColors = paletteColors(preferences),
+        applyPalette: Boolean = true,
     ): Boolean {
         terminalView.setTextSize(
             fontSizeSpToPx(fontSizeSp) { value ->
@@ -69,16 +71,19 @@ object TerminalAppearance {
         }
         terminalView.setForceFixedWidth(preferences.getBoolean(KEY_FIXED_WIDTH, true))
         terminalView.setNaturalWideGlyphRendering(preferences.getBoolean(KEY_NATURAL_WIDE_GLYPHS, false))
-        val colors = paletteColors(preferences)
-        TerminalColors.COLOR_SCHEME.updateWith(colors.asProperties())
-        val paletteChanged = colors != appliedPalette
-        if (paletteChanged) {
-            terminalView.resetColorsToDefault()
-            appliedPalette = colors
-        }
-        terminalView.setBackgroundColor(backgroundColor(preferences))
+        if (!applyPalette) return false
+        val paletteChanged = terminalView.currentSession?.emulator?.mColors?.setDefaultColors(colors.asProperties()) ?: false
+        terminalView.setBackgroundColor(Color.parseColor(colors.background))
         return paletteChanged
     }
+
+    fun fromPaletteList(colors: List<String>): PaletteColors {
+        require(colors.size == 19 && colors.all(::isHexColor))
+        return PaletteColors(colors[0], colors[1], colors[2], colors.drop(3))
+    }
+
+    fun profilePalette(preferences: SharedPreferences, profile: dev.terminal.runtime.session.SessionProfile?): PaletteColors =
+        profile?.palette?.let(::fromPaletteList) ?: paletteColors(preferences)
 
     fun backgroundColor(preferences: SharedPreferences): Int =
         Color.parseColor(paletteColors(preferences).background)

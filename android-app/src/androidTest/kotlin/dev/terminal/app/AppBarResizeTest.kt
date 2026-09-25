@@ -34,13 +34,15 @@ class AppBarResizeTest {
             scenario.onActivity { activity ->
                 backend = RemoteTerminalBackend(write = {}, resize = { _, _ -> })
                 val session = TerminalSession("", "", emptyArray(), emptyArray(), 100, TerminalCallbacks {}, backend)
-                barHeight = (56 * activity.resources.displayMetrics.density).toInt()
+                barHeight = (48 * activity.resources.displayMetrics.density).toInt()
                 activity.setContent {
                     DroidTheme { TerminalHapticFeedbackProvider {
-                        Column(Modifier.fillMaxSize()) {
+                        Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
                             TerminalChrome(
                                 sessions = emptyList(), activeSessionId = null,
                                 appBarContentVisible = visible.value,
+                                terminalBackgroundColor = androidx.compose.ui.graphics.Color.Black,
+                                topInsets = WindowInsets(0, 0, 0, 0),
                                 terminatingSessionIds = emptySet(), profiles = emptyList(),
                                 newSessionMenuExpanded = false, onSelect = {}, onRename = {},
                                 onTerminate = {}, onNew = {}, onDismissNewSession = {},

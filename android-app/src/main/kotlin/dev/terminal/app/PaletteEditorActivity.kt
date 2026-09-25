@@ -45,10 +45,15 @@ import dev.terminal.app.ui.terminalListItemShapes
 
 /** Full-screen draft: no terminal palette changes until the user saves all 19 colors. */
 class PaletteEditorActivity : TerminalActivity() {
+    companion object {
+        const val EXTRA_PALETTE = "palette"
+        const val EXTRA_RETURN_PALETTE = "returnPalette"
+    }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val preferences = getSharedPreferences(SettingsDetailActivity.TERMINAL_PREFERENCES, MODE_PRIVATE)
-        val initial = TerminalAppearance.paletteColors(preferences)
+        val initial = intent.getStringArrayListExtra(EXTRA_PALETTE)?.let(TerminalAppearance::fromPaletteList)
+            ?: TerminalAppearance.paletteColors(preferences)
         val original = listOf(initial.foreground, initial.background, initial.cursor) + initial.ansi
         compose {
             var draft by rememberSaveable { mutableStateOf(original.joinToString(",")) }
@@ -77,8 +82,9 @@ class PaletteEditorActivity : TerminalActivity() {
                     }
                     Button(
                         onClick = {
-                            TerminalAppearance.saveCustomPalette(preferences,
-                                TerminalAppearance.PaletteColors(colors[0], colors[1], colors[2], colors.drop(3)))
+                            if (intent.getBooleanExtra(EXTRA_RETURN_PALETTE, false)) {
+                                setResult(RESULT_OK, android.content.Intent().putStringArrayListExtra(EXTRA_PALETTE, ArrayList(colors)))
+                            } else TerminalAppearance.saveCustomPalette(preferences, TerminalAppearance.fromPaletteList(colors))
                             finish()
                         },
                         modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp).height(56.dp),

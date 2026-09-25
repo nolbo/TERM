@@ -639,7 +639,15 @@ public final class TerminalView extends View {
         postInvalidateOnAnimation();
     }
 
-    /** Reapply the global default palette without changing this session's process state. */
+    private int[] mPaletteOverride;
+
+    /** Temporary visual colors; terminal OSC state and defaults remain authoritative. */
+    public void setPaletteOverride(int[] colors) {
+        mPaletteOverride = colors;
+        invalidate();
+    }
+
+    /** Reapply this session's default palette without changing its process state. */
     public void resetColorsToDefault() {
         if (mEmulator != null) mEmulator.mColors.reset();
         refresh();
@@ -1364,6 +1372,7 @@ public final class TerminalView extends View {
             }
 
             long syncDelay = mEmulator.getSynchronizedOutputDelayMillis();
+            mRenderer.setPaletteOverride(mPaletteOverride);
             mRenderer.render(mEmulator, canvas, mTopRow, sel[0], sel[1], sel[2], sel[3], mScrollOffset, mScrollbackTopInset);
             long graphicsDelay = syncDelay > 0 ? syncDelay : mEmulator.getGraphics().getAnimationDelayMillis();
             if (graphicsDelay >= 0) postInvalidateDelayed(Math.max(16, graphicsDelay));

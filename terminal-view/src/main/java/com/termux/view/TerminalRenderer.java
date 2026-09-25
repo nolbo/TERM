@@ -96,6 +96,14 @@ public final class TerminalRenderer {
         }
     }
 
+    private int[] mPaletteOverride;
+
+    public void setPaletteOverride(int[] colors) { mPaletteOverride = colors; }
+
+    private int[] palette(TerminalEmulator emulator) {
+        return mPaletteOverride != null ? mPaletteOverride : emulator.mColors.mCurrentColors;
+    }
+
     /** Render graphics in the protocol's three layers around text backgrounds and glyphs. */
     public final void render(TerminalEmulator emulator, Canvas canvas, int topRow,
                              int selectionY1, int selectionY2, int selectionX1, int selectionX2) {
@@ -130,7 +138,7 @@ public final class TerminalRenderer {
         int firstRow = TerminalViewport.firstDrawnRow(topRow, emulator.getScreen().getActiveTranscriptRows(),
             topInset, mFontLineSpacing);
         // Include preceding transcript in the inset rather than clipping it at the safe boundary.
-        recording.drawColor(emulator.mColors.mCurrentColors[emulator.isReverseVideo()
+        recording.drawColor(palette(emulator)[emulator.isReverseVideo()
             ? TextStyle.COLOR_INDEX_FOREGROUND : TextStyle.COLOR_INDEX_BACKGROUND]);
         recording.translate(0, topInset + (firstRow - topRow - scrollOffset) * mFontLineSpacing);
         try { renderFrame(emulator, recording, firstRow, selectionY1, selectionY2, selectionX1, selectionX2,
@@ -147,7 +155,7 @@ public final class TerminalRenderer {
     private void renderFrame(TerminalEmulator emulator, Canvas canvas, int topRow,
                              int selectionY1, int selectionY2, int selectionX1, int selectionX2, int visibleRows) {
         if (emulator.isReverseVideo())
-            canvas.drawColor(emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_FOREGROUND], PorterDuff.Mode.SRC);
+            canvas.drawColor(palette(emulator)[TextStyle.COLOR_INDEX_FOREGROUND], PorterDuff.Mode.SRC);
         List<TerminalGraphics.Placement> images = emulator.getGraphics().getRenderPlacements(
             emulator.getScreen(), topRow, topRow + visibleRows, emulator.mColumns, System.nanoTime() / 1_000_000);
         Set<TerminalImage> visible = new HashSet<>();
@@ -174,7 +182,7 @@ public final class TerminalRenderer {
         final int cursorRow = mEmulator.getCursorRow();
         final boolean cursorVisible = mEmulator.shouldCursorBeVisible();
         final TerminalBuffer screen = mEmulator.getScreen();
-        final int[] palette = mEmulator.mColors.mCurrentColors;
+        final int[] palette = palette(mEmulator);
         final int cursorShape = mEmulator.getCursorStyle();
 
         float heightOffset = mFontLineSpacingAndAscent;
@@ -248,7 +256,7 @@ public final class TerminalRenderer {
                     } else {
                         final int columnWidthSinceLastRun = column - lastRunStartColumn;
                         final int charsSinceLastRun = currentCharIndex - lastRunStartIndex;
-                        int cursorColor = lastRunInsideCursor ? mEmulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_CURSOR] : 0;
+                        int cursorColor = lastRunInsideCursor ? palette(mEmulator)[TextStyle.COLOR_INDEX_CURSOR] : 0;
                         boolean invertCursorTextColor = false;
                         if (lastRunInsideCursor && cursorShape == TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK) {
                             invertCursorTextColor = true;
@@ -277,7 +285,7 @@ public final class TerminalRenderer {
 
             final int columnWidthSinceLastRun = columns - lastRunStartColumn;
             final int charsSinceLastRun = currentCharIndex - lastRunStartIndex;
-            int cursorColor = lastRunInsideCursor ? mEmulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_CURSOR] : 0;
+            int cursorColor = lastRunInsideCursor ? palette(mEmulator)[TextStyle.COLOR_INDEX_CURSOR] : 0;
             boolean invertCursorTextColor = false;
             if (lastRunInsideCursor && cursorShape == TerminalEmulator.TERMINAL_CURSOR_STYLE_BLOCK) {
                 invertCursorTextColor = true;
@@ -457,7 +465,7 @@ public final class TerminalRenderer {
         int visibleRow = cursorRow - topRow;
         if (visibleRow < 0 || visibleRow >= emulator.mRows) return;
 
-        int[] palette = emulator.mColors.mCurrentColors;
+        int[] palette = palette(emulator);
         boolean reverseVideo = emulator.isReverseVideo();
         long style = emulator.getScreen().getStyleAt(cursorRow, cursorCol) |
             TextStyle.CHARACTER_ATTRIBUTE_UNDERLINE;

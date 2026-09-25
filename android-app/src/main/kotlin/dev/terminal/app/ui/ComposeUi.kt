@@ -340,7 +340,7 @@ private fun RuntimeChoiceIcon(choice: RuntimeChoiceUi) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TerminalChrome(
+internal fun TerminalChrome(
     sessions: List<SessionUi>,
     activeSessionId: String?,
     appBarContentVisible: Boolean,
@@ -357,8 +357,8 @@ fun TerminalChrome(
     onNew: () -> Unit,
     onDismissNewSession: () -> Unit,
     onSettings: () -> Unit,
+    colors: TerminalChromeColors = TerminalChromeColors(terminalBackgroundColor),
 ) {
-    val colors = remember(terminalBackgroundColor) { TerminalChromeColors(terminalBackgroundColor) }
     val selectedTabIndex = sessions.indexOfFirst { it.id == activeSessionId }
     val haptics = LocalTerminalHaptics.current
     Surface(
@@ -816,6 +816,7 @@ internal fun ExtraKeys(
     enabled: Boolean = true,
     visible: Boolean = true,
     onKey: (TerminalToolbarKey) -> Unit,
+    colors: TerminalChromeColors = TerminalChromeColors(terminalBackgroundColor),
 ) {
     Column(
         Modifier.fillMaxWidth().background(terminalBackgroundColor)
@@ -834,7 +835,7 @@ internal fun ExtraKeys(
                 layout = layout,
                 modifier = Modifier.padding(4.dp).heightIn(max = 160.dp).verticalScroll(rememberScrollState()),
                 control = control, alt = alt,
-                terminalColors = remember(terminalBackgroundColor) { TerminalChromeColors(terminalBackgroundColor) },
+                terminalColors = colors,
                 enabled = enabled && visible,
             ) { index ->
                 val shortcut = layout.keys[index].shortcut

@@ -12,6 +12,11 @@ Rows/columns remain separate launch-time terminal state. The service snapshot
 includes `profileId` and `launchSpec` for each new session, even after its profile
 is edited or deleted. Missing metadata on legacy guest sessions does not imply
 session loss. The old runtime-based Binder call adapts to a built-in profile.
+An optional `palette` array carries exactly 19 `#RRGGBB` strings (foreground,
+background, cursor, then ANSI 0–15); absent/null means global inheritance. Existing
+version 1 snapshots remain valid. The array is validated and defensively copied.
+The UI resolves saved profile palettes for live sessions; a deleted profile falls
+back to this launch snapshot. It grants no runtime capability.
 No guest protocol change is needed: launch arguments continue through the existing
 `DROID_SESSION_ARGV` envelope, removed before constructing the child environment.
 

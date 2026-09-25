@@ -8,6 +8,9 @@ public final class TerminalColors {
     /** Static data - a bit ugly but ok for now. */
     public static final TerminalColorScheme COLOR_SCHEME = new TerminalColorScheme();
 
+    private java.util.Properties mDefaultProperties;
+    private final int[] mDefaultColors = COLOR_SCHEME.mDefaultColors.clone();
+
     /**
      * The current terminal colors, which are normally set from the color theme, but may be set dynamically with the OSC
      * 4 control sequence.
@@ -21,12 +24,25 @@ public final class TerminalColors {
 
     /** Reset a particular indexed color with the default color from the color theme. */
     public void reset(int index) {
-        mCurrentColors[index] = COLOR_SCHEME.mDefaultColors[index];
+        mCurrentColors[index] = mDefaultColors[index];
     }
 
     /** Reset all indexed colors with the default color from the color theme. */
     public void reset() {
-        System.arraycopy(COLOR_SCHEME.mDefaultColors, 0, mCurrentColors, 0, TextStyle.NUM_INDEXED_COLORS);
+        System.arraycopy(mDefaultColors, 0, mCurrentColors, 0, TextStyle.NUM_INDEXED_COLORS);
+    }
+
+    /** Sets this session's palette only. OSC resets use these defaults, never another session's. */
+    public boolean setDefaultColors(java.util.Properties properties) {
+        if (properties.equals(mDefaultProperties)) return false;
+        TerminalColorScheme scheme = new TerminalColorScheme();
+        scheme.updateWith(properties);
+        mDefaultProperties = new java.util.Properties();
+        mDefaultProperties.putAll(properties);
+        if (java.util.Arrays.equals(mDefaultColors, scheme.mDefaultColors)) return false;
+        System.arraycopy(scheme.mDefaultColors, 0, mDefaultColors, 0, mDefaultColors.length);
+        reset();
+        return true;
     }
 
     /**
