@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
+#include <sys/resource.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include <time.h>
@@ -81,6 +82,27 @@ int main(int argc, char **argv)
     CHECK((after.tv_sec - before.tv_sec) * 1000000000L + after.tv_nsec - before.tv_nsec >= 80000000L);
     CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
     CHECK(fcntl(100, F_GETFD) == FD_CLOEXEC && fcntl(102, F_GETFD) == 0);
+    for (int mark = 0; mark < 2; mark++) {
+        child = fork(); CHECK(child >= 0);
+        if (!child) {
+            struct rlimit limit;
+            CHECK(getrlimit(RLIMIT_NOFILE, &limit) == 0); limit.rlim_cur = 64;
+            CHECK(setrlimit(RLIMIT_NOFILE, &limit) == 0);
+            // dup avoids temporary pathname-walker descriptors and fills the
+            // actual table, including its last available slot.
+            while (dup(fd) >= 0) {}
+            CHECK(errno == EMFILE);
+            CHECK(range(3, UINT_MAX, mark ? CLOSE_RANGE_CLOEXEC : 0) == 0);
+            if (mark) {
+                CHECK(fcntl(fd, F_GETFD) == FD_CLOEXEC);
+                CHECK(range(3, UINT_MAX, 0) == 0);
+            }
+            struct stat st; CHECK(stat("/input", &st) == 0 && st.st_size == 8);
+            _exit(0);
+        }
+        CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+    }
+    puts("PASS close_range under EMFILE preserves runtime descriptors");
     CHECK(close(fd) == 0 && close(100) == 0 && close(102) == 0);
     puts("PASS close_range bounds/flags/sparse/CLOEXEC/fork/vfork/private FDs");
     return 0;

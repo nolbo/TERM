@@ -10,6 +10,9 @@
 #include "exec.c"
 
 struct dl_state dl_state;
+unsigned dl_memory_lock;
+void dl_lock(unsigned *lock) { assert(!*lock); *lock = 1; }
+void dl_unlock(unsigned *lock) { assert(*lock); *lock = 0; }
 long dl_host_syscall(long n, long a, long b, long c, long d, long e, long f)
 {
     long result = syscall(n, a, b, c, d, e, f); return result < 0 ? -errno : result;

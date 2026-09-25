@@ -1,5 +1,6 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 #include "runtime.h"
+#include "threads.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -11,10 +12,11 @@ enum fd_action { CLOSE_ALL, MARK_EXEC, CLOSE_EXEC };
 static long sweep(unsigned first, unsigned last, enum fd_action action, int keep_a, int keep_b)
 {
     if (first > INT_MAX) return 0;
-    // Signals are blocked by the dispatcher and supported clone variants never
-    // share FD tables. Inspect actual open FDs, not every integer below RLIMIT.
+    // Caller holds the runtime filesystem lock, excluding transient path FDs.
+    // Inspect actual open FDs, not every integer below RLIMIT.
     // This host-only directory is never exposed in the guest filesystem.
-    long scan = DL_CALL(SYS_openat, AT_FDCWD, "/proc/self/fd", O_RDONLY | O_DIRECTORY | O_CLOEXEC, 0, 0, 0);
+    char path[40]; dl_fd_path(path, -1);
+    long scan = DL_CALL(SYS_openat, AT_FDCWD, path, O_RDONLY | O_DIRECTORY | O_CLOEXEC, 0, 0, 0);
     if (scan < 0) return scan;
     char buffer[4096]; long result = 0;
     struct dent { uint64_t ino; int64_t off; unsigned short size; unsigned char type; char name[]; };
@@ -33,7 +35,7 @@ static long sweep(unsigned first, unsigned last, enum fd_action action, int keep
             }
             if (i && i < d->size - offsetof(struct dent, name) && !d->name[i] &&
                     value >= first && value <= last && value != (unsigned)scan &&
-                    value != (unsigned)dl_state.root_fd && value != (unsigned)dl_state.vfork_fd &&
+                    !dl_internal_fd((int)value) &&
                     value != (unsigned)keep_a && value != (unsigned)keep_b) {
                 if (action == CLOSE_ALL) {
                     // Linux close_range ignores individual close errors.
@@ -59,13 +61,35 @@ done:
 long dl_close_range(unsigned first, unsigned last, unsigned flags)
 {
     if (first > last || (flags & ~(CLOSE_RANGE_UNSHARE | CLOSE_RANGE_CLOEXEC))) return -EINVAL;
-    // The APK launcher starts with a private FD table, and CLONE_FILES/threads
-    // are rejected. UNSHARE therefore has no additional work in this runtime.
-    // Revisit this invariant before adding shared-table clone or guest threads.
-    return sweep(first, last, flags & CLOSE_RANGE_CLOEXEC ? MARK_EXEC : CLOSE_ALL, -1, -1);
+    dl_lock(&dl_files_lock);
+    long r = 0;
+    if ((flags & CLOSE_RANGE_UNSHARE) && dl_files_may_be_shared()) {
+        // Unshare without changing any valid descriptor. Never silently treat
+        // UNSHARE as a no-op once a CLONE_FILES child may exist.
+        r = DL_CALL(SYS_close_range, UINT_MAX, UINT_MAX, CLOSE_RANGE_UNSHARE, 0, 0, 0);
+    }
+    if (!r && first <= INT_MAX) {
+        unsigned begin = first, end = last > INT_MAX ? INT_MAX : last;
+        unsigned kernel_flags = flags & CLOSE_RANGE_CLOEXEC;
+        for (;;) {
+            unsigned keep = dl_next_internal_fd(begin);
+            unsigned stop = keep <= end ? keep - 1 : end;
+            if (keep != begin) r = DL_CALL(SYS_close_range, begin, stop, kernel_flags, 0, 0, 0);
+            if (r || keep >= end) break;
+            begin = keep + 1;
+        }
+        // Older kernels may lack close_range or CLOEXEC. Preserve the existing
+        // proc enumerator there; supported kernels need no spare FD, even at
+        // EMFILE, and keep their atomic per-range descriptor-table behavior.
+        if (r == -ENOSYS || r == -EINVAL)
+            r = sweep(first, last, kernel_flags ? MARK_EXEC : CLOSE_ALL, -1, -1);
+    }
+    dl_unlock(&dl_files_lock); return r;
 }
 
 long dl_close_exec_fds(int main_fd, int interpreter_fd)
 {
-    return sweep(0, UINT_MAX, CLOSE_EXEC, main_fd, interpreter_fd);
+    dl_lock(&dl_files_lock);
+    long r = sweep(0, UINT_MAX, CLOSE_EXEC, main_fd, interpreter_fd);
+    dl_unlock(&dl_files_lock); return r;
 }

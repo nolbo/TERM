@@ -2,6 +2,7 @@
 /* Everything reachable after dl_enter is libc/TLS/allocator independent. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "threads.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/audit.h>
@@ -31,7 +32,9 @@ static long memory_copy(void *d, const void *s, size_t n, int write)
 {
     struct iovec local = {write ? (void *)s : d, n};
     struct iovec remote = {write ? d : (void *)s, n};
-    long pid = DL_CALL(SYS_getpid, 0, 0, 0, 0, 0, 0);
+    // The thread-group leader can have exited while this thread still owns
+    // the shared address space. Resolve a live task, not the dead leader's mm.
+    long pid = DL_CALL(SYS_gettid, 0, 0, 0, 0, 0, 0);
     long r = DL_CALL(write ? SYS_process_vm_writev : SYS_process_vm_readv, pid, &local, 1, &remote, 1, 0);
     return r < 0 ? r : (size_t)r == n ? 0 : -EFAULT;
 }
@@ -69,18 +72,32 @@ static long guest_brk(uintptr_t address)
     return address;
 }
 
+static long locked_brk(uintptr_t address)
+{
+    dl_lock(&dl_memory_lock); long result = guest_brk(address); dl_unlock(&dl_memory_lock); return result;
+}
+
 static long guest_clone(unsigned long *a, uintptr_t guest_sp)
 {
     if (dl_state.vfork_fd >= 0) return -EOPNOTSUPP;
     if (a[0] == (CLONE_VM | CLONE_VFORK | SIGCHLD) && (!a[1] || a[1] == guest_sp)) {
         // Copy-on-write vfork compatibility: the parent waits for exec/exit.
         // Shared-VM clone/spawn with a separate stack is explicitly unsupported.
+        long r = dl_fork_begin(); if (r) return r;
         int pipes[2];
-        long r = DL_CALL(SYS_pipe2, pipes, O_CLOEXEC, 0, 0, 0, 0); if (r) return r;
+        r = DL_CALL(SYS_pipe2, pipes, O_CLOEXEC, 0, 0, 0, 0);
+        if (r) { dl_fork_end(0); return r; }
         long writer = DL_CALL(SYS_fcntl, pipes[1], F_DUPFD_CLOEXEC, 256, 0, 0, 0);
         DL_CALL(SYS_close, pipes[1], 0, 0, 0, 0, 0);
-        if (writer < 0) { DL_CALL(SYS_close, pipes[0], 0, 0, 0, 0, 0); return writer; }
+        if (writer < 0) { DL_CALL(SYS_close, pipes[0], 0, 0, 0, 0, 0); dl_fork_end(0); return writer; }
+        r = dl_memory_fork_begin();
+        if (r) {
+            DL_CALL(SYS_close, writer, 0, 0, 0, 0, 0);
+            DL_CALL(SYS_close, pipes[0], 0, 0, 0, 0, 0); dl_fork_end(0); return r;
+        }
         r = DL_CALL(SYS_clone, SIGCHLD, 0, 0, 0, 0, 0);
+        dl_memory_fork_end(r == 0);
+        dl_fork_end(r == 0);
         if (!r) {
             DL_CALL(SYS_close, pipes[0], 0, 0, 0, 0, 0);
             dl_state.vfork_fd = (int)writer; return 0;
@@ -96,7 +113,11 @@ static long guest_clone(unsigned long *a, uintptr_t guest_sp)
     if ((a[0] & 255) != SIGCHLD ||
             (a[0] & ~(255UL | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_PARENT_SETTID)) || a[1])
         return -EOPNOTSUPP;
-    return DL_CALL(SYS_clone, a[0], 0, a[2], 0, a[4], 0);
+    long r = dl_fork_begin(); if (r) return r;
+    r = dl_memory_fork_begin(); if (r) { dl_fork_end(0); return r; }
+    r = DL_CALL(SYS_clone, a[0], 0, a[2], 0, a[4], 0);
+    dl_memory_fork_end(r == 0);
+    dl_fork_end(r == 0); return r;
 }
 
 static long handle(long nr, unsigned long *a, ucontext_t *context)
@@ -110,10 +131,14 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_statfs: case SYS_truncate:
     case SYS_getxattr: case SYS_lgetxattr: case SYS_setxattr: case SYS_lsetxattr:
     case SYS_listxattr: case SYS_llistxattr: case SYS_removexattr: case SYS_lremovexattr:
-        return dl_filesystem(nr, a);
+        dl_lock(&dl_files_lock);
+        r = dl_filesystem(nr, a);
+        dl_unlock(&dl_files_lock); return r;
     case SYS_close:
-        if ((int)a[0] == dl_state.root_fd || (int)a[0] == dl_state.vfork_fd) return -EBADF;
-        return DL_CALL(nr, a[0], 0, 0, 0, 0, 0);
+        dl_lock(&dl_files_lock);
+        if (dl_internal_fd((int)a[0])) { dl_unlock(&dl_files_lock); return -EBADF; }
+        r = DL_CALL(nr, a[0], 0, 0, 0, 0, 0);
+        dl_unlock(&dl_files_lock); return r;
     case SYS_close_range: return dl_close_range((unsigned)a[0], (unsigned)a[1], (unsigned)a[2]);
     case SYS_socket: case SYS_socketpair: case SYS_bind: case SYS_connect:
     case SYS_sendto: case SYS_sendmsg:
@@ -125,17 +150,25 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
             return dl_network(nr, a, mask);
         }
     case SYS_dup3:
-        if ((int)a[1] == dl_state.root_fd || (int)a[1] == dl_state.vfork_fd) return -EBADF;
-        return DL_CALL(nr, a[0], a[1], a[2], 0, 0, 0);
+        dl_lock(&dl_files_lock);
+        if (dl_internal_fd((int)a[1])) { dl_unlock(&dl_files_lock); return -EBADF; }
+        r = DL_CALL(nr, a[0], a[1], a[2], 0, 0, 0);
+        dl_unlock(&dl_files_lock); return r;
     case SYS_fcntl: case SYS_dup:
-        if ((int)a[0] == dl_state.root_fd || (int)a[0] == dl_state.vfork_fd) return -EBADF;
-        return DL_CALL(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
-    case SYS_brk: return guest_brk(a[0]);
+        if (dl_internal_fd((int)a[0])) return -EBADF;
+        if (nr == SYS_fcntl && a[1] != F_DUPFD && a[1] != F_DUPFD_CLOEXEC && a[1] != F_SETFD)
+            return DL_CALL(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+        dl_lock(&dl_files_lock);
+        if (dl_internal_fd((int)a[0])) { dl_unlock(&dl_files_lock); return -EBADF; }
+        r = DL_CALL(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+        dl_unlock(&dl_files_lock); return r;
+    case SYS_brk: return locked_brk(a[0]);
     case SYS_mmap:
         // File mappings preserve lazy paging, EOF/SIGBUS and MAP_SHARED semantics.
         // SELinux/mmap policy is authoritative; no execve of app-data ELF occurs.
         return dl_mmap(a[0], a[1], a[2], a[3], a[4], a[5]);
     case SYS_munmap: return dl_munmap(a[0], a[1]);
+    case SYS_madvise: return dl_madvise(a[0], a[1], (int)a[2]);
     case SYS_rt_sigaction: return dl_signal_action(a);
     case SYS_rt_sigprocmask:
         {
@@ -145,14 +178,15 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
             // The signal frame contains the guest mask. Changing the handler's
             // kernel mask alone would be undone by rt_sigreturn.
             dl_copy(&old, &context->uc_sigmask, 8);
-            old = (old & ~bit) | dl_state.virtual_sigsys_mask;
+            struct dl_thread *thread = dl_thread_self();
+            old = (old & ~bit) | thread->signals.virtual_sigsys_mask;
             if (a[1]) { r = dl_read_memory(&mask, (void *)a[1], 8); if (r) return r; }
             if (a[1]) {
                 if (a[0] == SIG_BLOCK) mask |= old;
                 else if (a[0] == SIG_UNBLOCK) mask = old & ~mask;
                 else if (a[0] != SIG_SETMASK) return -EINVAL;
                 mask &= ~((1UL << (SIGKILL - 1)) | (1UL << (SIGSTOP - 1)));
-                dl_state.virtual_sigsys_mask = mask & bit;
+                thread->signals.virtual_sigsys_mask = mask & bit;
                 mask &= ~bit;
                 dl_copy(&context->uc_sigmask, &mask, 8);
             }
@@ -161,11 +195,18 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_rt_sigsuspend: case SYS_rt_sigtimedwait:
     case SYS_ppoll: case SYS_pselect6: case SYS_epoll_pwait: case SYS_epoll_pwait2:
         return dl_signal_wait(nr, a, context);
-    case SYS_clone: return guest_clone(a, context->uc_mcontext.sp);
+    case SYS_clone:
+        if (a[0] & CLONE_THREAD) {
+            if (dl_state.vfork_fd >= 0) return -EOPNOTSUPP;
+            return dl_thread_clone(a, context);
+        }
+        return guest_clone(a, context->uc_mcontext.sp);
     case SYS_execve:
         {
             struct dl_entry entry;
+            r = dl_exec_begin(); if (r) return r;
             r = dl_exec((void *)a[0], (void *)a[1], (void *)a[2], &entry, 1);
+            dl_exec_end();
             if (r) return r;
             // The signal frame is on the surviving runtime alternate stack.
             // sigreturn restores the guest mask and enters the new image.
@@ -182,6 +223,7 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
         }
     case SYS_execveat: case SYS_sigaltstack:
         return -EOPNOTSUPP;
+    case SYS_exit: dl_thread_exit((int)a[0]);
     case SYS_getdents64: return dl_getdents((int)a[0], (void *)a[1], (unsigned)a[2]);
     case SYS_read: case SYS_write: case SYS_readv: case SYS_writev:
     case SYS_pread64: case SYS_pwrite64: case SYS_lseek: case SYS_fstat:
@@ -192,14 +234,14 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_wait4: case SYS_waitid:
     case SYS_nanosleep: case SYS_clock_nanosleep:
     case SYS_getpgid: case SYS_setpgid: case SYS_getsid: case SYS_setsid:
-    case SYS_mprotect: case SYS_madvise: case SYS_mincore:
+    case SYS_mprotect: case SYS_mincore:
     case SYS_futex: case SYS_set_tid_address: case SYS_set_robust_list:
     case SYS_getpid: case SYS_getppid: case SYS_gettid:
     case SYS_tgkill: case SYS_kill: case SYS_rt_sigpending:
     case SYS_getuid: case SYS_geteuid: case SYS_getgid: case SYS_getegid:
     case SYS_getrandom: case SYS_clock_gettime: case SYS_clock_getres:
     case SYS_prlimit64: case SYS_uname: case SYS_getrusage:
-    case SYS_rt_sigreturn: case SYS_exit: case SYS_exit_group:
+    case SYS_rt_sigreturn: case SYS_exit_group:
     case SYS_fsync: case SYS_fdatasync:
         return DL_CALL(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
     default: return -ENOSYS;
@@ -253,7 +295,6 @@ static void dispatch(int signal, siginfo_t *info, void *context)
 
 int dl_install(void *signal_stack, size_t size)
 {
-    dl_signal_stack(signal_stack, size);
     stack_t stack = {.ss_sp = signal_stack, .ss_size = size};
     struct { void (*handler)(int, siginfo_t *, void *); unsigned long flags; void (*restorer)(void); unsigned long mask; }
         action = {dispatch, SA_SIGINFO | SA_ONSTACK | 0x04000000UL, dl_sigreturn, ~0UL};
@@ -272,6 +313,15 @@ int dl_install(void *signal_stack, size_t size)
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (uint32_t)pc, 0, 1),
         BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, nr)),
+        // Only inheritance-changing hints need ownership bookkeeping. Keep
+        // ordinary allocator advice on its existing native fast path. The
+        // kernel advice argument is an int, so inspect its low 32 bits.
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, SYS_madvise, 0, 5),
+        BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, args[2])),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MADV_DONTFORK, 1, 0),
+        BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, MADV_DOFORK, 0, 1),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_TRAP | DL_TAG),
+        BPF_STMT(BPF_RET | BPF_K, SECCOMP_RET_ALLOW),
         // Untranslated I/O stays outside signal handling, retaining normal
         // blocking/EINTR behavior and avoiding one signal per read/write.
 #define DIRECT(n) BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, (n), 0, 1), \
@@ -280,7 +330,7 @@ int dl_install(void *signal_stack, size_t size)
         // These calls are already forwarded unchanged by handle(). Keeping
         // them native avoids a SIGSYS frame during every libc startup and
         // preserves the caller's mask for potentially blocking getrandom.
-        DIRECT(SYS_mprotect), DIRECT(SYS_madvise), DIRECT(SYS_mincore),
+        DIRECT(SYS_mprotect), DIRECT(SYS_mincore),
         DIRECT(SYS_set_tid_address), DIRECT(SYS_set_robust_list),
         DIRECT(SYS_getpid), DIRECT(SYS_getppid), DIRECT(SYS_gettid),
         DIRECT(SYS_getuid), DIRECT(SYS_geteuid), DIRECT(SYS_getgid), DIRECT(SYS_getegid),
@@ -300,7 +350,7 @@ int dl_install(void *signal_stack, size_t size)
         DIRECT(SYS_fsync), DIRECT(SYS_fdatasync), DIRECT(SYS_futex),
         DIRECT(SYS_sendfile), DIRECT(SYS_copy_file_range),
         DIRECT(SYS_clock_gettime), DIRECT(SYS_clock_getres),
-        DIRECT(SYS_exit), DIRECT(SYS_exit_group),
+        DIRECT(SYS_exit_group),
         DIRECT(SYS_wait4), DIRECT(SYS_waitid),
         DIRECT(SYS_nanosleep), DIRECT(SYS_clock_nanosleep),
 #undef DIRECT

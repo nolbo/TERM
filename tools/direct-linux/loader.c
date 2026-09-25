@@ -3,6 +3,7 @@
  * freestanding and must not touch Bionic TLS, PLT functions or allocators. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "threads.h"
 #include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -67,8 +68,8 @@ int main(int argc, char **argv)
     struct dl_entry entry;
     long result = dl_exec(argv[2], argv + 2, environment, &entry, 0);
     if (result) { fprintf(stderr, "Direct Linux: ELF preparation failed (%ld)\n", -result); return 126; }
-    void *signals = mmap(NULL, 256 * 1024 + 2 * dl_state.page, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (signals == MAP_FAILED || mprotect((char *)signals + dl_state.page, 256 * 1024, PROT_READ | PROT_WRITE)) {
+    void *signals = mmap(NULL, DL_SIGNAL_STACK_SIZE + 2 * dl_state.page, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (signals == MAP_FAILED || mprotect((char *)signals + dl_state.page, DL_SIGNAL_STACK_SIZE, PROT_READ | PROT_WRITE)) {
         fail("cannot construct signal stack"); return 126;
     }
     // Kernel exec would discard these inherited Bionic pointers. No child
@@ -76,7 +77,8 @@ int main(int argc, char **argv)
     if (dl_signal_reset_exec() || DL_CALL(SYS_set_robust_list, 0, 24, 0, 0, 0, 0) < 0 ||
             DL_CALL(SYS_set_tid_address, 0, 0, 0, 0, 0, 0) < 0) return 126;
     fflush(NULL);
-    int installed = dl_install((char *)signals + dl_state.page, 256 * 1024);
+    dl_thread_init(signals, DL_SIGNAL_STACK_SIZE + 2 * dl_state.page, (char *)signals + dl_state.page, DL_SIGNAL_STACK_SIZE);
+    int installed = dl_install((char *)signals + dl_state.page, DL_SIGNAL_STACK_SIZE);
     if (installed) {
         const char error[] = "Direct Linux: syscall dispatcher rejected by platform\n";
         DL_CALL(SYS_write, 2, error, sizeof(error) - 1, 0, 0, 0);

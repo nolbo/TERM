@@ -2,6 +2,7 @@
 /* Guest filesystem compatibility; Android permissions remain authoritative. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "threads.h"
 #include <errno.h>
 #include <fcntl.h>
 #include <sys/stat.h>
@@ -9,16 +10,24 @@
 #include <time.h>
 #include <unistd.h>
 
-static void fd_name(char *out, int fd)
+static size_t decimal(char *out, unsigned value)
 {
-    const char prefix[] = "/proc/self/fd/";
-    size_t n = sizeof(prefix) - 1;
-    dl_copy(out, prefix, n);
     char digits[16]; size_t count = 0;
-    unsigned value = (unsigned)fd;
     do { digits[count++] = '0' + value % 10; value /= 10; } while (value);
-    while (count) out[n++] = digits[--count];
-    out[n] = 0;
+    size_t n = 0; while (count) out[n++] = digits[--count]; return n;
+}
+
+size_t dl_fd_path(char *out, int fd)
+{
+    // /proc/self/fd can disappear after the group leader's pthread_exit and
+    // would select the wrong table after another thread unshares CLONE_FILES.
+    // /proc/TID directly names this live task, including nonleader tasks.
+    const char prefix[] = "/proc/", suffix[] = "/fd";
+    size_t n = sizeof(prefix) - 1; dl_copy(out, prefix, n);
+    n += decimal(out + n, (unsigned)DL_CALL(SYS_gettid, 0, 0, 0, 0, 0, 0));
+    dl_copy(out + n, suffix, sizeof(suffix) - 1); n += sizeof(suffix) - 1;
+    if (fd >= 0) { out[n++] = '/'; n += decimal(out + n, (unsigned)fd); }
+    out[n] = 0; return n;
 }
 
 static long virtual_path(int fd, char out[DL_PATH], int directory)
@@ -33,7 +42,7 @@ static long virtual_path(int fd, char out[DL_PATH], int directory)
         n = DL_CALL(SYS_fstat, fd, &st, 0, 0, 0, 0);
         if (n < 0) return n;
         if (directory && !S_ISDIR(st.st_mode)) return -ENOTDIR;
-        char link[40]; fd_name(link, fd);
+        char link[40]; dl_fd_path(link, fd);
         n = DL_CALL(SYS_readlinkat, AT_FDCWD, link, host, DL_PATH - 1, 0, 0);
         if (n < 0) return n;
         if (n == DL_PATH - 1) return -ENAMETOOLONG;
@@ -51,7 +60,7 @@ long dl_virtual_cwd(char out[DL_PATH]) { return virtual_path(AT_FDCWD, out, 1); 
 long dl_file_path(int fd, char out[DL_PATH]) { return virtual_path(fd, out, 0); }
 long dl_executable(int fd)
 {
-    char path[40]; fd_name(path, fd);
+    char path[40]; dl_fd_path(path, fd);
     return DL_CALL(SYS_faccessat, AT_FDCWD, path, X_OK, 0, 0, 0);
 }
 
@@ -176,6 +185,22 @@ static long walk(int dirfd, const char *path, int flags, unsigned mode, char *le
         if (flags & O_PATH) {
             if (!(flags & O_CLOEXEC)) DL_CALL(SYS_fcntl, pin, F_SETFD, 0, 0, 0, 0);
             result = pin;
+        } else if (!(flags & O_NONBLOCK) && (S_ISFIFO(st.st_mode) || S_ISCHR(st.st_mode)) && dl_files_may_be_shared()) {
+            if ((flags & (O_CREAT | O_EXCL)) == (O_CREAT | O_EXCL)) {
+                result = -EEXIST; release((int)pin); break;
+            }
+            // Reopen the pinned, approved inode without holding a lock while
+            // waiting for a FIFO peer or device. Only this descriptor survives
+            // the wait, and destructive guest FD calls explicitly protect it.
+            char host[64]; dl_fd_path(host, (int)pin);
+            struct dl_thread *thread = dl_thread_self();
+            __atomic_store_n(&thread->protected_fd, (int)pin, __ATOMIC_RELEASE);
+            release((int)current); current = dl_state.root_fd;
+            dl_unlock(&dl_files_lock);
+            result = DL_CALL(SYS_openat, AT_FDCWD, host, flags & ~O_NOFOLLOW, mode, 0, 0);
+            dl_lock(&dl_files_lock);
+            __atomic_store_n(&thread->protected_fd, -1, __ATOMIC_RELEASE);
+            release((int)pin);
         } else {
             release((int)pin);
             int final_flags = flags | O_NOFOLLOW | (trailing ? O_DIRECTORY : 0);
@@ -271,7 +296,7 @@ static long attributes(long nr, unsigned long *a)
         long parent = walk(AT_FDCWD, path, 0, 0, leaf);
         if (parent < 0) r = parent;
         else {
-            fd_name(path, (int)parent);
+            dl_fd_path(path, (int)parent);
             size_t prefix = dl_length(path), length = dl_length(leaf);
             if (prefix + 1 + length + 1 > DL_PATH) r = -ENAMETOOLONG;
             else {
@@ -281,7 +306,7 @@ static long attributes(long nr, unsigned long *a)
             release((int)parent);
         }
     } else if (!r) {
-        fd_name(path, (int)pin);
+        dl_fd_path(path, (int)pin);
         r = DL_CALL(plain, path, a[1], a[2], a[3], a[4], 0);
     }
     release((int)pin); return r;
@@ -318,7 +343,7 @@ long dl_filesystem(long nr, unsigned long *a)
     case SYS_faccessat: case SYS_fchmodat:
         r = dl_string(path, (void *)a[1]); if (r) return r;
         fd = dl_open((int)a[0], path, O_PATH | O_CLOEXEC, 0); if (fd < 0) return fd;
-        fd_name(path, (int)fd);
+        dl_fd_path(path, (int)fd);
         r = DL_CALL(nr, AT_FDCWD, path, a[2], 0, 0, 0);
         release((int)fd); return r;
     case SYS_fchownat:
@@ -352,7 +377,7 @@ long dl_filesystem(long nr, unsigned long *a)
                     // symlink. Older kernels report the real unsupported error.
                     r = DL_CALL(nr, fd, "", a[2], AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW, 0, 0);
                 } else {
-                    fd_name(path, (int)fd);
+                    dl_fd_path(path, (int)fd);
                     r = DL_CALL(nr, AT_FDCWD, path, a[2], 0, 0, 0);
                 }
             }
@@ -361,7 +386,7 @@ long dl_filesystem(long nr, unsigned long *a)
     case SYS_statfs: case SYS_truncate:
         r = dl_string(path, (void *)a[0]); if (r) return r;
         fd = dl_open(AT_FDCWD, path, O_PATH | O_CLOEXEC, 0); if (fd < 0) return fd;
-        fd_name(path, (int)fd);
+        dl_fd_path(path, (int)fd);
         r = DL_CALL(nr, path, a[1], 0, 0, 0, 0);
         release((int)fd); return r;
     case SYS_readlinkat:

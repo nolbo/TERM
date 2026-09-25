@@ -23,7 +23,6 @@ struct dl_state {
     char root[DL_PATH];
     char executable[DL_PATH];
     uintptr_t heap_start, heap_end, heap_mapped;
-    unsigned long virtual_sigsys_mask;
 };
 extern struct dl_state dl_state;
 size_t dl_length(const char *s);
@@ -47,8 +46,9 @@ long dl_signal_action(unsigned long args[6]);
 long dl_signal_reset_exec(void);
 long dl_signal_wait(long nr, unsigned long args[6], void *context);
 void dl_signal_collect(uintptr_t stack);
-void dl_signal_stack(void *stack, size_t size);
 long dl_file_path(int fd, char out[DL_PATH]);
+// Caller supplies at least 40 bytes; fd < 0 names the live task's fd directory.
+size_t dl_fd_path(char *out, int fd);
 long dl_socket_path(const char *path, char out[DL_PATH], int binding);
 long dl_executable(int fd);
 long dl_virtual_cwd(char path[DL_PATH]);
@@ -57,6 +57,9 @@ struct dl_entry { uintptr_t pc, sp; };
 long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_entry *entry, int replacing);
 long dl_mmap(uintptr_t address, size_t size, int prot, int flags, int fd, unsigned long offset);
 long dl_munmap(uintptr_t address, size_t size);
+long dl_madvise(uintptr_t address, size_t size, int advice);
+long dl_memory_fork_begin(void);
+void dl_memory_fork_end(int child);
 long dl_track(uintptr_t address, size_t size);
 void dl_unmap_all(void);
 void dl_clear_cache(uintptr_t begin, uintptr_t end);

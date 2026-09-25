@@ -23,6 +23,36 @@ static void caught(int sig) {
 
 int main(int argc, char **argv)
 {
+    if (argc == 2 && !strcmp(argv[1], "inheritance")) {
+        size_t page = (size_t)sysconf(_SC_PAGESIZE);
+        for (unsigned scenario = 0; scenario < 3; scenario++) {
+            size_t size = 16 * 1024 * 1024;
+            char *memory = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+            CHECK(memory != MAP_FAILED); memory[0] = 42;
+            CHECK(!madvise(memory + page, size - 2 * page, MADV_DONTFORK));
+            if (scenario == 1) CHECK(!madvise(memory + page * 2, page, MADV_DOFORK));
+            if (scenario == 2) {
+                CHECK(!munmap(memory + page * 2, page));
+                CHECK(madvise(memory + page, page * 3, MADV_DOFORK) == -1 && errno == ENOMEM);
+            }
+            pid_t child = fork(); CHECK(child >= 0);
+            if (!child) {
+                unsigned char vector;
+                CHECK(memory[0] == 42);
+                CHECK((mincore(memory + page, page, &vector) == 0) == (scenario == 2));
+                CHECK((mincore(memory + page * 2, page, &vector) == 0) == (scenario == 1));
+                // The vanished large interval can be reused by the runtime's
+                // untracked exec preparation/stack. Repeated replacement must
+                // remain valid while both libc variants enter the new image.
+                char *args[] = {argv[0], "repeat", "4", NULL};
+                execve(args[0], args, environ); _exit(97);
+            }
+            int status;
+            CHECK(waitpid(child, &status, 0) == child && WIFEXITED(status) && WEXITSTATUS(status) == 0);
+            CHECK(memory[0] == 42 && !munmap(memory, size));
+        }
+        puts("PASS fork inheritance, partial madvise errors and subsequent exec"); return 0;
+    }
     int arguments_benchmark = argc == 2 && !strcmp(argv[1], "arguments-benchmark");
     int files_benchmark = argc == 3 && !strcmp(argv[1], "files-benchmark");
     int apps_benchmark = argc == 2 && !strcmp(argv[1], "apps-benchmark");

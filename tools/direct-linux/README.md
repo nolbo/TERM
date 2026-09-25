@@ -25,6 +25,9 @@ The [compatibility audit](COMPATIBILITY_AUDIT.md) inventories 45 remaining
 implementation/validation areas, all 318 AArch64 syscall names in the pinned
 NDK, and two newly reproduced mapping/FD cleanup defects. It distinguishes the
 committed runtime, unfinished thread changes and stock-device evidence gaps.
+The [implementation progress](COMPATIBILITY_PROGRESS.md) now records initial
+pthread support, fork mapping and FD exhaustion fixes, and live-thread handling
+after the leader exits. It retains the full audit scope and remaining gates.
 
 The [Python/Git milestone](APPLICATIONS.md) and subsequent
 [subprocess FD cleanup](SUBPROCESS_PERFORMANCE.md) add real application checks

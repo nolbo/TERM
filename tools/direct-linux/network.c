@@ -1,6 +1,7 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 /* Address-bearing calls cannot bypass guest filesystem policy. */
 #include "runtime.h"
+#include "threads.h"
 #include <errno.h>
 #include <signal.h>
 #include <sys/socket.h>
@@ -9,12 +10,7 @@
 
 static size_t root_alias(char *out)
 {
-    const char prefix[] = "/proc/self/fd/";
-    size_t n = sizeof(prefix) - 1; dl_copy(out, prefix, n);
-    char digits[16]; size_t count = 0; unsigned value = (unsigned)dl_state.root_fd;
-    do { digits[count++] = '0' + value % 10; value /= 10; } while (value);
-    while (count) out[n++] = digits[--count];
-    return n;
+    return dl_fd_path(out, dl_state.root_fd);
 }
 
 static long address(struct sockaddr_storage *copy, const void *source, unsigned *size, int binding)
@@ -29,7 +25,10 @@ static long address(struct sockaddr_storage *copy, const void *source, unsigned 
         char path[DL_PATH], canonical[DL_PATH];
         size_t count = *size - offset;
         dl_copy(path, local->sun_path, count); path[count] = 0;
-        r = dl_socket_path(path, canonical, binding); if (r) return r;
+        dl_lock(&dl_files_lock);
+        r = dl_socket_path(path, canonical, binding);
+        dl_unlock(&dl_files_lock);
+        if (r) return r;
         size_t prefix = root_alias(local->sun_path), length = dl_length(canonical);
         // Full-length Linux names still need a shared alias/binding design.
         // Never truncate a socket name into a different endpoint.
@@ -49,10 +48,18 @@ static long output_address(struct sockaddr_storage *value, unsigned *size, void 
     if (*size > sizeof(sa_family_t) && value->ss_family == AF_UNIX) {
         struct sockaddr_un *local = (void *)value;
         if (local->sun_path[0]) {
-            const char prefix[] = "/proc/self/fd/";
+            const char prefix[] = "/proc/";
             size_t offset = sizeof(prefix) - 1, bytes = *size - offsetof(struct sockaddr_un, sun_path);
             if (bytes > sizeof(local->sun_path) || bytes <= offset ||
                     !dl_equal_memory(local->sun_path, prefix, offset)) return -EXDEV;
+            if (bytes >= offset + 8 && dl_equal_memory(local->sun_path + offset, "self/fd/", 8)) offset += 8;
+            else {
+                size_t start = offset;
+                while (offset < bytes && local->sun_path[offset] >= '0' && local->sun_path[offset] <= '9') offset++;
+                if (start == offset || bytes < offset + 4 || !dl_equal_memory(local->sun_path + offset, "/fd/", 4))
+                    return -EXDEV;
+                offset += 4;
+            }
             size_t digits = offset;
             while (offset < bytes && local->sun_path[offset] >= '0' && local->sun_path[offset] <= '9') offset++;
             if (offset == digits || offset >= bytes || local->sun_path[offset] != '/') return -EXDEV;

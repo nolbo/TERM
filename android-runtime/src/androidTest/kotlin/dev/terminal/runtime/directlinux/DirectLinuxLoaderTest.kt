@@ -56,6 +56,7 @@ class DirectLinuxLoaderTest {
         val ptyResults = JSONArray()
         val networkResults = JSONArray()
         val signalResults = JSONArray()
+        val threadResults = JSONArray()
         fun launch(path: String, args: Array<out String>, useProot: Boolean, terminal: Boolean = false, useBaseline: Boolean = false): ProcessBuilder {
             check(!useProot || !useBaseline)
             val engine = if (useProot) packaged.resolvePackagedExecutable("proot").getOrThrow()
@@ -182,8 +183,35 @@ class DirectLinuxLoaderTest {
                 assertTrue(run("/bin/process-$kind", "processes").contains("PASS exec PID/argv/env/cwd/CLOEXEC/signals/mapping/TLS"))
                 assertTrue(run("/bin/fds-$kind").contains("PASS close_range bounds/flags/sparse/CLOEXEC/fork/vfork/private FDs"))
                 assertTrue(run("/bin/process-$kind", "repeat", "30").contains("PASS repeated exec memory/TLS cleanup"))
+                assertTrue(run("/bin/process-$kind", "inheritance").contains("PASS fork inheritance, partial madvise errors and subsequent exec"))
                 assertTrue(run("/bin/files-$kind").contains("PASS filesystem rename/dirfd/cwd/symlinks/modes/timestamps/unlinked-FDs"))
                 assertTrue(run("/bin/tty-$kind", "no-terminal").contains("PASS no controlling terminal"))
+            }
+            if (arguments.getString("directLinuxThreads") == "true") {
+                check(manifest.optBoolean("applications"))
+                android.system.Os.mkfifo(File(root, "tmp/thread-fifo").path, 384)
+                for (reference in listOf(true, false)) {
+                    val checks = JSONArray()
+                    val limitations = JSONArray()
+                    for (kind in listOf("static", "dynamic")) {
+                        for (scenario in listOf("common", "main-exit")) {
+                            val output = run("/bin/threads-$kind", scenario, useProot = reference)
+                            assertTrue(output, output.contains("PASS "))
+                            output.lineSequence().filter { it.startsWith("PASS ") }.forEach { checks.put("$kind: $it") }
+                        }
+                        val unix = run("/bin/threads-$kind", "main-exit-unix", expectedCode = if (reference) 78 else 0, useProot = reference)
+                        if (reference) {
+                            assertTrue(unix, unix.contains("LIMIT Unix getsockname did not return the guest pathname after leader exit"))
+                            limitations.put("$kind: Unix getsockname returned a different pathname after leader exit")
+                        } else assertTrue(unix, unix.contains("PASS Unix pathname operations after leader exit"))
+                    }
+                    val python = run("/usr/bin/python3", "/threads.py", useProot = reference)
+                    assertTrue(python, python.contains("PASS Python ThreadPoolExecutor"))
+                    checks.put("PASS Python ThreadPoolExecutor, thread-local state and concurrent file work")
+                    threadResults.put(JSONObject().put("engine", if (reference) "proot" else "direct-linux")
+                        .put("checks", checks).put("observed_limitations", limitations)
+                        .put("unix_names_after_leader_exit_verified", !reference))
+                }
             }
             if (arguments.getString("directLinuxSignalMasks") == "true") {
                 for (reference in listOf(true, false)) {
@@ -403,9 +431,10 @@ class DirectLinuxLoaderTest {
                 .put("pty_results", ptyResults)
                 .put("network_results", networkResults)
                 .put("signal_results", signalResults)
+                .put("thread_results", threadResults)
                 .put("exec_profile_stages", JSONArray(listOf("arguments", "read_validate", "reset", "unmap", "map", "entry", "dispose")))
                 .put("exec_profile_map_stages", JSONArray(listOf("reserve", "file_map", "verify", "bss", "final_protect")))
-            if (benchmarks.length() > 0 || ptyResults.length() > 0 || networkResults.length() > 0 || signalResults.length() > 0) {
+            if (benchmarks.length() > 0 || ptyResults.length() > 0 || networkResults.length() > 0 || signalResults.length() > 0 || threadResults.length() > 0) {
                 val proot = packaged.resolvePackagedExecutable("proot").getOrThrow()
                 report.put("proot_sha256", digest(proot.readBytes()))
                     .put("proot_loader_sha256", digest(packaged.resolvePackagedExecutable("proot-loader").getOrThrow().readBytes()))

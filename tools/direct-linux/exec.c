@@ -50,7 +50,7 @@ static long read_exact(int fd, void *destination, size_t size, size_t offset, st
 static long read_image(const char *path, struct image *out, int interpreter)
 {
     out->source_fd = -1;
-    int fd = (int)dl_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC, 0);
+    int fd = (int)dl_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC | O_NONBLOCK, 0);
     if (fd < 0) return fd;
     struct stat st;
     Elf64_Ehdr header;

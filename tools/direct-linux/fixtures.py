@@ -39,6 +39,7 @@ def application_files():
             pending.append(dependency)
     mapping["applications.py"] = Path(__file__).with_name("application-test.py")
     mapping["network.py"] = Path(__file__).with_name("network-test.py")
+    mapping["threads.py"] = Path(__file__).with_name("thread-application-test.py")
     return mapping
 
 
@@ -54,7 +55,9 @@ def prepare(output, applications=False):
     }
     for name in ("cp", "mv", "mkdir", "rm", "chmod", "touch", "ln", "cat", "stty"):
         mapping[f"bin/{name}"] = Path(f"/usr/bin/{name}")
-    for name in ("libselinux.so.1", "libacl.so.1", "libattr.so.1", "libpcre2-8.so.0", "libresolv.so.2"):
+    # glibc loads the unwinder lazily for pthread_exit/cancellation; it is not
+    # necessarily listed as a DT_NEEDED dependency of the test executable.
+    for name in ("libselinux.so.1", "libacl.so.1", "libattr.so.1", "libpcre2-8.so.0", "libresolv.so.2", "libgcc_s.so.1"):
         mapping[f"lib/aarch64-linux-gnu/{name}"] = Path(f"/usr/lib/aarch64-linux-gnu/{name}")
     if applications:
         mapping.update(application_files())
@@ -70,14 +73,15 @@ def prepare(output, applications=False):
                         "-Wl,-z,noexecstack,-z,max-page-size=65536",
                         *(["-static"] if variant == "static" else []), str(source), "-o", str(target)], check=True)
         mapping[str(target.relative_to(output))] = target
-    for program in ("process", "startup", "files", "fds", "tty", "network", "dns", "unix", "signals"):
+    for program in ("process", "startup", "files", "fds", "tty", "network", "dns", "unix", "signals", "threads"):
         for variant in ("static", "dynamic"):
             target = output / "bin" / f"{program}-{variant}"
             subprocess.run(["clang", "-O2", "-Wall", "-Wextra", "-Werror",
                             "-Wl,-z,noexecstack,-z,max-page-size=65536",
                             *(["-static"] if variant == "static" else []),
                             str(Path(__file__).with_name(f"{program}-test.c")),
-                            *(["-lresolv"] if program == "dns" else []), "-o", str(target)], check=True)
+                            *(["-lresolv"] if program == "dns" else []),
+                            *(["-pthread"] if program == "threads" else []), "-o", str(target)], check=True)
             mapping[str(target.relative_to(output))] = target
     if applications:
         # Disposable, freshly generated test credentials. Never commit the key
@@ -139,7 +143,7 @@ def prepare(output, applications=False):
         rejected.append("/" + relative)
         files.append({"path": relative, "size": len(data), "sha256": hashlib.sha256(data).hexdigest()})
     versions = subprocess.check_output(["dpkg-query", "-W", "-f=${Package} ${Version}\n", "dash", "coreutils", "libc6:arm64",
-                                       "libselinux1:arm64", "libacl1:arm64", "libattr1:arm64", "libpcre2-8-0:arm64",
+                                       "libselinux1:arm64", "libacl1:arm64", "libattr1:arm64", "libpcre2-8-0:arm64", "libgcc-s1:arm64",
                                        *(["python3.12", "libpython3.12-stdlib:arm64", "git", "openssl"] if applications else [])], text=True)
     (output / "manifest.json").write_text(json.dumps({"schema": 1, "applications": applications,
         "source": "Existing Ubuntu ARM64 host packages; local test fixture only",
