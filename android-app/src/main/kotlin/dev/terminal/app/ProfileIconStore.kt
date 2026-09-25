@@ -15,7 +15,7 @@ import java.security.MessageDigest
 import kotlin.math.max
 import kotlin.math.roundToInt
 
-/** Imported files are immutable and retained for duplicates and live launch snapshots. */
+/** Library removal hides immutable images while retaining bytes for saved profiles/live snapshots. */
 internal class ProfileIconStore(context: Context) {
     private val app = context.applicationContext
     private val directory = File(app.filesDir, "profile-icons")
@@ -60,6 +60,8 @@ internal class ProfileIconStore(context: Context) {
                     check(temporary.renameTo(target)) { "Could not store icon" }
                 } finally { temporary.delete() }
             }
+            val removed = removalMarker(target)
+            check(!removed.exists() || removed.delete()) { "Could not restore icon to library" }
             return id
         } finally { normalized.bitmap.recycle() }
     }
@@ -67,9 +69,19 @@ internal class ProfileIconStore(context: Context) {
     fun file(id: String): File? = if (SessionProfileIcon.isImage(id))
         File(directory, id.removePrefix("image:").replace(':', '-') + ".png") else null
 
+    /** Do not invalidate profile IDs or the icon captured by a running session. */
+    fun removeFromLibrary(id: String) {
+        val target = requireNotNull(file(id)) { "Only imported icons can be removed" }
+        require(target.isFile) { "Imported icon does not exist" }
+        val marker = removalMarker(target)
+        check(marker.createNewFile() || marker.isFile) { "Could not remove icon from library" }
+    }
+
+    private fun removalMarker(target: File) = File(directory, target.name + ".removed")
+
     fun all(): List<String> = directory.listFiles().orEmpty().mapNotNull {
         val id = "image:" + it.name.removeSuffix(".png").replace('-', ':')
-        id.takeIf { _ -> it.extension == "png" && SessionProfileIcon.isImage(id) }
+        id.takeIf { _ -> it.isFile && it.extension == "png" && SessionProfileIcon.isImage(id) && !removalMarker(it).exists() }
     }.sorted()
 
     companion object {
