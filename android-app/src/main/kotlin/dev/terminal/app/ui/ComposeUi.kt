@@ -36,6 +36,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -59,7 +60,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
@@ -385,25 +385,17 @@ fun TerminalChrome(
                         Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).height(56.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(Modifier.weight(1f).height(56.dp)) {
+                        Box(Modifier.weight(1f).padding(vertical = 4.dp).height(48.dp)) {
                             if (sessions.isEmpty()) {
-                                Spacer(Modifier.fillMaxWidth().height(56.dp))
+                                Spacer(Modifier.fillMaxWidth().height(48.dp))
                             } else {
                         PrimaryScrollableTabRow(
                                     selectedTabIndex = selectedTabIndex.coerceAtLeast(0),
-                                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                                    modifier = Modifier.fillMaxWidth().height(48.dp),
                                     containerColor = terminalBackgroundColor,
                                     contentColor = TerminalStatusBlue,
                                     edgePadding = 6.dp,
-                                    indicator = {
-                                        if (selectedTabIndex >= 0) {
-                                            TabRowDefaults.PrimaryIndicator(
-                                                modifier = Modifier.tabIndicatorOffset(selectedTabIndex, matchContentSize = true),
-                                                width = Dp.Unspecified,
-                                                color = TerminalStatusBlue,
-                                            )
-                                        }
-                                    },
+                                    indicator = {},
                                     divider = {},
                                 ) {
                             sessions.forEachIndexed { index, session ->
@@ -411,6 +403,7 @@ fun TerminalChrome(
                         val sessionTitle = session.title.ifBlank { stringResource(R.string.shell_default_title) }
                         val stateLabel = sessionStateLabel(session.state)
                         val renameLabel = stringResource(R.string.rename_session_description, sessionTitle)
+                        Box(Modifier.widthIn(max = 220.dp).height(48.dp)) {
                         Tab(
                             selected = selected,
                             onClick = {
@@ -418,8 +411,11 @@ fun TerminalChrome(
                                 onSelect(session.id)
                             },
                             modifier = Modifier
-                                .widthIn(max = 220.dp)
-                                .heightIn(min = 56.dp)
+                                .fillMaxWidth()
+                                .padding(horizontal = 4.dp)
+                                .height(48.dp)
+                                .clip(CircleShape)
+                                .background(if (selected) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent)
                                 .semantics {
                                     stateDescription = stateLabel
                                     onLongClick(label = renameLabel) {
@@ -435,8 +431,8 @@ fun TerminalChrome(
                                 Row(
                                     Modifier
                                         .weight(1f)
-                                        .heightIn(min = 56.dp)
-                                        .padding(start = 12.dp)
+                                        .heightIn(min = 48.dp)
+                                        .padding(start = 12.dp, end = if (selected) 0.dp else 12.dp)
                                         .pointerInput(session.id, session.title) {
                                             awaitEachGesture {
                                                 val down = awaitFirstDown(
@@ -487,7 +483,7 @@ fun TerminalChrome(
                                         }
                                     }
                                 }
-                                IconButton(
+                                if (selected) IconButton(
                                     onClick = {
                                         haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                                         onTerminate(session)
@@ -498,6 +494,14 @@ fun TerminalChrome(
                                     Icon(painterResource(R.drawable.ic_material_symbol_close_24), stringResource(R.string.terminate_session_description, sessionTitle))
                                 }
                             }
+                        }
+                        // Only adjacent inactive tabs need a separator; the capsule separates the active tab.
+                        if (!selected && index < sessions.lastIndex && index + 1 != selectedTabIndex) {
+                            VerticalDivider(
+                                modifier = Modifier.align(Alignment.CenterEnd).height(24.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant,
+                            )
+                        }
                         }
                             }
                         }
