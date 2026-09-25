@@ -15,10 +15,10 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import dev.terminal.app.ui.terminalListItemShapes
+import dev.terminal.app.ui.terminalSettingsListItemColors
 import dev.terminal.runtime.session.SessionProfile
 
 @Composable
@@ -71,6 +71,6 @@ internal fun ProfilePaletteSetting(palette: List<String>?, others: List<SessionP
 private fun PaletteAction(label: Int, summary: String, enabled: Boolean = true, action: () -> Unit) {
     ListItem(onClick = action, enabled = enabled,
         supportingContent = { Text(summary) }, shapes = terminalListItemShapes(),
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent), modifier = Modifier.fillMaxWidth(),
+        colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth(),
     ) { Text(stringResource(label)) }
 }

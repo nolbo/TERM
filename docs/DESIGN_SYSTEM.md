@@ -26,6 +26,10 @@ TERM의 활성 Android UI는 Jetpack Compose와 Material 3 Expressive를 기준�
 
 ## Foundations
 
+비활성(`enabled = false`) 설정 행은 활성 상태와 같은 배경을 유지한다.
+`terminalSettingsListItemColors`로 제목·설명·앞뒤 아이콘 등 전경에만
+`onSurface` 38% 불투명도를 적용하며, 행 전체나 배경의 불투명도는 변경하지 않는다.
+
 - 비동적 다크 색상표는 primary/secondary/tertiary, 모든 on/container, surface container 단계, inverse, outline, error, scrim 역할을 명시한다. 일반 동작과 강조는 `MaterialTheme.colorScheme` 역할을 사용하고, 활성·가용·준비·진행 상태는 이름이 명시된 파란색 semantic token을 사용한다.
 - 앱 루트는 `MaterialExpressiveTheme`와 `MotionScheme.expressive()`를 제공한다. 별도 Expressive API가 있는 버튼과 아이콘 버튼은 상태에 따라 형태가 변하는 `shapes` 오버로드를 사용하고, 로딩은 shape-morphing `LoadingIndicator` 또는 wavy progress indicator를 사용한다. 별도 Expressive 오버로드가 없는 scaffold, dialog, text field, switch, radio button, card, tab은 같은 테마 아래 최신 Material 3 토큰과 motion scheme을 상속한다.
 - 앱 텍스트는 Material 3 type scale을 사용한다. 고정폭 글꼴은 터미널, extra key, 진단 및 크래시 payload에만 사용한다.

@@ -292,7 +292,7 @@ private fun UsbEmpty(@StringRes title: Int, @StringRes hint: Int) {
 @Composable
 private fun UsbDivider() { HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant) }
 @Composable
-private fun usbListColors() = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+private fun usbListColors() = terminalSettingsListItemColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
 @Composable
 private fun UsbIcon(id: Int) { Icon(painterResource(id), null, Modifier.size(24.dp)) }
 @Composable
