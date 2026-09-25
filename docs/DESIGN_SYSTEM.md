@@ -9,6 +9,8 @@ TERM의 활성 Android UI는 Jetpack Compose와 Material 3 Expressive를 기준�
 터미널 화면의 상단 앱 바는 상태 표시줄 뒤 여백과 세션 탭을 포함해 현재 터미널
 배경색을 사용한다. 터미널 팔레트 변경 후 화면에 돌아오면 앱 바 배경도 함께
 갱신한다. 탭의 선택 표시와 버튼·텍스트 색은 기존 앱 UI 색상 역할을 유지한다.
+앱 바 Surface의 content color는 `onSurface`로 명시해 터미널 배경색이 Material
+색상표에 없더라도 새 세션·설정 아이콘이 검은색을 상속해 사라지지 않게 한다.
 세션이 없는 빈 화면에서는 메인 콘텐츠와 앱 바가 같은 Material `background`
 색을 사용한다. 세션을 열면 앱 바와 콘텐츠가 터미널 배경색을 사용한다.
 
