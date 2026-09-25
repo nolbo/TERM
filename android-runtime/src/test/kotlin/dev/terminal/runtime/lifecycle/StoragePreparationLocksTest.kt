@@ -1,0 +1,73 @@
+package dev.terminal.runtime.lifecycle
+
+import dev.terminal.runtime.session.SessionRuntime
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.async
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import org.junit.Assert.*
+import org.junit.Test
+
+class StoragePreparationLocksTest {
+    @Test fun `install blocks only its own storage`() = runBlocking {
+        val locks = StoragePreparationLocks()
+        val release = CompletableDeferred<Unit>()
+        val install = async(start = CoroutineStart.UNDISPATCHED) {
+            locks.withStorage(SessionRuntime.ROOTLESS, "installing") { release.await() }
+        }
+        val sameStorage = async(start = CoroutineStart.UNDISPATCHED) {
+            locks.withStorage(SessionRuntime.ROOTLESS, "installing") { true }
+        }
+        try {
+            withTimeout(5000) {
+                locks.withStorage(SessionRuntime.NATIVE) { }
+                locks.withStorage(SessionRuntime.ROOTLESS) { }
+                locks.withStorage(SessionRuntime.ROOTLESS, "other-profile") { }
+                locks.withStorage(SessionRuntime.ROOTLESS_UBUNTU) { }
+            }
+            assertFalse(sameStorage.isCompleted)
+        } finally { release.complete(Unit) }
+        install.await()
+        assertTrue(sameStorage.await())
+    }
+
+    @Test fun `migration drains preparation and excludes new storage`() = runBlocking {
+        val locks = StoragePreparationLocks()
+        val releaseInstall = CompletableDeferred<Unit>()
+        val releaseMigration = CompletableDeferred<Unit>()
+        val migrationEntered = CompletableDeferred<Unit>()
+        val install = async(start = CoroutineStart.UNDISPATCHED) {
+            locks.withStorage(SessionRuntime.ROOTLESS) { releaseInstall.await() }
+        }
+        val migration = async(start = CoroutineStart.UNDISPATCHED) {
+            locks.withAll { migrationEntered.complete(Unit); releaseMigration.await() }
+        }
+        val next = async(start = CoroutineStart.UNDISPATCHED) {
+            locks.withStorage(SessionRuntime.NATIVE, "new") { true }
+        }
+        try {
+            assertFalse(migrationEntered.isCompleted)
+            assertFalse(next.isCompleted)
+            releaseInstall.complete(Unit)
+            withTimeout(5000) { migrationEntered.await() }
+            assertFalse(next.isCompleted)
+        } finally { releaseInstall.complete(Unit); releaseMigration.complete(Unit) }
+        withTimeout(5000) { install.await(); migration.await(); assertTrue(next.await()) }
+    }
+
+    @Test fun `cancelling queued preparation does not strand migration`() = runBlocking {
+        val locks = StoragePreparationLocks()
+        val release = CompletableDeferred<Unit>()
+        val install = async(start = CoroutineStart.UNDISPATCHED) {
+            locks.withStorage(SessionRuntime.ROOTLESS) { release.await() }
+        }
+        val queued = async(start = CoroutineStart.UNDISPATCHED) {
+            locks.withStorage(SessionRuntime.ROOTLESS) { error("Cancelled preparation ran") }
+        }
+        queued.cancelAndJoin()
+        install.cancelAndJoin()
+        withTimeout(5000) { locks.withAll { }; locks.withStorage(SessionRuntime.ROOTLESS) { } }
+    }
+}

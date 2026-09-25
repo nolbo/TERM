@@ -52,7 +52,7 @@ class UnifiedSessionRegistry(
     private val owners = ConcurrentHashMap<String, StorageKey>()
     private val lastKnownSessions = ConcurrentHashMap<StorageKey, List<SessionDescriptor>>()
     private val listMutex = Mutex()
-    private val mutationMutexes = SessionRuntime.entries.associateWith { Mutex() }
+    private val mutationLocks = dev.terminal.runtime.lifecycle.StoragePreparationLocks()
     private val mutableEvents = MutableSharedFlow<SessionEvent>(extraBufferCapacity = 128)
     private val mutableConnection = MutableStateFlow(SessionConnectionState.CONNECTED)
 
@@ -102,24 +102,20 @@ class UnifiedSessionRegistry(
         registrations.containsKey(StorageKey(runtime, storageId))
 
     /** Excludes creation in every runtime while shared workspace trees are replaced. */
-    suspend fun migrateIfAllIdle(runtime: SessionRuntime, migrate: suspend () -> Unit) {
-        val held = mutableListOf<Mutex>()
-        try {
-            for (mutex in mutationMutexes.values) { mutex.lock(); held.add(mutex) }
-            listMutex.withLock {
-                check(registrations.values.all { it.controller.list().getOrThrow().isEmpty() }) {
-                    "가속 형식 이전 전에 앱의 모든 터미널 세션을 종료하세요. 작업 폴더를 사용하는 파일 작업도 마쳐야 합니다"
-                }
-                val key = StorageKey(runtime)
-                registrations.remove(key)?.jobs?.forEach(Job::cancel)
-                owners.entries.removeAll { it.value == key }
-                lastKnownSessions.remove(key)
+    suspend fun migrateIfAllIdle(runtime: SessionRuntime, migrate: suspend () -> Unit) = mutationLocks.withAll {
+        listMutex.withLock {
+            check(registrations.values.all { it.controller.list().getOrThrow().isEmpty() }) {
+                "가속 형식 이전 전에 앱의 모든 터미널 세션을 종료하세요. 작업 폴더를 사용하는 파일 작업도 마쳐야 합니다"
             }
-            migrate()
-        } finally { held.asReversed().forEach { it.unlock() } }
+            val key = StorageKey(runtime)
+            registrations.remove(key)?.jobs?.forEach(Job::cancel)
+            owners.entries.removeAll { it.value == key }
+            lastKnownSessions.remove(key)
+        }
+        migrate()
     }
 
-    suspend fun removeIfIdle(runtime: SessionRuntime, remove: suspend () -> Unit) = mutationMutexes.getValue(runtime).withLock {
+    suspend fun removeIfIdle(runtime: SessionRuntime, remove: suspend () -> Unit) = mutationLocks.withStorage(runtime) {
         listMutex.withLock {
             val key = StorageKey(runtime)
             val registration = registrations[key]
@@ -163,8 +159,8 @@ class UnifiedSessionRegistry(
         env: Map<String, String> = emptyMap(),
         rows: UShort,
         cols: UShort,
-    ): Result<SessionDescriptor> = mutationMutexes.getValue(key.runtime).withLock {
-        runCatching { beforeCreate() }.exceptionOrNull()?.let { return@withLock Result.failure(it) }
+    ): Result<SessionDescriptor> = mutationLocks.withStorage(key.runtime, key.storageId) {
+        runCatching { beforeCreate() }.exceptionOrNull()?.let { return@withStorage Result.failure(it) }
         controller(key).fold(
             onSuccess = { controller -> controller.create(shell, cwd, env, rows, cols).onSuccess { created ->
                 owners[created.id] = key

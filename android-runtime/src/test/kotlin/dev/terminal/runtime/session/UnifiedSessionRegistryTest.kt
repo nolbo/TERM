@@ -116,7 +116,7 @@ class UnifiedSessionRegistryTest {
         registry.close()
     }
 
-    @Test fun maintenanceBlocksSameRuntimeCreationButNotSiblingOperations() = runBlocking {
+    @Test fun maintenanceBlocksSameStorageCreationButNotSiblingOperations() = runBlocking {
         val registry = UnifiedSessionRegistry()
         registry.register(SessionRuntime.ROOTLESS_UBUNTU, FakeController("ubuntu-live"))
         val entered = kotlinx.coroutines.CompletableDeferred<Unit>()
@@ -137,6 +137,10 @@ class UnifiedSessionRegistryTest {
             kotlinx.coroutines.withTimeout(1000) {
                 assertEquals(listOf("ubuntu-live"), registry.list().getOrThrow().map { it.id })
                 assertTrue(registry.create(SessionRuntime.ROOTLESS_UBUNTU, "/bin/sh", "/", rows = 24u, cols = 80u).isSuccess)
+                val storage = java.util.UUID.randomUUID().toString()
+                registry.register(SessionRuntime.ROOTLESS, FakeController("independent"), storage)
+                assertTrue(registry.create(SessionRuntime.ROOTLESS, "/bin/sh", "/", rows = 24u, cols = 80u,
+                    storageId = storage).isSuccess)
             }
         } finally {
             release.complete(Unit)

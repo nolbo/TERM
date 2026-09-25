@@ -165,6 +165,13 @@ and other distributions remain. Completion refreshes runtime
 state; failure reports `ROOTLESS_REMOVE:<runtimeType>` through `onOperationError`.
 `onRootlessProgress(runtimeType, phase, detail)` scopes
 progress to that selection; setup errors use `ROOTLESS_SETUP:<runtimeType>`.
+For independent profile storage, the progress callback's first argument is
+`<runtimeType>:<storageId>`; legacy storage retains the runtime-only value.
+Session creation errors use `세션 생성:<runtimeType>:<storageId>`. The UI matches
+storage as well as runtime so concurrent preparation cannot overwrite another
+profile's progress or complete its pending installation. Preparation/removal
+locks are scoped to runtime and storage; shared-tree migration retains an
+exclusive barrier across all storage preparation.
 The APK updates both sides of this app-private AIDL contract together.
 
 The Android AIDL listener carries state, revisioned session-list, PTY-output,
