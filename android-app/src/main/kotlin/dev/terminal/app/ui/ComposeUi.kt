@@ -388,13 +388,13 @@ fun TerminalChrome(
                         Modifier.fillMaxWidth().windowInsetsPadding(topInsets).height(48.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Box(Modifier.weight(1f).padding(vertical = 6.dp).height(36.dp)) {
+                        Box(Modifier.weight(1f).padding(vertical = 4.dp).height(40.dp)) {
                             if (sessions.isEmpty()) {
-                                Spacer(Modifier.fillMaxWidth().height(36.dp))
+                                Spacer(Modifier.fillMaxWidth().height(40.dp))
                             } else {
                         PrimaryScrollableTabRow(
                                     selectedTabIndex = selectedTabIndex.coerceAtLeast(0),
-                                    modifier = Modifier.fillMaxWidth().height(36.dp),
+                                    modifier = Modifier.fillMaxWidth().height(40.dp),
                                     containerColor = terminalBackgroundColor,
                                     contentColor = colors.accent,
                                     edgePadding = 6.dp,
@@ -406,7 +406,7 @@ fun TerminalChrome(
                         val sessionTitle = session.title.ifBlank { stringResource(R.string.shell_default_title) }
                         val stateLabel = sessionStateLabel(session.state)
                         val renameLabel = stringResource(R.string.rename_session_description, sessionTitle)
-                        Box(Modifier.widthIn(max = 220.dp).height(36.dp)) {
+                        Box(Modifier.widthIn(max = 220.dp).height(40.dp)) {
                         Tab(
                             selected = selected,
                             onClick = {
@@ -416,7 +416,7 @@ fun TerminalChrome(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 4.dp)
-                                .height(36.dp)
+                                .height(40.dp)
                                 .clip(CircleShape)
                                 .background(if (selected) colors.container else Color.Transparent)
                                 .semantics {
@@ -434,7 +434,7 @@ fun TerminalChrome(
                                 Row(
                                     Modifier
                                         .weight(1f)
-                                        .heightIn(min = 36.dp)
+                                        .heightIn(min = 40.dp)
                                         .padding(start = 12.dp, end = if (selected) 0.dp else 12.dp)
                                         .pointerInput(session.id, session.title) {
                                             awaitEachGesture {
