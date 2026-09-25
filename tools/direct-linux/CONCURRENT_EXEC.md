@@ -2,7 +2,9 @@
 
 2026-09-25. 여러 pthread가 살아 있거나 group leader가 먼저 종료한 상태에서도
 guest `execve`를 실행한다. 정적·동적 glibc의 leader/worker/leader 선종료 worker
-경로를 검증했다. **다중 thread fork와 shared-VM spawn은 아직 미완료**다.
+경로를 검증했다. 이 단계에서는 다중 thread fork와 shared-VM spawn이 미완료였다.
+후속 [fork/FD-table 변경](FORK_FD_TABLES.md)이 다중 thread fork를 추가했으며
+shared-VM spawn은 계속 미완료다.
 
 ## 문제와 선택
 

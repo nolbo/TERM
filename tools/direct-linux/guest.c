@@ -90,24 +90,31 @@ static long guest_clone(unsigned long *a, uintptr_t guest_sp)
         long writer = DL_CALL(SYS_fcntl, pipes[1], F_DUPFD_CLOEXEC, 256, 0, 0, 0);
         DL_CALL(SYS_close, pipes[1], 0, 0, 0, 0, 0);
         if (writer < 0) { DL_CALL(SYS_close, pipes[0], 0, 0, 0, 0, 0); dl_fork_end(0); return writer; }
+        uintptr_t stack; __asm__ volatile("mov %0, sp" : "=r"(stack));
+        long reader_slot = dl_io_hold(pipes[0], stack);
+        long writer_slot = reader_slot < 0 ? reader_slot : dl_io_hold((int)writer, stack);
+        if (writer_slot < 0) {
+            if (reader_slot >= 0) dl_io_release((unsigned)reader_slot);
+            else DL_CALL(SYS_close, pipes[0], 0, 0, 0, 0, 0);
+            DL_CALL(SYS_close, writer, 0, 0, 0, 0, 0); dl_fork_end(0); return writer_slot;
+        }
         r = dl_memory_fork_begin();
         if (r) {
-            DL_CALL(SYS_close, writer, 0, 0, 0, 0, 0);
-            DL_CALL(SYS_close, pipes[0], 0, 0, 0, 0, 0); dl_fork_end(0); return r;
+            dl_io_release((unsigned)writer_slot); dl_io_release((unsigned)reader_slot);
+            dl_fork_end(0); return r;
         }
         r = DL_CALL(SYS_clone, SIGCHLD, 0, 0, 0, 0, 0);
         dl_memory_fork_end(r == 0);
-        dl_fork_end(r == 0);
         if (!r) {
-            DL_CALL(SYS_close, pipes[0], 0, 0, 0, 0, 0);
-            dl_state.vfork_fd = (int)writer; return 0;
+            dl_state.vfork_fd = dl_io_take((unsigned)writer_slot);
+            dl_io_release((unsigned)reader_slot); dl_fork_end(1); return 0;
         }
-        DL_CALL(SYS_close, writer, 0, 0, 0, 0, 0);
+        dl_io_release((unsigned)writer_slot); dl_fork_end(0);
         if (r > 0) {
             char byte; long waited;
             do { waited = DL_CALL(SYS_read, pipes[0], &byte, 1, 0, 0, 0); } while (waited == -EINTR);
         }
-        DL_CALL(SYS_close, pipes[0], 0, 0, 0, 0, 0); return r;
+        dl_lock(&dl_files_lock); dl_io_release((unsigned)reader_slot); dl_unlock(&dl_files_lock); return r;
     }
     // Only fork semantics: no VM, signal-handler, FS, or FD-table sharing.
     if ((a[0] & 255) != SIGCHLD ||

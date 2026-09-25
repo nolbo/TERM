@@ -22,6 +22,28 @@ dl_spawn:
     b dl_thread_start
 .size dl_spawn, .-dl_spawn
 
+// A runtime-only descriptor cleanup task: no guest entry, TLS or signal work.
+.global dl_spawn_cleanup
+.hidden dl_spawn_cleanup
+.type dl_spawn_cleanup, %function
+dl_spawn_cleanup:
+    stp x19, x30, [sp, #-16]!
+    mov x19, x0
+    mov x2, x1
+    ldr x1, [x19]
+    ldr x3, [x19, #16]
+    ldr x4, [x19, #24]
+    ldr x5, [x19, #32]
+    mov x0, #220
+    mov x6, xzr
+    bl dl_host_syscall
+    cbz x0, 1f
+    ldp x19, x30, [sp], #16
+    ret
+1:  ldr x0, [sp]
+    b dl_files_cleanup_start
+.size dl_spawn_cleanup, .-dl_spawn_cleanup
+
 .global dl_resume
 .hidden dl_resume
 .type dl_resume, %function

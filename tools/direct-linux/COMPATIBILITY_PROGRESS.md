@@ -156,6 +156,28 @@ metadata 회귀 통과. Rootless worker exec의 네 SIGSEGV는 limitation으로 
 다중 thread fork, shared-VM spawn/vfork, 모든 FD/FS table 조합과 전체 exec reset
 계약은 남아 있다. 이번 단계는 C05의 exec 부분이며 전체 C05/C10 완료가 아니다.
 
+## 2026-09-25: C05/C26 다중 thread fork와 FD table
+
+[구현·실패 이력·한계](FORK_FD_TABLES.md),
+[실행 결과](results/fork-fd-runtime-2026-09-25.json).
+다중 thread fork는 runtime lock/state를 고정하여 복사하고 자식의 호출자 이외
+runtime stack/record와 복사된 I/O pin을 회수한다. FD-table identity를 구분하여
+비공유 table의 정상 FD 번호를 다른 table의 private FD와 혼동하지 않는다.
+대기 중인 신호 처리기의 table 분리는 자기 pin을 새 table에 남기고, 필요한 경우
+짧은 kernel cleanup task로 이전 table의 복사본까지 정리한다.
+
+정적·동적 각각 fork 90회, 비공유 FD-table clone 160회, FIFO 재시작 중 table 분리를
+host/Android에서 통과했다. 새 10개 시나리오를 포함한 최종 Android는 32.051초,
+2 tests/174회 실행(54개 비교 표본 포함)/728 fixture hash다. 기존 exec·blocking·network·PTY 및
+kernel 재진입 200회도 통과했다. Native·서명·canonical Gradle·host FD/매핑 회귀 통과.
+같은 APK의 shell+30 명령 중앙값은 `f20fd01` 37.077ms, 현재 36.851ms,
+Rootless 48.851ms이며, 이전 Direct 대비 작은 차이를 추가 성능 향상으로 단정하지 않는다.
+
+Rootless 동적 fork가 O_PATH stat pin을 자식에 남기는 경쟁과 table 분리 뒤 FIFO
+restart ENOENT를 별도 기록했다. Android 상속 mask의 fixture 누락, 종료 후 proc
+조회, APK 설치 공간 부족을 수정/복구한 과정도 보존한다. shared-VM spawn과
+추가 FD/FS/자원 조합, stock enforcing/16 KiB, 제품 통합은 여전히 미완료다.
+
 ## 전체 목표 추적
 
 각 행의 원래 완료 조건은 감사 문서의 같은 ID를 따른다. 현 기기의 통과를
@@ -167,7 +189,7 @@ stock enforcing/다른 페이지 크기/모든 앱에 일반화하지 않는다.
 | C02 | 페이지·커널·Bionic 차이 | 미완료: 16 KiB, 지원 버전·커널 matrix. |
 | C03 | pthread | 부분 구현·실행 검증: 기본 pthread/Python 통과. clone3/rseq/PI·추가 cancellation/CPU migration 남음. |
 | C04 | spawn/vfork | 미완료: shared-VM spawn, 전체 vfork 의미. |
-| C05 | thread 수명·병행 exec | 부분 구현·실행 검증: 다중 thread/nonleader/leader 선종료 exec와 kernel 거부 복원 추가. 다중 thread fork·전체 FD/FS 조합 남음. |
+| C05 | thread 수명·병행 exec | 다중 thread/nonleader/leader 선종료 fork·exec, kernel 거부 복원, 비공유 FD clone 검증. 전체 FD/FS/생성 실패·장시간 조합은 미완료. |
 | C06 | execveat/fexecve | 미완료. |
 | C07 | argv/env 한도 | 미완료. |
 | C08 | ELF 허용 범위 | 미완료: 큰 ELF/다양한 linker/CPU property. |
@@ -188,7 +210,7 @@ stock enforcing/다른 페이지 크기/모든 앱에 일반화하지 않는다.
 | C23 | guest proc | 미완료: live-TID 경로는 내부 구현만 변경. |
 | C24 | devpts/중첩 PTY | 미완료. |
 | C25 | FD 고갈 복구 | 현 kernel 수정·host/Android 검증. close_range 미지원 구형 kernel의 EMFILE/ENFILE fallback 남음. |
-| C26 | private FD·한도 | 일부 진행: shared-table 보호와 native range 분할. 모든 FD 전달·분리 조합은 미완료. |
+| C26 | private FD·한도 | table identity와 복사 pin 정리, signal wait 중 unshare, 낮은 NOFILE 회귀 추가. 모든 FD 전달·분리 조합과 초기 FD 한도는 미완료. |
 | C27 | lock/고급 I/O | 미완료. |
 | C28 | 파일 감시 | 미완료. |
 | C29 | process 정보/제어 | 미완료. |
@@ -209,5 +231,5 @@ stock enforcing/다른 페이지 크기/모든 앱에 일반화하지 않는다.
 | C44 | kernel 기능 범위 | 미완료: syscall별 가능/제한/플랫폼 불가 분류와 증거 필요. |
 | C45 | 회귀/비교 기준 | 진행: thread/매핑/FD 회귀와 reference 실패 기록 추가. 전체 matrix 미완료. |
 
-다음 구현은 C04/C05/C26의 spawn·다중 thread fork·FD-table 소유권과 남은 C14/C17 동작으로
+다음 구현은 C04의 실제 shared-VM spawn/vfork와 추가 C05/C26·C14/C17 조합으로
 이어간다. 전체 목표는 계속 진행 중이다.

@@ -31,7 +31,9 @@ struct dl_signal_state {
 };
 struct dl_thread {
     unsigned state;
+    unsigned files_id;
     int tid;
+    struct dl_fd_snapshot *copied_fds;
     struct { int fd; uintptr_t stack; } io[DL_WAIT_LIMIT];
     unsigned io_count;
     uintptr_t stack_begin, stack_end;
@@ -48,9 +50,11 @@ void dl_fork_end(int child);
 long dl_exec_begin(void);
 void dl_exec_end(void);
 int dl_files_may_be_shared(void);
+long dl_files_unshare(void);
 int dl_internal_fd(int fd);
 unsigned dl_next_internal_fd(unsigned first);
 long dl_io_hold(int fd, uintptr_t stack);
+int dl_io_take(unsigned slot);
 void dl_io_release(unsigned slot);
 void dl_io_collect(uintptr_t stack);
 extern _Noreturn void dl_resume(void *frame);

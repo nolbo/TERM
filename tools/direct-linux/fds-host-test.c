@@ -21,6 +21,7 @@ unsigned dl_files_lock;
 void dl_lock(unsigned *lock) { assert(!*lock); *lock = 1; }
 void dl_unlock(unsigned *lock) { assert(*lock); *lock = 0; }
 int dl_files_may_be_shared(void) { return 0; }
+long dl_files_unshare(void) { assert(0); return -1; }
 int dl_internal_fd(int fd) { return fd == dl_state.root_fd || fd == dl_state.vfork_fd; }
 unsigned dl_next_internal_fd(unsigned first)
 {

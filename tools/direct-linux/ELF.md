@@ -154,7 +154,7 @@ depends on those failed fetches. Replicant/codex_apps were unnecessary because
 this step changes neither UI interaction nor connected-app state.
 
 Remaining implementation after the process milestone: broader thread semantics,
-multi-thread fork/shared-VM spawn,
+shared-VM spawn and further FD/FS sharing combinations,
 execveat and complete signal virtualization/interruption; FD sharing/lifecycle and complete filesystem
 semantics (basic mutations now work); fake identity/hardlinks; installer/package environment; backend/PTY/UI
 integration and lifecycle tests. Unsupported process variants return EOPNOTSUPP or ENOSYS; ordinary fork/exec/wait

@@ -66,7 +66,7 @@ long dl_close_range(unsigned first, unsigned last, unsigned flags)
     if ((flags & CLOSE_RANGE_UNSHARE) && dl_files_may_be_shared()) {
         // Unshare without changing any valid descriptor. Never silently treat
         // UNSHARE as a no-op once a CLONE_FILES child may exist.
-        r = DL_CALL(SYS_close_range, UINT_MAX, UINT_MAX, CLOSE_RANGE_UNSHARE, 0, 0, 0);
+        r = dl_files_unshare();
     }
     if (!r && first <= INT_MAX) {
         unsigned begin = first, end = last > INT_MAX ? INT_MAX : last;

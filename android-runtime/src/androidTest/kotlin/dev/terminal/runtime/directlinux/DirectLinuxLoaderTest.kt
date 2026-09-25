@@ -88,7 +88,8 @@ class DirectLinuxLoaderTest {
                 builder.environment()["DIRECT_LINUX_STARTUP_PROFILE"] = "1"
             return builder
         }
-        fun run(path: String, vararg args: String, expectedCode: Int = 0, useProot: Boolean = false, useBaseline: Boolean = false): String {
+        fun run(path: String, vararg args: String, expectedCode: Int = 0, useProot: Boolean = false, useBaseline: Boolean = false,
+            additionalExpectedCode: Int? = null): String {
             val log = File(temporary, "output")
             val builder = launch(path, args, useProot, useBaseline = useBaseline).redirectErrorStream(true).redirectOutput(log)
             val started = System.nanoTime()
@@ -101,7 +102,7 @@ class DirectLinuxLoaderTest {
                         file.seek((file.length() - 8192).coerceAtLeast(0))
                         ByteArray((file.length() - file.filePointer).toInt()).also { file.readFully(it) }.decodeToString()
                     }
-                    fail("ELF process timeout: $path $tail")
+                    fail("ELF process timeout: ${if (useProot) "proot" else "direct-linux"} $path ${args.joinToString(" ")} $tail")
                 }
                 assertTrue("Unbounded output", log.length() <= 65536)
                 val output = log.readText()
@@ -113,7 +114,8 @@ class DirectLinuxLoaderTest {
                             .limit(12).map { root.toPath().relativize(it).toString() }.toArray().joinToString("\n")
                     }
                 } else ""
-                assertEquals("${if (useProot) "proot" else if (useBaseline) "baseline" else "direct-linux"} $path: $output\n$residuals", expectedCode, process.exitValue())
+                assertTrue("${if (useProot) "proot" else if (useBaseline) "baseline" else "direct-linux"} $path ${args.joinToString(" ")}: expected $expectedCode${additionalExpectedCode?.let { " or $it" } ?: ""}, got ${process.exitValue()}: $output\n$residuals",
+                    process.exitValue() == expectedCode || process.exitValue() == additionalExpectedCode)
                 results.put(JSONObject().put("program", path).put("exit", process.exitValue()).put("engine", if (useProot) "proot" else if (useBaseline) "baseline" else "direct-linux")
                     .put("arguments", JSONArray(args.toList())).put("observation_ms", (System.nanoTime() - started) / 1e6))
                 return output
@@ -193,7 +195,33 @@ class DirectLinuxLoaderTest {
                 for (reference in listOf(false, true)) {
                     val checks = JSONArray()
                     val limitations = JSONArray()
+                    var unixNamesVerified = true
                     for (kind in listOf("static", "dynamic")) {
+                        if (arguments.getString("directLinuxFork") == "true") {
+                            for (scenario in listOf("fork-leader", "fork-worker", "fork-exited-leader", "private-clone", "unshare-wait")) {
+                                val referenceRestart = reference && scenario == "unshare-wait"
+                                val referenceCapacity = reference && kind == "dynamic" && scenario.startsWith("fork-")
+                                val scenarioArgs = listOf(if (referenceRestart) "unshare-wait-reference" else scenario) +
+                                    if (referenceCapacity) listOf("reference-capacity") else emptyList()
+                                val output = run("/bin/fork-$kind", *scenarioArgs.toTypedArray(),
+                                    useProot = reference,
+                                    additionalExpectedCode = if (referenceCapacity || referenceRestart) 78 else null)
+                                val case = "${if (reference) "proot" else "direct-linux"}/$kind/$scenario"
+                                if (referenceRestart && output.contains("LIMIT reference FIFO restart after FD-table unshare returned ENOENT")) {
+                                    assertFalse(case, output.contains("PASS "))
+                                    limitations.put("$kind $scenario: reference FIFO restart returned ENOENT after FD-table unshare")
+                                    continue
+                                }
+                                if (referenceCapacity && output.contains("LIMIT reference fork copied O_PATH stat pins:")) {
+                                    assertFalse(case, output.contains("PASS "))
+                                    output.lineSequence().filter { it.startsWith("LIMIT ") }.forEach { limitations.put("$kind $scenario: $it") }
+                                    continue
+                                }
+                                assertTrue("$case: $output", output.contains("PASS "))
+                                assertFalse("$case: $output", output.contains("FAIL "))
+                                output.lineSequence().filter { it.startsWith("PASS ") }.forEach { checks.put("$kind $scenario: $it") }
+                            }
+                        }
                         for (scenario in listOf("exec-leader", "exec-worker", "exec-exited-leader")) {
                             val output = run("/bin/concurrency-$kind", scenario, useProot = reference)
                             val case = "${if (reference) "proot" else "direct-linux"}/$kind/$scenario"
@@ -212,18 +240,23 @@ class DirectLinuxLoaderTest {
                             assertTrue(output, output.contains("PASS "))
                             output.lineSequence().filter { it.startsWith("PASS ") }.forEach { checks.put("$kind: $it") }
                         }
-                        val unix = run("/bin/threads-$kind", "main-exit-unix", expectedCode = if (reference) 78 else 0, useProot = reference)
-                        if (reference) {
-                            assertTrue(unix, unix.contains("LIMIT Unix getsockname did not return the guest pathname after leader exit"))
+                        val unix = run("/bin/threads-$kind", "main-exit-unix", useProot = reference,
+                            additionalExpectedCode = if (reference) 78 else null)
+                        if (reference && unix.contains("LIMIT Unix getsockname did not return the guest pathname after leader exit")) {
+                            assertFalse(unix, unix.contains("PASS Unix pathname operations after leader exit"))
+                            unixNamesVerified = false
                             limitations.put("$kind: Unix getsockname returned a different pathname after leader exit")
-                        } else assertTrue(unix, unix.contains("PASS Unix pathname operations after leader exit"))
+                        } else {
+                            assertTrue(unix, unix.contains("PASS Unix pathname operations after leader exit"))
+                            checks.put("$kind: PASS Unix pathname operations after leader exit")
+                        }
                     }
                     val python = run("/usr/bin/python3", "/threads.py", useProot = reference)
                     assertTrue(python, python.contains("PASS Python ThreadPoolExecutor"))
                     checks.put("PASS Python ThreadPoolExecutor, thread-local state and concurrent file work")
                     threadResults.put(JSONObject().put("engine", if (reference) "proot" else "direct-linux")
                         .put("checks", checks).put("observed_limitations", limitations)
-                        .put("unix_names_after_leader_exit_verified", !reference))
+                        .put("unix_names_after_leader_exit_verified", unixNamesVerified))
                 }
             }
             if (arguments.getString("directLinuxSignalMasks") == "true") {
