@@ -343,6 +343,7 @@ fun TerminalChrome(
     sessions: List<SessionUi>,
     activeSessionId: String?,
     appBarContentVisible: Boolean,
+    terminalBackgroundColor: Color,
     terminatingSessionIds: Set<String>,
     profiles: List<dev.terminal.runtime.session.SessionProfile>,
     onSelectProfile: (dev.terminal.runtime.session.SessionProfile) -> Unit,
@@ -359,7 +360,7 @@ fun TerminalChrome(
     val haptics = LocalTerminalHaptics.current
     Surface(
         modifier = Modifier.zIndex(1f),
-        color = MaterialTheme.colorScheme.surfaceContainer,
+        color = terminalBackgroundColor,
     ) {
         Column(Modifier.fillMaxWidth()) {
             Box(Modifier.fillMaxWidth()) {
@@ -391,7 +392,7 @@ fun TerminalChrome(
                         PrimaryScrollableTabRow(
                                     selectedTabIndex = selectedTabIndex.coerceAtLeast(0),
                                     modifier = Modifier.fillMaxWidth().height(56.dp),
-                                    containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                                    containerColor = terminalBackgroundColor,
                                     contentColor = TerminalStatusBlue,
                                     edgePadding = 6.dp,
                                     indicator = {
