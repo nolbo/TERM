@@ -76,7 +76,7 @@ class VmRuntimeService : Service() {
     private val storageBackends = java.util.concurrent.ConcurrentHashMap<Pair<SessionRuntime, String>, dev.terminal.runtime.api.RuntimeBackend>()
     private val startedStorageBackends = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<SessionRuntime, String>>()
     private val sessionClientMutex = Mutex()
-    private val runtimeControllerMutex = Mutex()
+    private val preparationLocks = StoragePreparationLocks()
     private val sessionResizeMutex = Mutex()
     private val latestResizeRequests = LatestSessionResizeRequests()
     private var sessionClient: SessionController? = null
@@ -243,14 +243,14 @@ class VmRuntimeService : Service() {
 
         private fun createResolvedSession(encoded: String, rows: Int, cols: Int) {
             val parsed = runCatching { dev.terminal.runtime.session.SessionLaunchSpec.fromJson(encoded) }
-            launchRuntimeOperation(trackAsWork = true, errorOperation = "세션 생성:${parsed.getOrNull()?.runtime?.wireName ?: "UNKNOWN"}") {
+            launchRuntimeOperation(trackAsWork = true, errorOperation = "세션 생성:${parsed.getOrNull()?.runtime?.wireName ?: "UNKNOWN"}:${parsed.getOrNull()?.storageId ?: "legacy"}") {
                 val spec = parsed.getOrThrow()
                 val requestedRuntime = spec.runtime
                 Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
                 val client = ensureSessionRegistry()
                     ?: throw IllegalStateException("세션 런타임에 연결할 수 없습니다")
                 if (!ensureStorageController(spec, client)) {
-                    notifyOperationError("세션 생성:${requestedRuntime.wireName}", runtimeUnavailableReason(requestedRuntime))
+                    notifyOperationError("세션 생성:${requestedRuntime.wireName}:${spec.storageId}", runtimeUnavailableReason(requestedRuntime))
                     return@launchRuntimeOperation
                 }
                 val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
@@ -283,7 +283,7 @@ class VmRuntimeService : Service() {
                     }
                     .onFailure {
                         Log.e(TAG, "session.create failed runtime=${requestedRuntime.wireName} cause=${it.javaClass.simpleName}: ${it.userMessage()}")
-                        notifyOperationError("세션 생성:${requestedRuntime.wireName}", it.userMessage())
+                        notifyOperationError("세션 생성:${requestedRuntime.wireName}:${spec.storageId}", it.userMessage())
                     }
                 result.snapshot?.onFailure { notifyOperationError("세션 목록 새로고침", it.userMessage()) }
             }
@@ -400,8 +400,8 @@ class VmRuntimeService : Service() {
             val selected = SessionRuntime.fromWireName(runtimeType)
             val rootless = rootlessBackends[selected]
                 ?: throw IllegalArgumentException("알 수 없는 Rootless 환경: $runtimeType")
-            if (runtimeControllerMutex.isLocked && rootless.status() !is RootlessStatus.Ready) rootless.reportPreparationWaiting()
-            runtimeControllerMutex.withLock {
+            if (preparationLocks.isLocked(requireNotNull(selected)) && rootless.status() !is RootlessStatus.Ready) rootless.reportPreparationWaiting()
+            preparationLocks.withStorage(requireNotNull(selected)) {
                 try {
                     val registry = sessionClient as? UnifiedSessionRegistry
                     if (registry != null && rootless.status() !is RootlessStatus.Ready) {
@@ -419,7 +419,7 @@ class VmRuntimeService : Service() {
                 ?: throw IllegalArgumentException("알 수 없는 Rootless 환경")
             val rootless = rootlessBackends[selected] ?: throw IllegalArgumentException("Rootless 환경이 아닙니다")
             val registry = ensureSessionRegistry() ?: error("세션 상태를 확인할 수 없습니다")
-            runtimeControllerMutex.withLock {
+            preparationLocks.withAll {
                 try { registry.migrateIfAllIdle(selected) { rootless.migrateToNative().getOrThrow() } }
                 finally { notifyClients(latestState) }
             }
@@ -429,7 +429,7 @@ class VmRuntimeService : Service() {
             val selected = SessionRuntime.fromWireName(runtimeType)
             val rootless = rootlessBackends[selected]
                 ?: throw IllegalArgumentException("알 수 없는 Rootless 환경: $runtimeType")
-            runtimeControllerMutex.withLock {
+            preparationLocks.withStorage(requireNotNull(selected)) {
                 try {
                     // Image management must work before the primary runtime has started.
                     // The backend also checks its PTY owner when there is no registry.
@@ -679,8 +679,8 @@ class VmRuntimeService : Service() {
     private suspend fun ensureStorageController(spec: dev.terminal.runtime.session.SessionLaunchSpec,
         registry: UnifiedSessionRegistry): Boolean {
         if (spec.storageId == "legacy") return ensureRuntimeController(spec.runtime, registry)
-        return runtimeControllerMutex.withLock {
-            if (registry.isRegistered(spec.runtime, spec.storageId)) return@withLock true
+        return preparationLocks.withStorage(spec.runtime, spec.storageId) {
+            if (registry.isRegistered(spec.runtime, spec.storageId)) return@withStorage true
             val key = spec.runtime to spec.storageId
             val root = dev.terminal.runtime.session.SessionStorage.root(filesDir, spec.runtime, spec.storageId)
             val owner = storageBackends.getOrPut(key) {
@@ -698,7 +698,7 @@ class VmRuntimeService : Service() {
                         RootlessDebianBackend(applicationContext,
                             distribution = RootlessDistribution.entries.first { it.runtime == spec.runtime },
                             usbBroker = usbBroker, storageRoot = root) { phase, detail ->
-                            broadcast { it.onRootlessProgress(spec.runtime.wireName, phase.displayName, detail) }
+                            broadcast { it.onRootlessProgress("${spec.runtime.wireName}:${spec.storageId}", phase.displayName, detail) }
                         }
                     SessionRuntime.AVF -> {
                         require(checkSelfPermission("android.permission.MANAGE_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED &&
@@ -749,14 +749,14 @@ class VmRuntimeService : Service() {
 
     private suspend fun ensureRuntimeController(runtime: SessionRuntime, registry: UnifiedSessionRegistry): Boolean {
         val selectedRootless = rootlessBackends[runtime]
-        if (runtimeControllerMutex.isLocked && selectedRootless?.status() !is RootlessStatus.Ready) {
+        if (preparationLocks.isLocked(runtime) && selectedRootless?.status() !is RootlessStatus.Ready) {
             selectedRootless?.reportPreparationWaiting()
         }
         return try {
-            runtimeControllerMutex.withLock {
+            preparationLocks.withStorage(runtime) {
                 if (registry.isRegistered(runtime)) {
                     val rootless = rootlessBackends[runtime]
-                    if (rootless == null || rootless.status() is RootlessStatus.Ready) return@withLock true
+                    if (rootless == null || rootless.status() is RootlessStatus.Ready) return@withStorage true
                     registry.removeIfIdle(runtime) { rootless.prepare().getOrThrow() }
                 }
                 when (runtime) {

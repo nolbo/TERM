@@ -110,7 +110,12 @@ class MainActivity : TerminalActivity() {
         if (rootlessInstallInFlight) {
             newSessionMenuVisible = false
             newSessionSheetVisible = false
-            rootlessVisible = true
+            val pending = rootlessLaunchSpec ?: builtInLaunchSpec(rootlessInstallRuntime)
+            if (profile.runtime == pending.runtime && profile.storageId == pending.storageId) {
+                rootlessVisible = true
+            } else {
+                createSession(profile.resolve())
+            }
             return
         }
         selectedLaunchSpec = profile.resolve()
@@ -218,7 +223,9 @@ class MainActivity : TerminalActivity() {
 
         override fun onRootlessProgress(runtimeType: String, phase: String, detail: String) = runOnUiThread {
             if (generation != bindingGeneration) return@runOnUiThread
-            if (runtimeType != rootlessInstallRuntime) return@runOnUiThread
+            val storageId = rootlessLaunchSpec?.storageId ?: "legacy"
+            val progressKey = if (storageId == "legacy") rootlessInstallRuntime else "$rootlessInstallRuntime:$storageId"
+            if (runtimeType != progressKey) return@runOnUiThread
             if (rootlessLaunchSpec?.storageId?.let { it != "legacy" } == true) {
                 rootlessStatus = phase
                 rootlessDetail = detail
@@ -235,7 +242,8 @@ class MainActivity : TerminalActivity() {
             val feedback = getString(R.string.operation_failed, operation.substringBefore(':'), message)
             runtimeMessage = getString(R.string.runtime_error_prompt, feedback)
             feedbackMessage = feedback
-            if ((rootlessInstallInFlight || rootlessVisible) && operation.substringAfter(':', "") == rootlessInstallRuntime) {
+            if ((rootlessInstallInFlight || rootlessVisible) && operation.substringAfter(':', "").substringBefore(':') == rootlessInstallRuntime &&
+                operation.substringAfter(':', "").substringAfter(':', "legacy") == (rootlessLaunchSpec?.storageId ?: "legacy")) {
                 rootlessInstallInFlight = false
                 rootlessRunning = false
                 rootlessStatus = getString(R.string.rootless_install_failed)
@@ -611,7 +619,9 @@ class MainActivity : TerminalActivity() {
         updated.forEach { it.exitCode?.let { code -> sessionExitCodes[it.id] = code } }
 
         if (rootlessInstallInFlight) {
-            updated.firstOrNull { it.runtime == rootlessInstallRuntime && it.id !in rootlessSessionsBeforeInstall }?.let {
+            updated.firstOrNull { it.runtime == rootlessInstallRuntime &&
+                (it.launchSpec?.storageId ?: "legacy") == (rootlessLaunchSpec?.storageId ?: "legacy") &&
+                it.id !in rootlessSessionsBeforeInstall }?.let {
                 rootlessInstallInFlight = false
                 rootlessRunning = false
                 rootlessVisible = false
@@ -839,6 +849,7 @@ class MainActivity : TerminalActivity() {
         newSessionMenuVisible = false
         newSessionSheetVisible = false
         if (choice.id in rootlessRuntimeIds && choice.state == "CHECKING") {
+            rootlessLaunchSpec = selectedLaunchSpec
             rootlessInstallRuntime = choice.id
             showRootlessProgress(choice)
             rootlessVisible = true
@@ -896,7 +907,9 @@ class MainActivity : TerminalActivity() {
         runtimeChoices = parseRuntimeChoices(json).map { choice ->
             if (choice.detail.isNotBlank()) choice else choice.copy(detail = defaultRuntimeDetail(choice.id))
         }
-        runtimeChoices.firstOrNull { it.id == rootlessInstallRuntime }?.let(::showRootlessProgress)
+        if (rootlessLaunchSpec?.storageId?.let { it != "legacy" } != true) {
+            runtimeChoices.firstOrNull { it.id == rootlessInstallRuntime }?.let(::showRootlessProgress)
+        }
     }
 
     private fun showRootlessProgress(choice: RuntimeChoiceUi) {
