@@ -382,6 +382,7 @@ internal fun TerminalChrome(
     colors: TerminalChromeColors = TerminalChromeColors(terminalBackgroundColor),
 ) {
     val selectedTabIndex = sessions.indexOfFirst { it.id == activeSessionId }
+    val tabScrollState = rememberScrollState()
     val layoutDirection = LocalLayoutDirection.current
     val haptics = LocalTerminalHaptics.current
     Surface(
@@ -417,6 +418,7 @@ internal fun TerminalChrome(
                             } else {
                         PrimaryScrollableTabRow(
                                     selectedTabIndex = selectedTabIndex.coerceAtLeast(0),
+                                    scrollState = tabScrollState,
                                     modifier = Modifier.fillMaxWidth().height(40.dp),
                                     containerColor = terminalBackgroundColor,
                                     contentColor = colors.accent,
@@ -543,7 +545,8 @@ internal fun TerminalChrome(
                             }
                         }
                     }
-                            // Fade scrolling tabs into the fixed new-session button's background.
+                            // Fade only while more tabs remain beyond the new-session button edge.
+                            if (sessions.isNotEmpty() && tabScrollState.canScrollForward) {
                             Spacer(
                                 Modifier.align(Alignment.CenterEnd).width(24.dp).fillMaxHeight()
                                     .background(Brush.horizontalGradient(
@@ -551,6 +554,7 @@ internal fun TerminalChrome(
                                             .let { if (layoutDirection == LayoutDirection.Rtl) it.reversed() else it },
                                     )),
                             )
+                            }
                 }
                 Box {
                 IconButton(onClick = onNew, shapes = IconButtonDefaults.shapes()) {
