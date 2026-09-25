@@ -428,7 +428,7 @@ internal fun TerminalChrome(
                                     }
                                 },
                             selectedContentColor = colors.accent,
-                            unselectedContentColor = colors.foreground,
+                            unselectedContentColor = colors.unselectedTabContent,
                         ) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Row(
@@ -471,7 +471,7 @@ internal fun TerminalChrome(
                                         session.launchSpec?.icon ?: "auto", session.runtime,
                                         contentDescription = stringResource(runtimeTitleResource(session.runtime)),
                                         size = 20.dp,
-                                        tint = if (selected) colors.accent else colors.foreground,
+                                        tint = if (selected) colors.accent else colors.unselectedTabContent,
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Column {
@@ -482,7 +482,7 @@ internal fun TerminalChrome(
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = if (selected) colors.onContainer else colors.foreground,
+                                                color = if (selected) colors.onContainer else colors.unselectedTabContent,
                                             )
                                         }
                                     }

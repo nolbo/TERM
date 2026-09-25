@@ -10,12 +10,21 @@ class TerminalChromeColorsTest {
             val colors = TerminalChromeColors(Color(r, g, b))
             listOf(
                 colors.foreground to colors.background,
+                colors.unselectedTabContent to colors.background,
                 colors.onContainer to colors.container,
                 colors.accent to colors.container,
                 colors.onCheckedContainer to colors.checkedContainer,
             ).forEach { (foreground, background) ->
                 assertTrue("Insufficient contrast for $r,$g,$b", colorContrast(foreground, background) >= 4.5f)
             }
+        }
+    }
+
+    @Test fun inactiveTabsHaveLessContrastThanPrimaryContent() {
+        for (background in listOf(Color.Black, Color.White, Color(0xFF121212))) {
+            val colors = TerminalChromeColors(background)
+            assertTrue(colorContrast(colors.unselectedTabContent, background) <
+                colorContrast(colors.foreground, background))
         }
     }
 
