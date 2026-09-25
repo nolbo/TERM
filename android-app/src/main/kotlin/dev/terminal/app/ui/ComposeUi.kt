@@ -344,6 +344,7 @@ fun TerminalChrome(
     activeSessionId: String?,
     appBarContentVisible: Boolean,
     terminalBackgroundColor: Color,
+    topInsets: WindowInsets,
     terminatingSessionIds: Set<String>,
     profiles: List<dev.terminal.runtime.session.SessionProfile>,
     onSelectProfile: (dev.terminal.runtime.session.SessionProfile) -> Unit,
@@ -362,7 +363,8 @@ fun TerminalChrome(
         modifier = Modifier.zIndex(1f),
         color = terminalBackgroundColor,
     ) {
-        Column(Modifier.fillMaxWidth()) {
+        // Keep the safe top area stable while the app bar expands or collapses.
+        Column(Modifier.fillMaxWidth().windowInsetsPadding(topInsets)) {
             Box(Modifier.fillMaxWidth()) {
                 androidx.compose.animation.AnimatedVisibility(
                     visible = appBarContentVisible,
@@ -381,8 +383,7 @@ fun TerminalChrome(
                         ),
                 ) {
                     Row(
-                        // Collapse the status bar inset with the app bar so the terminal reaches the top edge.
-                        Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).height(56.dp),
+                        Modifier.fillMaxWidth().height(56.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(Modifier.weight(1f).padding(vertical = 4.dp).height(48.dp)) {

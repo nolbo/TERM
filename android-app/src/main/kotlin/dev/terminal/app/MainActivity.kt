@@ -17,6 +17,15 @@ import android.view.KeyEvent
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.foundation.layout.windowInsetsTopHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.imePadding
@@ -40,6 +49,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -386,6 +396,8 @@ class MainActivity : TerminalActivity() {
 
     @Composable
     private fun TerminalScreen() {
+        val edgeToEdgeTerminal = activeSessionId != null && !terminalAppBarContentVisible
+        val topInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top)
         val screenBackgroundColor = if (activeSessionId == null) {
             MaterialTheme.colorScheme.background
         } else {
@@ -405,12 +417,14 @@ class MainActivity : TerminalActivity() {
             containerColor = screenBackgroundColor,
             snackbarHost = { SnackbarHost(snackbarHost) },
             contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
-        ) { scaffoldPadding -> Column(Modifier.fillMaxSize().padding(scaffoldPadding).imePadding()) {
+        ) { scaffoldPadding -> Box(Modifier.fillMaxSize().padding(scaffoldPadding).imePadding()) {
+            Column(Modifier.fillMaxSize()) {
             TerminalChrome(
                 sessions = visibleSessions,
                 activeSessionId = activeSessionId,
                 appBarContentVisible = activeSessionId == null || terminalAppBarContentVisible,
                 terminalBackgroundColor = screenBackgroundColor,
+                topInsets = topInsets,
                 terminatingSessionIds = terminatingSessionIds,
                 profiles = profiles,
                 onSelectProfile = ::selectProfile,
@@ -460,6 +474,17 @@ class MainActivity : TerminalActivity() {
                     },
                     enabled = toolbarInputActive,
                 ) }
+            }
+            }
+            if (edgeToEdgeTerminal) {
+                Spacer(
+                    Modifier.fillMaxWidth().windowInsetsTopHeight(topInsets)
+                        .background(Brush.verticalGradient(listOf(
+                            MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.95f),
+                            MaterialTheme.colorScheme.surfaceContainer.copy(alpha = 0.6f),
+                            Color.Transparent,
+                        ))),
+                )
             }
         } }
 
