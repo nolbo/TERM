@@ -43,6 +43,9 @@ TERM의 활성 Android UI는 Jetpack Compose와 Material 3 Expressive를 기준�
 
 ## Components and screens
 
+세션 탭의 제목은 12 sp로 표시한다. 사용자 지정 제목이 있으면 아래에 원래 제목을
+10 sp로 표시하고, 해당 탭의 보조 전경색에 75% 불투명도를 적용해 강조를 낮춘다.
+
 초기 설정은 Native, Rootless Linux, AVF Debian을 각각 카드로 설명하고 즉시 터미널 시작과 AVF 로컬 이미지 선택을 분리한다. 세로 스크롤을 사용하므로 좁은 화면, 가로 화면, 큰 글꼴에서도 작업 버튼에 접근할 수 있다.
 
 터미널은 다음 세 영역을 유지한다.

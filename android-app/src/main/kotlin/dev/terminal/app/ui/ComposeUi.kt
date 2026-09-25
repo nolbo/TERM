@@ -510,14 +510,14 @@ internal fun TerminalChrome(
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Column {
-                                        Text(sessionTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
+                                        Text(sessionTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium)
                                         session.subtitle?.let { subtitle ->
                                             Text(
                                                 subtitle.ifBlank { stringResource(R.string.shell_default_title) },
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = if (selected) colors.onContainer else colors.unselectedTabContent,
+                                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 14.sp),
+                                                color = (if (selected) colors.onContainer else colors.unselectedTabContent).copy(alpha = 0.75f),
                                             )
                                         }
                                     }
