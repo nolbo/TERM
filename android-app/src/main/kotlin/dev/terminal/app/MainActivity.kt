@@ -404,6 +404,7 @@ class MainActivity : TerminalActivity() {
                 sessions = visibleSessions,
                 activeSessionId = activeSessionId,
                 appBarContentVisible = activeSessionId == null || terminalAppBarContentVisible,
+                terminalBackgroundColor = terminalBackgroundColor,
                 terminatingSessionIds = terminatingSessionIds,
                 profiles = profiles,
                 onSelectProfile = ::selectProfile,
