@@ -5,6 +5,7 @@ import android.view.MotionEvent
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.test.core.app.ActivityScenario
@@ -34,13 +35,14 @@ class AppBarResizeTest {
             scenario.onActivity { activity ->
                 backend = RemoteTerminalBackend(write = {}, resize = { _, _ -> })
                 val session = TerminalSession("", "", emptyArray(), emptyArray(), 100, TerminalCallbacks {}, backend)
-                barHeight = (56 * activity.resources.displayMetrics.density).toInt()
+                barHeight = (48 * activity.resources.displayMetrics.density).toInt()
                 activity.setContent {
                     DroidTheme { TerminalHapticFeedbackProvider {
-                        Column(Modifier.fillMaxSize()) {
+                        Column(Modifier.fillMaxSize().statusBarsPadding()) {
                             TerminalChrome(
                                 sessions = emptyList(), activeSessionId = null,
                                 appBarContentVisible = visible.value,
+                                terminalBackgroundColor = Color.Black, topInsets = WindowInsets(0, 0, 0, 0),
                                 terminatingSessionIds = emptySet(), profiles = emptyList(),
                                 newSessionMenuExpanded = false, onSelect = {}, onRename = {},
                                 onTerminate = {}, onNew = {}, onDismissNewSession = {},
