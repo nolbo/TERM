@@ -6,6 +6,7 @@ import android.app.Activity
 import android.view.KeyEvent
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -20,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -364,6 +366,8 @@ internal fun TerminalChrome(
 ) {
     val selectedTabIndex = sessions.indexOfFirst { it.id == activeSessionId }
     val layoutDirection = LocalLayoutDirection.current
+    val tabAnimationScope = rememberCoroutineScope()
+    val tabShapeAnimationSpec = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
     val haptics = LocalTerminalHaptics.current
     Surface(
         modifier = Modifier.zIndex(1f),
@@ -407,6 +411,8 @@ internal fun TerminalChrome(
                                 ) {
                             sessions.forEachIndexed { index, session ->
                         val selected = index == selectedTabIndex
+                        val cornerRadius = remember(session.id) { Animatable(20f) }
+                        val tabShape = RoundedCornerShape(cornerRadius.value.coerceIn(0f, 20f).dp)
                         val sessionTitle = session.title.ifBlank { stringResource(R.string.shell_default_title) }
                         val stateLabel = sessionStateLabel(session.state)
                         val renameLabel = stringResource(R.string.rename_session_description, sessionTitle)
@@ -416,12 +422,16 @@ internal fun TerminalChrome(
                             onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                                 onSelect(session.id)
+                                tabAnimationScope.launch {
+                                    cornerRadius.animateTo(8f, tabShapeAnimationSpec)
+                                    cornerRadius.animateTo(20f, tabShapeAnimationSpec)
+                                }
                             },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 4.dp)
                                 .height(40.dp)
-                                .clip(CircleShape)
+                                .clip(tabShape)
                                 .background(if (selected) colors.container else Color.Transparent)
                                 .semantics {
                                     stateDescription = stateLabel
