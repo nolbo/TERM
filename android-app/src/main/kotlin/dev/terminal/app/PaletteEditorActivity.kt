@@ -15,12 +15,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -30,14 +27,9 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.KeyboardCapitalization
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
@@ -167,65 +159,7 @@ private fun PaletteGroup(@StringRes title: Int, colors: List<String>, indices: I
     }
 }
 
-/** Reusable Material 3 color picker with HSV controls and exact HEX entry. */
-@Composable
-internal fun PaletteColorPicker(label: String, initialHex: String, onCancel: () -> Unit, onSelect: (String) -> Unit) {
-    var selectedHex by rememberSaveable(initialHex) { mutableStateOf(initialHex) }
-    var hexDraft by rememberSaveable(initialHex) { mutableStateOf(initialHex) }
-    val hsv = FloatArray(3).also { android.graphics.Color.colorToHSV(android.graphics.Color.parseColor(selectedHex), it) }
-    fun change(hue: Float = hsv[0], saturation: Float = hsv[1], value: Float = hsv[2]) {
-        selectedHex = colorHex(android.graphics.Color.HSVToColor(floatArrayOf(hue, saturation, value)))
-        hexDraft = selectedHex
-    }
-    Column(Modifier.fillMaxWidth().imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 24.dp).padding(bottom = 24.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(label, style = MaterialTheme.typography.headlineSmall)
-        Box(Modifier.fillMaxWidth().height(64.dp).background(hexColor(selectedHex), RoundedCornerShape(20.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(20.dp)))
-        ColorControl(stringResource(R.string.palette_hue), hsv[0], 0f..359f,
-            Brush.horizontalGradient((0..6).map { Color(android.graphics.Color.HSVToColor(floatArrayOf(it * 60f, 1f, 1f))) }))
-        { change(hue = it) }
-        ColorControl(stringResource(R.string.palette_saturation), hsv[1], 0f..1f,
-            Brush.horizontalGradient(listOf(
-                Color(android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], 0f, hsv[2]))),
-                Color(android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], 1f, hsv[2]))))))
-        { change(saturation = it) }
-        ColorControl(stringResource(R.string.palette_brightness), hsv[2], 0f..1f,
-            Brush.horizontalGradient(listOf(Color.Black,
-                Color(android.graphics.Color.HSVToColor(floatArrayOf(hsv[0], hsv[1], 1f))))))
-        { change(value = it) }
-        OutlinedTextField(
-            value = hexDraft,
-            onValueChange = {
-                hexDraft = it.take(7)
-                if (TerminalAppearance.isHexColor(hexDraft)) selectedHex = hexDraft.uppercase()
-            },
-            label = { Text(stringResource(R.string.palette_hex_label)) },
-            supportingText = { Text(stringResource(R.string.palette_hex_support)) },
-            isError = !TerminalAppearance.isHexColor(hexDraft),
-            singleLine = true,
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, capitalization = KeyboardCapitalization.Characters),
-            modifier = Modifier.fillMaxWidth(),
-        )
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)) {
-            TextButton(onClick = onCancel, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) }
-            Button(onClick = { onSelect(hexDraft.uppercase()) }, enabled = TerminalAppearance.isHexColor(hexDraft),
-                shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.palette_apply_color)) }
-        }
-    }
-}
-
-@Composable
-private fun ColorControl(label: String, value: Float, range: ClosedFloatingPointRange<Float>, brush: Brush, onChange: (Float) -> Unit) {
-    Column {
-        Text(label, style = MaterialTheme.typography.labelLarge)
-        Box(Modifier.fillMaxWidth().height(12.dp).background(brush, CircleShape))
-        Slider(value = value, onValueChange = onChange, valueRange = range, modifier = Modifier.fillMaxWidth())
-    }
-}
-
 private fun hexColor(hex: String) = Color(android.graphics.Color.parseColor(hex))
-private fun colorHex(color: Int) = "#%06X".format(color and 0xFFFFFF)
 
 @StringRes
 private fun paletteLabel(index: Int): Int = when (index) {
