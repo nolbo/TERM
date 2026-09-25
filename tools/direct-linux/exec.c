@@ -1,10 +1,12 @@
 /* SPDX-License-Identifier: Apache-2.0 */
-/* In-process exec: no libc, TLS, allocator, or kernel execution of data files. */
+/* Guest exec and APK runtime reentry; never kernel-execute guest data files. */
 #define _GNU_SOURCE
 #include "runtime.h"
+#include "threads.h"
 #include <elf.h>
 #include <errno.h>
 #include <fcntl.h>
+#include <linux/memfd.h>
 #include <signal.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
@@ -42,15 +44,14 @@ static long read_exact(int fd, void *destination, size_t size, size_t offset, st
         long n = DL_CALL(SYS_pread64, fd, (char *)destination + copied, size - copied, offset + copied, 0, 0);
         if (n == -EINTR) continue;
         if (n <= 0) return n < 0 ? n : -ENOEXEC;
-        copied += n; image->read_bytes += n;
+        copied += n; if (image) image->read_bytes += n;
     }
     return 0;
 }
 
-static long read_image(const char *path, struct image *out, int interpreter)
+static long read_image_fd(int fd, struct image *out, int interpreter)
 {
     out->source_fd = -1;
-    int fd = (int)dl_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC | O_NONBLOCK, 0);
     if (fd < 0) return fd;
     struct stat st;
     Elf64_Ehdr header;
@@ -143,6 +144,11 @@ done:
     if (!result) out->source_fd = fd;
     else DL_CALL(SYS_close, fd, 0, 0, 0, 0, 0);
     return result;
+}
+
+static long read_image(const char *path, struct image *out, int interpreter)
+{
+    return read_image_fd((int)dl_open(AT_FDCWD, path, O_RDONLY | O_CLOEXEC | O_NONBLOCK, 0), out, interpreter);
 }
 
 static unsigned long profile_clock(void);
@@ -265,6 +271,7 @@ struct preparation {
     char *stack, *top;
     uintptr_t execfn;
     struct source_page pointers, strings;
+    int main_slot, interpreter_slot;
     unsigned char source_pages[];
 };
 
@@ -385,6 +392,27 @@ static void dispose_image(struct image *image)
     image->source_fd = -1;
 }
 
+static long protect_image(const char *path, struct image *image, int interpreter, int *slot, uintptr_t stack, int replacing)
+{
+    dl_lock(&dl_files_lock);
+    long r = read_image(path, image, interpreter);
+    if (!r && replacing) {
+        r = dl_io_hold(image->source_fd, stack);
+        if (r >= 0) { *slot = (int)r; r = 0; }
+        else dispose_image(image);
+    }
+    dl_unlock(&dl_files_lock); return r;
+}
+
+static void dispose_preparation(struct preparation *p)
+{
+    dl_lock(&dl_files_lock);
+    if (p->interpreter_slot >= 0) { dl_io_release((unsigned)p->interpreter_slot); p->interpreter.source_fd = -1; }
+    if (p->main_slot >= 0) { dl_io_release((unsigned)p->main_slot); p->main.source_fd = -1; }
+    dispose_image(&p->main); dispose_image(&p->interpreter);
+    dl_unlock(&dl_files_lock);
+}
+
 static long reset_exec_state(int main_fd, int interpreter_fd)
 {
     long reset = dl_signal_reset_exec(); if (reset) return reset;
@@ -469,6 +497,193 @@ static void profile_report(unsigned long times[8], unsigned long costs[5], unsig
     DL_CALL(SYS_write, 2, out, n, 0, 0, 0);
 }
 
+static long install_image(struct preparation *p, struct dl_entry *entry, unsigned long times[8], unsigned long costs[5])
+{
+    if (map_image(&p->main, costs) || (p->interpreter.source_fd >= 0 && map_image(&p->interpreter, costs))) return -ENOEXEC;
+    times[5] = profile_clock();
+    long heap = dl_mmap(0, DL_HEAP, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (heap < 0 || dl_track((uintptr_t)p->stack - dl_state.page, STACK_SIZE + 2 * dl_state.page)) return -ENOMEM;
+    dl_state.heap_start = dl_state.heap_end = dl_state.heap_mapped = (uintptr_t)heap;
+    entry->sp = finish_stack(p); if (!entry->sp) return -E2BIG;
+    entry->pc = p->interpreter.entry ? p->interpreter.entry : p->main.entry;
+    dl_copy(dl_state.executable, p->main.canonical, dl_length(p->main.canonical) + 1);
+    const char *name = p->path;
+    for (const char *c = p->path; *c; c++) if (*c == '/' && c[1]) name = c + 1;
+    DL_CALL(SYS_prctl, PR_SET_NAME, name, 0, 0, 0, 0);
+    if (dl_state.vfork_fd >= 0) {
+        DL_CALL(SYS_close, dl_state.vfork_fd, 0, 0, 0, 0, 0); dl_state.vfork_fd = -1;
+    }
+    p->stack = NULL; times[6] = profile_clock(); return 0;
+}
+
+#define HANDOFF_MAGIC 0x31464f444e414c44ULL
+struct handoff {
+    uint64_t magic;
+    size_t string_size;
+    int root_fd, flags;
+    unsigned long mask, virtual_sigsys;
+    char root[DL_PATH];
+    struct preparation prepared;
+};
+
+static long write_all(int fd, const void *data, size_t size)
+{
+    const char *bytes = data;
+    while (size) {
+        long r = DL_CALL(SYS_write, fd, bytes, size, 0, 0, 0);
+        if (r == -EINTR) continue;
+        if (r <= 0) return r ? r : -EIO;
+        bytes += r; size -= r;
+    }
+    return 0;
+}
+
+static long kernel_exec(struct preparation *p, const struct dl_entry *entry)
+{
+    long address = DL_CALL(SYS_mmap, 0, sizeof(struct handoff), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (address < 0) return address;
+    struct handoff *wire = (void *)address;
+    wire->magic = HANDOFF_MAGIC; wire->root_fd = dl_state.root_fd;
+    wire->mask = entry->mask; wire->virtual_sigsys = entry->virtual_sigsys;
+    wire->flags = dl_state.trace | (dl_state.exec_profile << 1) | (dl_state.startup_profile << 2);
+    dl_copy(wire->root, dl_state.root, DL_PATH);
+    dl_copy(&wire->prepared, p, sizeof(*p));
+    wire->string_size = (size_t)(p->stack + STACK_SIZE - p->top);
+    for (size_t i = 0; i < p->argc; i++) wire->prepared.argv[i] -= (uintptr_t)p->top;
+    for (size_t i = 0; i < p->envc; i++) wire->prepared.env[i] -= (uintptr_t)p->top;
+    wire->prepared.execfn -= (uintptr_t)p->top;
+    wire->prepared.stack = wire->prepared.top = NULL;
+    wire->prepared.pointers = wire->prepared.strings = (struct source_page){0};
+    wire->prepared.main_slot = wire->prepared.interpreter_slot = -1;
+    uintptr_t stack; __asm__ volatile("mov %0, sp" : "=r"(stack));
+    dl_lock(&dl_files_lock);
+    long fd = DL_CALL(SYS_memfd_create, "direct-linux-exec", MFD_CLOEXEC | MFD_ALLOW_SEALING, 0, 0, 0, 0);
+    long slot = fd < 0 ? fd : dl_io_hold((int)fd, stack);
+    if (slot < 0 && fd >= 0) DL_CALL(SYS_close, fd, 0, 0, 0, 0, 0);
+    dl_unlock(&dl_files_lock);
+    long r = slot;
+    if (slot < 0) goto done;
+    // Data only: no executable memfd or writable-data kernel executable.
+    r = DL_CALL(SYS_fchmod, fd, 0600, 0, 0, 0, 0);
+    if (!r) r = write_all((int)fd, wire, sizeof(*wire));
+    if (!r) r = write_all((int)fd, p->top, wire->string_size);
+    if (!r) r = DL_CALL(SYS_fcntl, fd, F_ADD_SEALS, F_SEAL_SEAL | F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK, 0, 0, 0);
+    if (!r) {
+        int descriptors[] = {dl_state.root_fd, p->main.source_fd, p->interpreter.source_fd, (int)fd};
+        long original[] = {-1, -1, -1, -1};
+        dl_lock(&dl_files_lock);
+        for (unsigned i = 0; !r && i < 4; i++) if (descriptors[i] >= 0) {
+            original[i] = DL_CALL(SYS_fcntl, descriptors[i], F_GETFD, 0, 0, 0, 0);
+            r = original[i] < 0 ? original[i] : DL_CALL(SYS_fcntl, descriptors[i], F_SETFD, original[i] & ~FD_CLOEXEC, 0, 0, 0);
+        }
+        dl_unlock(&dl_files_lock);
+        if (!r) {
+            char value[24]; size_t count = number(value, (unsigned long)fd); value[count] = 0;
+            char *arguments[] = {"direct-linux-loader", "--exec-resume", value, NULL};
+            char *environment[] = {NULL};
+            char executable[48]; size_t length = dl_fd_path(executable, -1);
+            dl_copy(executable + length - 2, "exe", 4); // live TID, including a dead group leader
+            // On success the old VM can remain alive in a CLONE_VM parent.
+            // Never leave its runtime locks held across the irreversible step.
+            dl_exec_end();
+            r = DL_CALL(SYS_execve, executable, arguments, environment, 0, 0, 0);
+            (void)dl_exec_begin();
+        }
+        dl_lock(&dl_files_lock);
+        for (unsigned i = 0; i < 4; i++) if (original[i] >= 0)
+            DL_CALL(SYS_fcntl, descriptors[i], F_SETFD, original[i], 0, 0, 0);
+        dl_unlock(&dl_files_lock);
+    }
+    dl_lock(&dl_files_lock); dl_io_release((unsigned)slot); dl_unlock(&dl_files_lock);
+done:
+    DL_CALL(SYS_munmap, wire, sizeof(*wire), 0, 0, 0, 0); return r;
+}
+
+static int terminated(const char *text, size_t size)
+{
+    for (size_t i = 0; i < size; i++) if (!text[i]) return 1;
+    return 0;
+}
+static int same_metadata(const struct image *a, const struct image *b)
+{
+    return dl_equal_memory(&a->header, &b->header, sizeof(a->header)) &&
+        dl_equal_memory(a->ph, b->ph, a->header.e_phnum * sizeof(a->ph[0])) &&
+        dl_equal_memory(a->interpreter, b->interpreter, sizeof(a->interpreter));
+}
+
+long dl_exec_resume(int fd, struct dl_entry *entry)
+{
+    int seals = F_SEAL_SEAL | F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK;
+    long actual = DL_CALL(SYS_fcntl, fd, F_GET_SEALS, 0, 0, 0, 0);
+    if (actual < 0 || (actual & seals) != seals) return -EINVAL;
+    long address = DL_CALL(SYS_mmap, 0, sizeof(struct handoff), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (address < 0) return address;
+    struct handoff *wire = (void *)address;
+    long r = read_exact(fd, wire, sizeof(*wire), 0, NULL);
+    struct preparation *saved = &wire->prepared;
+    struct stat st;
+    if (!r && (wire->magic != HANDOFF_MAGIC || wire->string_size > STACK_SIZE || !wire->string_size ||
+            !saved->argc || saved->argc > ARG_LIMIT || saved->envc > ENV_LIMIT || wire->root_fd < 0 ||
+            saved->main.source_fd < 0 || saved->main.source_fd == wire->root_fd ||
+            saved->interpreter.source_fd < -1 || saved->interpreter.source_fd == saved->main.source_fd ||
+            saved->interpreter.source_fd == wire->root_fd || wire->root_fd == fd ||
+            saved->main.source_fd == fd || saved->interpreter.source_fd == fd ||
+            !terminated(wire->root, DL_PATH) || wire->root[0] != '/' || dl_equal(wire->root, "/") ||
+            !terminated(saved->path, DL_PATH) || (wire->flags & ~7) ||
+            DL_CALL(SYS_fstat, fd, &st, 0, 0, 0, 0) || st.st_size != (long)(sizeof(*wire) + wire->string_size))) r = -EINVAL;
+    if (r) goto done;
+    dl_state.root_fd = wire->root_fd;
+    dl_copy(dl_state.root, wire->root, DL_PATH);
+    dl_state.trace = wire->flags & 1; dl_state.exec_profile = !!(wire->flags & 2); dl_state.startup_profile = !!(wire->flags & 4);
+    if (DL_CALL(SYS_fcntl, dl_state.root_fd, F_SETFD, FD_CLOEXEC, 0, 0, 0)) { r = -EBADF; goto done; }
+    long memory = DL_CALL(SYS_mmap, 0, sizeof(struct preparation), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (memory < 0) { r = memory; goto done; }
+    struct preparation *p = (void *)memory;
+    p->main_slot = p->interpreter_slot = -1; p->main.source_fd = p->interpreter.source_fd = -1;
+    unsigned long times[8] = {0}, costs[5] = {0}; times[0] = profile_clock();
+    long mapping = DL_CALL(SYS_mmap, 0, STACK_SIZE + 2 * dl_state.page, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (mapping < 0) { r = mapping; goto prepared; }
+    p->stack = (char *)mapping + dl_state.page;
+    p->top = p->stack + STACK_SIZE - wire->string_size;
+    r = DL_CALL(SYS_mprotect, p->stack, STACK_SIZE, PROT_READ | PROT_WRITE, 0, 0, 0); if (r) goto prepared;
+    r = read_exact(fd, p->top, wire->string_size, sizeof(*wire), NULL); if (r) goto prepared;
+    p->argc = saved->argc; p->envc = saved->envc;
+    for (unsigned vector = 0; vector < 3 && !r; vector++) {
+        size_t count = vector == 0 ? p->argc : vector == 1 ? p->envc : 1;
+        uintptr_t *from = vector == 0 ? saved->argv : vector == 1 ? saved->env : &saved->execfn;
+        uintptr_t *to = vector == 0 ? p->argv : vector == 1 ? p->env : &p->execfn;
+        for (size_t i = 0; i < count; i++) {
+            if (from[i] >= wire->string_size || !terminated(p->top + from[i], wire->string_size - from[i])) { r = -EINVAL; break; }
+            to[i] = (uintptr_t)p->top + from[i];
+        }
+    }
+    if (r) goto prepared;
+    dl_copy(p->path, saved->path, DL_PATH); times[1] = profile_clock();
+    r = read_image_fd(saved->main.source_fd, &p->main, 0);
+    if (!r && !same_metadata(&p->main, &saved->main)) r = -EAGAIN;
+    if (!r && saved->interpreter.source_fd >= 0) {
+        r = read_image_fd(saved->interpreter.source_fd, &p->interpreter, 1);
+        if (!r && !same_metadata(&p->interpreter, &saved->interpreter)) r = -EAGAIN;
+    }
+    if (r) goto prepared;
+    times[2] = times[3] = times[4] = profile_clock();
+    r = dl_devices_init(); if (r) goto prepared;
+    r = install_image(p, entry, times, costs);
+    entry->mask = wire->mask & ~(1UL << (SIGSYS - 1));
+    entry->virtual_sigsys = wire->virtual_sigsys & (1UL << (SIGSYS - 1));
+prepared:
+    if (p->stack) DL_CALL(SYS_munmap, p->stack - dl_state.page, STACK_SIZE + 2 * dl_state.page, 0, 0, 0, 0);
+    unsigned long bytes = p->main.file_size + p->interpreter.file_size;
+    unsigned long read_bytes = p->main.read_bytes + p->interpreter.read_bytes;
+    dispose_preparation(p);
+    DL_CALL(SYS_munmap, p, sizeof(*p), 0, 0, 0, 0);
+    times[7] = profile_clock();
+    if (!r && dl_state.exec_profile) profile_report(times, costs, bytes, read_bytes, 2);
+done:
+    DL_CALL(SYS_close, fd, 0, 0, 0, 0, 0);
+    DL_CALL(SYS_munmap, wire, sizeof(*wire), 0, 0, 0, 0); return r;
+}
+
 long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_entry *entry, int replacing)
 {
     unsigned long times[8] = {0}, costs[5] = {0}, bytes = 0, read_bytes = 0;
@@ -477,6 +692,7 @@ long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_en
         MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     if (memory < 0) return memory;
     struct preparation *p = (void *)memory;
+    p->main_slot = p->interpreter_slot = -1;
     p->pointers.bytes = p->source_pages;
     p->strings.bytes = p->source_pages + dl_state.page;
     p->main.source_fd = p->interpreter.source_fd = -1;
@@ -491,19 +707,21 @@ long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_en
     if (!p->argc) { p->argc = 1; r = stack_string(p, "", &p->argv[0], NULL); if (r) goto done; }
     r = stack_string(p, p->path, &p->execfn, NULL); if (r) goto done;
     times[1] = profile_clock();
+    uintptr_t runtime_stack; __asm__ volatile("mov %0, sp" : "=r"(runtime_stack));
     for (unsigned depth = 0;; depth++) {
-        r = read_image(p->path, &p->main, 0);
+        r = protect_image(p->path, &p->main, 0, &p->main_slot, runtime_stack, replacing);
         if (r != 1) break;
         if (depth == 4) { r = -ELOOP; goto done; }
         r = script_arguments(p); if (r) goto done;
     }
     if (r) goto done;
     if (p->main.interpreter[0]) {
-        r = read_image(p->main.interpreter, &p->interpreter, 1); if (r) goto done;
+        r = protect_image(p->main.interpreter, &p->interpreter, 1, &p->interpreter_slot, runtime_stack, replacing); if (r) goto done;
     }
     times[2] = profile_clock();
     bytes = p->main.file_size + p->interpreter.file_size;
     read_bytes = p->main.read_bytes + p->interpreter.read_bytes;
+    if (replacing == 2) { r = kernel_exec(p, entry); goto done; }
     // Commit point: validated metadata snapshots and strings no longer refer to
     // the old image. Failures before here return errno without changing it.
     // Failures after here cannot return into unmapped guest code.
@@ -513,25 +731,11 @@ long dl_exec(const char *path, char *const *argv, char *const *env, struct dl_en
     times[3] = profile_clock();
     if (replacing) dl_unmap_all();
     times[4] = profile_clock();
-    if (map_image(&p->main, costs) || (p->interpreter.source_fd >= 0 && map_image(&p->interpreter, costs))) goto fatal;
-    times[5] = profile_clock();
-    long heap = dl_mmap(0, DL_HEAP, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    if (heap < 0 || dl_track((uintptr_t)stack, STACK_SIZE + 2 * dl_state.page)) goto fatal;
-    dl_state.heap_start = dl_state.heap_end = dl_state.heap_mapped = (uintptr_t)heap;
-    entry->sp = finish_stack(p); if (!entry->sp) goto fatal;
-    entry->pc = p->interpreter.entry ? p->interpreter.entry : p->main.entry;
-    dl_copy(dl_state.executable, p->main.canonical, dl_length(p->main.canonical) + 1);
-    const char *name = p->path;
-    for (const char *c = p->path; *c; c++) if (*c == '/' && c[1]) name = c + 1;
-    DL_CALL(SYS_prctl, PR_SET_NAME, name, 0, 0, 0, 0);
-    if (dl_state.vfork_fd >= 0) {
-        DL_CALL(SYS_close, dl_state.vfork_fd, 0, 0, 0, 0, 0); dl_state.vfork_fd = -1;
-    }
-    p->stack = NULL; r = 0;
-    times[6] = profile_clock();
+    if (install_image(p, entry, times, costs)) goto fatal;
+    r = 0;
 done:
     if (p->stack) DL_CALL(SYS_munmap, p->stack - dl_state.page, STACK_SIZE + 2 * dl_state.page, 0, 0, 0, 0);
-    dispose_image(&p->main); dispose_image(&p->interpreter);
+    dispose_preparation(p);
     DL_CALL(SYS_munmap, p, sizeof(*p) + 2 * dl_state.page, 0, 0, 0, 0);
     times[7] = profile_clock();
     if (!r && dl_state.exec_profile) profile_report(times, costs, bytes, read_bytes, replacing);

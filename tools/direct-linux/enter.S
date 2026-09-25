@@ -1,6 +1,19 @@
 /* SPDX-License-Identifier: Apache-2.0 */
 .text
 .p2align 4
+.global dl_start
+.hidden dl_start
+.type dl_start, %function
+dl_start:
+    mov x0, sp
+    mov x29, xzr
+    bl dl_bootstrap
+    mov x1, x0
+    mov x0, #94
+    bl dl_host_syscall
+    brk #0
+.size dl_start, .-dl_start
+
 .global dl_sigreturn
 .hidden dl_sigreturn
 .type dl_sigreturn, %function

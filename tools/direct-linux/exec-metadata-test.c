@@ -10,7 +10,7 @@
 #include "exec.c"
 
 struct dl_state dl_state;
-unsigned dl_memory_lock;
+unsigned dl_memory_lock, dl_files_lock;
 void dl_lock(unsigned *lock) { assert(!*lock); *lock = 1; }
 void dl_unlock(unsigned *lock) { assert(*lock); *lock = 0; }
 long dl_host_syscall(long n, long a, long b, long c, long d, long e, long f)
@@ -18,6 +18,8 @@ long dl_host_syscall(long n, long a, long b, long c, long d, long e, long f)
     long result = syscall(n, a, b, c, d, e, f); return result < 0 ? -errno : result;
 }
 size_t dl_length(const char *s) { return strlen(s); }
+int dl_equal(const char *a, const char *b) { return !strcmp(a, b); }
+long dl_devices_init(void) { assert(0); return -1; }
 static unsigned memory_reads;
 long dl_read_memory(void *d, const void *s, size_t n)
 {
@@ -43,6 +45,10 @@ long dl_executable(int fd)
 }
 long dl_signal_reset_exec(void) { return 0; }
 long dl_close_exec_fds(int a, int b) { (void)a; (void)b; return 0; }
+long dl_io_hold(int fd, uintptr_t stack) { (void)fd; (void)stack; assert(0); return -1; }
+void dl_io_release(unsigned slot) { (void)slot; assert(0); }
+long dl_exec_begin(void) { assert(0); return 0; }
+void dl_exec_end(void) { assert(0); }
 
 static void argument_snapshots(void)
 {

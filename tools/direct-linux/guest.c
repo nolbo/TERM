@@ -203,8 +203,10 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_execve:
         {
             struct dl_entry entry;
-            r = dl_exec_begin(); if (r) return r;
-            r = dl_exec((void *)a[0], (void *)a[1], (void *)a[2], &entry, 1);
+            dl_copy(&entry.mask, &context->uc_sigmask, 8);
+            entry.virtual_sigsys = dl_thread_self()->signals.virtual_sigsys_mask;
+            int kernel = (int)dl_exec_begin();
+            r = dl_exec((void *)a[0], (void *)a[1], (void *)a[2], &entry, kernel ? 2 : 1);
             dl_exec_end();
             if (r) return r;
             dl_signal_collect(0);
@@ -293,7 +295,7 @@ static void dispatch(int signal, siginfo_t *info, void *context)
     state->uc_mcontext.regs[0] = result;
 }
 
-int dl_install(void *signal_stack, size_t size)
+int dl_install(void *signal_stack, size_t size, int filtering)
 {
     stack_t stack = {.ss_sp = signal_stack, .ss_size = size};
     struct { void (*handler)(int, siginfo_t *, void *); unsigned long flags; void (*restorer)(void); unsigned long mask; }
@@ -302,6 +304,7 @@ int dl_install(void *signal_stack, size_t size)
     r = DL_CALL(SYS_rt_sigaction, SIGSYS, &action, NULL, 8, 0, 0); if (r) return (int)r;
     unsigned long bit = 1UL << (SIGSYS - 1);
     r = DL_CALL(SYS_rt_sigprocmask, SIG_UNBLOCK, &bit, NULL, 8, 0, 0); if (r) return (int)r;
+    if (!filtering) return 0;
     struct sock_filter filters[] = {
         BPF_STMT(BPF_LD | BPF_W | BPF_ABS, offsetof(struct seccomp_data, arch)),
         BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, AUDIT_ARCH_AARCH64, 1, 0),

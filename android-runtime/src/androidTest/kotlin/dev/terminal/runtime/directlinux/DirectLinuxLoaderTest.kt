@@ -190,10 +190,23 @@ class DirectLinuxLoaderTest {
             if (arguments.getString("directLinuxThreads") == "true") {
                 check(manifest.optBoolean("applications"))
                 android.system.Os.mkfifo(File(root, "tmp/thread-fifo").path, 384)
-                for (reference in listOf(true, false)) {
+                for (reference in listOf(false, true)) {
                     val checks = JSONArray()
                     val limitations = JSONArray()
                     for (kind in listOf("static", "dynamic")) {
+                        for (scenario in listOf("exec-leader", "exec-worker", "exec-exited-leader")) {
+                            val output = run("/bin/concurrency-$kind", scenario, useProot = reference)
+                            val case = "${if (reference) "proot" else "direct-linux"}/$kind/$scenario"
+                            if (reference && scenario != "exec-leader" &&
+                                output.contains("proot info: vpid 1: terminated with signal 11")) {
+                                assertFalse(case, output.contains("PASS concurrent exec"))
+                                limitations.put("$kind $scenario: reference tracee terminated with SIGSEGV (tracer exit status 0)")
+                                continue
+                            }
+                            assertTrue("$case: $output", output.contains("PASS concurrent exec"))
+                            assertFalse("$case: $output", output.contains("FAIL "))
+                            output.lineSequence().filter { it.startsWith("PASS ") }.forEach { checks.put("$kind $scenario: $it") }
+                        }
                         for (scenario in listOf("common", "main-exit")) {
                             val output = run("/bin/threads-$kind", scenario, useProot = reference)
                             assertTrue(output, output.contains("PASS "))

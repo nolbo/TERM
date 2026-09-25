@@ -12,15 +12,17 @@ results supersede the initial process limitations recorded below.
 - `exec.c` (initially in `loader.c`): checked ELF64/ARM64 ET_EXEC/ET_DYN parsing, PT_INTERP loading inside
   the independent root, mapped program headers, argument/environment/auxiliary
   vectors, zeroed BSS, guarded guest/signal stacks and a separately reserved brk
-  heap. `loader.c` retains initial Android policy/Bionic setup. Rejects file/segment overflow, overlapping LOAD pages, invalid entry,
+  heap. `loader.c` now uses a [freestanding APK bootstrap](CONCURRENT_EXEC.md) with
+  raw Android policy checks and kernel auxv parsing. Rejects file/segment overflow, overlapping LOAD pages, invalid entry,
   invalid interpreter, executable stack and writable-executable LOAD segments.
   Limits: 128 program headers, 128 MiB file/image span, 128 arguments, 8 MiB stack,
   64 MiB brk reservation. Fixed-address mappings never replace existing memory.
 - `enter.S`: transfers control with a 16-byte aligned guest stack and cleared TLS
   pointer. The Linux interpreter or static libc initializes its own TLS.
 - `guest.c`: signal dispatch with raw syscalls, no Bionic/glibc/TLS/heap dependency.
-  `build.sh` audits the combined guest/exec/memory/files/devices objects and rejects every unresolved symbol except the three assembly
-  entry points. Read/write and other untranslated I/O go directly through the
+  `build.sh` audits the combined runtime objects and their assembly entry points,
+  then rejects unresolved imports, interpreter/TLS dependencies and relocations
+  in the final loader. Read/write and other untranslated I/O go directly through the
   kernel. Other supported calls use the internal dispatcher; unsupported calls
   return explicit errors. There is no PRoot/Native fallback.
 - `files.c` implements root-relative symlinks, dot/dot-dot and pinned cwd/dirfd
@@ -35,13 +37,16 @@ results supersede the initial process limitations recorded below.
   signal frame**, not merely the handler's temporary mask; rt_sigreturn applies
   the requested mask. SIGSYS stays available to the runtime with its requested
   mask bit separately tracked. User SIGSYS handlers and guest altstacks are still
-  unsupported, as are full register-context virtualization and thread state.
+  unsupported. [Blocking signal handling](BLOCKING_SIGNALS.md) adds per-thread
+  state and general-register context handling; full extended context is unfinished.
   Nested handlers, waits and siglongjmp now have explicit paired regressions.
 
-The loader's setup uses Bionic before entry. Nothing in the guest dispatcher calls
-Bionic after the guest changes TPIDR_EL0. This removes the first probe's TLS
-restriction. The [process milestone](PROCESS.md) describes later exec support
-and the remaining thread/signal work.
+The initial loader used Bionic only before guest entry. The current loader has
+no libc/TLS dependency even during bootstrap. This permits APK runtime kernel
+reentry under the same inherited seccomp filter for [concurrent/nonleader exec](CONCURRENT_EXEC.md).
+The runtime image is fixed-address, with guest ASLR and runtime RELRO maintained;
+stock enforcing policy remains unverified. Single-thread exec keeps its existing
+in-process path. See [current compatibility status](COMPATIBILITY_PROGRESS.md).
 
 The initial milestone copied main ELF/interpreter bytes into anonymous RW pages
 and then applied final permissions. The subsequent [exec cost reduction](EXEC_PERFORMANCE.md)
@@ -148,7 +153,8 @@ provided additional context. Raw kernel-source web URLs failed; no runtime claim
 depends on those failed fetches. Replicant/codex_apps were unnecessary because
 this step changes neither UI interaction nor connected-app state.
 
-Remaining implementation after the process milestone: threads/shared-VM spawn,
+Remaining implementation after the process milestone: broader thread semantics,
+multi-thread fork/shared-VM spawn,
 execveat and complete signal virtualization/interruption; FD sharing/lifecycle and complete filesystem
 semantics (basic mutations now work); fake identity/hardlinks; installer/package environment; backend/PTY/UI
 integration and lifecycle tests. Unsupported process variants return EOPNOTSUPP or ENOSYS; ordinary fork/exec/wait

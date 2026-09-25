@@ -7,6 +7,10 @@ warm workload 결과이며, 제품 런타임이나 일반 Linux 성능 우위를
 
 ## 비용 분리
 
+후속 [병행 exec 변경](CONCURRENT_EXEC.md)은 Bionic bootstrap 자체를 제거했다.
+아래 수치와 `bootstrap.h` 설명은 당시 구현의 기록이다. 현 loader는 원래 kernel
+stack만 DONTFORK 처리하며, guest 프로그램/신호 스택은 별도로 만든다.
+
 `startup-test.c`는 같은 CLOCK_MONOTONIC 기준으로 fork 직전, 부모/자식 복귀,
 exec 직전, 새 프로그램의 main 진입, 종료 요청 직전, 부모의 reap 완료를 기록한다.
 자식은 작은 파이프로 시간을 전달하고, 부모는 reap 이후 JSON을 출력한다.

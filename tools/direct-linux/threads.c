@@ -201,11 +201,10 @@ void dl_fork_end(int child)
 }
 long dl_exec_begin(void)
 {
-    long r = dl_fork_begin(); if (r) return r;
-    if (DL_CALL(SYS_gettid, 0, 0, 0, 0, 0, 0) != DL_CALL(SYS_getpid, 0, 0, 0, 0, 0, 0)) {
-        dl_unlock(&thread_lock); return -EOPNOTSUPP;
-    }
-    return 0;
+    dl_lock(&thread_lock);
+    // An in-process replacement is safe only for one actual kernel task.
+    // Kernel exec owns thread destruction and nonleader -> leader conversion.
+    return reap() != 1 || DL_CALL(SYS_gettid, 0, 0, 0, 0, 0, 0) != DL_CALL(SYS_getpid, 0, 0, 0, 0, 0, 0);
 }
 void dl_exec_end(void) { dl_unlock(&thread_lock); }
 int dl_files_may_be_shared(void) { return __atomic_load_n(&files_shared, __ATOMIC_ACQUIRE) != 0; }

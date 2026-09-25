@@ -27,7 +27,18 @@ if ! readelf -s "$output_directory/runtime.o" | awk '$4 == "TLS" { bad = 1 } END
     exit 1
 fi
 bash "$repository_root/tools/iphone/android-clang.sh" \
-    -O2 -Wall -Wextra -Werror -fPIE -pie -Wl,-z,now,-z,noexecstack,-z,max-page-size=16384 \
+    -O2 -Wall -Wextra -Werror -fPIE -fno-builtin -fno-stack-protector -mgeneral-regs-only \
+    -nostdlib -static -Wl,--no-pie,--no-dynamic-linker,-e,dl_start,--image-base=0x2000000000,-z,now,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/loader.c" "$output_directory/runtime.o" "$source_directory/syscall.S" \
     "$source_directory/enter.S" -o "$output_directory/libdirect-linux-loader.so"
+if [[ -n $(nm -u "$output_directory/libdirect-linux-loader.so") ]] || \
+        readelf -l "$output_directory/libdirect-linux-loader.so" | rg -q 'INTERP| TLS '; then
+    echo 'Freestanding loader import/interpreter audit failed' >&2
+    exit 1
+fi
+if ! readelf -h "$output_directory/libdirect-linux-loader.so" | rg -q 'Type: +EXEC' || \
+        ! readelf -r "$output_directory/libdirect-linux-loader.so" | rg -q 'There are no relocations'; then
+    echo 'Fixed bootstrap type/relocation audit failed' >&2
+    exit 1
+fi
 sha256sum "$output_directory/libdirect-linux-loader.so"

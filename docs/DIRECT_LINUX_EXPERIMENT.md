@@ -385,7 +385,9 @@ maps 조회 비용은 이 반복 명령 시간에서 제외되며 전체 앱의 
 
 이후 [호환성 구현 진행 상태](../tools/direct-linux/COMPATIBILITY_PROGRESS.md)에
 초기 pthread 실행, DONTFORK 소유권·FD 고갈 정리·leader 종료 뒤 worker 동작의
-수정과 Android 검증을 기록했다. shared-VM spawn과 다중 thread fork/exec를 비롯한
+수정과 Android 검증을 기록했다. 이후 [병행 exec](../tools/direct-linux/CONCURRENT_EXEC.md)는
+freestanding APK 런타임에 kernel 재진입하여 다중 thread/nonleader exec를 지원한다.
+런타임 자체는 고정 주소이고 guest ASLR과 RELRO는 유지한다. shared-VM spawn과 다중 thread fork를 비롯한
 전체 45개 목표는 그 문서의 항목별 상태로 계속 추적한다.
 
 이후 [Unix pathname 단계](../tools/direct-linux/UNIX_SOCKETS.md)에서 지속되는 root FD
@@ -408,10 +410,12 @@ Direct에서 ENAMETOOLONG으로 실패한다. [비교 결과](../tools/direct-li
    기본 xattr 및 null/zero/random/urandom의 고정 장치 보기는 검증했다.
    symlink 시간 변경은 Linux 5.8+이며 오래된 커널의 오류를 숨기지 않는다.
 4. **프로세스·신호:** 사용자 altstack·외부 SIGSYS·전체 신호 context 가상화,
-   thread/shared-VM spawn/execveat, 전체 vfork 의미, EINTR/cancellation과 robust
-   mutex·확장 CPU 상태, guest seccomp가 남았다. 기본 fork/wait와 exec의
+   전체 thread 조합/shared-VM spawn/execveat, 다중 thread fork, 전체 vfork 의미와
+   확장 CPU 상태, guest seccomp가 남았다. 기본 pthread/robust owner death와
+   [blocking EINTR/cancellation](../tools/direct-linux/BLOCKING_SIGNALS.md)을 검증했다. 기본 fork/wait와 exec의
    signal/CLOEXEC와 일반 action/대기 마스크·중첩 nonlocal 복귀 검증은 완료했다.
-   guest exec는 APK 런타임과 필터를 유지한다.
+   한 스레드 exec는 APK 런타임을 유지하며 병행 exec는 같은 APK ELF를 kernel
+   재실행한다. 두 경로 모두 필터를 유지하고 guest app-data ELF는 kernel 실행하지 않는다.
 5. **Linux 환경:** 별도 fixture에서 shell/Python/로컬 Git을 실행했다.
    독립 설치·복구/package DB에서 shell, Python, Git, apt/dpkg
    설치·업그레이드·삭제, 전체 Unix 소켓 의미·추가 소켓 family·DNS/NSS 통합·외부

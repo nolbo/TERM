@@ -31,7 +31,7 @@ kernel clone에 전달한다. join/detach 후에는 실제 task 소멸을 확인
   [직접 TID 경로](https://man7.org/linux/man-pages/man5/proc_pid_task.5.html)를 따른다.
   guest 전체 `/proc` 제공(C23)을 구현했다는 뜻은 아니다.
 
-현재도 multi-active-thread fork/exec, nonleader exec와 shared-VM spawn을 거부한다.
+이 첫 단계에서는 multi-active-thread fork/exec, nonleader exec와 shared-VM spawn을 거부했다.
 thread slot 128개, mapping 구간 2048개 등의 한도도 남아 있다. 부분적으로 실패한
 inheritance hint의 최악 분할이 한도를 초과하면 fork 전 ENOMEM을 반환한다.
 재조정 중 mincore까지 금지하는 플랫폼은 자식이 잘못된 소유권으로 계속 진행하지
@@ -137,6 +137,25 @@ Linux vfork의 부모 신호 지연은 일반 I/O EINTR와 다른 계약이다. 
 느린 준비 단계 파일 연산과 C17의 전체 확장 context/stop-continue 재시작까지
 완료한 것은 아니다.
 
+## 2026-09-25: C05 병행 exec
+
+[병행 exec 설계·한계](CONCURRENT_EXEC.md),
+[최종 결과](results/concurrent-exec-runtime-2026-09-25.json).
+다중 thread, nonleader, leader 선종료 후 worker의 exec는 검증한 guest 상태를
+봉인한 data FD로 전달하고 같은 APK 런타임에 kernel 재진입한다. 커널이 기존
+스레드와 VM을 교체하며 PID/TID 규칙을 처리한다. freestanding 고정 주소 bootstrap은
+같은 seccomp 필터를 상속하고 dispatcher를 복원한다. guest ELF의 kernel 실행은
+없다. 런타임 ASLR 포기와 C01/C02 정책 gate를 설계 문서에 명시했다.
+
+host/Android 정적·동적 6개 성공 경로, 200회 runtime 재진입, host의 EACCES 강제
+거부 정적·동적 각 100회(soft NOFILE=16)를 통과했다. 최종 Android 27.570초,
+2 tests/154회 실행/726 fixture hash 통과. canonical Gradle·native 감사·서명·ELF
+metadata 회귀 통과. Rootless worker exec의 네 SIGSEGV는 limitation으로 기록한다.
+동일 APK shell+30 명령 중앙값은 이전 38.166ms, 현재 37.169ms, Rootless 48.918ms.
+
+다중 thread fork, shared-VM spawn/vfork, 모든 FD/FS table 조합과 전체 exec reset
+계약은 남아 있다. 이번 단계는 C05의 exec 부분이며 전체 C05/C10 완료가 아니다.
+
 ## 전체 목표 추적
 
 각 행의 원래 완료 조건은 감사 문서의 같은 ID를 따른다. 현 기기의 통과를
@@ -148,12 +167,12 @@ stock enforcing/다른 페이지 크기/모든 앱에 일반화하지 않는다.
 | C02 | 페이지·커널·Bionic 차이 | 미완료: 16 KiB, 지원 버전·커널 matrix. |
 | C03 | pthread | 부분 구현·실행 검증: 기본 pthread/Python 통과. clone3/rseq/PI·추가 cancellation/CPU migration 남음. |
 | C04 | spawn/vfork | 미완료: shared-VM spawn, 전체 vfork 의미. |
-| C05 | thread 수명·병행 exec | 부분 구현·실행 검증: leader 선종료/재사용/FD 분리 통과. 다중 thread fork/exec·nonleader exec 남음. |
+| C05 | thread 수명·병행 exec | 부분 구현·실행 검증: 다중 thread/nonleader/leader 선종료 exec와 kernel 거부 복원 추가. 다중 thread fork·전체 FD/FS 조합 남음. |
 | C06 | execveat/fexecve | 미완료. |
 | C07 | argv/env 한도 | 미완료. |
 | C08 | ELF 허용 범위 | 미완료: 큰 ELF/다양한 linker/CPU property. |
 | C09 | 실행 권한·동시 쓰기 | 미완료: 가상 mode와 ETXTBSY 수명. |
-| C10 | exec 전체 상태 | 미완료: reset 계약 및 실패 matrix. |
+| C10 | exec 전체 상태 | 병행 exec의 kernel 교체와 precommit/커널 거부 복원 검증. 전체 reset 계약·postcommit 실패 matrix는 미완료. |
 | C11 | DONTFORK 소유권 | 현 구현 수정·host/Android 검증 완료. C01/C02의 다른 플랫폼 gate는 별도 미완료. |
 | C12 | 메모리 API | 미완료: mremap/msync/memfd 등. |
 | C13 | 자원 한도 | 미완료: thread stack 1 MiB로 확장했지만 고정 한도와 RLIMIT 계약 남음. |
@@ -190,5 +209,5 @@ stock enforcing/다른 페이지 크기/모든 앱에 일반화하지 않는다.
 | C44 | kernel 기능 범위 | 미완료: syscall별 가능/제한/플랫폼 불가 분류와 증거 필요. |
 | C45 | 회귀/비교 기준 | 진행: thread/매핑/FD 회귀와 reference 실패 기록 추가. 전체 matrix 미완료. |
 
-다음 구현은 C04/C05의 spawn·다중 thread fork/exec와 남은 C14/C17 동작으로
+다음 구현은 C04/C05/C26의 spawn·다중 thread fork·FD-table 소유권과 남은 C14/C17 동작으로
 이어간다. 전체 목표는 계속 진행 중이다.

@@ -27,7 +27,9 @@ NDK, and two newly reproduced mapping/FD cleanup defects. It distinguishes the
 committed runtime, unfinished thread changes and stock-device evidence gaps.
 The [implementation progress](COMPATIBILITY_PROGRESS.md) now records initial
 pthread support, fork mapping and FD exhaustion fixes, and live-thread handling
-after the leader exits. It retains the full audit scope and remaining gates.
+after the leader exits. [Concurrent exec](CONCURRENT_EXEC.md) adds kernel-owned
+thread teardown and nonleader conversion through a freestanding APK bootstrap.
+It retains the full audit scope and remaining gates.
 
 The [Python/Git milestone](APPLICATIONS.md) and subsequent
 [subprocess FD cleanup](SUBPROCESS_PERFORMANCE.md) add real application checks
@@ -49,7 +51,8 @@ Direct's long-name limitation and the reference engine's named-datagram failure.
 
 [Signal mask compatibility](SIGNAL_MASKS.md) fixes full handler/wait masks killing
 the private SIGSYS transport. Nested handlers, waits and nonlocal jumps are now
-compared against Rootless; threads and guest alternate stacks remain unfinished.
+compared against Rootless. [Blocking/cancellation support](BLOCKING_SIGNALS.md)
+now covers per-thread waits; guest alternate stacks remain unfinished.
 
 `probe.c` handles raw ARM64 `openat` in the calling thread with seccomp TRAP and
 SIGSYS. `syscall.S` supplies separate host/guest SVC sites. The host site is exempt
