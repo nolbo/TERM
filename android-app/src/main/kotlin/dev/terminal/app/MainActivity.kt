@@ -386,6 +386,11 @@ class MainActivity : TerminalActivity() {
 
     @Composable
     private fun TerminalScreen() {
+        val screenBackgroundColor = if (activeSessionId == null) {
+            MaterialTheme.colorScheme.background
+        } else {
+            terminalBackgroundColor
+        }
         val visibleSessions = sessions.map { session ->
             sessionWithDisplayTitles(session, applicationTerminalTitles[session.id])
         }
@@ -397,6 +402,7 @@ class MainActivity : TerminalActivity() {
             }
         }
         Scaffold(
+            containerColor = screenBackgroundColor,
             snackbarHost = { SnackbarHost(snackbarHost) },
             contentWindowInsets = androidx.compose.foundation.layout.WindowInsets(0, 0, 0, 0),
         ) { scaffoldPadding -> Column(Modifier.fillMaxSize().padding(scaffoldPadding).imePadding()) {
@@ -404,7 +410,7 @@ class MainActivity : TerminalActivity() {
                 sessions = visibleSessions,
                 activeSessionId = activeSessionId,
                 appBarContentVisible = activeSessionId == null || terminalAppBarContentVisible,
-                terminalBackgroundColor = terminalBackgroundColor,
+                terminalBackgroundColor = screenBackgroundColor,
                 terminatingSessionIds = terminatingSessionIds,
                 profiles = profiles,
                 onSelectProfile = ::selectProfile,
