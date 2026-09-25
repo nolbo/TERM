@@ -47,6 +47,7 @@ internal fun HotkeyGrid(
     alt: Boolean = false,
     editing: Boolean = false,
     enabled: Boolean = true,
+    terminalColors: dev.terminal.app.ui.TerminalChromeColors? = null,
     cellModifier: (Int) -> Modifier = { Modifier },
     onKey: (Int) -> Unit,
 ) {
@@ -81,10 +82,12 @@ internal fun HotkeyGrid(
                                     shapes = ToggleButtonDefaults.shapesFor(ButtonDefaults.MinHeight)
                                         .copy(pressedShape = CircleShape, checkedShape = CircleShape),
                                     colors = FilledTonalToggleButtonDefaults.colors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        contentColor = MaterialTheme.colorScheme.onSurface,
-                                        checkedContainerColor = TerminalStatusBlueContainer,
-                                        checkedContentColor = TerminalOnStatusBlueContainer,
+                                        containerColor = terminalColors?.container ?: MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        contentColor = terminalColors?.onContainer ?: MaterialTheme.colorScheme.onSurface,
+                                        disabledContainerColor = (terminalColors?.foreground ?: MaterialTheme.colorScheme.onSurface).copy(alpha = 0.12f),
+                                        disabledContentColor = (terminalColors?.foreground ?: MaterialTheme.colorScheme.onSurface).copy(alpha = 0.38f),
+                                        checkedContainerColor = terminalColors?.checkedContainer ?: TerminalStatusBlueContainer,
+                                        checkedContentColor = terminalColors?.onCheckedContainer ?: TerminalOnStatusBlueContainer,
                                     ),
                                     contentPadding = PaddingValues(horizontal = 2.dp),
                                 ) { content() }
@@ -139,8 +142,10 @@ internal fun HotkeyGrid(
                                     modifier = cell.semantics { contentDescription = description },
                                     shapes = ButtonDefaults.shapes().copy(pressedShape = CircleShape),
                                     colors = ButtonDefaults.filledTonalButtonColors(
-                                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        contentColor = MaterialTheme.colorScheme.onSurface,
+                                        containerColor = terminalColors?.container ?: MaterialTheme.colorScheme.surfaceContainerHigh,
+                                        contentColor = terminalColors?.onContainer ?: MaterialTheme.colorScheme.onSurface,
+                                        disabledContainerColor = (terminalColors?.foreground ?: MaterialTheme.colorScheme.onSurface).copy(alpha = 0.12f),
+                                        disabledContentColor = (terminalColors?.foreground ?: MaterialTheme.colorScheme.onSurface).copy(alpha = 0.38f),
                                     ),
                                     contentPadding = PaddingValues(horizontal = 2.dp),
                                 ) { content() }

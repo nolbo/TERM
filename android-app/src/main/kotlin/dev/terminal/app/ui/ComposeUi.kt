@@ -132,14 +132,15 @@ internal fun terminalListItemShapes(): ListItemShapes = ListItemDefaults.shapes(
 
 @Composable
 fun DroidTheme(
+    systemBarBackground: Color? = null,
     content: @Composable () -> Unit,
 ) {
     val view = LocalView.current
     SideEffect {
         val window = (view.context as? Activity)?.window ?: return@SideEffect
         WindowCompat.getInsetsController(window, view).apply {
-            isAppearanceLightStatusBars = false
-            isAppearanceLightNavigationBars = false
+            isAppearanceLightStatusBars = systemBarBackground?.let { TerminalChromeColors(it).darkSystemIcons } ?: false
+            isAppearanceLightNavigationBars = systemBarBackground?.let { TerminalChromeColors(it).darkSystemIcons } ?: false
         }
     }
     MaterialExpressiveTheme(
@@ -357,12 +358,13 @@ fun TerminalChrome(
     onDismissNewSession: () -> Unit,
     onSettings: () -> Unit,
 ) {
+    val colors = remember(terminalBackgroundColor) { TerminalChromeColors(terminalBackgroundColor) }
     val selectedTabIndex = sessions.indexOfFirst { it.id == activeSessionId }
     val haptics = LocalTerminalHaptics.current
     Surface(
         modifier = Modifier.zIndex(1f),
         color = terminalBackgroundColor,
-        contentColor = MaterialTheme.colorScheme.onSurface,
+        contentColor = colors.foreground,
     ) {
         Column(Modifier.fillMaxWidth()) {
             Box(Modifier.fillMaxWidth()) {
@@ -394,7 +396,7 @@ fun TerminalChrome(
                                     selectedTabIndex = selectedTabIndex.coerceAtLeast(0),
                                     modifier = Modifier.fillMaxWidth().height(36.dp),
                                     containerColor = terminalBackgroundColor,
-                                    contentColor = TerminalStatusBlue,
+                                    contentColor = colors.accent,
                                     edgePadding = 6.dp,
                                     indicator = {},
                                     divider = {},
@@ -416,7 +418,7 @@ fun TerminalChrome(
                                 .padding(horizontal = 4.dp)
                                 .height(36.dp)
                                 .clip(CircleShape)
-                                .background(if (selected) MaterialTheme.colorScheme.surfaceContainerHigh else Color.Transparent)
+                                .background(if (selected) colors.container else Color.Transparent)
                                 .semantics {
                                     stateDescription = stateLabel
                                     onLongClick(label = renameLabel) {
@@ -425,8 +427,8 @@ fun TerminalChrome(
                                         true
                                     }
                                 },
-                            selectedContentColor = TerminalStatusBlue,
-                            unselectedContentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                            selectedContentColor = colors.accent,
+                            unselectedContentColor = colors.foreground,
                         ) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Row(
@@ -469,6 +471,7 @@ fun TerminalChrome(
                                         session.launchSpec?.icon ?: "auto", session.runtime,
                                         contentDescription = stringResource(runtimeTitleResource(session.runtime)),
                                         size = 20.dp,
+                                        tint = if (selected) colors.accent else colors.foreground,
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Column {
@@ -479,7 +482,7 @@ fun TerminalChrome(
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis,
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                color = if (selected) colors.onContainer else colors.foreground,
                                             )
                                         }
                                     }
@@ -500,7 +503,7 @@ fun TerminalChrome(
                         if (!selected && index < sessions.lastIndex && index + 1 != selectedTabIndex) {
                             VerticalDivider(
                                 modifier = Modifier.align(Alignment.CenterEnd).height(18.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant,
+                                color = colors.divider,
                             )
                         }
                         }
@@ -821,6 +824,7 @@ internal fun ExtraKeys(
                 layout = layout,
                 modifier = Modifier.padding(4.dp).heightIn(max = 160.dp).verticalScroll(rememberScrollState()),
                 control = control, alt = alt,
+                terminalColors = remember(terminalBackgroundColor) { TerminalChromeColors(terminalBackgroundColor) },
                 enabled = enabled && visible,
             ) { index ->
                 val shortcut = layout.keys[index].shortcut

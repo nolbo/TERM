@@ -12,7 +12,10 @@ abstract class TerminalActivity : AppCompatActivity() {
         enableEdgeToEdge()
     }
 
-    protected fun compose(content: @androidx.compose.runtime.Composable () -> Unit) = setContent {
-        DroidTheme { TerminalHapticFeedbackProvider(content) }
+    protected fun compose(
+        systemBarBackground: @androidx.compose.runtime.Composable () -> androidx.compose.ui.graphics.Color? = { null },
+        content: @androidx.compose.runtime.Composable () -> Unit,
+    ) = setContent {
+        DroidTheme(systemBarBackground = systemBarBackground()) { TerminalHapticFeedbackProvider(content) }
     }
 }

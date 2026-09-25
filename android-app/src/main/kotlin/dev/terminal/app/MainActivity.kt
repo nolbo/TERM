@@ -311,7 +311,7 @@ class MainActivity : TerminalActivity() {
             onPinchScale = ::scaleTerminalFont,
             onWebLink = ::openTerminalWebLink,
         )
-        compose { TerminalScreen() }
+        compose(systemBarBackground = { if (activeSessionId != null) terminalBackgroundColor else null }) { TerminalScreen() }
         val notificationPreferences = getSharedPreferences("notification-permission", MODE_PRIVATE)
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
