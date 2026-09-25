@@ -361,7 +361,7 @@ fun TerminalChrome(
         modifier = Modifier.zIndex(1f),
         color = MaterialTheme.colorScheme.surfaceContainer,
     ) {
-        Column(Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars)) {
+        Column(Modifier.fillMaxWidth()) {
             Box(Modifier.fillMaxWidth()) {
                 androidx.compose.animation.AnimatedVisibility(
                     visible = appBarContentVisible,
@@ -380,7 +380,8 @@ fun TerminalChrome(
                         ),
                 ) {
                     Row(
-                        Modifier.fillMaxWidth().height(56.dp),
+                        // Collapse the status bar inset with the app bar so the terminal reaches the top edge.
+                        Modifier.fillMaxWidth().windowInsetsPadding(WindowInsets.statusBars).height(56.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Box(Modifier.weight(1f).height(56.dp)) {

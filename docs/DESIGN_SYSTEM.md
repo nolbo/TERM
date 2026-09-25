@@ -40,8 +40,10 @@ TERM의 활성 Android UI는 Jetpack Compose와 Material 3 Expressive를 기준�
 세션 선택은 Material 3 `Tab`의 indicator와 selected semantics로 구분한다. 탭 앞에는 20dp 실행 환경 아이콘(Native 로봇, Debian 나선, Ubuntu 원형, Arch 아치, AVF 칩)을 표시한다. 상태 뱃지와 ANDROID/LINUX 등의 접두사는 표시하지 않고 제목만 표시한다. 아이콘은 실행 환경 이름을 접근성 설명으로 제공하며, 세션 상태는 탭의 stateDescription으로 전달한다. 탭 본문을 길게 누르면 사용자 지정 제목이 있을 때만 기존 제목을 미리 채우고, 없으면 빈 입력 필드를 표시하는 이름 변경 대화상자가 열리고, 탭의 종료 아이콘은 확인 대화상자를 연 뒤에만 runtime의 명시적 terminate 명령을 보낸다. 새 세션 버튼의 `DropdownMenuPopup` 안에는 Expressive `DropdownMenuGroup`과 위치별 segmented item shape를 둔다. 빈 상태의 주 동작은 별도 `ModalBottomSheet`를 사용한다. 상단 새 세션 메뉴와 빈 상태 바텀시트는 기본·사용자 프로필 이름과 실행 환경을 표시하고, 마지막에 **Add profile**을 제공합니다. 사용할 수 없는 실행 환경의 프로필도 표시하며 기존 설치·설정 안내로 연결합니다. 설정의 **Profiles** 목록은 카드 전체를 눌러 프로필 설정을 엽니다. 기본 프로필도 수정·삭제할 수 있습니다. 설정은 이름·실행 환경, 셸·시작 설정, 환경 변수 카드로 나누며 하단에 저장·복제·삭제를 제공합니다. 삭제에는 확인을 요구하고 모든 프로필이 삭제되면 추가 안내를 표시합니다. 양쪽 추가 동작은 같은 Material 3 프로필 편집 Activity를 엽니다. 초안은 Activity 재생성 시 복원하고 저장 시 전체 설정을 검증하며, 미저장 변경 사항을 버릴 때 확인합니다. Rootless 설치 진행은 대화상자, wavy 진행 표시기, 오류 텍스트, 재시도 및 닫기 동작을 사용한다.
 
 실행 중인 터미널 캔버스를 두 번 탭하면 세션 탭·새 세션·설정으로 이루어진 상단 앱
-바 전체를 위로 접고, 다시 두 번 탭하면 복원한다. status bar inset은 유지하고,
-앱 바의 56 dp 높이는 숨김 완료 시 0이 되어 터미널이 그만큼 넓어진다.
+바 전체를 위로 접고, 다시 두 번 탭하면 복원한다. 앱 바의 56 dp 높이와 status bar
+inset을 함께 접어 숨김 완료 시 상단 여백을 0으로 만들고, 터미널을 투명한 상태
+표시줄 뒤 화면 상단까지 확장한다. 상태 표시줄 아이콘은 표시되며, 앱 바 복원 시
+status bar inset도 함께 복원한다.
 Expressive motion scheme의 spatial/effects spec으로 세로 크기·위치·투명도를
 함께 전환한다. 단일 탭의 IME 표시,
 스크롤, 길게 누르기의 텍스트 선택은 이 동작과 독립적으로 유지한다.
@@ -132,7 +134,7 @@ USB 디바이스 설정도 큰 앱 바와 섹션별 둥근 옵션 카드를 사�
 승인·세션 전체 접근 해제·폴더 제거는 별도 확인을 거친다. 진단은 원본 JSON 대신
 허용된 연결 수만 표시하며, 계정 입력은 기존 호스트 도구 입력 화면으로 이동한다.
 
-모든 화면은 edge-to-edge다. 공통 앱 바와 터미널 chrome은 status bar inset을 적용하고, 하단 extra key는 navigation bar inset을 적용한다. 터미널 화면은 IME inset을 반영해 키보드가 terminal/extra key를 가리지 않게 한다. 목록 기반 화면은 고정 텍스트 높이를 사용하지 않고 스크롤한다.
+모든 화면은 edge-to-edge다. 공통 앱 바와 표시 중인 터미널 chrome은 status bar inset을 적용하고, 터미널 앱 바를 숨기면 해당 상단 inset도 접는다. 하단 extra key는 navigation bar inset을 적용한다. 터미널 화면은 IME inset을 반영해 키보드가 terminal/extra key를 가리지 않게 한다. 목록 기반 화면은 고정 텍스트 높이를 사용하지 않고 스크롤한다.
 
 상태 표시줄과 탐색 표시줄은 투명한 다크 surface와 밝은 아이콘을 유지한다. RTL에서는 start/end 기반 배치를 사용하되, 문자 셀 정확성이 필요한 터미널 렌더러 자체는 기존 방향 규칙을 유지한다.
 
