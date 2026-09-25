@@ -29,6 +29,14 @@ struct dl_signal_state {
     struct dl_delivery deliveries[DL_WAIT_LIMIT];
     unsigned delivery_count;
 };
+struct dl_sighand;
+struct dl_sighand *dl_sighand_initial(void);
+void dl_sighand_retain(struct dl_sighand *table);
+void dl_sighand_release(struct dl_sighand *table);
+unsigned *dl_sighand_lock(struct dl_sighand *table);
+// Caller holds the source lock through the kernel clone that copies sighand.
+// The new table starts unlocked and is owned by one runtime task record.
+long dl_sighand_copy(struct dl_sighand *source, struct dl_sighand **result);
 struct dl_thread {
     unsigned state;
     unsigned files_id;
@@ -40,6 +48,7 @@ struct dl_thread {
     void *allocation;
     size_t allocation_size;
     void *frame;
+    struct dl_sighand *sighand;
     struct dl_signal_state signals;
 };
 struct dl_thread *dl_thread_self(void);
@@ -61,5 +70,5 @@ extern _Noreturn void dl_resume(void *frame);
 _Noreturn void dl_thread_exit(int code);
 void dl_lock(unsigned *lock);
 void dl_unlock(unsigned *lock);
-extern unsigned dl_memory_lock, dl_files_lock, dl_actions_lock;
+extern unsigned dl_memory_lock, dl_files_lock;
 #endif

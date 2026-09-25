@@ -15,7 +15,7 @@ static unsigned thread_lock;
 static unsigned files_shared;
 static unsigned next_files_id = 1, threads_ready;
 struct dl_fd_snapshot { size_t count; int fds[]; };
-unsigned dl_memory_lock, dl_files_lock, dl_actions_lock;
+unsigned dl_memory_lock, dl_files_lock;
 extern long dl_spawn(unsigned long *, uintptr_t);
 extern long dl_spawn_cleanup(unsigned long *, uintptr_t);
 extern _Noreturn void dl_resume(void *);
@@ -54,6 +54,7 @@ struct dl_thread *dl_thread_self(void)
 void dl_thread_init(void *allocation, size_t size, void *stack, size_t stack_size)
 {
     struct dl_thread *t = threads;
+    t->sighand = dl_sighand_initial();
     __atomic_store_n(&t->io_count, 0, __ATOMIC_RELAXED);
     t->allocation = allocation; t->allocation_size = size;
     __atomic_store_n(&t->files_id, 1, __ATOMIC_RELAXED); t->copied_fds = NULL;
@@ -75,6 +76,8 @@ static void free_snapshot(struct dl_thread *t, int close_fds)
 static void dispose(struct dl_thread *t)
 {
     free_snapshot(t, 0);
+    if (t->sighand) dl_sighand_release(t->sighand);
+    t->sighand = NULL;
     DL_CALL(SYS_munmap, t->allocation, t->allocation_size, 0, 0, 0, 0);
     __atomic_store_n(&t->state, FREE, __ATOMIC_RELEASE);
 }
@@ -196,6 +199,7 @@ long dl_thread_clone(unsigned long a[6], ucontext_t *context)
     if (allocation < 0) { dl_unlock(&thread_lock); return allocation; }
     long r = DL_CALL(SYS_mprotect, allocation + dl_state.page, DL_SIGNAL_STACK_SIZE, PROT_READ | PROT_WRITE, 0, 0, 0);
     child->allocation = (void *)allocation; child->allocation_size = size;
+    child->sighand = NULL;
     child->copied_fds = NULL;
     __atomic_store_n(&child->io_count, 0, __ATOMIC_RELAXED);
     __atomic_store_n(&child->stack_begin, allocation + dl_state.page, __ATOMIC_RELAXED);
@@ -204,6 +208,8 @@ long dl_thread_clone(unsigned long a[6], ucontext_t *context)
     child->signals.virtual_sigsys_mask = dl_thread_self()->signals.virtual_sigsys_mask;
     if (!r) r = copy_frame(child, context, a[1]);
     if (r) { dispose(child); dl_unlock(&thread_lock); return r; }
+    child->sighand = dl_thread_self()->sighand;
+    dl_sighand_retain(child->sighand);
     dl_lock(&dl_files_lock);
     __atomic_store_n(&child->files_id, dl_thread_self()->files_id, __ATOMIC_RELAXED);
     if (!(a[0] & CLONE_FILES)) {
@@ -243,7 +249,7 @@ long dl_fork_begin(void)
     reap();
     // Stabilize every copied runtime lock/state. Guest memory/FD sharing keeps
     // normal kernel fork semantics; only this task's runtime continuation lives.
-    dl_lock(&dl_files_lock); dl_lock(&dl_actions_lock);
+    dl_lock(&dl_files_lock); dl_lock(dl_sighand_lock(dl_thread_self()->sighand));
     return 0;
 }
 void dl_fork_end(int child)
@@ -257,7 +263,7 @@ void dl_fork_end(int child)
         __atomic_store_n(&self->tid, (int)DL_CALL(SYS_gettid, 0, 0, 0, 0, 0, 0), __ATOMIC_RELAXED);
         __atomic_store_n(&files_shared, 0, __ATOMIC_RELEASE);
     }
-    dl_unlock(&dl_actions_lock); dl_unlock(&dl_files_lock);
+    dl_unlock(dl_sighand_lock(dl_thread_self()->sighand)); dl_unlock(&dl_files_lock);
     dl_unlock(&thread_lock);
 }
 long dl_exec_begin(void)

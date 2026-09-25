@@ -197,6 +197,22 @@ native 감사·서명·canonical Gradle·host ELF/FD/매핑 회귀가 통과했�
 전체 proc/devfs, stock enforcing/16 KiB, 제품 통합과 다른 45개 항목의 미완료
 조건은 그대로 남는다. root 밖/익명 FD의 proc 별칭은 이번 범위에 포함하지 않는다.
 
+## 2026-09-25: C04의 signal disposition 소유권 분리
+
+[신호 상태 소유권](SIGNAL_OWNERSHIP.md),
+[구성요소·전체 회귀 결과](results/sighand-runtime-2026-09-25.json).
+action/가상 mask/exec 초기화 후보와 잠금을 `dl_sighand` 객체로 분리했다.
+pthreads는 공유 참조를 사용하며 fork·생성 실패·실제 종료 후 회수에 수명을 연결했다.
+독립 복사 API도 구현하고 host/Android에서 실제 CLONE_VM, CLONE_VM|CLONE_VFORK,
+CLONE_VM|CLONE_SIGHAND를 각 64회 검증했다. 부모 상태 보존/공유, 할당·clone 실패,
+마지막 참조의 mapping 회수를 검사했다. 이 구성요소 검사는 guest dispatcher를
+사용하지 않으며 **C04 전체 완료가 아니다**.
+
+기존 실제 Direct pthread/fork/exec host 회귀와 Android 3 tests/126회 실행,
+kernel 재진입 200회, native 감사·서명·canonical Gradle이 통과했다.
+성능 비교는 재실행하지 않았다. 다음은 프로세스/VM별 소유권과 exec·exit 뒤 회수,
+vfork 잠금 수명을 연결하는 작업이다.
+
 ## 전체 목표 추적
 
 각 행의 원래 완료 조건은 감사 문서의 같은 ID를 따른다. 현 기기의 통과를
@@ -207,7 +223,7 @@ stock enforcing/다른 페이지 크기/모든 앱에 일반화하지 않는다.
 | C01 | stock Android 정책 | 미완료: enforcing 기기 필요. |
 | C02 | 페이지·커널·Bionic 차이 | 미완료: 16 KiB, 지원 버전·커널 matrix. |
 | C03 | pthread | 부분 구현·실행 검증: 기본 pthread/Python 통과. clone3/rseq/PI·추가 cancellation/CPU migration 남음. |
-| C04 | spawn/vfork | 미완료: shared-VM spawn, 전체 vfork 의미. |
+| C04 | spawn/vfork | 진행: signal disposition 객체·복사/공유/회수 및 실제 CLONE_VM 구성요소 검사 완료. guest shared-VM spawn, VM/process 수명·vfork 잠금·전체 libc 의미는 미완료. |
 | C05 | thread 수명·병행 exec | 다중 thread/nonleader/leader 선종료 fork·exec, kernel 거부 복원, 비공유 FD clone 검증. 전체 FD/FS/생성 실패·장시간 조합은 미완료. |
 | C06 | execveat/fexecve | 현재 환경 구현·host native 비교·Android 검증 완료: 빈/상대 경로, O_PATH/unlink, script+CLOEXEC, errno·실패 복원. C01/C02 플랫폼 gate는 별도. |
 | C07 | argv/env 한도 | 미완료. |

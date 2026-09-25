@@ -14,7 +14,6 @@ char dl_host_return[8];
 static unsigned queries, updates;
 #ifdef DIRECT_LINUX_THREADS_H
 static struct dl_thread thread;
-unsigned dl_actions_lock;
 struct dl_thread *dl_thread_self(void) { return &thread; }
 void dl_lock(unsigned *lock) { assert(!*lock); *lock = 1; }
 void dl_unlock(unsigned *lock) { assert(*lock); *lock = 0; }
@@ -53,6 +52,7 @@ static long guest_action(int signal, uintptr_t handler, uintptr_t output)
 }
 int main(void)
 {
+    thread.sighand = dl_sighand_initial();
     kernel_action(SIGUSR1, (uintptr_t)unused_handler);
     kernel_action(SIGUSR2, (uintptr_t)SIG_IGN);
     kernel_action(SIGSYS, (uintptr_t)unused_handler);

@@ -33,6 +33,9 @@ thread teardown and nonleader conversion through a freestanding APK bootstrap.
 state and clean private pins across fork, private-table clone and interrupted unshare.
 [FD-based exec](EXEC_FD.md) adds execveat/fexecve, unlinked-inode execution,
 script FD paths and precommit CLOEXEC errors, checked against native Linux.
+[Signal-state ownership](SIGNAL_OWNERSHIP.md) separates shared VM from shared
+dispositions and verifies the component with real kernel clones on host/Android;
+guest shared-VM spawn remains unfinished.
 It retains the full audit scope and remaining gates.
 
 The [Python/Git milestone](APPLICATIONS.md) and subsequent

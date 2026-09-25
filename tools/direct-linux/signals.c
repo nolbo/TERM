@@ -4,35 +4,67 @@
 #include "threads.h"
 #include <errno.h>
 #include <signal.h>
+#include <sys/mman.h>
 #include <sys/syscall.h>
 #include <ucontext.h>
 
 #define SYS_BIT (1UL << (SIGSYS - 1))
 #define UNBLOCKABLE ((1UL << (SIGKILL - 1)) | (1UL << (SIGSTOP - 1)))
 struct action { uintptr_t handler, flags, restorer; unsigned long mask; };
-static struct action actions[65];
-static unsigned char wrapped[65];
-// Unknown inherited Bionic dispositions are scanned on the first replacement.
-// Subsequent replacements only inspect signals which may have a handler.
-// Guest action updates are serialized with exec (and with the action lock in
-// the thread implementation). A one-shot reset may leave a harmless extra bit.
-static unsigned long exec_candidates = ~0UL;
+// Kernel CLONE_VM does not imply CLONE_SIGHAND. Keep the emulated handler,
+// transport mask bits and exec-reset candidates in the same sharing domain as
+// the kernel's dispositions, independently of the shared address space.
+struct dl_sighand {
+    unsigned lock, references;
+    struct action actions[65];
+    unsigned char wrapped[65];
+    unsigned long exec_candidates;
+};
+// Inspect inherited kernel dispositions once; later exec scans only candidates
+// added by guest handler updates. A one-shot reset may leave an extra bit.
+static struct dl_sighand initial_sighand = {.references = 1, .exec_candidates = ~0UL};
+struct dl_sighand *dl_sighand_initial(void) { return &initial_sighand; }
+unsigned *dl_sighand_lock(struct dl_sighand *table) { return &table->lock; }
+void dl_sighand_retain(struct dl_sighand *table)
+{
+    __atomic_add_fetch(&table->references, 1, __ATOMIC_RELAXED);
+}
+void dl_sighand_release(struct dl_sighand *table)
+{
+    if (!__atomic_sub_fetch(&table->references, 1, __ATOMIC_ACQ_REL) && table != &initial_sighand)
+        DL_CALL(SYS_munmap, table, sizeof(*table), 0, 0, 0, 0);
+}
+long dl_sighand_copy(struct dl_sighand *source, struct dl_sighand **result)
+{
+    long mapping = DL_CALL(SYS_mmap, 0, sizeof(struct dl_sighand), PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (mapping < 0) return mapping;
+    struct dl_sighand *copy = (void *)mapping;
+    copy->references = 1;
+    dl_copy(copy->actions, source->actions, sizeof(copy->actions));
+    dl_copy(copy->wrapped, source->wrapped, sizeof(copy->wrapped));
+    copy->exec_candidates = source->exec_candidates;
+    *result = copy; return 0;
+}
 
 long dl_signal_reset_exec(void)
 {
+    struct dl_sighand *table = dl_thread_self()->sighand;
+    dl_lock(&table->lock);
+    long r = 0;
     for (int signal = 1; signal <= 64; signal++) {
         unsigned long bit = 1UL << (signal - 1);
-        if (!(exec_candidates & bit) || signal == SIGKILL || signal == SIGSTOP || signal == SIGSYS) continue;
+        if (!(table->exec_candidates & bit) || signal == SIGKILL || signal == SIGSTOP || signal == SIGSYS) continue;
         struct action action;
-        long r = DL_CALL(SYS_rt_sigaction, signal, 0, &action, 8, 0, 0); if (r) return r;
+        r = DL_CALL(SYS_rt_sigaction, signal, 0, &action, 8, 0, 0); if (r) break;
         if (action.handler > 1) {
             action = (struct action){0};
-            r = DL_CALL(SYS_rt_sigaction, signal, &action, 0, 8, 0, 0); if (r) return r;
-            actions[signal] = action; wrapped[signal] = 0;
+            r = DL_CALL(SYS_rt_sigaction, signal, &action, 0, 8, 0, 0); if (r) break;
+            table->actions[signal] = action; table->wrapped[signal] = 0;
         }
     }
-    exec_candidates = 0;
-    return 0;
+    if (!r) table->exec_candidates = 0;
+    dl_unlock(&table->lock); return r;
 }
 struct frame { siginfo_t info; ucontext_t context; };
 
@@ -66,10 +98,12 @@ static _Noreturn void signal_failure(void)
 static void guest_signal(int signal, siginfo_t *info, void *pointer)
 {
     ucontext_t *context = pointer;
-    struct dl_signal_state *state = &dl_thread_self()->signals;
-    dl_lock(&dl_actions_lock);
-    struct action action = actions[signal];
-    dl_unlock(&dl_actions_lock);
+    struct dl_thread *thread = dl_thread_self();
+    struct dl_signal_state *state = &thread->signals;
+    struct dl_sighand *table = thread->sighand;
+    dl_lock(&table->lock);
+    struct action action = table->actions[signal];
+    dl_unlock(&table->lock);
     if (action.handler <= 1) {
         if (action.handler == (uintptr_t)SIG_DFL)
             DL_CALL(SYS_tgkill, DL_CALL(SYS_getpid, 0, 0, 0, 0, 0, 0),
@@ -237,22 +271,23 @@ long dl_signal_action(unsigned long a[6])
             installed.mask = ~0UL;
         } else installed.mask &= ~SYS_BIT;
     }
-    dl_lock(&dl_actions_lock);
+    struct dl_sighand *table = dl_thread_self()->sighand;
+    dl_lock(&table->lock);
     long r = DL_CALL(SYS_rt_sigaction, a[0], a[1] ? &installed : NULL, &previous, 8, 0, 0);
-    if (r) { dl_unlock(&dl_actions_lock); return r; }
+    if (r) { dl_unlock(&table->lock); return r; }
     if (previous.handler == (uintptr_t)guest_signal ||
-            (wrapped[a[0]] && previous.handler == 0 && (previous.flags & SA_RESETHAND))) {
-        struct action saved = actions[a[0]];
+            (table->wrapped[a[0]] && previous.handler == 0 && (previous.flags & SA_RESETHAND))) {
+        struct action saved = table->actions[a[0]];
         if (previous.handler > 1) previous.handler = saved.handler;
         previous.mask = saved.mask & ~UNBLOCKABLE;
         previous.flags = (previous.flags & ~SA_SIGINFO) | (saved.flags & SA_SIGINFO);
-    } else if (previous.handler <= 1 && previous.handler == actions[a[0]].handler)
-        previous.mask |= actions[a[0]].mask & SYS_BIT;
+    } else if (previous.handler <= 1 && previous.handler == table->actions[a[0]].handler)
+        previous.mask |= table->actions[a[0]].mask & SYS_BIT;
     if (a[1]) {
-        actions[a[0]] = requested; wrapped[a[0]] = requested.handler > 1;
-        if (requested.handler > 1) exec_candidates |= 1UL << (a[0] - 1);
+        table->actions[a[0]] = requested; table->wrapped[a[0]] = requested.handler > 1;
+        if (requested.handler > 1) table->exec_candidates |= 1UL << (a[0] - 1);
     }
-    dl_unlock(&dl_actions_lock);
+    dl_unlock(&table->lock);
     return a[2] ? dl_write_memory((void *)a[2], &previous, sizeof(previous)) : 0;
 }
 
