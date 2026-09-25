@@ -142,4 +142,7 @@
     <string name="palette_rgb_green">Green (G)</string>
     <string name="palette_rgb_blue">Blue (B)</string>
     <string name="palette_rgb_support">RGB: enter 0–255 for each channel.</string>
+    <string name="profile_icon_delete">Delete imported icon</string>
+    <string name="profile_icon_delete_message">Remove this icon from the selection list? Removal takes effect immediately. Existing profiles and running sessions keep their image. Import the same image again to restore it to the list.</string>
+    <string name="profile_icon_delete_error">Could not delete the icon. Try again.</string>
 </resources>

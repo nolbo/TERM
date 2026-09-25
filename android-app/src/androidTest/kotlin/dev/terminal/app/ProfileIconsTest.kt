@@ -1,6 +1,7 @@
 package dev.terminal.app
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.content.Intent
 import android.os.SystemClock
@@ -185,14 +186,25 @@ class ProfileIconsTest {
             val launch = SessionLaunchSpec.fromJson(first.resolve().toJson().toString())
             profiles.save(first.copy(icon = "terminal"))
             profiles.delete(first.id)
+            icons.removeFromLibrary(icon)
+            assertFalse(icon in icons.all())
+            assertFalse(icon in ProfileIconStore(context).all())
+            icons.removeFromLibrary(icon) // Repeated removal is safe.
             assertEquals(icon, launch.icon)
             assertEquals(icon, SessionProfiles(context).find(copy.id)?.icon)
             assertTrue(requireNotNull(icons.file(icon)).isFile)
+            val retained = BitmapFactory.decodeFile(requireNotNull(icons.file(launch.icon)).path)
+            assertNotNull(retained)
+            retained.recycle()
+            assertEquals(icon, icons.import(ByteArrayInputStream(bytes)))
+            assertTrue(icon in ProfileIconStore(context).all())
         } finally { profiles.delete(first.id); profiles.delete(copy.id) }
     }
 
     @Test fun malformedOversizedAndEmptyImagesAreRejected() {
         val store = ProfileIconStore(context)
+        assertTrue(runCatching { store.removeFromLibrary("native") }.isFailure)
+        assertTrue(runCatching { store.removeFromLibrary("image:../../secret:mask") }.isFailure)
         assertTrue(runCatching { store.import(ByteArrayInputStream("not an image".toByteArray())) }.isFailure)
         assertTrue(runCatching { store.import(ByteArrayInputStream(ByteArray(8 * 1024 * 1024 + 1))) }.isFailure)
         val transparent = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
