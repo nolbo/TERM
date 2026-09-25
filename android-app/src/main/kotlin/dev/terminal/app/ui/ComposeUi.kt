@@ -535,7 +535,7 @@ internal fun TerminalChrome(
                 }
                 Box {
                 IconButton(onClick = onNew, shapes = IconButtonDefaults.shapes()) {
-                    Icon(painterResource(R.drawable.ic_material_symbol_add_24), stringResource(R.string.new_session))
+                    Icon(painterResource(R.drawable.ic_material_symbol_add_24), stringResource(R.string.new_session), tint = colors.appBarIcon)
                 }
                 DropdownMenuPopup(expanded = newSessionMenuExpanded, onDismissRequest = onDismissNewSession,
                     modifier = Modifier.widthIn(min = 240.dp)) {
@@ -572,7 +572,7 @@ internal fun TerminalChrome(
                 haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                 onSettings()
             }, shapes = IconButtonDefaults.shapes()) {
-                Icon(painterResource(R.drawable.ic_material_symbol_settings_24), stringResource(R.string.settings))
+                Icon(painterResource(R.drawable.ic_material_symbol_settings_24), stringResource(R.string.settings), tint = colors.appBarIcon)
             }
                     }
                 }
