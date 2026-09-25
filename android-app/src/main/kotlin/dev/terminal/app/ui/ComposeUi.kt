@@ -362,6 +362,7 @@ fun TerminalChrome(
     Surface(
         modifier = Modifier.zIndex(1f),
         color = terminalBackgroundColor,
+        contentColor = MaterialTheme.colorScheme.onSurface,
     ) {
         // Keep the safe top area stable while the app bar expands or collapses.
         Column(Modifier.fillMaxWidth().windowInsetsPadding(topInsets)) {
