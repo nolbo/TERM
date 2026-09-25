@@ -1,0 +1,36 @@
+{
+  "schema": 1,
+  "date": "2026-09-25",
+  "source_revision": "3f4818bc57aa71d0f132c7ac5be1c284d1015edf",
+  "environment": "Ubuntu ARM64 host; actual kernel syscalls; not an Android guest run",
+  "source_sha256": {
+    "runtime.h": "fbf75a98539b14286c41f22120df3aac19470b6e79859b5d64accd1e9fd61635",
+    "memory.c": "881f29fad587ede4825714b2c7d7d6c83b9ba4af29ffa85aadde66e679487a2a",
+    "fds.c": "cebba0b604e2e889cdb711b9b600ebf6f25f7a81084a1faf35b5b96f21b691b8",
+    "compatibility-host.c": "4c83cc8d467494ff2b7c11ba294b1f853ef78b094f5439d65b1f946e39c39167"
+  },
+  "build_flags": [
+    "-O2",
+    "-Wall",
+    "-Wextra",
+    "-Werror"
+  ],
+  "results": [
+    {
+      "case": "dontfork-ownership",
+      "fresh_mapping_survived": false,
+      "reproduced": true
+    },
+    {
+      "case": "close-range-emfile",
+      "direct_result": -24,
+      "kernel_result": 0,
+      "reproduced": true
+    }
+  ],
+  "limits": [
+    "The DONTFORK reproduction explicitly places an untracked mapping in a vanished guest interval; it does not demonstrate natural allocation reuse or an Android guest exec crash.",
+    "The FD test lowers only a forked child process soft RLIMIT_NOFILE to 64."
+  ],
+  "runtime_modified": false
+}

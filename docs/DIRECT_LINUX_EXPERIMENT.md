@@ -378,6 +378,11 @@ maps 조회 비용은 이 반복 명령 시간에서 제외되며 전체 앱의 
 
 ## 남은 구현과 완료 증거
 
+2026-09-25 [호환성 감사](../tools/direct-linux/COMPATIBILITY_AUDIT.md)는 아래 과제를
+45개 개선·검증 항목으로 구체화하고, NDK ARM64 syscall 318개 전체 대조 및 새로
+재현한 매핑 소유권/FD 고갈 정리 결함을 기록한다. 커밋된 런타임과 미완료 스레드
+변경을 구분했으며, 이번 감사는 런타임 수정이나 호환성 동등성 완료를 뜻하지 않는다.
+
 이후 [Unix pathname 단계](../tools/direct-linux/UNIX_SOCKETS.md)에서 지속되는 root FD
 별칭으로 경로와 반환 주소를 변환했다. 임시 FD는 블로킹 호출 전에 모두 닫으므로
 신호 처리기의 chdir와 siglongjmp 후에도 남지 않는다. 정적·동적 stream 검사는

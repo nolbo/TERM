@@ -21,6 +21,11 @@ distribution backend or user-selectable runtime. The
 [design and remaining work](../../docs/DIRECT_LINUX_EXPERIMENT.md) retain the full
 goal. Existing Rootless remains unchanged.
 
+The [compatibility audit](COMPATIBILITY_AUDIT.md) inventories 45 remaining
+implementation/validation areas, all 318 AArch64 syscall names in the pinned
+NDK, and two newly reproduced mapping/FD cleanup defects. It distinguishes the
+committed runtime, unfinished thread changes and stock-device evidence gaps.
+
 The [Python/Git milestone](APPLICATIONS.md) and subsequent
 [subprocess FD cleanup](SUBPROCESS_PERFORMANCE.md) add real application checks
 and isolate a major process-launch bottleneck. A general Linux environment and
