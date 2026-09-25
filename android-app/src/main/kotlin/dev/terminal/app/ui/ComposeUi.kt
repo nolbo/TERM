@@ -41,11 +41,13 @@ import androidx.compose.ui.zIndex
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
@@ -61,6 +63,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import dev.terminal.app.R
@@ -360,6 +363,7 @@ internal fun TerminalChrome(
     colors: TerminalChromeColors = TerminalChromeColors(terminalBackgroundColor),
 ) {
     val selectedTabIndex = sessions.indexOfFirst { it.id == activeSessionId }
+    val layoutDirection = LocalLayoutDirection.current
     val haptics = LocalTerminalHaptics.current
     Surface(
         modifier = Modifier.zIndex(1f),
@@ -510,6 +514,14 @@ internal fun TerminalChrome(
                             }
                         }
                     }
+                            // Fade scrolling tabs into the fixed new-session button's background.
+                            Spacer(
+                                Modifier.align(Alignment.CenterEnd).width(24.dp).fillMaxHeight()
+                                    .background(Brush.horizontalGradient(
+                                        listOf(terminalBackgroundColor.copy(alpha = 0f), terminalBackgroundColor)
+                                            .let { if (layoutDirection == LayoutDirection.Rtl) it.reversed() else it },
+                                    )),
+                            )
                 }
                 Box {
                 IconButton(onClick = onNew, shapes = IconButtonDefaults.shapes()) {
