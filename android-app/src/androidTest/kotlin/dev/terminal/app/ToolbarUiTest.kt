@@ -139,55 +139,35 @@ class ToolbarUiTest {
         }
     }
 
-    @Test fun clipboardReadsOnlyOnRequestAndCommandSendRequiresConfirmation() {
-        val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-        val previous = clipboard.primaryClip
+    @Test fun commandSendRequiresConfirmationAndCancelsWhenInactive() {
         var sent: Pair<String, Boolean>? = null
-        val commandPage = mutableStateOf(false)
         val active = mutableStateOf(true)
         val commands = listOf(ToolbarCommand("sample", "Sample", "echo first\necho second"))
-        try {
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                scenario.onActivity { activity ->
-                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("fixture", "clipboard fixture"))
-                    activity.setContent { DroidTheme { TerminalHapticFeedbackProvider {
-                        if (commandPage.value) ToolbarCommandsTool(commands, active.value, "Test session", {}, { text, execute -> sent = text to execute })
-                        else ToolbarClipboardTool(active.value, "Test session", true) { text, execute -> sent = text to execute }
-                    } } }
-                }
-                settle()
-                assertNull(find { it.text?.toString() == "clipboard fixture" })
-                click(text(label(R.string.toolbar_clipboard_read)))
-                text("clipboard fixture")
-                click(text(label(R.string.toolbar_paste)))
-                assertNull(sent)
-                // Dialog exposes the explicit target and a second Paste confirmation.
-                text(context.getString(R.string.toolbar_send_target, "Test session"))
-                val dialogPaste = text(label(R.string.toolbar_paste))
-                click(dialogPaste)
-                assertEquals("clipboard fixture" to false, sent)
-                scenario.onActivity { commandPage.value = true; sent = null }
-                settle()
-                click(text(label(R.string.toolbar_send)))
-                text("echo first\necho second")
-                assertNull(sent)
-                click(text(label(R.string.toolbar_run)))
-                assertEquals(commands.single().text to true, sent)
-                scenario.onActivity { sent = null }
-                click(text(label(R.string.toolbar_send)))
-                scenario.onActivity { active.value = false }
-                settle()
-                assertNull(find { it.text?.toString() == label(R.string.toolbar_run) })
-                assertNull(sent)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent { DroidTheme { TerminalHapticFeedbackProvider {
+                    ToolbarCommandsTool(commands, active.value, "Test session", {}, { text, execute -> sent = text to execute })
+                } } }
             }
-        } finally {
-            if (previous != null) clipboard.setPrimaryClip(previous) else clipboard.clearPrimaryClip()
+            settle()
+            click(text(label(R.string.toolbar_send)))
+            text("echo first\necho second")
+            text(context.getString(R.string.toolbar_send_target, "Test session"))
+            assertNull(sent)
+            click(text(label(R.string.toolbar_run)))
+            assertEquals(commands.single().text to true, sent)
+            scenario.onActivity { sent = null }
+            click(text(label(R.string.toolbar_send)))
+            scenario.onActivity { active.value = false }
+            settle()
+            assertNull(find { it.text?.toString() == label(R.string.toolbar_run) })
+            assertNull(sent)
         }
     }
 
     @Test fun settingsEditAddRemoveReorderAndNavigate() {
         val prefs = context.getSharedPreferences("toolbar-ui-test", 0)
-        prefs.edit().clear().putString(KEY_TOOLBAR, serializeToolbarConfig(ToolbarConfig())).commit()
+        prefs.edit().clear().putString(KEY_TOOLBAR, serializeToolbarConfig(ToolbarConfig(tools = listOf(HOTKEY_TOOL, "clipboard")))).commit()
         var opened: String? = null
         val registry = toolbarTools + ToolbarTool("second", R.string.diagnostics_title, "fixture")
         try {

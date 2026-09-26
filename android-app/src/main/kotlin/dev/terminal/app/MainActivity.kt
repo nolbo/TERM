@@ -62,7 +62,6 @@ import com.termux.view.TerminalView
 import dev.terminal.app.ui.TerminalToolbar
 import dev.terminal.app.ui.ToolbarHotkeys
 import dev.terminal.app.ui.ToolbarMemoryTool
-import dev.terminal.app.ui.ToolbarClipboardTool
 import dev.terminal.app.ui.ToolbarCommandsTool
 import androidx.compose.foundation.layout.BoxWithConstraints
 import dev.terminal.app.ui.NewSessionSheet
@@ -156,7 +155,6 @@ class MainActivity : TerminalActivity() {
     private var toolbarConfig by mutableStateOf(ToolbarConfig())
     private var toolbarCommands by mutableStateOf(emptyList<ToolbarCommand>())
     private var toolbarMemoryInterval by mutableStateOf(5)
-    private var toolbarConfirmPaste by mutableStateOf(true)
     private var controlPressed by mutableStateOf(false)
     private var altPressed by mutableStateOf(false)
     private var terminalBackgroundColor by mutableStateOf(Color.Black)
@@ -370,7 +368,6 @@ class MainActivity : TerminalActivity() {
         toolbarConfig = readToolbarConfig(preferences)
         toolbarCommands = readToolbarCommands(preferences)
         toolbarMemoryInterval = preferences.getInt("toolbar-memory-interval", 5)
-        toolbarConfirmPaste = preferences.getBoolean("toolbar-confirm-paste", true)
         profiles = SessionProfiles(this).all()
         terminalPaddingDp = TerminalAppearance.paddingDp(preferences)
         terminalView?.let {
@@ -536,7 +533,6 @@ class MainActivity : TerminalActivity() {
                             MEMORY_TOOL -> ToolbarMemoryTool(active, visibleSessions, toolbarMemoryInterval) {
                                 runtime?.sessionMemoryJson
                             }
-                            CLIPBOARD_TOOL -> ToolbarClipboardTool(canSend, selected?.title.orEmpty(), toolbarConfirmPaste, sendText)
                             COMMANDS_TOOL -> ToolbarCommandsTool(toolbarCommands, canSend, selected?.title.orEmpty(),
                                 onSettings = {
                                     startActivity(Intent(this@MainActivity, SettingsDetailActivity::class.java)

@@ -2,8 +2,6 @@
 
 package dev.terminal.app.ui
 
-import android.content.ClipboardManager
-import android.content.Context
 import android.content.SharedPreferences
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -13,7 +11,6 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -63,40 +60,6 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
 private fun memorySize(bytes: Long) = String.format(java.util.Locale.getDefault(), "%.1f MiB", bytes / 1048576.0)
 
 @Composable
-internal fun ToolbarClipboardTool(active: Boolean, target: String, confirmPaste: Boolean,
-    onSend: (String, Boolean) -> Unit) {
-    val context = LocalContext.current
-    // Never persist clipboard contents or read them merely because this page became visible.
-    var text by remember { mutableStateOf<String?>(null) }
-    var error by remember { mutableStateOf(false) }
-    var confirm by remember { mutableStateOf(false) }
-    LaunchedEffect(active) { if (!active) { text = null; confirm = false } }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(R.string.toolbar_clipboard), style = MaterialTheme.typography.titleSmall)
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            Button(onClick = {
-                val value = runCatching {
-                    (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                        .primaryClip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()
-                }.getOrNull()
-                error = value != null && value.length > MAX_TOOLBAR_TEXT
-                text = value?.takeIf { it.length <= MAX_TOOLBAR_TEXT }
-            }, enabled = active) { Text(stringResource(R.string.toolbar_clipboard_read)) }
-            OutlinedButton(onClick = {
-                if (confirmPaste || text.orEmpty().any { it == '\n' || it == '\r' }) confirm = true
-                else text?.let { onSend(it, false) }
-            }, enabled = active && !text.isNullOrEmpty()) { Text(stringResource(R.string.toolbar_paste)) }
-        }
-        if (error) Text(stringResource(R.string.toolbar_text_limit), color = MaterialTheme.colorScheme.error)
-        SelectionContainer { Text(text ?: stringResource(R.string.toolbar_clipboard_empty),
-            style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace) }
-    }
-    if (confirm && active) ToolbarSendDialog(text.orEmpty(), target, false,
-        onDismiss = { confirm = false }, onSend = { text?.let { onSend(it, false) }; confirm = false })
-}
-
-@Composable
 internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean, target: String,
     onSettings: () -> Unit, onSend: (String, Boolean) -> Unit) {
     var pending by remember { mutableStateOf<ToolbarCommand?>(null) }
@@ -115,22 +78,22 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
         TextButton(onClick = onSettings, enabled = active) { Text(stringResource(R.string.toolbar_commands_edit)) }
     }
     pending?.takeIf { active }?.let { command ->
-        ToolbarSendDialog(command.text, target, true, { pending = null }) {
+        ToolbarSendDialog(command.text, target, { pending = null }) {
             onSend(command.text, true); pending = null
         }
     }
 }
 
 @Composable
-private fun ToolbarSendDialog(text: String, target: String, execute: Boolean, onDismiss: () -> Unit, onSend: () -> Unit) {
+private fun ToolbarSendDialog(text: String, target: String, onDismiss: () -> Unit, onSend: () -> Unit) {
     AlertDialog(onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.toolbar_send_target, target)) },
         text = { Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(stringResource(if (execute) R.string.toolbar_execute_description else R.string.toolbar_paste_description))
+            Text(stringResource(R.string.toolbar_execute_description))
             SelectionContainer { Text(text, fontFamily = FontFamily.Monospace) }
         } },
-        confirmButton = { Button(onClick = onSend) { Text(stringResource(if (execute) R.string.toolbar_run else R.string.toolbar_paste)) } },
+        confirmButton = { Button(onClick = onSend) { Text(stringResource(R.string.toolbar_run)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } })
 }
 
@@ -138,7 +101,6 @@ private fun ToolbarSendDialog(text: String, target: String, execute: Boolean, on
 internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences, onBack: () -> Unit) {
     val tool = toolbarTools.first { it.settings == screen }
     var refresh by remember { mutableIntStateOf(preferences.getInt("toolbar-memory-interval", 5)) }
-    var confirm by remember { mutableStateOf(preferences.getBoolean("toolbar-confirm-paste", true)) }
     var commands by remember { mutableStateOf(readToolbarCommands(preferences)) }
     var editId by rememberSaveable { mutableStateOf<String?>(null) }
     var name by rememberSaveable { mutableStateOf("") }
@@ -161,13 +123,6 @@ internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences,
                         }
                     }
                     Text(stringResource(R.string.toolbar_memory_caveat))
-                }
-                CLIPBOARD_TOOL -> {
-                    ListItem(onClick = { confirm = !confirm; preferences.edit().putBoolean("toolbar-confirm-paste", confirm).apply() },
-                        trailingContent = { Switch(confirm, onCheckedChange = null) }, shapes = terminalListItemShapes()) {
-                        Text(stringResource(R.string.toolbar_confirm_paste))
-                    }
-                    Text(stringResource(R.string.toolbar_clipboard_description))
                 }
                 COMMANDS_TOOL -> {
                     Text(stringResource(R.string.toolbar_commands_description))

@@ -7,7 +7,6 @@ import org.json.JSONObject
 internal const val KEY_TOOLBAR = "terminal-toolbar-v1"
 internal const val HOTKEY_TOOL = "hotkeys"
 internal const val MEMORY_TOOL = "memory"
-internal const val CLIPBOARD_TOOL = "clipboard"
 internal const val COMMANDS_TOOL = "commands"
 
 /** Stable IDs are shared by persistence, settings destinations and pager content. */
@@ -15,7 +14,6 @@ internal data class ToolbarTool(val id: String, val title: Int, val settings: St
 internal val toolbarTools = listOf(
     ToolbarTool(HOTKEY_TOOL, R.string.settings_hotkeys_title, "hotkeys"),
     ToolbarTool(MEMORY_TOOL, R.string.toolbar_memory, "toolbar-memory"),
-    ToolbarTool(CLIPBOARD_TOOL, R.string.toolbar_clipboard, "toolbar-clipboard"),
     ToolbarTool(COMMANDS_TOOL, R.string.toolbar_commands, "toolbar-commands"),
 )
 

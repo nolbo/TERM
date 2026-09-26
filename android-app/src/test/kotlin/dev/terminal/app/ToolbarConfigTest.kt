@@ -4,6 +4,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ToolbarConfigTest {
+    @Test fun removedClipboardIsDroppedWithoutChangingOtherToolsOrEnabledState() {
+        val previous = ToolbarConfig(false, listOf(MEMORY_TOOL, "clipboard", HOTKEY_TOOL, COMMANDS_TOOL))
+        assertEquals(previous.copy(tools = listOf(MEMORY_TOOL, HOTKEY_TOOL, COMMANDS_TOOL)),
+            parseToolbarConfig(serializeToolbarConfig(previous)))
+        assertEquals(ToolbarConfig(tools = emptyList()),
+            parseToolbarConfig(serializeToolbarConfig(ToolbarConfig(tools = listOf("clipboard")))))
+    }
+
     @Test fun legacyDisabledToolbarStaysDisabledAndKeepsItsTool() {
         assertEquals(ToolbarConfig(false), parseToolbarConfig(null, legacyEnabled = false))
     }

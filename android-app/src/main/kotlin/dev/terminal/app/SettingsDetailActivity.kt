@@ -144,6 +144,8 @@ class SettingsDetailActivity : TerminalActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Old task entries can still point to the removed tool's settings screen.
+        if (category == "toolbar-clipboard") intent.putExtra(EXTRA_CATEGORY, TOOLBAR)
         if (category == AVF && !SessionProfiles(this).hasAvfPrivileges()) {
             finish()
             return
@@ -156,7 +158,7 @@ class SettingsDetailActivity : TerminalActivity() {
                 TOOLBAR -> ToolbarSettings(terminalPreferences, { finish() }) { screen ->
                     startActivity(Intent(this, SettingsDetailActivity::class.java).putExtra(EXTRA_CATEGORY, screen))
                 }
-                "toolbar-memory", "toolbar-clipboard", "toolbar-commands" ->
+                "toolbar-memory", "toolbar-commands" ->
                     dev.terminal.app.ui.ToolbarToolSettings(category, terminalPreferences) { finish() }
                 HOTKEYS -> HotkeySettings(terminalPreferences) { finish() }
                 else -> DetailScreen()

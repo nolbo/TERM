@@ -50,7 +50,6 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     val palette = appearance + R.string.customize_palette
     entry("appearance", R.string.settings_appearance_title, R.string.settings_appearance_summary, terminal)
     entry("toolbar-memory", R.string.toolbar_memory, null, terminal + R.string.toolbar_settings)
-    entry("toolbar-clipboard", R.string.toolbar_clipboard, null, terminal + R.string.toolbar_settings)
     entry("toolbar-commands", R.string.toolbar_commands, null, terminal + R.string.toolbar_settings)
     entry("toolbar", R.string.toolbar_settings, R.string.toolbar_settings_summary, terminal)
     entry("hotkeys", R.string.settings_hotkeys_title, R.string.settings_hotkeys_summary, terminal)
