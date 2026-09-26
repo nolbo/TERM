@@ -11,7 +11,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.test.core.app.ActivityScenario
 import dev.terminal.app.ui.DroidTheme
-import dev.terminal.app.ui.ExtraKeys
+import dev.terminal.app.ui.TerminalToolbar
+import dev.terminal.app.ui.ToolbarHotkeys
+import dev.terminal.app.ui.TerminalChromeColors
+import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.TerminalHapticFeedbackProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -66,8 +69,12 @@ class TerminalTwoFingerSwipeTest {
                                     attachSession(session)
                                 }
                             }, modifier = Modifier.weight(1f).fillMaxWidth())
-                            ExtraKeys(control = false, alt = false, terminalBackgroundColor = Color.Black,
-                                layout = HotkeyLayout(enabled = enabled.value), visible = visible.value, onKey = {})
+                            TerminalToolbar(config = ToolbarConfig(enabled = enabled.value),
+                                mode = if (visible.value) ToolbarSheetMode.Default else ToolbarSheetMode.Hidden,
+                                onModeChange = { visible.value = it != ToolbarSheetMode.Hidden },
+                                maxHeight = 400.dp, colors = TerminalChromeColors(Color.Black)) { _, interactive ->
+                                ToolbarHotkeys(HotkeyLayout(), false, false, TerminalChromeColors(Color.Black), interactive, {})
+                            }
                         }
                     } }
                 }
@@ -103,7 +110,7 @@ class TerminalTwoFingerSwipeTest {
                 settle()
                 scenario.onActivity { gesture(terminal, 0f, -180f) }
                 settle()
-                scenario.onActivity { assertEquals(hiddenHeight, terminal.height) }
+                scenario.onActivity { assertTrue("Disabling also removes the handle", terminal.height > hiddenHeight) }
             } finally { scenario.onActivity { backend.close() } }
         }
     }

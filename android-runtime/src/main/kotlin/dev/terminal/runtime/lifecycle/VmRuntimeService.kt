@@ -172,6 +172,16 @@ class VmRuntimeService : Service() {
     private val kittyTitles = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private val binder = object : IRuntimeService.Stub() {
+        override fun getSessionMemoryJson(): String {
+            enforceHostToolUi()
+            val info = android.app.ActivityManager.MemoryInfo()
+            (getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager).getMemoryInfo(info)
+            val measured = (sessionClient as? UnifiedSessionRegistry)?.sessionMemory().orEmpty()
+            return JSONObject().put("totalBytes", info.totalMem).put("availableBytes", info.availMem)
+                .put("sessions", JSONObject().apply {
+                    measured.forEach { (id, bytes) -> put(id, bytes ?: JSONObject.NULL) }
+                }).toString()
+        }
         override fun getUsbStateJson(): String = usbBroker.state()
         override fun getHostToolOperationsJson(): String { enforceHostToolUi(); return usbBroker.iphoneTools.hostState() }
         override fun submitHostToolInput(operationId: String, promptNonce: String, values: Array<String>): String {

@@ -37,13 +37,14 @@ class RootlessSessionController(
     private val sharedStorage: () -> File? = { null },
     private val usbBroker: dev.terminal.runtime.usb.UsbBroker? = null,
     private val cacheDirectory: File = layout.tmp,
-) : SessionController {
+) : SessionController, dev.terminal.runtime.session.SessionMemorySource {
     init {
         require(proot.isFile && proot.canExecute()) { "Packaged PRoot is not executable" }
         require(loader.isFile && loader.canExecute()) { "Packaged PRoot loader is not executable" }
     }
 
     private class Entry(@Volatile var descriptor: SessionDescriptor, val process: PtyProcess) {
+        val memoryIdentity = dev.terminal.runtime.session.processMemoryIdentity(process.processId)
         val outputMutex = Mutex()
         val inputMutex = Mutex()
         private val transcript = TerminalReplayBuffer(MAX_TRANSCRIPT_BYTES)
@@ -69,6 +70,10 @@ class RootlessSessionController(
     private val mutableConnection = MutableStateFlow(SessionConnectionState.CONNECTED)
     override val events: SharedFlow<SessionEvent> = mutableEvents.asSharedFlow()
     override val connectionState: StateFlow<SessionConnectionState> = mutableConnection.asStateFlow()
+
+    override fun memoryRoots() = entries.mapValues { (_, entry) ->
+        entry.memoryIdentity.takeIf { entry.descriptor.state == SessionStatus.RUNNING }
+    }
 
     override suspend fun create(shell: String, cwd: String, env: Map<String, String>, rows: UShort, cols: UShort): Result<SessionDescriptor> = runCatching {
         layout.validateInstalledRootfs().getOrThrow()

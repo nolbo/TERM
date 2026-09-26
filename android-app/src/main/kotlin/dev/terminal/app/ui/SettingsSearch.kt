@@ -49,6 +49,10 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     val hotkeys = terminal + R.string.settings_hotkeys_title
     val palette = appearance + R.string.customize_palette
     entry("appearance", R.string.settings_appearance_title, R.string.settings_appearance_summary, terminal)
+    entry("toolbar-memory", R.string.toolbar_memory, null, terminal + R.string.toolbar_settings)
+    entry("toolbar-clipboard", R.string.toolbar_clipboard, null, terminal + R.string.toolbar_settings)
+    entry("toolbar-commands", R.string.toolbar_commands, null, terminal + R.string.toolbar_settings)
+    entry("toolbar", R.string.toolbar_settings, R.string.toolbar_settings_summary, terminal)
     entry("hotkeys", R.string.settings_hotkeys_title, R.string.settings_hotkeys_summary, terminal)
     entry("usb", R.string.usb_title, R.string.usb_summary, terminal)
     entry("palette", R.string.customize_palette, R.string.customize_palette_support, appearance)
@@ -85,7 +89,7 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("avf", R.string.diagnostics_title, R.string.diagnostics_support, listOf(R.string.settings_avf_title) + R.string.section_execution, section = 2)
     entry("rootless", R.string.shared_workspace, R.string.shared_workspace_support, listOf(R.string.runtime_rootless_title) + R.string.section_environment, section = 2)
     entry("rootless", R.string.rootless_limitations, R.string.rootless_limitations_support, listOf(R.string.runtime_rootless_title) + R.string.section_environment, section = 2)
-    entry("hotkeys", R.string.hotkey_enabled, R.string.hotkey_enabled_support, hotkeys, section = 0)
+    entry("toolbar", R.string.toolbar_enabled, R.string.toolbar_enabled_summary, terminal + R.string.toolbar_settings)
     entry("hotkeys", R.string.hotkey_columns, null, hotkeys, section = 0)
     entry("hotkeys", R.string.hotkey_height, null, hotkeys, section = 0)
     entry("hotkeys", R.string.hotkey_font_size, null, hotkeys, section = 0)

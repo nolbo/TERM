@@ -43,4 +43,5 @@ interface IRuntimeService {
     void cancelHostToolOperation(String operationId);
     void migrateRootlessToNative(String runtimeType);
     void setSessionTaskNotifications(boolean enabled);
+    String getSessionMemoryJson();
 }

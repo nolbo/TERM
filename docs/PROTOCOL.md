@@ -352,3 +352,19 @@ Terminal presentation additionally supports DEC synchronized output mode 2026
 holds its previous completed frame, with a non-extending one-second deadline.
 Replay ignores presentation barriers; reset and resize release them. See
 [terminal graphics](TERMINAL_GRAPHICS.md#synchronized-presentation-and-codex-pet-flicker).
+
+## Toolbar memory snapshot (host UI only)
+
+`IRuntimeService.getSessionMemoryJson()` is an app-private, read-only measurement RPC.
+It verifies the calling UID and host UI process, as the host-tool input APIs do.
+The JSON has `totalBytes`, `availableBytes` (Android ActivityManager memory info),
+and `sessions` (session ID to estimated RSS bytes, or null when unavailable).
+Missing IDs, including AVF sessions, are unavailable rather than zero. The UI
+calls off its main thread and only polls while the memory tool is visible and active.
+
+Native and Rootless PTY owners capture PID/start-time identities at creation. The
+registry samples at most 8,192 readable proc entries and aggregates descendants
+and processes still in that Linux session, checking the root start time against
+PID reuse. RSS can double-count shared pages and omit detached/reparented daemons.
+Process IDs, proc paths, and arbitrary query parameters are not exposed by this RPC.
+This is independent of the guest wire protocol and grants no guest capability.

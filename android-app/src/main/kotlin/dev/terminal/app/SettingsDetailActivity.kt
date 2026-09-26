@@ -152,7 +152,15 @@ class SettingsDetailActivity : TerminalActivity() {
         wakePolicy = runtimePreferences.getString(KEY_WAKE_POLICY, DEFAULT_WAKE_POLICY) ?: DEFAULT_WAKE_POLICY
         customFonts = customTerminalFonts(terminalPreferences)
         compose {
-            if (category == HOTKEYS) HotkeySettings(terminalPreferences) { finish() } else DetailScreen()
+            when (category) {
+                TOOLBAR -> ToolbarSettings(terminalPreferences, { finish() }) { screen ->
+                    startActivity(Intent(this, SettingsDetailActivity::class.java).putExtra(EXTRA_CATEGORY, screen))
+                }
+                "toolbar-memory", "toolbar-clipboard", "toolbar-commands" ->
+                    dev.terminal.app.ui.ToolbarToolSettings(category, terminalPreferences) { finish() }
+                HOTKEYS -> HotkeySettings(terminalPreferences) { finish() }
+                else -> DetailScreen()
+            }
         }
     }
 
@@ -575,6 +583,11 @@ class SettingsDetailActivity : TerminalActivity() {
         }
         item {
             SettingsSection(R.string.section_terminal_customization) {
+                ActionSetting(R.string.toolbar_settings, R.string.toolbar_settings_summary) {
+                    startActivity(Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
+                        .putExtra(EXTRA_CATEGORY, TOOLBAR))
+                }
+                SettingsDivider()
                 ActionSetting(R.string.settings_hotkeys_title, R.string.settings_hotkeys_summary) {
                     startActivity(Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
                         .putExtra(EXTRA_CATEGORY, HOTKEYS))
@@ -1062,6 +1075,7 @@ class SettingsDetailActivity : TerminalActivity() {
         const val EXTRA_CATEGORY = "category"
         const val EXTRA_SECTION_INDEX = "section-index"
         const val HOTKEYS = "hotkeys"
+        const val TOOLBAR = "toolbar"
         const val LANGUAGE = "language"
         const val APPEARANCE = "appearance"
         const val AVF = "avf"

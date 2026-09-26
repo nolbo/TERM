@@ -33,11 +33,12 @@ class NativeSessionController(
     private val root: File,
     private val hostEnvironment: (String) -> Map<String, String> = { emptyMap() },
     private val releaseHostCapabilities: (String) -> Unit = {},
-) : SessionController {
+) : SessionController, dev.terminal.runtime.session.SessionMemorySource {
     private class Entry(
         @Volatile var descriptor: SessionDescriptor,
         val process: PtyProcess,
     ) {
+        val memoryIdentity = dev.terminal.runtime.session.processMemoryIdentity(process.processId)
         val outputMutex = Mutex()
         val inputMutex = Mutex()
         private val transcript = TerminalReplayBuffer(MAX_TRANSCRIPT_BYTES)
@@ -50,6 +51,10 @@ class NativeSessionController(
     private val connection = MutableStateFlow(SessionConnectionState.CONNECTED)
     override val events: SharedFlow<SessionEvent> = output.asSharedFlow()
     override val connectionState: StateFlow<SessionConnectionState> = connection.asStateFlow()
+
+    override fun memoryRoots() = entries.mapValues { (_, entry) ->
+        entry.memoryIdentity.takeIf { entry.descriptor.state == SessionStatus.RUNNING }
+    }
 
     override suspend fun create(shell: String, cwd: String, env: Map<String, String>, rows: UShort, cols: UShort): Result<SessionDescriptor> = runCatching {
         val id = "native-${UUID.randomUUID()}"

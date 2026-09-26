@@ -208,11 +208,13 @@ fun AppScaffold(
 fun SettingsPageScaffold(
     title: String,
     onBack: () -> Unit,
+    floatingActionButton: @Composable () -> Unit = {},
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+        floatingActionButton = floatingActionButton,
         topBar = {
             LargeTopAppBar(
                 title = { Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
@@ -847,49 +849,6 @@ fun TerminalEmptyState(
             Icon(painterResource(R.drawable.ic_material_symbol_add_24), contentDescription = null)
             Spacer(Modifier.width(8.dp))
             Text(stringResource(R.string.new_session))
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-internal fun ExtraKeys(
-    control: Boolean,
-    alt: Boolean,
-    terminalBackgroundColor: Color,
-    layout: dev.terminal.app.HotkeyLayout,
-    enabled: Boolean = true,
-    visible: Boolean = true,
-    onKey: (TerminalToolbarKey) -> Unit,
-    colors: TerminalChromeColors = TerminalChromeColors(terminalBackgroundColor),
-) {
-    Column(
-        Modifier.fillMaxWidth().background(terminalBackgroundColor)
-            .windowInsetsPadding(WindowInsets.navigationBars),
-    ) {
-        AnimatedVisibility(
-            visible = layout.enabled && visible,
-            enter = expandVertically(MaterialTheme.motionScheme.defaultSpatialSpec(), expandFrom = Alignment.Bottom) +
-                slideInVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { it } +
-                fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()),
-            exit = shrinkVertically(MaterialTheme.motionScheme.defaultSpatialSpec(), shrinkTowards = Alignment.Bottom) +
-                slideOutVertically(MaterialTheme.motionScheme.defaultSpatialSpec()) { it } +
-                fadeOut(MaterialTheme.motionScheme.fastEffectsSpec()),
-        ) {
-            dev.terminal.app.HotkeyGrid(
-                layout = layout,
-                modifier = Modifier.padding(4.dp).heightIn(max = 160.dp).verticalScroll(rememberScrollState()),
-                control = control, alt = alt,
-                terminalColors = colors,
-                enabled = enabled && visible,
-            ) { index ->
-                val shortcut = layout.keys[index].shortcut
-                onKey(when (shortcut) {
-                    "CTRL" -> TerminalToolbarKey.Control
-                    "ALT" -> TerminalToolbarKey.Alt
-                    else -> TerminalToolbarKey.Shortcut(shortcut)
-                })
-            }
         }
     }
 }

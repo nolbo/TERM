@@ -59,7 +59,12 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
-import dev.terminal.app.ui.ExtraKeys
+import dev.terminal.app.ui.TerminalToolbar
+import dev.terminal.app.ui.ToolbarHotkeys
+import dev.terminal.app.ui.ToolbarMemoryTool
+import dev.terminal.app.ui.ToolbarClipboardTool
+import dev.terminal.app.ui.ToolbarCommandsTool
+import androidx.compose.foundation.layout.BoxWithConstraints
 import dev.terminal.app.ui.NewSessionSheet
 import dev.terminal.app.ui.RootlessSetupDialog
 import dev.terminal.app.ui.RootlessProgressUi
@@ -148,6 +153,10 @@ class MainActivity : TerminalActivity() {
     private var rootlessDetail by mutableStateOf("")
     private var rootlessError by mutableStateOf<String?>(null)
     private var hotkeyLayout by mutableStateOf(HotkeyLayout())
+    private var toolbarConfig by mutableStateOf(ToolbarConfig())
+    private var toolbarCommands by mutableStateOf(emptyList<ToolbarCommand>())
+    private var toolbarMemoryInterval by mutableStateOf(5)
+    private var toolbarConfirmPaste by mutableStateOf(true)
     private var controlPressed by mutableStateOf(false)
     private var altPressed by mutableStateOf(false)
     private var terminalBackgroundColor by mutableStateOf(Color.Black)
@@ -161,7 +170,7 @@ class MainActivity : TerminalActivity() {
     private var terminalPaddingDp by mutableStateOf(TerminalAppearance.DEFAULT_PADDING_DP)
     private var applicationTerminalTitles by mutableStateOf(emptyMap<String, String>())
     private var terminalAppBarContentVisible by mutableStateOf(true)
-    private var terminalExtraKeysVisible by mutableStateOf(true)
+    private var toolbarSheetMode by mutableStateOf(ToolbarSheetMode.Default)
 
     private var runtime: IRuntimeService? = null
     private var bound = false
@@ -295,7 +304,7 @@ class MainActivity : TerminalActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
-        outState.putBoolean("terminal-extra-keys-visible", terminalExtraKeysVisible)
+        outState.putString("terminal-toolbar-mode", toolbarSheetMode.name)
         selectedLaunchSpec?.let { outState.putString("pending-profile-launch", it.toJson().toString()) }
         rootlessLaunchSpec?.let { outState.putString("pending-rootless-profile-launch", it.toJson().toString()) }
         notificationSessionId?.let { outState.putString("notification-target", it) }
@@ -304,7 +313,10 @@ class MainActivity : TerminalActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        terminalExtraKeysVisible = savedInstanceState?.getBoolean("terminal-extra-keys-visible", true) ?: true
+        toolbarSheetMode = savedInstanceState?.getString("terminal-toolbar-mode")?.let { name ->
+            ToolbarSheetMode.entries.firstOrNull { it.name == name }
+        } ?: if (savedInstanceState?.getBoolean("terminal-extra-keys-visible", true) == false)
+            ToolbarSheetMode.Hidden else ToolbarSheetMode.Default
         notificationSessionId = savedInstanceState?.getString("notification-target")
         selectedLaunchSpec = savedInstanceState?.getString("pending-profile-launch")?.let {
             dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it)
@@ -322,7 +334,7 @@ class MainActivity : TerminalActivity() {
             onModifierStateChanged = ::syncModifierState,
             onShowKeyboard = ::requestTerminalKeyboard,
             onToggleTerminalChrome = ::toggleTerminalChrome,
-            onExtraKeysVisibility = { terminalExtraKeysVisible = it },
+            onExtraKeysVisibility = { toolbarSheetMode = if (it) ToolbarSheetMode.Default else ToolbarSheetMode.Hidden },
             onPinchScale = ::scaleTerminalFont,
             onWebLink = ::openTerminalWebLink,
         )
@@ -356,6 +368,10 @@ class MainActivity : TerminalActivity() {
         toolbarInputActive = true
         val preferences = terminalPreferences()
         hotkeyLayout = readHotkeyLayout(preferences)
+        toolbarConfig = readToolbarConfig(preferences)
+        toolbarCommands = readToolbarCommands(preferences)
+        toolbarMemoryInterval = preferences.getInt("toolbar-memory-interval", 5)
+        toolbarConfirmPaste = preferences.getBoolean("toolbar-confirm-paste", true)
         profiles = SessionProfiles(this).all()
         terminalPaddingDp = TerminalAppearance.paddingDp(preferences)
         terminalView?.let {
@@ -462,6 +478,9 @@ class MainActivity : TerminalActivity() {
             if (activeSessionId == null) {
                 TerminalEmptyState(runtimeMessage, ::showNewSessionSheet)
             } else {
+                BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                val toolbarMaxHeight = (maxHeight * 0.6f).coerceAtMost(480.dp)
+                Column(Modifier.fillMaxSize()) {
                 AndroidView(
                     factory = { context ->
                         TerminalView(context, null).apply {
@@ -491,19 +510,51 @@ class MainActivity : TerminalActivity() {
                         .padding(terminalPaddingDp.dp),
                 )
                 val toolbarSessionId = activeSessionId
-                androidx.compose.runtime.key(toolbarSessionId) { ExtraKeys(
-                    layout = hotkeyLayout,
-                    visible = terminalExtraKeysVisible,
-                    control = controlPressed,
-                    alt = altPressed,
-                    terminalBackgroundColor = terminalBackgroundColor,
+                TerminalToolbar(
+                    config = toolbarConfig,
+                    mode = toolbarSheetMode,
+                    onModeChange = { toolbarSheetMode = it },
+                    maxHeight = toolbarMaxHeight,
                     colors = terminalChromeColors,
-                    onKey = { key ->
-                        // A state change can precede the frame which disposes a held button.
-                        if (activeSessionId == toolbarSessionId) sendToolbarKey(key)
-                    },
-                    enabled = toolbarInputActive,
-                ) }
+                ) { tool, interactive ->
+                    androidx.compose.runtime.key(toolbarSessionId, tool) {
+                        val active = toolbarInputActive && interactive
+                        val selected = visibleSessions.firstOrNull { it.id == toolbarSessionId }
+                        val canSend = active && selected?.state == "RUNNING"
+                        val sendText: (String, Boolean) -> Unit = { text, execute ->
+                            if (activeSessionId == toolbarSessionId && toolbarInputActive &&
+                                toolbarConfig.enabled && tool in toolbarConfig.tools &&
+                                toolbarSheetMode != ToolbarSheetMode.Hidden && text.length <= MAX_TOOLBAR_TEXT &&
+                                selected?.state == "RUNNING") {
+                                terminalView?.pasteText(text)
+                                if (execute) {
+                                    terminalInputCallbacks.consumeLatchedModifiers()
+                                    terminalView?.inputCodePoint(13, false, false)
+                                }
+                            }
+                        }
+                        when (tool) {
+                            MEMORY_TOOL -> ToolbarMemoryTool(active, visibleSessions, toolbarMemoryInterval) {
+                                runtime?.sessionMemoryJson
+                            }
+                            CLIPBOARD_TOOL -> ToolbarClipboardTool(canSend, selected?.title.orEmpty(), toolbarConfirmPaste, sendText)
+                            COMMANDS_TOOL -> ToolbarCommandsTool(toolbarCommands, canSend, selected?.title.orEmpty(),
+                                onSettings = {
+                                    startActivity(Intent(this@MainActivity, SettingsDetailActivity::class.java)
+                                        .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, "toolbar-commands"))
+                                }, onSend = sendText)
+                            HOTKEY_TOOL -> ToolbarHotkeys(
+                                layout = hotkeyLayout, control = controlPressed, alt = altPressed,
+                                colors = terminalChromeColors, enabled = toolbarInputActive && interactive,
+                                onKey = { key ->
+                                    if (activeSessionId == toolbarSessionId) sendToolbarKey(key)
+                                },
+                            )
+                        }
+                    }
+                }
+                }
+                }
             }
             }
             if (edgeToEdgeTerminal) {
@@ -577,7 +628,8 @@ class MainActivity : TerminalActivity() {
     }
 
     private fun sendToolbarKey(key: TerminalToolbarKey) {
-        if (!toolbarInputActive || !hotkeyLayout.enabled) return
+        if (!toolbarInputActive || !toolbarConfig.enabled || HOTKEY_TOOL !in toolbarConfig.tools ||
+            toolbarSheetMode == ToolbarSheetMode.Hidden) return
         when (key) {
             is TerminalToolbarKey.Shortcut -> sendHotkeyShortcut(key.value)
             TerminalToolbarKey.Control -> {

@@ -177,15 +177,6 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
             Column(Modifier.weight(1f).onGloballyPositioned { viewport = it }.verticalScroll(scrollState).padding(16.dp),
                 verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 Text(stringResource(R.string.settings_hotkeys_description), style = MaterialTheme.typography.bodyLarge)
-                ListItem(
-                    onClick = { update(layout.copy(enabled = !layout.enabled)) },
-                    supportingContent = { Text(stringResource(R.string.hotkey_enabled_support)) },
-                    trailingContent = { Switch(checked = layout.enabled, onCheckedChange = null) },
-                    verticalAlignment = Alignment.CenterVertically,
-                    shapes = terminalListItemShapes(),
-                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh),
-                    modifier = Modifier.fillMaxWidth().semantics { role = Role.Switch },
-                ) { Text(stringResource(R.string.hotkey_enabled)) }
                 Card(shape = MaterialTheme.shapes.extraLarge) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         HotkeySizeControl(R.string.hotkey_columns, layout.columns, 2..10) { update(layout.copy(columns = it)) }
