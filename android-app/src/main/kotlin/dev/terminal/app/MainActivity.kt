@@ -334,7 +334,6 @@ class MainActivity : TerminalActivity() {
             onModifierStateChanged = ::syncModifierState,
             onShowKeyboard = ::requestTerminalKeyboard,
             onToggleTerminalChrome = ::toggleTerminalChrome,
-            onExtraKeysVisibility = { toolbarSheetMode = if (it) ToolbarSheetMode.Default else ToolbarSheetMode.Hidden },
             onPinchScale = ::scaleTerminalFont,
             onWebLink = ::openTerminalWebLink,
         )

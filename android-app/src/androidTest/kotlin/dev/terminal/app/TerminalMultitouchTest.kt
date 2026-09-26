@@ -27,33 +27,28 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class TerminalTwoFingerSwipeTest {
-    @Test fun swipesAreDirectionalAndDoNotLeakInputOrScale() = withTerminal { view, visibility, scales, bytes ->
+class TerminalMultitouchTest {
+    @Test fun twoFingerTranslationDoesNotLeakInputOrChangeScale() = withTerminal { view, scales, bytes ->
         gesture(view, 0f, 180f)
         gesture(view, 0f, -180f)
-        assertEquals(listOf(false, true), visibility)
-        assertTrue(scales.isEmpty())
+        gesture(view, 180f, 0f)
+        assertTrue(scales.all { kotlin.math.abs(it - 1f) < 0.001f })
         assertEquals(0, bytes.size())
     }
 
-    @Test fun horizontalPinchCancelAndThirdFingerDoNotToggle() = withTerminal { view, visibility, scales, bytes ->
-        gesture(view, 180f, 0f)
+    @Test fun pinchStillScalesAndMultitouchTailDoesNotSendMouseInput() = withTerminal { view, scales, bytes ->
         gesture(view, 0f, 10f, cancel = true)
         gesture(view, 0f, 180f, thirdFinger = true)
         gesture(view, 0f, 0f, pinch = true)
-        assertTrue(visibility.isEmpty())
-        assertTrue(scales.isNotEmpty())
+        assertTrue(scales.any { kotlin.math.abs(it - 1f) > 0.01f })
         assertEquals(0, bytes.size())
     }
 
-    @Test fun animatedToolbarReleasesAndRestoresHeightAndHonorsDisabledSetting() {
+    @Test fun terminalSwipesLeaveEveryToolbarStateAndHeightUnchanged() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val visible = mutableStateOf(true)
-        val enabled = mutableStateOf(true)
+        val mode = mutableStateOf(ToolbarSheetMode.Default)
         lateinit var terminal: TerminalView
         lateinit var backend: RemoteTerminalBackend
-        var shownHeight = 0
-        var hiddenHeight = 0
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 backend = RemoteTerminalBackend(write = {}, resize = { _, _ -> })
@@ -64,14 +59,13 @@ class TerminalTwoFingerSwipeTest {
                             AndroidView(factory = { context ->
                                 TerminalView(context, null).apply {
                                     terminal = this
-                                    setTerminalViewClient(TerminalInputCallbacks(onExtraKeysVisibility = { visible.value = it }))
+                                    setTerminalViewClient(TerminalInputCallbacks())
                                     setTextSize(16)
                                     attachSession(session)
                                 }
                             }, modifier = Modifier.weight(1f).fillMaxWidth())
-                            TerminalToolbar(config = ToolbarConfig(enabled = enabled.value),
-                                mode = if (visible.value) ToolbarSheetMode.Default else ToolbarSheetMode.Hidden,
-                                onModeChange = { visible.value = it != ToolbarSheetMode.Hidden },
+                            TerminalToolbar(config = ToolbarConfig(), mode = mode.value,
+                                onModeChange = { mode.value = it },
                                 maxHeight = 400.dp, colors = TerminalChromeColors(Color.Black)) { _, interactive ->
                                 ToolbarHotkeys(HotkeyLayout(), false, false, TerminalChromeColors(Color.Black), interactive, {})
                             }
@@ -79,53 +73,36 @@ class TerminalTwoFingerSwipeTest {
                     } }
                 }
             }
-            fun settle() { SystemClock.sleep(1500); instrumentation.waitForIdleSync() }
+            fun settle() { SystemClock.sleep(1000); instrumentation.waitForIdleSync() }
             try {
-                settle()
-                scenario.onActivity {
-                    shownHeight = terminal.height
-                    gesture(terminal, 0f, 180f)
+                for (expected in ToolbarSheetMode.entries) {
+                    scenario.onActivity { mode.value = expected }
+                    settle()
+                    var height = 0
+                    scenario.onActivity {
+                        height = terminal.height
+                        gesture(terminal, 0f, 180f)
+                        gesture(terminal, 0f, -180f)
+                    }
+                    settle()
+                    scenario.onActivity {
+                        assertEquals(expected, mode.value)
+                        assertEquals(height, terminal.height)
+                    }
                 }
-                settle()
-                scenario.onActivity {
-                    assertEquals(false, visible.value)
-                    hiddenHeight = terminal.height
-                    assertTrue(hiddenHeight > shownHeight)
-                    gesture(terminal, 0f, -180f)
-                }
-                settle()
-                scenario.onActivity {
-                    assertEquals(true, visible.value)
-                    assertEquals(shownHeight, terminal.height)
-                    // Reverse direction while the exit animation is still starting.
-                    gesture(terminal, 0f, 180f)
-                }
-                SystemClock.sleep(60)
-                scenario.onActivity { gesture(terminal, 0f, -180f) }
-                settle()
-                scenario.onActivity {
-                    assertEquals(shownHeight, terminal.height)
-                    enabled.value = false
-                }
-                settle()
-                scenario.onActivity { gesture(terminal, 0f, -180f) }
-                settle()
-                scenario.onActivity { assertTrue("Disabling also removes the handle", terminal.height > hiddenHeight) }
             } finally { scenario.onActivity { backend.close() } }
         }
     }
 
-    private fun withTerminal(block: (TerminalView, MutableList<Boolean>, MutableList<Float>, ByteArrayOutputStream) -> Unit) {
+    private fun withTerminal(block: (TerminalView, MutableList<Float>, ByteArrayOutputStream) -> Unit) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {
             val bytes = ByteArrayOutputStream()
             val backend = RemoteTerminalBackend(write = { bytes.write(it) }, resize = { _, _ -> })
-            val visibility = mutableListOf<Boolean>()
             val scales = mutableListOf<Float>()
             val session = TerminalSession("", "", emptyArray(), emptyArray(), 100, TerminalCallbacks {}, backend)
             val view = TerminalView(instrumentation.targetContext, null)
             view.setTerminalViewClient(TerminalInputCallbacks(
-                onExtraKeysVisibility = { visibility += it },
                 onPinchScale = { scales += it; 1f },
             ))
             view.setTextSize(16)
@@ -133,7 +110,7 @@ class TerminalTwoFingerSwipeTest {
             view.attachSession(session)
             // Mouse-reporting programs must not receive a click on the final finger lift.
             session.emulator.append("\u001b[?1000h".toByteArray(), 8)
-            try { block(view, visibility, scales, bytes) } finally { backend.close() }
+            try { block(view, scales, bytes) } finally { backend.close() }
         }
     }
 
