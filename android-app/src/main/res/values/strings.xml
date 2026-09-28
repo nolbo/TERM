@@ -413,6 +413,10 @@
     <string name="toolbar_move_down">아래로 이동</string>
     <string name="toolbar_memory">메모리 사용량</string>
     <string name="toolbar_commands">명령어셋</string>
+    <string name="toolbar_memory_device">기기 전체</string>
+    <string name="toolbar_memory_available">사용 가능: %1$s</string>
+    <string name="toolbar_memory_sessions">세션별 사용량 · RSS</string>
+    <string name="toolbar_memory_no_sessions">실행 중인 세션이 없습니다.</string>
     <string name="toolbar_memory_total">기기 전체: %1$s / %2$s 사용</string>
     <string name="toolbar_memory_caveat">세션 수치는 접근 가능한 셸과 하위 프로세스의 RSS 추정 합계입니다. 공유 페이지는 중복될 수 있으며 분리된 데몬은 빠질 수 있습니다. AVF 또는 접근이 제한된 세션은 측정 불가로 표시합니다.</string>
     <string name="toolbar_unavailable">측정 불가</string>

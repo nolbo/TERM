@@ -167,6 +167,10 @@
     <string name="toolbar_move_down">Move down</string>
     <string name="toolbar_memory">Memory usage</string>
     <string name="toolbar_commands">Command sets</string>
+    <string name="toolbar_memory_device">Device memory</string>
+    <string name="toolbar_memory_available">Available: %1$s</string>
+    <string name="toolbar_memory_sessions">Memory by session · RSS</string>
+    <string name="toolbar_memory_no_sessions">No active sessions.</string>
     <string name="toolbar_memory_total">Device: %1$s / %2$s used</string>
     <string name="toolbar_memory_caveat">Session values estimate RSS for readable shell processes and descendants. Shared pages may be counted more than once; detached daemons may be omitted. AVF and restricted sessions are unavailable.</string>
     <string name="toolbar_unavailable">Unavailable</string>

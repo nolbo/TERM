@@ -4,6 +4,10 @@ package dev.terminal.app.ui
 
 import android.content.SharedPreferences
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
@@ -38,22 +42,71 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
             delay(refreshSeconds.coerceIn(2, 30) * 1000L)
         }
     }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(R.string.toolbar_memory), style = MaterialTheme.typography.titleSmall)
-        snapshot?.let { data ->
-            Text(stringResource(R.string.toolbar_memory_total,
-                memorySize((data.optLong("totalBytes") - data.optLong("availableBytes")).coerceAtLeast(0)),
-                memorySize(data.optLong("totalBytes"))))
-            val values = data.optJSONObject("sessions")
-            sessions.forEach { session ->
-                val amount = if (values == null || values.isNull(session.id)) stringResource(R.string.toolbar_unavailable)
-                    else memorySize(values.optLong(session.id))
-                Text("${session.title}: $amount", style = MaterialTheme.typography.bodyMedium)
+        item {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(stringResource(R.string.toolbar_memory), style = MaterialTheme.typography.titleSmall)
+                TextButton(onClick = { refresh++ }, enabled = active) { Text(stringResource(R.string.toolbar_refresh)) }
             }
-        } ?: Text(stringResource(if (failed) R.string.toolbar_unavailable else R.string.toolbar_loading))
-        Text(stringResource(R.string.toolbar_memory_caveat), style = MaterialTheme.typography.bodySmall)
-        TextButton(onClick = { refresh++ }, enabled = active) { Text(stringResource(R.string.toolbar_refresh)) }
+        }
+        val data = snapshot
+        if (data != null) {
+            item {
+                val total = data.optLong("totalBytes").coerceAtLeast(0)
+                val available = data.optLong("availableBytes").coerceIn(0, total)
+                val used = total - available
+                val fraction = if (total > 0) (used.toDouble() / total).toFloat() else 0f
+                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer) {
+                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Text(stringResource(R.string.toolbar_memory_device), Modifier.weight(1f),
+                                style = MaterialTheme.typography.labelLarge)
+                            Text(if (total > 0) java.text.NumberFormat.getPercentInstance().format(fraction)
+                                else stringResource(R.string.toolbar_unavailable), style = MaterialTheme.typography.titleLarge)
+                        }
+                        if (total > 0) {
+                            LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+                            Text(stringResource(R.string.toolbar_memory_total, memorySize(used), memorySize(total)),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(stringResource(R.string.toolbar_memory_available, memorySize(available)),
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+            item {
+                Text(stringResource(R.string.toolbar_memory_sessions), Modifier.padding(top = 8.dp),
+                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (sessions.isEmpty()) item {
+                Text(stringResource(R.string.toolbar_memory_no_sessions), style = MaterialTheme.typography.bodySmall)
+            }
+            val values = data.optJSONObject("sessions")
+            items(sessions, key = { it.id }) { session ->
+                val bytes = if (values == null || values.isNull(session.id)) null
+                    else values.optLong(session.id, -1).takeIf { it >= 0 }
+                ListItem(
+                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    trailingContent = {
+                        Text(bytes?.let(::memorySize) ?: stringResource(R.string.toolbar_unavailable),
+                            style = MaterialTheme.typography.labelMedium)
+                    },
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(session.title, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.bodyMedium)
+                }
+            }
+        } else item {
+            Text(stringResource(if (failed) R.string.toolbar_unavailable else R.string.toolbar_loading),
+                style = MaterialTheme.typography.bodySmall)
+        }
+        item {
+            Text(stringResource(R.string.toolbar_memory_caveat), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
