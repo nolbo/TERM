@@ -86,10 +86,13 @@ When preparing a release, Codex MUST:
    included scope for an initial release;
 2. write the patch notes before completing release preparation or publishing;
 3. include the release ID, release date, and affected artifacts or runtimes;
-4. describe user-visible additions, changes, fixes, and any security changes;
+4. focus on user-visible additions, changes, removals, and fixed bugs, including
+   security changes when they affect users;
 5. document required upgrade or migration steps, compatibility changes, and
    known limitations when applicable;
-6. state validation results and distinguish checks not run from checks passed;
+6. keep build commands, CI results, commit selection, implementation details,
+   and other developer-facing information out of user-facing patch notes;
+   report validation separately in the task report or an internal release record;
 7. commit the patch notes with the task-owned release changes and include their
    path in the final report.
 

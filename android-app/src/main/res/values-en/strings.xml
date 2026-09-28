@@ -46,7 +46,7 @@
     <string name="diagnostics_connecting">Connecting to runtime service…</string><string name="crash_report_title">Crash report</string><string name="crash_report_intro">The app stopped because of an unexpected error. Copying the report helps diagnose it.</string><string name="crash_report_empty">No saved crash reports.</string><string name="copy_error">Copy error</string><string name="copy_complete">Crash report copied to clipboard.</string><string name="shell_default_title">Shell</string><string name="session_state_created">Created</string><string name="session_state_running">Running</string><string name="session_state_exited">Exited</string><string name="session_state_unknown">Checking status</string>
     <string name="diagnostics_runtime_state">Runtime state: %1$s</string><string name="diagnostics_detail">Detail: %1$s</string><string name="diagnostics_image">Image: %1$s</string><string name="diagnostics_wake_policy">Power policy: %1$s</string><string name="diagnostics_session_count">Sessions: %1$d</string><string name="diagnostics_ports">Forwarded ports:</string><string name="diagnostics_no_ports">  No active ports</string><string name="diagnostics_port_item">  %1$s:%2$d → guest %3$d</string><string name="diagnostics_hint">Check the status/detail above for AVF permission or guest vsock errors.</string>
     <string name="section_shared_storage">Shared internal storage</string><string name="shared_storage_access">Configure internal storage access</string><string name="shared_storage_enabled">Enabled · tap to disable all-files access in Android Settings. Applies to Native and Rootless.</string><string name="shared_storage_disabled">Disabled · tap to allow all-files access in Android Settings. Applies to Native and Rootless.</string><string name="shared_storage_usage">Access scope and timing</string><string name="shared_storage_usage_support">New sessions can read and write shared files at /sdcard after permission is granted. Other apps’ private data and protected paths such as Android/data remain excluded.</string><string name="shared_storage_settings_unavailable">All-files access settings are not available on this device.</string>
-    <string name="settings_hotkeys_title">Terminal hotkeys</string><string name="settings_hotkeys_summary">Grid layout, button size, names, and shortcuts</string><string name="settings_hotkeys_description">Enter frequently used key combinations with one tap. Edit names, order, and size, then save to apply them.</string><string name="hotkey_enabled">Use terminal hotkeys</string><string name="hotkey_enabled_support">Hide the hotkey buttons below the terminal when off. Your layout is kept. Save to apply.</string><string name="hotkey_columns">Maximum columns</string><string name="hotkey_height">Minimum key height (dp)</string><string name="hotkey_font_size">Key text size (sp)</string><string name="hotkey_span">Key width (grid cells)</string><string name="hotkey_preview">Layout preview</string><string name="hotkey_preview_support">Tap a key to edit it, or long-press and drag it to the insertion line to reorder. Hold near the top or bottom edge to scroll. Save changes to apply them. Up to 48 keys can be added.</string><string name="hotkey_edit_description">Edit key %1$d: %2$s, %3$s</string><string name="hotkey_add">Add hotkey</string><string name="hotkey_edit">Edit hotkey</string><string name="hotkey_name">Button name</string><string name="hotkey_name_support">Choose a name from 1 to 32 characters.</string><string name="hotkey_shortcut">Key or shortcut</string><string name="hotkey_shortcut_hint">For example: CTRL+C, ALT+LEFT, CTRL+SHIFT+TAB</string><string name="hotkey_supported_keys">Supported keys and input</string><string name="hotkey_shortcut_support">Combine CTRL, ALT, SHIFT, letters, numbers, or symbols. Special keys include ESC, TAB, ENTER, BACKSPACE, DELETE, INSERT, HOME, END, PAGEUP, PAGEDOWN, arrows, F1–F12, SPACE, and PLUS.</string><string name="hotkey_move_before">Move before</string><string name="hotkey_move_after">Move after</string><string name="hotkey_remove">Delete hotkey</string><string name="hotkey_reset">Restore defaults</string><string name="hotkey_reset_support">Replace the edited layout and custom hotkeys with defaults? Save in settings to apply.</string><string name="hotkey_discard">Discard unsaved changes?</string><string name="kitty_remote_control">Kitty remote control</string><string name="kitty_remote_control_support">Allow programs in new sessions to create, select, input to, and terminate tabs in the same environment. Enable only for trusted programs.</string>
+    <string name="settings_hotkeys_title">Terminal hotkeys</string><string name="settings_hotkeys_summary">Grid layout, button size, names, and shortcuts</string><string name="settings_hotkeys_description">Enter frequently used key combinations with one tap. Edit names, order, and size, then save to apply them.</string><string name="hotkey_enabled">Use terminal hotkeys</string><string name="hotkey_enabled_support">Hide the hotkey buttons below the terminal when off. Your layout is kept. Save to apply.</string><string name="hotkey_columns">Maximum columns</string><string name="hotkey_font_size">Key text size (sp)</string><string name="hotkey_span">Key width (grid cells)</string><string name="hotkey_preview">Layout preview</string><string name="hotkey_preview_support">Tap a key to edit it, or long-press and drag it to the insertion line to reorder. Hold near the top or bottom edge to scroll. Save changes to apply them. Up to 48 keys can be added.</string><string name="hotkey_edit_description">Edit key %1$d: %2$s, %3$s</string><string name="hotkey_add">Add hotkey</string><string name="hotkey_edit">Edit hotkey</string><string name="hotkey_name">Button name</string><string name="hotkey_name_support">Choose a name from 1 to 32 characters.</string><string name="hotkey_shortcut">Key or shortcut</string><string name="hotkey_shortcut_hint">For example: CTRL+C, ALT+LEFT, CTRL+SHIFT+TAB</string><string name="hotkey_supported_keys">Supported keys and input</string><string name="hotkey_shortcut_support">Combine CTRL, ALT, SHIFT, letters, numbers, or symbols. Special keys include ESC, TAB, ENTER, BACKSPACE, DELETE, INSERT, HOME, END, PAGEUP, PAGEDOWN, arrows, F1–F12, SPACE, and PLUS.</string><string name="hotkey_move_before">Move before</string><string name="hotkey_move_after">Move after</string><string name="hotkey_remove">Delete hotkey</string><string name="hotkey_reset">Restore defaults</string><string name="hotkey_reset_support">Replace the edited layout and custom hotkeys with defaults? Save in settings to apply.</string><string name="hotkey_discard">Discard unsaved changes?</string><string name="kitty_remote_control">Kitty remote control</string><string name="kitty_remote_control_support">Allow programs in new sessions to create, select, input to, and terminate tabs in the same environment. Enable only for trusted programs.</string>
     <string name="rootless_remove">Remove</string><string name="rootless_remove_title">Remove %1$s image</string><string name="rootless_remove_description">Deletes the installed image and its packages and files. This cannot be undone. The distribution home and shared workspace are kept by default.</string><string name="rootless_remove_home">Also delete this distribution’s home data</string><string name="rootless_remove_home_warning">Shell settings and personal files in the home will also be deleted and cannot be recovered.</string><string name="rootless_removing">Removing installed image.</string><string name="rootless_environment_required">Base environment needs completion</string><string name="rootless_complete_environment">Complete environment</string><string name="rootless_stage_percent">Current stage %1$d%%</string><string name="rootless_elapsed">Elapsed %1$d min %2$d sec</string><string name="rootless_last_progress">Last progress report: %1$d sec ago</string><string name="rootless_progress_disconnected">Runtime connection was lost; installation progress cannot be checked. Reconnect and retry.</string>
     <string name="palette_ansi_black">Black</string>
     <string name="palette_editor_hint">Tap a swatch to adjust it. Save to apply the palette to the terminal.</string>
@@ -145,4 +145,64 @@
     <string name="profile_icon_delete">Delete imported icon</string>
     <string name="profile_icon_delete_message">Remove this icon from the selection list? Removal takes effect immediately. Existing profiles and running sessions keep their image. Import the same image again to restore it to the list.</string>
     <string name="profile_icon_delete_error">Could not delete the icon. Try again.</string>
+    <string name="toolbar_settings">Toolbar settings</string>
+    <string name="toolbar_settings_summary">Enable the toolbar, choose tools, and arrange their order</string>
+    <string name="toolbar_enabled">Use toolbar</string>
+    <string name="toolbar_enabled_summary">Drag the handle to adjust height. Swipe horizontally to switch tools.</string>
+    <string name="toolbar_tools">Tools</string>
+    <string name="toolbar_empty">No tools added. Add tools by editing Toolbar settings.</string>
+    <string name="toolbar_edit">Edit</string>
+    <string name="toolbar_done">Done</string>
+    <string name="toolbar_edit_summary">Changes apply immediately. Drag handles to reorder, or use the buttons to add and remove tools.</string>
+    <string name="toolbar_handle">Toolbar drag handle</string>
+    <string name="toolbar_hidden">Hidden</string>
+    <string name="toolbar_default">Default</string>
+    <string name="toolbar_expanded">Expanded</string>
+    <string name="toolbar_expand">Expand toolbar</string>
+    <string name="toolbar_hide">Hide toolbar</string>
+    <string name="toolbar_move">Reorder %1$s</string>
+    <string name="toolbar_add">Add %1$s</string>
+    <string name="toolbar_remove">Remove %1$s</string>
+    <string name="toolbar_move_up">Move up</string>
+    <string name="toolbar_move_down">Move down</string>
+    <string name="toolbar_memory">Memory usage</string>
+    <string name="toolbar_commands">Command sets</string>
+    <string name="toolbar_memory_device">Device memory</string>
+    <string name="toolbar_memory_available">Available: %1$s</string>
+    <string name="toolbar_memory_sessions">Session memory</string>
+    <string name="toolbar_memory_no_sessions">No active sessions.</string>
+    <string name="toolbar_memory_total">Device: %1$s / %2$s used</string>
+    <string name="toolbar_memory_caveat">Session values estimate RSS for readable shell processes and descendants. Shared pages may be counted more than once; detached daemons may be omitted. AVF and restricted sessions are unavailable.</string>
+    <string name="toolbar_unavailable">Unavailable</string>
+    <string name="toolbar_loading">Measuring…</string>
+    <string name="toolbar_refresh">Refresh</string>
+    <string name="toolbar_text_limit">Limit: 8,192 characters. Commands allow newlines and tabs but no other control characters.</string>
+    <string name="toolbar_commands_empty">No saved commands. Add one in Edit command sets.</string>
+    <string name="toolbar_send">Send</string>
+    <string name="toolbar_commands_edit">Edit command sets</string>
+    <string name="toolbar_send_target">Send to session %1$s</string>
+    <string name="toolbar_execute_description">Insert the commands below, then send Enter to the current shell or running program.</string>
+    <string name="toolbar_run">Run</string>
+    <string name="toolbar_memory_interval">Refresh interval</string>
+    <string name="toolbar_seconds">%1$d seconds</string>
+    <string name="toolbar_commands_description">Save named, multiline command sets. Review the target session and commands before running them from the toolbar. Up to 64 entries, each limited to 8,192 characters.</string>
+    <string name="toolbar_command_add">Add command set</string>
+    <string name="toolbar_command_name">Name</string>
+    <string name="toolbar_command_text">Commands</string>
+    <string name="toolbar_command_delete">Delete command set</string>
+    <string name="toolbar_page_position">Tool %1$d of %2$d</string>
+    <string name="toolbar_memory_app">App memory</string>
+    <string name="toolbar_memory_java">Java heap</string>
+    <string name="toolbar_memory_native">Native heap</string>
+    <string name="toolbar_memory_code">Code and resources</string>
+    <string name="toolbar_memory_stack">Stack</string>
+    <string name="toolbar_memory_graphics">Graphics</string>
+    <string name="toolbar_memory_other">Other private memory</string>
+    <string name="toolbar_memory_shared">Shared and system</string>
+    <string name="toolbar_memory_none">Enable memory sections in tool settings.</string>
+    <string name="toolbar_memory_app_caveat">App memory sums PSS for the UI and runtime service processes. Shell and guest memory is shown separately under sessions. Areas follow Android memory categories; process samples may be taken at different times.</string>
+    <string name="toolbar_memory_of_device">%1$s of device %2$s</string>
+    <string name="toolbar_memory_display">Display</string>
+    <string name="toolbar_memory_refresh_section">Automatic refresh</string>
+    <string name="toolbar_command_edit_item">Edit %1$s</string>
 </resources>

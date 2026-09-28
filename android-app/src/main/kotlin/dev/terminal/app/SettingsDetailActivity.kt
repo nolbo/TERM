@@ -144,6 +144,8 @@ class SettingsDetailActivity : TerminalActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Old task entries can still point to the removed tool's settings screen.
+        if (category == "toolbar-clipboard") intent.putExtra(EXTRA_CATEGORY, TOOLBAR)
         if (category == AVF && !SessionProfiles(this).hasAvfPrivileges()) {
             finish()
             return
@@ -152,7 +154,16 @@ class SettingsDetailActivity : TerminalActivity() {
         wakePolicy = runtimePreferences.getString(KEY_WAKE_POLICY, DEFAULT_WAKE_POLICY) ?: DEFAULT_WAKE_POLICY
         customFonts = customTerminalFonts(terminalPreferences)
         compose {
-            if (category == HOTKEYS) HotkeySettings(terminalPreferences) { finish() } else DetailScreen()
+            when (category) {
+                TOOLBAR -> ToolbarSettings(terminalPreferences, { finish() }) { screen ->
+                    startActivity(Intent(this, SettingsDetailActivity::class.java).putExtra(EXTRA_CATEGORY, screen))
+                }
+                "toolbar-memory", "toolbar-commands" ->
+                    dev.terminal.app.ui.ToolbarToolSettings(category, terminalPreferences, onBack = { finish() },
+                        initialCommandId = intent.getStringExtra("toolbar-command-id"))
+                HOTKEYS -> HotkeySettings(terminalPreferences) { finish() }
+                else -> DetailScreen()
+            }
         }
     }
 
@@ -575,9 +586,9 @@ class SettingsDetailActivity : TerminalActivity() {
         }
         item {
             SettingsSection(R.string.section_terminal_customization) {
-                ActionSetting(R.string.settings_hotkeys_title, R.string.settings_hotkeys_summary) {
+                ActionSetting(R.string.toolbar_settings, R.string.toolbar_settings_summary) {
                     startActivity(Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
-                        .putExtra(EXTRA_CATEGORY, HOTKEYS))
+                        .putExtra(EXTRA_CATEGORY, TOOLBAR))
                 }
                 SettingsDivider()
                 ActionSetting(R.string.settings_appearance_title, R.string.settings_appearance_summary) {
@@ -1062,6 +1073,7 @@ class SettingsDetailActivity : TerminalActivity() {
         const val EXTRA_CATEGORY = "category"
         const val EXTRA_SECTION_INDEX = "section-index"
         const val HOTKEYS = "hotkeys"
+        const val TOOLBAR = "toolbar"
         const val LANGUAGE = "language"
         const val APPEARANCE = "appearance"
         const val AVF = "avf"

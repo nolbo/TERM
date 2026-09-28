@@ -178,6 +178,11 @@ class UnifiedSessionRegistry(
         cols: UShort,
     ): Result<SessionDescriptor> = create(SessionRuntime.NATIVE, shell, cwd, env, rows, cols)
 
+    fun sessionMemory(): Map<String, Long?> = measureSessionMemory(
+        registrations.values.flatMap { (it.controller as? SessionMemorySource)?.memoryRoots().orEmpty().entries }
+            .associate { it.key to it.value },
+    )
+
     override suspend fun list(): Result<List<SessionDescriptor>> = runCatching {
         listMutex.withLock {
             // Preserve runtime order for equal creation timestamps, independent

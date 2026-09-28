@@ -181,11 +181,6 @@ public final class TerminalView extends View {
             boolean scrolledWithFinger;
 
             @Override
-            public void onTwoFingerSwipe(boolean downward) {
-                if (mEmulator != null && !isSelectingText()) mClient.onTwoFingerSwipe(downward);
-            }
-
-            @Override
             public boolean onUp(MotionEvent event) {
                 mScrollRemainder = 0.0f;
                 mScrolledRowsSinceHaptic = 0;
