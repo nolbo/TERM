@@ -77,6 +77,23 @@ class UiModelsTest {
         assertTrue(activeClient === clients.getValue(a.id))
     }
 
+    @Test fun restoredSelectionWinsOverFirstSessionInInitialRuntimeSnapshot() {
+        val first = session("native-first")
+        val selected = session("native-selected")
+
+        val update = reconcileSessionTabs(emptyList(), selected.id, emptySet(), listOf(first, selected))
+
+        assertEquals(selected.id, update.activeSessionId)
+    }
+
+    @Test fun missingRestoredSelectionFallsBackToAnAvailableSession() {
+        val first = session("native-first")
+
+        val update = reconcileSessionTabs(emptyList(), "native-no-longer-running", emptySet(), listOf(first))
+
+        assertEquals(first.id, update.activeSessionId)
+    }
+
     @Test fun closingLastTabIsStableEmptyStateWithoutAnAutomaticCreateEffect() {
         val only = session("native-a")
 

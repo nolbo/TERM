@@ -137,6 +137,7 @@ class MainActivity : TerminalActivity() {
     private var runtimeChoices by mutableStateOf(emptyList<RuntimeChoiceUi>())
     private var notificationSessionId: String? = null
     private var activeSessionId by mutableStateOf<String?>(null)
+    private var ignoreInitialRuntimeFocus = false
     private var runtimeMessage by mutableStateOf("")
     private var feedbackMessage by mutableStateOf<String?>(null)
     private var newSessionMenuVisible by mutableStateOf(false)
@@ -210,7 +211,10 @@ class MainActivity : TerminalActivity() {
         }
 
         override fun onSessionFocusRequested(sessionId: String) = runOnUiThread {
-            if (generation == bindingGeneration) attach(sessionId)
+            if (generation == bindingGeneration) {
+                if (ignoreInitialRuntimeFocus) ignoreInitialRuntimeFocus = false
+                else attach(sessionId)
+            }
         }
         override fun onSessionsChanged(revision: Long, sessionsJson: String) = runOnUiThread {
             if (generation == bindingGeneration) renderSessions(revision, sessionsJson)
@@ -281,8 +285,10 @@ class MainActivity : TerminalActivity() {
                 val connected = checkNotNull(runtime)
                 val currentListener = checkNotNull(listener)
                 val notificationTarget = notificationSessionId
+                ignoreInitialRuntimeFocus = notificationTarget == null && activeSessionId != null
                 val connectedGeneration = bindingGeneration
                 connected.registerListener(currentListener)
+                if (ignoreInitialRuntimeFocus) mainHandler.post { ignoreInitialRuntimeFocus = false }
                 // Registration also replays the service's last focused tab. An explicit
                 // notification target wins after those initial callbacks have drained.
                 if (notificationTarget != null) mainHandler.post {
@@ -304,6 +310,7 @@ class MainActivity : TerminalActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("terminal-toolbar-mode", toolbarSheetMode.name)
+        activeSessionId?.let { outState.putString("active-session", it) }
         selectedLaunchSpec?.let { outState.putString("pending-profile-launch", it.toJson().toString()) }
         rootlessLaunchSpec?.let { outState.putString("pending-rootless-profile-launch", it.toJson().toString()) }
         notificationSessionId?.let { outState.putString("notification-target", it) }
@@ -317,6 +324,8 @@ class MainActivity : TerminalActivity() {
         } ?: if (savedInstanceState?.getBoolean("terminal-extra-keys-visible", true) == false)
             ToolbarSheetMode.Hidden else ToolbarSheetMode.Default
         notificationSessionId = savedInstanceState?.getString("notification-target")
+        activeSessionId = savedInstanceState?.getString("active-session")
+            ?: getSharedPreferences("terminal-ui-state", MODE_PRIVATE).getString("active-session", null)
         selectedLaunchSpec = savedInstanceState?.getString("pending-profile-launch")?.let {
             dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it)
         }
@@ -712,6 +721,8 @@ class MainActivity : TerminalActivity() {
         } else if (selected != displayedSessionId || runtimeAttachment.sessionId != selected) {
             attach(selected)
         }
+        getSharedPreferences("terminal-ui-state", MODE_PRIVATE).edit()
+            .putString("active-session", activeSessionId).apply()
         removedSessionIds.forEach { id ->
             terminalBackends.remove(id)?.close()
             terminalSessions.remove(id)
@@ -727,6 +738,7 @@ class MainActivity : TerminalActivity() {
         if (id !in sessions.map { it.id }) return
         paletteTransition.capture(terminalView)
         activeSessionId = id
+        getSharedPreferences("terminal-ui-state", MODE_PRIVATE).edit().putString("active-session", id).apply()
         val session = terminalSessions.getOrPut(id) {
             TerminalSession(
                 defaultShell(),
