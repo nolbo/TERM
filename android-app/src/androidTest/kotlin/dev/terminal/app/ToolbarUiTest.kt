@@ -286,7 +286,7 @@ class ToolbarUiTest {
             scenario.onActivity { activity ->
                 activity.setContent { DroidTheme { TerminalHapticFeedbackProvider {
                     Box(Modifier.padding(top = 32.dp)) {
-                        ToolbarCommandsTool(commands, active.value, "Test session", {}, { text, execute -> sent = text to execute }, { edited = it })
+                        ToolbarCommandsTool(commands, active.value, "Test session", { text, execute -> sent = text to execute }, { edited = it })
                     }
                 } } }
             }

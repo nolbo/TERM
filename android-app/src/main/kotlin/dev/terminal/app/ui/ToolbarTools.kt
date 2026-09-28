@@ -164,7 +164,7 @@ private fun memorySize(bytes: Long) = String.format(java.util.Locale.getDefault(
 
 @Composable
 internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean, target: String,
-    onSettings: () -> Unit, onSend: (String, Boolean) -> Unit, onEdit: (String) -> Unit) {
+    onSend: (String, Boolean) -> Unit, onEdit: (String) -> Unit) {
     var pending by remember { mutableStateOf<ToolbarCommand?>(null) }
     LaunchedEffect(active) { if (!active) pending = null }
     val scroll = rememberLazyListState()
@@ -194,9 +194,6 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
                         }
                     }
                 }
-            }
-            item {
-                TextButton(onClick = onSettings, enabled = active) { Text(stringResource(R.string.toolbar_commands_edit)) }
             }
         }
     }

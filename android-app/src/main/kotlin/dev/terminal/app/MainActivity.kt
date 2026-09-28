@@ -543,10 +543,7 @@ class MainActivity : TerminalActivity() {
                                 }
                             }
                             COMMANDS_TOOL -> ToolbarCommandsTool(toolbarCommands, canSend, selected?.title.orEmpty(),
-                                onSettings = {
-                                    startActivity(Intent(this@MainActivity, SettingsDetailActivity::class.java)
-                                        .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, "toolbar-commands"))
-                                }, onSend = sendText, onEdit = { id ->
+                                onSend = sendText, onEdit = { id ->
                                     startActivity(Intent(this@MainActivity, SettingsDetailActivity::class.java)
                                         .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, "toolbar-commands")
                                         .putExtra("toolbar-command-id", id))
