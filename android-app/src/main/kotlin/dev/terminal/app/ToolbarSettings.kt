@@ -103,7 +103,8 @@ internal fun ToolbarSettings(preferences: SharedPreferences, onBack: () -> Unit,
 private fun ToolbarReorderList(config: ToolbarConfig, editing: Boolean, tools: List<ToolbarTool>,
     scroll: ScrollState, viewport: () -> Rect?, onUpdate: (ToolbarConfig) -> Unit, onOpen: (String) -> Unit) {
     val density = LocalDensity.current
-    val rowHeight = 48.dp
+    // Match the single-line ListItem used by Profiles → Add profile.
+    val rowHeight = 56.dp
     val rowPixels = with(density) { rowHeight.toPx() }
     val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val effects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()

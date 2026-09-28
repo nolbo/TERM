@@ -347,7 +347,7 @@ class ToolbarUiTest {
                     return bounds(node).height()
                 }
                 val normalHeight = toolRowHeight()
-                assertEquals(48f * context.resources.displayMetrics.density, normalHeight.toFloat(), 1f)
+                assertEquals(56f * context.resources.displayMetrics.density, normalHeight.toFloat(), 1f)
                 click(description(label(R.string.toolbar_edit)))
                 assertEquals(normalHeight, toolRowHeight())
                 text(label(R.string.diagnostics_title))
