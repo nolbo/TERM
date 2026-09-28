@@ -6,14 +6,14 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class HotkeysTest {
-    @Test fun compactHeightsRoundTripAndOutOfRangeHeightsFallBack() {
-        for (height in listOf(32, 40, 48, 80)) {
-            val layout = HotkeyLayout(height = height)
-            assertEquals(layout, parseHotkeyLayout(serializeHotkeyLayout(layout)))
+    @Test fun legacyHeightIsIgnoredWithoutLosingCustomKeys() {
+        val layout = HotkeyLayout(columns = 4, fontSize = 18,
+            keys = listOf(Hotkey("중단", "CTRL+C", 2)), enabled = false)
+        for (height in listOf(31, 32, 40, 48, 80, 81)) {
+            val legacy = JSONObject(serializeHotkeyLayout(layout)).put("height", height)
+            assertEquals(layout, parseHotkeyLayout(legacy.toString()))
         }
-        for (height in listOf(31, 81)) {
-            assertEquals(HotkeyLayout(), parseHotkeyLayout(serializeHotkeyLayout(HotkeyLayout(height = height))))
-        }
+        assertFalse(JSONObject(serializeHotkeyLayout(layout)).has("height"))
     }
 
     @Test fun onlyNavigationAndDeletionChordsRepeat() {
@@ -41,7 +41,7 @@ class HotkeysTest {
     }
 
     @Test fun customizedLayoutRoundTripsIncludingUnicodeNamesAndOrder() {
-        val layout = HotkeyLayout(4, 64, 18, listOf(Hotkey("중단", "CTRL+C", 2), Hotkey("이전 탭", "CTRL+SHIFT+TAB", 3)))
+        val layout = HotkeyLayout(4, 18, listOf(Hotkey("중단", "CTRL+C", 2), Hotkey("이전 탭", "CTRL+SHIFT+TAB", 3)))
         assertEquals(layout, parseHotkeyLayout(serializeHotkeyLayout(layout)))
         assertEquals(layout.keys.reversed(), moveHotkey(layout, 0, 1).keys)
         assertEquals(layout, moveHotkey(layout, -1, 3))

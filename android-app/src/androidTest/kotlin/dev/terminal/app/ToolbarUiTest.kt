@@ -148,6 +148,27 @@ class ToolbarUiTest {
         }
     }
 
+    @Test fun hotkeysHaveFixedHeightAndScrollAfterTwoRows() {
+        val layout = HotkeyLayout(columns = 2, keys = (1..6).map { Hotkey("Key $it", "F$it") })
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    ToolbarHotkeys(layout, false, false, TerminalChromeColors(Color.Black), true, {})
+                } }
+            } }
+            settle()
+            val first = bounds(description("Key 1: F1"))
+            val density = context.resources.displayMetrics.density
+            assertEquals(40f * density, first.height().toFloat(), 1f)
+            description("Key 4: F4")
+            assertNull(find { it.contentDescription?.toString() == "Key 5: F5" && !bounds(it).isEmpty })
+            val lastVisible = bounds(description("Key 4: F4"))
+            drag(first.exactCenterX(), lastVisible.exactCenterY(), 0f, -64f * density)
+            waitForNode("third row after scrolling") { it.contentDescription?.toString() == "Key 5: F5" && !bounds(it).isEmpty }
+            assertEquals(40f * density, bounds(description("Key 6: F6")).height().toFloat(), 1f)
+        }
+    }
+
     @Test fun memoryRowsSelectSessionAndDisableWhenInactive() {
         var selected: String? = null
         val active = mutableStateOf(true)

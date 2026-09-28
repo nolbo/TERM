@@ -8,12 +8,11 @@ import java.util.Locale
 
 internal const val KEY_HOTKEYS = "hotkey-toolbar-v1"
 internal const val MAX_HOTKEYS = 48
-internal val HOTKEY_HEIGHT_RANGE = 32..80
+internal const val HOTKEY_HEIGHT_DP = 40
 
 internal data class Hotkey(val name: String, val shortcut: String, val span: Int = 1)
 internal data class HotkeyLayout(
     val columns: Int = 7,
-    val height: Int = 48,
     val fontSize: Int = 12,
     val keys: List<Hotkey> = defaultHotkeys(),
     val enabled: Boolean = true,
@@ -83,14 +82,14 @@ internal fun parseHotkeyLayout(value: String?): HotkeyLayout = runCatching {
         val item = array.getJSONObject(index)
         Hotkey(item.getString("name"), item.getString("shortcut"), item.getInt("span")).also { require(validHotkey(it)) }
     }
-    HotkeyLayout(json.getInt("columns"), json.getInt("height"), json.getInt("fontSize"), keys,
+    HotkeyLayout(json.getInt("columns"), json.getInt("fontSize"), keys,
         if (json.has("enabled")) json.getBoolean("enabled") else true).also {
-        require(it.columns in 2..10 && it.height in HOTKEY_HEIGHT_RANGE && it.fontSize in 10..24)
+        require(it.columns in 2..10 && it.fontSize in 10..24)
     }
 }.getOrDefault(HotkeyLayout())
 
 internal fun serializeHotkeyLayout(layout: HotkeyLayout): String = JSONObject()
-    .put("version", 1).put("columns", layout.columns).put("height", layout.height).put("fontSize", layout.fontSize)
+    .put("version", 1).put("columns", layout.columns).put("fontSize", layout.fontSize)
     .put("enabled", layout.enabled)
     .put("keys", JSONArray().apply {
         layout.keys.forEach { put(JSONObject().put("name", it.name).put("shortcut", it.shortcut).put("span", it.span)) }

@@ -52,8 +52,8 @@ internal fun HotkeyGrid(
     onKey: (Int) -> Unit,
 ) {
     val haptics = LocalTerminalHaptics.current
-    // Honor compact heights in both the preview and the toolbar, including modifier keys.
-    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides layout.height.dp) {
+    // All keys, including modifiers and editor previews, have the same fixed height.
+    CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides HOTKEY_HEIGHT_DP.dp) {
         BoxWithConstraints(modifier.fillMaxWidth()) {
             val columns = minOf(layout.columns, ((maxWidth.value + 4) / 52).toInt().coerceAtLeast(1))
             val cellWidth = (maxWidth - (4 * (columns - 1)).dp) / columns
@@ -63,7 +63,7 @@ internal fun HotkeyGrid(
                         row.forEach { index ->
                             val key = layout.keys[index]
                             val span = key.span.coerceAtMost(columns)
-                            val cell = Modifier.width(cellWidth * span + (4 * (span - 1)).dp).heightIn(min = layout.height.dp).then(cellModifier(index))
+                            val cell = Modifier.width(cellWidth * span + (4 * (span - 1)).dp).height(HOTKEY_HEIGHT_DP.dp).then(cellModifier(index))
                             val description = if (editing) stringResource(R.string.hotkey_edit_description, index + 1, key.name, key.shortcut)
                                 else "${key.name}: ${key.shortcut}"
                             val content: @Composable () -> Unit = {
@@ -180,7 +180,6 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
                 Card(shape = MaterialTheme.shapes.extraLarge) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         HotkeySizeControl(R.string.hotkey_columns, layout.columns, 2..10) { update(layout.copy(columns = it)) }
-                        HotkeySizeControl(R.string.hotkey_height, layout.height, HOTKEY_HEIGHT_RANGE) { update(layout.copy(height = it)) }
                         HotkeySizeControl(R.string.hotkey_font_size, layout.fontSize, 10..24) { update(layout.copy(fontSize = it)) }
                     }
                 }

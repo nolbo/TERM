@@ -158,13 +158,16 @@ private fun ColumnScope.ToolbarPages(tools: List<String>, pager: PagerState, int
 @Composable
 internal fun ToolbarHotkeys(layout: HotkeyLayout, control: Boolean, alt: Boolean,
     colors: TerminalChromeColors, enabled: Boolean, onKey: (TerminalToolbarKey) -> Unit) {
-    HotkeyGrid(layout = layout, control = control, alt = alt, terminalColors = colors,
-        enabled = enabled,
-        modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(4.dp)) { index ->
-        onKey(when (val shortcut = layout.keys[index].shortcut) {
-            "CTRL" -> TerminalToolbarKey.Control
-            "ALT" -> TerminalToolbarKey.Alt
-            else -> TerminalToolbarKey.Shortcut(shortcut)
-        })
+    Box(Modifier.fillMaxSize()) {
+        HotkeyGrid(layout = layout, control = control, alt = alt, terminalColors = colors,
+            enabled = enabled,
+            modifier = Modifier.fillMaxWidth().heightIn(max = (HOTKEY_HEIGHT_DP * 2 + 4 + 8).dp)
+                .verticalScroll(rememberScrollState()).padding(4.dp)) { index ->
+            onKey(when (val shortcut = layout.keys[index].shortcut) {
+                "CTRL" -> TerminalToolbarKey.Control
+                "ALT" -> TerminalToolbarKey.Alt
+                else -> TerminalToolbarKey.Shortcut(shortcut)
+            })
+        }
     }
 }
