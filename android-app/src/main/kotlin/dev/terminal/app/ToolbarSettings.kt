@@ -24,6 +24,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
@@ -82,10 +83,15 @@ internal fun ToolbarSettings(preferences: SharedPreferences, onBack: () -> Unit,
                 colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerHigh)) {
                 Text(stringResource(R.string.toolbar_enabled))
             }
-            Text(stringResource(R.string.toolbar_tools), style = MaterialTheme.typography.titleSmall,
-                color = MaterialTheme.colorScheme.primary)
-            if (config.tools.isEmpty()) Text(stringResource(R.string.toolbar_empty))
-            ToolbarReorderList(config, editing, tools, scroll, { viewport }, update, onOpenTool)
+            Column(Modifier.fillMaxWidth()) {
+                Text(stringResource(R.string.toolbar_tools), Modifier.padding(start = 16.dp, bottom = 8.dp),
+                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                if (config.tools.isEmpty() && !editing) Text(stringResource(R.string.toolbar_empty))
+                Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge,
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                    ToolbarReorderList(config, editing, tools, scroll, { viewport }, update, onOpenTool)
+                }
+            }
             Text(stringResource(if (editing) R.string.toolbar_edit_summary else R.string.toolbar_settings_summary),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -161,7 +167,7 @@ private fun ToolbarReorderList(config: ToolbarConfig, editing: Boolean, tools: L
             val elevation by animateDpAsState(if (lifted) 8.dp else 0.dp,
                 MaterialTheme.motionScheme.defaultSpatialSpec(), label = "toolbarLiftElevation")
             val color by animateColorAsState(if (lifted) MaterialTheme.colorScheme.secondaryContainer
-                else MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.motionScheme.fastEffectsSpec(), label = "toolbarLiftColor")
+                else Color.Transparent, MaterialTheme.motionScheme.fastEffectsSpec(), label = "toolbarLiftColor")
             val name = stringResource(tool.title)
             val moveLabel = stringResource(R.string.toolbar_move, name)
             val upLabel = stringResource(R.string.toolbar_move_up)
@@ -169,57 +175,70 @@ private fun ToolbarReorderList(config: ToolbarConfig, editing: Boolean, tools: L
             AnimatedVisibility(visible = added || editing, enter = fadeIn(effects), exit = fadeOut(effects),
                 modifier = Modifier.offset { IntOffset(0, (if (lifted) dragTop else position.value).roundToInt()) }
                     .zIndex(if (lifted) 1f else 0f).semantics { traversalIndex = index.toFloat() }) {
-                Surface(onClick = { if (!editing) onOpen(tool.settings) },
-                    modifier = Modifier.fillMaxWidth().height(rowHeight).graphicsLayer { scaleX = scale; scaleY = scale },
-                    shape = MaterialTheme.shapes.large, color = color, shadowElevation = elevation) {
-                    Row(Modifier.fillMaxSize().padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.width(leadingWidth.coerceAtLeast(0.dp)).height(48.dp).clipToBounds()) {
-                            if (added && (editing || leadingWidth > 0.5.dp)) {
-                                var origin by remember { mutableFloatStateOf(0f) }
-                                Box(Modifier.size(48.dp).graphicsLayer { alpha = editAlpha }
-                                    .onGloballyPositioned { origin = it.boundsInRoot().top }
-                                    .pointerInput(id, editing, added) {
-                                        if (!editing) return@pointerInput
-                                        detectDragGestures(onDragStart = { local ->
-                                            preview = currentConfig.tools
-                                            pointer = origin + local.y
-                                            grabOffset = pointer - gridTop - currentConfig.tools.indexOf(id) * rowPixels
-                                            dragging = id
-                                        }, onDrag = { change, delta ->
-                                            change.consume(); pointer += delta.y; reorder()
-                                        }, onDragCancel = { cancel() }, onDragEnd = {
-                                            preview?.let { update(currentConfig.copy(tools = it)) }
-                                            cancel()
-                                        })
-                                    }.semantics {
-                                        contentDescription = moveLabel
-                                        customActions = buildList {
-                                            val from = config.tools.indexOf(id)
-                                            if (from > 0) add(CustomAccessibilityAction(upLabel) {
-                                                onUpdate(config.moveTool(from, from - 1)); true
+                Box {
+                    ListItem(onClick = { if (!editing) onOpen(tool.settings) },
+                        modifier = Modifier.fillMaxWidth().height(rowHeight).graphicsLayer {
+                            scaleX = scale; scaleY = scale; shadowElevation = elevation.toPx()
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
+                        },
+                        shapes = terminalListItemShapes(),
+                        colors = ListItemDefaults.colors(containerColor = color),
+                        contentPadding = PaddingValues(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.width(leadingWidth.coerceAtLeast(0.dp)).height(48.dp).clipToBounds()) {
+                                if (added && (editing || leadingWidth > 0.5.dp)) {
+                                    var origin by remember { mutableFloatStateOf(0f) }
+                                    Box(Modifier.size(48.dp).graphicsLayer { alpha = editAlpha }
+                                        .onGloballyPositioned { origin = it.boundsInRoot().top }
+                                        .pointerInput(id, editing, added) {
+                                            if (!editing) return@pointerInput
+                                            detectDragGestures(onDragStart = { local ->
+                                                preview = currentConfig.tools
+                                                pointer = origin + local.y
+                                                grabOffset = pointer - gridTop - currentConfig.tools.indexOf(id) * rowPixels
+                                                dragging = id
+                                            }, onDrag = { change, delta ->
+                                                change.consume(); pointer += delta.y; reorder()
+                                            }, onDragCancel = { cancel() }, onDragEnd = {
+                                                preview?.let { update(currentConfig.copy(tools = it)) }
+                                                cancel()
                                             })
-                                            if (from < config.tools.lastIndex) add(CustomAccessibilityAction(downLabel) {
-                                                onUpdate(config.moveTool(from, from + 1)); true
-                                            })
-                                        }
-                                    }, contentAlignment = Alignment.Center) {
-                                    Icon(painterResource(R.drawable.ic_toolbar_drag), null)
+                                        }.semantics {
+                                            contentDescription = moveLabel
+                                            customActions = buildList {
+                                                val from = config.tools.indexOf(id)
+                                                if (from > 0) add(CustomAccessibilityAction(upLabel) {
+                                                    onUpdate(config.moveTool(from, from - 1)); true
+                                                })
+                                                if (from < config.tools.lastIndex) add(CustomAccessibilityAction(downLabel) {
+                                                    onUpdate(config.moveTool(from, from + 1)); true
+                                                })
+                                            }
+                                        }, contentAlignment = Alignment.Center) {
+                                        Icon(painterResource(R.drawable.ic_toolbar_drag), null)
+                                    }
+                                }
+                            }
+                            Text(name, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            val trailingWidth by animateDpAsState(if (editing) 48.dp else 24.dp,
+                                MaterialTheme.motionScheme.defaultSpatialSpec(), label = "toolbarActionWidth")
+                            Box(Modifier.width(trailingWidth).height(48.dp), contentAlignment = Alignment.Center) {
+                                Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null,
+                                    Modifier.graphicsLayer { alpha = 1f - editAlpha })
+                                if (editing || editAlpha > 0.01f) IconButton(onClick = {
+                                    cancel()
+                                    onUpdate(if (added) config.copy(tools = config.tools - id) else config.addTool(id))
+                                }, modifier = Modifier.graphicsLayer { alpha = editAlpha }, enabled = editing && dragging == null) {
+                                    Icon(painterResource(if (added) R.drawable.ic_toolbar_remove else R.drawable.ic_material_symbol_add_24),
+                                        stringResource(if (added) R.string.toolbar_remove else R.string.toolbar_add, name))
                                 }
                             }
                         }
-                        Text(name, Modifier.weight(1f).padding(start = 8.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Box(Modifier.size(48.dp), contentAlignment = Alignment.Center) {
-                            Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null,
-                                Modifier.graphicsLayer { alpha = 1f - editAlpha })
-                            if (editing || editAlpha > 0.01f) IconButton(onClick = {
-                                cancel()
-                                onUpdate(if (added) config.copy(tools = config.tools - id) else config.addTool(id))
-                            }, modifier = Modifier.graphicsLayer { alpha = editAlpha }, enabled = editing && dragging == null) {
-                                Icon(painterResource(if (added) R.drawable.ic_toolbar_remove else R.drawable.ic_material_symbol_add_24),
-                                    stringResource(if (added) R.string.toolbar_remove else R.string.toolbar_add, name))
-                            }
-                        }
                     }
+                    if (index < displayed.lastIndex && !lifted) HorizontalDivider(
+                        Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
         } }
