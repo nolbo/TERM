@@ -2,13 +2,17 @@
 
 package dev.terminal.app.ui
 
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -42,6 +46,14 @@ internal fun TerminalToolbar(
     if (!config.enabled) {
         Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.navigationBars))
         return
+    }
+    val tools = config.tools
+    val pager = rememberPagerState(initialPage = tools.indexOf(selectedTool).coerceAtLeast(0)) { tools.size }
+    LaunchedEffect(tools) {
+        if (tools.isNotEmpty()) pager.scrollToPage(tools.indexOf(selectedTool).coerceAtLeast(0))
+    }
+    LaunchedEffect(pager, tools) {
+        snapshotFlow { pager.settledPage }.collect { index -> tools.getOrNull(index)?.let { selectedTool = it } }
     }
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
@@ -97,7 +109,27 @@ internal fun TerminalToolbar(
                             CustomAccessibilityAction(hideLabel) { settle(ToolbarSheetMode.Hidden); true },
                         )
                     }, contentAlignment = Alignment.Center) {
-                    Box(Modifier.size(32.dp, 4.dp).background(colors.divider, RoundedCornerShape(2.dp)))
+                    val showPages = tools.size > 1 && pager.isScrollInProgress && height > hidden
+                    val effects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+                    androidx.compose.animation.AnimatedVisibility(visible = !showPages,
+                        enter = fadeIn(effects), exit = fadeOut(effects)) {
+                        Box(Modifier.size(32.dp, 4.dp).background(colors.divider, RoundedCornerShape(2.dp)))
+                    }
+                    androidx.compose.animation.AnimatedVisibility(visible = showPages,
+                        enter = fadeIn(effects), exit = fadeOut(effects)) {
+                        val pageLabel = stringResource(R.string.toolbar_page_position, pager.currentPage + 1, tools.size)
+                        Row(Modifier.background(colors.container, CircleShape)
+                            .padding(horizontal = 12.dp, vertical = 8.dp)
+                            .semantics { contentDescription = pageLabel },
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            tools.forEachIndexed { index, _ ->
+                                Box(Modifier.size(6.dp).background(
+                                    if (index == pager.currentPage) colors.accent else colors.onContainer.copy(alpha = 0.4f),
+                                    CircleShape))
+                            }
+                        }
+                    }
                 }
                 if (height > hidden) {
                     if (config.tools.isEmpty()) {
@@ -105,8 +137,8 @@ internal fun TerminalToolbar(
                             Text(stringResource(R.string.toolbar_empty), style = MaterialTheme.typography.bodyMedium)
                         }
                     } else {
-                        ToolbarPages(config.tools, state.settledValue != ToolbarSheetMode.Hidden,
-                            selectedTool, { selectedTool = it }, content = content)
+                        ToolbarPages(config.tools, pager, state.settledValue != ToolbarSheetMode.Hidden,
+                            content = content)
                     }
                 }
             }
@@ -115,25 +147,11 @@ internal fun TerminalToolbar(
 }
 
 @Composable
-private fun ColumnScope.ToolbarPages(tools: List<String>, interactive: Boolean,
-    selectedTool: String?, onSelectedTool: (String) -> Unit,
+private fun ColumnScope.ToolbarPages(tools: List<String>, pager: PagerState, interactive: Boolean,
     content: @Composable (String, Boolean) -> Unit) {
-    val pager = rememberPagerState(initialPage = tools.indexOf(selectedTool).coerceAtLeast(0)) { tools.size }
-    LaunchedEffect(tools) {
-        pager.scrollToPage(tools.indexOf(selectedTool).coerceAtLeast(0))
-    }
-    val onSelected by rememberUpdatedState(onSelectedTool)
-    LaunchedEffect(pager, tools) {
-        snapshotFlow { pager.settledPage }.collect { index -> tools.getOrNull(index)?.let { onSelected(it) } }
-    }
     HorizontalPager(state = pager, userScrollEnabled = interactive,
         key = { tools[it] }, modifier = Modifier.weight(1f).fillMaxWidth()) { page ->
         content(tools[page], interactive && !pager.isScrollInProgress && page == pager.currentPage)
-    }
-    if (tools.size > 1) {
-        Text("${pager.currentPage + 1} / ${tools.size}",
-            modifier = Modifier.align(Alignment.CenterHorizontally).padding(bottom = 4.dp),
-            style = MaterialTheme.typography.labelSmall)
     }
 }
 

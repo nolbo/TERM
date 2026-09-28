@@ -66,13 +66,17 @@ class ToolbarUiTest {
         }
         settle()
     }
-    private fun drag(x: Float, y: Float, dx: Float, dy: Float) {
+    private fun drag(x: Float, y: Float, dx: Float, dy: Float, duringDrag: (() -> Unit)? = null) {
         val start = SystemClock.uptimeMillis()
         for (i in 0..20) {
             val action = when (i) { 0 -> MotionEvent.ACTION_DOWN; 20 -> MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
             val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, x + dx * i / 20, y + dy * i / 20, 0)
             event.source = InputDevice.SOURCE_TOUCHSCREEN
             try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+            if (i == 10 && duringDrag != null) {
+                SystemClock.sleep(250)
+                duringDrag()
+            }
             SystemClock.sleep(20)
         }
         settle()
@@ -110,8 +114,13 @@ class ToolbarUiTest {
             assertEquals(ToolbarSheetMode.Default, mode.value)
             handle()
             val page = bounds(text("first page"))
-            drag(page.exactCenterX() + page.width() * 0.3f, page.exactCenterY(), -page.width() * 0.65f, 0f)
-            text("second page")
+            val indicatorLabels = (1..2).map { context.getString(R.string.toolbar_page_position, it, 2) }
+            assertNull(find { it.contentDescription?.toString() in indicatorLabels })
+            drag(page.exactCenterX() + page.width() * 0.3f, page.exactCenterY(), -page.width() * 0.65f, 0f) {
+                waitForNode("page dots during swipe") { it.contentDescription?.toString() in indicatorLabels }
+            }
+            assertEquals(page.height(), bounds(text("second page")).height())
+            assertNull(find { it.contentDescription?.toString() in indicatorLabels })
             val initial = bounds(handle())
             drag(initial.exactCenterX(), initial.exactCenterY(), 0f, -800f)
             assertEquals(ToolbarSheetMode.Expanded, mode.value)

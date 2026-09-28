@@ -436,4 +436,5 @@
     <string name="toolbar_command_name">이름</string>
     <string name="toolbar_command_text">명령</string>
     <string name="toolbar_command_delete">명령어셋 삭제</string>
+    <string name="toolbar_page_position">도구 %2$d개 중 %1$d번째</string>
 </resources>

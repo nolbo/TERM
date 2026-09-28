@@ -190,4 +190,5 @@
     <string name="toolbar_command_name">Name</string>
     <string name="toolbar_command_text">Commands</string>
     <string name="toolbar_command_delete">Delete command set</string>
+    <string name="toolbar_page_position">Tool %1$d of %2$d</string>
 </resources>
