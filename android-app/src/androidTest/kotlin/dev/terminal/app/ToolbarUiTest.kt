@@ -66,10 +66,10 @@ class ToolbarUiTest {
         }
         settle()
     }
-    private fun drag(x: Float, y: Float, dx: Float, dy: Float, duringDrag: (() -> Unit)? = null) {
+    private fun drag(x: Float, y: Float, dx: Float, dy: Float, cancel: Boolean = false, duringDrag: (() -> Unit)? = null) {
         val start = SystemClock.uptimeMillis()
         for (i in 0..20) {
-            val action = when (i) { 0 -> MotionEvent.ACTION_DOWN; 20 -> MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
+            val action = when (i) { 0 -> MotionEvent.ACTION_DOWN; 20 -> if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
             val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, x + dx * i / 20, y + dy * i / 20, 0)
             event.source = InputDevice.SOURCE_TOUCHSCREEN
             try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
@@ -326,13 +326,29 @@ class ToolbarUiTest {
                 } }
                 settle()
                 assertNull(find { it.text?.toString() == label(R.string.diagnostics_title) })
+                fun toolRowHeight(): Int {
+                    var node = text(label(R.string.settings_hotkeys_title))
+                    while (!node.isClickable && node.parent != null) node = node.parent
+                    return bounds(node).height()
+                }
+                val normalHeight = toolRowHeight()
                 click(description(label(R.string.toolbar_edit)))
+                assertEquals(normalHeight, toolRowHeight())
                 text(label(R.string.diagnostics_title))
                 assertNull(find { it.contentDescription?.toString() == context.getString(R.string.toolbar_move, label(R.string.diagnostics_title)) })
                 click(description(context.getString(R.string.toolbar_add, label(R.string.diagnostics_title))))
                 val first = bounds(description(context.getString(R.string.toolbar_move, label(R.string.settings_hotkeys_title))))
                 val second = bounds(description(context.getString(R.string.toolbar_move, label(R.string.diagnostics_title))))
-                drag(first.exactCenterX(), first.exactCenterY(), 0f, second.exactCenterY() - first.exactCenterY())
+                val original = listOf(HOTKEY_TOOL, "second")
+                val delta = (second.exactCenterY() - first.exactCenterY()) * 1.4f
+                drag(first.exactCenterX(), first.exactCenterY(), 0f, delta, cancel = true) {
+                    val movingNeighbor = bounds(description(context.getString(R.string.toolbar_move, label(R.string.diagnostics_title))))
+                    assertTrue("Neighbor moves before drop", movingNeighbor.centerY() < second.centerY())
+                    assertEquals(original, parseToolbarConfig(prefs.getString(KEY_TOOLBAR, null), available = registry.map { it.id }.toSet()).tools)
+                }
+                assertEquals(original, parseToolbarConfig(prefs.getString(KEY_TOOLBAR, null), available = registry.map { it.id }.toSet()).tools)
+                assertEquals(second.centerY(), bounds(description(context.getString(R.string.toolbar_move, label(R.string.diagnostics_title)))).centerY())
+                drag(first.exactCenterX(), first.exactCenterY(), 0f, delta)
                 assertEquals(listOf("second", HOTKEY_TOOL), parseToolbarConfig(prefs.getString(KEY_TOOLBAR, null), available = registry.map { it.id }.toSet()).tools)
                 click(description(context.getString(R.string.toolbar_remove, label(R.string.settings_hotkeys_title))))
                 assertNull(find { it.contentDescription?.toString() == context.getString(R.string.toolbar_move, label(R.string.settings_hotkeys_title)) })
