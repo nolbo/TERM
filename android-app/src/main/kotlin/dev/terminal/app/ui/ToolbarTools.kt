@@ -182,9 +182,11 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
             items(commands, key = { it.id }) { command ->
                 Surface(onClick = { pending = command }, enabled = active,
                     shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 12.dp),
+                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                        .padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
+                        Column(Modifier.weight(1f)) {
                             Text(command.name, style = MaterialTheme.typography.labelLarge,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(command.text, fontFamily = FontFamily.Monospace,
