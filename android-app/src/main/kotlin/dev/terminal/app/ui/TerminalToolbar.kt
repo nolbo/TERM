@@ -58,9 +58,9 @@ internal fun TerminalToolbar(
     val density = LocalDensity.current
     val scope = rememberCoroutineScope()
     val motion = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
-    val hidden = 48.dp
+    val hidden = 24.dp
     val expanded = maxHeight.coerceAtLeast(96.dp)
-    val normal = 192.dp.coerceAtMost((hidden + expanded) / 2)
+    val normal = 168.dp.coerceAtMost((hidden + expanded) / 2)
     val anchors = remember(density, expanded, normal) {
         with(density) { DraggableAnchors {
             ToolbarSheetMode.Hidden at -hidden.toPx()

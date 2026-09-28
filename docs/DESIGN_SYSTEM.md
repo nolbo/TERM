@@ -35,7 +35,7 @@ TERM의 활성 Android UI는 Jetpack Compose와 Material 3 Expressive를 기준�
 - 앱 텍스트는 Material 3 type scale을 사용한다. 고정폭 글꼴은 터미널, extra key, 진단 및 크래시 payload에만 사용한다.
 - 앱 내부 아이콘은 24 dp Material Symbols Rounded의 기본 비채움 스타일을 사용한다. 방향성 아이콘은 RTL 레이아웃에서 자동 반전한다.
 - 간격은 4 dp 배수를 기본으로 한다. 독립된 카드와 설정 행은 평상시 `extraLarge`(28 dp) 컨테이너 shape를 사용해 높은 곡률이 화면에서 명확히 드러나게 하고, 상호작용 가능한 `ListItem`은 눌림·포커스·선택 상태에서 Material Expressive 기본 shape로 morph한다. 앱 바, 터미널 캔버스처럼 화면 경계에 붙는 기반 surface는 직사각형을 유지한다.
-- 모든 일반 상호작용 대상은 최소 48 dp다. Extra key는 기본 높이 48 dp를 사용하되 사용자 설정에 따라 최소 32 dp까지 줄일 수 있다. 세션 탭은 밀도를 위해 시각적 높이 40 dp를 사용하며 앱 바의 위아래 여백 안으로 확장되는 터치 영역을 사용한다.
+- 모든 일반 상호작용 대상은 최소 48 dp다. Extra key는 고정 높이 40 dp를 사용하며, 툴바 핸들 영역은 24 dp로 압축한다. 세션 탭은 밀도를 위해 시각적 높이 40 dp를 사용하며 앱 바의 위아래 여백 안으로 확장되는 터치 영역을 사용한다.
 - 아이콘 버튼에는 동작을 설명하는 content description을 제공한다. 장식 아이콘에는 중복 설명을 제공하지 않는다.
 - 화면 전환에 별도 View transition을 강제하지 않는다. Compose 및 플랫폼의 애니메이터 배율을 따르는 표준 컴포넌트 상태 변화만 사용한다.
 
@@ -77,6 +77,7 @@ Expressive motion scheme의 spatial/effects spec으로 세로 크기·위치·�
 터미널 하단은 비모달 BottomSheet 툴바다. 드래그 핸들의 세 앵커는 확장·기본·숨김이며,
 숨김에도 48 dp 터치 영역과 핸들은 남는다. 기본 높이는 최대 192 dp, 확장은 가용
 영역의 60%(최대 480 dp)로 제한하고 IME 및 탐색 표시줄 inset을 반영한다.
+핸들 영역은 높이 24 dp이며 숨김 상태도 같은 높이를 사용한다. 기본 높이는 168 dp를 상한으로 가용 공간에 맞춘다.
 핸들 드래그·탭·접근성 동작으로 상태를 바꾸며 Expressive motion spec으로 이동한다.
 세로 드래그는 핸들에만 적용하여 도구의 세로 스크롤과 분리한다. 기본·확장 상태에서
 HorizontalPager로 도구를 좌우 전환한다. 페이지 이동 중에는 드래그 핸들 위치에 알약 모양의
