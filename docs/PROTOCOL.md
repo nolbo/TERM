@@ -358,9 +358,17 @@ Replay ignores presentation barriers; reset and resize release them. See
 `IRuntimeService.getSessionMemoryJson()` is an app-private, read-only measurement RPC.
 It verifies the calling UID and host UI process, as the host-tool input APIs do.
 The JSON has `totalBytes`, `availableBytes` (Android ActivityManager memory info),
-and `sessions` (session ID to estimated RSS bytes, or null when unavailable).
+`sessions` (session ID to estimated RSS bytes, or null when unavailable), and
+`runtimeAppMemory` (runtime service process memory, or null). The latter contains
+`total` (PSS bytes), `java-heap`, `native-heap`, `code`, `stack`, `graphics`,
+`private-other`, and `system` (Android Debug.MemoryInfo summary values converted
+from KiB to bytes; unsupported areas are null). The UI measures its own process
+and sums corresponding values into the local `appMemory` model. Both process
+snapshots are required for an app total; session/guest RSS is not added to PSS.
+No PID or host path is exposed by this extension.
 Missing IDs, including AVF sessions, are unavailable rather than zero. The UI
-calls off its main thread and only polls while the memory tool is visible and active.
+calls off its main thread and only polls while the memory tool is visible, active,
+and at least one device/app/session display section is enabled.
 
 Native and Rootless PTY owners capture PID/start-time identities at creation. The
 registry samples at most 8,192 readable proc entries and aggregates descendants

@@ -191,4 +191,14 @@
     <string name="toolbar_command_text">Commands</string>
     <string name="toolbar_command_delete">Delete command set</string>
     <string name="toolbar_page_position">Tool %1$d of %2$d</string>
+    <string name="toolbar_memory_app">App memory · PSS</string>
+    <string name="toolbar_memory_java">Java heap</string>
+    <string name="toolbar_memory_native">Native heap</string>
+    <string name="toolbar_memory_code">Code and resources</string>
+    <string name="toolbar_memory_stack">Stack</string>
+    <string name="toolbar_memory_graphics">Graphics</string>
+    <string name="toolbar_memory_other">Other private memory</string>
+    <string name="toolbar_memory_shared">Shared and system</string>
+    <string name="toolbar_memory_none">Enable memory sections in tool settings.</string>
+    <string name="toolbar_memory_app_caveat">App memory sums PSS for the UI and runtime service processes. Shell and guest memory is shown separately under sessions. Areas follow Android memory categories; process samples may be taken at different times.</string>
 </resources>

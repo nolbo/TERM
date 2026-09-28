@@ -178,6 +178,7 @@ class VmRuntimeService : Service() {
             (getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager).getMemoryInfo(info)
             val measured = (sessionClient as? UnifiedSessionRegistry)?.sessionMemory().orEmpty()
             return JSONObject().put("totalBytes", info.totalMem).put("availableBytes", info.availMem)
+                .put("runtimeAppMemory", dev.terminal.runtime.session.currentAppProcessMemory() ?: JSONObject.NULL)
                 .put("sessions", JSONObject().apply {
                     measured.forEach { (id, bytes) -> put(id, bytes ?: JSONObject.NULL) }
                 }).toString()

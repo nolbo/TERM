@@ -436,4 +436,14 @@
     <string name="toolbar_command_text">명령</string>
     <string name="toolbar_command_delete">명령어셋 삭제</string>
     <string name="toolbar_page_position">도구 %2$d개 중 %1$d번째</string>
+    <string name="toolbar_memory_app">앱 사용 메모리 · PSS</string>
+    <string name="toolbar_memory_java">Java 힙</string>
+    <string name="toolbar_memory_native">네이티브 힙</string>
+    <string name="toolbar_memory_code">코드 및 리소스</string>
+    <string name="toolbar_memory_stack">스택</string>
+    <string name="toolbar_memory_graphics">그래픽</string>
+    <string name="toolbar_memory_other">기타 전용 메모리</string>
+    <string name="toolbar_memory_shared">공유 및 시스템</string>
+    <string name="toolbar_memory_none">표시할 메모리 항목을 도구 설정에서 켜세요.</string>
+    <string name="toolbar_memory_app_caveat">앱 메모리는 UI와 런타임 서비스 프로세스의 PSS 합계입니다. 셸·게스트 메모리는 세션 항목에서 별도로 표시합니다. 세부 영역은 Android의 앱 메모리 분류이며 서로 다른 시점에 측정될 수 있습니다.</string>
 </resources>

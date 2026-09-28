@@ -30,13 +30,13 @@ import org.json.JSONObject
 
 @Composable
 internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refreshSeconds: Int,
-    onSelectSession: (String) -> Unit, load: suspend () -> String?) {
+    onSelectSession: (String) -> Unit, sections: MemoryToolSections = MemoryToolSections(), load: suspend () -> String?) {
     var snapshot by remember { mutableStateOf<JSONObject?>(null) }
     var failed by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     val loader by rememberUpdatedState(load)
-    LaunchedEffect(active, refresh, refreshSeconds) {
-        if (!active) return@LaunchedEffect
+    LaunchedEffect(active, refresh, refreshSeconds, sections) {
+        if (!active || !sections.any) return@LaunchedEffect
         while (isActive) {
             val result = withContext(Dispatchers.IO) { runCatching { loader()?.let(::JSONObject) }.getOrNull() }
             snapshot = result
@@ -49,8 +49,10 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
     LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         val data = snapshot
-        if (data != null) {
-            item {
+        if (!sections.any) {
+            item { Text(stringResource(R.string.toolbar_memory_none), style = MaterialTheme.typography.bodySmall) }
+        } else if (data != null) {
+            if (sections.device) item {
                 val total = data.optLong("totalBytes").coerceAtLeast(0)
                 val available = data.optLong("availableBytes").coerceIn(0, total)
                 val used = total - available
@@ -70,6 +72,42 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
                             }
                         }
                         if (total > 0) LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+            if (sections.app) {
+                val app = data.optJSONObject("appMemory")
+                item {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.toolbar_memory_app), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                        Text(app?.optLong("total", -1)?.takeIf { it >= 0 }?.let(::memorySize)
+                            ?: stringResource(R.string.toolbar_unavailable), style = MaterialTheme.typography.labelLarge)
+                        if (!sections.device) IconButton(onClick = { refresh++ }, enabled = active) {
+                            Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), stringResource(R.string.toolbar_refresh))
+                        }
+                    }
+                }
+                if (app != null) items(appMemoryAreas) { (key, title) ->
+                    val amount = app.optLong(key, -1)
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(Modifier.fillMaxWidth()) {
+                            Text(stringResource(title), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                            Text(if (amount >= 0) memorySize(amount) else stringResource(R.string.toolbar_unavailable),
+                                style = MaterialTheme.typography.labelSmall)
+                        }
+                        val total = app.optLong("total", -1)
+                        if (amount >= 0 && total > 0) LinearProgressIndicator(
+                            progress = { (amount.toDouble() / total).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
+                    }
+                }
+            }
+            if (sections.sessions) {
+            item {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.toolbar_memory_sessions), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                    if (!sections.device && !sections.app) IconButton(onClick = { refresh++ }, enabled = active) {
+                        Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), stringResource(R.string.toolbar_refresh))
                     }
                 }
             }
@@ -95,6 +133,7 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
                         style = MaterialTheme.typography.bodyMedium)
                 }
             }
+            }
         } else item {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(stringResource(if (failed) R.string.toolbar_unavailable else R.string.toolbar_loading),
@@ -107,6 +146,13 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
     }
     }
 }
+
+private val appMemoryAreas = listOf(
+    "java-heap" to R.string.toolbar_memory_java, "native-heap" to R.string.toolbar_memory_native,
+    "code" to R.string.toolbar_memory_code, "stack" to R.string.toolbar_memory_stack,
+    "graphics" to R.string.toolbar_memory_graphics, "private-other" to R.string.toolbar_memory_other,
+    "system" to R.string.toolbar_memory_shared,
+)
 
 private fun memorySize(bytes: Long) = String.format(java.util.Locale.getDefault(), "%.1f MiB", bytes / 1048576.0)
 
@@ -154,6 +200,7 @@ private fun ToolbarSendDialog(text: String, target: String, onDismiss: () -> Uni
 internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences, onBack: () -> Unit) {
     val tool = toolbarTools.first { it.settings == screen }
     var refresh by remember { mutableIntStateOf(preferences.getInt("toolbar-memory-interval", 5)) }
+    var memorySections by remember { mutableStateOf(readMemoryToolSections(preferences)) }
     var commands by remember { mutableStateOf(readToolbarCommands(preferences)) }
     var editId by rememberSaveable { mutableStateOf<String?>(null) }
     var name by rememberSaveable { mutableStateOf("") }
@@ -169,12 +216,25 @@ internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences,
             when (tool.id) {
                 MEMORY_TOOL -> {
                     Card(shape = MaterialTheme.shapes.extraLarge) {
+                        listOf(Triple(KEY_MEMORY_DEVICE, R.string.toolbar_memory_device, memorySections.device),
+                            Triple(KEY_MEMORY_APP, R.string.toolbar_memory_app, memorySections.app),
+                            Triple(KEY_MEMORY_SESSIONS, R.string.toolbar_memory_sessions, memorySections.sessions)).forEach { (key, title, checked) ->
+                            ListItem(onClick = {
+                                preferences.edit().putBoolean(key, !checked).apply()
+                                memorySections = readMemoryToolSections(preferences)
+                            }, trailingContent = { Switch(checked, onCheckedChange = null) }, shapes = terminalListItemShapes()) {
+                                Text(stringResource(title))
+                            }
+                        }
+                    }
+                    Card(shape = MaterialTheme.shapes.extraLarge) {
                         SettingsChoiceRow(stringResource(R.string.toolbar_memory_interval), null,
                             listOf(2, 5, 10, 30).map { SettingsChoice(stringResource(R.string.toolbar_seconds, it), it.toString()) },
                             refresh.toString()) {
                             refresh = it.toInt(); preferences.edit().putInt("toolbar-memory-interval", refresh).apply()
                         }
                     }
+                    Text(stringResource(R.string.toolbar_memory_app_caveat))
                     Text(stringResource(R.string.toolbar_memory_caveat))
                 }
                 COMMANDS_TOOL -> {

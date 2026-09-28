@@ -178,7 +178,7 @@ class ToolbarUiTest {
                         TerminalToolbar(ToolbarConfig(tools = listOf(MEMORY_TOOL)), ToolbarSheetMode.Default,
                             {}, 240.dp, TerminalChromeColors(Color.Black)) { _, active ->
                             ToolbarMemoryTool(active, listOf(SessionUi("one", "NATIVE", "Visible session", "RUNNING")),
-                                30, {}) { """{"totalBytes":1048576,"availableBytes":524288,"sessions":{"one":1024}}""" }
+                                30, {}, sections = MemoryToolSections(app = false)) { """{"totalBytes":1048576,"availableBytes":524288,"sessions":{"one":1024}}""" }
                         }
                     }
                 } }
@@ -198,6 +198,55 @@ class ToolbarUiTest {
             while (!row.isClickable && row.parent != null) row = row.parent
             assertTrue(row.isClickable)
             assertTrue("Session row is fully reachable by scrolling", bounds(row).height() >= 48 * density)
+        }
+    }
+
+    @Test fun memorySectionsSettingsPersistIndependently() {
+        val prefs = context.getSharedPreferences("memory-section-test", 0)
+        prefs.edit().clear().commit()
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity -> activity.setContent {
+                    DroidTheme { TerminalHapticFeedbackProvider { ToolbarToolSettings("toolbar-memory", prefs, {}) } }
+                } }
+                settle()
+                assertEquals(MemoryToolSections(), readMemoryToolSections(prefs))
+                click(text(label(R.string.toolbar_memory_device)))
+                assertEquals(MemoryToolSections(device = false), readMemoryToolSections(prefs))
+                click(text(label(R.string.toolbar_memory_app)))
+                click(text(label(R.string.toolbar_memory_sessions)))
+                assertFalse(readMemoryToolSections(prefs).any)
+                scenario.recreate()
+                settle()
+                assertFalse(readMemoryToolSections(prefs).any)
+            }
+        } finally { prefs.edit().clear().commit() }
+    }
+
+    @Test fun appMemoryDetailsCanBeShownWithoutDeviceOrSessions() {
+        val sections = mutableStateOf(MemoryToolSections(device = false, sessions = false))
+        val loads = java.util.concurrent.atomic.AtomicInteger()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    ToolbarMemoryTool(true, listOf(SessionUi("one", "NATIVE", "Hidden session", "RUNNING")),
+                        2, {}, sections = sections.value) {
+                        loads.incrementAndGet()
+                        """{"appMemory":{"total":1048576,"java-heap":524288,"native-heap":262144,"code":65536,"stack":65536,"graphics":0,"private-other":0,"system":131072}}"""
+                    }
+                } }
+            } }
+            settle()
+            text(label(R.string.toolbar_memory_app))
+            text(label(R.string.toolbar_memory_java))
+            text(label(R.string.toolbar_memory_shared))
+            assertNull(find { it.text?.toString() == "Hidden session" })
+            scenario.onActivity { sections.value = MemoryToolSections(false, false, false) }
+            settle()
+            text(label(R.string.toolbar_memory_none))
+            val count = loads.get()
+            SystemClock.sleep(2200)
+            assertEquals(count, loads.get())
         }
     }
 
