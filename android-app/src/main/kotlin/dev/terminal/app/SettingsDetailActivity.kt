@@ -590,11 +590,6 @@ class SettingsDetailActivity : TerminalActivity() {
                         .putExtra(EXTRA_CATEGORY, TOOLBAR))
                 }
                 SettingsDivider()
-                ActionSetting(R.string.settings_hotkeys_title, R.string.settings_hotkeys_summary) {
-                    startActivity(Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
-                        .putExtra(EXTRA_CATEGORY, HOTKEYS))
-                }
-                SettingsDivider()
                 ActionSetting(R.string.settings_appearance_title, R.string.settings_appearance_summary) {
                     startActivity(Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
                         .putExtra(EXTRA_CATEGORY, APPEARANCE))
