@@ -2,8 +2,8 @@
 
 package dev.terminal.app.ui
 
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.*
@@ -12,7 +12,6 @@ import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -21,6 +20,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
@@ -109,27 +113,9 @@ internal fun TerminalToolbar(
                             CustomAccessibilityAction(hideLabel) { settle(ToolbarSheetMode.Hidden); true },
                         )
                     }, contentAlignment = Alignment.Center) {
-                    val showPages = tools.size > 1 && pager.isScrollInProgress && height > hidden
-                    val effects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
-                    androidx.compose.animation.AnimatedVisibility(visible = !showPages,
-                        enter = fadeIn(effects), exit = fadeOut(effects)) {
-                        Box(Modifier.size(32.dp, 4.dp).background(colors.divider, RoundedCornerShape(2.dp)))
-                    }
-                    androidx.compose.animation.AnimatedVisibility(visible = showPages,
-                        enter = fadeIn(effects), exit = fadeOut(effects)) {
-                        val pageLabel = stringResource(R.string.toolbar_page_position, pager.currentPage + 1, tools.size)
-                        Row(Modifier.background(colors.container, CircleShape)
-                            .padding(horizontal = 12.dp, vertical = 8.dp)
-                            .semantics { contentDescription = pageLabel },
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically) {
-                            tools.forEachIndexed { index, _ ->
-                                Box(Modifier.size(6.dp).background(
-                                    if (index == pager.currentPage) colors.accent else colors.onContainer.copy(alpha = 0.4f),
-                                    CircleShape))
-                            }
-                        }
-                    }
+                    ToolbarPageHandle(pager, tools.size,
+                        visible = tools.size > 1 && pager.isScrollInProgress && height > hidden,
+                        colors = colors)
                 }
                 if (height > hidden) {
                     if (config.tools.isEmpty()) {
@@ -143,6 +129,45 @@ internal fun TerminalToolbar(
                 }
             }
         }
+    }
+}
+
+/** Morph in the existing handle slot so page feedback never resizes or covers content. */
+@Composable
+private fun ToolbarPageHandle(pager: PagerState, count: Int, visible: Boolean, colors: TerminalChromeColors) {
+    val spread by animateFloatAsState(if (visible) 1f else 0f,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(), label = "toolbarDotSpread")
+    val opacity by animateFloatAsState(if (visible) 1f else 0f,
+        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(), label = "toolbarDotOpacity")
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val pageLabel = stringResource(R.string.toolbar_page_position, pager.currentPage + 1, count)
+    Canvas(Modifier.size(width = maxOf(32, (count - 1) * 12 + 6).dp, height = 16.dp)
+        .semantics { if (visible) contentDescription = pageLabel }) {
+        val progress = spread.coerceIn(0f, 1.15f)
+        val alpha = opacity.coerceIn(0f, 1f)
+        val handleWidth = (32f - 20f * progress.coerceAtMost(1f)).dp.toPx()
+        drawRoundRect(colors.divider.copy(alpha = 1f - alpha),
+            topLeft = Offset(center.x - handleWidth / 2, center.y - 2.dp.toPx()),
+            size = Size(handleWidth, 4.dp.toPx()), cornerRadius = CornerRadius(2.dp.toPx()))
+        if (count < 2 || alpha <= 0f) return@Canvas
+        val spacing = 12.dp.toPx() * progress
+        val radius = (2f + progress.coerceAtMost(1f)).dp.toPx()
+        fun position(index: Float): Float = center.x +
+            (index - (count - 1) / 2f) * spacing * if (rtl) -1f else 1f
+        repeat(count) { index ->
+            drawCircle(colors.foreground.copy(alpha = 0.4f * alpha), radius,
+                center = Offset(position(index.toFloat()), center.y))
+        }
+        // Follow the finger directly; different leading/trailing curves stretch the selected dot.
+        val page = (pager.currentPage + pager.currentPageOffsetFraction).coerceIn(0f, (count - 1).toFloat())
+        val start = kotlin.math.floor(page)
+        val fraction = page - start
+        val tail = position(start + fraction * fraction)
+        val head = position(start + 1f - (1f - fraction) * (1f - fraction))
+        drawRoundRect(colors.accent.copy(alpha = alpha),
+            topLeft = Offset(minOf(tail, head) - radius, center.y - radius),
+            size = Size(kotlin.math.abs(head - tail) + radius * 2, radius * 2),
+            cornerRadius = CornerRadius(radius))
     }
 }
 
