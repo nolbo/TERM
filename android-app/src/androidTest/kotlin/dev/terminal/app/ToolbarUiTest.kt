@@ -288,7 +288,9 @@ class ToolbarUiTest {
                 } } }
             }
             settle()
-            click(text(label(R.string.toolbar_send)))
+            // A compact preview is available before opening the full confirmation.
+            text("echo first\necho second")
+            click(text("Sample"))
             text("echo first\necho second")
             text(context.getString(R.string.toolbar_send_target, "Test session"))
             assertNull(sent)

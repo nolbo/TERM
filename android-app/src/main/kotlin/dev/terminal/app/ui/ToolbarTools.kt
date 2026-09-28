@@ -161,20 +161,34 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
     onSettings: () -> Unit, onSend: (String, Boolean) -> Unit) {
     var pending by remember { mutableStateOf<ToolbarCommand?>(null) }
     LaunchedEffect(active) { if (!active) pending = null }
-    val scroll = rememberScrollState()
+    val scroll = rememberLazyListState()
     ToolbarScrollEdges(scroll.canScrollBackward, scroll.canScrollForward, Modifier.fillMaxSize()) {
-    Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 8.dp, vertical = 4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        if (commands.isEmpty()) Text(stringResource(R.string.toolbar_commands_empty))
-        commands.forEach { command ->
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
-                Text(command.name, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                OutlinedButton(onClick = { pending = command }, enabled = active) { Text(stringResource(R.string.toolbar_send)) }
+        LazyColumn(Modifier.fillMaxSize(), state = scroll,
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (commands.isEmpty()) item {
+                Text(stringResource(R.string.toolbar_commands_empty), Modifier.padding(8.dp),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            items(commands, key = { it.id }) { command ->
+                ListItem(onClick = { pending = command }, enabled = active,
+                    shapes = terminalListItemShapes(),
+                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    supportingContent = {
+                        Text(command.text, fontFamily = FontFamily.Monospace,
+                            style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    },
+                    trailingContent = {
+                        Text(stringResource(R.string.toolbar_send), style = MaterialTheme.typography.labelMedium)
+                    }, verticalAlignment = Alignment.CenterVertically) {
+                    Text(command.name, style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            item {
+                TextButton(onClick = onSettings, enabled = active) { Text(stringResource(R.string.toolbar_commands_edit)) }
             }
         }
-        TextButton(onClick = onSettings, enabled = active) { Text(stringResource(R.string.toolbar_commands_edit)) }
-    }
     }
     pending?.takeIf { active }?.let { command ->
         ToolbarSendDialog(command.text, target, { pending = null }) {
@@ -241,7 +255,8 @@ internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences,
                     Text(stringResource(R.string.toolbar_commands_description))
                     commands.forEach { command ->
                         ListItem(onClick = { editId = command.id; name = command.name; text = command.text },
-                            supportingContent = { Text(command.text, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis) },
+                            supportingContent = { Text(command.text, fontFamily = FontFamily.Monospace,
+                                style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                             trailingContent = { IconButton(onClick = { deleteId = command.id }) {
                                 Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_material_symbol_delete_24),
                                     stringResource(R.string.toolbar_remove, command.name))
@@ -260,6 +275,7 @@ internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences,
             text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 OutlinedTextField(name, { if (it.length <= 60) name = it }, label = { Text(stringResource(R.string.toolbar_command_name)) }, singleLine = true)
                 OutlinedTextField(text, { if (it.length <= MAX_TOOLBAR_TEXT) text = it }, label = { Text(stringResource(R.string.toolbar_command_text)) },
+                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
                     minLines = 3, maxLines = 8)
                 Text(stringResource(R.string.toolbar_text_limit), style = MaterialTheme.typography.bodySmall)
             } },
