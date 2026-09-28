@@ -193,10 +193,10 @@ internal fun ToolbarScrollEdges(backward: Boolean, forward: Boolean, modifier: M
     background: Color = LocalToolbarBackground.current, content: @Composable () -> Unit) {
     Box(modifier.clipToBounds()) {
         content()
-        if (backward) Spacer(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(12.dp)
-            .background(Brush.verticalGradient(listOf(background, background.copy(alpha = 0f)))))
-        if (forward) Spacer(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(12.dp)
-            .background(Brush.verticalGradient(listOf(background.copy(alpha = 0f), background))))
+        ScrollEdgeFade(backward, Brush.verticalGradient(listOf(background, background.copy(alpha = 0f))),
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().height(12.dp))
+        ScrollEdgeFade(forward, Brush.verticalGradient(listOf(background.copy(alpha = 0f), background)),
+            Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(12.dp))
     }
 }
 

@@ -547,16 +547,14 @@ internal fun TerminalChrome(
                             }
                         }
                     }
-                            // Fade only while more tabs remain beyond the new-session button edge.
-                            if (sessions.isNotEmpty() && tabScrollState.canScrollForward) {
-                            Spacer(
-                                Modifier.align(Alignment.CenterEnd).width(24.dp).fillMaxHeight()
-                                    .background(Brush.horizontalGradient(
-                                        listOf(terminalBackgroundColor.copy(alpha = 0f), terminalBackgroundColor)
-                                            .let { if (layoutDirection == LayoutDirection.Rtl) it.reversed() else it },
-                                    )),
+                            ScrollEdgeFade(
+                                visible = sessions.isNotEmpty() && tabScrollState.canScrollForward,
+                                brush = Brush.horizontalGradient(
+                                    listOf(terminalBackgroundColor.copy(alpha = 0f), terminalBackgroundColor)
+                                        .let { if (layoutDirection == LayoutDirection.Rtl) it.reversed() else it },
+                                ),
+                                modifier = Modifier.align(Alignment.CenterEnd).width(24.dp).fillMaxHeight(),
                             )
-                            }
                 }
                 Box {
                 IconButton(onClick = onNew, shapes = IconButtonDefaults.shapes()) {
