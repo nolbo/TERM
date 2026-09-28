@@ -202,4 +202,6 @@
     <string name="toolbar_memory_none">Enable memory sections in tool settings.</string>
     <string name="toolbar_memory_app_caveat">App memory sums PSS for the UI and runtime service processes. Shell and guest memory is shown separately under sessions. Areas follow Android memory categories; process samples may be taken at different times.</string>
     <string name="toolbar_memory_of_device">%1$s of device %2$s</string>
+    <string name="toolbar_memory_display">Display</string>
+    <string name="toolbar_memory_refresh_section">Automatic refresh</string>
 </resources>

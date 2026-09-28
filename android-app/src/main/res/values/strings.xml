@@ -447,4 +447,6 @@
     <string name="toolbar_memory_none">표시할 메모리 항목을 도구 설정에서 켜세요.</string>
     <string name="toolbar_memory_app_caveat">앱 메모리는 UI와 런타임 서비스 프로세스의 PSS 합계입니다. 셸·게스트 메모리는 세션 항목에서 별도로 표시합니다. 세부 영역은 Android의 앱 메모리 분류이며 서로 다른 시점에 측정될 수 있습니다.</string>
     <string name="toolbar_memory_of_device">기기 %2$s 중 %1$s</string>
+    <string name="toolbar_memory_display">표시 항목</string>
+    <string name="toolbar_memory_refresh_section">자동 갱신</string>
 </resources>

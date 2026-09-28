@@ -16,6 +16,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.toggleableState
+import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
@@ -229,27 +235,40 @@ internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences,
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             when (tool.id) {
                 MEMORY_TOOL -> {
-                    Card(shape = MaterialTheme.shapes.extraLarge) {
-                        listOf(Triple(KEY_MEMORY_DEVICE, R.string.toolbar_memory_device, memorySections.device),
+                    MemorySettingsSection(stringResource(R.string.toolbar_memory_display)) {
+                        val options = listOf(Triple(KEY_MEMORY_DEVICE, R.string.toolbar_memory_device, memorySections.device),
                             Triple(KEY_MEMORY_APP, R.string.toolbar_memory_app, memorySections.app),
-                            Triple(KEY_MEMORY_SESSIONS, R.string.toolbar_memory_sessions, memorySections.sessions)).forEach { (key, title, checked) ->
+                            Triple(KEY_MEMORY_SESSIONS, R.string.toolbar_memory_sessions, memorySections.sessions))
+                        options.forEachIndexed { index, (key, title, checked) ->
+                            if (index > 0) HorizontalDivider(Modifier.padding(horizontal = 16.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant)
                             ListItem(onClick = {
                                 preferences.edit().putBoolean(key, !checked).apply()
                                 memorySections = readMemoryToolSections(preferences)
-                            }, trailingContent = { Switch(checked, onCheckedChange = null) }, shapes = terminalListItemShapes()) {
+                            }, trailingContent = { Switch(checked, onCheckedChange = null) },
+                                modifier = Modifier.fillMaxWidth().semantics {
+                                    role = Role.Switch
+                                    toggleableState = if (checked) ToggleableState.On else ToggleableState.Off
+                                },
+                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes()) {
                                 Text(stringResource(title))
                             }
                         }
                     }
-                    Card(shape = MaterialTheme.shapes.extraLarge) {
+                    MemorySettingsSection(stringResource(R.string.toolbar_memory_refresh_section)) {
                         SettingsChoiceRow(stringResource(R.string.toolbar_memory_interval), null,
                             listOf(2, 5, 10, 30).map { SettingsChoice(stringResource(R.string.toolbar_seconds, it), it.toString()) },
                             refresh.toString()) {
                             refresh = it.toInt(); preferences.edit().putInt("toolbar-memory-interval", refresh).apply()
                         }
                     }
-                    Text(stringResource(R.string.toolbar_memory_app_caveat))
-                    Text(stringResource(R.string.toolbar_memory_caveat))
+                    Column(Modifier.padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text(stringResource(R.string.toolbar_memory_app_caveat), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(stringResource(R.string.toolbar_memory_caveat), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
                 }
                 COMMANDS_TOOL -> {
                     Text(stringResource(R.string.toolbar_commands_description))
@@ -290,4 +309,16 @@ internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences,
         text = { Text(commands.firstOrNull { it.id == id }?.name.orEmpty()) },
         confirmButton = { TextButton(onClick = { saveCommands(commands.filterNot { it.id == id }); deleteId = null }) { Text(stringResource(R.string.toolbar_command_delete)) } },
         dismissButton = { TextButton(onClick = { deleteId = null }) { Text(stringResource(R.string.cancel)) } }) }
+}
+
+@Composable
+private fun MemorySettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(Modifier.fillMaxWidth()) {
+        Text(title, Modifier.padding(start = 16.dp, bottom = 8.dp),
+            color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
+        Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge,
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+            Column(content = content)
+        }
+    }
 }
