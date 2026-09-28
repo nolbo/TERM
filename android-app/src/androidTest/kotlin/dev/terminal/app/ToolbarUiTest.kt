@@ -185,7 +185,7 @@ class ToolbarUiTest {
             } }
             settle()
             assertNull(find { it.text?.toString() == label(R.string.toolbar_memory) })
-            description(label(R.string.toolbar_refresh))
+            text(label(R.string.toolbar_memory_device))
             val density = context.resources.displayMetrics.density
             val handleBottom = bounds(handle()).bottom
             val viewport = waitForNode("memory scroll viewport") { it.isScrollable }

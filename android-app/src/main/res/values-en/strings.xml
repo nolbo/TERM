@@ -169,7 +169,7 @@
     <string name="toolbar_commands">Command sets</string>
     <string name="toolbar_memory_device">Device memory</string>
     <string name="toolbar_memory_available">Available: %1$s</string>
-    <string name="toolbar_memory_sessions">Memory by session · RSS</string>
+    <string name="toolbar_memory_sessions">Session memory</string>
     <string name="toolbar_memory_no_sessions">No active sessions.</string>
     <string name="toolbar_memory_total">Device: %1$s / %2$s used</string>
     <string name="toolbar_memory_caveat">Session values estimate RSS for readable shell processes and descendants. Shared pages may be counted more than once; detached daemons may be omitted. AVF and restricted sessions are unavailable.</string>
@@ -191,7 +191,7 @@
     <string name="toolbar_command_text">Commands</string>
     <string name="toolbar_command_delete">Delete command set</string>
     <string name="toolbar_page_position">Tool %1$d of %2$d</string>
-    <string name="toolbar_memory_app">App memory · PSS</string>
+    <string name="toolbar_memory_app">App memory</string>
     <string name="toolbar_memory_java">Java heap</string>
     <string name="toolbar_memory_native">Native heap</string>
     <string name="toolbar_memory_code">Code and resources</string>
@@ -201,4 +201,5 @@
     <string name="toolbar_memory_shared">Shared and system</string>
     <string name="toolbar_memory_none">Enable memory sections in tool settings.</string>
     <string name="toolbar_memory_app_caveat">App memory sums PSS for the UI and runtime service processes. Shell and guest memory is shown separately under sessions. Areas follow Android memory categories; process samples may be taken at different times.</string>
+    <string name="toolbar_memory_of_device">%1$s of device %2$s</string>
 </resources>

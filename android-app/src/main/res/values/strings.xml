@@ -414,7 +414,7 @@
     <string name="toolbar_commands">명령어셋</string>
     <string name="toolbar_memory_device">기기 전체</string>
     <string name="toolbar_memory_available">사용 가능: %1$s</string>
-    <string name="toolbar_memory_sessions">세션별 사용량 · RSS</string>
+    <string name="toolbar_memory_sessions">세션 메모리</string>
     <string name="toolbar_memory_no_sessions">실행 중인 세션이 없습니다.</string>
     <string name="toolbar_memory_total">기기 전체: %1$s / %2$s 사용</string>
     <string name="toolbar_memory_caveat">세션 수치는 접근 가능한 셸과 하위 프로세스의 RSS 추정 합계입니다. 공유 페이지는 중복될 수 있으며 분리된 데몬은 빠질 수 있습니다. AVF 또는 접근이 제한된 세션은 측정 불가로 표시합니다.</string>
@@ -436,7 +436,7 @@
     <string name="toolbar_command_text">명령</string>
     <string name="toolbar_command_delete">명령어셋 삭제</string>
     <string name="toolbar_page_position">도구 %2$d개 중 %1$d번째</string>
-    <string name="toolbar_memory_app">앱 사용 메모리 · PSS</string>
+    <string name="toolbar_memory_app">앱 메모리</string>
     <string name="toolbar_memory_java">Java 힙</string>
     <string name="toolbar_memory_native">네이티브 힙</string>
     <string name="toolbar_memory_code">코드 및 리소스</string>
@@ -446,4 +446,5 @@
     <string name="toolbar_memory_shared">공유 및 시스템</string>
     <string name="toolbar_memory_none">표시할 메모리 항목을 도구 설정에서 켜세요.</string>
     <string name="toolbar_memory_app_caveat">앱 메모리는 UI와 런타임 서비스 프로세스의 PSS 합계입니다. 셸·게스트 메모리는 세션 항목에서 별도로 표시합니다. 세부 영역은 Android의 앱 메모리 분류이며 서로 다른 시점에 측정될 수 있습니다.</string>
+    <string name="toolbar_memory_of_device">기기 %2$s 중 %1$s</string>
 </resources>

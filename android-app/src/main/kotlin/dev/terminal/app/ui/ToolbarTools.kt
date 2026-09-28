@@ -53,63 +53,43 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
             item { Text(stringResource(R.string.toolbar_memory_none), style = MaterialTheme.typography.bodySmall) }
         } else if (data != null) {
             if (sections.device) item {
-                val total = data.optLong("totalBytes").coerceAtLeast(0)
-                val available = data.optLong("availableBytes").coerceIn(0, total)
-                val used = total - available
-                val fraction = if (total > 0) (used.toDouble() / total).toFloat() else 0f
+                val total = data.optLong("totalBytes", -1)
+                val used = if (total > 0) total - data.optLong("availableBytes").coerceIn(0, total) else -1
                 Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer) {
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Column(Modifier.weight(1f)) {
-                                Text(if (total > 0) java.text.NumberFormat.getPercentInstance().format(fraction)
-                                    else stringResource(R.string.toolbar_unavailable), style = MaterialTheme.typography.titleMedium)
-                                if (total > 0) Text(stringResource(R.string.toolbar_memory_total, memorySize(used), memorySize(total)),
-                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            IconButton(onClick = { refresh++ }, enabled = active) {
-                                Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), stringResource(R.string.toolbar_refresh))
-                            }
-                        }
-                        if (total > 0) LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
+                    Column(Modifier.fillMaxWidth().padding(12.dp)) {
+                        MemoryUsageSummary(stringResource(R.string.toolbar_memory_device), used, total)
                     }
                 }
             }
-            if (sections.app) {
+            if (sections.app) item {
                 val app = data.optJSONObject("appMemory")
-                item {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Text(stringResource(R.string.toolbar_memory_app), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                        Text(app?.optLong("total", -1)?.takeIf { it >= 0 }?.let(::memorySize)
-                            ?: stringResource(R.string.toolbar_unavailable), style = MaterialTheme.typography.labelLarge)
-                        if (!sections.device) IconButton(onClick = { refresh++ }, enabled = active) {
-                            Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), stringResource(R.string.toolbar_refresh))
+                val appTotal = app?.optLong("total", -1) ?: -1
+                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer) {
+                    Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        MemoryUsageSummary(stringResource(R.string.toolbar_memory_app), appTotal, data.optLong("totalBytes", -1))
+                        if (app != null) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            appMemoryAreas.forEach { (key, title) ->
+                                val amount = app.optLong(key, -1)
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Row(Modifier.fillMaxWidth()) {
+                                        Text(stringResource(title), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                                        Text(if (amount >= 0) memorySize(amount) else stringResource(R.string.toolbar_unavailable),
+                                            style = MaterialTheme.typography.labelSmall)
+                                    }
+                                    if (amount >= 0 && appTotal > 0) LinearProgressIndicator(
+                                        progress = { (amount.toDouble() / appTotal).toFloat().coerceIn(0f, 1f) },
+                                        modifier = Modifier.fillMaxWidth())
+                                }
+                            }
                         }
-                    }
-                }
-                if (app != null) items(appMemoryAreas) { (key, title) ->
-                    val amount = app.optLong(key, -1)
-                    Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 4.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Row(Modifier.fillMaxWidth()) {
-                            Text(stringResource(title), Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
-                            Text(if (amount >= 0) memorySize(amount) else stringResource(R.string.toolbar_unavailable),
-                                style = MaterialTheme.typography.labelSmall)
-                        }
-                        val total = app.optLong("total", -1)
-                        if (amount >= 0 && total > 0) LinearProgressIndicator(
-                            progress = { (amount.toDouble() / total).toFloat().coerceIn(0f, 1f) }, modifier = Modifier.fillMaxWidth())
                     }
                 }
             }
             if (sections.sessions) {
             item {
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                    Text(stringResource(R.string.toolbar_memory_sessions), Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                    if (!sections.device && !sections.app) IconButton(onClick = { refresh++ }, enabled = active) {
-                        Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), stringResource(R.string.toolbar_refresh))
-                    }
-                }
+                Text(stringResource(R.string.toolbar_memory_sessions), Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
+                    style = MaterialTheme.typography.labelLarge)
             }
             if (sessions.isEmpty()) item {
                 Text(stringResource(R.string.toolbar_memory_no_sessions), style = MaterialTheme.typography.bodySmall)
@@ -135,15 +115,35 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
             }
             }
         } else item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(stringResource(if (failed) R.string.toolbar_unavailable else R.string.toolbar_loading),
-                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+            Text(stringResource(if (failed) R.string.toolbar_unavailable else R.string.toolbar_loading),
+                style = MaterialTheme.typography.bodySmall)
+        }
+        if (sections.any) item {
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
                 IconButton(onClick = { refresh++ }, enabled = active) {
                     Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), stringResource(R.string.toolbar_refresh))
                 }
             }
         }
     }
+    }
+}
+
+@Composable
+private fun MemoryUsageSummary(title: String, used: Long, total: Long) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+            Text(if (used >= 0) memorySize(used) else stringResource(R.string.toolbar_unavailable),
+                style = MaterialTheme.typography.labelLarge)
+        }
+        if (used >= 0 && total > 0) {
+            val ratio = (used.toDouble() / total).toFloat().coerceIn(0f, 1f)
+            LinearProgressIndicator(progress = { ratio }, modifier = Modifier.fillMaxWidth())
+            Text(stringResource(R.string.toolbar_memory_of_device,
+                java.text.NumberFormat.getPercentInstance().apply { maximumFractionDigits = 1 }.format(ratio), memorySize(total)),
+                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
