@@ -169,6 +169,33 @@ class ToolbarUiTest {
         }
     }
 
+    @Test fun defaultMemoryToolbarShowsSummaryAndCompleteSessionRowWithoutTitle() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Column(Modifier.fillMaxSize()) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(ToolbarConfig(tools = listOf(MEMORY_TOOL)), ToolbarSheetMode.Default,
+                            {}, 240.dp, TerminalChromeColors(Color.Black)) { _, active ->
+                            ToolbarMemoryTool(active, listOf(SessionUi("one", "NATIVE", "Visible session", "RUNNING")),
+                                30, {}) { """{"totalBytes":1048576,"availableBytes":524288,"sessions":{"one":1024}}""" }
+                        }
+                    }
+                } }
+            } }
+            settle()
+            assertNull(find { it.text?.toString() == label(R.string.toolbar_memory) })
+            val session = text("Visible session")
+            var row = session
+            while (!row.isClickable && row.parent != null) row = row.parent
+            assertTrue(row.isClickable)
+            val density = context.resources.displayMetrics.density
+            assertTrue("Session row must be fully visible", bounds(row).height() >= 48 * density)
+            assertTrue(bounds(row).bottom <= bounds(handle()).bottom + 144 * density + 1)
+            description(label(R.string.toolbar_refresh))
+        }
+    }
+
     @Test fun memoryRowsSelectSessionAndDisableWhenInactive() {
         var selected: String? = null
         val active = mutableStateOf(true)

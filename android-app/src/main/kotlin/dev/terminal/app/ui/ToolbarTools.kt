@@ -15,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -42,15 +43,8 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
             delay(refreshSeconds.coerceIn(2, 30) * 1000L)
         }
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        item {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween) {
-                Text(stringResource(R.string.toolbar_memory), style = MaterialTheme.typography.titleSmall)
-                TextButton(onClick = { refresh++ }, enabled = active) { Text(stringResource(R.string.toolbar_refresh)) }
-            }
-        }
+    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)) {
         val data = snapshot
         if (data != null) {
             item {
@@ -59,26 +53,22 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
                 val used = total - available
                 val fraction = if (total > 0) (used.toDouble() / total).toFloat() else 0f
                 Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer) {
-                    Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(stringResource(R.string.toolbar_memory_device), Modifier.weight(1f),
-                                style = MaterialTheme.typography.labelLarge)
-                            Text(if (total > 0) java.text.NumberFormat.getPercentInstance().format(fraction)
-                                else stringResource(R.string.toolbar_unavailable), style = MaterialTheme.typography.titleLarge)
+                            Column(Modifier.weight(1f)) {
+                                Text(if (total > 0) java.text.NumberFormat.getPercentInstance().format(fraction)
+                                    else stringResource(R.string.toolbar_unavailable), style = MaterialTheme.typography.titleMedium)
+                                if (total > 0) Text(stringResource(R.string.toolbar_memory_total, memorySize(used), memorySize(total)),
+                                    style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            IconButton(onClick = { refresh++ }, enabled = active) {
+                                Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), stringResource(R.string.toolbar_refresh))
+                            }
                         }
-                        if (total > 0) {
-                            LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
-                            Text(stringResource(R.string.toolbar_memory_total, memorySize(used), memorySize(total)),
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Text(stringResource(R.string.toolbar_memory_available, memorySize(available)),
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
+                        if (total > 0) LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth())
                     }
                 }
-            }
-            item {
-                Text(stringResource(R.string.toolbar_memory_sessions), Modifier.padding(top = 8.dp),
-                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (sessions.isEmpty()) item {
                 Text(stringResource(R.string.toolbar_memory_no_sessions), style = MaterialTheme.typography.bodySmall)
@@ -103,8 +93,13 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
                 }
             }
         } else item {
-            Text(stringResource(if (failed) R.string.toolbar_unavailable else R.string.toolbar_loading),
-                style = MaterialTheme.typography.bodySmall)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(stringResource(if (failed) R.string.toolbar_unavailable else R.string.toolbar_loading),
+                    Modifier.weight(1f), style = MaterialTheme.typography.bodySmall)
+                IconButton(onClick = { refresh++ }, enabled = active) {
+                    Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), stringResource(R.string.toolbar_refresh))
+                }
+            }
         }
     }
 }
@@ -116,9 +111,8 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
     onSettings: () -> Unit, onSend: (String, Boolean) -> Unit) {
     var pending by remember { mutableStateOf<ToolbarCommand?>(null) }
     LaunchedEffect(active) { if (!active) pending = null }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Text(stringResource(R.string.toolbar_commands), style = MaterialTheme.typography.titleSmall)
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (commands.isEmpty()) Text(stringResource(R.string.toolbar_commands_empty))
         commands.forEach { command ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp),
