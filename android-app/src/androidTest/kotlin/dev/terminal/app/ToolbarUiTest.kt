@@ -169,7 +169,7 @@ class ToolbarUiTest {
         }
     }
 
-    @Test fun defaultMemoryToolbarShowsSummaryAndCompleteSessionRowWithoutTitle() {
+    @Test fun defaultMemoryToolbarUsesTwoKeyRowsAndScrollsToSession() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 DroidTheme { TerminalHapticFeedbackProvider {
@@ -185,14 +185,19 @@ class ToolbarUiTest {
             } }
             settle()
             assertNull(find { it.text?.toString() == label(R.string.toolbar_memory) })
+            description(label(R.string.toolbar_refresh))
+            val density = context.resources.displayMetrics.density
+            val handleBottom = bounds(handle()).bottom
+            val viewport = waitForNode("memory scroll viewport") { it.isScrollable }
+            assertEquals(92f * density, bounds(viewport).height().toFloat(), 1f)
+            assertTrue(bounds(viewport).bottom <= handleBottom + 92 * density + 1)
+            val area = bounds(viewport)
+            drag(area.exactCenterX(), area.bottom - 8 * density, 0f, -72 * density)
             val session = text("Visible session")
             var row = session
             while (!row.isClickable && row.parent != null) row = row.parent
             assertTrue(row.isClickable)
-            val density = context.resources.displayMetrics.density
-            assertTrue("Session row must be fully visible", bounds(row).height() >= 48 * density)
-            assertTrue(bounds(row).bottom <= bounds(handle()).bottom + 144 * density + 1)
-            description(label(R.string.toolbar_refresh))
+            assertTrue("Session row is fully reachable by scrolling", bounds(row).height() >= 48 * density)
         }
     }
 

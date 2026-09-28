@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.rememberScrollState
@@ -43,7 +44,9 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
             delay(refreshSeconds.coerceIn(2, 30) * 1000L)
         }
     }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+    val scroll = rememberLazyListState()
+    ToolbarScrollEdges(scroll.canScrollBackward, scroll.canScrollForward, Modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize(), state = scroll, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         val data = snapshot
         if (data != null) {
@@ -102,6 +105,7 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
             }
         }
     }
+    }
 }
 
 private fun memorySize(bytes: Long) = String.format(java.util.Locale.getDefault(), "%.1f MiB", bytes / 1048576.0)
@@ -111,7 +115,9 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
     onSettings: () -> Unit, onSend: (String, Boolean) -> Unit) {
     var pending by remember { mutableStateOf<ToolbarCommand?>(null) }
     LaunchedEffect(active) { if (!active) pending = null }
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 8.dp, vertical = 4.dp),
+    val scroll = rememberScrollState()
+    ToolbarScrollEdges(scroll.canScrollBackward, scroll.canScrollForward, Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = 8.dp, vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)) {
         if (commands.isEmpty()) Text(stringResource(R.string.toolbar_commands_empty))
         commands.forEach { command ->
@@ -122,6 +128,7 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
             }
         }
         TextButton(onClick = onSettings, enabled = active) { Text(stringResource(R.string.toolbar_commands_edit)) }
+    }
     }
     pending?.takeIf { active }?.let { command ->
         ToolbarSendDialog(command.text, target, { pending = null }) {

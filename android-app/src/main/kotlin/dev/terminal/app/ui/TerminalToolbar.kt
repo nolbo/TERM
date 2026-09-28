@@ -20,6 +20,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -34,6 +36,9 @@ import dev.terminal.app.*
 import dev.terminal.app.R
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+
+internal val LocalToolbarBackground = staticCompositionLocalOf { Color.Black }
+internal val ToolbarHotkeyViewportHeight = (HOTKEY_HEIGHT_DP * 2 + 4 + 8).dp
 
 /** Persistent, non-modal bottom sheet with a handle-only hidden anchor. No runtime ownership. */
 @Composable
@@ -64,7 +69,7 @@ internal fun TerminalToolbar(
     val motion = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val hidden = 24.dp
     val expanded = maxHeight.coerceAtLeast(96.dp)
-    val normal = 168.dp.coerceAtMost(expanded)
+    val normal = (hidden + ToolbarHotkeyViewportHeight).coerceAtMost(expanded)
     val anchors = remember(density, expanded, normal) {
         with(density) { DraggableAnchors {
             ToolbarSheetMode.Hidden at -hidden.toPx()
@@ -123,8 +128,10 @@ internal fun TerminalToolbar(
                             Text(stringResource(R.string.toolbar_empty), style = MaterialTheme.typography.bodyMedium)
                         }
                     } else {
-                        ToolbarPages(config.tools, pager, state.settledValue != ToolbarSheetMode.Hidden,
-                            content = content)
+                        CompositionLocalProvider(LocalToolbarBackground provides colors.background) {
+                            ToolbarPages(config.tools, pager, state.settledValue != ToolbarSheetMode.Hidden,
+                                content = content)
+                        }
                     }
                 }
             }
@@ -180,19 +187,35 @@ private fun ColumnScope.ToolbarPages(tools: List<String>, pager: PagerState, int
     }
 }
 
+/** Only fade edges with more content beyond them; overlays never intercept gestures. */
+@Composable
+internal fun ToolbarScrollEdges(backward: Boolean, forward: Boolean, modifier: Modifier = Modifier,
+    background: Color = LocalToolbarBackground.current, content: @Composable () -> Unit) {
+    Box(modifier.clipToBounds()) {
+        content()
+        if (backward) Spacer(Modifier.align(Alignment.TopCenter).fillMaxWidth().height(12.dp)
+            .background(Brush.verticalGradient(listOf(background, background.copy(alpha = 0f)))))
+        if (forward) Spacer(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(12.dp)
+            .background(Brush.verticalGradient(listOf(background.copy(alpha = 0f), background))))
+    }
+}
+
 @Composable
 internal fun ToolbarHotkeys(layout: HotkeyLayout, control: Boolean, alt: Boolean,
     colors: TerminalChromeColors, enabled: Boolean, onKey: (TerminalToolbarKey) -> Unit) {
+    val scroll = rememberScrollState()
     Box(Modifier.fillMaxSize()) {
-        HotkeyGrid(layout = layout, control = control, alt = alt, terminalColors = colors,
-            enabled = enabled,
-            modifier = Modifier.fillMaxWidth().heightIn(max = (HOTKEY_HEIGHT_DP * 2 + 4 + 8).dp)
-                .verticalScroll(rememberScrollState()).padding(4.dp)) { index ->
-            onKey(when (val shortcut = layout.keys[index].shortcut) {
-                "CTRL" -> TerminalToolbarKey.Control
-                "ALT" -> TerminalToolbarKey.Alt
-                else -> TerminalToolbarKey.Shortcut(shortcut)
-            })
+        ToolbarScrollEdges(scroll.canScrollBackward, scroll.canScrollForward,
+            Modifier.fillMaxWidth().heightIn(max = ToolbarHotkeyViewportHeight), colors.background) {
+            HotkeyGrid(layout = layout, control = control, alt = alt, terminalColors = colors,
+                enabled = enabled,
+                modifier = Modifier.fillMaxWidth().verticalScroll(scroll).padding(4.dp)) { index ->
+                onKey(when (val shortcut = layout.keys[index].shortcut) {
+                    "CTRL" -> TerminalToolbarKey.Control
+                    "ALT" -> TerminalToolbarKey.Alt
+                    else -> TerminalToolbarKey.Shortcut(shortcut)
+                })
+            }
         }
     }
 }
