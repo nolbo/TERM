@@ -204,4 +204,5 @@
     <string name="toolbar_memory_of_device">%1$s of device %2$s</string>
     <string name="toolbar_memory_display">Display</string>
     <string name="toolbar_memory_refresh_section">Automatic refresh</string>
+    <string name="toolbar_command_edit_item">Edit %1$s</string>
 </resources>

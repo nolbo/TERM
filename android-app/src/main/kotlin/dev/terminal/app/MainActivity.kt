@@ -546,7 +546,11 @@ class MainActivity : TerminalActivity() {
                                 onSettings = {
                                     startActivity(Intent(this@MainActivity, SettingsDetailActivity::class.java)
                                         .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, "toolbar-commands"))
-                                }, onSend = sendText)
+                                }, onSend = sendText, onEdit = { id ->
+                                    startActivity(Intent(this@MainActivity, SettingsDetailActivity::class.java)
+                                        .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, "toolbar-commands")
+                                        .putExtra("toolbar-command-id", id))
+                                })
                             HOTKEY_TOOL -> ToolbarHotkeys(
                                 layout = hotkeyLayout, control = controlPressed, alt = altPressed,
                                 colors = terminalChromeColors, enabled = toolbarInputActive && interactive,

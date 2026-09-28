@@ -281,13 +281,20 @@ class ToolbarUiTest {
         var sent: Pair<String, Boolean>? = null
         val active = mutableStateOf(true)
         val commands = listOf(ToolbarCommand("sample", "Sample", "echo first\necho second"))
+        var edited: String? = null
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent { DroidTheme { TerminalHapticFeedbackProvider {
-                    ToolbarCommandsTool(commands, active.value, "Test session", {}, { text, execute -> sent = text to execute })
+                    Box(Modifier.padding(top = 32.dp)) {
+                        ToolbarCommandsTool(commands, active.value, "Test session", {}, { text, execute -> sent = text to execute }, { edited = it })
+                    }
                 } } }
             }
             settle()
+            click(description(context.getString(R.string.toolbar_command_edit_item, "Sample")))
+            assertEquals("sample", edited)
+            assertNull(sent)
+            assertNull(find { it.text?.toString() == label(R.string.toolbar_run) })
             // A compact preview is available before opening the full confirmation.
             text("echo first\necho second")
             click(text("Sample"))
@@ -297,7 +304,7 @@ class ToolbarUiTest {
             click(text(label(R.string.toolbar_run)))
             assertEquals(commands.single().text to true, sent)
             scenario.onActivity { sent = null }
-            click(text(label(R.string.toolbar_send)))
+            click(text("Sample"))
             scenario.onActivity { active.value = false }
             settle()
             assertNull(find { it.text?.toString() == label(R.string.toolbar_run) })

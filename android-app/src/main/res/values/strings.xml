@@ -449,4 +449,5 @@
     <string name="toolbar_memory_of_device">기기 %2$s 중 %1$s</string>
     <string name="toolbar_memory_display">표시 항목</string>
     <string name="toolbar_memory_refresh_section">자동 갱신</string>
+    <string name="toolbar_command_edit_item">%1$s 편집</string>
 </resources>

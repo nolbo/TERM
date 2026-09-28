@@ -164,7 +164,7 @@ private fun memorySize(bytes: Long) = String.format(java.util.Locale.getDefault(
 
 @Composable
 internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean, target: String,
-    onSettings: () -> Unit, onSend: (String, Boolean) -> Unit) {
+    onSettings: () -> Unit, onSend: (String, Boolean) -> Unit, onEdit: (String) -> Unit) {
     var pending by remember { mutableStateOf<ToolbarCommand?>(null) }
     LaunchedEffect(active) { if (!active) pending = null }
     val scroll = rememberLazyListState()
@@ -177,18 +177,22 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             items(commands, key = { it.id }) { command ->
-                ListItem(onClick = { pending = command }, enabled = active,
-                    shapes = terminalListItemShapes(),
-                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    supportingContent = {
-                        Text(command.text, fontFamily = FontFamily.Monospace,
-                            style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    },
-                    trailingContent = {
-                        Text(stringResource(R.string.toolbar_send), style = MaterialTheme.typography.labelMedium)
-                    }, verticalAlignment = Alignment.CenterVertically) {
-                    Text(command.name, style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                Surface(onClick = { pending = command }, enabled = active,
+                    shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
+                            Text(command.name, style = MaterialTheme.typography.labelLarge,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(command.text, fontFamily = FontFamily.Monospace,
+                                style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = { onEdit(command.id) }, enabled = active) {
+                            Icon(painterResource(R.drawable.ic_toolbar_edit),
+                                stringResource(R.string.toolbar_command_edit_item, command.name), Modifier.size(20.dp))
+                        }
+                    }
                 }
             }
             item {
@@ -217,14 +221,16 @@ private fun ToolbarSendDialog(text: String, target: String, onDismiss: () -> Uni
 }
 
 @Composable
-internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences, onBack: () -> Unit) {
+internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences, onBack: () -> Unit,
+    initialCommandId: String? = null) {
     val tool = toolbarTools.first { it.settings == screen }
     var refresh by remember { mutableIntStateOf(preferences.getInt("toolbar-memory-interval", 5)) }
     var memorySections by remember { mutableStateOf(readMemoryToolSections(preferences)) }
     var commands by remember { mutableStateOf(readToolbarCommands(preferences)) }
-    var editId by rememberSaveable { mutableStateOf<String?>(null) }
-    var name by rememberSaveable { mutableStateOf("") }
-    var text by rememberSaveable { mutableStateOf("") }
+    val initialCommand = remember(initialCommandId) { commands.firstOrNull { it.id == initialCommandId } }
+    var editId by rememberSaveable { mutableStateOf(initialCommand?.id) }
+    var name by rememberSaveable { mutableStateOf(initialCommand?.name.orEmpty()) }
+    var text by rememberSaveable { mutableStateOf(initialCommand?.text.orEmpty()) }
     var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
     fun saveCommands(value: List<ToolbarCommand>) {
         preferences.edit().putString(KEY_TOOLBAR_COMMANDS, serializeToolbarCommands(value)).apply()
