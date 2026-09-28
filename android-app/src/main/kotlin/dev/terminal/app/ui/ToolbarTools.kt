@@ -28,7 +28,7 @@ import org.json.JSONObject
 
 @Composable
 internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refreshSeconds: Int,
-    load: suspend () -> String?) {
+    onSelectSession: (String) -> Unit, load: suspend () -> String?) {
     var snapshot by remember { mutableStateOf<JSONObject?>(null) }
     var failed by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
@@ -88,6 +88,9 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
                 val bytes = if (values == null || values.isNull(session.id)) null
                     else values.optLong(session.id, -1).takeIf { it >= 0 }
                 ListItem(
+                    onClick = { onSelectSession(session.id) },
+                    enabled = active,
+                    shapes = terminalListItemShapes(),
                     colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
                     trailingContent = {
                         Text(bytes?.let(::memorySize) ?: stringResource(R.string.toolbar_unavailable),
@@ -102,10 +105,6 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
         } else item {
             Text(stringResource(if (failed) R.string.toolbar_unavailable else R.string.toolbar_loading),
                 style = MaterialTheme.typography.bodySmall)
-        }
-        item {
-            Text(stringResource(R.string.toolbar_memory_caveat), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }

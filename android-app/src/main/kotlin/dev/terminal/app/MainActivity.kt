@@ -530,7 +530,8 @@ class MainActivity : TerminalActivity() {
                             }
                         }
                         when (tool) {
-                            MEMORY_TOOL -> ToolbarMemoryTool(active, visibleSessions, toolbarMemoryInterval) {
+                            MEMORY_TOOL -> ToolbarMemoryTool(active, visibleSessions, toolbarMemoryInterval,
+                                onSelectSession = { id -> attach(id); requestTerminalKeyboard() }) {
                                 runtime?.sessionMemoryJson
                             }
                             COMMANDS_TOOL -> ToolbarCommandsTool(toolbarCommands, canSend, selected?.title.orEmpty(),

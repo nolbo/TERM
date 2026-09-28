@@ -139,6 +139,33 @@ class ToolbarUiTest {
         }
     }
 
+    @Test fun memoryRowsSelectSessionAndDisableWhenInactive() {
+        var selected: String? = null
+        val active = mutableStateOf(true)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent { DroidTheme { TerminalHapticFeedbackProvider {
+                    ToolbarMemoryTool(active.value,
+                        listOf(SessionUi("first", "NATIVE", "First session", "RUNNING"),
+                            SessionUi("second", "AVF", "Second session", "RUNNING")), 30,
+                        onSelectSession = { selected = it }) {
+                        """{"totalBytes":1048576,"availableBytes":524288,"sessions":{"first":1024,"second":null}}"""
+                    }
+                } } }
+            }
+            settle()
+            assertNull(find { it.text?.toString() == label(R.string.toolbar_memory_caveat) })
+            click(text("Second session"))
+            assertEquals("second", selected)
+            click(text("First session"))
+            assertEquals("first", selected)
+            scenario.onActivity { active.value = false; selected = null }
+            settle()
+            click(text("Second session"))
+            assertNull(selected)
+        }
+    }
+
     @Test fun commandSendRequiresConfirmationAndCancelsWhenInactive() {
         var sent: Pair<String, Boolean>? = null
         val active = mutableStateOf(true)
