@@ -543,10 +543,13 @@ class MainActivity : TerminalActivity() {
                                 }
                             }
                             COMMANDS_TOOL -> ToolbarCommandsTool(toolbarCommands, canSend, selected?.title.orEmpty(),
-                                onSend = sendText, onEdit = { id ->
-                                    startActivity(Intent(this@MainActivity, SettingsDetailActivity::class.java)
-                                        .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, "toolbar-commands")
-                                        .putExtra("toolbar-command-id", id))
+                                onSend = sendText, onSave = { command ->
+                                    val preferences = terminalPreferences()
+                                    toolbarCommands = readToolbarCommands(preferences).map {
+                                        if (it.id == command.id) command else it
+                                    }
+                                    preferences.edit().putString(KEY_TOOLBAR_COMMANDS,
+                                        serializeToolbarCommands(toolbarCommands)).apply()
                                 })
                             HOTKEY_TOOL -> ToolbarHotkeys(
                                 layout = hotkeyLayout, control = controlPressed, alt = altPressed,

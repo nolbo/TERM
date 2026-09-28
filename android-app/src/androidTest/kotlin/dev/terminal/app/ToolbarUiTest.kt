@@ -281,7 +281,7 @@ class ToolbarUiTest {
         var sent: Pair<String, Boolean>? = null
         val active = mutableStateOf(true)
         val commands = listOf(ToolbarCommand("sample", "Sample", "echo first\necho second"))
-        var edited: String? = null
+        var edited: ToolbarCommand? = null
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent { DroidTheme { TerminalHapticFeedbackProvider {
@@ -292,7 +292,19 @@ class ToolbarUiTest {
             }
             settle()
             click(description(context.getString(R.string.toolbar_command_edit_item, "Sample")))
-            assertEquals("sample", edited)
+            text(label(R.string.toolbar_commands_edit))
+            assertNull(edited)
+            assertNull(sent)
+            click(text(label(R.string.cancel)))
+            assertNull(edited)
+            click(description(context.getString(R.string.toolbar_command_edit_item, "Sample")))
+            val commandField = waitForNode("command editor") { it.isEditable && it.text?.toString() == commands.single().text }
+            commandField.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
+                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "echo updated")
+            })
+            settle()
+            click(text(label(R.string.save)))
+            assertEquals(commands.single().copy(text = "echo updated"), edited)
             assertNull(sent)
             assertNull(find { it.text?.toString() == label(R.string.toolbar_run) })
             // A compact preview is available before opening the full confirmation.
@@ -309,6 +321,9 @@ class ToolbarUiTest {
             settle()
             assertNull(find { it.text?.toString() == label(R.string.toolbar_run) })
             assertNull(sent)
+            click(description(context.getString(R.string.toolbar_command_edit_item, "Sample")))
+            text(label(R.string.toolbar_commands_edit))
+            click(text(label(R.string.cancel)))
         }
     }
 

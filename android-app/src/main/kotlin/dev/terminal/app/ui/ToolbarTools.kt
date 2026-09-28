@@ -164,8 +164,11 @@ private fun memorySize(bytes: Long) = String.format(java.util.Locale.getDefault(
 
 @Composable
 internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean, target: String,
-    onSend: (String, Boolean) -> Unit, onEdit: (String) -> Unit) {
+    onSend: (String, Boolean) -> Unit, onSave: (ToolbarCommand) -> Unit) {
     var pending by remember { mutableStateOf<ToolbarCommand?>(null) }
+    var editId by rememberSaveable { mutableStateOf<String?>(null) }
+    var name by rememberSaveable { mutableStateOf("") }
+    var text by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(active) { if (!active) pending = null }
     val scroll = rememberLazyListState()
     ToolbarScrollEdges(scroll.canScrollBackward, scroll.canScrollForward, Modifier.fillMaxSize()) {
@@ -178,7 +181,7 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
             }
             items(commands, key = { it.id }) { command ->
                 Surface(onClick = { pending = command }, enabled = active,
-                    shape = MaterialTheme.shapes.medium, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(start = 12.dp),
                         verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f).padding(vertical = 4.dp)) {
@@ -188,7 +191,7 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
                                 style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                        IconButton(onClick = { onEdit(command.id) }, enabled = active) {
+                        IconButton(onClick = { editId = command.id; name = command.name; text = command.text }) {
                             Icon(painterResource(R.drawable.ic_toolbar_edit),
                                 stringResource(R.string.toolbar_command_edit_item, command.name), Modifier.size(20.dp))
                         }
@@ -196,6 +199,10 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
                 }
             }
         }
+    }
+    editId?.let { id ->
+        ToolbarCommandEditDialog(ToolbarCommand(id, name, text), { name = it }, { text = it },
+            onDismiss = { editId = null }, onSave = { onSave(it); editId = null })
     }
     pending?.takeIf { active }?.let { command ->
         ToolbarSendDialog(command.text, target, { pending = null }) {
@@ -293,25 +300,36 @@ internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences,
     }
     editId?.let { id ->
         val draft = ToolbarCommand(id = id.ifEmpty { "new" }, name = name, text = text)
-        AlertDialog(onDismissRequest = { editId = null }, title = { Text(stringResource(R.string.toolbar_commands_edit)) },
-            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedTextField(name, { if (it.length <= 60) name = it }, label = { Text(stringResource(R.string.toolbar_command_name)) }, singleLine = true)
-                OutlinedTextField(text, { if (it.length <= MAX_TOOLBAR_TEXT) text = it }, label = { Text(stringResource(R.string.toolbar_command_text)) },
-                    textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
-                    minLines = 3, maxLines = 8)
-                Text(stringResource(R.string.toolbar_text_limit), style = MaterialTheme.typography.bodySmall)
-            } },
-            confirmButton = { Button(enabled = validToolbarCommand(draft), onClick = {
-                saveCommands(if (id.isEmpty()) commands + ToolbarCommand(name = name, text = text)
-                    else commands.map { if (it.id == id) draft else it }); editId = null
-            }) { Text(stringResource(R.string.save)) } },
-            dismissButton = { TextButton(onClick = { editId = null }) { Text(stringResource(R.string.cancel)) } })
+        ToolbarCommandEditDialog(draft, { name = it }, { text = it }, onDismiss = { editId = null }, onSave = {
+            saveCommands(if (id.isEmpty()) commands + ToolbarCommand(name = it.name, text = it.text)
+                else commands.map { command -> if (command.id == id) it else command })
+            editId = null
+        })
     }
     deleteId?.let { id -> AlertDialog(onDismissRequest = { deleteId = null },
         title = { Text(stringResource(R.string.toolbar_command_delete)) },
         text = { Text(commands.firstOrNull { it.id == id }?.name.orEmpty()) },
         confirmButton = { TextButton(onClick = { saveCommands(commands.filterNot { it.id == id }); deleteId = null }) { Text(stringResource(R.string.toolbar_command_delete)) } },
         dismissButton = { TextButton(onClick = { deleteId = null }) { Text(stringResource(R.string.cancel)) } }) }
+}
+
+@Composable
+private fun ToolbarCommandEditDialog(draft: ToolbarCommand, onName: (String) -> Unit,
+    onText: (String) -> Unit, onDismiss: () -> Unit, onSave: (ToolbarCommand) -> Unit) {
+    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.toolbar_commands_edit)) },
+        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            OutlinedTextField(draft.name, { if (it.length <= 60) onName(it) },
+                label = { Text(stringResource(R.string.toolbar_command_name)) }, singleLine = true)
+            OutlinedTextField(draft.text, { if (it.length <= MAX_TOOLBAR_TEXT) onText(it) },
+                label = { Text(stringResource(R.string.toolbar_command_text)) },
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                minLines = 3, maxLines = 8)
+            Text(stringResource(R.string.toolbar_text_limit), style = MaterialTheme.typography.bodySmall)
+        } },
+        confirmButton = { Button(enabled = validToolbarCommand(draft), onClick = { onSave(draft) }) {
+            Text(stringResource(R.string.save))
+        } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } })
 }
 
 @Composable
