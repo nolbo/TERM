@@ -49,6 +49,7 @@ struct dl_thread {
     size_t allocation_size;
     void *frame;
     struct dl_sighand *sighand;
+    struct dl_scratch *scratch;
     struct dl_signal_state signals;
 };
 struct dl_thread *dl_thread_self(void);

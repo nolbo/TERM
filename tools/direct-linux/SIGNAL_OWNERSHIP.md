@@ -73,6 +73,9 @@ SIGKILL/생성 실패에서 살아남은 프로세스의 복구가 남았다. �
 posix_spawn[p]의 file actions·signal attributes, Python subprocess와 shell을
 검사해야 한다. 별도 주소 공간의 fork로 대체해 C04 완료를 주장하지 않는다.
 
+후속 [exec 준비 메모리 소유권](SCRATCH_OWNERSHIP.md)은 task별 매핑 추적과
+회수를 연결했다. 실제 VM 이탈 자동 감지와 guest shared-VM dispatcher는 아직 남는다.
+
 ## 재현
 
 ```sh

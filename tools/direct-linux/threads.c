@@ -65,6 +65,13 @@ void dl_thread_init(void *allocation, size_t size, void *stack, size_t stack_siz
     threads_ready = 1;
 }
 
+struct dl_scratch **dl_thread_scratch(void)
+{
+    // Initial ELF load and kernel reentry run before dl_thread_init. The first
+    // record is already their owner, so no list migration is needed at init.
+    return &(threads_ready ? dl_thread_self() : threads)->scratch;
+}
+
 static void free_snapshot(struct dl_thread *t, int close_fds)
 {
     struct dl_fd_snapshot *copy = t->copied_fds;
@@ -76,6 +83,7 @@ static void free_snapshot(struct dl_thread *t, int close_fds)
 static void dispose(struct dl_thread *t)
 {
     free_snapshot(t, 0);
+    dl_scratch_clear(&t->scratch);
     if (t->sighand) dl_sighand_release(t->sighand);
     t->sighand = NULL;
     DL_CALL(SYS_munmap, t->allocation, t->allocation_size, 0, 0, 0, 0);

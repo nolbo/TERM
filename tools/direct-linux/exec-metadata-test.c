@@ -10,6 +10,8 @@
 #include "exec.c"
 
 struct dl_state dl_state;
+static struct dl_scratch *scratch;
+struct dl_scratch **dl_thread_scratch(void) { return &scratch; }
 unsigned dl_memory_lock, dl_files_lock;
 void dl_lock(unsigned *lock) { assert(!*lock); *lock = 1; }
 void dl_unlock(unsigned *lock) { assert(*lock); *lock = 0; }

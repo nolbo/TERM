@@ -112,7 +112,7 @@ adapters; it does not establish guest-path or Android-policy correctness:
 
 ```sh
 clang -O2 -Wall -Wextra -Werror tools/direct-linux/exec-metadata-test.c \
-  tools/direct-linux/memory.c tools/direct-linux/copy.S \
+  tools/direct-linux/scratch.c tools/direct-linux/memory.c tools/direct-linux/copy.S \
   -o /tmp/direct-linux-exec-metadata-test
 /tmp/direct-linux-exec-metadata-test
 ```

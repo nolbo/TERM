@@ -393,6 +393,8 @@ freestanding APK 런타임에 kernel 재진입하여 다중 thread/nonleader exe
 스크립트의 FD 경로·CLOEXEC 오류를 native Linux와 대조하고 Android에서 검증했다.
 [신호 상태 소유권](../tools/direct-linux/SIGNAL_OWNERSHIP.md)은 공유 VM과 독립된
 signal disposition 객체를 도입하고 실제 kernel clone 구성요소를 검증했다.
+[exec 준비 메모리 소유권](../tools/direct-linux/SCRATCH_OWNERSHIP.md)은 준비 매핑을
+task별로 추적하고 guest 스택으로의 이전 및 exit/exec 후 회수를 검증했다.
 guest shared-VM dispatcher 연결과 전체 spawn 수명은 아직 남아 있다.
 shared-VM spawn과 추가 FD/FS 조합을 비롯한
 전체 45개 목표는 그 문서의 항목별 상태로 계속 추적한다.

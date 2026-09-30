@@ -26,6 +26,14 @@ struct dl_state {
     uintptr_t heap_start, heap_end, heap_mapped;
 };
 extern struct dl_state dl_state;
+struct dl_scratch;
+// Temporary runtime mappings have one task owner. Mutate with signals blocked;
+// a different task may clear them only after proving the owner left this VM.
+long dl_scratch_map(struct dl_scratch **owner, size_t size, int protection);
+void dl_scratch_unmap(void *address);
+void dl_scratch_detach(void *address);
+void dl_scratch_clear(struct dl_scratch **owner);
+struct dl_scratch **dl_thread_scratch(void);
 size_t dl_length(const char *s);
 void dl_copy(void *destination, const void *source, size_t size);
 int dl_equal_memory(const void *a, const void *b, size_t size);

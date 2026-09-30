@@ -534,6 +534,7 @@ static long install_image(struct preparation *p, struct dl_entry *entry, unsigne
     if (dl_state.vfork_fd >= 0) {
         DL_CALL(SYS_close, dl_state.vfork_fd, 0, 0, 0, 0, 0); dl_state.vfork_fd = -1;
     }
+    dl_scratch_detach(p->stack - dl_state.page);
     p->stack = NULL; times[6] = profile_clock(); return 0;
 }
 
@@ -561,7 +562,7 @@ static long write_all(int fd, const void *data, size_t size)
 
 static long kernel_exec(struct preparation *p, const struct dl_entry *entry)
 {
-    long address = DL_CALL(SYS_mmap, 0, sizeof(struct handoff), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    long address = dl_scratch_map(dl_thread_scratch(), sizeof(struct handoff), PROT_READ | PROT_WRITE);
     if (address < 0) return address;
     struct handoff *wire = (void *)address;
     wire->magic = HANDOFF_MAGIC; wire->root_fd = dl_state.root_fd;
@@ -617,7 +618,7 @@ static long kernel_exec(struct preparation *p, const struct dl_entry *entry)
     }
     dl_lock(&dl_files_lock); dl_io_release((unsigned)slot); dl_unlock(&dl_files_lock);
 done:
-    DL_CALL(SYS_munmap, wire, sizeof(*wire), 0, 0, 0, 0); return r;
+    dl_scratch_unmap(wire); return r;
 }
 
 static int terminated(const char *text, size_t size)
@@ -637,7 +638,7 @@ long dl_exec_resume(int fd, struct dl_entry *entry)
     int seals = F_SEAL_SEAL | F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK;
     long actual = DL_CALL(SYS_fcntl, fd, F_GET_SEALS, 0, 0, 0, 0);
     if (actual < 0 || (actual & seals) != seals) return -EINVAL;
-    long address = DL_CALL(SYS_mmap, 0, sizeof(struct handoff), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    long address = dl_scratch_map(dl_thread_scratch(), sizeof(struct handoff), PROT_READ | PROT_WRITE);
     if (address < 0) return address;
     struct handoff *wire = (void *)address;
     long r = read_exact(fd, wire, sizeof(*wire), 0, NULL);
@@ -657,12 +658,12 @@ long dl_exec_resume(int fd, struct dl_entry *entry)
     dl_copy(dl_state.root, wire->root, DL_PATH);
     dl_state.trace = wire->flags & 1; dl_state.exec_profile = !!(wire->flags & 2); dl_state.startup_profile = !!(wire->flags & 4);
     if (DL_CALL(SYS_fcntl, dl_state.root_fd, F_SETFD, FD_CLOEXEC, 0, 0, 0)) { r = -EBADF; goto done; }
-    long memory = DL_CALL(SYS_mmap, 0, sizeof(struct preparation), PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    long memory = dl_scratch_map(dl_thread_scratch(), sizeof(struct preparation), PROT_READ | PROT_WRITE);
     if (memory < 0) { r = memory; goto done; }
     struct preparation *p = (void *)memory;
     p->main_slot = p->interpreter_slot = -1; p->main.source_fd = p->interpreter.source_fd = -1;
     unsigned long times[8] = {0}, costs[5] = {0}; times[0] = profile_clock();
-    long mapping = DL_CALL(SYS_mmap, 0, STACK_SIZE + 2 * dl_state.page, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    long mapping = dl_scratch_map(dl_thread_scratch(), STACK_SIZE + 2 * dl_state.page, PROT_NONE);
     if (mapping < 0) { r = mapping; goto prepared; }
     p->stack = (char *)mapping + dl_state.page;
     p->top = p->stack + STACK_SIZE - wire->string_size;
@@ -693,16 +694,16 @@ long dl_exec_resume(int fd, struct dl_entry *entry)
     entry->mask = wire->mask & ~(1UL << (SIGSYS - 1));
     entry->virtual_sigsys = wire->virtual_sigsys & (1UL << (SIGSYS - 1));
 prepared:
-    if (p->stack) DL_CALL(SYS_munmap, p->stack - dl_state.page, STACK_SIZE + 2 * dl_state.page, 0, 0, 0, 0);
+    if (p->stack) dl_scratch_unmap(p->stack - dl_state.page);
     unsigned long bytes = p->main.file_size + p->interpreter.file_size;
     unsigned long read_bytes = p->main.read_bytes + p->interpreter.read_bytes;
     dispose_preparation(p);
-    DL_CALL(SYS_munmap, p, sizeof(*p), 0, 0, 0, 0);
+    dl_scratch_unmap(p);
     times[7] = profile_clock();
     if (!r && dl_state.exec_profile) profile_report(times, costs, bytes, read_bytes, 2);
 done:
     DL_CALL(SYS_close, fd, 0, 0, 0, 0, 0);
-    DL_CALL(SYS_munmap, wire, sizeof(*wire), 0, 0, 0, 0); return r;
+    dl_scratch_unmap(wire); return r;
 }
 
 long dl_execat(int dirfd, const char *path, char *const *argv, char *const *env, int flags,
@@ -711,8 +712,8 @@ long dl_execat(int dirfd, const char *path, char *const *argv, char *const *env,
     if (flags & ~(AT_EMPTY_PATH | AT_SYMLINK_NOFOLLOW)) return -EINVAL;
     unsigned long times[8] = {0}, costs[5] = {0}, bytes = 0, read_bytes = 0;
     times[0] = profile_clock();
-    long memory = DL_CALL(SYS_mmap, 0, sizeof(struct preparation) + 2 * dl_state.page, PROT_READ | PROT_WRITE,
-        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    long memory = dl_scratch_map(dl_thread_scratch(), sizeof(struct preparation) + 2 * dl_state.page,
+        PROT_READ | PROT_WRITE);
     if (memory < 0) return memory;
     struct preparation *p = (void *)memory;
     p->main_slot = p->interpreter_slot = -1;
@@ -732,7 +733,7 @@ long dl_execat(int dirfd, const char *path, char *const *argv, char *const *env,
         if (lookup[0]) p->path[count++] = '/';
         dl_copy(p->path + count, lookup, dl_length(lookup) + 1);
     }
-    long stack = DL_CALL(SYS_mmap, 0, STACK_SIZE + 2 * dl_state.page, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    long stack = dl_scratch_map(dl_thread_scratch(), STACK_SIZE + 2 * dl_state.page, PROT_NONE);
     if (stack < 0) { r = stack; goto done; }
     p->stack = (char *)stack + dl_state.page; p->top = p->stack + STACK_SIZE;
     r = DL_CALL(SYS_mprotect, p->stack, STACK_SIZE, PROT_READ | PROT_WRITE, 0, 0, 0); if (r) goto done;
@@ -771,9 +772,9 @@ long dl_execat(int dirfd, const char *path, char *const *argv, char *const *env,
     if (install_image(p, entry, times, costs)) goto fatal;
     r = 0;
 done:
-    if (p->stack) DL_CALL(SYS_munmap, p->stack - dl_state.page, STACK_SIZE + 2 * dl_state.page, 0, 0, 0, 0);
+    if (p->stack) dl_scratch_unmap(p->stack - dl_state.page);
     dispose_preparation(p);
-    DL_CALL(SYS_munmap, p, sizeof(*p) + 2 * dl_state.page, 0, 0, 0, 0);
+    dl_scratch_unmap(p);
     times[7] = profile_clock();
     if (!r && dl_state.exec_profile) profile_report(times, costs, bytes, read_bytes, replacing);
     return r;

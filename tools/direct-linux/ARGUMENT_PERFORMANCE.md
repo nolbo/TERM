@@ -76,7 +76,7 @@ CPU·메모리 사용량, cold cache, 실제 기기의 열·전원 영향은 측
 
 통과한 검증:
 
-- `clang -O2 -Wall -Wextra -Werror tools/direct-linux/exec-metadata-test.c tools/direct-linux/memory.c tools/direct-linux/copy.S -o /tmp/direct-linux-exec-metadata-test`와 실행.
+- `clang -O2 -Wall -Wextra -Werror tools/direct-linux/exec-metadata-test.c tools/direct-linux/scratch.c tools/direct-linux/memory.c tools/direct-linux/copy.S -o /tmp/direct-linux-exec-metadata-test`와 실행.
   실제 `process_vm_readv`로 잘못된 주소, 보호 페이지, 페이지 경계의 NUL,
   비정렬 포인터 표, argv/envp 제한, 긴 문자열, 벡터 사이 재읽기를 검사했다.
   기존 ELF 메타데이터 변경 거부·원본 inode·페이지 매핑 검사도 통과했다.

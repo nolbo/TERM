@@ -36,6 +36,9 @@ script FD paths and precommit CLOEXEC errors, checked against native Linux.
 [Signal-state ownership](SIGNAL_OWNERSHIP.md) separates shared VM from shared
 dispositions and verifies the component with real kernel clones on host/Android;
 guest shared-VM spawn remains unfinished.
+[Preparation-memory ownership](SCRATCH_OWNERSHIP.md) tracks exec scratch mappings
+per task and transfers committed stacks to guest ownership. Real shared-VM
+component tests verify reclamation after exit and exec while a parent survives.
 It retains the full audit scope and remaining gates.
 
 The [Python/Git milestone](APPLICATIONS.md) and subsequent
