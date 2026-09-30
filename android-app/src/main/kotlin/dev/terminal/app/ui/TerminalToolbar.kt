@@ -205,8 +205,7 @@ internal fun ToolbarHotkeys(layout: HotkeyLayout, control: Boolean, alt: Boolean
     colors: TerminalChromeColors, enabled: Boolean, onKey: (TerminalToolbarKey) -> Unit) {
     val scroll = rememberScrollState()
     Box(Modifier.fillMaxSize()) {
-        ToolbarScrollEdges(scroll.canScrollBackward, scroll.canScrollForward,
-            Modifier.fillMaxWidth().heightIn(max = ToolbarHotkeyViewportHeight), colors.background) {
+        Box(Modifier.fillMaxWidth().heightIn(max = ToolbarHotkeyViewportHeight).clipToBounds()) {
             HotkeyGrid(layout = layout, control = control, alt = alt, terminalColors = colors,
                 enabled = enabled,
                 modifier = Modifier.fillMaxWidth().verticalScroll(scroll).padding(4.dp)) { index ->
