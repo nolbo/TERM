@@ -19,6 +19,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
 import dev.terminal.app.ui.SettingsPageScaffold
+import dev.terminal.app.ui.ReleaseNotesMarkdown
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.update.AppUpdateState
 import dev.terminal.app.update.UpdateChannel
@@ -90,7 +91,9 @@ class AppUpdatesActivity : TerminalActivity() {
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                             Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text(stringResource(R.string.update_release_notes), style = MaterialTheme.typography.titleMedium)
-                                Text(manifest.releaseNotes ?: stringResource(R.string.update_release_notes_unavailable),
+                                val notes = manifest.releaseNotes
+                                if (notes != null) ReleaseNotesMarkdown(notes)
+                                else Text(stringResource(R.string.update_release_notes_unavailable),
                                     style = MaterialTheme.typography.bodyMedium)
                             }
                         }
