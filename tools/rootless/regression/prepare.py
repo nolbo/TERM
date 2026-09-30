@@ -30,8 +30,8 @@ def main():
                "usr/local/lib/terminal-faststat.so": args.preload}
     for destination, original in mapping.items():
         shutil.copy2(original, root / destination)
-    for program in ("concurrency", "fork", "pin-fork", "restart"):
-        for kind in ("static", "dynamic") if program != "pin-fork" else ("dynamic",):
+    for program in ("concurrency", "fork", "pin-fork", "restart", "scope"):
+        for kind in ("static", "dynamic") if program not in ("pin-fork", "scope") else ("dynamic",):
             subprocess.run(["clang", "-O2", "-Wall", "-Wextra", "-Werror", "-pthread",
                             "-Wl,-z,noexecstack,-z,max-page-size=16384",
                             *(["-static"] if kind == "static" else []),

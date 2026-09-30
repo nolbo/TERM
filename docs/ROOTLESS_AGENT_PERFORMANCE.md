@@ -137,3 +137,9 @@ Rootless는 이미 `RootlessAccelerationProfile`의 경로·stat·open/create/cl
 하네스는 도구 버전 조회를 측정 뒤로 옮겨 fixture 준비 전에 불필요한 fork가 가속 상태를 바꾸지 않도록 했다. 이것만으로 큰 저장소 준비 비용이 사라지지는 않았다. 최초 240회 계획을 완료한 것으로 표시하지 않으며 완료한 subset과 별도 10쌍 dpkg 기록을 구분한다. worker workflow 시간은 준비·검증을 포함하고 런타임 launch·버전 조회·바깥 Android scratch 정리는 제외한다. 시험 환경은 SELinux Disabled·4 KiB 페이지인 API 35 기기이며 enforcing·16 KiB 물리 기기 지원은 입증하지 않는다.
 
 다음 제품 적용 과제는 임시 FD 소유권을 지키면서 다중 스레드 경로 가속의 회귀를 줄이는 것이다. npm/pip offline 설치, 실제 Codex/Claude 인증 작업, PTY 시작·취소·세션 재개 및 enforcing·16 KiB 기기 검사는 이번 첫 묶음의 완료 항목이 아니다. PRoot를 에이전트 sandbox의 대체물로 취급하지 않는다.
+
+### 가속 해제 비용과 독립 작업의 후속 개선
+
+[후속 구현·검증](../tools/rootless/faststat/FALLBACK_COST.md)은 해제된 pin 자격을 thread별로 기억하여 반복 signal mask·PID 조회를 생략하고, clone의 해제 범위를 같은 보수적 FD 계통에 한정한다. fork 자손과 다른 PID의 `CLONE_FILES` 공유는 같은 계통에 남고 자신의 exec 전에는 가속되지 않는다. 독립적으로 exec한 다른 작업은 가속을 유지한다. 같은 Git 작업이 생성한 thread의 경로 가속은 아직 복원하지 않았다.
+
+최종 `7d06…` 엔진·`80cb…` DSO는 호스트 102/102·Android 62/62 assertion과 canonical Gradle·APK SHA 검증을 통과했다. 독립 reader/peer-fork 진단 3쌍에서 stat/lstat 10,000회 구간 중앙값은 262.29→93.53ms이며 이는 실제 Git·설치·에이전트 전체 개선율이 아니다. 첫 dispatcher 수정만 적용한 `85dc…` 엔진·`80cb…` DSO의 Git 10k 두 쌍은 system CPU 감소에도 wall time 이득이 뚜렷하지 않았다. 위 전체 작업 표는 최초 `85dc…`/`619b…` 후보의 측정이며 최종 후보의 실제 작업 시간으로 합치지 않는다. 실제 작업의 10쌍·회귀 없는 이득이 아직 충족되지 않아 기본 배포 채택은 계속 보류한다.

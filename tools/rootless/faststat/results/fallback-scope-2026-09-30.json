@@ -1,0 +1,1132 @@
+{
+  "schema": 1,
+  "date": "2026-09-30",
+  "scope": "Disabled path dispatch and independently executed FD lineage; local candidate only",
+  "candidate_payload_sha256": {
+    "proot": "7d06ff15d0086cae23cb174db53b74a1c4561c0277c6b015afde9662486f4904",
+    "loader": "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237",
+    "preload": "80cbfa2964185e506527be6fe2534dd0602598a2a6f4e072a8b0f1b961135fb4"
+  },
+  "previous_payload_sha256": {
+    "proot": "85dc5a9a527dba926ab496e5e7929ba8ded4e6dbd7da5f77a072ee0af255af42",
+    "loader": "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237",
+    "preload": "619bc9a2c3270fb89f787b5e20003adbe484a1f33843cd8e382584eb6fa2a406"
+  },
+  "environment": {
+    "android_api": 35,
+    "abi": "arm64-v8a",
+    "guest_correctness": "Ubuntu 24.04; native and emulated hardlinks",
+    "guest_diagnostic": "Debian 13; emulated hardlinks",
+    "uid": "ordinary application UID",
+    "selinux": "Disabled",
+    "page_size_bytes": 4096,
+    "physical_16k_verified": false
+  },
+  "android": {
+    "correctness": {
+      "executions": 62,
+      "passed": 62,
+      "records": [
+        {
+          "batch": "scoped-core",
+          "case": "fd-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "7d985c219fc884c760320cec05983d8bf7af00e5b7b9ab752bfb3978f0707131",
+          "assertions": [
+            "PASS fd-utimens: raw/libc, nanoseconds, omit/now, errors, 64-bit pointer, pathname, dup/unlink, seccomp"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "identity-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "11c2ec9a27768b311a84eca3f89b7a320be63f65d872d585c3fe85df1ce333f8",
+          "assertions": [
+            "PASS identity across raw/libc stat, hardlink lifecycle, fork generations, symlinks, foreign owners and kernel errors"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "identity-nonzero-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "11c2ec9a27768b311a84eca3f89b7a320be63f65d872d585c3fe85df1ce333f8",
+          "assertions": [
+            "PASS identity across raw/libc stat, hardlink lifecycle, fork generations, symlinks, foreign owners and kernel errors"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "links-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "ac55a7d21a3caf3754d501d0d8466a261f3fe8831229d8b1f9645def8a845da0",
+          "assertions": [
+            "PASS link mutation failures, exchange, package replacement, dirfd, fork and final unlink"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "exec-leader-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "9d420c0d5b50de7ea310d98d063e5c5c00221ed6c024c69e0291092075df2390",
+          "assertions": [
+            "PASS concurrent exec PID/TID, sibling destruction, precommit failure, FD/CLOEXEC, cwd, masks, dispositions, TLS and mappings"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "exec-worker-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "9d420c0d5b50de7ea310d98d063e5c5c00221ed6c024c69e0291092075df2390",
+          "assertions": [
+            "PASS concurrent exec PID/TID, sibling destruction, precommit failure, FD/CLOEXEC, cwd, masks, dispositions, TLS and mappings"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "exec-exited-leader-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "9d420c0d5b50de7ea310d98d063e5c5c00221ed6c024c69e0291092075df2390",
+          "assertions": [
+            "PASS concurrent exec PID/TID, sibling destruction, precommit failure, FD/CLOEXEC, cwd, masks, dispositions, TLS and mappings"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "fork-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "c68163020168e12a694d4a9fcce1c85efc10374ac9c53fbae70845327961ebd2",
+          "assertions": [
+            "PASS 30 concurrent forks: child runtime locks/FD cleanup/thread creation/exec, surviving parent workers"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "fd-native-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "7d985c219fc884c760320cec05983d8bf7af00e5b7b9ab752bfb3978f0707131",
+          "assertions": [
+            "PASS fd-utimens: raw/libc, nanoseconds, omit/now, errors, 64-bit pointer, pathname, dup/unlink, seccomp"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "identity-native-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "11c2ec9a27768b311a84eca3f89b7a320be63f65d872d585c3fe85df1ce333f8",
+          "assertions": [
+            "PASS identity across raw/libc stat, hardlink lifecycle, fork generations, symlinks, foreign owners and kernel errors"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "identity-nonzero-native-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "11c2ec9a27768b311a84eca3f89b7a320be63f65d872d585c3fe85df1ce333f8",
+          "assertions": [
+            "PASS identity across raw/libc stat, hardlink lifecycle, fork generations, symlinks, foreign owners and kernel errors"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "links-native-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "ac55a7d21a3caf3754d501d0d8466a261f3fe8831229d8b1f9645def8a845da0",
+          "assertions": [
+            "PASS link mutation failures, exchange, package replacement, dirfd, fork and final unlink"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "exec-leader-native-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "9d420c0d5b50de7ea310d98d063e5c5c00221ed6c024c69e0291092075df2390",
+          "assertions": [
+            "PASS concurrent exec PID/TID, sibling destruction, precommit failure, FD/CLOEXEC, cwd, masks, dispositions, TLS and mappings"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "exec-worker-native-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "a90ece398ba871543adf5a0c8c01c7668f6a997278309a28d864ab6f5b53dc2e",
+          "assertions": [
+            "PASS concurrent exec PID/TID, sibling destruction, precommit failure, FD/CLOEXEC, cwd, masks, dispositions, TLS and mappings"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "exec-exited-leader-native-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "a90ece398ba871543adf5a0c8c01c7668f6a997278309a28d864ab6f5b53dc2e",
+          "assertions": [
+            "PASS concurrent exec PID/TID, sibling destruction, precommit failure, FD/CLOEXEC, cwd, masks, dispositions, TLS and mappings"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "fork-native-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "b52abcf35a06ee4d00cdcd66d4f1a92456dd784c9b675489833615144bd25345",
+          "assertions": [
+            "PASS 30 concurrent forks: child runtime locks/FD cleanup/thread creation/exec, surviving parent workers"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "stat-entry-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "b181c37f253ab06f8ff964336ebf5ac4f59f3481564402015a43eb4868824897",
+          "assertions": [
+            "PASS raw stat/mutation/open, cwd, links, flags, pointers, identity, concurrent readers and seccomp"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "pin-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "1baff02b8f8b0b61f1300c5484d4278b4547f738cc0777981097a299918f9ba4",
+          "assertions": [
+            "PASS pin acceleration restored after exec",
+            "PASS 100 libc/raw forks: no temporary FD inheritance, user O_PATH retained, thread fallback and exec acceleration"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "fd-previous-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "6b111aee6e6416d53c0e83bdbd0b07f6746d8facaf3ee9481fb4262444eddd8b",
+          "assertions": [
+            "PASS interrupted first identity closes temporary FD and preserves fallback metadata",
+            "PASS exec reinitialization",
+            "PASS fastfd freshness, 8 threads, fork IDs, exec, FD reuse, EFAULT, seccomp; hits=131"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "open-previous-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "f29fef3f537a4a5c2a96b4a9155fbb17b5933eae8992af1cab273a13ef8e9c16",
+          "assertions": [
+            "PASS open flags, errors, links, FD transfer and cancellation"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "fd-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "7d985c219fc884c760320cec05983d8bf7af00e5b7b9ab752bfb3978f0707131",
+          "assertions": [
+            "PASS fd-utimens: raw/libc, nanoseconds, omit/now, errors, 64-bit pointer, pathname, dup/unlink, seccomp"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "identity-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "11c2ec9a27768b311a84eca3f89b7a320be63f65d872d585c3fe85df1ce333f8",
+          "assertions": [
+            "PASS identity across raw/libc stat, hardlink lifecycle, fork generations, symlinks, foreign owners and kernel errors"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "identity-nonzero-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "11c2ec9a27768b311a84eca3f89b7a320be63f65d872d585c3fe85df1ce333f8",
+          "assertions": [
+            "PASS identity across raw/libc stat, hardlink lifecycle, fork generations, symlinks, foreign owners and kernel errors"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "links-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "ac55a7d21a3caf3754d501d0d8466a261f3fe8831229d8b1f9645def8a845da0",
+          "assertions": [
+            "PASS link mutation failures, exchange, package replacement, dirfd, fork and final unlink"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "exec-leader-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "a90ece398ba871543adf5a0c8c01c7668f6a997278309a28d864ab6f5b53dc2e",
+          "assertions": [
+            "PASS concurrent exec PID/TID, sibling destruction, precommit failure, FD/CLOEXEC, cwd, masks, dispositions, TLS and mappings"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "exec-worker-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "9d420c0d5b50de7ea310d98d063e5c5c00221ed6c024c69e0291092075df2390",
+          "assertions": [
+            "PASS concurrent exec PID/TID, sibling destruction, precommit failure, FD/CLOEXEC, cwd, masks, dispositions, TLS and mappings"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "exec-exited-leader-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "9d420c0d5b50de7ea310d98d063e5c5c00221ed6c024c69e0291092075df2390",
+          "assertions": [
+            "PASS concurrent exec PID/TID, sibling destruction, precommit failure, FD/CLOEXEC, cwd, masks, dispositions, TLS and mappings"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "fork-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "b52abcf35a06ee4d00cdcd66d4f1a92456dd784c9b675489833615144bd25345",
+          "assertions": [
+            "PASS 30 concurrent forks: child runtime locks/FD cleanup/thread creation/exec, surviving parent workers"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "fd-emulated-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "7d985c219fc884c760320cec05983d8bf7af00e5b7b9ab752bfb3978f0707131",
+          "assertions": [
+            "PASS fd-utimens: raw/libc, nanoseconds, omit/now, errors, 64-bit pointer, pathname, dup/unlink, seccomp"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "identity-emulated-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "11c2ec9a27768b311a84eca3f89b7a320be63f65d872d585c3fe85df1ce333f8",
+          "assertions": [
+            "PASS identity across raw/libc stat, hardlink lifecycle, fork generations, symlinks, foreign owners and kernel errors"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "identity-nonzero-emulated-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "11c2ec9a27768b311a84eca3f89b7a320be63f65d872d585c3fe85df1ce333f8",
+          "assertions": [
+            "PASS identity across raw/libc stat, hardlink lifecycle, fork generations, symlinks, foreign owners and kernel errors"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "links-emulated-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "ac55a7d21a3caf3754d501d0d8466a261f3fe8831229d8b1f9645def8a845da0",
+          "assertions": [
+            "PASS link mutation failures, exchange, package replacement, dirfd, fork and final unlink"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "exec-leader-emulated-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "9d420c0d5b50de7ea310d98d063e5c5c00221ed6c024c69e0291092075df2390",
+          "assertions": [
+            "PASS concurrent exec PID/TID, sibling destruction, precommit failure, FD/CLOEXEC, cwd, masks, dispositions, TLS and mappings"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "exec-worker-emulated-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "9d420c0d5b50de7ea310d98d063e5c5c00221ed6c024c69e0291092075df2390",
+          "assertions": [
+            "PASS concurrent exec PID/TID, sibling destruction, precommit failure, FD/CLOEXEC, cwd, masks, dispositions, TLS and mappings"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "exec-exited-leader-emulated-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "9d420c0d5b50de7ea310d98d063e5c5c00221ed6c024c69e0291092075df2390",
+          "assertions": [
+            "PASS concurrent exec PID/TID, sibling destruction, precommit failure, FD/CLOEXEC, cwd, masks, dispositions, TLS and mappings"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "fork-emulated-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "b52abcf35a06ee4d00cdcd66d4f1a92456dd784c9b675489833615144bd25345",
+          "assertions": [
+            "PASS 30 concurrent forks: child runtime locks/FD cleanup/thread creation/exec, surviving parent workers"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "stat-entry-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "b181c37f253ab06f8ff964336ebf5ac4f59f3481564402015a43eb4868824897",
+          "assertions": [
+            "PASS raw stat/mutation/open, cwd, links, flags, pointers, identity, concurrent readers and seccomp"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "pin-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "1baff02b8f8b0b61f1300c5484d4278b4547f738cc0777981097a299918f9ba4",
+          "assertions": [
+            "PASS pin acceleration restored after exec",
+            "PASS 100 libc/raw forks: no temporary FD inheritance, user O_PATH retained, thread fallback and exec acceleration"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "fd-previous-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "6b111aee6e6416d53c0e83bdbd0b07f6746d8facaf3ee9481fb4262444eddd8b",
+          "assertions": [
+            "PASS interrupted first identity closes temporary FD and preserves fallback metadata",
+            "PASS exec reinitialization",
+            "PASS fastfd freshness, 8 threads, fork IDs, exec, FD reuse, EFAULT, seccomp; hits=131"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-core",
+          "case": "open-previous-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "f29fef3f537a4a5c2a96b4a9155fbb17b5933eae8992af1cab273a13ef8e9c16",
+          "assertions": [
+            "PASS open flags, errors, links, FD transfer and cancellation"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-extra",
+          "case": "unshare-wait-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "7d096b5d33194aa8f63178c6beea3dd56256e0b0040fcf356f0a45ff4518bf5f",
+          "assertions": [
+            "PASS unshare during restarted FIFO wait: both tables release pins and preserve guest FD independence"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-extra",
+          "case": "private-clone-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "8acaed3c87a64480b4c905903f0e115b0a7a518d57ced54bf9ea09e73d93cc4a",
+          "assertions": [
+            "PASS 160 private-FD-table clone lifecycles with another thread blocked on a runtime pin"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-extra",
+          "case": "fork-exited-leader-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "b52abcf35a06ee4d00cdcd66d4f1a92456dd784c9b675489833615144bd25345",
+          "assertions": [
+            "PASS 30 concurrent forks: child runtime locks/FD cleanup/thread creation/exec, surviving parent workers"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-extra",
+          "case": "unshare-wait-native-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "7d096b5d33194aa8f63178c6beea3dd56256e0b0040fcf356f0a45ff4518bf5f",
+          "assertions": [
+            "PASS unshare during restarted FIFO wait: both tables release pins and preserve guest FD independence"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-extra",
+          "case": "private-clone-native-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "8acaed3c87a64480b4c905903f0e115b0a7a518d57ced54bf9ea09e73d93cc4a",
+          "assertions": [
+            "PASS 160 private-FD-table clone lifecycles with another thread blocked on a runtime pin"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-extra",
+          "case": "fork-exited-leader-native-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "b52abcf35a06ee4d00cdcd66d4f1a92456dd784c9b675489833615144bd25345",
+          "assertions": [
+            "PASS 30 concurrent forks: child runtime locks/FD cleanup/thread creation/exec, surviving parent workers"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-extra",
+          "case": "unshare-wait-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "7d096b5d33194aa8f63178c6beea3dd56256e0b0040fcf356f0a45ff4518bf5f",
+          "assertions": [
+            "PASS unshare during restarted FIFO wait: both tables release pins and preserve guest FD independence"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-extra",
+          "case": "private-clone-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "8acaed3c87a64480b4c905903f0e115b0a7a518d57ced54bf9ea09e73d93cc4a",
+          "assertions": [
+            "PASS 160 private-FD-table clone lifecycles with another thread blocked on a runtime pin"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-extra",
+          "case": "fork-exited-leader-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "b52abcf35a06ee4d00cdcd66d4f1a92456dd784c9b675489833615144bd25345",
+          "assertions": [
+            "PASS 30 concurrent forks: child runtime locks/FD cleanup/thread creation/exec, surviving parent workers"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-extra",
+          "case": "unshare-wait-emulated-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "7d096b5d33194aa8f63178c6beea3dd56256e0b0040fcf356f0a45ff4518bf5f",
+          "assertions": [
+            "PASS unshare during restarted FIFO wait: both tables release pins and preserve guest FD independence"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-extra",
+          "case": "private-clone-emulated-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "8acaed3c87a64480b4c905903f0e115b0a7a518d57ced54bf9ea09e73d93cc4a",
+          "assertions": [
+            "PASS 160 private-FD-table clone lifecycles with another thread blocked on a runtime pin"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-extra",
+          "case": "fork-exited-leader-emulated-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "b52abcf35a06ee4d00cdcd66d4f1a92456dd784c9b675489833615144bd25345",
+          "assertions": [
+            "PASS 30 concurrent forks: child runtime locks/FD cleanup/thread creation/exec, surviving parent workers"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-restart",
+          "case": "restart-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "7c326eebf2f8e22068e387cfc4d60a5fafb45c23c2c08ca9dca60a702899e22a",
+          "assertions": [
+            "PASS syscall restart: guest signal context, EINTR, ignored/trap signals, relative/openat2 paths, altstack, nested handlers and unrelated read"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-restart",
+          "case": "restart-native-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "7c326eebf2f8e22068e387cfc4d60a5fafb45c23c2c08ca9dca60a702899e22a",
+          "assertions": [
+            "PASS syscall restart: guest signal context, EINTR, ignored/trap signals, relative/openat2 paths, altstack, nested handlers and unrelated read"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-restart",
+          "case": "restart-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "7c326eebf2f8e22068e387cfc4d60a5fafb45c23c2c08ca9dca60a702899e22a",
+          "assertions": [
+            "PASS syscall restart: guest signal context, EINTR, ignored/trap signals, relative/openat2 paths, altstack, nested handlers and unrelated read"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-restart",
+          "case": "restart-emulated-static",
+          "exit": 0,
+          "passed": true,
+          "sha256": "7c326eebf2f8e22068e387cfc4d60a5fafb45c23c2c08ca9dca60a702899e22a",
+          "assertions": [
+            "PASS syscall restart: guest signal context, EINTR, ignored/trap signals, relative/openat2 paths, altstack, nested handlers and unrelated read"
+          ],
+          "metrics": [],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-final-cost",
+          "case": "native-shared",
+          "exit": 0,
+          "passed": true,
+          "sha256": "1e5574b39606b3b63d3e83d8de40fd5ad7dda6b8362fff4a87a5bd9a44b74ca8",
+          "assertions": [
+            "PASS disabled path dispatch: correct metadata/content/ENOENT/EFAULT, zero mask/PID helpers"
+          ],
+          "metrics": [],
+          "helper_counts": [
+            "new-thread dispatcher helpers: masks=0 getpid=0",
+            "existing-page dispatcher helpers: masks=0 getpid=0",
+            "fork-child dispatcher helpers: masks=0 getpid=0"
+          ]
+        },
+        {
+          "batch": "scoped-final-cost",
+          "case": "native-context",
+          "exit": 0,
+          "passed": true,
+          "sha256": "1e5574b39606b3b63d3e83d8de40fd5ad7dda6b8362fff4a87a5bd9a44b74ca8",
+          "assertions": [
+            "PASS disabled path dispatch: correct metadata/content/ENOENT/EFAULT, zero mask/PID helpers"
+          ],
+          "metrics": [],
+          "helper_counts": [
+            "new-thread dispatcher helpers: masks=0 getpid=0",
+            "existing-page dispatcher helpers: masks=0 getpid=0",
+            "fork-child dispatcher helpers: masks=0 getpid=0"
+          ]
+        },
+        {
+          "batch": "scoped-final-cost",
+          "case": "scope-native",
+          "exit": 0,
+          "passed": true,
+          "sha256": "3d473ffcdc1cc32735a6b5f9c24418fad2c1d69cc6635f2149f9a939e1f76519",
+          "assertions": [
+            "PASS exec-isolated FD scope: independent reader keeps acceleration while peer forks"
+          ],
+          "metrics": [
+            {
+              "fd_scope": {
+                "queries": 10000,
+                "hits": 10000,
+                "milliseconds": 96.430711,
+                "diagnostic": 0
+              }
+            }
+          ],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-final-cost",
+          "case": "emulated-shared",
+          "exit": 0,
+          "passed": true,
+          "sha256": "1e5574b39606b3b63d3e83d8de40fd5ad7dda6b8362fff4a87a5bd9a44b74ca8",
+          "assertions": [
+            "PASS disabled path dispatch: correct metadata/content/ENOENT/EFAULT, zero mask/PID helpers"
+          ],
+          "metrics": [],
+          "helper_counts": [
+            "new-thread dispatcher helpers: masks=0 getpid=0",
+            "existing-page dispatcher helpers: masks=0 getpid=0",
+            "fork-child dispatcher helpers: masks=0 getpid=0"
+          ]
+        },
+        {
+          "batch": "scoped-final-cost",
+          "case": "emulated-context",
+          "exit": 0,
+          "passed": true,
+          "sha256": "1e5574b39606b3b63d3e83d8de40fd5ad7dda6b8362fff4a87a5bd9a44b74ca8",
+          "assertions": [
+            "PASS disabled path dispatch: correct metadata/content/ENOENT/EFAULT, zero mask/PID helpers"
+          ],
+          "metrics": [],
+          "helper_counts": [
+            "new-thread dispatcher helpers: masks=0 getpid=0",
+            "existing-page dispatcher helpers: masks=0 getpid=0",
+            "fork-child dispatcher helpers: masks=0 getpid=0"
+          ]
+        },
+        {
+          "batch": "scoped-final-cost",
+          "case": "scope-emulated",
+          "exit": 0,
+          "passed": true,
+          "sha256": "e1fbbf979ef8c424840e150e1e7520e996ce2da9592c14cf17d6d847149ba75d",
+          "assertions": [
+            "PASS exec-isolated FD scope: independent reader keeps acceleration while peer forks"
+          ],
+          "metrics": [
+            {
+              "fd_scope": {
+                "queries": 10000,
+                "hits": 10000,
+                "milliseconds": 84.281757,
+                "diagnostic": 0
+              }
+            }
+          ],
+          "helper_counts": []
+        }
+      ]
+    },
+    "diagnostic": {
+      "pairs": 3,
+      "utimens_direct": false,
+      "queries_per_sample": 10000,
+      "previous_median_ms": 262.286583,
+      "candidate_median_ms": 93.532345,
+      "time_reduction_percent": 64.33963799055631,
+      "adoption_eligible": false,
+      "scope": "Reader's stat/lstat loop only; peer forks and CLONE_FILES clone independently. No Git, package, or authenticated agent completion claim.",
+      "samples": [
+        {
+          "pair": 1,
+          "order": [
+            "previous",
+            "candidate"
+          ],
+          "previous": {
+            "queries": 10000,
+            "hits": 0,
+            "milliseconds": 262.286583,
+            "diagnostic": 1
+          },
+          "candidate": {
+            "queries": 10000,
+            "hits": 10000,
+            "milliseconds": 93.532345,
+            "diagnostic": 1
+          }
+        },
+        {
+          "pair": 2,
+          "order": [
+            "candidate",
+            "previous"
+          ],
+          "previous": {
+            "queries": 10000,
+            "hits": 0,
+            "milliseconds": 267.831598,
+            "diagnostic": 1
+          },
+          "candidate": {
+            "queries": 10000,
+            "hits": 10000,
+            "milliseconds": 94.477468,
+            "diagnostic": 1
+          }
+        },
+        {
+          "pair": 3,
+          "order": [
+            "previous",
+            "candidate"
+          ],
+          "previous": {
+            "queries": 10000,
+            "hits": 0,
+            "milliseconds": 259.730536,
+            "diagnostic": 1
+          },
+          "candidate": {
+            "queries": 10000,
+            "hits": 10000,
+            "milliseconds": 90.907657,
+            "diagnostic": 1
+          }
+        }
+      ],
+      "records": [
+        {
+          "batch": "scoped-final-comparison",
+          "case": "1 baseline",
+          "exit": 0,
+          "passed": true,
+          "sha256": "0511ad3a423dfe7389f144e6a4a6c1f15db029c43e9b14149720daeab6ee28fc",
+          "assertions": [
+            "PASS independent reader metadata and peer fork exits"
+          ],
+          "metrics": [
+            {
+              "fd_scope": {
+                "queries": 10000,
+                "hits": 0,
+                "milliseconds": 262.286583,
+                "diagnostic": 1
+              }
+            }
+          ],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-final-comparison",
+          "case": "1 candidate-no-utimens",
+          "exit": 0,
+          "passed": true,
+          "sha256": "49118a11af4625e184cd21518965380674762f5a1eb8df444d8c5dbdd865e2fe",
+          "assertions": [
+            "PASS independent reader metadata and peer fork exits"
+          ],
+          "metrics": [
+            {
+              "fd_scope": {
+                "queries": 10000,
+                "hits": 10000,
+                "milliseconds": 93.532345,
+                "diagnostic": 1
+              }
+            }
+          ],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-final-comparison",
+          "case": "2 candidate-no-utimens",
+          "exit": 0,
+          "passed": true,
+          "sha256": "2035600c885879c7a7d85f70656c2be85f725b14797e876c130e915615101c81",
+          "assertions": [
+            "PASS independent reader metadata and peer fork exits"
+          ],
+          "metrics": [
+            {
+              "fd_scope": {
+                "queries": 10000,
+                "hits": 10000,
+                "milliseconds": 94.477468,
+                "diagnostic": 1
+              }
+            }
+          ],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-final-comparison",
+          "case": "2 baseline",
+          "exit": 0,
+          "passed": true,
+          "sha256": "c23140e7dea4a80838103177ae16b533ce1cda54fea89fe70f0ce5d1704d412b",
+          "assertions": [
+            "PASS independent reader metadata and peer fork exits"
+          ],
+          "metrics": [
+            {
+              "fd_scope": {
+                "queries": 10000,
+                "hits": 0,
+                "milliseconds": 267.831598,
+                "diagnostic": 1
+              }
+            }
+          ],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-final-comparison",
+          "case": "3 baseline",
+          "exit": 0,
+          "passed": true,
+          "sha256": "b8eda3361058281914ab1d43f3c1a81a75619b440e148264649600ce6fa8707c",
+          "assertions": [
+            "PASS independent reader metadata and peer fork exits"
+          ],
+          "metrics": [
+            {
+              "fd_scope": {
+                "queries": 10000,
+                "hits": 0,
+                "milliseconds": 259.730536,
+                "diagnostic": 1
+              }
+            }
+          ],
+          "helper_counts": []
+        },
+        {
+          "batch": "scoped-final-comparison",
+          "case": "3 candidate-no-utimens",
+          "exit": 0,
+          "passed": true,
+          "sha256": "cd4a12c8f3a8694950b8476713743a48917a0021fc50886679250c5f603c650d",
+          "assertions": [
+            "PASS independent reader metadata and peer fork exits"
+          ],
+          "metrics": [
+            {
+              "fd_scope": {
+                "queries": 10000,
+                "hits": 10000,
+                "milliseconds": 90.907657,
+                "diagnostic": 1
+              }
+            }
+          ],
+          "helper_counts": []
+        }
+      ]
+    }
+  },
+  "privacy": {
+    "contains_device_identifiers": false,
+    "contains_host_paths": false,
+    "raw_logs_exported": false,
+    "collection": "Read only synthetic PASS assertions, helper counts, diagnostic JSON and SHA-256 directly from task-owned app cache. No raw logs copied into shared device storage."
+  },
+  "host_dispatch_probe": {
+    "previous": [
+      {
+        "mode": "native",
+        "profile": "shared",
+        "exit": 1,
+        "passed": false,
+        "log": "native-shared.log",
+        "log_sha256": "3cbff90ab318d507f4f36b6998cf6472e248a7f4611fcd0214092cf3e7b9afdd",
+        "summary_lines": [
+          "new-thread dispatcher helpers: masks=240 getpid=120",
+          "FAIL fallback-cost line 49: mask_delta == 0 && pid_delta == 0 && hits() == initial errno=14"
+        ]
+      },
+      {
+        "mode": "native",
+        "profile": "context",
+        "exit": 1,
+        "passed": false,
+        "log": "native-context.log",
+        "log_sha256": "39fbb8b02badd307e1f7728a41fa312aac65bd4a01c10d6d79bec8d224da9c5f",
+        "summary_lines": [
+          "new-thread dispatcher helpers: masks=200 getpid=100",
+          "FAIL fallback-cost line 49: mask_delta == 0 && pid_delta == 0 && hits() == initial errno=14"
+        ]
+      },
+      {
+        "mode": "emulated",
+        "profile": "shared",
+        "exit": 1,
+        "passed": false,
+        "log": "emulated-shared.log",
+        "log_sha256": "3cbff90ab318d507f4f36b6998cf6472e248a7f4611fcd0214092cf3e7b9afdd",
+        "summary_lines": [
+          "new-thread dispatcher helpers: masks=240 getpid=120",
+          "FAIL fallback-cost line 49: mask_delta == 0 && pid_delta == 0 && hits() == initial errno=14"
+        ]
+      },
+      {
+        "mode": "emulated",
+        "profile": "context",
+        "exit": 1,
+        "passed": false,
+        "log": "emulated-context.log",
+        "log_sha256": "39fbb8b02badd307e1f7728a41fa312aac65bd4a01c10d6d79bec8d224da9c5f",
+        "summary_lines": [
+          "new-thread dispatcher helpers: masks=200 getpid=100",
+          "FAIL fallback-cost line 49: mask_delta == 0 && pid_delta == 0 && hits() == initial errno=14"
+        ]
+      }
+    ],
+    "candidate": [
+      {
+        "mode": "native",
+        "profile": "shared",
+        "exit": 0,
+        "passed": true,
+        "log": "native-shared.log",
+        "log_sha256": "1e5574b39606b3b63d3e83d8de40fd5ad7dda6b8362fff4a87a5bd9a44b74ca8",
+        "summary_lines": [
+          "new-thread dispatcher helpers: masks=0 getpid=0",
+          "existing-page dispatcher helpers: masks=0 getpid=0",
+          "fork-child dispatcher helpers: masks=0 getpid=0",
+          "PASS disabled path dispatch: correct metadata/content/ENOENT/EFAULT, zero mask/PID helpers"
+        ]
+      },
+      {
+        "mode": "native",
+        "profile": "context",
+        "exit": 0,
+        "passed": true,
+        "log": "native-context.log",
+        "log_sha256": "1e5574b39606b3b63d3e83d8de40fd5ad7dda6b8362fff4a87a5bd9a44b74ca8",
+        "summary_lines": [
+          "new-thread dispatcher helpers: masks=0 getpid=0",
+          "existing-page dispatcher helpers: masks=0 getpid=0",
+          "fork-child dispatcher helpers: masks=0 getpid=0",
+          "PASS disabled path dispatch: correct metadata/content/ENOENT/EFAULT, zero mask/PID helpers"
+        ]
+      },
+      {
+        "mode": "emulated",
+        "profile": "shared",
+        "exit": 0,
+        "passed": true,
+        "log": "emulated-shared.log",
+        "log_sha256": "1e5574b39606b3b63d3e83d8de40fd5ad7dda6b8362fff4a87a5bd9a44b74ca8",
+        "summary_lines": [
+          "new-thread dispatcher helpers: masks=0 getpid=0",
+          "existing-page dispatcher helpers: masks=0 getpid=0",
+          "fork-child dispatcher helpers: masks=0 getpid=0",
+          "PASS disabled path dispatch: correct metadata/content/ENOENT/EFAULT, zero mask/PID helpers"
+        ]
+      },
+      {
+        "mode": "emulated",
+        "profile": "context",
+        "exit": 0,
+        "passed": true,
+        "log": "emulated-context.log",
+        "log_sha256": "1e5574b39606b3b63d3e83d8de40fd5ad7dda6b8362fff4a87a5bd9a44b74ca8",
+        "summary_lines": [
+          "new-thread dispatcher helpers: masks=0 getpid=0",
+          "existing-page dispatcher helpers: masks=0 getpid=0",
+          "fork-child dispatcher helpers: masks=0 getpid=0",
+          "PASS disabled path dispatch: correct metadata/content/ENOENT/EFAULT, zero mask/PID helpers"
+        ]
+      }
+    ]
+  },
+  "test_probe_sha256": "c0e3bf43cb2b3d899a9f3d6265278a08d2f98ef3e4e30de747e64f5fdc1cbb8b",
+  "probe_scope": "Four Android and four host dispatch cases preload an instrumented test DSO built from the production source; dispatcher-only helper counts exclude raw guest syscall calls. Production DSO has no probe counters."
+}

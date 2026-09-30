@@ -34,6 +34,9 @@ static uint64_t path_epoch = 1;
 /* Conservative across the whole traced tree, including later execs. */
 static bool async_fd_seen;
 static bool guest_exec_seen;
+/* Only exec proves a private FD table. Fork descendants conservatively keep
+ * the same lineage, even when clone flags would permit finer separation. */
+static uint64_t next_fd_lineage;
 
 /* Ignore only PRoot bootstrap filter installation before the first guest exec. */
 void fastfd_guest_exec(void) { guest_exec_seen = true; }
@@ -157,6 +160,7 @@ static bool compatible(Tracee *tracee)
 void fastfd_reset(Tracee *tracee)
 {
     TALLOC_FREE(tracee->fastfd);
+    tracee->fastfd_lineage = ++next_fd_lineage;
 }
 
 /* Monotonic until exec: a suspended fstat cannot see re-enabled eligibility. */
@@ -194,11 +198,15 @@ void fastclose_observe_enter(Tracee *tracee)
     case PR_clone: case PR_clone3: case PR_fork: case PR_vfork: break;
     default: return;
     }
-    /* Invalidate before the kernel can create a descriptor-table sharer.
-     * New tracees start ineligible; only a later exec can enable them. */
+    /* Invalidate the caller's whole lineage before the kernel can copy/share
+     * its descriptor table. An independently executed task has an unshared
+     * table, so its pins cannot enter this child. Unknown lineage stays
+     * conservative. New children remain ineligible until their own exec. */
     Tracees *head = get_tracees_list_head();
     Tracee *item;
     LIST_FOREACH(item, head, link) {
+        if (tracee->fastfd_lineage && item->fastfd_lineage &&
+            item->fastfd_lineage != tracee->fastfd_lineage) continue;
         item->fastclose_exec_isolated = false;
         if (item->fastfd) {
             atomic_store(&item->fastfd->page->close_safe, 0);

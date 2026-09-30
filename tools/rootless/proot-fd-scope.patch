@@ -1,0 +1,20 @@
+--- a/src/tracee/tracee.h
++++ b/src/tracee/tracee.h
+@@ -94,6 +94,7 @@
+ 	struct fastfd_state *fastfd; /* Per tracee, deliberately not inherited. */
+ 	bool fastclose_exec_isolated; /* Starts false; exec establishes isolation. */
+ 	bool fastfd_single_disabled;
++	uint64_t fastfd_lineage; /* Forks inherit; exec assigns a new private table. */
+ 	bool reuse_open_path;
+ 	word_t rewritten_open_path_address;
+ 	char rewritten_open_path[PATH_MAX];
+--- a/src/tracee/tracee.c
++++ b/src/tracee/tracee.c
+@@ -517,6 +517,7 @@
+ 	child->sysexit_pending = parent->sysexit_pending;
+ 	child->execfn_addr = parent->execfn_addr;
+ 	child->auxv_fd = parent->auxv_fd;
++	child->fastfd_lineage = parent->fastfd_lineage;
+ 	child->no_new_privs = parent->no_new_privs;
+ 	child->seen_execve = parent->seen_execve;
+ #ifdef HAS_POKEDATA_WORKAROUND

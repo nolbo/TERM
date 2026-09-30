@@ -9,11 +9,14 @@
 clone/fork/vfork 전까지만 허용한다. tracer는 첫 자식 생성 진입 전에 허용을
 취소하며, 그 이전에는 FD 테이블을 사용하는 태스크가 하나이고 pin 작업 전체에서
 시그널을 막는다. 따라서 진행 중인 O_PATH pin이나 identity memfd가 다른 스레드의
-fork에 복제될 수 없다. 이후 경로 조회와 새 스레드의 identity 초기화는 기존
+fork에 복제될 수 없다. 해제 범위는 fork 자손을 포함한 같은 FD 계통이며 별도
+exec로 독립 테이블이 확인된 작업은 가속을 유지한다. 해제된 계통의 경로 조회와 새 스레드의 identity 초기화는 기존
 tracer 처리로 돌아가고 다음 exec에서 다시 가속된다. 사용자 소유 O_PATH FD를
 추정해 닫지 않는다. 단일 태스크 작업의 가속은 유지되지만 다중 스레드 경로 조회의
 과거 성능 수치는 이 정책에 그대로 적용되지 않는다. 대응하는 PRoot와 DSO를 함께
 배포해야 하며, [현재 exec/fork 회귀 하네스](../regression/README.md)에서 이 조건을 검사한다.
+
+해제 후 반복 signal mask·PID 조회 제거와 독립 작업의 가속 유지, Android 62개 assertion 및 제한된 3쌍 진단은 [FD 계통 개선 기록](FALLBACK_COST.md)에 정리했다. 같은 작업의 다중 thread 가속을 복원하거나 제품 기본 배포판을 교체한 것은 아니다.
 
 일반 파일 rename의 불필요한 게스트 경로 복사를 생략하는 별도 후보는
 [rename 경로 복사 실험](RENAME_LOCAL.md)에 정리했다. 기본 고정 payload와

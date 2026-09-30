@@ -20,7 +20,8 @@ ASSERTIONS = {"exec": "PASS concurrent exec PID/TID, sibling destruction, precom
               "pin": "PASS 100 libc/raw forks: no temporary FD inheritance, user O_PATH retained, thread fallback and exec acceleration",
               "private": "PASS 160 private-FD-table clone lifecycles with another thread blocked on a runtime pin",
               "unshare": "PASS unshare during restarted FIFO wait: both tables release pins and preserve guest FD independence",
-              "restart": "PASS syscall restart: guest signal context, EINTR, ignored/trap signals, relative/openat2 paths, altstack, nested handlers and unrelated read"}
+              "restart": "PASS syscall restart: guest signal context, EINTR, ignored/trap signals, relative/openat2 paths, altstack, nested handlers and unrelated read",
+              "scope": "PASS exec-isolated FD scope: independent reader keeps acceleration while peer forks"}
 
 
 def main():
@@ -47,6 +48,7 @@ def main():
              for scenario in ("exec-leader", "exec-worker", "exec-exited-leader", "fork-worker",
                               "fork-exited-leader", "private-clone", "unshare-wait", "restart")]
     cases += [("full", "dynamic", "pin"), ("context", "dynamic", "pin")]
+    cases += [("full", "dynamic", "scope")]
     modes = ("native", "emulated") if args.mode == "both" else (args.mode,)
     cases = [(mode, *case) for mode in modes for case in cases]
     results = []
@@ -67,9 +69,9 @@ def main():
                 command.extend(["PROOT_FASTSTAT_PATH=1", "PROOT_FASTSTAT_SHARED=0"])
             family = scenario.split("-", 1)[0]
             program = {"exec": "concurrency", "fork": "fork", "private": "fork", "unshare": "fork",
-                       "pin": "pin-fork", "restart": "restart"}[family]
+                       "pin": "pin-fork", "restart": "restart", "scope": "scope"}[family]
             command.append(f"/bin/{program}-{kind}")
-            if scenario not in ("pin", "restart"):
+            if scenario not in ("pin", "restart", "scope"):
                 command.append(scenario)
             log = output / f"{repeat}-{mode}-{profile}-{kind}-{scenario}.log"
             started = time.monotonic()

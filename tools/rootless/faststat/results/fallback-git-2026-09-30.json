@@ -1,0 +1,238 @@
+{
+  "schema": 1,
+  "date": "2026-09-30",
+  "scope": "Two alternating pairs on a warm synthetic 10000-file repository; first disabled-dispatch change only. Not final exec-scoped payload timing or ten-pair adoption evidence.",
+  "payload_sha256": {
+    "previous": {
+      "proot": "85dc5a9a527dba926ab496e5e7929ba8ded4e6dbd7da5f77a072ee0af255af42",
+      "loader": "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237",
+      "preload": "619bc9a2c3270fb89f787b5e20003adbe484a1f33843cd8e382584eb6fa2a406"
+    },
+    "candidate": {
+      "proot": "85dc5a9a527dba926ab496e5e7929ba8ded4e6dbd7da5f77a072ee0af255af42",
+      "loader": "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237",
+      "preload": "80cbfa2964185e506527be6fe2534dd0602598a2a6f4e072a8b0f1b961135fb4"
+    }
+  },
+  "archive_sha256": "d5761523212d0344c18fb9d2ea7bb9cf70a2dad6491ea8ebba521c01feb34bc0",
+  "manifest_sha256": "f17bf53af922d15c3dfb90568c889438c840c64369af0e37f2a153497d6b5c65",
+  "git_sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+  "environment": {
+    "android_api": 35,
+    "storage": "emulated hardlinks",
+    "guest": "Debian 13",
+    "selinux": "Disabled",
+    "page_size_bytes": 4096
+  },
+  "samples": [
+    {
+      "pair": 1,
+      "profile": "previous",
+      "log_sha256": "4addba7a8fe797fd8ad1c5000283130e5021573165b1f363787b10a37bbea03d",
+      "exit": 0,
+      "passed": true,
+      "rows": [
+        {
+          "operation": "git-status",
+          "variant": "default",
+          "wall_ms": 287.205745,
+          "system_cpu_ms": 58.884,
+          "user_cpu_ms": 12.131,
+          "exit": 0,
+          "stdout_sha256": "8405c714c30202e109dba7bb8539d8457b59f64bff83ed3b56b473d4eebac8a6"
+        },
+        {
+          "operation": "git-diff",
+          "variant": "default",
+          "wall_ms": 263.003913,
+          "system_cpu_ms": 54.168,
+          "user_cpu_ms": 7.434,
+          "exit": 0,
+          "stdout_sha256": "649af7cb42b2fa30d285f1c1978ee8f293ed249a7929ae160ecabd9d4b6f8103"
+        },
+        {
+          "operation": "git-status",
+          "variant": "preload-disabled",
+          "wall_ms": 142.68975,
+          "system_cpu_ms": 106.976,
+          "user_cpu_ms": 18.668,
+          "exit": 0,
+          "stdout_sha256": "8405c714c30202e109dba7bb8539d8457b59f64bff83ed3b56b473d4eebac8a6"
+        },
+        {
+          "operation": "git-diff",
+          "variant": "preload-disabled",
+          "wall_ms": 122.55329,
+          "system_cpu_ms": 104.472,
+          "user_cpu_ms": 13.017,
+          "exit": 0,
+          "stdout_sha256": "649af7cb42b2fa30d285f1c1978ee8f293ed249a7929ae160ecabd9d4b6f8103"
+        }
+      ]
+    },
+    {
+      "pair": 1,
+      "profile": "candidate",
+      "log_sha256": "735e706b6a3c63b5ee29b02a4579032054b8beea8fe0041c8aed5c733bdfdca1",
+      "exit": 0,
+      "passed": true,
+      "rows": [
+        {
+          "operation": "git-status",
+          "variant": "default",
+          "wall_ms": 291.048796,
+          "system_cpu_ms": 40.047,
+          "user_cpu_ms": 15.524,
+          "exit": 0,
+          "stdout_sha256": "8405c714c30202e109dba7bb8539d8457b59f64bff83ed3b56b473d4eebac8a6"
+        },
+        {
+          "operation": "git-diff",
+          "variant": "default",
+          "wall_ms": 262.546911,
+          "system_cpu_ms": 26.843,
+          "user_cpu_ms": 16.954,
+          "exit": 0,
+          "stdout_sha256": "649af7cb42b2fa30d285f1c1978ee8f293ed249a7929ae160ecabd9d4b6f8103"
+        },
+        {
+          "operation": "git-status",
+          "variant": "preload-disabled",
+          "wall_ms": 142.103428,
+          "system_cpu_ms": 108.753,
+          "user_cpu_ms": 16.159,
+          "exit": 0,
+          "stdout_sha256": "8405c714c30202e109dba7bb8539d8457b59f64bff83ed3b56b473d4eebac8a6"
+        },
+        {
+          "operation": "git-diff",
+          "variant": "preload-disabled",
+          "wall_ms": 121.956327,
+          "system_cpu_ms": 97.183,
+          "user_cpu_ms": 20.246,
+          "exit": 0,
+          "stdout_sha256": "649af7cb42b2fa30d285f1c1978ee8f293ed249a7929ae160ecabd9d4b6f8103"
+        }
+      ]
+    },
+    {
+      "pair": 2,
+      "profile": "candidate",
+      "log_sha256": "4487aeae4ed96721877733c377c474a40e94b5fe5522cfbfe030c8947f854b50",
+      "exit": 0,
+      "passed": true,
+      "rows": [
+        {
+          "operation": "git-status",
+          "variant": "default",
+          "wall_ms": 296.951009,
+          "system_cpu_ms": 38.394,
+          "user_cpu_ms": 16.07,
+          "exit": 0,
+          "stdout_sha256": "8405c714c30202e109dba7bb8539d8457b59f64bff83ed3b56b473d4eebac8a6"
+        },
+        {
+          "operation": "git-diff",
+          "variant": "default",
+          "wall_ms": 267.546321,
+          "system_cpu_ms": 30.609,
+          "user_cpu_ms": 14.094,
+          "exit": 0,
+          "stdout_sha256": "649af7cb42b2fa30d285f1c1978ee8f293ed249a7929ae160ecabd9d4b6f8103"
+        },
+        {
+          "operation": "git-status",
+          "variant": "preload-disabled",
+          "wall_ms": 146.256318,
+          "system_cpu_ms": 105.088,
+          "user_cpu_ms": 23.844,
+          "exit": 0,
+          "stdout_sha256": "8405c714c30202e109dba7bb8539d8457b59f64bff83ed3b56b473d4eebac8a6"
+        },
+        {
+          "operation": "git-diff",
+          "variant": "preload-disabled",
+          "wall_ms": 126.498619,
+          "system_cpu_ms": 105.255,
+          "user_cpu_ms": 16.692,
+          "exit": 0,
+          "stdout_sha256": "649af7cb42b2fa30d285f1c1978ee8f293ed249a7929ae160ecabd9d4b6f8103"
+        }
+      ]
+    },
+    {
+      "pair": 2,
+      "profile": "previous",
+      "log_sha256": "129784bbd692ea6850dcdc98f55593047f6df4a8abfede24a091b9bd01dc5c29",
+      "exit": 0,
+      "passed": true,
+      "rows": [
+        {
+          "operation": "git-status",
+          "variant": "default",
+          "wall_ms": 289.483346,
+          "system_cpu_ms": 58.106,
+          "user_cpu_ms": 13.368,
+          "exit": 0,
+          "stdout_sha256": "8405c714c30202e109dba7bb8539d8457b59f64bff83ed3b56b473d4eebac8a6"
+        },
+        {
+          "operation": "git-diff",
+          "variant": "default",
+          "wall_ms": 267.744961,
+          "system_cpu_ms": 55.795,
+          "user_cpu_ms": 5.579,
+          "exit": 0,
+          "stdout_sha256": "649af7cb42b2fa30d285f1c1978ee8f293ed249a7929ae160ecabd9d4b6f8103"
+        },
+        {
+          "operation": "git-status",
+          "variant": "preload-disabled",
+          "wall_ms": 144.476712,
+          "system_cpu_ms": 100.783,
+          "user_cpu_ms": 26.645,
+          "exit": 0,
+          "stdout_sha256": "8405c714c30202e109dba7bb8539d8457b59f64bff83ed3b56b473d4eebac8a6"
+        },
+        {
+          "operation": "git-diff",
+          "variant": "preload-disabled",
+          "wall_ms": 120.513401,
+          "system_cpu_ms": 99.903,
+          "user_cpu_ms": 16.171,
+          "exit": 0,
+          "stdout_sha256": "649af7cb42b2fa30d285f1c1978ee8f293ed249a7929ae160ecabd9d4b6f8103"
+        }
+      ]
+    }
+  ],
+  "default_summary": {
+    "git-status": {
+      "previous": {
+        "wall_median_ms": 288.3445455,
+        "system_cpu_median_ms": 58.495000000000005,
+        "user_cpu_median_ms": 12.749500000000001
+      },
+      "candidate": {
+        "wall_median_ms": 293.99990249999996,
+        "system_cpu_median_ms": 39.2205,
+        "user_cpu_median_ms": 15.797
+      }
+    },
+    "git-diff": {
+      "previous": {
+        "wall_median_ms": 265.374437,
+        "system_cpu_median_ms": 54.9815,
+        "user_cpu_median_ms": 6.5065
+      },
+      "candidate": {
+        "wall_median_ms": 265.046616,
+        "system_cpu_median_ms": 28.726,
+        "user_cpu_median_ms": 15.524000000000001
+      }
+    }
+  },
+  "adoption_eligible": false,
+  "correctness": "Both command outputs match their expected hashes across the two profiles and both command-local Git configuration variants. No user Git configuration changed.",
+  "interpretation": "Dispatcher helper elimination lowered default command system CPU, but the two-pair wall time showed no clear gain; Git's own preload threads still revoke their own pin eligibility."
+}

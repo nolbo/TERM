@@ -13,6 +13,13 @@ fi
 clang -O2 -Wall -Wextra -Werror -fPIC -shared -pthread \
     -Wl,-z,now,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/faststat.c" "${extra_sources[@]}" -o "$output_directory/libproot-faststat.so"
+if [[ ${PROOT_BUILD_TEST_PROBES:-0} == 1 ]]; then
+    clang -O2 -Wall -Wextra -Werror -fPIC -shared -pthread -DPROOT_FASTSTAT_TEST_PROBES \
+        -Wl,-z,now,-z,noexecstack,-z,max-page-size=16384 \
+        "$source_directory/faststat.c" "${extra_sources[@]}" -o "$output_directory/libproot-faststat-probe.so"
+    clang -O2 -Wall -Wextra -Werror -pthread -Wl,-z,noexecstack,-z,max-page-size=16384 \
+        "$source_directory/fallback-cost-test.c" -ldl -o "$output_directory/fallback-cost-test"
+fi
 clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/test.c" -ldl -pthread -o "$output_directory/faststat-test"
 clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \

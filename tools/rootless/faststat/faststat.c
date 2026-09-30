@@ -26,6 +26,9 @@
 #include <unistd.h>
 #include "protocol.h"
 #include "open-nofollow.h"
+#ifdef PROOT_FASTSTAT_TEST_PROBES
+#include "fallback-probe.h"
+#endif
 
 #if !defined(__aarch64__) || !defined(__GLIBC__)
 #error "The faststat experiment supports glibc on AArch64 only"
@@ -63,6 +66,8 @@ struct local_identity {
     pid_t pid;
     _Atomic int busy;
     struct proot_fastfd_identity *page;
+    /* Denial is monotonic until exec, which recreates this TLS object. */
+    int pin_disabled;
 };
 /* This DSO is preloaded at startup. Avoid dynamic TLS allocation in a signal. */
 static _Thread_local struct local_identity local_identity
@@ -122,10 +127,30 @@ static long fast_statx(int fd, int flags, unsigned mask, struct statx *output)
  * child's table and be abandoned by a vanished sibling thread. */
 static int temporary_fds_safe(pid_t pid)
 {
-    if (local_identity.pid == pid && local_identity.page)
-        return atomic_load(&local_identity.page->pin_safe);
-    return syscall(SYS_prctl, PROOT_FASTFD_ATTACH, -1L, PROOT_FASTFD_VERSION, 0, 0)
-        == PROOT_FASTFD_PIN_ALLOWED;
+    if (local_identity.pin_disabled) return 0;
+    if (local_identity.pid == pid && local_identity.page) {
+        int allowed = atomic_load(&local_identity.page->pin_safe);
+        if (!allowed) local_identity.pin_disabled = 1;
+        return allowed;
+    }
+    long reply = syscall(SYS_prctl, PROOT_FASTFD_ATTACH, -1L, PROOT_FASTFD_VERSION, 0, 0);
+    /* Cache only an explicit denial, never a transient syscall failure. */
+    if (reply == 0) local_identity.pin_disabled = 1;
+    return reply == PROOT_FASTFD_PIN_ALLOWED;
+}
+
+/* Called while this thread owns busy, before allocating or masking signals.
+ * A false eligibility value also safely rejects an inherited fork mapping:
+ * this shortcut can only disable acceleration, never authorize an FD pin.
+ * Positive eligibility still needs the masked PID check above before use. */
+static int pin_acceleration_unavailable(void)
+{
+    if (local_identity.pin_disabled) return 1;
+    if (local_identity.page && !atomic_load(&local_identity.page->pin_safe)) {
+        local_identity.pin_disabled = 1;
+        return 1;
+    }
+    return 0;
 }
 
 __attribute__((constructor)) static void initialize_faststat(void)
@@ -561,6 +586,7 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
     pthread_testcancel();
     if (atomic_exchange(&local_identity.busy, 1)) goto slow_open;
     owned = 1;
+    if (pin_acceleration_unavailable()) goto slow_open;
     /* A handler's siglongjmp must not abandon the temporary pinned FD. */
     if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &all_signals, &previous_signals,
                 sizeof(previous_signals))) goto slow_open;
@@ -634,6 +660,7 @@ int unlinkat(int dirfd, const char *path, int flags)
     if (!enabled || !unlink_requested || flags != 0) goto slow_unlink;
     if (atomic_exchange(&local_identity.busy, 1)) goto slow_unlink;
     owned = 1;
+    if (pin_acceleration_unavailable()) goto slow_unlink;
     pid_t pid = syscall(SYS_getpid);
     struct proot_fastfd_identity *identity = current_identity(pid);
     char copied[PATH_MAX], translated[PATH_MAX];
@@ -822,6 +849,7 @@ static int shared_path_stat(int dirfd, const char *path, struct stat *output, in
     uint64_t all_signals = UINT64_MAX, previous_signals;
     if (!enabled || !shared_stat_requested || (flags != 0 && flags != AT_SYMLINK_NOFOLLOW) ||
         atomic_exchange(&local_identity.busy, 1)) return 0;
+    if (pin_acceleration_unavailable()) goto done;
     if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &all_signals, &previous_signals,
                 sizeof(previous_signals))) goto done;
     masked = 1;
@@ -872,6 +900,7 @@ int statx(int dirfd, const char *path, int flags, unsigned mask, struct statx *o
         (flags & ~(AT_SYMLINK_NOFOLLOW | AT_NO_AUTOMOUNT | AT_STATX_SYNC_TYPE))) goto done;
     if (atomic_exchange(&local_identity.busy, 1)) goto done;
     owned = 1;
+    if (pin_acceleration_unavailable()) goto done;
     if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &all_signals, &previous_signals,
                 sizeof(previous_signals))) goto done;
     masked = 1;
@@ -930,6 +959,7 @@ int fstatat(int dirfd, const char *path, struct stat *output, int flags)
     if (!enabled || !path_enabled || (flags != 0 && flags != AT_SYMLINK_NOFOLLOW)) goto slow;
     if (atomic_exchange(&local_identity.busy, 1)) goto slow;
     owned = 1;
+    if (pin_acceleration_unavailable()) goto slow;
     if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &blocked, &previous, sizeof(previous))) goto slow;
     masked = 1;
     pid_t pid = syscall(SYS_getpid);

@@ -10,11 +10,11 @@ import subprocess
 import tempfile
 import zipfile
 
-PROFILE = "workload-local-20260930"
+PROFILE = "workload-local-20260930-fd-scope"
 PAYLOAD = {
-    "proot": "85dc5a9a527dba926ab496e5e7929ba8ded4e6dbd7da5f77a072ee0af255af42",
+    "proot": "7d06ff15d0086cae23cb174db53b74a1c4561c0277c6b015afde9662486f4904",
     "proot-loader": "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237",
-    "libproot-faststat.so": "619bc9a2c3270fb89f787b5e20003adbe484a1f33843cd8e382584eb6fa2a406",
+    "libproot-faststat.so": "80cbfa2964185e506527be6fe2534dd0602598a2a6f4e072a8b0f1b961135fb4",
 }
 BUILD_INPUTS = {
     "v5.1.107.92.zip": "29385d1ddb619a9c4449ab512bfd55032034b22f724ddf98fc95ff300ea32135",

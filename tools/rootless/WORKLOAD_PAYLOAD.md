@@ -2,7 +2,7 @@
 
 `rootlessWorkloadPayload=true`는 이번에 검증한 로컬 PRoot·합본 DSO를 선택하는 별도 APK 빌드 옵션이다. `rootlessAcceleratedPayload`와 `rootlessStdioBuffer=true`가 모두 필요하다. 기본 payload와 기존 배포판의 허용 해시는 유지하며, 옵션에 맞지 않는 엔진이나 DSO를 넣으면 빌드가 실패한다. 준비 도구는 다운로드·릴리즈·배포를 수행하지 않는다.
 
-이 엔진에는 FD 기반 timestamp syscall의 불필요한 추적 제거와 함께 worker exec 상태 유지, fork의 임시 FD 누수 방지, emulated hardlink의 소유권 및 실패한 링크 변경 처리, ARM64 신호 후 syscall 재시작 수정이 포함된다. 다중 스레드에서는 임시 FD가 필요한 guest 경로 가속을 중단하고 기존 tracer 처리로 돌아간다. 새 옵션은 tracer 환경에만 `PROOT_FD_UTIMENS_DIRECT=1`을 추가한다. Native·AVF의 선택과 실행 경로에는 영향을 주지 않는다.
+이 엔진에는 FD 기반 timestamp syscall의 불필요한 추적 제거와 함께 worker exec 상태 유지, fork의 임시 FD 누수 방지, emulated hardlink의 소유권 및 실패한 링크 변경 처리, ARM64 신호 후 syscall 재시작 수정이 포함된다. 같은 FD 계통의 다중 스레드에서는 임시 FD가 필요한 guest 경로 가속을 중단하고 기존 tracer 처리로 돌아간다. 해제된 경로의 반복 가속 시도를 생략하고 독립적으로 exec한 다른 계통의 가속은 유지한다. [FD 계통 개선 기록](faststat/FALLBACK_COST.md)은 기존 후보와 최종 후보의 검증 범위를 구분한다. 새 옵션은 tracer 환경에만 `PROOT_FD_UTIMENS_DIRECT=1`을 추가한다. Native·AVF의 선택과 실행 경로에는 영향을 주지 않는다.
 
 이미 소스에서 빌드한 세 파일을 검증·준비한다. 출력은 새 디렉터리여야 하며 원래 입력은 변경하지 않는다. DSO가 별도 위치에 있다면 `--preload /absolute/path/libproot-faststat.so`를 지정한다.
 
@@ -24,9 +24,9 @@ python3 tools/rootless/prepare-workload-runtime.py --build \
 
 | 파일 | SHA-256 |
 | --- | --- |
-| `proot` | `85dc5a9a527dba926ab496e5e7929ba8ded4e6dbd7da5f77a072ee0af255af42` |
+| `proot` | `7d06ff15d0086cae23cb174db53b74a1c4561c0277c6b015afde9662486f4904` |
 | `proot-loader` | `2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237` |
-| `libproot-faststat.so` | `619bc9a2c3270fb89f787b5e20003adbe484a1f33843cd8e382584eb6fa2a406` |
+| `libproot-faststat.so` | `80cbfa2964185e506527be6fe2534dd0602598a2a6f4e072a8b0f1b961135fb4` |
 
 앱 빌드와 APK 바이트 검증은 다음과 같다.
 

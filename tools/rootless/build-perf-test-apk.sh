@@ -19,7 +19,7 @@ cat > "$build_directory/AndroidManifest.xml" <<'XML'
 XML
 "$repository_root/tools/aapt2" link --manifest "$build_directory/AndroidManifest.xml" \
     -I "$sdk_root/platforms/android-35/android.jar" -o "$build_directory/unsigned.apk"
-python3 - "$build_directory/unsigned.apk" "$payload_directory" "$baseline" "${PROOT_TEST_NOTIFY_BINARY:-}" "${PROOT_TEST_FASTSTAT_DIRECTORY:-}" "${PROOT_TEST_IO_BINARY:-}" "${PROOT_TEST_STDIO_DIRECTORY:-}" "${PROOT_TEST_BASELINE_FASTSTAT:-}" "${PROOT_TEST_POLICY_BINARY:-}" "${PROOT_TEST_WORKLOAD_DIRECTORY:-}" "${PROOT_TEST_WORKLOAD_TOOLS:-}" <<'PY'
+python3 - "$build_directory/unsigned.apk" "$payload_directory" "$baseline" "${PROOT_TEST_NOTIFY_BINARY:-}" "${PROOT_TEST_FASTSTAT_DIRECTORY:-}" "${PROOT_TEST_IO_BINARY:-}" "${PROOT_TEST_STDIO_DIRECTORY:-}" "${PROOT_TEST_BASELINE_FASTSTAT:-}" "${PROOT_TEST_POLICY_BINARY:-}" "${PROOT_TEST_WORKLOAD_DIRECTORY:-}" "${PROOT_TEST_WORKLOAD_TOOLS:-}" "${PROOT_TEST_PREVIOUS_FASTSTAT:-}" <<'PY'
 import pathlib
 import sys
 import zipfile
@@ -32,6 +32,8 @@ with zipfile.ZipFile(sys.argv[1], "a", compression=zipfile.ZIP_DEFLATED) as arch
         archive.write(sys.argv[3], "lib/arm64-v8a/libproot-baseline.so")
     if sys.argv[8]:
         archive.write(sys.argv[8], "lib/arm64-v8a/libfaststat-baseline.so")
+    if sys.argv[12]:
+        archive.write(sys.argv[12], "lib/arm64-v8a/libfaststat-previous.so")
     if sys.argv[9]:
         archive.write(sys.argv[9], "lib/arm64-v8a/libandroid-policy-test.so")
     if sys.argv[4]:
@@ -59,10 +61,12 @@ with zipfile.ZipFile(sys.argv[1], "a", compression=zipfile.ZIP_DEFLATED) as arch
                                ("trampoline-test", "libtrampoline-test.so"),
                                ("fd-test", "libfd-test.so")):
             archive.write(fixtures / source, "lib/arm64-v8a/" + target)
+        if (fixtures / "libproot-faststat-probe.so").is_file():
+            archive.write(fixtures / "libproot-faststat-probe.so", "lib/arm64-v8a/libproot-faststat-probe.so")
         for name in ("fd-utimens-test", "fd-utimens-test-static", "identity-regression-test",
                      "identity-regression-test-static", "link-mutation-test", "link-mutation-test-static", "rootless-concurrency-test",
                      "rootless-concurrency-test-static", "rootless-fork-test",
-                     "rootless-fork-test-static", "pin-fork-test", "pin-fork-test-static", "rootless-restart-test", "rootless-restart-test-static", "stat-entry-test", "open-test", "emulated-fstat-entry-test"):
+                     "rootless-fork-test-static", "pin-fork-test", "pin-fork-test-static", "rootless-restart-test", "rootless-restart-test-static", "rootless-scope-test", "fallback-cost-test", "stat-entry-test", "open-test", "emulated-fstat-entry-test"):
             if (fixtures / name).is_file():
                 archive.write(fixtures / name, "lib/arm64-v8a/lib" + name + ".so")
     if sys.argv[10]:
