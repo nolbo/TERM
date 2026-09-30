@@ -96,6 +96,10 @@ When preparing a release, Codex MUST:
 7. commit the patch notes with the task-owned release changes and include their
    path in the final report.
 
+Write each patch-note paragraph and list item on one source line. Do not wrap
+sentences manually to fit a line-width limit or insert unnecessary hard breaks.
+Use line breaks only where the Markdown structure requires them.
+
 Patch notes MUST describe changes actually included in the release, not planned
 work or an unfiltered commit log. Preserve notes for previous releases; correct
 them only when needed for accuracy. A release task is incomplete without its
