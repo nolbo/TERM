@@ -11,7 +11,10 @@
 #include <stdatomic.h>
 
 #define PROOT_FASTFD_ATTACH 0x50525348
-#define PROOT_FASTFD_VERSION 8
+#define PROOT_FASTFD_VERSION 9
+/* ATTACH with fd=-1 only queries whether temporary guest FDs are safe.
+ * Larger than SECCOMP_RET_DATA so an errno filter cannot forge acceptance. */
+#define PROOT_FASTFD_PIN_ALLOWED 0x50525349
 #define PROOT_FASTFD_MAPPING_SIZE 32768
 #define PROOT_FASTPATH_BINDINGS 32
 #define PROOT_FASTPATH_BYTES 16384
@@ -31,6 +34,8 @@ struct proot_fastfd_identity {
     _Atomic uint32_t close_safe;
     /* Revoked before signals, FD sharing, async FD activity or guest filters. */
     _Atomic uint32_t single_safe;
+    /* Exec-established private FD table; revoked before the first clone. */
+    _Atomic uint32_t pin_safe;
     /* Immutable ordinary-superblock identity while the tracer holds an O_PATH
      * reference. This is not a file metadata or pathname cache. */
     _Atomic uint32_t storage_active, storage_dev_low, storage_dev_high;

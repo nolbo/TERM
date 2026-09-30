@@ -1,0 +1,93 @@
+--- a/src/tracee/tracee.h
++++ b/src/tracee/tracee.h
+@@ -232,6 +232,9 @@
+ 	struct user_regs_struct _regs[NB_REG_VERSION];
+ 	bool _regs_were_changed;
+ 	bool restore_original_regs;
++	/* Last translated syscall skipped its exit stop; recover original
++	 * arguments if ARM64 rewinds that same call before signal delivery. */
++	bool entry_only_restart;
+ 	bool restore_original_regs_after_seccomp_event;
+ 
+ 	/* State for the special handling of SIGSTOP.  */
+--- a/src/syscall/syscall.c
++++ b/src/syscall/syscall.c
+@@ -170,6 +170,7 @@
+ 		/* Never restore original register values at the end
+ 		 * of this stage.  */
+ 		tracee->restore_original_regs = false;
++		tracee->entry_only_restart = false;
+ 		tracee->voided_syscall_cancelled = false;
+ 
+ 		print_current_regs(tracee, 3, "sysenter start");
+@@ -254,6 +255,8 @@
+ 		 * the sysexit stage (i.e. when seccomp is enabled and
+ 		 * there's nothing else to do).  */
+ 		if (tracee->restart_how == PTRACE_CONT) {
++			tracee->entry_only_restart = tracee->_regs_were_changed
++				&& !is_voided_syscall(tracee, CURRENT);
+ 			suppressed_syscall_status = tracee->status;
+ 			tracee->status = 0;
+ 			poke_reg(tracee, STACK_POINTER, peek_reg(tracee, ORIGINAL, STACK_POINTER));
+--- a/src/tracee/event.c
++++ b/src/tracee/event.c
+@@ -484,6 +484,47 @@
+ 	return last_exit_status;
+ }
+ 
++/* Linux ARM64 rewinds PC and restores x0 before the signal-delivery
++ * ptrace stop. Entry-only translation leaves other arguments pointing to
++ * injected host paths below the original SP; the signal frame may overwrite
++ * them and the restarted syscall would translate them a second time.
++ * Match the exact pending call before restoring its guest arguments. Do not
++ * change PC: the kernel must still decide SA_RESTART versus EINTR itself. */
++static int restore_entry_only_restart(Tracee *tracee)
++{
++#if defined(ARCH_ARM64)
++	static const Reg arguments[] = { SYSARG_1, SYSARG_2, SYSARG_3,
++		SYSARG_4, SYSARG_5, SYSARG_6 };
++	size_t i;
++	int status;
++	if (!tracee->entry_only_restart || !IS_IN_SYSENTER(tracee)
++	    || tracee->chain.syscalls != NULL || is_32on64_mode(tracee))
++		return 0;
++	status = fetch_regs(tracee);
++	if (status < 0) return status;
++	if (peek_reg(tracee, CURRENT, INSTR_POINTER) + SYSTRAP_SIZE !=
++	    peek_reg(tracee, MODIFIED, INSTR_POINTER) ||
++	    peek_reg(tracee, CURRENT, SYSARG_NUM) != peek_reg(tracee, MODIFIED, SYSARG_NUM) ||
++	    peek_reg(tracee, CURRENT, STACK_POINTER) != peek_reg(tracee, ORIGINAL, STACK_POINTER))
++		return 0;
++	for (i = 0; i < sizeof(arguments) / sizeof(arguments[0]); i++) {
++		if (peek_reg(tracee, CURRENT, arguments[i]) != peek_reg(tracee, MODIFIED, arguments[i]))
++			return 0;
++	}
++	tracee->restore_original_regs = false;
++	poke_reg(tracee, SYSARG_NUM, peek_reg(tracee, ORIGINAL, SYSARG_NUM));
++	for (i = 0; i < sizeof(arguments) / sizeof(arguments[0]); i++)
++		poke_reg(tracee, arguments[i], peek_reg(tracee, ORIGINAL, arguments[i]));
++	status = push_specific_regs(tracee, false);
++	if (status < 0) return status;
++	tracee->entry_only_restart = false;
++	VERBOSE(tracee, 3, "restored guest arguments before syscall restart");
++#else
++	(void) tracee;
++#endif
++	return 0;
++}
++
+ /**
+  * Handle the current event (@tracee_status) of the given @tracee.
+  * This function returns the "computed" signal that should be used to
+@@ -543,6 +584,11 @@
+ 		/* Don't use WSTOPSIG() to extract the signal
+ 		 * since it clears the PTRACE_EVENT_* bits. */
+ 		signal = (tracee_status & 0xfff00) >> 8;
++
++		if (signal > 0 && signal < NSIG && restore_entry_only_restart(tracee) < 0) {
++			note(tracee, ERROR, SYSTEM, "cannot restore restarted syscall arguments");
++			return SIGKILL;
++		}
+ 
+ 		switch (signal) {
+ 			static bool deliver_sigtrap = false;

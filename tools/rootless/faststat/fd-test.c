@@ -1,7 +1,6 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 #define _GNU_SOURCE
 #include <dlfcn.h>
-#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/filter.h>
@@ -11,6 +10,7 @@
 #include <pthread.h>
 #include <signal.h>
 #include <setjmp.h>
+#include <stddef.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -39,21 +39,9 @@ int pthread_key_create(pthread_key_t *key, void (*destructor)(void *))
 }
 static int (*checked_stat)(int, struct stat *);
 static unsigned long (*hits)(void);
-/* Deliver a signal exactly after the TLS destructor unmaps its identity page.
- * Exporting munmap makes this deterministic without production test hooks. */
-static _Thread_local volatile sig_atomic_t signal_after_unmap;
 static volatile sig_atomic_t signal_seen;
 static int signal_fd;
-int munmap(void *address, size_t length)
-{
-    int result = syscall(SYS_munmap, address, length);
-    if (signal_after_unmap) {
-        signal_after_unmap = 0;
-        if (raise(SIGUSR1)) _exit(90);
-    }
-    return result;
-}
-static void during_teardown(int number)
+static void during_signal(int number)
 {
     (void)number;
     int saved_errno = errno;
@@ -64,12 +52,12 @@ static void during_teardown(int number)
     signal_seen = 1;
     errno = saved_errno;
 }
-static void *teardown_worker(void *unused)
+static void *signal_worker(void *unused)
 {
     (void)unused;
     struct stat result;
     CHECK(checked_stat(signal_fd, &result) == 0);
-    signal_after_unmap = 1;
+    CHECK(raise(SIGUSR1) == 0);
     return NULL;
 }
 static void *first_signal_worker(void *unused)
@@ -78,11 +66,14 @@ static void *first_signal_worker(void *unused)
     CHECK(raise(SIGUSR1) == 0);
     return NULL;
 }
-static void check_teardown_signal(void)
+static void check_thread_signals(void)
 {
-    struct sigaction action = { .sa_handler = during_teardown }, old;
+    struct sigaction action = { .sa_handler = during_signal }, old;
     CHECK(sigemptyset(&action.sa_mask) == 0);
     CHECK(sigaction(SIGUSR1, &action, &old) == 0);
+    sigset_t signal_set, saved_mask;
+    CHECK(sigemptyset(&signal_set) == 0 && sigaddset(&signal_set, SIGUSR1) == 0);
+    CHECK(pthread_sigmask(SIG_UNBLOCK, &signal_set, &saved_mask) == 0);
     signal_fd = open("/tmp", O_RDONLY | O_DIRECTORY);
     CHECK(signal_fd >= 0);
     pthread_t thread;
@@ -90,13 +81,14 @@ static void check_teardown_signal(void)
     signal_seen = 0;
     CHECK(pthread_create(&thread, NULL, first_signal_worker, NULL) == 0);
     CHECK(pthread_join(thread, NULL) == 0);
-    CHECK(signal_seen == 1 && hits() > before);
+    CHECK(signal_seen == 1 && hits() == before);
     signal_seen = 0;
-    CHECK(pthread_create(&thread, NULL, teardown_worker, NULL) == 0);
+    CHECK(pthread_create(&thread, NULL, signal_worker, NULL) == 0);
     CHECK(pthread_join(thread, NULL) == 0);
-    CHECK(signal_seen == 1);
+    CHECK(signal_seen == 1 && hits() == before);
     CHECK(close(signal_fd) == 0);
     CHECK(sigaction(SIGUSR1, &old, NULL) == 0);
+    CHECK(pthread_sigmask(SIG_SETMASK, &saved_mask, NULL) == 0);
 }
 static _Thread_local sigjmp_buf jump_target;
 static _Thread_local volatile sig_atomic_t jump_on_seal;
@@ -121,9 +113,8 @@ static void jump_handler(int number)
     (void)number;
     siglongjmp(jump_target, 1);
 }
-static void *jump_worker(void *unused)
+static void check_initial_identity_signal(void)
 {
-    (void)unused;
     if (sigsetjmp(jump_target, 1) == 0) {
         jump_on_seal = 1;
         struct stat result;
@@ -137,28 +128,53 @@ static void *jump_worker(void *unused)
     sigset_t current;
     CHECK(pthread_sigmask(SIG_SETMASK, NULL, &current) == 0);
     CHECK(sigismember(&current, SIGUSR2) == 0);
-    return NULL;
 }
+/* Snapshot helpers must not use fopen/fstat wrappers: combined stdio tuning
+ * would attach the first identity before the sealing signal can be injected. */
 static int fd_count(void)
 {
-    DIR *directory = opendir("/proc/self/fd");
-    CHECK(directory);
+    struct linux_dirent64 {
+        uint64_t ino;
+        int64_t offset;
+        unsigned short length;
+        unsigned char type;
+        char name[];
+    };
+    int directory = syscall(SYS_openat, AT_FDCWD, "/proc/self/fd", O_RDONLY | O_DIRECTORY | O_CLOEXEC, 0);
+    CHECK(directory >= 0);
     int count = 0;
-    struct dirent *entry;
-    while ((entry = readdir(directory)))
-        if (entry->d_name[0] != '.') count++;
-    CHECK(closedir(directory) == 0);
+    char buffer[4096] __attribute__((aligned(8)));
+    long length;
+    while ((length = syscall(SYS_getdents64, directory, buffer, sizeof(buffer))) > 0) {
+        for (long offset = 0; offset < length;) {
+            struct linux_dirent64 *entry = (void *)(buffer + offset);
+            CHECK(length - offset >= (long)offsetof(struct linux_dirent64, name) + 1);
+            CHECK(entry->length >= offsetof(struct linux_dirent64, name) + 1 && entry->length <= length - offset);
+            if (entry->name[0] != '.') count++;
+            offset += entry->length;
+        }
+    }
+    CHECK(length == 0 && syscall(SYS_close, directory) == 0);
     return count;
 }
 static int identity_map_count(void)
 {
-    FILE *maps = fopen("/proc/self/maps", "r");
-    CHECK(maps);
-    char line[1024];
+    int maps = syscall(SYS_openat, AT_FDCWD, "/proc/self/maps", O_RDONLY | O_CLOEXEC, 0);
+    CHECK(maps >= 0);
+    const char needle[] = "memfd:proot-fastfd";
+    char buffer[4096 + sizeof(needle)];
+    size_t carry = 0;
     int count = 0;
-    while (fgets(line, sizeof(line), maps))
-        if (strstr(line, "memfd:proot-fastfd")) count++;
-    CHECK(!ferror(maps) && fclose(maps) == 0);
+    long length;
+    while ((length = syscall(SYS_read, maps, buffer + carry, 4096)) > 0) {
+        size_t used = carry + (size_t)length;
+        buffer[used] = 0;
+        const char *match = buffer;
+        while ((match = strstr(match, needle))) { count++; match += sizeof(needle) - 1; }
+        carry = used < sizeof(needle) - 2 ? used : sizeof(needle) - 2;
+        memmove(buffer, buffer + used - carry, carry);
+    }
+    CHECK(length == 0 && syscall(SYS_close, maps) == 0);
     return count;
 }
 static void check_nonlocal_exit(void)
@@ -166,19 +182,22 @@ static void check_nonlocal_exit(void)
     struct sigaction action = { .sa_handler = jump_handler }, old;
     CHECK(sigemptyset(&action.sa_mask) == 0);
     CHECK(sigaction(SIGUSR2, &action, &old) == 0);
-    signal_fd = open("/tmp", O_RDONLY | O_DIRECTORY);
+    sigset_t signal_set, saved_mask;
+    CHECK(sigemptyset(&signal_set) == 0 && sigaddset(&signal_set, SIGUSR2) == 0);
+    CHECK(pthread_sigmask(SIG_UNBLOCK, &signal_set, &saved_mask) == 0);
+    /* Run before the first identity is attached. The pending signal jumps
+     * away as the initializer restores its mask; its memfd must be closed. */
+    signal_fd = syscall(SYS_openat, AT_FDCWD, "/tmp", O_RDONLY | O_DIRECTORY, 0);
     CHECK(signal_fd >= 0);
     int before = fd_count();
     int mappings_before = identity_map_count();
-    for (int i = 0; i < 16; i++) {
-        pthread_t thread;
-        CHECK(pthread_create(&thread, NULL, jump_worker, NULL) == 0);
-        CHECK(pthread_join(thread, NULL) == 0);
-    }
+    CHECK(mappings_before == 0);
+    check_initial_identity_signal();
     CHECK(fd_count() == before);
-    CHECK(identity_map_count() == mappings_before);
+    CHECK(identity_map_count() == mappings_before + 1);
     CHECK(close(signal_fd) == 0);
     CHECK(sigaction(SIGUSR2, &old, NULL) == 0);
+    CHECK(pthread_sigmask(SIG_SETMASK, &saved_mask, NULL) == 0);
 }
 static void compare(int fd)
 {
@@ -231,11 +250,18 @@ int main(int argc, char **argv)
         return 0;
     }
     CHECK(fd_enabled() == 1);
+    if (argc > 1 && !strcmp(argv[1], "signal-init")) {
+        check_nonlocal_exit();
+        puts("PASS interrupted first identity closes temporary FD and preserves fallback metadata");
+        return 0;
+    }
     worker(NULL);
     CHECK(hits() >= 64);
     if (argc > 1) { puts("PASS exec reinitialization"); return 0; }
-    check_teardown_signal();
-    check_nonlocal_exit();
+    pid_t signal_child = fork(); CHECK(signal_child >= 0);
+    if (!signal_child) { execl(argv[0], argv[0], "signal-init", NULL); _exit(99); }
+    wait_ok(signal_child);
+    check_thread_signals();
     pthread_t threads[8];
     for (int i=0;i<8;i++) CHECK(pthread_create(&threads[i],NULL,worker,NULL)==0);
     for (int i=0;i<8;i++) CHECK(pthread_join(threads[i],NULL)==0);

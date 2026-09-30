@@ -172,7 +172,10 @@ static void disable_async_fd(void)
     Tracees *head = get_tracees_list_head();
     if (!head) return;
     Tracee *item;
-    LIST_FOREACH(item, head, link) fastfd_signal(item);
+    LIST_FOREACH(item, head, link) {
+        fastfd_signal(item);
+        if (item->fastfd) atomic_store(&item->fastfd->page->pin_safe, 0);
+    }
 }
 
 void fastclose_observe_enter(Tracee *tracee)
@@ -200,6 +203,7 @@ void fastclose_observe_enter(Tracee *tracee)
         if (item->fastfd) {
             atomic_store(&item->fastfd->page->close_safe, 0);
             atomic_store(&item->fastfd->page->single_safe, 0);
+            atomic_store(&item->fastfd->page->pin_safe, 0);
         }
     }
 }
@@ -221,6 +225,7 @@ void fastfd_sync(Tracee *tracee)
     atomic_store(&state->page->close_safe, requested && active && tracee->fastclose_exec_isolated);
     atomic_store(&state->page->single_safe, requested && active &&
                  tracee->fastclose_exec_isolated && !tracee->fastfd_single_disabled && !async_fd_seen);
+    atomic_store(&state->page->pin_safe, active && tracee->fastclose_exec_isolated && !async_fd_seen);
     Extension *identity = get_extension(tracee, fake_id0_callback);
     if (identity) {
         Config *config = identity->config;
@@ -244,8 +249,11 @@ void fastfd_sync(Tracee *tracee)
 
 int fastfd_attach(Tracee *tracee, int guest_fd, unsigned version)
 {
+    if (version != PROOT_FASTFD_VERSION || !compatible(tracee)) return -EOPNOTSUPP;
+    if (guest_fd == -1)
+        return tracee->fastclose_exec_isolated && !async_fd_seen ? PROOT_FASTFD_PIN_ALLOWED : 0;
     const char *enabled = getenv("PROOT_FASTFD");
-    if (!enabled || strcmp(enabled, "1") || version != PROOT_FASTFD_VERSION || !compatible(tracee))
+    if (!enabled || strcmp(enabled, "1"))
         return -EOPNOTSUPP;
     if (guest_fd < 0) return -EBADF;
     char path[64];

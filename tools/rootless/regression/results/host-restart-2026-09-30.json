@@ -1,0 +1,105 @@
+{
+  "date": "2026-09-30",
+  "validation": "ARM64 glibc host; not Android device validation",
+  "proot_commit": "7266fb3e8516535682f5a9c8f3a7e70f6506eddb",
+  "host_build_adapter": "Existing static Termux talloc archive plus __errno-to-__errno_location adapter; Android payload validation remains separate.",
+  "baseline_observations": [
+    "Latest pre-restart patch stack: plain static and accelerated dynamic unshare-wait failed opening an existing FIFO with ENOENT after SA_RESTART signal delivery.",
+    "Disabling seccomp restored syscall exit tracing and made the same static unshare-wait assertions pass.",
+    "The new restart regression rejected the baseline engine because signal ucontext retained the injected host pathname pointer instead of the guest pathname pointer."
+  ],
+  "final_matrix": {
+    "executions": 100,
+    "passed": 100,
+    "profiles": [
+      "plain",
+      "tracer",
+      "full"
+    ],
+    "hardlink_modes": [
+      "native",
+      "emulated"
+    ],
+    "binaries": [
+      "static",
+      "dynamic"
+    ],
+    "scenarios": [
+      "exec-leader",
+      "exec-worker",
+      "exec-exited-leader",
+      "fork-worker",
+      "fork-exited-leader",
+      "private-clone",
+      "unshare-wait",
+      "restart"
+    ],
+    "extra_pin_profiles": [
+      "full shared path",
+      "context path"
+    ],
+    "assertions": "Actual complete guest PASS marker, launcher exit zero, no FAIL or fatal signal, and no timeout required."
+  },
+  "restart_assertions": [
+    "guest signal ucontext preserves original syscall and path arguments",
+    "SA_RESTART retries and EINTR without SA_RESTART",
+    "ignored signal and caught SIGTRAP",
+    "relative dirfd and openat2-to-openat rewriting",
+    "alternate signal stack",
+    "nested handler with interrupted inner FIFO",
+    "handler syscalls and stack writes do not corrupt outer restart",
+    "unrelated untraced read does not use a stale open snapshot"
+  ],
+  "regular_open_stop_comparison": [
+    {
+      "case": "baseline",
+      "exit": 0,
+      "counters": [
+        "proot-syscall: openat enter=1001 exit=0"
+      ]
+    },
+    {
+      "case": "fixed",
+      "exit": 0,
+      "counters": [
+        "proot-syscall: openat enter=1001 exit=0"
+      ]
+    }
+  ],
+  "additional_validation": [
+    "Fresh source patch application --fuzz=0 passed.",
+    "Fixtures compiled with -O2 -Wall -Wextra -Werror.",
+    "Python syntax and git diff --check passed."
+  ],
+  "limitations": [
+    "The restart correction targets native ARM64. Other architectures and ARM32 compat restart behavior are not covered.",
+    "These host tests do not establish Android lifecycle or APK execution-policy behavior."
+  ],
+  "preload_sha256": "619bc9a2c3270fb89f787b5e20003adbe484a1f33843cd8e382584eb6fa2a406",
+  "inputs": {
+    "tools/rootless/proot-android.patch": "01fbf61ba87f8359f8c50fd81657cef61fb1bd230ae4d2109c457b9f6d5754a4",
+    "tools/rootless/proot-perf.patch": "512f59e5377ab1826c01eba06a01e8329b2089d6379286930bd9e7e91a0312db",
+    "tools/rootless/proot-faststat.patch": "691c53449bb4e2bf9d972d30b7a4a2872d846def0ae81f9ab2ddfe5cb21fa84c",
+    "tools/rootless/proot-emulated-links.patch": "71603a158ebbaafb6dedc7498179ae5afef0fa247daf97d12ad1d13e0c4052bb",
+    "tools/rootless/proot-single-guard.patch": "45c00fed4c6891c7782b95f952584c900f9688506b69c0e66cfeb1070d9e6ff9",
+    "tools/rootless/proot-emulated-fstat-entry.patch": "fadc6f510be150d9808785f2b5b2b02d02a95f8feb45d09481e82174bd6a65d7",
+    "tools/rootless/proot-rename-local.patch": "2341c21e8de59ce8d2928470cc89a16674bd32384d4ae3be50280a91a90b246b",
+    "tools/rootless/proot-unlink-local.patch": "cd4ee04765276d7b0c1dce099f5d129205ab81cd1b84eed956806253d9411e70",
+    "tools/rootless/proot-unpack-unlink.patch": "5739c8e9d88c5f6aa27d6516202dda161d265ef2e2131efc0399ef85c115a223",
+    "tools/rootless/proot-fd-utimens.patch": "63b92e131d54a06dc24f6de704384e930438ac0a32e5ee95cf8e633211930389",
+    "tools/rootless/proot-pin-fd.patch": "e42e153afda9321e0e613e761679a1efddef1e8c15a4919eb86ca5df555cfca2",
+    "tools/rootless/proot-exec-thread.patch": "4cb8bcf9ca5df1b8d30495f10353e8742183049708f9b79fcf720294c6d7a360",
+    "tools/rootless/proot-stat-identity.patch": "fac6f364c522431b879fb88caebcb999523df63fe0e8b8572b62f7b63029c483",
+    "tools/rootless/proot-link-path.patch": "5af743522a6910380dc7c511e35a7453891d1b7e5c40ff000cee83dd4d7426a3",
+    "tools/rootless/proot-restart-path.patch": "299f9db91fecd4990637063feb71cf529d83c34ab741c6877aa3bdfa1280c06f",
+    "tools/rootless/faststat/open-nofollow.h": "e96b47d07c4c521388c838881c25601525ed2d881036420201d4c9dd6f05c4d9",
+    "tools/rootless/faststat/protocol.h": "b76b5bc51f23cea4f4eb11e5d272b1207619598e06fbfc5cb7cab124d5890a16",
+    "tools/rootless/faststat/fastfd.c": "787cb527aa444f6ab0ba65505f2bd26eaf17888e0d2d40fec906f7289ce7fd0a",
+    "tools/rootless/regression/prepare.py": "8b4b6693afdd53cf4d05177637c4f268757feec4c5f15ea3cb7aa0350247fed6",
+    "tools/rootless/regression/run.py": "549f33831d0d5440a2c45dbe0e7daa4cc1706b6bdfaccfda99aefd3c37c48b54",
+    "tools/rootless/regression/concurrency-test.c": "70c79eae393897bff6b1e1504bfbda8b9d5f4c22e847b4eff3ba8410a8073768",
+    "tools/rootless/regression/fork-test.c": "c5c972f7cfd2c3e9da0ea2822d096da91480aee0f4def4366c29a8911d17f431",
+    "tools/rootless/regression/pin-fork-test.c": "2dbbe3f9920dd1494d73fb73fbba660857bbd783db8b0f4049bd7c26a470ada3",
+    "tools/rootless/regression/restart-test.c": "c659c3e364dc36bdc8e9f268903158595fe17e53341e09f2659d04151ec7b3ea"
+  }
+}

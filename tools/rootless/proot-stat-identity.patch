@@ -1,0 +1,51 @@
+--- a/src/syscall/enter.c
++++ b/src/syscall/enter.c
+@@ -1888,16 +1888,8 @@
+ 	if (identity != NULL) {
+ 		Config *config = (Config *)identity->config;
+ 		context.fake_root = 1;
+-		if (context.emulated_nlink) {
+-			/* Extension inheritance can reverse callback order. l2s
+-			 * overwrites all fields, so only a later fake_id0 survives. */
+-			Extension *extension;
+-			context.fake_root = 0;
+-			LIST_FOREACH(extension, tracee->extensions, link) {
+-				if (extension == identity) break;
+-				if (extension->callback == link2symlink_callback) context.fake_root = 1;
+-			}
+-		}
++		/* l2s applies the same owner correction when replacing stat.
++		 * The guest view must not depend on extension callback order. */
+ 		context.guest_uid = config->suid;
+ 		context.guest_gid = config->sgid;
+ 	}
+--- a/src/extension/link2symlink/link2symlink.c
++++ b/src/extension/link2symlink/link2symlink.c
+@@ -16,6 +16,7 @@
+ #include "tracee/perf.h"
+ #include "tracee/faststat.h"
+ #include "extension/extension.h"
++#include "extension/fake_id0/config.h"
+ #include "tracee/tracee.h"
+ #include "tracee/mem.h"
+ #include "tracee/statx.h"
+@@ -882,6 +883,19 @@
+ 		else
+ 			sysarg_stat = SYSARG_2;
+ 
++		#ifndef USERLAND
++			/* l2s replaces the complete kernel stat. A preceding fake_id0
++			 * callback may already have mapped its ownership; do that
++			 * mapping again from this fresh backing-inode metadata.
++			 * Inherited extension lists may run in either order. */
++			Extension *identity = get_extension(tracee, fake_id0_callback);
++			if (identity != NULL) {
++				Config *config = (Config *)identity->config;
++				if (finalStat.st_uid == getuid()) finalStat.st_uid = config->suid;
++				if (finalStat.st_gid == getgid()) finalStat.st_gid = config->sgid;
++			}
++		#endif
++
+ 		#ifdef USERLAND
+ 			/* Overwrite the stat struct with the correct number of "links". */
+ 			read_data(tracee, &statl, peek_reg(tracee, ORIGINAL, sysarg_stat), sizeof(statl));

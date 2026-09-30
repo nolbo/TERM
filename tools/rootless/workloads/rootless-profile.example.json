@@ -1,0 +1,41 @@
+{
+  "kind": "rootless",
+  "description": "Replace all /absolute paths with the selected installed, hash-pinned runtime",
+  "storage_format": "link2symlink",
+  "guest_bundle": "/benchmark",
+  "guest_workspace": "/work",
+  "artifacts": {
+    "engine": "/absolute/payload/libproot.so",
+    "loader": "/absolute/payload/libproot-loader.so",
+    "dso": "/absolute/payload/libproot-faststat.so"
+  },
+  "env": {
+    "PROOT_TMP_DIR": "/absolute/disposable-proot-tmp",
+    "PROOT_LOADER": "/absolute/payload/libproot-loader.so",
+    "PROOT_STAT_ENTRY": "1",
+    "PROOT_STAT_KERNEL": "1",
+    "PROOT_PATH_KERNEL": "1",
+    "PROOT_MUTATION_ENTRY": "1",
+    "PROOT_RENAME_LOCAL": "1",
+    "PROOT_FSTAT_ENTRY": "1",
+    "PROOT_FASTSTAT": "2",
+    "PROOT_FASTFD": "1",
+    "PROOT_FASTCLOSE": "1",
+    "PROOT_FASTPATH": "1",
+    "PROOT_TCGETS_DIRECT": "1",
+    "PROOT_ID_ENTRY": "1"
+  },
+  "command": [
+    "/absolute/payload/libproot.so", "--link2symlink", "-0", "-r", "/absolute/disposable-distribution-root",
+    "-b", "/dev", "-b", "/proc",
+    "-b", "{host_bundle}:{guest_bundle}",
+    "-b", "{host_workspace}:{guest_workspace}",
+    "-b", "/absolute/payload/libproot-faststat.so:/usr/local/lib/terminal-faststat.so",
+    "-w", "{guest_workspace}", "/usr/bin/env", "-i", "PATH=/usr/sbin:/usr/bin:/sbin:/bin",
+    "LD_PRELOAD=/usr/local/lib/terminal-faststat.so", "PROOT_FASTFD=1", "PROOT_FASTCLOSE=1",
+    "PROOT_FASTOPEN=1", "PROOT_FASTCREATE=1", "PROOT_FASTUNLINK=1", "PROOT_FASTSTAT_PATH=0",
+    "PROOT_FASTSTAT_SHARED=1", "PYTHONDONTWRITEBYTECODE=1",
+    "/usr/bin/python3", "-B", "{guest_bundle}/worker.py"
+  ],
+  "timeout_seconds": 1200
+}

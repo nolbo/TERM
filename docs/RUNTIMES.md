@@ -1,36 +1,6 @@
 # Runtimes
 
-The separate [Direct Linux experiment](DIRECT_LINUX_EXPERIMENT.md) explores
-in-process Linux syscall translation without a PRoot tracer. Its current APK
-probe and experimental ELF loader are not a usable distribution backend or a
-selectable runtime. The loader can run static/dynamic glibc programs, scripts and shell external
-commands through fork/exec, GNU file operations and local Python/Git workflows.
-Shared [PTY](../tools/direct-linux/PTY.md) and
-[network/resolver](../tools/direct-linux/NETWORK.md) checks also pass against the
-existing accelerated Rootless, including local glibc UDP/TCP DNS and Python TLS.
-[Pathname Unix sockets](../tools/direct-linux/UNIX_SOCKETS.md) work within recorded
-name-length/message limits. Full Unix sockets, DNS/NSS integration, external networking, threads, full Linux
-semantics and package/session integration remain incomplete.
-[Signal-mask checks](../tools/direct-linux/SIGNAL_MASKS.md) now match the reference
-for full handler masks, temporary wait masks, nested handlers and nonlocal jumps;
-this is still short of full signal/thread compatibility.
-[ELF measurements](../tools/direct-linux/COMMAND_PERFORMANCE.md) show faster file calls
-and a 128-file tree workload. Bounded ELF metadata loading reduced repeated command
-execution by 9.8–10.7%; final paired shell samples took 2.2–4.2% less time than
-accelerated Rootless on redroid. This narrow result does not establish overall parity.
-[Later short-command measurements](../tools/direct-linux/SHORT_COMMAND_PERFORMANCE.md)
-compare old/new loaders inside the same APK: the median paired time reduction is
-2.3% across 54 pairs, after removing unnecessary syscall traps and startup checks.
-[Fork/exit profiling](../tools/direct-linux/STARTUP_PERFORMANCE.md) then identifies
-unneeded Bionic bootstrap mappings inherited by guest children. Excluding them
-with MADV_DONTFORK, while retaining runtime/BSS, host TLS and kernel clock maps,
-reduces the same warm short-command workload by a further 24.3% across 54 pairs.
-Guest and signal-stack mappings retain their usual inheritance. This relies on
-the loader's existing freestanding execution boundary after initial preparation.
-The full Python/Git comparison remains incomplete because the Rootless reference
-fails during repository cleanup. Direct's subprocess FD cleanup reduced its own
-Git workload time, but establishes no completed paired Git comparison.
-Neither replaces existing Rootless installations.
+The [Direct Linux experiment](DIRECT_LINUX_EXPERIMENT.md) was retired on 2026-09-30 in favor of improvements to the existing Rootless runtime. Its source, partial results and unresolved compatibility audit are preserved as historical records; its executables and instrumentation are no longer active. Android Native/Bionic, Rootless Linux and AVF remain the product runtimes.
 
 ## Runtime matrix
 
@@ -89,10 +59,11 @@ resulting PTY across UI detach.
 
 Channel CI builds now package the pinned accelerated engine (including local rename)
 and combined faststat/stdio DSO from the pinned runtime input release. The emulated-link fix selects
-`rootless-runtime-20260920-emulated.1`; its prepared local archives must be published
-before channel CI can download this revision. They enable both
+`rootless-runtime-20260920-emulated.3`. They enable both
 Rootless acceleration and regular-file stdio buffering and fail if either build
 setting is missing. Release APK contents are checked against the same hashes.
+The 2026-09-30 workload improvements are a separately verified local build input, selected with `rootlessWorkloadPayload=true` together with acceleration and stdio buffering. They fix worker exec ownership, temporary FD inheritance, stat identity, failed hardlink mutations and ARM64 syscall restarts after signals, and add a bounded FD-only timestamp path for static and dynamic binaries. Existing rootfs storage and package databases need no conversion. [ROOTLESS_AGENT_PERFORMANCE.md](ROOTLESS_AGENT_PERFORMANCE.md) records the source/preparation workflow and validation: correctness passed, but package wall-time gains were not established and large-repository work regressed. The candidate is not adopted as the default payload and has not been published as a new channel runtime.
+
 The installed app never downloads this runtime. Manual builds still need explicit
 Gradle properties; see `tools/rootless/prepare-release-runtime.py` and the channel
 workflow. Acceleration also supports emulated hardlinks; storage conversion is not required. The older general dev APK from `951bc7b1bf71` did not enable this profile.

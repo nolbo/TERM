@@ -1,0 +1,305 @@
+{
+  "schema": 1,
+  "date": "2026-09-30",
+  "scope": "Android API 35 ARM64 app UID; Ubuntu 24.04 guest; correctness only",
+  "payload_sha256": {
+    "proot": "85dc5a9a527dba926ab496e5e7929ba8ded4e6dbd7da5f77a072ee0af255af42",
+    "proot-loader": "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237",
+    "libproot-faststat.so": "619bc9a2c3270fb89f787b5e20003adbe484a1f33843cd8e382584eb6fa2a406"
+  },
+  "storage_modes": [
+    "native",
+    "emulated"
+  ],
+  "instrumentation": "separate correctness executions; not a workload timing comparison",
+  "tests": [
+    {
+      "name": "fd-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "identity-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "identity-nonzero-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "links-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "exec-leader-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "exec-worker-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "exec-exited-leader-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "fork-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "fd-native-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "identity-native-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "identity-nonzero-native-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "links-native-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "exec-leader-native-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "exec-worker-native-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "exec-exited-leader-native-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "fork-native-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "stat-entry-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "pin-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "fd-previous-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "open-previous-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "fd-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "identity-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "identity-nonzero-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "links-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "exec-leader-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "exec-worker-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "exec-exited-leader-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "fork-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "fd-emulated-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "identity-emulated-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "identity-nonzero-emulated-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "links-emulated-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "exec-leader-emulated-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "exec-worker-emulated-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "exec-exited-leader-emulated-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "fork-emulated-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "stat-entry-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "pin-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "fd-previous-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "open-previous-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "unshare-wait-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "private-clone-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "fork-exited-leader-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "unshare-wait-native-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "private-clone-native-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "fork-exited-leader-native-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "unshare-wait-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "private-clone-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "fork-exited-leader-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "unshare-wait-emulated-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "private-clone-emulated-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "fork-exited-leader-emulated-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "restart-native",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "restart-native-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "restart-emulated",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    },
+    {
+      "name": "restart-emulated-static",
+      "exit_code": 0,
+      "guest_assertions": "passed"
+    }
+  ],
+  "unverified": [
+    "SELinux enforcing device",
+    "physical 16 KiB page device",
+    "authenticated CLI tasks or session resume",
+    "application UI and session lifecycle changes"
+  ],
+  "status": "passed",
+  "attempts": 56
+}

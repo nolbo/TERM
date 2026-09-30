@@ -15,6 +15,10 @@ builds, separately from the baseline payload documented below. The current
 [emulated-link revision](../../docs/ROOTLESS_EMULATED_ACCELERATION.md) also supports
 legacy storage without a native-hardlink migration.
 
+## Local workload improvements
+
+The 2026-09-30 local workload profile adds exec/fork/signal and emulated-hardlink correctness fixes, plus a bounded FD-only timestamp fast path. [WORKLOAD_PAYLOAD.md](WORKLOAD_PAYLOAD.md) describes pinned offline source builds, the three required Gradle properties and APK verification. It remains opt-in: correctness passed, but representative package wall-time gains were not established and large-repository work regressed. [workloads/README.md](workloads/README.md) provides isolated package, Git/rg, Python, local replay and concurrency comparisons with explicit CLI/authentication gates.
+
 ## File I/O measurements
 
 `workloads.py` also measures `small-read`, `sequential-read`, `sequential-write`

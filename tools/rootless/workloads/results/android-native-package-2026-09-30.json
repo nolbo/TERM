@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "date": "2026-09-30",
+  "scope": "Debian 13 native hardlink dpkg 1000 file install/upgrade/remove; correctness only",
+  "tracer_acceleration": "candidate flags retained in both profiles",
+  "profiles": [
+    {
+      "mode": "candidate",
+      "guest_preload": true,
+      "real_exit_observed": 0,
+      "guest_status": "passed",
+      "log_sha256": "e4edafe90105e0a26a546d65cd063faaf6a6c9f9f9f36ce9f3c064e30f4240d0",
+      "content_mode_time_identity_nlink_and_package_removal_verification": "passed"
+    },
+    {
+      "mode": "candidate-no-preload",
+      "guest_preload": false,
+      "real_exit_observed": 0,
+      "guest_status": "passed",
+      "log_sha256": "1111e94b3334a90e7fc3821ca83882e237fd17eca53ff953c97a670f3e83ee40",
+      "content_mode_time_identity_nlink_and_package_removal_verification": "passed"
+    }
+  ],
+  "payload_sha256": {
+    "proot": "85dc5a9a527dba926ab496e5e7929ba8ded4e6dbd7da5f77a072ee0af255af42",
+    "proot-loader": "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237",
+    "libproot-faststat.so": "619bc9a2c3270fb89f787b5e20003adbe484a1f33843cd8e382584eb6fa2a406"
+  }
+}

@@ -105,26 +105,10 @@ The fixed `rootless-notify-probe` name supports an opt-in standalone test APK;
 the production APK does not bundle this probe. It remains subject to the same
 canonical library-directory and executable checks and grants no downloaded-file
 execution path. Its fixture-only FD transport is not a guest capability API.
-The separate `direct-linux-probe` and `direct-linux-loader` entries exist only for an
-opt-in standalone instrumentation APK. These test unprivileged in-process syscall
-translation, anonymous W-to-X mappings and actual Linux ELF using temporary
-fixture data. Guest exec replaces tracked guest mappings inside the surviving APK
-runtime; it never kernel-executes a data ELF or clears inherited filters. Initial
-ELF/interpreter pages now use validated private file mappings; mapping denial
-is not bypassed with an anonymous-copy fallback. Source-file changes after entry
-retain ordinary file-mapping behavior, not a frozen-image guarantee. The
-[process milestone](../tools/direct-linux/PROCESS.md) documents its bounded semantics.
-The [filesystem milestone](../tools/direct-linux/FILESYSTEM.md) retains real Android
-UID/permission errors and uses pinned directory handles for name changes. Its
-guest-root path translation is not a security namespace against same-UID code or
-host processes concurrently moving directories outside that root.
-The [application milestone](../tools/direct-linux/APPLICATIONS.md) adds real xattr
-operations and a fixed null/zero/random/urandom device table. It checks device
-types, preserves Android permissions and denies guest namespace changes to those
-entries. It does not bind the host device directory or expose Binder/input devices.
-They are not bundled in the product APK and do not loosen inherited
-Android policy. Their results do not establish support on stock enforcing devices. See the
-[Direct Linux experiment](DIRECT_LINUX_EXPERIMENT.md) for the remaining gates.
+The Direct Linux/glibc experiment was retired on 2026-09-30. Its probe and loader names are no longer accepted by `NativeExecutableLoader`; test sources and evidence remain in the [archive](../tools/direct-linux/README.md). Android Native/Bionic remains a supported product runtime.
+
+The local Rootless workload profile keeps APK-owned executable verification and inherited Android filters. Its optional ARM64 `futimens` acceleration allows only the exact `utimensat(fd, NULL, times, flags)` form through PRoot's filter; both 32-bit halves of the path pointer must be zero. The kernel still validates the FD, time pointer, flags, permissions and inherited guest/Android filters. Non-null paths and unknown PRoot extensions retain translation. This is a tracing optimization, not a capability grant or a security namespace. Shared ABI v9 permits temporary tracee pins only between exec and the first clone/fork/vfork entry, with signals blocked throughout the operation; user-owned descriptors are never guessed and closed. See the [workload design and validation](ROOTLESS_AGENT_PERFORMANCE.md).
+
 Bootstrap downloads are catalog-pinned Debian, Ubuntu and Arch Linux ARM rootfs
 archives. The installer limits their size, verifies SHA-256 before extraction, rejects path
 escapes, symlink-parent traversal, unsupported special files and unsafe links,

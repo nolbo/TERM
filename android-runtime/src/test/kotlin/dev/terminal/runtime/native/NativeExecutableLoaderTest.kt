@@ -36,7 +36,7 @@ class NativeExecutableLoaderTest {
     @Test fun toolingIsPackagedOnlyAndNeverAUsbmuxDaemonOrDownloadedWorker() {
         val directory = temporary.newFolder("bootstrap-lib")
         val resolver = PackagedExecutableResolver(directory) { listOf("arm64-v8a") }
-        listOf("terminal-usb", "iphone-tool-probe", "isideload", "rootless-notify-probe", "direct-linux-probe", "direct-linux-loader").forEach { name ->
+        listOf("terminal-usb", "iphone-tool-probe", "isideload", "rootless-notify-probe").forEach { name ->
             assertTrue(resolver.resolvePackagedExecutable(name).isFailure)
             val binary = File(directory, "lib$name.so").apply { writeText("test"); setExecutable(true) }
             assertEquals(binary.canonicalFile, resolver.resolvePackagedExecutable(name).getOrThrow())
@@ -55,15 +55,31 @@ class NativeExecutableLoaderTest {
         assertTrue(result.exceptionOrNull()?.message?.contains("escaped APK") == true)
     }
 
-    @Test fun directLinuxProbeCannotResolveOutsideTheApkLibraryDirectory() {
+    @Test fun retiredDirectLinuxExecutablesAreRejectedEvenWhenPackaged() {
         val directory = temporary.newFolder("direct-linux-lib")
-        val outside = temporary.newFile("downloaded-direct-linux").apply { setExecutable(true) }
+        val resolver = PackagedExecutableResolver(directory) { listOf("arm64-v8a") }
         listOf("direct-linux-probe", "direct-linux-loader").forEach { name ->
-            Files.createSymbolicLink(File(directory, "lib$name.so").toPath(), outside.toPath())
-            val result = PackagedExecutableResolver(directory) { listOf("arm64-v8a") }
-                .resolvePackagedExecutable(name)
-            assertTrue(result.exceptionOrNull()?.message?.contains("escaped APK") == true)
+            assertEquals("Native executable is not allow-listed", resolver.resolvePackagedExecutable(name).exceptionOrNull()?.message)
+            File(directory, "lib$name.so").apply {
+                writeText("retired experiment")
+                assertTrue(setExecutable(true))
+            }
+            assertEquals("Native executable is not allow-listed", resolver.resolvePackagedExecutable(name).exceptionOrNull()?.message)
         }
+    }
+
+    @Test fun retiredDirectLinuxNamesCannotBeRevivedBySymlinks() {
+        val directory = temporary.newFolder("retired-symlinks")
+        val proot = File(directory, "libproot.so").apply {
+            writeText("allowed runtime")
+            assertTrue(setExecutable(true))
+        }
+        val resolver = PackagedExecutableResolver(directory) { listOf("arm64-v8a") }
+        listOf("direct-linux-probe", "direct-linux-loader").forEach { name ->
+            Files.createSymbolicLink(File(directory, "lib$name.so").toPath(), proot.toPath())
+            assertEquals("Native executable is not allow-listed", resolver.resolvePackagedExecutable(name).exceptionOrNull()?.message)
+        }
+        assertEquals(proot.canonicalFile, resolver.resolvePackagedExecutable("proot").getOrThrow())
     }
 
     @Test fun iphoneWorkerMustBeAnImmutablePackagedExecutable() {

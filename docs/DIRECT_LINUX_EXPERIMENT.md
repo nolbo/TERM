@@ -1,9 +1,12 @@
-# Direct Linux: 별도 무특권 Linux 실행 유형
+# Direct Linux 실험 — 개발 중단·기록 보존
 
-2026-09-24. **개발 중이며 사용자용 Linux 환경은 아직 완성되지 않았다.**
-기존 Rootless, 설치 데이터, 기본 런타임을 교체하지 않는다. 이 문서는 새 유형의
-설계와 현재 증거를 관리한다. 과거 Rootless의 특정 배속 목표를 이번 요청의
-완료 조건으로 대신 사용하지 않는다.
+2026-09-30 사용자 지시에 따라 별도 Direct Linux 런타임의 개발·제품화를 중단하고 [기존 Rootless Linux 개선 설계](ROOTLESS_AGENT_PERFORMANCE.md)의 구현으로 전환했다. 기존 Android Native/Bionic, Rootless Linux, AVF 환경은 유지한다.
+
+**Rootless와의 호환성 동등성 및 C01–C45 전체 목표는 달성되지 않았다.** 아래 설계, 부분 성공, 성능 결과, 남은 한계는 2026-09-24부터의 연구 기록이며 현재 개발 계획이나 새 Rootless 성능 근거가 아니다. 소스·감사·원시 결과는 [중단된 실험 디렉터리](../tools/direct-linux/README.md)에 보존한다.
+
+제품 `NativeExecutableLoader`에서 `direct-linux-probe`와 `direct-linux-loader`를 제거했고, 관련 Android instrumentation은 [보관 디렉터리](../tools/direct-linux/archive/README.md)로 옮겨 활성 빌드에서 제외했다. 실험 빌드·패키징 스크립트도 기본적으로 실행을 거부하며, 명시적인 역사 재현 옵션만 허용한다. Direct Linux는 사용자 runtime 선택에 추가된 적이 없다.
+
+이하의 요청·방향·완료 조건은 중단 전 실험의 기록이다.
 
 ## 요청과 관찰
 

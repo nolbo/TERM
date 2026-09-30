@@ -255,7 +255,9 @@ int main(int argc, char **argv)
         pthread_t threads[4];
         for (int i = 0; i < 4; i++) CHECK(pthread_create(&threads[i], NULL, thread_test, NULL) == 0);
         for (int i = 0; i < 4; i++) CHECK(pthread_join(threads[i], NULL) == 0);
-        CHECK(!enabled() || mode() != PROOT_FASTSTAT_CONTEXT_VERSION || hits() == thread_hits + 800);
+        /* Temporary guest FDs are forbidden after the first clone. Metadata
+         * must stay correct through the ordinary tracer path in every thread. */
+        CHECK(hits() == thread_hits);
         pid_t child = fork();
         CHECK(child >= 0);
         if (child == 0) {
@@ -279,10 +281,11 @@ int main(int argc, char **argv)
                 /* Raw syscalls deliberately bypass libc UID wrappers. */
                 CHECK(syscall(SYS_setresgid, 1201, 1202, 1203) == 0);
                 CHECK(syscall(SYS_setresuid, 1301, 1302, 1303) == 0);
-                /* Ordinary file avoids l2s fallback masking stale identity. */
+                /* Fork revoked pin eligibility; fallback must still apply the
+                 * child's changed saved IDs without stale parent metadata. */
                 unsigned long before = hits();
                 compare(directory, "nested/file", 0);
-                CHECK(!enabled() || hits() > before);
+                CHECK(hits() == before);
                 compare(AT_FDCWD, "nested/file", 0);
                 compare(directory, "hard", 0);
                 _exit(0);

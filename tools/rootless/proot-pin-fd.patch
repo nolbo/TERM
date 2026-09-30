@@ -1,0 +1,20 @@
+--- a/src/syscall/enter.c
++++ b/src/syscall/enter.c
+@@ -2362,13 +2362,14 @@
+ 			status = -EOPNOTSUPP;
+ 			goto end;
+ 		}
+-		if (strcmp(faststat, "2") == 0 && syscall_number == PR_prctl &&
++		if (syscall_number == PR_prctl &&
+ 		    peek_reg(tracee, CURRENT, SYSARG_1) == PROOT_FASTFD_ATTACH) {
+ 			status = fastfd_attach(tracee, (int)peek_reg(tracee, CURRENT, SYSARG_2),
+ 				(unsigned)peek_reg(tracee, CURRENT, SYSARG_3));
+-			if (status == 0) {
+-				poke_reg(tracee, SYSARG_RESULT, 0);
++			if (status >= 0) {
++				poke_reg(tracee, SYSARG_RESULT, status);
+ 				set_sysnum(tracee, PR_void);
++				status = 0;
+ 			}
+ 			goto end;
+ 		}

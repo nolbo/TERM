@@ -7,6 +7,12 @@ def stdioSetting = providers.gradleProperty('rootlessStdioBuffer').getOrElse('fa
 if (!(stdioSetting in ['true', 'false'])) throw new GradleException('rootlessStdioBuffer must be true or false')
 def stdioRootless = stdioSetting == 'true'
 if (stdioRootless && !acceleratedRootless) throw new GradleException('rootlessStdioBuffer requires rootlessAcceleratedPayload')
+def workloadSetting = providers.gradleProperty('rootlessWorkloadPayload').getOrElse('false')
+if (!(workloadSetting in ['true', 'false'])) throw new GradleException('rootlessWorkloadPayload must be true or false')
+def workloadRootless = workloadSetting == 'true'
+if (workloadRootless && (!acceleratedRootless || !stdioRootless)) {
+    throw new GradleException('rootlessWorkloadPayload requires rootlessAcceleratedPayload and rootlessStdioBuffer=true')
+}
 def rootlessPayloadSource = acceleratedRootless ? layout.projectDirectory.dir(acceleratedRootless) : layout.projectDirectory.dir('src/main/rootless/arm64-v8a')
 def generatedRootlessJniDirectory = layout.buildDirectory.dir('generated/rootlessJniLibs')
 def iphoneBuildDirectory = layout.buildDirectory.dir('iphone-native')
@@ -82,6 +88,7 @@ tasks.register('verifyRootlessExecutables') {
     inputs.files(rootlessPayloadSource.file('proot'), rootlessPayloadSource.file('proot-loader'))
     inputs.property('accelerated', acceleratedRootless != null)
     inputs.property('stdioBuffer', stdioRootless)
+    inputs.property('workload', workloadRootless)
     if (acceleratedRootless) inputs.file(rootlessPayloadSource.file('libproot-faststat.so'))
     doLast {
         if (providers.environmentVariable('TERMINAL_REQUIRE_ROOTLESS_ACCELERATION').orNull == 'true' && (!acceleratedRootless || !stdioRootless)) {
@@ -96,6 +103,10 @@ tasks.register('verifyRootlessExecutables') {
             expected['libproot-faststat.so'] = stdioRootless ?
                 'f581d328cf0fee01530b9052f76901bbfe975ac1bd61c225e02dfe10e1b5e829' :
                 'b9d1a5b19aaa23e53a20745c92b64d7d27b4aebc06d3d6884c2e297934d13a4e'
+        }
+        if (workloadRootless) {
+            expected.proot = '85dc5a9a527dba926ab496e5e7929ba8ded4e6dbd7da5f77a072ee0af255af42'
+            expected['libproot-faststat.so'] = '619bc9a2c3270fb89f787b5e20003adbe484a1f33843cd8e382584eb6fa2a406'
         }
         expected.each { name, digest ->
             def payload = rootlessPayloadSource.file(name).asFile
@@ -129,6 +140,7 @@ android {
     defaultConfig {
         buildConfigField "boolean", "ROOTLESS_ACCELERATION", acceleratedRootless ? "true" : "false"
         buildConfigField "boolean", "ROOTLESS_STDIO_BUFFER", stdioRootless ? "true" : "false"
+        buildConfigField "boolean", "ROOTLESS_WORKLOAD_ACCELERATION", workloadRootless ? "true" : "false"
         minSdk project.properties.minSdkVersion.toInteger()
         targetSdk project.properties.targetSdkVersion.toInteger()
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'

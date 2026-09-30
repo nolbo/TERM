@@ -11,11 +11,23 @@ import org.junit.rules.TemporaryFolder
 class RootlessLaunchSpecTest {
     @Test fun stdioBufferingIsExplicitAndGuestOnly() {
         val library = temporary.newFile("stdio-profile.so")
-        val ordinary = RootlessAccelerationProfile(library, stdioBuffering = false)
-        val buffered = RootlessAccelerationProfile(library, stdioBuffering = true)
+        val ordinary = RootlessAccelerationProfile(library, stdioBuffering = false, workloadAcceleration = false)
+        val buffered = RootlessAccelerationProfile(library, stdioBuffering = true, workloadAcceleration = false)
         assertFalse(ordinary.guestEnvironment(null).containsKey("PROOT_STDIO_BUFFER"))
         assertEquals("1", buffered.guestEnvironment(null)["PROOT_STDIO_BUFFER"])
         assertFalse(buffered.hostEnvironment.any { it.startsWith("PROOT_STDIO_BUFFER=") })
+    }
+
+    @Test fun workloadAccelerationAddsOnlyTheHostSelectedFdTimestampFlag() {
+        val library = temporary.newFile("workload-profile.so")
+        val published = RootlessAccelerationProfile(library, stdioBuffering = true, workloadAcceleration = false)
+        val workload = RootlessAccelerationProfile(library, stdioBuffering = true, workloadAcceleration = true)
+        assertFalse(published.hostEnvironment.any { it.startsWith("PROOT_FD_UTIMENS_DIRECT=") })
+        assertEquals(published.hostEnvironment.toList() + "PROOT_FD_UTIMENS_DIRECT=1",
+            workload.hostEnvironment.toList())
+        assertEquals(published.binding, workload.binding)
+        assertEquals(published.guestEnvironment("/guest/custom.so"), workload.guestEnvironment("/guest/custom.so"))
+        assertFalse(workload.guestEnvironment(null).containsKey("PROOT_FD_UTIMENS_DIRECT"))
     }
 
     @Test fun nssBindingsAreSelectedByRuntimeAndDoNotReplaceAccountFiles() {
@@ -36,13 +48,17 @@ class RootlessLaunchSpecTest {
         val library = temporary.newFile("libproot-faststat.so")
         val spec = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"), "/bin/sh", "/root",
             mapOf("LD_PRELOAD" to "/guest/custom.so", "PROOT_FASTSTAT_SHARED" to "0",
-                "PROOT_OPEN_NOTIFY" to "1", "PROOT_STDIO_BUFFER" to "forged"), accelerationLibrary = library)
+                "PROOT_OPEN_NOTIFY" to "1", "PROOT_STDIO_BUFFER" to "forged",
+                "PROOT_FD_UTIMENS_DIRECT" to "forged"), accelerationLibrary = library)
         assertTrue(spec.arguments.contains("${library.absolutePath}:/usr/local/lib/terminal-faststat.so"))
         assertTrue(spec.arguments.contains("LD_PRELOAD=/usr/local/lib/terminal-faststat.so:/guest/custom.so"))
         assertTrue(spec.arguments.contains("PROOT_FASTSTAT_SHARED=1"))
         assertFalse(spec.arguments.contains("PROOT_FASTSTAT_SHARED=0"))
         assertFalse(spec.arguments.contains("PROOT_OPEN_NOTIFY=1"))
         assertFalse(spec.arguments.contains("PROOT_STDIO_BUFFER=forged"))
+        assertFalse(spec.arguments.any { it.startsWith("PROOT_FD_UTIMENS_DIRECT=") })
+        assertEquals(dev.terminal.runtime.BuildConfig.ROOTLESS_WORKLOAD_ACCELERATION,
+            spec.hostEnvironment.contains("PROOT_FD_UTIMENS_DIRECT=1"))
         assertEquals(dev.terminal.runtime.BuildConfig.ROOTLESS_STDIO_BUFFER,
             spec.arguments.contains("PROOT_STDIO_BUFFER=1"))
         assertFalse(spec.arguments.contains("--link2symlink"))

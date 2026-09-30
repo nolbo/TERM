@@ -1,0 +1,93 @@
+--- a/src/tracee/tracee.c
++++ b/src/tracee/tracee.c
+@@ -92,7 +92,8 @@
+ 
+ 	/* Clean objects that are linked to this tracee's life
+ 	 * span.  */
+-	talloc_report_depth_cb(tracee->life_context, 0, 100, clean_life_span_object, tracee);
++	if (tracee->life_context != NULL)
++		talloc_report_depth_cb(tracee->life_context, 0, 100, clean_life_span_object, tracee);
+ 
+ 	/* This could be optimize by using a dedicated list of
+ 	 * children and ptracees.  */
+@@ -339,6 +340,47 @@
+ 	}
+ 
+ 	return (create ? new_tracee(pid) : NULL);
++}
++
++/**
++ * Select the task whose exec changed its kernel TID to @pid. The event
++ * message is the authoritative former TID; do not reuse the old leader's
++ * unrelated register cache, pending syscall or ELF load state.
++ */
++Tracee *exec_tracee(pid_t pid)
++{
++	unsigned long former = 0;
++	if (ptrace(PTRACE_GETEVENTMSG, pid, NULL, &former) < 0) {
++		note(NULL, ERROR, SYSTEM, "ptrace(GETEVENTMSG) at exec");
++		return NULL;
++	}
++	if (former == (unsigned long)pid)
++		return get_tracee(NULL, pid, true);
++	Tracee *executing = get_tracee(NULL, (pid_t)former, false);
++	if (executing == NULL) {
++		note(NULL, ERROR, INTERNAL, "unknown exec former tid %lu for pid %d", former, pid);
++		return NULL;
++	}
++	Tracee *leader = get_tracee(executing, pid, false);
++	if (leader != NULL) {
++		Tracee *relative;
++		executing->vpid = leader->vpid;
++		executing->parent = leader->parent;
++		executing->clone = leader->clone;
++		executing->killall_on_exit |= leader->killall_on_exit;
++		LIST_FOREACH(relative, &tracees, link)
++			if (relative->parent == leader)
++				relative->parent = executing;
++		/* Bindings created by the process live through its leader change. */
++		talloc_steal(executing->life_context, leader->life_context);
++		leader->life_context = NULL;
++		/* The kernel already destroyed this task. Remove its record
++		 * without applying the policy for a terminating process. */
++		TALLOC_FREE(leader);
++	}
++	executing->pid = pid;
++	VERBOSE(executing, 1, "exec former tid %lu now pid %d", former, pid);
++	return executing;
+ }
+ 
+ /**
+--- a/src/tracee/tracee.h
++++ b/src/tracee/tracee.h
+@@ -413,6 +413,7 @@
+ #define TRACEE(a) talloc_get_type_abort(talloc_parent(talloc_parent(a)), Tracee)
+ 
+ extern Tracee *get_tracee(const Tracee *tracee, pid_t pid, bool create);
++extern Tracee *exec_tracee(pid_t pid);
+ extern Tracee *get_stopped_ptracee(const Tracee *ptracer, pid_t pid,
+ 				bool only_with_pevent, word_t wait_options);
+ extern bool has_ptracees(const Tracee *ptracer, pid_t pid, word_t wait_options);
+--- a/src/tracee/event.c
++++ b/src/tracee/event.c
+@@ -453,9 +453,17 @@
+ 			break;
+ 		}
+ 
+-		/* Get information about this tracee. */
+-		tracee = get_tracee(NULL, pid, true);
+-		assert(tracee != NULL);
++		/* A nonleader exec takes the thread-group leader's TID. Its
++		 * syscall/register/load state remains that of the executing task. */
++		if (WIFSTOPPED(tracee_status) &&
++		    ((unsigned)tracee_status >> 16) == PTRACE_EVENT_EXEC)
++			tracee = exec_tracee(pid);
++		else
++			tracee = get_tracee(NULL, pid, true);
++		if (tracee == NULL) {
++			kill_all_tracees();
++			return EXIT_FAILURE;
++		}
+ 
+ 		tracee->running = false;
+ 

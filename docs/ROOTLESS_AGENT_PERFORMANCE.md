@@ -1,6 +1,22 @@
-# Rootless 실제 작업·코딩 에이전트 성능 개선 검토안
+# Rootless 실제 작업·코딩 에이전트 성능 개선
 
-2026-09-30. 사용자 요청에 따라 Rootless 작업 성능 대상에 **Codex CLI와 Claude Code**를 추가하고, Direct Linux에서 검증한 프로세스 내부 syscall 처리와 ptrace 정지 감소 방향을 반영한다. 이 문서는 전환 검토안이며 전체 Direct 호환성 목표를 완료 처리하거나 Rootless 엔진 변경을 적용했다는 기록이 아니다.
+2026-09-30. Direct Linux/glibc 실험은 사용자 요청으로 폐기하고, 아래 설계의 첫 Rootless 개선 묶음을 구현했다. Android Native/Bionic과 AVF는 기존 제품 런타임으로 유지한다. 이 문서는 구현 범위와 남은 검증 gate를 함께 기록하며, 로컬 도구 재생을 실제 Codex/Claude 모델 작업 완료로 계산하지 않는다.
+
+## 구현 범위
+
+| 항목 | 구현과 적용 경계 |
+| --- | --- |
+| 실제 작업 하네스 | [workloads](../tools/rootless/workloads/README.md): apt/dpkg 1,000·10,000 파일 설치/업그레이드/삭제, 선택한 실제 패키지의 unpack/remove, Git/rg 10k·100k·고정 저장소 탐색, Python 수정/테스트/incremental build, 반복 도구 재생과 두 workspace의 취소·회수 |
+| 파일 시간 가속 | [proot-fd-utimens.patch](../tools/rootless/proot-fd-utimens.patch): ARM64의 `utimensat(fd, NULL, times, flags)`만 PRoot 추적을 생략한다. 동적 libc와 정적/raw 호출을 모두 처리하되 경로 호출·알 수 없는 확장·USERLAND는 기존 경로를 유지한다. |
+| exec 상태 | [proot-exec-thread.patch](../tools/rootless/proot-exec-thread.patch): exec event의 실제 이전 TID로 실행 태스크를 선택하고 leader PID 변경 후 register·loader·parent와 binding 수명을 이어간다. |
+| syscall 재시작 | [proot-restart-path.patch](../tools/rootless/proot-restart-path.patch): ARM64의 entry-only 경로 호출이 신호로 재시작될 때 원래 guest 인자를 signal frame에 보존한다. PC와 SA_RESTART/EINTR 결정은 커널에 맡기며 일반 open의 exit stop은 추가하지 않는다. |
+| 임시 FD 소유권 | [ABI v9](../tools/rootless/faststat/README.md)와 [pin handshake](../tools/rootless/proot-pin-fd.patch): exec 후 첫 clone/fork/vfork 전까지만 임시 FD를 만들고 전체 작업에서 신호를 막는다. 첫 clone 뒤에는 해당 경로 조회가 tracer로 돌아가며 다음 exec에서 다시 허용한다. 사용자 FD를 추정해 닫지 않는다. |
+| hardlink 정확성 | [identity](../tools/rootless/proot-stat-identity.patch)·[mutation](../tools/rootless/proot-link-path.patch): callback 순서와 fork 세대에 무관한 가상 UID/GID, 실패한 unlink/rename의 내용·nlink 보존, same-inode/NOREPLACE/EXCHANGE 의미와 업그레이드 뒤 backing 회수 |
+| 앱 연결 | [로컬 빌드 입력](../tools/rootless/WORKLOAD_PAYLOAD.md): accelerator·stdio·workload 옵션을 함께 선택하며 엔진/loader/DSO 고정 SHA와 ELF 정렬을 검증한다. 세션과 서비스 소유권, 배포판의 독립 package DB와 기존 저장 형식은 유지한다. |
+| CLI gate | 실제 설치 ELF의 version/help 검사와 명시적인 인증 실행/독립 결과 검증은 별도 단계다. 인증은 검색·복사하지 않으며 sandbox를 자동 해제하지 않는다. npm/pip의 offline 설치, 인증된 PTY 시작/재개는 이번 하네스의 완료 항목이 아니다. |
+
+Direct의 dispatcher와 별도 새 런타임을 이식하지 않았다. 프로세스 내부 가속과 PRoot의 호환성 처리를 함께 쓰는 기존 구조를 유지하고, 이미 적용된 가속 위에 정확성 수정과 한 종류의 추가 syscall 경로를 얹었다. 정적 ELF의 일반 경로 syscall을 모두 프로세스 내부로 옮기는 것은 독립 연구 단계로 남는다.
+
 
 ## 현재 근거와 목표
 
@@ -94,10 +110,30 @@ Rootless는 이미 `RootlessAccelerationProfile`의 경로·stat·open/create/cl
 - Debian의 독립 package DB에서 apt/dpkg 설치·업그레이드·삭제와 기존 session/FD/signal 검사가 회귀하지 않는다. 두 storage 형식과 가속 on/off를 포함한다.
 - 실제 enforcing 및 16 KiB 기기 검증 전에는 해당 기기 지원을 주장하지 않는다. 체감 이득이 없는 후보는 기본 payload로 올리지 않는다.
 
-## 이번 문서의 검증 범위
+## 검증 기록
 
-최초 작성 시 저장소의 현재 가속 profile·filter·protocol, 기존 성능 결과와 공식 CLI 문서를 확인했다. 호스트의 Codex 0.159.2 version/help와 정적 ARM64 ELF 형식만 확인했으며 Claude 실행 파일은 당시 PATH에서 찾지 못했다. Codex help는 host PATH alias 작성이 read-only로 실패했다는 경고와 함께 정상 출력됐다. 인증 정보는 조회하거나 복사하지 않았고 실제 모델 요청, Android CLI 설치·실행 및 새 성능 측정은 수행하지 않았다.
+최초 설계는 현재 가속 profile/filter/protocol, 기존 결과와 공식 CLI 문서를 근거로 작성했다. 이후 실제 fixture/하네스와 엔진 패치를 구현했으며, 소스만으로 성공을 판단하지 않는다. 현행 채널 입력인 `rootless-runtime-20260920-emulated.3`의 엔진·합본 DSO를 기준선으로 고정하고, 후보는 [로컬 빌드 문서](../tools/rootless/WORKLOAD_PAYLOAD.md)의 별도 SHA로 검증한다. 기존 배포 입력의 hash를 덮어쓰거나 새 런타임을 배포한 것은 아니다.
 
-체감 우선순위 추가 시에는 기존 dpkg·순차 I/O·셸 실행 결과를 다시 확인하고 작업 입력·절대 시간·회귀 조건을 설계에 반영했다. 새 fixture, 측정 harness 또는 엔진 변경을 구현한 결과가 아니며 실제 패키지·대규모 저장소·에이전트의 체감 개선은 아직 미검증이다.
+호스트에서는 실제 출력·오류 검증과 static/dynamic exec/fork·identity·hardlink 회귀를 수행했다. Android에서는 별도 시험 APK의 동일 엔진 바이트를 기존 앱의 일반 UID로 실행하며, 사용자 세션과 package DB를 변경하지 않는 scratch 입력을 썼다. 최종 시간 비교는 대표 dpkg 1,000파일 작업의 10쌍으로 한정했다. 12종 전체를 10쌍 실행하던 장기 배치는 검증 시간이 과도하다는 사용자 피드백 후 중단했다. 완료한 반복과 미완료 범위를 구분하며, 나머지 작업의 소수 표본은 정확성·회귀 관찰이다.
 
-문서 범위여서 Android 빌드·device/UI MCP 실행은 필요하지 않았다. 새 라이브러리 API 구현이나 연결 앱 작업이 없어 Context7/codex_apps도 호출하지 않았다. 공식 CLI 문서는 OpenAI Docs와 Anthropic 원문을 사용했다. 이 문서는 실행 지원 또는 성능 향상의 통과 결과가 아니다.
+실제 dpkg 업그레이드/삭제 시험이 최초 link 변경 후보의 orphan backing을 검출했다. 일반 파일→emulated hardlink 교체의 빠른 경로가 exit accounting을 생략한 원인을 수정하고, 해당 조합과 디렉터리 완전 제거를 회귀 fixture에 추가했다. 실패를 검증 완화나 0 종료 처리로 숨기지 않았다.
+
+### 2026-09-30 결과와 채택 판단
+
+| 검증 | 결과와 해석 |
+| --- | --- |
+| 호스트 exec/fork/signal | [100/100 PASS](../tools/rootless/regression/results/host-restart-2026-09-30.json): native/emulated, plain/tracer/preload, static/dynamic 조합. 수정 전 엔진은 새 signal assertion에서 실패했다. |
+| Android 정확성 | [56/56 PASS](../tools/rootless/regression/results/android-correctness-2026-09-30.json): API 35 ARM64·Ubuntu 24.04, static/dynamic·두 storage 모드·identity·link mutation·exec/fork·signal/FD. 실제 guest assertion과 종료 상태를 함께 확인했다. |
+| Debian 실제 작업 | [12종·24회 PASS](../tools/rootless/workloads/results/android-debian-workloads-2026-09-30.json): Debian 13의 apt/dpkg 1k·10k, offline 패키지, Git/rg 10k·100k·고정 subtree, Python·로컬 재생·두 workspace·Codex version/help. Claude 미설치는 별도 CLI SKIP이며 실제 모델 작업은 수행하지 않았다. |
+| Debian native package | [preload on/off PASS](../tools/rootless/workloads/results/android-native-package-2026-09-30.json): native hardlink에서 dpkg 1,000파일 설치·업그레이드·삭제. tracer 가속은 두 설정에 유지했으며 전체 가속 off로 표시하지 않는다. |
+| 대표 dpkg 시간 | [10쌍·20회 PASS](../tools/rootless/workloads/results/android-dpkg-1000-2026-09-30.json): 명령 시간 중앙값 **3.305→3.327초**, 후보 약 0.7% 느림. worker workflow는 **3.621→3.839초**. 뚜렷한 시간 이득이 없으며 p95는 각각 13.489·14.121초로 큰 변동을 포함한다. |
+| 자원 | 같은 dpkg 기록의 install-unpack `wait4` system CPU 중앙값 **398.38→309.55ms**, peak RSS **22,228→22,228KiB**. 개별 명령의 계수이며 전체 workflow CPU나 guest/tracer 분리 값이 아니다. 누락 값과 병행 구간은 추정 합산하지 않는다. |
+| 큰 저장소 회귀 | 개정 하네스의 100k 단일 쌍은 명령 합계 **33.97→54.79초**, worker workflow **178.47→204.14초**. [초기 하네스의 완료한 두 쌍](../tools/rootless/workloads/results/android-initial-preparation-2026-09-30.json)과 [3회 Git 진단](../tools/rootless/workloads/results/git-preload-diagnostic-2026-09-30.json)에서도 같은 회귀 방향을 관찰했다. 서로 다른 하네스 표본을 합치지 않는다. |
+| FD 시간 호출 원인 | [별도 diagnostic](../tools/rootless/workloads/results/android-fd-utimens-diagnostic-2026-09-30.json): 같은 후보의 raw FD `utimensat` 10,000회 enter stop **10,000→0**, 명령 전체 enter stop **10,070→70**. micro 구간 **148.51→9.09ms**는 계측한 단일 반복이며 실제 설치·에이전트 개선율로 환산하지 않는다. |
+| 빌드·검사 | JDK 17 canonical Gradle PASS: runtime 189개 중 188 PASS·입력 미제공 archive 검사 1 SKIP, image 4 PASS. 하네스 Python 26개 중 25 PASS·host package control 1 SKIP. 고정 캐시에서 엔진·loader·합본 DSO 재빌드 SHA 재현과 APK 바이트 검증 PASS. |
+
+**새 후보는 기본 배포 입력으로 채택하지 않는다.** FD 호출의 추적 감소와 정확성 수정은 검증했지만 대표 패키지의 전체 시간 이득이 없고 큰 저장소·Python·동시 작업에서 회귀가 있다. ABI v9가 첫 clone 뒤 임시 FD가 필요한 경로 가속을 중단하는 비용이 Git preload 진단에서 확인됐다. `core.preloadIndex=false`는 후보의 회귀를 줄였지만 기존 기본 설정보다 느렸으며 사용자 Git 설정과 제품 기본 설정을 바꾸지 않았다. 로컬 옵션과 고정 해시로 다음 개선을 재현·검토할 수 있게 한다.
+
+하네스는 도구 버전 조회를 측정 뒤로 옮겨 fixture 준비 전에 불필요한 fork가 가속 상태를 바꾸지 않도록 했다. 이것만으로 큰 저장소 준비 비용이 사라지지는 않았다. 최초 240회 계획을 완료한 것으로 표시하지 않으며 완료한 subset과 별도 10쌍 dpkg 기록을 구분한다. worker workflow 시간은 준비·검증을 포함하고 런타임 launch·버전 조회·바깥 Android scratch 정리는 제외한다. 시험 환경은 SELinux Disabled·4 KiB 페이지인 API 35 기기이며 enforcing·16 KiB 물리 기기 지원은 입증하지 않는다.
+
+다음 제품 적용 과제는 임시 FD 소유권을 지키면서 다중 스레드 경로 가속의 회귀를 줄이는 것이다. npm/pip offline 설치, 실제 Codex/Claude 인증 작업, PTY 시작·취소·세션 재개 및 enforcing·16 KiB 기기 검사는 이번 첫 묶음의 완료 항목이 아니다. PRoot를 에이전트 sandbox의 대체물로 취급하지 않는다.

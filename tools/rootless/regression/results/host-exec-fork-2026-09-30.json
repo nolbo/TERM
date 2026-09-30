@@ -1,0 +1,56 @@
+{
+  "date": "2026-09-30",
+  "validation": "ARM64 glibc host; not Android device validation",
+  "proot_commit": "7266fb3e8516535682f5a9c8f3a7e70f6506eddb",
+  "host_build_adapter": "Existing static Termux talloc archive plus an __errno-to-__errno_location adapter; product Android build remains separate.",
+  "baseline_observations": [
+    "Unaccelerated static worker exec and exited-leader exec terminated with SIGSEGV although the launcher returned zero.",
+    "Accelerated dynamic fork-worker inherited an internal O_PATH FD: available child FD capacity 12 instead of 13."
+  ],
+  "final_matrix": {
+    "executions": 26,
+    "passed": 26,
+    "profiles": [
+      "plain",
+      "tracer",
+      "full"
+    ],
+    "binaries": [
+      "static",
+      "dynamic"
+    ],
+    "scenarios": [
+      "exec-leader",
+      "exec-worker",
+      "exec-exited-leader",
+      "fork-worker"
+    ],
+    "extra_pin_profiles": [
+      "full shared path",
+      "context path"
+    ],
+    "assertions": "Actual guest PASS lines and clean launcher exit required; launcher exit alone is insufficient."
+  },
+  "additional_validation": [
+    "26-case matrix repeated three times: 78/78 before the final native unlink signal-mask ordering adjustment.",
+    "Final open-test passed flags, errors, links, descriptor transfer and cancellation.",
+    "Final fd-test passed first-identity signal jump, 8 threads, fork IDs, exec, FD reuse, EFAULT and seccomp.",
+    "faststat-test passed native and emulated link metadata, fork/thread fallback and exec.",
+    "High pthread key fallback passed.",
+    "Seven existing single-check guard cases passed, including raw CLONE_FILES with high syscall-number bits and high-bit seccomp/io_uring calls."
+  ],
+  "limitations": [
+    "No Android lifecycle, device kernel or APK execution-policy claim follows from these host tests.",
+    "Intermittent existing PRoot register-workaround ESRCH warning at thread shutdown remains; guest assertions and exit status still pass."
+  ],
+  "inputs": {
+    "tools/rootless/proot-exec-thread.patch": "4cb8bcf9ca5df1b8d30495f10353e8742183049708f9b79fcf720294c6d7a360",
+    "tools/rootless/proot-pin-fd.patch": "e42e153afda9321e0e613e761679a1efddef1e8c15a4919eb86ca5df555cfca2",
+    "tools/rootless/regression/pin-fork-test.c": "2dbbe3f9920dd1494d73fb73fbba660857bbd783db8b0f4049bd7c26a470ada3",
+    "tools/rootless/regression/fork-test.c": "ee0b61cfc824476fa863706ab76642a4658f26e933388e27ffbf6ec1797a628e",
+    "tools/rootless/regression/concurrency-test.c": "70c79eae393897bff6b1e1504bfbda8b9d5f4c22e847b4eff3ba8410a8073768",
+    "tools/rootless/faststat/faststat.c": "5723b574d5ea7599c9e78583e0aedaa68e7b469f222ca72adef941b5044b16ee",
+    "tools/rootless/faststat/fastfd.c": "787cb527aa444f6ab0ba65505f2bd26eaf17888e0d2d40fec906f7289ce7fd0a",
+    "tools/rootless/faststat/protocol.h": "b76b5bc51f23cea4f4eb11e5d272b1207619598e06fbfc5cb7cab124d5890a16"
+  }
+}

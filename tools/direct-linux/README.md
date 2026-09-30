@@ -1,6 +1,25 @@
-# Direct Linux syscall transport experiment
+# Retired Direct Linux syscall transport experiment
 
-This develops a **separate**, unprivileged Linux runtime. The original syscall
+**Retired on 2026-09-30 by user direction.** Development and product integration
+of this separate Linux runtime have stopped in favor of the existing
+[Rootless Linux improvement plan](../../docs/ROOTLESS_AGENT_PERFORMANCE.md).
+The C01–C45 compatibility objective was not achieved and is no longer active.
+Historical source, results, limitations and audit records remain here; they do
+not establish current Rootless performance or complete Linux compatibility.
+Android Native/Bionic, Rootless Linux and AVF remain the product runtimes.
+
+The two Direct Linux payload names have been removed from `NativeExecutableLoader`.
+Their [instrumentation source is archived](archive/README.md) outside the Android
+test source set. `build.sh` and `package-probe.py` refuse execution unless passed
+`--archive-reproduction`. This flag only permits historical artifact preparation;
+it does not re-enable the retired tests or executable names in current APKs.
+The commands below document the old experiment and require its historical test
+APK/source snapshot. Generic Linux fixtures may be reused by Rootless checks,
+without enabling the Direct Linux runtime.
+
+## Historical experiment record
+
+This developed a **separate**, unprivileged Linux runtime. The original syscall
 transport probe is documented below; the subsequent [ELF runtime](ELF.md) now runs
 real static/dynamic ARM64 glibc programs. The [process milestone](PROCESS.md)
 adds shell external commands, scripts, fork/exec and measured process workloads.
@@ -18,8 +37,8 @@ exec, libc startup and reaping. Omitting bootstrap-only mappings from fork
 inheritance reduces the same short workload by a further 24.3% across 54 pairs.
 These experiments are not a complete
 distribution backend or user-selectable runtime. The
-[design and remaining work](../../docs/DIRECT_LINUX_EXPERIMENT.md) retain the full
-goal. Existing Rootless remains unchanged.
+[archived design and remaining work](../../docs/DIRECT_LINUX_EXPERIMENT.md) retain
+the original scope and evidence gaps.
 
 The [compatibility audit](COMPATIBILITY_AUDIT.md) inventories 45 remaining
 implementation/validation areas, all 318 AArch64 syscall names in the pinned
@@ -48,7 +67,7 @@ now implements real kernel vfork/posix_spawn with parent-owned preparation,
 Linux argument budgets, process-owned timers/queued signals, and actual hardlinks
 and guest-created FIFOs. General clone3/CLONE_VM, reserved SIGSYS and Android
 policy constraints remain explicit.
-It retains the full audit scope and remaining gates.
+The archived record retains the full audit scope and unachieved gates.
 
 The [Python/Git milestone](APPLICATIONS.md) and subsequent
 [subprocess FD cleanup](SUBPROCESS_PERFORMANCE.md) add real application checks
@@ -86,9 +105,15 @@ probe does not load guest ELF or replace guest TLS. The separate ELF runtime use
 a libc/TLS-independent dispatcher; do not transplant the probe's Bionic TLS counter
 into glibc.
 
-## Build and run from an actual Android application
+## Historical build and Android execution
 
-Use the repository-selected NDK r28 and host Clang; no additional toolchain:
+These commands describe the former active instrumentation setup, before its
+retirement. Current Android source sets no longer contain these test classes.
+For explicitly authorized historical reproduction, the retained scripts require
+`--archive-reproduction` in addition to the historical test APK. No product or
+Rootless validation should run this sequence.
+
+The experiment used the repository-selected NDK r28 and host Clang:
 
 ```sh
 bash tools/direct-linux/build.sh /tmp/terminal-direct-linux

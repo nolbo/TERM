@@ -1,0 +1,43 @@
+{
+  "schema": 1,
+  "date": "2026-09-30",
+  "scope": "single diagnostic attribution; not representative workload performance or adoption evidence",
+  "architecture": "aarch64",
+  "android_api": 35,
+  "distribution": "Debian 13",
+  "storage": "emulated",
+  "proot_sha256": "85dc5a9a527dba926ab496e5e7929ba8ded4e6dbd7da5f77a072ee0af255af42",
+  "instrumentation": "PROOT_PERF=1 and PROOT_PERF_SYSCALLS=1; separate from timing comparisons",
+  "counter_scope": "whole command including startup; timed micro interval is the 10000 raw FD utimensat calls",
+  "difference": "same candidate bytes; only PROOT_FD_UTIMENS_DIRECT=0/1 differs",
+  "runs": [
+    {
+      "mode": "candidate-no-utimens",
+      "exit_code": 0,
+      "timestamp_assertions": "passed",
+      "benchmark": {
+        "case": "fd-utimens",
+        "count": 10000,
+        "milliseconds": 148.514355
+      },
+      "command_enter_stops": 10070,
+      "command_exit_stops": 35,
+      "utimensat_enter_stops": 10000,
+      "utimensat_exit_stops": 0
+    },
+    {
+      "mode": "candidate",
+      "exit_code": 0,
+      "timestamp_assertions": "passed",
+      "benchmark": {
+        "case": "fd-utimens",
+        "count": 10000,
+        "milliseconds": 9.089347
+      },
+      "command_enter_stops": 70,
+      "command_exit_stops": 35,
+      "utimensat_enter_stops": 0,
+      "utimensat_exit_stops": 0
+    }
+  ]
+}

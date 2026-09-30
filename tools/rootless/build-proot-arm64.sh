@@ -83,6 +83,12 @@ if [[ ${PROOT_BUILD_RENAME_LOCAL:-0} == 1 ]]; then
 fi
 if [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]]; then
     patch --fuzz=0 -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-unpack-unlink.patch"
+    patch --fuzz=0 -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-fd-utimens.patch"
+    patch --fuzz=0 -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-pin-fd.patch"
+    patch --fuzz=0 -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-exec-thread.patch"
+    patch --fuzz=0 -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-stat-identity.patch"
+    patch --fuzz=0 -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-link-path.patch"
+    patch --fuzz=0 -d "$build_directory/proot-5.1.107.92" -p1 < "$repository_root/tools/rootless/proot-restart-path.patch"
 fi
 if [[ ${PROOT_BUILD_CLOSE_PROBE:-0} == 1 ]]; then
     [[ ${PROOT_BUILD_FASTSTAT:-0} == 1 ]] || { echo 'close probe requires PROOT_BUILD_FASTSTAT=1' >&2; exit 1; }

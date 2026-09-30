@@ -1,0 +1,7 @@
+{
+  "kind": "native-control",
+  "description": "Local harness correctness control; never Rootless performance evidence",
+  "command": ["{python}", "-B", "{host_bundle}/worker.py"],
+  "env": {},
+  "timeout_seconds": 1200
+}

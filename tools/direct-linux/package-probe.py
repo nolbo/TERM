@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Add a fixed probe to the standalone instrumentation APK, never to the app.
+"""Package the retired Direct Linux experiment for explicit historical reproduction.
 
 Signing is deliberately a separate step; the input APK is never modified.
+Current runtime instrumentation no longer includes the archived Direct Linux tests.
 """
 import argparse
 from pathlib import Path
@@ -23,7 +24,9 @@ def validate_elf(data):
                 raise ValueError("LOAD segment alignment is below 16 KiB")
 
 
-def package(source, probe, output, loader=None, fixtures=None):
+def package(source, probe, output, loader=None, fixtures=None, *, archive_reproduction=False):
+    if not archive_reproduction:
+        raise ValueError("Direct Linux is retired; explicit archive reproduction is required")
     inputs = [source, probe] + ([loader] if loader else [])
     if output.resolve() in [p.resolve() for p in inputs]:
         raise ValueError("Output must differ from all inputs")
@@ -57,10 +60,15 @@ def package(source, probe, output, loader=None, fixtures=None):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--archive-reproduction", action="store_true",
+                        help="acknowledge reproduction of the retired experiment, not a supported runtime")
     parser.add_argument("source", type=Path)
     parser.add_argument("probe", type=Path)
     parser.add_argument("output", type=Path)
     parser.add_argument("--loader", type=Path)
     parser.add_argument("--fixtures", type=Path)
     args = parser.parse_args()
-    package(args.source, args.probe, args.output, args.loader, args.fixtures)
+    if not args.archive_reproduction:
+        parser.error("Direct Linux is retired; use --archive-reproduction only with the historical test APK")
+    package(args.source, args.probe, args.output, args.loader, args.fixtures,
+            archive_reproduction=args.archive_reproduction)

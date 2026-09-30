@@ -1,0 +1,220 @@
+{
+  "schema": 1,
+  "date": "2026-09-30",
+  "scope": "Exploratory Android app-UID PRoot Git preload diagnostic; not adoption evidence",
+  "platform": {
+    "android_api": 35,
+    "selinux": "Disabled",
+    "architecture": "aarch64",
+    "source": "Companion facts from the preceding smoke on the same unchanged test target and installed APK"
+  },
+  "workload": {
+    "repository": "synthetic-10000",
+    "synthetic_source_files": 10000,
+    "archive_sha256": "d5761523212d0344c18fb9d2ea7bb9cf70a2dad6491ea8ebba521c01feb34bc0",
+    "manifest_sha256": "9689ebd1ee063b9316925c98f0c88d4f57d05c894f269b795789eb1f61015322",
+    "git_sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+    "git_version": "2.43.0",
+    "storage": "link2symlink"
+  },
+  "sampling": {
+    "repetitions_per_engine_configuration": 3,
+    "engine_order": [
+      "baseline",
+      "candidate"
+    ],
+    "configuration_order": [
+      [
+        "default",
+        "preload-disabled"
+      ],
+      [
+        "preload-disabled",
+        "default"
+      ],
+      [
+        "default",
+        "preload-disabled"
+      ]
+    ],
+    "warmup": "Git status and diff both executed before timed samples; these values are not directly comparable to the original smoke's first diff",
+    "instrumentation": "Tracer and DSO diagnostic counters disabled for timed samples; DSO and Git Trace2 diagnostics in separate invocations",
+    "limitations": [
+      "Three samples do not replace ten alternating baseline/candidate pairs",
+      "Engine order was not counterbalanced",
+      "Candidate hashes are the tested pre-restart-fix build, not the separately built final restart fix",
+      "Trace2 records preload activity; worker threads were not directly counted"
+    ]
+  },
+  "configuration": {
+    "default": "No core.preloadIndex override; disposable HOME and fixture only",
+    "preload-disabled": "Command-only git -c core.preloadIndex=false; no Git config files changed"
+  },
+  "loader_sha256": "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237",
+  "profiles": {
+    "baseline": {
+      "engine_sha256": "1f152d00d64b53b7efa932a5cb341e937d9a7472b3af9dc22d99eb6e16245cfb",
+      "dso_sha256": "f581d328cf0fee01530b9052f76901bbfe975ac1bd61c225e02dfe10e1b5e829",
+      "variants": {
+        "default": {
+          "git-status": {
+            "samples_ms": [
+              78.890219,
+              77.482495,
+              79.19482
+            ],
+            "median_ms": 78.890219,
+            "diagnostic": {
+              "stat_hits": 9288,
+              "stat_fallbacks": 38,
+              "open_hits": 11,
+              "trace2_preload_lstat_counts": [
+                9071
+              ]
+            }
+          },
+          "git-diff": {
+            "samples_ms": [
+              54.14855,
+              55.232353,
+              55.717155
+            ],
+            "median_ms": 55.232353,
+            "diagnostic": {
+              "stat_hits": 9286,
+              "stat_fallbacks": 7,
+              "open_hits": 5,
+              "trace2_preload_lstat_counts": [
+                9071
+              ]
+            }
+          }
+        },
+        "preload-disabled": {
+          "git-status": {
+            "samples_ms": [
+              144.948923,
+              147.114448,
+              147.889611
+            ],
+            "median_ms": 147.114448,
+            "diagnostic": {
+              "stat_hits": 9224,
+              "stat_fallbacks": 38,
+              "open_hits": 11,
+              "trace2_preload_lstat_counts": []
+            }
+          },
+          "git-diff": {
+            "samples_ms": [
+              123.929584,
+              124.006824,
+              123.481502
+            ],
+            "median_ms": 123.929584,
+            "diagnostic": {
+              "stat_hits": 9221,
+              "stat_fallbacks": 7,
+              "open_hits": 5,
+              "trace2_preload_lstat_counts": []
+            }
+          }
+        }
+      }
+    },
+    "candidate": {
+      "engine_sha256": "2fe19be60208ddf315a0583b969057d0e6f1b579500bac820a21ae6cc778566c",
+      "dso_sha256": "619bc9a2c3270fb89f787b5e20003adbe484a1f33843cd8e382584eb6fa2a406",
+      "variants": {
+        "default": {
+          "git-status": {
+            "samples_ms": [
+              286.70844,
+              290.170209,
+              288.191165
+            ],
+            "median_ms": 288.191165,
+            "diagnostic": {
+              "stat_hits": 11,
+              "stat_fallbacks": 9315,
+              "open_hits": 5,
+              "trace2_preload_lstat_counts": [
+                9071
+              ]
+            }
+          },
+          "git-diff": {
+            "samples_ms": [
+              265.238899,
+              268.99091,
+              265.3291
+            ],
+            "median_ms": 265.3291,
+            "diagnostic": {
+              "stat_hits": 9,
+              "stat_fallbacks": 9284,
+              "open_hits": 3,
+              "trace2_preload_lstat_counts": [
+                9071
+              ]
+            }
+          }
+        },
+        "preload-disabled": {
+          "git-status": {
+            "samples_ms": [
+              142.503357,
+              151.782463,
+              144.490243
+            ],
+            "median_ms": 144.490243,
+            "diagnostic": {
+              "stat_hits": 9224,
+              "stat_fallbacks": 38,
+              "open_hits": 11,
+              "trace2_preload_lstat_counts": []
+            }
+          },
+          "git-diff": {
+            "samples_ms": [
+              124.873629,
+              124.672988,
+              125.216709
+            ],
+            "median_ms": 124.873629,
+            "diagnostic": {
+              "stat_hits": 9221,
+              "stat_fallbacks": 7,
+              "open_hits": 5,
+              "trace2_preload_lstat_counts": []
+            }
+          }
+        }
+      }
+    }
+  },
+  "verification": {
+    "timed_commands": 24,
+    "diagnostic_commands": 8,
+    "all_real_exits_zero": true,
+    "all_outputs_match_prepared_oracle": true,
+    "stdout": {
+      "status_sha256": "8405c714c30202e109dba7bb8539d8457b59f64bff83ed3b56b473d4eebac8a6",
+      "diff_sha256": "649af7cb42b2fa30d285f1c1978ee8f293ed249a7929ae160ecabd9d4b6f8103"
+    }
+  },
+  "interpretation": {
+    "mechanism": "Disabling Git index preloading restores the candidate's shared-path stat hits; this agrees with clone-time pin_safe revocation in fastfd.c",
+    "candidate_time_reduction_percent": {
+      "git_status": 49.9,
+      "git_diff": 52.9
+    },
+    "same_disabled_configuration_candidate_change_percent": {
+      "git_status": -1.8,
+      "git_diff": 0.8
+    },
+    "tradeoff": "Original baseline defaults remain faster than either preload-disabled profile; this is a mitigation for the safety change's regression, not a speed improvement over the original default",
+    "adoption": "No automatic user Git configuration change; diagnostic only. Default distribution inputs and opt-in candidates remain separate pending final correctness and ten-pair acceptance"
+  },
+  "privacy": "Only normalized workload labels, numeric samples and artifact hashes; no raw logs, app paths, device serials, credentials or user Git configuration"
+}

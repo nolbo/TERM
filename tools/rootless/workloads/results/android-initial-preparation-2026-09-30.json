@@ -1,0 +1,1365 @@
+{
+  "attempts": [
+    {
+      "case": "apt-1000",
+      "guest_status": "passed",
+      "log_sha256": "27fcb1079989ad7bb98d2033c9c62b86ff287d552f90a1b9535fb2923a745021",
+      "mode": "baseline",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "apt-1000",
+      "guest_status": "passed",
+      "log_sha256": "2e7354dea926cf824b1c8a8d41aaad5ab4a675fe30ad3ffc1a6b8077ea454dc5",
+      "mode": "candidate",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "apt-10000",
+      "guest_status": "passed",
+      "log_sha256": "f5ce12f31df47e117024f8b34693222c50a9728a0894cbc49c7687117d1f1799",
+      "mode": "baseline",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "apt-10000",
+      "guest_status": "passed",
+      "log_sha256": "ad2be71283cd190996f32568f5e4e78371daf3dfd09fc6d99fd4a1e38e244014",
+      "mode": "candidate",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "cli-probe",
+      "guest_status": "passed",
+      "log_sha256": "05b72eea2f6e44c97873c63f7b2932f2321451f0512753aad8bcaae221de87d6",
+      "mode": "baseline",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "cli-probe",
+      "guest_status": "passed",
+      "log_sha256": "1248774da1262a7be41a3f6206b424e76384cf0b4e1b3ba59b2588e7997758bc",
+      "mode": "candidate",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "dpkg-1000",
+      "guest_status": "passed",
+      "log_sha256": "955459be1665312149548061b703a30de826fc7aa250af5c30e7f95f6f54404d",
+      "mode": "baseline",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "dpkg-1000",
+      "guest_status": "passed",
+      "log_sha256": "1966f59446d5fa28104ac692f5c0e69f71dabbd429a03b8302c2eab053128520",
+      "mode": "candidate",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "dpkg-10000",
+      "guest_status": "passed",
+      "log_sha256": "07e1dcd4485c21684dd297cad8c050c73f91361f545667bb172f28267d5f854e",
+      "mode": "baseline",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "dpkg-10000",
+      "guest_status": "passed",
+      "log_sha256": "ca10b26ee611dcd34665f55d79fcc6cc1be05484ddb84a301c0a7e6c77f6917d",
+      "mode": "candidate",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "local-replay:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "39fd8a179eaba7da05bf8796abcc4d7597c20f1df9d659dc0e901e63e6407beb",
+      "mode": "baseline",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "local-replay:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "c60fb4592c19833e316ccc2671767ba2dce9e0a5f3e52583efac0a47b6297230",
+      "mode": "candidate",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "offline-packages",
+      "guest_status": "passed",
+      "log_sha256": "1dd9afdd9e46301c92b4da14f04dcd231bee530335c432041e6c0b2ba9fa3679",
+      "mode": "baseline",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "offline-packages",
+      "guest_status": "passed",
+      "log_sha256": "f884f3001f13af1254afc106fbc6376268cadae138a9ee4e949f2de01f1cd89d",
+      "mode": "candidate",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "python-verify:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "6d9186b1ff97cc22ed44997c79974a38ee89a50d101f9c99ab8b0d488ef4d1a7",
+      "mode": "baseline",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "python-verify:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "3752be6560a10a3c2d363bdc6e0fef310943cc9352d43949a708948672e4be96",
+      "mode": "candidate",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "repository:pinned",
+      "guest_status": "passed",
+      "log_sha256": "5563c515def686db1681e5ee7822bc28282be3a585467c64666045f2a9d62764",
+      "mode": "baseline",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "repository:pinned",
+      "guest_status": "passed",
+      "log_sha256": "40e647e549949c19e51ab7997e7c49333ed52ad0f6e6aaab140b6b545885bdd4",
+      "mode": "candidate",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "repository:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "7374c7835931488d2218f17d3af72b97ec5ebcd5a9d344594bc3e2aeaf8b5ea1",
+      "mode": "baseline",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "repository:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "34eb71a3d970fae99038830d722b0f4610a7c9d490ede02af2546e06d2ecf5b5",
+      "mode": "candidate",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "repository:synthetic-100000",
+      "guest_status": "passed",
+      "log_sha256": "bd40156c91c06126b0ace6109704825e70b8405a5e19409190bca7f311c8546f",
+      "mode": "baseline",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "repository:synthetic-100000",
+      "guest_status": "passed",
+      "log_sha256": "c51da0f578ec5da280860f04f9baa1f71817f97daf00cfec19ac152a5be34897",
+      "mode": "candidate",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "two-workspaces:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "595d518d303ccd96bef2be1883b91472ca23479ed87c5080ca564ac1fef852c7",
+      "mode": "baseline",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "two-workspaces:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "b711edc670ce2163aeac2580cfd0d7d8ce66b59c4f77326e36df4b20256bc7d6",
+      "mode": "candidate",
+      "pair": 1,
+      "real_exit": 0
+    },
+    {
+      "case": "apt-1000",
+      "guest_status": "passed",
+      "log_sha256": "c18c051fda72861b77640150b5fd6b1335fb99d63f365bf8515bc543d778b6dc",
+      "mode": "candidate",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "apt-1000",
+      "guest_status": "passed",
+      "log_sha256": "cd1a0a09cb5690674b16c97877c1167821a29810e68cc972dc43a68f5221b282",
+      "mode": "baseline",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "apt-10000",
+      "guest_status": "passed",
+      "log_sha256": "8bcebe7caccf78541f657727cd17329627a178f7d694d752a1f4483c04c58190",
+      "mode": "candidate",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "apt-10000",
+      "guest_status": "passed",
+      "log_sha256": "d9d5d93b15a08e5751612d33b2e36daf307d253d0dc1f0e9d9ba29365c4a2aa5",
+      "mode": "baseline",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "cli-probe",
+      "guest_status": "passed",
+      "log_sha256": "5479256e5ab572c1c1dc916c53f012c8d8526db81f1f81714cd8229a8e0250ba",
+      "mode": "candidate",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "cli-probe",
+      "guest_status": "passed",
+      "log_sha256": "28f4a55d6bd049d3096374861b1a0f4119760e3dc80ca8efc47c942412c914d4",
+      "mode": "baseline",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "dpkg-1000",
+      "guest_status": "passed",
+      "log_sha256": "5b80abb40726c2f7b59cfdd5d58448e66d57d5f3a46eac4cf70163cf861700bd",
+      "mode": "candidate",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "dpkg-1000",
+      "guest_status": "passed",
+      "log_sha256": "90e80664392397fdd62cf03f10454a8745a3548c39ca51b7569e38cae1851fe2",
+      "mode": "baseline",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "dpkg-10000",
+      "guest_status": "passed",
+      "log_sha256": "432a161d996be57f7a1a29cd27396ce515aa7f7913469ccac8fcd80a95c67c78",
+      "mode": "candidate",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "dpkg-10000",
+      "guest_status": "passed",
+      "log_sha256": "d027ad1b27b9f22dd9769c22539dfd2ef88b61f9b42ff229c2bb02146aecfac3",
+      "mode": "baseline",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "local-replay:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "2ee354d5482499609570dc1aa9aba8f337d6e98d4d8c42796225051dd128943a",
+      "mode": "candidate",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "local-replay:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "400974d4616f9f1c1cdb9ec9d6b886acb62adb4c09db237fb483427573e3184d",
+      "mode": "baseline",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "offline-packages",
+      "guest_status": "passed",
+      "log_sha256": "8cd83890d3374043b4e4aa0d66ca297bda7e8ab3d2d29c56d698105412d67028",
+      "mode": "candidate",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "offline-packages",
+      "guest_status": "passed",
+      "log_sha256": "f5571f27d116d9024c05702852b6a1e8c628c9a400fbd804c88b9397081920fd",
+      "mode": "baseline",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "python-verify:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "486bafa0dc39c294068e164fce2743608ec29f3b09e9f6e44363f08fb3eba65d",
+      "mode": "candidate",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "python-verify:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "2e7d5fdfdb2bb09f37ba2c4b41675a14fd5226a5b67c25b22ddaffc00b089927",
+      "mode": "baseline",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "repository:pinned",
+      "guest_status": "passed",
+      "log_sha256": "7e14ac7ccea3d1c010a01f8dcf7c5d297d7fdaf87622d8ccd9891eabeb005f4b",
+      "mode": "candidate",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "repository:pinned",
+      "guest_status": "passed",
+      "log_sha256": "2eb1be6850498dcbe551d17960d2104cdee00b1160bb10935bc9c3251f1f8e52",
+      "mode": "baseline",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "repository:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "9de817bf436206cc9978b2cb2106de8141d0440f514a35b989fb1336133fd3d4",
+      "mode": "candidate",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "repository:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "28bb1755a42c1c83992dc5e20ee1e97b0c53efb7d95457ee37b92d3d8edb5da6",
+      "mode": "baseline",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "repository:synthetic-100000",
+      "guest_status": "passed",
+      "log_sha256": "5374a28e0a1c7b14a562c09d5e8344997d04e44c144a8e5f134b6a5b5cba3a0c",
+      "mode": "candidate",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "repository:synthetic-100000",
+      "guest_status": "passed",
+      "log_sha256": "850e3a02241f6a02fea36f1573e1e003ac6f13856344dc8d36e69a7c1a8e952e",
+      "mode": "baseline",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "two-workspaces:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "a3001f3cda407d62c2023432fbdfbf66beff41fc13230ade5d3e576ce1f2de23",
+      "mode": "candidate",
+      "pair": 2,
+      "real_exit": 0
+    },
+    {
+      "case": "two-workspaces:synthetic-10000",
+      "guest_status": "passed",
+      "log_sha256": "f0f510afd7f0b4dd7e064ca5d6fbd513e0e7ca4fc08c4816137d3f13ae95ed06",
+      "mode": "baseline",
+      "pair": 2,
+      "real_exit": 0
+    }
+  ],
+  "complete_subset_pairs": 2,
+  "date": "2026-09-30",
+  "detail_scope": "This compact subset retains per-case intervals and guest verdicts; raw logs retain detailed command/resource evidence locally. Full ten-pair resource evidence is in the separate dpkg report.",
+  "input_sha256": {
+    "libfaststat-baseline.so": "f581d328cf0fee01530b9052f76901bbfe975ac1bd61c225e02dfe10e1b5e829",
+    "libproot-baseline.so": "1f152d00d64b53b7efa932a5cb341e937d9a7472b3af9dc22d99eb6e16245cfb",
+    "libproot-faststat.so": "619bc9a2c3270fb89f787b5e20003adbe484a1f33843cd8e382584eb6fa2a406",
+    "libproot-loader.so": "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237",
+    "libproot.so": "85dc5a9a527dba926ab496e5e7929ba8ded4e6dbd7da5f77a072ee0af255af42",
+    "manifest.json": "9689ebd1ee063b9316925c98f0c88d4f57d05c894f269b795789eb1f61015322"
+  },
+  "original_batch_done": false,
+  "original_planned_pairs": 10,
+  "original_status": "interrupted to move tool metadata probes after workloads",
+  "platform": {
+    "android_api": 35,
+    "selinux": "Disabled"
+  },
+  "raw_scope": "all partial attempts retained locally; unfinished attempts are not zero-duration successes",
+  "reason": "Pre-workload version probes forked before fixture extraction, revoking parent pin eligibility; both engines are rerun with the revised frozen worker.",
+  "retained_subset_attempts": 48,
+  "retained_subset_status": "passed",
+  "schema": 1,
+  "scope": "completed two-pair subset of an interrupted initial batch; correctness evidence only",
+  "summaries": {
+    "apt-1000": {
+      "comparison_eligible": false,
+      "first_stdout_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 13.09772,
+          "median_ms": 12.4931375,
+          "minimum_ms": 11.888555,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 13.09772
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 11.433834,
+          "median_ms": 11.378394499999999,
+          "minimum_ms": 11.322955,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 11.433834
+        }
+      },
+      "measured_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 3478.26858,
+          "median_ms": 3471.4398045,
+          "minimum_ms": 3464.6110289999997,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 3478.26858
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 3686.667908,
+          "median_ms": 3543.979149,
+          "minimum_ms": 3401.29039,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 3686.667908
+        }
+      },
+      "median_absolute_savings_ms": -72.53934449999997,
+      "median_time_reduction_percent": -2.0896039852388566,
+      "paired_absolute_savings_ms": {
+        "count": 2,
+        "maximum_ms": 76.97818999999981,
+        "median_ms": -72.5393445000002,
+        "minimum_ms": -222.0568790000002,
+        "p95_method": "nearest rank; exploratory tail estimate for small samples",
+        "p95_ms": 76.97818999999981
+      },
+      "resource_scope": "per-command wait4; guest/tracer unseparated; no workflow CPU or summed RSS inferred",
+      "status_counts": {
+        "baseline": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        },
+        "candidate": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        }
+      },
+      "workflow_elapsed_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 3812.772072,
+          "median_ms": 3809.657813,
+          "minimum_ms": 3806.543554,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 3812.772072
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 4180.170216,
+          "median_ms": 4140.112198500001,
+          "minimum_ms": 4100.054181,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 4180.170216
+        }
+      }
+    },
+    "apt-10000": {
+      "comparison_eligible": false,
+      "first_stdout_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 14.258963,
+          "median_ms": 13.5112405,
+          "minimum_ms": 12.763518,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 14.258963
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 12.672318,
+          "median_ms": 12.1027165,
+          "minimum_ms": 11.533115,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 12.672318
+        }
+      },
+      "measured_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 30473.677205,
+          "median_ms": 29992.261301500002,
+          "minimum_ms": 29510.845398,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 30473.677205
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 31770.295239,
+          "median_ms": 30861.334856,
+          "minimum_ms": 29952.374473,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 31770.295239
+        }
+      },
+      "median_absolute_savings_ms": -869.0735544999989,
+      "median_time_reduction_percent": -2.897659318727441,
+      "paired_absolute_savings_ms": {
+        "count": 2,
+        "maximum_ms": 521.3027320000001,
+        "median_ms": -869.0735544999989,
+        "minimum_ms": -2259.449840999998,
+        "p95_method": "nearest rank; exploratory tail estimate for small samples",
+        "p95_ms": 521.3027320000001
+      },
+      "resource_scope": "per-command wait4; guest/tracer unseparated; no workflow CPU or summed RSS inferred",
+      "status_counts": {
+        "baseline": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        },
+        "candidate": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        }
+      },
+      "workflow_elapsed_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 33386.783952,
+          "median_ms": 32907.395101999995,
+          "minimum_ms": 32428.006252,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 33386.783952
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 37329.541093,
+          "median_ms": 35983.644744000005,
+          "minimum_ms": 34637.748395,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 37329.541093
+        }
+      }
+    },
+    "cli-probe": {
+      "comparison_eligible": false,
+      "first_stdout_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 7.834383,
+          "median_ms": 7.1834815,
+          "minimum_ms": 6.53258,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 7.834383
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 6.362579,
+          "median_ms": 6.117378,
+          "minimum_ms": 5.872177,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 6.362579
+        }
+      },
+      "measured_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 17.513253,
+          "median_ms": 17.410953,
+          "minimum_ms": 17.308653,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 17.513253
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 16.347929,
+          "median_ms": 15.115485,
+          "minimum_ms": 13.883040999999999,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 16.347929
+        }
+      },
+      "median_absolute_savings_ms": 2.2954679999999996,
+      "median_time_reduction_percent": 13.184045698130365,
+      "paired_absolute_savings_ms": {
+        "count": 2,
+        "maximum_ms": 3.425612000000001,
+        "median_ms": 2.2954679999999996,
+        "minimum_ms": 1.1653239999999983,
+        "p95_method": "nearest rank; exploratory tail estimate for small samples",
+        "p95_ms": 3.425612000000001
+      },
+      "resource_scope": "per-command wait4; guest/tracer unseparated; no workflow CPU or summed RSS inferred",
+      "status_counts": {
+        "baseline": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        },
+        "candidate": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        }
+      },
+      "workflow_elapsed_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 190.813023,
+          "median_ms": 190.538339,
+          "minimum_ms": 190.263655,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 190.813023
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 236.218514,
+          "median_ms": 210.9460205,
+          "minimum_ms": 185.673527,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 236.218514
+        }
+      }
+    },
+    "dpkg-1000": {
+      "comparison_eligible": false,
+      "first_stdout_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 34.510185,
+          "median_ms": 33.346642,
+          "minimum_ms": 32.183099,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 34.510185
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 38.273236,
+          "median_ms": 35.016187,
+          "minimum_ms": 31.759138,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 38.273236
+        }
+      },
+      "measured_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 3265.008399,
+          "median_ms": 3095.4660125,
+          "minimum_ms": 2925.9236260000002,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 3265.008399
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 3302.5314750000002,
+          "median_ms": 3175.1394765,
+          "minimum_ms": 3047.747478,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 3302.5314750000002
+        }
+      },
+      "median_absolute_savings_ms": -79.67346399999997,
+      "median_time_reduction_percent": -2.5738762331185496,
+      "paired_absolute_savings_ms": {
+        "count": 2,
+        "maximum_ms": -37.5230760000004,
+        "median_ms": -79.67346399999997,
+        "minimum_ms": -121.82385199999953,
+        "p95_method": "nearest rank; exploratory tail estimate for small samples",
+        "p95_ms": -37.5230760000004
+      },
+      "resource_scope": "per-command wait4; guest/tracer unseparated; no workflow CPU or summed RSS inferred",
+      "status_counts": {
+        "baseline": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        },
+        "candidate": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        }
+      },
+      "workflow_elapsed_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 3602.488901,
+          "median_ms": 3415.429286,
+          "minimum_ms": 3228.369671,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 3602.488901
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 3787.251741,
+          "median_ms": 3676.2394409999997,
+          "minimum_ms": 3565.227141,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 3787.251741
+        }
+      }
+    },
+    "dpkg-10000": {
+      "comparison_eligible": false,
+      "first_stdout_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 37.867955,
+          "median_ms": 34.420045,
+          "minimum_ms": 30.972135,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 37.867955
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 35.472467,
+          "median_ms": 34.797045499999996,
+          "minimum_ms": 34.121624,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 35.472467
+        }
+      },
+      "measured_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 31228.181071000003,
+          "median_ms": 30349.307251000002,
+          "minimum_ms": 29470.433431,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 31228.181071000003
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 37604.256602,
+          "median_ms": 34353.236356,
+          "minimum_ms": 31102.21611,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 37604.256602
+        }
+      },
+      "median_absolute_savings_ms": -4003.9291049999993,
+      "median_time_reduction_percent": -13.19281877469566,
+      "paired_absolute_savings_ms": {
+        "count": 2,
+        "maximum_ms": -1631.782679,
+        "median_ms": -4003.9291049999993,
+        "minimum_ms": -6376.075530999999,
+        "p95_method": "nearest rank; exploratory tail estimate for small samples",
+        "p95_ms": -1631.782679
+      },
+      "resource_scope": "per-command wait4; guest/tracer unseparated; no workflow CPU or summed RSS inferred",
+      "status_counts": {
+        "baseline": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        },
+        "candidate": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        }
+      },
+      "workflow_elapsed_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 34171.399343,
+          "median_ms": 33362.898404499996,
+          "minimum_ms": 32554.397466,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 34171.399343
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 43035.069541,
+          "median_ms": 39609.080493999994,
+          "minimum_ms": 36183.091447,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 43035.069541
+        }
+      }
+    },
+    "local-replay:synthetic-10000": {
+      "comparison_eligible": false,
+      "first_stdout_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 912.278057,
+          "median_ms": 910.7426275,
+          "minimum_ms": 909.207198,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 912.278057
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 1271.339138,
+          "median_ms": 1264.5128530000002,
+          "minimum_ms": 1257.686568,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 1271.339138
+        }
+      },
+      "measured_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 4172.344134,
+          "median_ms": 4163.839843,
+          "minimum_ms": 4155.3355520000005,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 4172.344134
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 6816.041245,
+          "median_ms": 6755.5472345,
+          "minimum_ms": 6695.053224,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 6816.041245
+        }
+      },
+      "median_absolute_savings_ms": -2591.7073915,
+      "median_time_reduction_percent": -62.24320553195687,
+      "paired_absolute_savings_ms": {
+        "count": 2,
+        "maximum_ms": -2539.7176719999998,
+        "median_ms": -2591.7073915,
+        "minimum_ms": -2643.6971110000004,
+        "p95_method": "nearest rank; exploratory tail estimate for small samples",
+        "p95_ms": -2539.7176719999998
+      },
+      "resource_scope": "per-command wait4; guest/tracer unseparated; no workflow CPU or summed RSS inferred",
+      "status_counts": {
+        "baseline": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        },
+        "candidate": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        }
+      },
+      "workflow_elapsed_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 21056.102699,
+          "median_ms": 20272.663754,
+          "minimum_ms": 19489.224809,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 21056.102699
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 23758.247263,
+          "median_ms": 23288.400690000002,
+          "minimum_ms": 22818.554117,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 23758.247263
+        }
+      }
+    },
+    "offline-packages": {
+      "comparison_eligible": false,
+      "first_stdout_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 54.111604,
+          "median_ms": 45.6597725,
+          "minimum_ms": 37.207941,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 54.111604
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 62.556329,
+          "median_ms": 50.273262,
+          "minimum_ms": 37.990195,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 62.556329
+        }
+      },
+      "measured_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 161.508889,
+          "median_ms": 152.327918,
+          "minimum_ms": 143.146947,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 161.508889
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 173.50190800000001,
+          "median_ms": 155.18514150000001,
+          "minimum_ms": 136.86837500000001,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 173.50190800000001
+        }
+      },
+      "median_absolute_savings_ms": -2.8572235000000035,
+      "median_time_reduction_percent": -1.8757057389834497,
+      "paired_absolute_savings_ms": {
+        "count": 2,
+        "maximum_ms": 24.640513999999996,
+        "median_ms": -2.8572235000000035,
+        "minimum_ms": -30.354961000000003,
+        "p95_method": "nearest rank; exploratory tail estimate for small samples",
+        "p95_ms": 24.640513999999996
+      },
+      "resource_scope": "per-command wait4; guest/tracer unseparated; no workflow CPU or summed RSS inferred",
+      "status_counts": {
+        "baseline": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        },
+        "candidate": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        }
+      },
+      "workflow_elapsed_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 168.954112,
+          "median_ms": 159.68431900000002,
+          "minimum_ms": 150.414526,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 168.954112
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 183.383734,
+          "median_ms": 164.902509,
+          "minimum_ms": 146.421284,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 183.383734
+        }
+      }
+    },
+    "python-verify:synthetic-10000": {
+      "comparison_eligible": false,
+      "first_stdout_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 129.463593,
+          "median_ms": 129.437092,
+          "minimum_ms": 129.410591,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 129.463593
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 128.842149,
+          "median_ms": 128.51212900000002,
+          "minimum_ms": 128.182109,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 128.842149
+        }
+      },
+      "measured_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 2352.089074,
+          "median_ms": 2324.7664245,
+          "minimum_ms": 2297.443775,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 2352.089074
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 4341.277953,
+          "median_ms": 4330.719976,
+          "minimum_ms": 4320.161999,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 4341.277953
+        }
+      },
+      "median_absolute_savings_ms": -2005.9535515000002,
+      "median_time_reduction_percent": -86.28624064593635,
+      "paired_absolute_savings_ms": {
+        "count": 2,
+        "maximum_ms": -1989.1888789999998,
+        "median_ms": -2005.9535514999998,
+        "minimum_ms": -2022.7182239999997,
+        "p95_method": "nearest rank; exploratory tail estimate for small samples",
+        "p95_ms": -1989.1888789999998
+      },
+      "resource_scope": "per-command wait4; guest/tracer unseparated; no workflow CPU or summed RSS inferred",
+      "status_counts": {
+        "baseline": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        },
+        "candidate": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        }
+      },
+      "workflow_elapsed_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 17517.426105,
+          "median_ms": 17398.3744385,
+          "minimum_ms": 17279.322772,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 17517.426105
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 20155.929791,
+          "median_ms": 19970.103834499998,
+          "minimum_ms": 19784.277878,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 20155.929791
+        }
+      }
+    },
+    "repository:pinned": {
+      "comparison_eligible": false,
+      "first_stdout_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 33.614022,
+          "median_ms": 33.5409565,
+          "minimum_ms": 33.467891,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 33.614022
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 34.034863,
+          "median_ms": 34.028217999999995,
+          "minimum_ms": 34.021573,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 34.034863
+        }
+      },
+      "measured_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 156.89603599999998,
+          "median_ms": 155.134347,
+          "minimum_ms": 153.372658,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 156.89603599999998
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 156.58891400000002,
+          "median_ms": 155.05242600000003,
+          "minimum_ms": 153.515938,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 156.58891400000002
+        }
+      },
+      "median_absolute_savings_ms": 0.08192099999996572,
+      "median_time_reduction_percent": 0.052806487785690505,
+      "paired_absolute_savings_ms": {
+        "count": 2,
+        "maximum_ms": 0.30712199999996415,
+        "median_ms": 0.08192099999997993,
+        "minimum_ms": -0.1432800000000043,
+        "p95_method": "nearest rank; exploratory tail estimate for small samples",
+        "p95_ms": 0.30712199999996415
+      },
+      "resource_scope": "per-command wait4; guest/tracer unseparated; no workflow CPU or summed RSS inferred",
+      "status_counts": {
+        "baseline": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        },
+        "candidate": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        }
+      },
+      "workflow_elapsed_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 561.815506,
+          "median_ms": 555.8873209999999,
+          "minimum_ms": 549.959136,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 561.815506
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 566.847121,
+          "median_ms": 557.6535865000001,
+          "minimum_ms": 548.460052,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 566.847121
+        }
+      }
+    },
+    "repository:synthetic-10000": {
+      "comparison_eligible": false,
+      "first_stdout_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 920.704077,
+          "median_ms": 914.7177845,
+          "minimum_ms": 908.731492,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 920.704077
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 1266.691338,
+          "median_ms": 1262.08876,
+          "minimum_ms": 1257.486182,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 1266.691338
+        }
+      },
+      "measured_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 3748.9719489999998,
+          "median_ms": 3736.755342,
+          "minimum_ms": 3724.538735,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 3748.9719489999998
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 5830.709965999999,
+          "median_ms": 5824.075444,
+          "minimum_ms": 5817.440922,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 5830.709965999999
+        }
+      },
+      "median_absolute_savings_ms": -2087.320102,
+      "median_time_reduction_percent": -55.859158841338996,
+      "paired_absolute_savings_ms": {
+        "count": 2,
+        "maximum_ms": -2068.468973,
+        "median_ms": -2087.3201019999997,
+        "minimum_ms": -2106.1712309999994,
+        "p95_method": "nearest rank; exploratory tail estimate for small samples",
+        "p95_ms": -2068.468973
+      },
+      "resource_scope": "per-command wait4; guest/tracer unseparated; no workflow CPU or summed RSS inferred",
+      "status_counts": {
+        "baseline": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        },
+        "candidate": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        }
+      },
+      "workflow_elapsed_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 18734.347313,
+          "median_ms": 18609.586385,
+          "minimum_ms": 18484.825457,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 18734.347313
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 21645.953144,
+          "median_ms": 21462.418165,
+          "minimum_ms": 21278.883186,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 21645.953144
+        }
+      }
+    },
+    "repository:synthetic-100000": {
+      "comparison_eligible": false,
+      "first_stdout_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 8740.98267,
+          "median_ms": 8627.311217999999,
+          "minimum_ms": 8513.639766,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 8740.98267
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 12254.625663,
+          "median_ms": 12243.094362,
+          "minimum_ms": 12231.563061,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 12254.625663
+        }
+      },
+      "measured_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 34256.006259,
+          "median_ms": 33919.807718,
+          "minimum_ms": 33583.609177,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 34256.006259
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 56458.937992,
+          "median_ms": 56236.842715000006,
+          "minimum_ms": 56014.747438000006,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 56458.937992
+        }
+      },
+      "median_absolute_savings_ms": -22317.03499700001,
+      "median_time_reduction_percent": -65.79351859107733,
+      "paired_absolute_savings_ms": {
+        "count": 2,
+        "maximum_ms": -22202.931732999998,
+        "median_ms": -22317.034997000002,
+        "minimum_ms": -22431.138261000007,
+        "p95_method": "nearest rank; exploratory tail estimate for small samples",
+        "p95_ms": -22202.931732999998
+      },
+      "resource_scope": "per-command wait4; guest/tracer unseparated; no workflow CPU or summed RSS inferred",
+      "status_counts": {
+        "baseline": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        },
+        "candidate": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        }
+      },
+      "workflow_elapsed_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 184209.062029,
+          "median_ms": 184002.32398649998,
+          "minimum_ms": 183795.585944,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 184209.062029
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 214496.374985,
+          "median_ms": 213294.116737,
+          "minimum_ms": 212091.858489,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 214496.374985
+        }
+      }
+    },
+    "two-workspaces:synthetic-10000": {
+      "comparison_eligible": false,
+      "first_stdout_ms": {
+        "baseline": null,
+        "candidate": null
+      },
+      "measured_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 5562.951075,
+          "median_ms": 5319.30889,
+          "minimum_ms": 5075.666705,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 5562.951075
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 10278.608967,
+          "median_ms": 10268.280597500001,
+          "minimum_ms": 10257.952228,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 10278.608967
+        }
+      },
+      "median_absolute_savings_ms": -4948.971707500001,
+      "median_time_reduction_percent": -93.03787032942921,
+      "paired_absolute_savings_ms": {
+        "count": 2,
+        "maximum_ms": -4695.001153,
+        "median_ms": -4948.971707500001,
+        "minimum_ms": -5202.9422620000005,
+        "p95_method": "nearest rank; exploratory tail estimate for small samples",
+        "p95_ms": -4695.001153
+      },
+      "resource_scope": "per-command wait4; guest/tracer unseparated; no workflow CPU or summed RSS inferred",
+      "status_counts": {
+        "baseline": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        },
+        "candidate": {
+          "failed": 0,
+          "passed": 2,
+          "skipped": 0
+        }
+      },
+      "workflow_elapsed_ms": {
+        "baseline": {
+          "count": 2,
+          "maximum_ms": 41153.318629,
+          "median_ms": 39657.0849855,
+          "minimum_ms": 38160.851342,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 41153.318629
+        },
+        "candidate": {
+          "count": 2,
+          "maximum_ms": 48655.63919,
+          "median_ms": 46929.5987375,
+          "minimum_ms": 45203.558285,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 48655.63919
+        }
+      }
+    }
+  },
+  "worker_sources": {
+    "common.py": "57e4ca4e186c1628bb370e114ece3d3224e54f39e8140f89bf6977d557fbbbde",
+    "fixtures.py": "4f4828ec17782ef1129e57adb47774dfef6d43947c9fc243acd4959933a108bd",
+    "worker.py": "13357f06bae40e5a53fdf5d10b53da6b1c6aa8e5f8b58b3af53e22d95de6ea7b"
+  }
+}

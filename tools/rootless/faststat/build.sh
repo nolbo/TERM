@@ -29,3 +29,15 @@ clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/single-check-test.c" -ldl -pthread -o "$output_directory/single-check-test"
 clang -O2 -Wall -Wextra -Werror -static -pthread -Wl,-z,noexecstack,-z,max-page-size=16384 \
     "$source_directory/emulated-fstat-entry-test.c" -o "$output_directory/emulated-fstat-entry-test"
+clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
+    "$source_directory/fd-utimens-test.c" -o "$output_directory/fd-utimens-test"
+clang -O2 -Wall -Wextra -Werror -static -Wl,-z,noexecstack,-z,max-page-size=16384 \
+    "$source_directory/fd-utimens-test.c" -o "$output_directory/fd-utimens-test-static"
+clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
+    "$source_directory/identity-regression-test.c" -o "$output_directory/identity-regression-test"
+clang -O2 -Wall -Wextra -Werror -static -Wl,-z,noexecstack,-z,max-page-size=16384 \
+    "$source_directory/identity-regression-test.c" -o "$output_directory/identity-regression-test-static"
+clang -O2 -Wall -Wextra -Werror -Wl,-z,noexecstack,-z,max-page-size=16384 \
+    "$source_directory/link-mutation-test.c" -o "$output_directory/link-mutation-test"
+clang -O2 -Wall -Wextra -Werror -static -Wl,-z,noexecstack,-z,max-page-size=16384 \
+    "$source_directory/link-mutation-test.c" -o "$output_directory/link-mutation-test-static"

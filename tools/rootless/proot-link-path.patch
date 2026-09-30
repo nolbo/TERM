@@ -1,0 +1,316 @@
+--- a/src/extension/link2symlink/link2symlink.c
++++ b/src/extension/link2symlink/link2symlink.c
+@@ -52,6 +52,7 @@
+ 	 * was redirected away from, when this syscall is about to return
+ 	 * a descriptor on it.  Empty otherwise.  */
+ 	char pending_link[PATH_MAX];
++	struct PendingRemoval *removal;
+ } Link2SymlinkConfig;
+ 
+ /**
+@@ -639,6 +640,186 @@
+ 	set_sysnum(tracee, PR_void);
+ 
+ 	return 0;
++}
++
++
++/* A deletion is accounted only after the kernel actually removed this alias.
++ * Keep descriptors, not just names: another tracee can rename its parent or
++ * replace an alias while this syscall is in flight.  The descriptors also
++ * prevent inode reuse from making a different file look like the snapshot. */
++typedef struct PendingRemoval {
++	struct PendingRemoval *next;
++	pid_t owner;
++	int alias_fd, backing_fd, directory_fd;
++	bool accounted;
++	char intermediate[PATH_MAX];
++	char directory[PATH_MAX];
++	struct stat alias, backing;
++} PendingRemoval;
++
++static PendingRemoval *pending_removals;
++
++static int release_removal(PendingRemoval *pending)
++{
++	PendingRemoval **cursor = &pending_removals;
++	while (*cursor != NULL && *cursor != pending)
++		cursor = &(*cursor)->next;
++	if (*cursor == pending)
++		*cursor = pending->next;
++	if (pending->alias_fd >= 0) close(pending->alias_fd);
++	if (pending->backing_fd >= 0) close(pending->backing_fd);
++	if (pending->directory_fd >= 0) close(pending->directory_fd);
++	return 0;
++}
++
++static bool same_inode(const struct stat *left, const struct stat *right)
++{
++	return left->st_dev == right->st_dev && left->st_ino == right->st_ino;
++}
++
++/* Accept only this backing store's direct entries.  Never follow a modified
++ * intermediate into a new directory, including a guest-controlled symlink. */
++static const char *removal_entry(PendingRemoval *pending, const char *path)
++{
++	size_t length = strlen(pending->directory);
++	if (strncmp(path, pending->directory, length) != 0 || path[length] != '/')
++		return NULL;
++	path += length + 1;
++	return path[0] != '\0' && strchr(path, '/') == NULL ? path : NULL;
++}
++
++static int capture_removal(Extension *extension, Reg argument)
++{
++	Tracee *tracee = TRACEE(extension);
++	Link2SymlinkConfig *config;
++	PendingRemoval *pending;
++	struct stat candidate;
++	char path[PATH_MAX], intermediate[PATH_MAX], final[PATH_MAX];
++	const char *name;
++	char *slash;
++	int directory_fd, status;
++	ssize_t length;
++
++	status = read_path(tracee, path, peek_reg(tracee, CURRENT, argument));
++	if (status < 0) return status;
++	/* Ordinary files need no bookkeeping.  Recheck through the pinned FD
++	 * below before relying on this hint for a symlink candidate. */
++	if (lstat(path, &candidate) < 0 || !S_ISLNK(candidate.st_mode)) return 0;
++	config = get_config(extension, true);
++	if (config == NULL) return -ENOMEM;
++	pending = talloc_zero(config, PendingRemoval);
++	if (pending == NULL) return -ENOMEM;
++	pending->alias_fd = pending->backing_fd = pending->directory_fd = -1;
++	pending->next = pending_removals;
++	pending_removals = pending;
++	talloc_set_destructor(pending, release_removal);
++	pending->owner = tracee->pid;
++	pending->alias_fd = open(path, O_PATH | O_NOFOLLOW | O_CLOEXEC);
++	if (pending->alias_fd < 0 || fstat(pending->alias_fd, &pending->alias) < 0 ||
++	    !S_ISLNK(pending->alias.st_mode)) goto skip;
++	length = readlinkat(pending->alias_fd, "", intermediate, sizeof(intermediate) - 1);
++	if (length <= 0 || length >= (ssize_t)sizeof(intermediate) - 1) goto skip;
++	intermediate[length] = '\0';
++	slash = strrchr(intermediate, '/');
++	if (slash == NULL || strncmp(slash + 1, PREFIX, strlen(PREFIX)) != 0) goto skip;
++	strcpy(pending->intermediate, slash + 1);
++	memcpy(pending->directory, intermediate, slash - intermediate);
++	pending->directory[slash - intermediate] = '\0';
++	if (l2s_entry(intermediate, &directory_fd, &name) < 0) goto skip;
++	pending->directory_fd = directory_fd < 0
++		? open(pending->directory, O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
++		: fcntl(directory_fd, F_DUPFD_CLOEXEC, 0);
++	if (pending->directory_fd < 0) goto skip;
++	length = readlinkat(pending->directory_fd, pending->intermediate, final, sizeof(final) - 1);
++	if (length <= 0 || length >= (ssize_t)sizeof(final) - 1) goto skip;
++	final[length] = '\0';
++	name = removal_entry(pending, final);
++	if (name == NULL || !is_l2s_file(final)) goto skip;
++	pending->backing_fd = openat(pending->directory_fd, name, O_PATH | O_NOFOLLOW | O_CLOEXEC);
++	if (pending->backing_fd < 0 || fstat(pending->backing_fd, &pending->backing) < 0 ||
++	    !S_ISREG(pending->backing.st_mode)) goto skip;
++	config->removal = pending;
++	return 0;
++skip:
++	talloc_free(pending);
++	return 0;
++}
++
++/* Linux rename between two names for one inode preserves both names.  The
++ * kernel sees two distinct symlink inodes, so ask it to rename the canonical
++ * source onto itself instead.  It still executes the real syscall (including
++ * seccomp and flag validation); no success result is predicted here. */
++static int preserve_same_backing_rename(Extension *extension, Reg source, Reg destination)
++{
++	Tracee *tracee = TRACEE(extension);
++	Link2SymlinkConfig *config = get_config(extension, false);
++	struct stat backing;
++	char path[PATH_MAX], final[PATH_MAX];
++	int status;
++
++	if (config == NULL || config->removal == NULL) return 0;
++	status = read_path(tracee, path, peek_reg(tracee, CURRENT, source));
++	if (status < 0) return status;
++	if (resolve_faked_hard_link(path, final) < 0 || lstat(final, &backing) < 0 ||
++	    !same_inode(&config->removal->backing, &backing)) return 0;
++	if (tracee->local_rename_old != NULL)
++		tracee->local_rename_new = tracee->local_rename_old;
++	else
++		poke_reg(tracee, destination, peek_reg(tracee, CURRENT, source));
++	talloc_free(config->removal);
++	config->removal = NULL;
++	return 0;
++}
++
++static int finish_removal(Extension *extension)
++{
++	Tracee *tracee = TRACEE(extension);
++	Link2SymlinkConfig *config = get_config(extension, false);
++	PendingRemoval *pending, *other;
++	struct stat alias, backing;
++	char final[PATH_MAX], replacement[PATH_MAX];
++	const char *name, *new_name;
++	ssize_t length;
++	int count, status = 0;
++
++	if (config == NULL || config->removal == NULL) return 0;
++	pending = config->removal;
++	config->removal = NULL;
++	if (pending->owner != tracee->pid || pending->accounted ||
++	    (word_t)peek_reg(tracee, CURRENT, SYSARG_RESULT) != 0) goto out;
++	if (fstat(pending->alias_fd, &alias) < 0 || alias.st_nlink != 0) goto out;
++	/* Two tracees can have observed the same alias before either completed.
++	 * Only one removal owns its count, even if a replacement later allowed
++	 * the second syscall to succeed as well. */
++	for (other = pending_removals; other != NULL; other = other->next)
++		if (same_inode(&pending->alias, &other->alias)) other->accounted = true;
++	length = readlinkat(pending->directory_fd, pending->intermediate, final, sizeof(final) - 1);
++	if (length <= 0 || length >= (ssize_t)sizeof(final) - 1) goto out;
++	final[length] = '\0';
++	name = removal_entry(pending, final);
++	if (name == NULL || !is_l2s_file(final) ||
++	    fstatat(pending->directory_fd, name, &backing, AT_SYMLINK_NOFOLLOW) < 0 ||
++	    !same_inode(&pending->backing, &backing)) goto out;
++	count = atoi(final + strlen(final) - 4);
++	if (count <= 0) goto out;
++	if (count == 1) {
++		if (unlinkat(pending->directory_fd, pending->intermediate, 0) < 0 ||
++		    unlinkat(pending->directory_fd, name, 0) < 0) { status = -errno; goto out; }
++		status = notify_extensions(tracee, LINK2SYMLINK_UNLINK, (intptr_t) final, 0);
++	} else {
++		strcpy(replacement, final);
++		sprintf(replacement + strlen(replacement) - 4, "%04d", count - 1);
++		new_name = removal_entry(pending, replacement);
++		if (renameat(pending->directory_fd, name, pending->directory_fd, new_name) < 0 ||
++		    unlinkat(pending->directory_fd, pending->intermediate, 0) < 0 ||
++		    symlinkat(replacement, pending->directory_fd, pending->intermediate) < 0) {
++			status = -errno; goto out;
++		}
++		status = notify_extensions(tracee, LINK2SYMLINK_RENAME, (intptr_t) final, (intptr_t) replacement);
++	}
++out:
++	talloc_free(pending);
++	return status;
+ }
+ 
+ 
+@@ -1191,8 +1372,11 @@
+ 		/* Forget any dereference that was not consumed by the exit
+ 		 * stage of the syscall it was made for.  */
+ 		Link2SymlinkConfig *config = get_config(extension, false);
+-		if (config != NULL)
++		if (config != NULL) {
+ 			config->pending_link[0] = '\0';
++			talloc_free(config->removal);
++			config->removal = NULL;
++		}
+ 
+ 		return 0;
+ 	}
+@@ -1200,28 +1384,38 @@
+ 	case SYSCALL_ENTER_END: {
+ 		Tracee *tracee = TRACEE(extension);
+ 
++		if (data1 < 0) return 0;
+ 		switch (get_sysnum(tracee, ORIGINAL)) {
+ 		case PR_rename:
+ 			/*int rename(const char *oldpath, const char *newpath);
+ 			 *If newpath is a psuedo hard link decrement the link count.
+ 			 */
+ 
+-			status = decrement_link_count(tracee, SYSARG_2);
+-			if (status < 0)
+-				return status;
+-
++			status = capture_removal(extension, SYSARG_2);
++			if (status < 0) return status;
++			status = preserve_same_backing_rename(extension, SYSARG_1, SYSARG_2);
++			if (status < 0) return status;
+ 			break;
+ 
+ 		case PR_renameat:
+ 		case PR_renameat2:
++			/* NOREPLACE cannot remove an existing destination; EXCHANGE
++			 * moves both aliases without dropping a link.  Leave all flags
++			 * for the kernel to validate before any metadata change. */
++			if (get_sysnum(tracee, ORIGINAL) == PR_renameat2 &&
++			    (peek_reg(tracee, CURRENT, SYSARG_5) & 3) != 0)
++				break;
+ 			/*int renameat(int olddirfd, const char *oldpath, int newdirfd, const char *newpath);
+ 			 *If newpath is a psuedo hard link decrement the link count.
+ 			 */
+ 
+-			status = decrement_link_count(tracee, SYSARG_4);
+-			if (status < 0)
+-				return status;
+-
++			status = capture_removal(extension, SYSARG_4);
++			if (status < 0) return status;
++			if (get_sysnum(tracee, ORIGINAL) != PR_renameat2 ||
++			    peek_reg(tracee, CURRENT, SYSARG_5) == 0) {
++				status = preserve_same_backing_rename(extension, SYSARG_2, SYSARG_4);
++				if (status < 0) return status;
++			}
+ 			break;
+ 
+ 		case PR_unlink:
+@@ -1231,7 +1425,7 @@
+ 			 *   the original file and intermediate file too.
+ 			 */
+ 
+-			status = decrement_link_count(tracee, SYSARG_1);
++			status = capture_removal(extension, SYSARG_1);
+ 			if (status < 0)
+ 				return status;
+ 
+@@ -1251,7 +1445,7 @@
+ 			 *   to end of original file.
+ 			 */
+ 
+-			status = decrement_link_count(tracee, SYSARG_2);
++			status = capture_removal(extension, SYSARG_2);
+ 			if (status < 0)
+ 				return status;
+ 
+@@ -1317,6 +1511,8 @@
+ 	}
+ 
+ 	case SYSCALL_EXIT_END: {
++		status = finish_removal(extension);
++		if (status < 0) return status;
+ 		return handle_sysexit_end(extension);
+ 	}
+ 
+--- a/src/syscall/enter.c
++++ b/src/syscall/enter.c
+@@ -2149,6 +2149,15 @@
+ 	/* After executing once, errors are results too: never retry a mutation. */
+ 	int status = result < 0 ? -errno : result;
+ 	poke_reg(tracee, SYSARG_RESULT, (word_t)status);
++	/* The source is ordinary, but the overwritten destination can be an
++	 * emulated hard link (notably dpkg's new-file over backup-linked-old
++	 * upgrade).  Entry completion skips the exit stop, so consume its
++	 * captured removal after the real rename result and before PR_void. */
++	Extension *links = get_extension(tracee, link2symlink_callback);
++	if (links != NULL) {
++		int fixup = link2symlink_callback(links, SYSCALL_EXIT_END, 0, 0);
++		if (fixup < 0) poke_reg(tracee, SYSARG_RESULT, (word_t)fixup);
++	}
+ 	set_sysnum(tracee, PR_void);
+ 	tracee->sysexit_pending = false;
+ 	tracee->restart_how = PTRACE_CONT;
+@@ -3490,6 +3499,13 @@
+ 	}
+ #endif
+ 	status2 = notify_extensions(tracee, SYSCALL_ENTER_END, status, 0);
++#if defined(__aarch64__)
++	/* l2s can preserve Linux's same-inode rename no-op by redirecting the
++	 * destination to the source.  Keep the kernel syscall/exit path. */
++	if (rename_local && tracee->local_rename_old != NULL &&
++	    tracee->local_rename_new == tracee->local_rename_old)
++		strcpy(newpath, oldpath);
++#endif
+ 	tracee->local_rename_old = NULL;
+ 	tracee->local_rename_new = NULL;
+ 	if (status2 < 0)

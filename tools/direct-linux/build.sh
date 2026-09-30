@@ -1,9 +1,14 @@
 #!/usr/bin/env bash
 # No downloaded compiler and no product payload changes.
 set -euo pipefail
+if [[ ${1:-} != --archive-reproduction ]]; then
+    echo 'Direct Linux is retired. Historical reproduction only: build.sh --archive-reproduction OUTPUT_DIRECTORY' >&2
+    exit 2
+fi
+shift
 source_directory=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_root=$(CDPATH= cd -- "$source_directory/../.." && pwd)
-output_directory=${1:?usage: build.sh OUTPUT_DIRECTORY}
+output_directory=${1:?usage: build.sh --archive-reproduction OUTPUT_DIRECTORY}
 mkdir -p "$output_directory"
 export TERMINAL_ANDROID_NDK=${ANDROID_NDK_ROOT:-"$repository_root/.android-sdk/ndk/28.0.13004108"}
 bash "$repository_root/tools/iphone/android-clang.sh" \

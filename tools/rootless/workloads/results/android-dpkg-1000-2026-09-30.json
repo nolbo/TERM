@@ -1,0 +1,4098 @@
+{
+  "actual_agent": {
+    "scope": "no authentication or model requests; any CLI evidence is version/help only",
+    "status": "skipped"
+  },
+  "alternating_order_valid": true,
+  "batch_done": true,
+  "cache_condition": "fixture preparation and preconditions warm cache; first invocations labeled, never claimed cold",
+  "cases": [
+    {
+      "case": "dpkg-1000",
+      "case_key": "dpkg-1000",
+      "name": "dpkg-1000",
+      "repository": ""
+    }
+  ],
+  "input_errors": [],
+  "input_sha256": {
+    "libfaststat-baseline.so": "f581d328cf0fee01530b9052f76901bbfe975ac1bd61c225e02dfe10e1b5e829",
+    "libproot-baseline.so": "1f152d00d64b53b7efa932a5cb341e937d9a7472b3af9dc22d99eb6e16245cfb",
+    "libproot-faststat.so": "619bc9a2c3270fb89f787b5e20003adbe484a1f33843cd8e382584eb6fa2a406",
+    "libproot-loader.so": "2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237",
+    "libproot.so": "85dc5a9a527dba926ab496e5e7929ba8ded4e6dbd7da5f77a072ee0af255af42",
+    "manifest.json": "f17bf53af922d15c3dfb90568c889438c840c64369af0e37f2a153497d6b5c65"
+  },
+  "instrumentation": {
+    "declared": "disabled",
+    "diagnostics_observed": false
+  },
+  "pairs": 10,
+  "path_scope": "allowlisted fields only; raw device paths, command argv and worker log paths omitted",
+  "platform": {
+    "android_api": 35,
+    "selinux": "Disabled"
+  },
+  "resource_scope": "per-command wait4 only; guest/tracer CPU unseparated; missing metrics remain unavailable; RSS is not summed",
+  "rows": [
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": true,
+      "job": "dpkg-1000",
+      "log": "1-dpkg-1000-baseline.log",
+      "log_sha256": "80fe36d6e80b1582e61a2a4b275fe1a9e4ae8fd87917157568e43319def55495",
+      "mode": "baseline",
+      "pair": 0,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 79.973911,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3665.576898,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 79.973911,
+            "involuntary_context_switches": 18,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22312,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 456.374,
+            "user_cpu_ms": 42.312,
+            "voluntary_context_switches": 19209,
+            "wall_ms": 1514.718091
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.14038,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22440,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 4.957999999999999,
+            "user_cpu_ms": 0.619,
+            "voluntary_context_switches": 190,
+            "wall_ms": 24.23147
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 28.067081,
+            "involuntary_context_switches": 4,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22824,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 425.05299999999994,
+            "user_cpu_ms": 38.904999999999994,
+            "voluntary_context_switches": 21100,
+            "wall_ms": 1806.178213
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 10.38171,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22824,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 4.226,
+            "user_cpu_ms": 3.016,
+            "voluntary_context_switches": 190,
+            "wall_ms": 28.564442
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 19.487376,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22952,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 58.20099999999999,
+            "user_cpu_ms": 11.206,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 291.884682
+          }
+        ],
+        "preparation_ms": 1.285163,
+        "status": "passed",
+        "verification_ms": 314.645228,
+        "workflow_elapsed_ms": 3985.312661
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": true,
+      "job": "dpkg-1000",
+      "log": "1-dpkg-1000-candidate.log",
+      "log_sha256": "c64778662452818b4dd2d52b9b1148f15ec918492adc9839d5008ea1391d5df5",
+      "mode": "candidate",
+      "pair": 0,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 33.979738,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3261.381854,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 33.979738,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22232,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 337.677,
+            "user_cpu_ms": 38.731,
+            "voluntary_context_switches": 20125,
+            "wall_ms": 1103.648466
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.334741,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22360,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 3.797,
+            "user_cpu_ms": 1.265,
+            "voluntary_context_switches": 190,
+            "wall_ms": 23.404108
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 28.361522,
+            "involuntary_context_switches": 3,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22872,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 357.637,
+            "user_cpu_ms": 33.499,
+            "voluntary_context_switches": 23143,
+            "wall_ms": 1815.768721
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 6.97066,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22872,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 5.3759999999999994,
+            "user_cpu_ms": 0.0,
+            "voluntary_context_switches": 190,
+            "wall_ms": 25.760114
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 17.005169,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22872,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 63.289,
+            "user_cpu_ms": 14.834,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 292.800445
+          }
+        ],
+        "preparation_ms": 1.276004,
+        "status": "passed",
+        "verification_ms": 485.601681,
+        "workflow_elapsed_ms": 3753.275634
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "2-dpkg-1000-candidate.log",
+      "log_sha256": "96987d20ce7b55a5c5597719f92c39d5c371c7e0b3228f984d23dd78954acb2a",
+      "mode": "candidate",
+      "pair": 1,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 32.741175,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3209.520828,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 32.741175,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22264,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 395.522,
+            "user_cpu_ms": 26.673,
+            "voluntary_context_switches": 20127,
+            "wall_ms": 1111.64409
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.945543,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22392,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 5.492999999999999,
+            "user_cpu_ms": 0.0,
+            "voluntary_context_switches": 190,
+            "wall_ms": 27.236359
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 28.049001,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22776,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 324.99699999999996,
+            "user_cpu_ms": 39.257,
+            "voluntary_context_switches": 23113,
+            "wall_ms": 1730.537197
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 6.9491,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22776,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 4.11,
+            "user_cpu_ms": 1.3699999999999999,
+            "voluntary_context_switches": 190,
+            "wall_ms": 25.838995
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 18.805054,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22776,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 57.913,
+            "user_cpu_ms": 10.411,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 314.264187
+          }
+        ],
+        "preparation_ms": 1.712005,
+        "status": "passed",
+        "verification_ms": 512.886481,
+        "workflow_elapsed_ms": 3729.149607
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "2-dpkg-1000-baseline.log",
+      "log_sha256": "be7d1f3d74c5f32aeb2277a4939059771374a534ad68af7e694c0205c32c4687",
+      "mode": "baseline",
+      "pair": 1,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 33.750777,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3027.330944,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 33.750777,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22328,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 396.525,
+            "user_cpu_ms": 38.476,
+            "voluntary_context_switches": 19131,
+            "wall_ms": 1087.730621
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.402621,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22456,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 4.876,
+            "user_cpu_ms": 0.812,
+            "voluntary_context_switches": 190,
+            "wall_ms": 25.524914
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 28.591563,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22840,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 374.484,
+            "user_cpu_ms": 42.945,
+            "voluntary_context_switches": 21100,
+            "wall_ms": 1585.334779
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 6.657379,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22840,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 3.4939999999999998,
+            "user_cpu_ms": 1.7469999999999999,
+            "voluntary_context_switches": 190,
+            "wall_ms": 26.441557
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 20.092458,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22968,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 65.749,
+            "user_cpu_ms": 9.106,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 302.299073
+          }
+        ],
+        "preparation_ms": 1.243323,
+        "status": "passed",
+        "verification_ms": 324.613258,
+        "workflow_elapsed_ms": 3358.169178
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "3-dpkg-1000-baseline.log",
+      "log_sha256": "8529371b194693f4233f0d149fd11f81d54d4ddbd1ea7c650dcac207f18f0fd3",
+      "mode": "baseline",
+      "pair": 2,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 37.348227,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3148.130854,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 37.348227,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22212,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 400.24299999999994,
+            "user_cpu_ms": 34.399,
+            "voluntary_context_switches": 19131,
+            "wall_ms": 1078.251394
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 6.93922,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22340,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 5.191,
+            "user_cpu_ms": 0.0,
+            "voluntary_context_switches": 190,
+            "wall_ms": 24.999712
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 27.81024,
+            "involuntary_context_switches": 2,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22852,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 417.06899999999996,
+            "user_cpu_ms": 41.49999999999999,
+            "voluntary_context_switches": 21096,
+            "wall_ms": 1720.312329
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 8.444185,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22852,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 5.537999999999999,
+            "user_cpu_ms": 0.0,
+            "voluntary_context_switches": 190,
+            "wall_ms": 28.466123
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 19.097015,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22852,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 65.673,
+            "user_cpu_ms": 11.606,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 296.101296
+          }
+        ],
+        "preparation_ms": 1.231843,
+        "status": "passed",
+        "verification_ms": 337.594015,
+        "workflow_elapsed_ms": 3490.756043
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "3-dpkg-1000-candidate.log",
+      "log_sha256": "cd48093a705932688c344554de1d5a6fb303de7b8691efbc3f0095d22a8414db",
+      "mode": "candidate",
+      "pair": 2,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 38.01687,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3241.341007,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 38.01687,
+            "involuntary_context_switches": 3,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22284,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 375.22499999999997,
+            "user_cpu_ms": 27.105999999999998,
+            "voluntary_context_switches": 20131,
+            "wall_ms": 1121.892762
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 8.277104,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22412,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 6.2829999999999995,
+            "user_cpu_ms": 1.049,
+            "voluntary_context_switches": 190,
+            "wall_ms": 28.646763
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 28.975484,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22796,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 394.86899999999997,
+            "user_cpu_ms": 32.403,
+            "voluntary_context_switches": 23106,
+            "wall_ms": 1755.970594
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 8.350704,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22796,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 3.8699999999999997,
+            "user_cpu_ms": 1.966,
+            "voluntary_context_switches": 190,
+            "wall_ms": 29.565526
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 19.118415,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22924,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 64.599,
+            "user_cpu_ms": 7.962000000000001,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 305.265362
+          }
+        ],
+        "preparation_ms": 1.277604,
+        "status": "passed",
+        "verification_ms": 483.04243599999995,
+        "workflow_elapsed_ms": 3730.558059
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "4-dpkg-1000-candidate.log",
+      "log_sha256": "23e28f3fe90ab5ae65bc0efaf1ae54dcfd37ac4ffe6013dbb66853b4447ae2f9",
+      "mode": "candidate",
+      "pair": 3,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 35.741263,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3210.4856369999998,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 35.741263,
+            "involuntary_context_switches": 2,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22160,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 341.81,
+            "user_cpu_ms": 33.12,
+            "voluntary_context_switches": 20125,
+            "wall_ms": 1013.407248
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 8.091023,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22288,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 7.624,
+            "user_cpu_ms": 0.0,
+            "voluntary_context_switches": 190,
+            "wall_ms": 26.291396
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 28.489962,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22672,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 344.065,
+            "user_cpu_ms": 26.355,
+            "voluntary_context_switches": 23096,
+            "wall_ms": 1828.743405
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.702543,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22672,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 5.157,
+            "user_cpu_ms": 0.0,
+            "voluntary_context_switches": 190,
+            "wall_ms": 27.037478
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 19.694577,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22800,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 67.58200000000001,
+            "user_cpu_ms": 8.911,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 315.00611
+          }
+        ],
+        "preparation_ms": 1.321764,
+        "status": "passed",
+        "verification_ms": 511.60655899999995,
+        "workflow_elapsed_ms": 3727.790014
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "4-dpkg-1000-baseline.log",
+      "log_sha256": "1e7961b87f324d19c2071fdcee31b7231d83e3e7c22ce0a67397ccc180868d70",
+      "mode": "baseline",
+      "pair": 3,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 37.114228,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3225.071963,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 37.114228,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22356,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 436.894,
+            "user_cpu_ms": 44.617,
+            "voluntary_context_switches": 19135,
+            "wall_ms": 1091.778556
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.689943,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22484,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 5.92,
+            "user_cpu_ms": 0.0,
+            "voluntary_context_switches": 190,
+            "wall_ms": 26.256236
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 28.221202,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22996,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 378.938,
+            "user_cpu_ms": 37.672999999999995,
+            "voluntary_context_switches": 21101,
+            "wall_ms": 1775.926374
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.10662,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22996,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 2.781,
+            "user_cpu_ms": 2.781,
+            "voluntary_context_switches": 190,
+            "wall_ms": 26.117875
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 19.747178,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22996,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 67.78399999999999,
+            "user_cpu_ms": 9.519,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 304.992922
+          }
+        ],
+        "preparation_ms": 1.287124,
+        "status": "passed",
+        "verification_ms": 301.299671,
+        "workflow_elapsed_ms": 3531.82709
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "5-dpkg-1000-baseline.log",
+      "log_sha256": "1d9604685112fe44dac8217f4c6459a6fbc246b54a44395bed690aea28127cf2",
+      "mode": "baseline",
+      "pair": 4,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 35.619343,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3297.2255729999997,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 35.619343,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22300,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 407.195,
+            "user_cpu_ms": 40.379,
+            "voluntary_context_switches": 19127,
+            "wall_ms": 1184.073383
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.077541,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22428,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 5.686999999999999,
+            "user_cpu_ms": 0.0,
+            "voluntary_context_switches": 190,
+            "wall_ms": 24.19759
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 30.035607,
+            "involuntary_context_switches": 2,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22812,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 395.08899999999994,
+            "user_cpu_ms": 48.413,
+            "voluntary_context_switches": 21097,
+            "wall_ms": 1755.661717
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 6.817019,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22812,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 4.138,
+            "user_cpu_ms": 1.379,
+            "voluntary_context_switches": 190,
+            "wall_ms": 23.121027
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 18.900814,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22812,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 61.55799999999999,
+            "user_cpu_ms": 8.770999999999999,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 310.171856
+          }
+        ],
+        "preparation_ms": 1.674525,
+        "status": "passed",
+        "verification_ms": 299.44062499999995,
+        "workflow_elapsed_ms": 3602.180056
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "5-dpkg-1000-candidate.log",
+      "log_sha256": "99473cf8f49c5e30065ef82ae75ad08333b8ca0aa841890a75a56e6adfecfc83",
+      "mode": "candidate",
+      "pair": 4,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 33.348456,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3450.8253799999998,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 33.348456,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22240,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 301.58599999999996,
+            "user_cpu_ms": 33.324,
+            "voluntary_context_switches": 20133,
+            "wall_ms": 1130.75731
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 6.98314,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22368,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 3.9779999999999998,
+            "user_cpu_ms": 1.591,
+            "voluntary_context_switches": 190,
+            "wall_ms": 26.948358
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 28.939484,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22752,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 367.11299999999994,
+            "user_cpu_ms": 39.214,
+            "voluntary_context_switches": 23107,
+            "wall_ms": 1925.166448
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 10.813671,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22752,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 7.489,
+            "user_cpu_ms": 1.072,
+            "voluntary_context_switches": 190,
+            "wall_ms": 29.267445
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 22.092383,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22880,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 77.045,
+            "user_cpu_ms": 11.710999999999999,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 338.685819
+          }
+        ],
+        "preparation_ms": 1.341964,
+        "status": "passed",
+        "verification_ms": 562.3595869999999,
+        "workflow_elapsed_ms": 4019.642025
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "6-dpkg-1000-candidate.log",
+      "log_sha256": "9a30b3e9976dee03a5ddae70bcfdc46da182f687bc904ac635cc97bc07af409e",
+      "mode": "candidate",
+      "pair": 5,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 37.358949,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3393.255056,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 37.358949,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22176,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 305.46299999999997,
+            "user_cpu_ms": 36.204,
+            "voluntary_context_switches": 20126,
+            "wall_ms": 1088.070188
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.076901,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22304,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 4.81,
+            "user_cpu_ms": 0.962,
+            "voluntary_context_switches": 190,
+            "wall_ms": 25.333753
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 30.565528,
+            "involuntary_context_switches": 3,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22688,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 387.893,
+            "user_cpu_ms": 41.492999999999995,
+            "voluntary_context_switches": 23108,
+            "wall_ms": 1922.516761
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 6.98206,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22688,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 4.575,
+            "user_cpu_ms": 0.9149999999999999,
+            "voluntary_context_switches": 190,
+            "wall_ms": 22.462665
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 21.037901,
+            "involuntary_context_switches": 2,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22688,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 79.398,
+            "user_cpu_ms": 10.107999999999999,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 334.871689
+          }
+        ],
+        "preparation_ms": 2.001006,
+        "status": "passed",
+        "verification_ms": 517.5204570000001,
+        "workflow_elapsed_ms": 3917.189212
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "6-dpkg-1000-baseline.log",
+      "log_sha256": "c604d3299e31612e662c6047509d0d89b1ffd5bcd026d39a9c27996da6d8b81d",
+      "mode": "baseline",
+      "pair": 5,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 35.221262,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3483.8534,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 35.221262,
+            "involuntary_context_switches": 4,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22096,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 389.496,
+            "user_cpu_ms": 28.945,
+            "voluntary_context_switches": 19131,
+            "wall_ms": 1141.573263
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 9.298386,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22224,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 6.612,
+            "user_cpu_ms": 1.143,
+            "voluntary_context_switches": 190,
+            "wall_ms": 27.89792
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 32.096293,
+            "involuntary_context_switches": 5,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22608,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 439.336,
+            "user_cpu_ms": 38.14,
+            "voluntary_context_switches": 21100,
+            "wall_ms": 1900.75126
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 10.16747,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22608,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 3.8019999999999996,
+            "user_cpu_ms": 1.9009999999999998,
+            "voluntary_context_switches": 190,
+            "wall_ms": 29.252245
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 21.448142,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22608,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 63.92099999999999,
+            "user_cpu_ms": 9.146999999999998,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 384.378712
+          }
+        ],
+        "preparation_ms": 1.690965,
+        "status": "passed",
+        "verification_ms": 320.677128,
+        "workflow_elapsed_ms": 3811.251908
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "7-dpkg-1000-baseline.log",
+      "log_sha256": "c6a897c41d1860de3bfedb4cc998e383ce3057cec281797715da9e85fcef9397",
+      "mode": "baseline",
+      "pair": 6,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 9972.602708,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 13489.495452000001,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 9972.602708,
+            "involuntary_context_switches": 2,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22032,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 500.42599999999993,
+            "user_cpu_ms": 43.996,
+            "voluntary_context_switches": 19133,
+            "wall_ms": 11283.221863
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.160781,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22160,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 5.706,
+            "user_cpu_ms": 0.0,
+            "voluntary_context_switches": 190,
+            "wall_ms": 25.086633
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 27.65368,
+            "involuntary_context_switches": 2,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22544,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 363.796,
+            "user_cpu_ms": 40.437999999999995,
+            "voluntary_context_switches": 21099,
+            "wall_ms": 1781.207558
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 8.042423,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22544,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 4.04,
+            "user_cpu_ms": 2.02,
+            "voluntary_context_switches": 190,
+            "wall_ms": 29.153724
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 21.509823,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22544,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 63.925999999999995,
+            "user_cpu_ms": 14.045,
+            "voluntary_context_switches": 4318,
+            "wall_ms": 370.825674
+          }
+        ],
+        "preparation_ms": 1.314884,
+        "status": "passed",
+        "verification_ms": 384.610434,
+        "workflow_elapsed_ms": 13879.544982
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "7-dpkg-1000-candidate.log",
+      "log_sha256": "f7c74a6ee306f6b3840e37eac5ed54893d1c397baeda66623051df1508477930",
+      "mode": "candidate",
+      "pair": 6,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 34.375859,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3466.5908010000003,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 34.375859,
+            "involuntary_context_switches": 2,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22224,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 292.164,
+            "user_cpu_ms": 41.803,
+            "voluntary_context_switches": 20127,
+            "wall_ms": 1111.270978
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 6.91126,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22352,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 5.941,
+            "user_cpu_ms": 0.0,
+            "voluntary_context_switches": 190,
+            "wall_ms": 25.682634
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 27.55648,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22864,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 364.224,
+            "user_cpu_ms": 28.419,
+            "voluntary_context_switches": 23106,
+            "wall_ms": 1913.926304
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.871263,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22864,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 5.728,
+            "user_cpu_ms": 0.0,
+            "voluntary_context_switches": 190,
+            "wall_ms": 28.773844
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 22.983867,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22864,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 81.812,
+            "user_cpu_ms": 9.273,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 386.937041
+          }
+        ],
+        "preparation_ms": 1.848565,
+        "status": "passed",
+        "verification_ms": 642.100741,
+        "workflow_elapsed_ms": 4116.800324
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "8-dpkg-1000-candidate.log",
+      "log_sha256": "c0db0b0d2658bf101045f37d31217d83b29396f138b7f7cfe3b88b9f32924625",
+      "mode": "candidate",
+      "pair": 7,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 35.514943,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 13493.992466,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 35.514943,
+            "involuntary_context_switches": 1,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22356,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 300.77,
+            "user_cpu_ms": 40.094,
+            "voluntary_context_switches": 20128,
+            "wall_ms": 1010.800088
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.302741,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22484,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 5.502,
+            "user_cpu_ms": 0.794,
+            "voluntary_context_switches": 190,
+            "wall_ms": 28.680963
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 27.274839,
+            "involuntary_context_switches": 2,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22996,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 386.079,
+            "user_cpu_ms": 27.615,
+            "voluntary_context_switches": 23110,
+            "wall_ms": 1855.510056
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 11.288713,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22996,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 1.967,
+            "user_cpu_ms": 3.934,
+            "voluntary_context_switches": 190,
+            "wall_ms": 32.338614
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 10092.924852,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22996,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 68.398,
+            "user_cpu_ms": 9.62,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 10566.662745
+          }
+        ],
+        "preparation_ms": 1.349604,
+        "status": "passed",
+        "verification_ms": 505.894865,
+        "workflow_elapsed_ms": 14007.114113
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "8-dpkg-1000-baseline.log",
+      "log_sha256": "f994846276d9b578b0a50f10e4ad0369182c498cd7683b29f8175ab62517e0ea",
+      "mode": "baseline",
+      "pair": 7,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 33.197176,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3071.0189450000003,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 33.197176,
+            "involuntary_context_switches": 2,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22240,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 360.255,
+            "user_cpu_ms": 43.494,
+            "voluntary_context_switches": 19133,
+            "wall_ms": 1031.025669
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.193461,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22376,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 5.528,
+            "user_cpu_ms": 0.0,
+            "voluntary_context_switches": 190,
+            "wall_ms": 23.852909
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 27.963281,
+            "involuntary_context_switches": 161,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22888,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 381.546,
+            "user_cpu_ms": 36.089,
+            "voluntary_context_switches": 21100,
+            "wall_ms": 1638.290031
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 8.194184,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22888,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 4.340999999999999,
+            "user_cpu_ms": 0.868,
+            "voluntary_context_switches": 190,
+            "wall_ms": 25.486314
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 26.727358,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22888,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 87.76199999999999,
+            "user_cpu_ms": 16.087,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 352.364022
+          }
+        ],
+        "preparation_ms": 1.329724,
+        "status": "passed",
+        "verification_ms": 490.87258399999996,
+        "workflow_elapsed_ms": 3568.211386
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "9-dpkg-1000-baseline.log",
+      "log_sha256": "b9b0f8c9645dd5d70b9e679d95f389fa21e03f1e736dd616244a8d8787b6fb12",
+      "mode": "baseline",
+      "pair": 8,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 35.254302,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3445.09711,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 35.254302,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22208,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 379.67999999999995,
+            "user_cpu_ms": 40.594,
+            "voluntary_context_switches": 19129,
+            "wall_ms": 1099.095587
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 6.9641,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22344,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 3.6229999999999998,
+            "user_cpu_ms": 2.503,
+            "voluntary_context_switches": 190,
+            "wall_ms": 23.804469
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 26.649437,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22856,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 484.686,
+            "user_cpu_ms": 35.831999999999994,
+            "voluntary_context_switches": 21102,
+            "wall_ms": 1893.726612
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 13.073398,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22856,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 6.88,
+            "user_cpu_ms": 3.3989999999999996,
+            "voluntary_context_switches": 190,
+            "wall_ms": 32.091413
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 25.202073,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22856,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 85.157,
+            "user_cpu_ms": 10.137,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 396.379029
+          }
+        ],
+        "preparation_ms": 1.303043,
+        "status": "passed",
+        "verification_ms": 376.480932,
+        "workflow_elapsed_ms": 3827.151379
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "9-dpkg-1000-candidate.log",
+      "log_sha256": "2afa518571c3088eb6de0450a69ba9eeecfe5fafcdc2a37328f2b10314e157c8",
+      "mode": "candidate",
+      "pair": 8,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 35.823064,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 14121.458533,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 35.823064,
+            "involuntary_context_switches": 4,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22000,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 313.641,
+            "user_cpu_ms": 30.612000000000002,
+            "voluntary_context_switches": 20129,
+            "wall_ms": 1003.022429
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.644782,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22128,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 5.991,
+            "user_cpu_ms": 1.451,
+            "voluntary_context_switches": 190,
+            "wall_ms": 26.597997
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 27.074758,
+            "involuntary_context_switches": 2,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22768,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 378.702,
+            "user_cpu_ms": 36.856,
+            "voluntary_context_switches": 23104,
+            "wall_ms": 1942.643115
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 11.279033,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22768,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 5.778999999999999,
+            "user_cpu_ms": 0.0,
+            "voluntary_context_switches": 190,
+            "wall_ms": 32.884855
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 10646.516534,
+            "involuntary_context_switches": 6,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22768,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 76.452,
+            "user_cpu_ms": 8.600999999999999,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 11116.310137
+          }
+        ],
+        "preparation_ms": 1.324404,
+        "status": "passed",
+        "verification_ms": 571.509978,
+        "workflow_elapsed_ms": 14700.297614
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "10-dpkg-1000-candidate.log",
+      "log_sha256": "2dc8c60d2635a5137e1aae376f1ca3c3308da425165d94068dc113fee13210fd",
+      "mode": "candidate",
+      "pair": 9,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 32.527414,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3164.549027,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 32.527414,
+            "involuntary_context_switches": 2,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22212,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 285.691,
+            "user_cpu_ms": 38.586999999999996,
+            "voluntary_context_switches": 20127,
+            "wall_ms": 933.51547
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 6.88398,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22340,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 5.311,
+            "user_cpu_ms": 0.0,
+            "voluntary_context_switches": 190,
+            "wall_ms": 24.04983
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 28.741323,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22852,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 328.97499999999997,
+            "user_cpu_ms": 32.629,
+            "voluntary_context_switches": 23106,
+            "wall_ms": 1817.584956
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 10.779112,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22852,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 8.245,
+            "user_cpu_ms": 1.779,
+            "voluntary_context_switches": 190,
+            "wall_ms": 31.498012
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 18.030532,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22852,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 69.851,
+            "user_cpu_ms": 2.272,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 357.900759
+          }
+        ],
+        "preparation_ms": 1.393444,
+        "status": "passed",
+        "verification_ms": 589.11991,
+        "workflow_elapsed_ms": 3759.972795
+      }
+    },
+    {
+      "case_key": "dpkg-1000",
+      "diagnostics_observed": false,
+      "first_invocation_for_case": false,
+      "job": "dpkg-1000",
+      "log": "10-dpkg-1000-baseline.log",
+      "log_sha256": "7bea9a788f99d4df842e8dca4a9702fcf1ae18a376e4ffe591317d36fc1f10d6",
+      "mode": "baseline",
+      "pair": 9,
+      "real_exit": 0,
+      "result": {
+        "first_measured_stdout_ms": 35.340142,
+        "guest_facts": {
+          "Seccomp": "2",
+          "Seccomp_filters": "2",
+          "architecture": "aarch64",
+          "distribution": {
+            "ID": "debian",
+            "VERSION_ID": "13"
+          },
+          "kernel_release": "6.17.0-1020",
+          "kernel_release_scope": "recognized_version_prefix_only",
+          "page_size": 4096,
+          "python": "3.13.5",
+          "tools": {
+            "apt-get": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "8124a02e29b28b0f0164a816f4b2ad5ceae457cfa49fe75d89dc5d4ff52754ef",
+              "status": "present",
+              "version": "3.0.3"
+            },
+            "dpkg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "d8878dcd8949b2d18359b98082e18b2c3bb77f4cbe14e7a90f58b3fad2670e79",
+              "status": "present",
+              "version": "1.22.22"
+            },
+            "git": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "aa6540695d076182256dd6e96c8b302e4d56381e3000bbfd5c71bbdfe94a4942",
+              "status": "present",
+              "version": "2.43.0"
+            },
+            "python3": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "bd241b38381974ae27d7d5098a6d0e6dda0a744b5e9fdd6fe3a1ae632588961e",
+              "status": "present",
+              "version": "3.13.5"
+            },
+            "rg": {
+              "elf_machine": 183,
+              "format": "ELF",
+              "interpreter": "/lib/ld-linux-aarch64.so.1",
+              "linkage": "dynamic",
+              "sha256": "51407f46525cf368f99011044fae7aa00912dce6467731f97bb7cf423e2bd702",
+              "status": "present",
+              "version": "14.1.0"
+            }
+          }
+        },
+        "measured_ms": 3311.782176,
+        "phases": [
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 35.340142,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-unpack",
+            "peak_rss_kib": 22216,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 234,
+            "stdout_sha256": "bf97f5b0f2944a9e283d1ed08c56d237c84bc5a80940a3b2110e79e32a41deed",
+            "system_cpu_ms": 387.601,
+            "user_cpu_ms": 53.690999999999995,
+            "voluntary_context_switches": 19135,
+            "wall_ms": 1047.391801
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 7.13238,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "install-configure",
+            "peak_rss_kib": 22344,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "d24efc2f83c99171e058d08e0339785080d382762e4bf2bfd1397e7d1ef0ee8d",
+            "system_cpu_ms": 2.7169999999999996,
+            "user_cpu_ms": 2.7169999999999996,
+            "voluntary_context_switches": 190,
+            "wall_ms": 24.888552
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 27.55328,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-unpack",
+            "peak_rss_kib": 22728,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 179,
+            "stdout_sha256": "50423838f059fc3268aedc5fdc4d4866a396f279a988274ad93cebb89a714f0d",
+            "system_cpu_ms": 370.44899999999996,
+            "user_cpu_ms": 35.192,
+            "voluntary_context_switches": 21104,
+            "wall_ms": 1768.712136
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 9.140426,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "upgrade-configure",
+            "peak_rss_kib": 22728,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 45,
+            "stdout_sha256": "40c10212353519230a7ef25faabd3d0bd995412dd0b4c80a80cbdd19f5739263",
+            "system_cpu_ms": 5.0920000000000005,
+            "user_cpu_ms": 0.868,
+            "voluntary_context_switches": 190,
+            "wall_ms": 27.150319
+          },
+          {
+            "cpu_scope": "launched process plus waited descendants; guest/tracer unseparated",
+            "exit_code": 0,
+            "first_stdout_ms": 25.217153,
+            "involuntary_context_switches": 0,
+            "measured": true,
+            "name": "remove",
+            "peak_rss_kib": 22728,
+            "stderr_bytes": 0,
+            "stderr_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+            "stdout_bytes": 114,
+            "stdout_sha256": "e8ab0584c84bdb4c0dbbae9cb0e5e104eddfdb934344608bc5615c134937665b",
+            "system_cpu_ms": 76.30099999999999,
+            "user_cpu_ms": 9.172999999999998,
+            "voluntary_context_switches": 4317,
+            "wall_ms": 443.639368
+          }
+        ],
+        "preparation_ms": 1.325164,
+        "status": "passed",
+        "verification_ms": 321.395894,
+        "workflow_elapsed_ms": 3638.961766
+      }
+    }
+  ],
+  "schema": 1,
+  "scope": "device-baseline-candidate-timing",
+  "status": "completed",
+  "summaries": {
+    "dpkg-1000": {
+      "comparison_eligible": true,
+      "first_stdout_ms": {
+        "baseline": {
+          "count": 10,
+          "maximum_ms": 9972.602708,
+          "median_ms": 35.4797425,
+          "minimum_ms": 33.197176,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 9972.602708
+        },
+        "candidate": {
+          "count": 10,
+          "maximum_ms": 38.01687,
+          "median_ms": 34.945401000000004,
+          "minimum_ms": 32.527414,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 38.01687
+        }
+      },
+      "measured_ms": {
+        "baseline": {
+          "count": 10,
+          "maximum_ms": 13489.495452000001,
+          "median_ms": 3304.5038745,
+          "minimum_ms": 3027.330944,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 13489.495452000001
+        },
+        "candidate": {
+          "count": 10,
+          "maximum_ms": 14121.458533,
+          "median_ms": 3327.318455,
+          "minimum_ms": 3164.549027,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 14121.458533
+        }
+      },
+      "median_absolute_savings_ms": -22.81458049999992,
+      "median_time_reduction_percent": -0.6904086473026745,
+      "paired_absolute_savings_ms": {
+        "count": 10,
+        "maximum_ms": 10022.904651,
+        "median_ms": -39.311913499999946,
+        "minimum_ms": -10676.361423,
+        "p95_method": "nearest rank; exploratory tail estimate for small samples",
+        "p95_ms": 10022.904651
+      },
+      "phase_resources": {
+        "install-configure": {
+          "involuntary_context_switches": {
+            "baseline": {
+              "count": 10,
+              "maximum": 0,
+              "median": 0.0,
+              "minimum": 0,
+              "p95": 0,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 1,
+              "median": 0.0,
+              "minimum": 0,
+              "p95": 1,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            }
+          },
+          "peak_rss_kib": {
+            "baseline": {
+              "count": 10,
+              "maximum": 22484,
+              "median": 22360.0,
+              "minimum": 22160,
+              "p95": 22484,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "KiB"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 22484,
+              "median": 22356.0,
+              "minimum": 22128,
+              "p95": 22484,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "KiB"
+            }
+          },
+          "system_cpu_ms": {
+            "baseline": {
+              "count": 10,
+              "maximum": 6.612,
+              "median": 5.3595,
+              "minimum": 2.7169999999999996,
+              "p95": 6.612,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 7.624,
+              "median": 5.4975,
+              "minimum": 3.797,
+              "p95": 7.624,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            }
+          },
+          "user_cpu_ms": {
+            "baseline": {
+              "count": 10,
+              "maximum": 2.7169999999999996,
+              "median": 0.3095,
+              "minimum": 0.0,
+              "p95": 2.7169999999999996,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 1.591,
+              "median": 0.878,
+              "minimum": 0.0,
+              "p95": 1.591,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            }
+          },
+          "voluntary_context_switches": {
+            "baseline": {
+              "count": 10,
+              "maximum": 190,
+              "median": 190.0,
+              "minimum": 190,
+              "p95": 190,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 190,
+              "median": 190.0,
+              "minimum": 190,
+              "p95": 190,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            }
+          }
+        },
+        "install-unpack": {
+          "involuntary_context_switches": {
+            "baseline": {
+              "count": 10,
+              "maximum": 18,
+              "median": 1.0,
+              "minimum": 0,
+              "p95": 18,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 4,
+              "median": 1.5,
+              "minimum": 0,
+              "p95": 4,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            }
+          },
+          "peak_rss_kib": {
+            "baseline": {
+              "count": 10,
+              "maximum": 22356,
+              "median": 22228.0,
+              "minimum": 22032,
+              "p95": 22356,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "KiB"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 22356,
+              "median": 22228.0,
+              "minimum": 22000,
+              "p95": 22356,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "KiB"
+            }
+          },
+          "system_cpu_ms": {
+            "baseline": {
+              "count": 10,
+              "maximum": 500.42599999999993,
+              "median": 398.38399999999996,
+              "minimum": 360.255,
+              "p95": 500.42599999999993,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 395.522,
+              "median": 309.552,
+              "minimum": 285.691,
+              "p95": 395.522,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            }
+          },
+          "user_cpu_ms": {
+            "baseline": {
+              "count": 10,
+              "maximum": 53.690999999999995,
+              "median": 41.453,
+              "minimum": 28.945,
+              "p95": 53.690999999999995,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 41.803,
+              "median": 34.763999999999996,
+              "minimum": 26.673,
+              "p95": 41.803,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            }
+          },
+          "voluntary_context_switches": {
+            "baseline": {
+              "count": 10,
+              "maximum": 19209,
+              "median": 19132.0,
+              "minimum": 19127,
+              "p95": 19209,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 20133,
+              "median": 20127.0,
+              "minimum": 20125,
+              "p95": 20133,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            }
+          }
+        },
+        "remove": {
+          "involuntary_context_switches": {
+            "baseline": {
+              "count": 10,
+              "maximum": 1,
+              "median": 0.0,
+              "minimum": 0,
+              "p95": 1,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 6,
+              "median": 0.0,
+              "minimum": 0,
+              "p95": 6,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            }
+          },
+          "peak_rss_kib": {
+            "baseline": {
+              "count": 10,
+              "maximum": 22996,
+              "median": 22854.0,
+              "minimum": 22544,
+              "p95": 22996,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "KiB"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 22996,
+              "median": 22858.0,
+              "minimum": 22688,
+              "p95": 22996,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "KiB"
+            }
+          },
+          "system_cpu_ms": {
+            "baseline": {
+              "count": 10,
+              "maximum": 87.76199999999999,
+              "median": 65.711,
+              "minimum": 58.20099999999999,
+              "p95": 87.76199999999999,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 81.812,
+              "median": 69.1245,
+              "minimum": 57.913,
+              "p95": 81.812,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            }
+          },
+          "user_cpu_ms": {
+            "baseline": {
+              "count": 10,
+              "maximum": 16.087,
+              "median": 9.828,
+              "minimum": 8.770999999999999,
+              "p95": 16.087,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 14.834,
+              "median": 9.4465,
+              "minimum": 2.272,
+              "p95": 14.834,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            }
+          },
+          "voluntary_context_switches": {
+            "baseline": {
+              "count": 10,
+              "maximum": 4318,
+              "median": 4317.0,
+              "minimum": 4317,
+              "p95": 4318,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 4317,
+              "median": 4317.0,
+              "minimum": 4317,
+              "p95": 4317,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            }
+          }
+        },
+        "upgrade-configure": {
+          "involuntary_context_switches": {
+            "baseline": {
+              "count": 10,
+              "maximum": 0,
+              "median": 0.0,
+              "minimum": 0,
+              "p95": 0,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 1,
+              "median": 0.0,
+              "minimum": 0,
+              "p95": 1,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            }
+          },
+          "peak_rss_kib": {
+            "baseline": {
+              "count": 10,
+              "maximum": 22996,
+              "median": 22832.0,
+              "minimum": 22544,
+              "p95": 22996,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "KiB"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 22996,
+              "median": 22786.0,
+              "minimum": 22672,
+              "p95": 22996,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "KiB"
+            }
+          },
+          "system_cpu_ms": {
+            "baseline": {
+              "count": 10,
+              "maximum": 6.88,
+              "median": 4.182,
+              "minimum": 2.781,
+              "p95": 6.88,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 8.245,
+              "median": 5.2665,
+              "minimum": 1.967,
+              "p95": 8.245,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            }
+          },
+          "user_cpu_ms": {
+            "baseline": {
+              "count": 10,
+              "maximum": 3.3989999999999996,
+              "median": 1.8239999999999998,
+              "minimum": 0.0,
+              "p95": 3.3989999999999996,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 3.934,
+              "median": 0.9935,
+              "minimum": 0.0,
+              "p95": 3.934,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            }
+          },
+          "voluntary_context_switches": {
+            "baseline": {
+              "count": 10,
+              "maximum": 190,
+              "median": 190.0,
+              "minimum": 190,
+              "p95": 190,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 190,
+              "median": 190.0,
+              "minimum": 190,
+              "p95": 190,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            }
+          }
+        },
+        "upgrade-unpack": {
+          "involuntary_context_switches": {
+            "baseline": {
+              "count": 10,
+              "maximum": 161,
+              "median": 2.0,
+              "minimum": 0,
+              "p95": 161,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 3,
+              "median": 1.0,
+              "minimum": 0,
+              "p95": 3,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            }
+          },
+          "peak_rss_kib": {
+            "baseline": {
+              "count": 10,
+              "maximum": 22996,
+              "median": 22832.0,
+              "minimum": 22544,
+              "p95": 22996,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "KiB"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 22996,
+              "median": 22786.0,
+              "minimum": 22672,
+              "p95": 22996,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "KiB"
+            }
+          },
+          "system_cpu_ms": {
+            "baseline": {
+              "count": 10,
+              "maximum": 484.686,
+              "median": 388.3175,
+              "minimum": 363.796,
+              "p95": 484.686,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 394.86899999999997,
+              "median": 365.6685,
+              "minimum": 324.99699999999996,
+              "p95": 394.86899999999997,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            }
+          },
+          "user_cpu_ms": {
+            "baseline": {
+              "count": 10,
+              "maximum": 48.413,
+              "median": 38.522499999999994,
+              "minimum": 35.192,
+              "p95": 48.413,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 41.492999999999995,
+              "median": 33.064,
+              "minimum": 26.355,
+              "p95": 41.492999999999995,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "ms"
+            }
+          },
+          "voluntary_context_switches": {
+            "baseline": {
+              "count": 10,
+              "maximum": 21104,
+              "median": 21100.0,
+              "minimum": 21096,
+              "p95": 21104,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            },
+            "candidate": {
+              "count": 10,
+              "maximum": 23143,
+              "median": 23106.5,
+              "minimum": 23096,
+              "p95": 23143,
+              "p95_method": "nearest rank; exploratory tail estimate for small samples",
+              "unavailable_samples": 0,
+              "unit": "count"
+            }
+          }
+        }
+      },
+      "phases": {
+        "install-configure": {
+          "baseline": {
+            "count": 10,
+            "maximum_ms": 27.89792,
+            "median_ms": 24.944132,
+            "minimum_ms": 23.804469,
+            "p95_method": "nearest rank; exploratory tail estimate for small samples",
+            "p95_ms": 27.89792
+          },
+          "candidate": {
+            "count": 10,
+            "maximum_ms": 28.680963,
+            "median_ms": 26.4446965,
+            "minimum_ms": 23.404108,
+            "p95_method": "nearest rank; exploratory tail estimate for small samples",
+            "p95_ms": 28.680963
+          }
+        },
+        "install-unpack": {
+          "baseline": {
+            "count": 10,
+            "maximum_ms": 11283.221863,
+            "median_ms": 1095.4370715,
+            "minimum_ms": 1031.025669,
+            "p95_method": "nearest rank; exploratory tail estimate for small samples",
+            "p95_ms": 11283.221863
+          },
+          "candidate": {
+            "count": 10,
+            "maximum_ms": 1130.75731,
+            "median_ms": 1095.8593270000001,
+            "minimum_ms": 933.51547,
+            "p95_method": "nearest rank; exploratory tail estimate for small samples",
+            "p95_ms": 1130.75731
+          }
+        },
+        "remove": {
+          "baseline": {
+            "count": 10,
+            "maximum_ms": 443.639368,
+            "median_ms": 331.26793899999996,
+            "minimum_ms": 291.884682,
+            "p95_method": "nearest rank; exploratory tail estimate for small samples",
+            "p95_ms": 443.639368
+          },
+          "candidate": {
+            "count": 10,
+            "maximum_ms": 11116.310137,
+            "median_ms": 336.778754,
+            "minimum_ms": 292.800445,
+            "p95_method": "nearest rank; exploratory tail estimate for small samples",
+            "p95_ms": 11116.310137
+          }
+        },
+        "upgrade-configure": {
+          "baseline": {
+            "count": 10,
+            "maximum_ms": 32.091413,
+            "median_ms": 27.808221,
+            "minimum_ms": 23.121027,
+            "p95_method": "nearest rank; exploratory tail estimate for small samples",
+            "p95_ms": 32.091413
+          },
+          "candidate": {
+            "count": 10,
+            "maximum_ms": 32.884855,
+            "median_ms": 29.0206445,
+            "minimum_ms": 22.462665,
+            "p95_method": "nearest rank; exploratory tail estimate for small samples",
+            "p95_ms": 32.884855
+          }
+        },
+        "upgrade-unpack": {
+          "baseline": {
+            "count": 10,
+            "maximum_ms": 1900.75126,
+            "median_ms": 1772.3192549999999,
+            "minimum_ms": 1585.334779,
+            "p95_method": "nearest rank; exploratory tail estimate for small samples",
+            "p95_ms": 1900.75126
+          },
+          "candidate": {
+            "count": 10,
+            "maximum_ms": 1942.643115,
+            "median_ms": 1842.1267305000001,
+            "minimum_ms": 1730.537197,
+            "p95_method": "nearest rank; exploratory tail estimate for small samples",
+            "p95_ms": 1942.643115
+          }
+        }
+      },
+      "resource_scope": "per-command wait4; guest/tracer unseparated; no workflow CPU or summed RSS inferred",
+      "status_counts": {
+        "baseline": {
+          "failed": 0,
+          "passed": 10,
+          "skipped": 0
+        },
+        "candidate": {
+          "failed": 0,
+          "passed": 10,
+          "skipped": 0
+        }
+      },
+      "workflow_elapsed_ms": {
+        "baseline": {
+          "count": 10,
+          "maximum_ms": 13879.544982,
+          "median_ms": 3620.570911,
+          "minimum_ms": 3358.169178,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 13879.544982
+        },
+        "candidate": {
+          "count": 10,
+          "maximum_ms": 14700.297614,
+          "median_ms": 3838.5810035000004,
+          "minimum_ms": 3727.790014,
+          "p95_method": "nearest rank; exploratory tail estimate for small samples",
+          "p95_ms": 14700.297614
+        }
+      }
+    }
+  }
+}

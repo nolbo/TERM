@@ -5,6 +5,16 @@
 [현행 설계·측정·검증](../../../docs/ROOTLESS_EMULATED_ACCELERATION.md)을 먼저 참고한다.
 아래 모드별 설명과 수치는 각 실험 당시의 기록이며 현재 배포 상태를 뜻하지 않는다.
 
+2026-09-30의 shared ABI v9는 임시 게스트 FD를 exec 이후 첫
+clone/fork/vfork 전까지만 허용한다. tracer는 첫 자식 생성 진입 전에 허용을
+취소하며, 그 이전에는 FD 테이블을 사용하는 태스크가 하나이고 pin 작업 전체에서
+시그널을 막는다. 따라서 진행 중인 O_PATH pin이나 identity memfd가 다른 스레드의
+fork에 복제될 수 없다. 이후 경로 조회와 새 스레드의 identity 초기화는 기존
+tracer 처리로 돌아가고 다음 exec에서 다시 가속된다. 사용자 소유 O_PATH FD를
+추정해 닫지 않는다. 단일 태스크 작업의 가속은 유지되지만 다중 스레드 경로 조회의
+과거 성능 수치는 이 정책에 그대로 적용되지 않는다. 대응하는 PRoot와 DSO를 함께
+배포해야 하며, [현재 exec/fork 회귀 하네스](../regression/README.md)에서 이 조건을 검사한다.
+
 일반 파일 rename의 불필요한 게스트 경로 복사를 생략하는 별도 후보는
 [rename 경로 복사 실험](RENAME_LOCAL.md)에 정리했다. 기본 고정 payload와
 분리된 빌드이며, 파일 생성·쓰기·이름 변경·삭제 묶음에서 약 6%의 추가 개선을

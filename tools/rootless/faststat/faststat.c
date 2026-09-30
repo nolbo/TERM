@@ -116,6 +116,18 @@ static long fast_statx(int fd, int flags, unsigned mask, struct statx *output)
     return x0;
 }
 
+/* Call with signals blocked. Exec gives this task a private descriptor table;
+ * the tracer revokes eligibility before any clone can create another user of
+ * that table. Thus a temporary pin or identity memfd cannot enter a fork
+ * child's table and be abandoned by a vanished sibling thread. */
+static int temporary_fds_safe(pid_t pid)
+{
+    if (local_identity.pid == pid && local_identity.page)
+        return atomic_load(&local_identity.page->pin_safe);
+    return syscall(SYS_prctl, PROOT_FASTFD_ATTACH, -1L, PROOT_FASTFD_VERSION, 0, 0)
+        == PROOT_FASTFD_PIN_ALLOWED;
+}
+
 __attribute__((constructor)) static void initialize_faststat(void)
 {
     int saved_errno = errno;
@@ -160,13 +172,26 @@ __attribute__((constructor)) static void initialize_faststat(void)
     /* Use only Android-allowed syscalls, including this startup probe. */
     struct open_how how = { .flags = O_PATH | O_CLOEXEC,
         .resolve = RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS };
+    uint64_t blocked = UINT64_MAX, previous;
+    if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &blocked, &previous, sizeof(previous))) {
+        initialization_status = -errno;
+        munmap(page, PROOT_FASTSTAT_MAPPING_SIZE);
+        goto out;
+    }
+    if (!temporary_fds_safe(syscall(SYS_getpid))) {
+        syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous, NULL, sizeof(previous));
+        initialization_status = 5;
+        munmap(page, PROOT_FASTSTAT_MAPPING_SIZE);
+        goto out;
+    }
     long fd = proot_pin_nofollow(fast_syscall, AT_FDCWD, ".", how.flags);
+    if (fd >= 0) fast_syscall(SYS_close, fd, 0, 0, 0);
+    syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous, NULL, sizeof(previous));
     if (fd < 0) {
         initialization_status = (int)fd;
         munmap(page, PROOT_FASTSTAT_MAPPING_SIZE);
         goto out;
     }
-    fast_syscall(SYS_close, fd, 0, 0, 0);
     const char *fd_setting = getenv("PROOT_FASTFD");
     if (execution_mode == PROOT_FASTSTAT_CONTEXT_VERSION && fd_setting &&
         strcmp(fd_setting, "1") == 0 && pthread_key_create(&fd_key, destroy_identity) == 0) {
@@ -251,6 +276,10 @@ static struct proot_fastfd_identity *current_identity(pid_t pid)
     if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &blocked, &previous, sizeof(previous))) return NULL;
     release_identity(&local_identity);
     local_identity.pid = pid;
+    if (!temporary_fds_safe(pid)) {
+        syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous, NULL, sizeof(previous));
+        return NULL;
+    }
     int fd = syscall(SYS_memfd_create, "proot-fastfd", MFD_CLOEXEC | MFD_ALLOW_SEALING);
     void *page = MAP_FAILED;
     if (fd >= 0 && syscall(SYS_ftruncate, fd, PROOT_FASTFD_MAPPING_SIZE) == 0 &&
@@ -540,7 +569,7 @@ static int dispatch_open(int dirfd, const char *path, int flags, mode_t mode)
     struct proot_fastfd_identity *identity = current_identity(pid);
     char copied[PATH_MAX], translated[PATH_MAX];
     size_t anchor_length = 0;
-    if (!identity || !copy_path(copied, path, pid)) goto slow_open;
+    if (!identity || !atomic_load(&identity->pin_safe) || !copy_path(copied, path, pid)) goto slow_open;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
     if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
         !normalize_simple_path(copied)) goto slow_open;
@@ -617,6 +646,7 @@ int unlinkat(int dirfd, const char *path, int flags)
     if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &all_signals, &previous_signals,
                 sizeof(previous_signals))) goto slow_unlink;
     masked = 1;
+    if (!atomic_load(&identity->pin_safe)) goto slow_unlink;
     if (!copy_path(copied, path, pid)) goto slow_unlink;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
     if (!shared_absolute_path(&identity->paths, dirfd, copied) ||
@@ -799,7 +829,7 @@ static int shared_path_stat(int dirfd, const char *path, struct stat *output, in
     struct proot_fastfd_identity *identity = current_identity(pid);
     char copied[PATH_MAX], translated[PATH_MAX];
     size_t anchor_length = 0;
-    if (!identity || !copy_path(copied, path, pid)) goto done;
+    if (!identity || !atomic_load(&identity->pin_safe) || !copy_path(copied, path, pid)) goto done;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
     if (copied[0] != '/' && dirfd != AT_FDCWD) {
         pin = pin_shared_relative(&identity->paths, dirfd, copied, translated);
@@ -849,7 +879,7 @@ int statx(int dirfd, const char *path, int flags, unsigned mask, struct statx *o
     struct proot_fastfd_identity *identity = current_identity(pid);
     char copied[PATH_MAX], translated[PATH_MAX];
     size_t anchor_length = 0;
-    if (!identity || !copy_path(copied, path, pid)) goto done;
+    if (!identity || !atomic_load(&identity->pin_safe) || !copy_path(copied, path, pid)) goto done;
     uint32_t sequence = atomic_load(&identity->paths.sequence);
     if (copied[0] != '/' && dirfd != AT_FDCWD) {
         pin = pin_shared_relative(&identity->paths, dirfd, copied, translated);
@@ -890,13 +920,20 @@ done:
 int fstatat(int dirfd, const char *path, struct stat *output, int flags)
 {
     int saved_errno = errno;
+    int owned = 0, masked = 0, result_status = 0;
+    uint64_t blocked = UINT64_MAX, previous;
     char copied[PATH_MAX];
     struct stat result;
     if (shared_path_stat(dirfd, path, output, flags)) return 0;
     /* PRoot's cwd is virtual. Mode 1 requires a real directory FD;
      * mode 2 obtains an absolute host path before a no-follow directory walk. */
     if (!enabled || !path_enabled || (flags != 0 && flags != AT_SYMLINK_NOFOLLOW)) goto slow;
+    if (atomic_exchange(&local_identity.busy, 1)) goto slow;
+    owned = 1;
+    if (syscall(SYS_rt_sigprocmask, SIG_SETMASK, &blocked, &previous, sizeof(previous))) goto slow;
+    masked = 1;
     pid_t pid = syscall(SYS_getpid);
+    if (!temporary_fds_safe(pid)) goto slow;
     if (!copy_path(copied, path, pid) || !copied[0]) goto slow;
     struct proot_faststat_context context = {0};
     const char *kernel_path = copied;
@@ -913,9 +950,9 @@ int fstatat(int dirfd, const char *path, struct stat *output, int flags)
             /* The tracer observed the missing final path in this request.
              * Never promote resolver errors: a guest filter can invent those. */
             atomic_fetch_add_explicit(&negative_hits, 1, memory_order_relaxed);
-            atomic_fetch_add_explicit(&hits, 1, memory_order_relaxed);
-            errno = ENOENT;
-            return -1;
+            saved_errno = ENOENT;
+            result_status = -1;
+            goto fast_done;
         }
         if (context.result_errno != 0) goto slow;
         kernel_path = context.path;
@@ -946,10 +983,15 @@ int fstatat(int dirfd, const char *path, struct stat *output, int flags)
     struct iovec remote = { output, sizeof(result) };
     if (syscall(SYS_process_vm_writev, getpid(), &local, 1, &remote, 1, 0)
             != sizeof(result)) goto slow;
+fast_done:
+    if (owned) atomic_store(&local_identity.busy, 0);
+    if (masked) syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous, NULL, sizeof(previous));
     errno = saved_errno;
     atomic_fetch_add_explicit(&hits, 1, memory_order_relaxed);
-    return 0;
+    return result_status;
 slow:
+    if (owned) atomic_store(&local_identity.busy, 0);
+    if (masked) syscall(SYS_rt_sigprocmask, SIG_SETMASK, &previous, NULL, sizeof(previous));
     atomic_fetch_add_explicit(&fallbacks, 1, memory_order_relaxed);
     errno = saved_errno;
     return (int)syscall(SYS_newfstatat, dirfd, path, output, flags);
