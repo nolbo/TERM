@@ -148,24 +148,47 @@ class ToolbarUiTest {
         }
     }
 
-    @Test fun hotkeysHaveFixedHeightAndScrollAfterTwoRows() {
-        val layout = HotkeyLayout(columns = 2, keys = (1..6).map { Hotkey("Key $it", "F$it") })
+    @Test fun hotkeysUseToolbarHeightAndScrollOverflow() {
+        val layout = HotkeyLayout(columns = 2, keys = (1..12).map { Hotkey("Key $it", "F$it") })
+        val mode = mutableStateOf(ToolbarSheetMode.Default)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 DroidTheme { TerminalHapticFeedbackProvider {
-                    ToolbarHotkeys(layout, false, false, TerminalChromeColors(Color.Black), true, {})
+                    Column(Modifier.fillMaxSize()) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(ToolbarConfig(), mode.value, { mode.value = it },
+                            240.dp, TerminalChromeColors(Color.Black)) { _, active ->
+                            ToolbarHotkeys(layout, false, false, TerminalChromeColors(Color.Black), active, {})
+                        }
+                    }
                 } }
             } }
             settle()
             val first = bounds(description("Key 1: F1"))
             val density = context.resources.displayMetrics.density
             assertEquals(40f * density, first.height().toFloat(), 1f)
+            assertEquals(92f * density, bounds(waitForNode("default hotkey viewport") { it.isScrollable }).height().toFloat(), 1f)
             description("Key 4: F4")
             assertNull(find { it.contentDescription?.toString() == "Key 5: F5" && !bounds(it).isEmpty })
             val lastVisible = bounds(description("Key 4: F4"))
             drag(first.exactCenterX(), lastVisible.exactCenterY(), 0f, -64f * density)
             waitForNode("third row after scrolling") { it.contentDescription?.toString() == "Key 5: F5" && !bounds(it).isEmpty }
             assertEquals(40f * density, bounds(description("Key 6: F6")).height().toFloat(), 1f)
+
+            action(label(R.string.toolbar_expand))
+            assertEquals(ToolbarSheetMode.Expanded, mode.value)
+            val expanded = bounds(waitForNode("expanded hotkey viewport") { it.isScrollable })
+            assertEquals(216f * density, expanded.height().toFloat(), 1f)
+            val fourthRow = bounds(description("Key 8: F8"))
+            assertEquals(40f * density, fourthRow.height().toFloat(), 1f)
+            assertTrue("Expanded hotkeys use the space below two rows", fourthRow.bottom > expanded.top + 92 * density)
+            drag(expanded.exactCenterX(), expanded.bottom - 8 * density, 0f, -64f * density)
+            assertEquals(40f * density, bounds(description("Key 12: F12")).height().toFloat(), 1f)
+
+            action(label(R.string.toolbar_default))
+            assertEquals(ToolbarSheetMode.Default, mode.value)
+            assertEquals(92f * density, bounds(waitForNode("collapsed hotkey viewport") { it.isScrollable }).height().toFloat(), 1f)
+            assertNull(find { it.contentDescription?.toString() == "Key 12: F12" && !bounds(it).isEmpty })
         }
     }
 
