@@ -4,7 +4,7 @@
 기존에 구현한 작은 최적화와 측정은
 [ROOTLESS_PERFORMANCE.md](ROOTLESS_PERFORMANCE.md)에 기록한다.
 
-2026-09-30의 [코딩 에이전트 성능 개선 검토안](ROOTLESS_AGENT_PERFORMANCE.md)은 Codex CLI·Claude Code를 실제 작업 대상에 추가한다. 현재 가속된 PRoot를 기준으로 모델 대기와 로컬 비용을 구분하고, Direct의 프로세스 내부 처리 방향을 정적 ELF·직접 syscall까지 검토한다. 아래의 역사적 시제품과 새 구현·검증 결과를 혼동하지 않는다.
+2026-09-30의 [실제 작업·코딩 에이전트 성능 개선 검토안](ROOTLESS_AGENT_PERFORMANCE.md)은 패키지 설치·큰 저장소 탐색을 체감 개선의 우선 대상으로 두고, 반복 검증·Codex CLI·Claude Code의 도구 실행·동시 진행을 평가한다. 현재 가속된 PRoot를 기준으로 절대 대기 시간과 로컬 비용을 측정하고, Direct의 프로세스 내부 처리 방향을 정적 ELF·직접 syscall까지 검토한다. 아래의 역사적 시제품과 새 구현·검증 결과를 혼동하지 않는다.
 
 후속 구현으로 [faststat 실험](../tools/rootless/faststat/README.md)을 추가했다.
 별도 PRoot 필터와 glibc DSO가 실제 dirfd 기반 상대 fstatat를 프로세스 내부에서

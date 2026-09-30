@@ -1,4 +1,4 @@
-# Rootless 코딩 에이전트 성능 개선 검토안
+# Rootless 실제 작업·코딩 에이전트 성능 개선 검토안
 
 2026-09-30. 사용자 요청에 따라 Rootless 작업 성능 대상에 **Codex CLI와 Claude Code**를 추가하고, Direct Linux에서 검증한 프로세스 내부 syscall 처리와 ptrace 정지 감소 방향을 반영한다. 이 문서는 전환 검토안이며 전체 Direct 호환성 목표를 완료 처리하거나 Rootless 엔진 변경을 적용했다는 기록이 아니다.
 
@@ -9,6 +9,32 @@ Rootless는 이미 `RootlessAccelerationProfile`의 경로·stat·open/create/cl
 이번 호스트 관찰에서 Codex CLI 0.159.2는 ARM64 정적 ELF다. 이 실행 파일의 내부 syscall에는 현재 glibc 공개 함수 interposition이 적용되지 않는다. 다른 Codex 배포 형식의 링크 방식까지 단정하지 않는다. Claude Code의 공식 설치 문서는 npm 설치도 native binary를 배치하며 실행 때 Node를 호출하지 않는다고 설명한다. 따라서 두 도구를 단순한 Node workload로 취급하지 않고 **실제 설치된 ELF, libc, bundled rg와 자식 도구**를 각각 확인한다. [Claude Code 설치 문서](https://code.claude.com/docs/en/setup#install-with-npm)
 
 목표는 같은 코딩 작업을 정확하게 완료하면서 로컬 탐색·검색·읽기·수정·검증의 지연과 CPU 비용을 줄이는 것이다. 모델 추론 시간, 네트워크 대기, 인증과 사용자 승인 대기는 런타임 가속 효과와 구분한다. 전체 2배나 특정 개선율을 선제적으로 보장하지 않는다.
+
+## 체감 개선 여지를 기준으로 한 우선순위
+
+작은 파일의 조회·생성·교체·삭제와 짧은 프로세스 실행이 누적되는 실제 작업을 먼저 다룬다. 아래 순위는 측정·설계 순서이며 성능 저하나 개선율이 이미 검증됐다는 뜻은 아니다. 현재 가속된 PRoot에서 기준선을 만든 뒤 **실제 대기 시간, 반복 빈도, tracer 비용의 비중**으로 구현 순서를 조정한다. 코딩 에이전트 작업은 아래의 설치·탐색·검증을 포함하는 통합 평가 대상이다.
+
+| 우선순위 | 체감 후보와 고정 작업 | 개선할 비용의 후보 | 정확성·체감 확인 |
+| --- | --- | --- | --- |
+| 1 | **패키지 설치·업데이트:** 로컬 패키지의 apt/dpkg 설치·업그레이드·삭제, 이후 npm/pip 설치 | 파일별 경로 변환, 임시 경로 정리, 권한·소유자·시간 설정, 추적 정지와 guest 메모리 왕복 | 다운로드 이후 설치 구간의 시간, 설치 내용·링크·모드·시간·package DB와 실패 결과 |
+| 1 | **큰 저장소 탐색:** Git status/diff, rg 파일 목록·내용 검색, 필요한 파일 읽기 | 디렉터리 순회, statx/newfstatat, open/close, 깊은 경로와 기존 가속 미적용 호출 | 최초 유효 결과와 전체 완료 시간, 파일 목록·검색 결과·diff 내용, ignore 및 symlink 의미 |
+| 2 | **작은 수정 뒤 검증:** Python import와 선택 테스트, 프로젝트 설정·의존성 검사·incremental build | 반복 파일 조회, 새 프로세스 시작, 짧은 자식 프로그램 실행 | 수정부터 테스트 완료까지의 시간, 테스트 결과·산출물·guest 종료 상태 |
+| 2 | **에이전트의 반복 도구 실행:** 조사 → 검색 → 읽기 → 수정 → Git 확인 → 테스트 | 위 비용이 여러 도구 호출에 누적되는 구간과 정적 ELF/직접 syscall의 가속 미적용 | 최초 로컬 결과, 도구를 기다리는 구간과 작업 완료 시간, 최종 수정·테스트 성공률 |
+| 3 | **두 작업의 동시 진행:** 독립 workspace의 탐색·테스트 또는 두 에이전트 세션 | tracer CPU·추적 이벤트 처리 지연, 자식·FD 관리 비용 | 단독 실행 대비 응답 지연과 p95, 총 완료 시간, 취소 후 회수·격리·hang 여부 |
+
+패키지 시험은 먼저 1,000개와 10,000개의 작은 파일을 가진 고정 fixture 및 hash가 고정된 실제 패키지 집합을 사용한다. apt/dpkg는 독립 임시 root와 package DB에서 수행한다. npm은 고정 lockfile과 준비된 offline cache, pip는 고정 wheelhouse와 매회 새 가상환경을 사용한다. 준비·다운로드·fixture 생성·검증·정리 시간을 설치 시간과 분리하고, 패키지 작업의 전체 시간도 함께 기록한다. 압축 해제의 계산 비용과 파일 배치 비용을 계측으로 구분한다. 누락된 offline 입력을 받느라 기다린 실행은 로컬 설치 비교에 포함하지 않는다.
+
+탐색 시험은 같은 파일 구성·경로 깊이 비율을 가진 10,000개와 100,000개 파일의 저장소, 그리고 hash가 고정된 실제 저장소를 준비한다. Git tracked/untracked 구성과 ignore 규칙을 고정하고, 일반 소스 저장소와 의존성 디렉터리가 큰 저장소를 구분한다. 기본 ignore 동작을 유지한 검색과 의도적으로 넓힌 검색을 별도 작업으로 기록한다. checkout 등 파일 교체는 독립 workspace에서만 수행한다. 테스트·build는 고정된 작은 수정 이후의 실제 incremental 작업을 사용하고, 매회 의존성 및 산출물 상태를 같게 준비한다.
+
+기존 [dpkg 진단](ROOTLESS_EMULATED_ACCELERATION.md#2026-09-20-dpkg-압축-해제배치의-임시-경로-정리)은 100개 파일에서도 unlinkat 320회와 파일별 fchmod/fchown/utimensat 호출을 확인했다. 이는 설치 경로의 후보 비용을 뒷받침하지만 현재 엔진과 Native의 전체 설치 속도 차이를 증명하지 않는다. [최근 셸 비교](../tools/direct-linux/SPAWN_COMPATIBILITY.md)의 약 12.5% 차이도 절대 시간으로 약 6ms이므로 체감 개선의 대표 지표로 삼지 않는다.
+
+큰 파일의 순차 read/write, 순수 계산·압축, 모델 응답 및 네트워크 대기는 첫 최적화 대상의 우선순위를 낮춘다. 기존 [순차 I/O 검사](ROOTLESS_IO_GOAL_AUDIT.md)는 해당 조건에서 추적 감소만으로 얻을 여유가 작았다. 실제 다른 입력에서 tracer 병목이 확인되면 다시 평가한다. 모델·다운로드 대기는 전체 사용자 시간에 표시하되 Rootless 엔진의 개선으로 계산하지 않는다.
+
+## 사용자 대기를 줄이는 채택 판단
+
+후보별로 기준/후보의 중앙값·p95, 절대 절감 ms/초와 개선율, 실제 작업에서의 반복 횟수, 해당 구간이 사용자 대기에서 차지하는 비중을 함께 기록한다. 겹쳐 실행되는 구간은 단순 합산하지 않고 전체 작업 경과 시간으로 평가한다. 예를 들어 6ms를 줄이는 12% 개선보다 자주 하는 설치·검증에서 0.5초를 줄이는 5% 개선을 우선 검토한다. 이는 우선순위의 예시이며 고정된 체감 임계값이나 개선 약속이 아니다.
+
+단일 syscall 또는 합성 반복 시험은 원인 확인에 사용하고, 기본 적용 판단에는 위 실제 작업의 시간을 사용한다. 작은 작업과 큰 작업을 함께 비교하여 호출 수가 많을 때만 이기는 후보, 최초 실행만 느려지는 후보를 드러낸다. 중앙값 이득과 p95·CPU·메모리 악화를 함께 보고하며, 반복 표본의 변동을 넘는 이득이 확인되지 않으면 추가 계측 대상으로 남긴다. 적은 표본의 p95는 탐색 결과로 표시하고 꼬리 지연에 대한 결론에는 추가 표본을 확보한다. 실제 에이전트 실행 전의 로컬 도구 재생 결과는 에이전트 전체 체감 개선으로 승격하지 않는다.
 
 ## 대상과 검증 작업
 
@@ -32,7 +58,7 @@ Rootless는 이미 `RootlessAccelerationProfile`의 경로·stat·open/create/cl
 1. **고정 로컬 작업 재생:** 결정된 명령·입력·출력 검증을 반복하여 파일/프로세스 처리 비용을 비교한다. 모델 서비스 변동이 없어 최적화 원인을 분리하기 좋지만 실제 에이전트 완료 검증을 대체하지 않는다.
 2. **실제 에이전트 작업:** 같은 도구·모델 설정과 새 fixture에서 동일 완료 조건을 반복한다. 도구 실행 횟수나 선택한 작업이 달라질 수 있으므로 최종 성공률, 작업량과 전체 시간을 함께 기록한다. Codex와 Claude의 모델 성능을 서로 순위 매기지 않고 각각 기존/후보 Rootless를 비교한다.
 
-첫 기준 입력은 파일 수·경로 깊이·언어 구성·repository hash가 고정된 작은 저장소와 큰 저장소다. 기존 사용자 작업 저장소나 인증 파일은 fixture로 복사하지 않는다. 변경은 매회 독립적인 임시 workspace에서 수행하고 원본 상태로부터 다시 준비한다. 네트워크 패키지 다운로드는 기본 오프라인 로컬 측정에 넣지 않는다.
+첫 기준 입력은 위 우선순위에 따른 설치 fixture와 파일 수·경로 깊이·언어 구성·repository hash가 고정된 작은 저장소와 큰 저장소다. 기존 사용자 작업 저장소나 인증 파일은 fixture로 복사하지 않는다. 변경은 매회 독립적인 임시 workspace에서 수행하고 원본 상태로부터 다시 준비한다. 네트워크 패키지 다운로드는 기본 오프라인 로컬 측정에 넣지 않는다.
 
 결과에는 CLI/도구/엔진/loader/DSO 버전과 hash, 배포판·kernel·페이지 크기·SELinux/seccomp, 저장 형식·저장소 위치·cache 조건을 기록한다. ARM64 glibc/musl 및 정적/동적 ELF를 구분한다. warm 측정과 최초 실행을 나누고 cold cache라고 검증하지 못한 실행을 cold로 표시하지 않는다.
 
@@ -48,7 +74,7 @@ Rootless는 이미 `RootlessAccelerationProfile`의 경로·stat·open/create/cl
 기본 구조는 **검증한 자주 쓰는 호출은 프로세스 내부에서 처리하고, 나머지는 PRoot가 계속 담당하는 혼합 방식**이다. Rootless rootfs·가상 identity·경로 binding·공통 세션과 기존 실행 정책을 유지한다. 선택한 런타임의 실패를 Native/Direct/AVF 실행으로 자동 전환하지 않는다.
 
 1. **기존 경로의 비용과 적용률부터 확인한다.** 현재 DSO 및 전용 syscall trampoline의 처리율, 에이전트 본체·rg·Git·테스트 자식별 미적용 호출과 ptrace 정지를 센다. 이미 kernel 직행인 read/write 등의 호출을 다시 최적화 대상으로 계산하지 않는다.
-2. **새 가속의 첫 범위를 조회 호출 한 종류로 제한한다.** 실제 계측에서 비중이 큰 statx/newfstatat 등의 후보를 골라, 동일 binding·cwd/dirfd·fake UID/GID·에뮬레이션 link count·errno를 유지하면서 중복 왕복을 줄인다. file metadata를 장기 캐시하거나 실제 오류를 추정한 성공으로 바꾸지 않는다.
+2. **새 가속의 첫 범위를 파일 호출 한 종류로 제한한다.** 설치·탐색 기준선에서 비중이 큰 statx/newfstatat 또는 fchmod/fchown/utimensat·경로 처리 후보를 골라, 동일 binding·cwd/dirfd·fake UID/GID·에뮬레이션 link count·errno를 유지하면서 중복 왕복을 줄인다. 변경 호출은 실제 커널 권한·오류·취소와 가상 메타데이터 의미를 보존한다. file metadata를 장기 캐시하거나 실제 오류를 추정한 성공으로 바꾸지 않는다.
 3. **정적 ELF와 직접 syscall의 진입 처리를 별도 연구 단계로 둔다.** Direct의 libc/TLS 독립 처리·bounded pointer copy·소유권 검증을 참고한다. glibc preload만 확장해서 Codex 정적 바이너리까지 가속됐다고 주장하지 않는다. PRoot loader의 초기화, signal 처리, 공유 상태와 실제 배포 ELF에 맞는 제한된 연결을 함께 검증한다.
 4. **기존 경로 복귀를 명시적으로 설계한다.** 지원하지 않는 경로·FD·신호·커널 조건은 기존 PRoot 의미로 처리한다. SIGSYS/seccomp 진입을 실험한다면 PRoot TRACE 필터 및 guest 필터와의 우선순위, handler 안의 재진입, 원래 호출로 돌아가는 protocol이 선행 조건이다. TRAP을 설치한 뒤 단순 ENOSYS 반환만으로 PRoot가 원래 호출을 다시 처리한다고 가정하지 않는다.
 5. **혼합 처리의 정확성을 먼저 확인한다.** fork/clone/exec, signal/cancellation, FD 재사용·전달·unshare, cwd/rename, 두 세션에서의 파일 변경과 link2symlink 전환을 검사한다. Direct의 task registry와 exec loader를 PRoot에 그대로 이식하지 않는다. process/exec/signal은 검증된 소유자가 계속 처리하며, 0-stop 적용 범위는 증거가 있는 호출에 한정한다.
@@ -57,18 +83,21 @@ Rootless는 이미 `RootlessAccelerationProfile`의 경로·stat·open/create/cl
 
 ## 첫 개선 묶음과 채택 기준
 
-먼저 새 대상의 실행 지원표와 로컬 기준선을 만든다. 동시에 기존 비교에서 재현된 worker exec SIGSEGV, FIFO SA_RESTART 오류, fork O_PATH pin 잔존과 에뮬레이션 raw stat identity 오류를 정확성 검사에 포함한다. preload/host 가속 on/off 대조로 원인을 분리하며 upstream 또는 가속 패치 문제로 미리 단정하지 않는다.
+먼저 새 대상의 실행 지원표와 설치·큰 저장소 탐색의 로컬 기준선을 만든다. 동시에 기존 비교에서 재현된 worker exec SIGSEGV, FIFO SA_RESTART 오류, fork O_PATH pin 잔존과 에뮬레이션 raw stat identity 오류를 정확성 검사에 포함한다. preload/host 가속 on/off 대조로 원인을 분리하며 upstream 또는 가속 패치 문제로 미리 단정하지 않는다. 실패하는 실행 경로는 정확성을 먼저 수정한 뒤 성능 후보로 평가한다.
 
 첫 구현 후보는 계측에서 확인한 한 병목을 수정하고 아래 조건으로 평가한다.
 
 - 수정 대상 syscall의 실제 ptrace 정지 또는 guest 메모리 왕복이 줄어든다.
 - 같은 로컬 작업의 내용·errno·종료 상태·테스트가 같고 시간·CPU의 반복 가능한 이득이 있다. 호출 수 감소만으로 제품 성능 개선을 선언하지 않는다.
+- 설치 또는 탐색 등 우선 작업에서 절대 대기 시간 감소가 확인되고, 작은 작업·최초 실행·동시 진행의 악화도 공개된다. 대표 작업을 늘리거나 성공한 단일 반복 시험으로 교체해 실제 작업의 회귀를 숨기지 않는다.
 - Codex와 Claude 각각의 실제 실행 gate 및 지원되는 모드에서 작업 완료를 검증한다. 미설치·미인증·kernel 제약은 해당 항목의 미검증 또는 실패로 남긴다.
 - Debian의 독립 package DB에서 apt/dpkg 설치·업그레이드·삭제와 기존 session/FD/signal 검사가 회귀하지 않는다. 두 storage 형식과 가속 on/off를 포함한다.
 - 실제 enforcing 및 16 KiB 기기 검증 전에는 해당 기기 지원을 주장하지 않는다. 체감 이득이 없는 후보는 기본 payload로 올리지 않는다.
 
 ## 이번 문서의 검증 범위
 
-저장소의 현재 가속 profile·filter·protocol, 기존 성능 결과와 공식 CLI 문서를 확인했다. 호스트의 Codex 0.159.2 version/help와 정적 ARM64 ELF 형식만 확인했으며 Claude 실행 파일은 현재 PATH에서 찾지 못했다. Codex help는 host PATH alias 작성이 read-only로 실패했다는 경고와 함께 정상 출력됐다. 인증 정보는 조회하거나 복사하지 않았고 실제 모델 요청, Android CLI 설치·실행 및 새 성능 측정은 수행하지 않았다.
+최초 작성 시 저장소의 현재 가속 profile·filter·protocol, 기존 성능 결과와 공식 CLI 문서를 확인했다. 호스트의 Codex 0.159.2 version/help와 정적 ARM64 ELF 형식만 확인했으며 Claude 실행 파일은 당시 PATH에서 찾지 못했다. Codex help는 host PATH alias 작성이 read-only로 실패했다는 경고와 함께 정상 출력됐다. 인증 정보는 조회하거나 복사하지 않았고 실제 모델 요청, Android CLI 설치·실행 및 새 성능 측정은 수행하지 않았다.
+
+체감 우선순위 추가 시에는 기존 dpkg·순차 I/O·셸 실행 결과를 다시 확인하고 작업 입력·절대 시간·회귀 조건을 설계에 반영했다. 새 fixture, 측정 harness 또는 엔진 변경을 구현한 결과가 아니며 실제 패키지·대규모 저장소·에이전트의 체감 개선은 아직 미검증이다.
 
 문서 범위여서 Android 빌드·device/UI MCP 실행은 필요하지 않았다. 새 라이브러리 API 구현이나 연결 앱 작업이 없어 Context7/codex_apps도 호출하지 않았다. 공식 CLI 문서는 OpenAI Docs와 Anthropic 원문을 사용했다. 이 문서는 실행 지원 또는 성능 향상의 통과 결과가 아니다.

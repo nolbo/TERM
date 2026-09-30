@@ -1,6 +1,6 @@
 # Rootless PRoot 성능 개선
 
-2026-09-30 추가 검토: [Codex CLI·Claude Code의 실제 작업과 ptrace 감소](ROOTLESS_AGENT_PERFORMANCE.md). 기존 가속을 기준으로 한 후속 측정·구현 범위이며 새 CLI 성능 결과는 아직 없다.
+2026-09-30 추가 검토: [체감 대기를 줄이는 실제 작업·코딩 에이전트와 ptrace 감소](ROOTLESS_AGENT_PERFORMANCE.md). 패키지 설치·큰 저장소 탐색을 우선하고 반복 도구·검증·동시 진행을 평가한다. 기존 가속을 기준으로 한 후속 측정·구현 범위이며 새 성능 결과는 아직 없다.
 
 ## 문제와 범위
 
