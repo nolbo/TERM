@@ -163,8 +163,10 @@ private fun ToolbarReorderList(config: ToolbarConfig, editing: Boolean, tools: L
             }
             val leadingWidth by animateDpAsState(if (editing && added) 48.dp else 0.dp,
                 MaterialTheme.motionScheme.defaultSpatialSpec(), label = "toolbarHandleWidth")
-            val horizontalPadding by animateDpAsState(if (editing) 8.dp else 16.dp,
-                MaterialTheme.motionScheme.defaultSpatialSpec(), label = "toolbarRowPadding")
+            val startPadding by animateDpAsState(if (editing && added) 8.dp else 16.dp,
+                MaterialTheme.motionScheme.defaultSpatialSpec(), label = "toolbarRowStartPadding")
+            val endPadding by animateDpAsState(if (editing) 8.dp else 16.dp,
+                MaterialTheme.motionScheme.defaultSpatialSpec(), label = "toolbarRowEndPadding")
             val editAlpha by animateFloatAsState(if (editing) 1f else 0f, effects, label = "toolbarEditFade")
             val scale by animateFloatAsState(if (lifted) 1.02f else 1f, spatial, label = "toolbarLiftScale")
             val elevation by animateDpAsState(if (lifted) 8.dp else 0.dp,
@@ -186,7 +188,7 @@ private fun ToolbarReorderList(config: ToolbarConfig, editing: Boolean, tools: L
                         },
                         shapes = terminalListItemShapes(),
                         colors = ListItemDefaults.colors(containerColor = color),
-                        contentPadding = PaddingValues(horizontal = horizontalPadding),
+                        contentPadding = PaddingValues(start = startPadding, end = endPadding),
                         verticalAlignment = Alignment.CenterVertically) {
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                             Box(Modifier.width(leadingWidth.coerceAtLeast(0.dp)).height(48.dp).clipToBounds()) {
