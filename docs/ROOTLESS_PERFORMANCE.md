@@ -1,5 +1,7 @@
 # Rootless PRoot 성능 개선
 
+2026-09-30 추가 검토: [Codex CLI·Claude Code의 실제 작업과 ptrace 감소](ROOTLESS_AGENT_PERFORMANCE.md). 기존 가속을 기준으로 한 후속 측정·구현 범위이며 새 CLI 성능 결과는 아직 없다.
+
 ## 문제와 범위
 
 Rootless Linux는 ARM64 프로그램을 Android 커널에서 PRoot로 실행한다.
