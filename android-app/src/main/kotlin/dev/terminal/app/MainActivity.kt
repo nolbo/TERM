@@ -57,7 +57,6 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.documentfile.provider.DocumentFile
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
 import dev.terminal.app.ui.TerminalToolbar
 import dev.terminal.app.ui.ToolbarHotkeys
@@ -97,7 +96,6 @@ import dev.terminal.runtime.lifecycle.VmRuntimeService
 import java.io.File
 import java.nio.file.Files
 import java.util.UUID
-import java.util.concurrent.ConcurrentHashMap
 
 /** Compose console projection. Runtime and shell ownership stay in :vmhost. */
 class MainActivity : TerminalActivity() {
@@ -188,9 +186,8 @@ class MainActivity : TerminalActivity() {
     private var listener: IRuntimeStateListener? = null
     private val runtimeAttachment = RuntimeSessionAttachment()
     private val mainHandler by lazy { Handler(mainLooper) }
-    private val terminalBackends = ConcurrentHashMap<String, RemoteTerminalBackend>()
-    private val terminalSessions = mutableMapOf<String, TerminalSession>()
-    private val initializedRuntimeTerminals = mutableSetOf<String>()
+    private val terminalStore by lazy { (application as TerminalApplication).terminalSessions }
+    private val terminalSessions get() = terminalStore.sessions
     private val sessionExitCodes = mutableMapOf<String, Int>()
     private lateinit var terminalInputCallbacks: TerminalInputCallbacks
 
@@ -220,14 +217,11 @@ class MainActivity : TerminalActivity() {
             if (generation == bindingGeneration) renderSessions(revision, sessionsJson)
         }
 
-        override fun onTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) {
-            if (generation == bindingGeneration) terminalBackends[sessionId]?.output(bytes, replay)
-        }
+        override fun onTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) = Unit
 
         override fun onSessionExited(sessionId: String, exitCode: Int) = runOnUiThread {
             if (generation == bindingGeneration) {
                 sessionExitCodes[sessionId] = exitCode
-                terminalBackends[sessionId]?.exit(exitCode)
             }
         }
 
@@ -317,8 +311,23 @@ class MainActivity : TerminalActivity() {
         super.onSaveInstanceState(outState)
     }
 
+    private fun observeTerminalSessions() {
+        terminalStore.observe(this) { id ->
+            val session = terminalSessions[id]
+            if (session != null) {
+                updateApplicationTerminalTitle(id, session.title)
+                terminalView?.takeIf { it.currentSession === session }?.onScreenUpdated()
+            } else if (id == activeSessionId) {
+                displayedSessionId = null
+                runtimeAttachment.reset()
+                attach(id)
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        observeTerminalSessions()
         toolbarSheetMode = savedInstanceState?.getString("terminal-toolbar-mode")?.let { name ->
             ToolbarSheetMode.entries.firstOrNull { it.name == name }
         } ?: if (savedInstanceState?.getBoolean("terminal-extra-keys-visible", true) == false)
@@ -365,6 +374,7 @@ class MainActivity : TerminalActivity() {
 
     override fun onStart() {
         super.onStart()
+        observeTerminalSessions()
         activityStarted = true
         mainHandler.removeCallbacks(reconnectRuntime)
         bindRuntime()
@@ -409,8 +419,9 @@ class MainActivity : TerminalActivity() {
     }
 
     override fun onDestroy() {
-        // The Activity is no longer a valid Binder callback target. Runtime processes remain
-        // service-owned; this only releases the UI-side mirror and its listener.
+        // Release this screen's observer; the application keeps consuming terminal output.
+        terminalView?.saveSessionScrollPosition()
+        terminalStore.unobserve(this)
         paletteTransition.cancel()
         paletteView = null
         bindingGeneration++
@@ -418,17 +429,12 @@ class MainActivity : TerminalActivity() {
         mainHandler.removeCallbacks(reconnectRuntime)
         if (bindingRequested) {
             if (bound) {
-                runtimeAttachment.detach()?.let { id -> runCatching { runtime?.detachSession(id) } }
                 listener?.let { current -> runCatching { runtime?.unregisterListener(current) } }
             }
             runCatching { unbindService(connection) }
         }
         runtimeAttachment.reset()
-        terminalBackends.values.forEach(RemoteTerminalBackend::close)
-        terminalBackends.clear()
-        terminalSessions.clear()
         applicationTerminalTitles = emptyMap()
-        initializedRuntimeTerminals.clear()
         displayedSessionId = null
         bindingRequested = false
         bound = false
@@ -504,6 +510,7 @@ class MainActivity : TerminalActivity() {
                         attachRenderer(view)
                     },
                     onRelease = { view ->
+                        view.saveSessionScrollPosition()
                         view.removeCallbacks(showTerminalKeyboard)
                         if (terminalView === view) {
                             paletteTransition.cancel()
@@ -724,10 +731,8 @@ class MainActivity : TerminalActivity() {
         getSharedPreferences("terminal-ui-state", MODE_PRIVATE).edit()
             .putString("active-session", activeSessionId).apply()
         removedSessionIds.forEach { id ->
-            terminalBackends.remove(id)?.close()
-            terminalSessions.remove(id)
+            terminalStore.remove(id)
             applicationTerminalTitles = applicationTerminalTitles - id
-            initializedRuntimeTerminals.remove(id)
             runtimeAttachment.forget(id)
             if (displayedSessionId == id) displayedSessionId = null
         }
@@ -739,30 +744,9 @@ class MainActivity : TerminalActivity() {
         paletteTransition.capture(terminalView)
         activeSessionId = id
         getSharedPreferences("terminal-ui-state", MODE_PRIVATE).edit().putString("active-session", id).apply()
-        val session = terminalSessions.getOrPut(id) {
-            TerminalSession(
-                defaultShell(),
-                DEFAULT_GUEST_HOME,
-                emptyArray(),
-                emptyArray(),
-                terminalPreferences().getInt(SettingsDetailActivity.KEY_SCROLLBACK, 10_000),
-                TerminalCallbacks(
-                    redraw = {
-                        terminalView?.takeIf { it.currentSession === terminalSessions[id] }?.onScreenUpdated()
-                    },
-                    titleChanged = { changed -> updateApplicationTerminalTitle(id, changed.getTitle()) },
-                ),
-                RemoteTerminalBackend(
-                    write = { data -> safeRuntimeCall { it.writeSessionInput(id, data) } },
-                    resize = { columns, rows -> safeRuntimeCall { it.resizeSession(id, rows, columns) } },
-                    // A first layout may happen after attach() returns. Request the transcript
-                    // only once the emulator has installed its output callback.
-                    onStarted = { attachRuntimeWhenReady(id) },
-                ).also { terminalBackends[id] = it },
-            )
-        }
+        val session = terminalStore.getOrCreate(id, terminalPreferences().getInt(SettingsDetailActivity.KEY_SCROLLBACK, 10_000),
+            replayExpected = sessions.first { it.id == id }.runtime != "AVF")
         updateApplicationTerminalTitle(id, session.title)
-        sessionExitCodes[id]?.let { terminalBackends[id]?.exit(it) }
         displayedSessionId = id
         terminalView?.let(::attachRenderer)
         attachRuntimeWhenReady(id)
@@ -781,13 +765,12 @@ class MainActivity : TerminalActivity() {
     private fun attachRuntimeWhenReady(id: String) {
         if (activeSessionId != id || terminalSessions[id]?.emulator == null) return
         terminalView?.let(::updateTerminalPalette)
-        val firstAttachment = initializedRuntimeTerminals.add(id)
-        runtimeAttachment.select(id, replayTranscript = firstAttachment)?.let { selectedId ->
-            safeRuntimeCall { it.attachSession(selectedId) }
-        }
+        runtimeAttachment.select(id, replayTranscript = false)
+        terminalStore.attachWhenReady(id)
     }
 
     private fun attachRenderer(view: TerminalView) {
+        view.setSessionScrollPositions(terminalStore.scrollPositions)
         val id = activeSessionId ?: return
         val session = terminalSessions[id] ?: return
         if (view.currentSession === session) {
@@ -1088,9 +1071,6 @@ class MainActivity : TerminalActivity() {
         runtime = null
         listener = null
         runtimeAttachment.reset()
-        // A disconnected service can have missed output. Force a transcript replay after
-        // the next bind instead of treating the retained UI emulator as current.
-        initializedRuntimeTerminals.clear()
         runtimeMessage = getString(R.string.runtime_reconnecting_prompt)
         if (activityStarted) mainHandler.postDelayed(reconnectRuntime, RECONNECT_DELAY_MS)
     }

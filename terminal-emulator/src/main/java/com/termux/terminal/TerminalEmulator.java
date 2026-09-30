@@ -35,6 +35,7 @@ public final class TerminalEmulator {
 
     /** Mouse moving while having left mouse button pressed. */
     public static final int MOUSE_LEFT_BUTTON_MOVED = 32;
+    public static final int MOUSE_MOVED = 35;
     public static final int MOUSE_WHEELUP_BUTTON = 64;
     public static final int MOUSE_WHEELDOWN_BUTTON = 65;
 
@@ -118,7 +119,11 @@ public final class TerminalEmulator {
     private static final int DECSET_BIT_MOUSE_TRACKING_PRESS_RELEASE = 1 << 6;
     /** DECSET 1002 - like 1000, but report moving mouse while pressed. */
     private static final int DECSET_BIT_MOUSE_TRACKING_BUTTON_EVENT = 1 << 7;
-    /** DECSET 1004 - NOT implemented. */
+    /** DECSET 1003 - report all pointer motion, including hover. */
+    private static final int DECSET_BIT_MOUSE_TRACKING_ANY_EVENT = 1 << 13;
+    /** DECSET 1007 - translate wheel input to cursor keys on the alternate screen. */
+    private static final int DECSET_BIT_ALTERNATE_SCROLL = 1 << 14;
+    /** DECSET 1004 - focus reporting. */
     private static final int DECSET_BIT_SEND_FOCUS_EVENTS = 1 << 8;
     /** DECSET 1006 - SGR-like mouse protocol (the modern sane choice). */
     private static final int DECSET_BIT_MOUSE_PROTOCOL_SGR = 1 << 9;
@@ -279,6 +284,9 @@ public final class TerminalEmulator {
     // Unlike selection's scroll counter, horizontal-region edits do not advance it.
     private long mTranscriptScrollCounter;
     public long getTranscriptScrollCounter() { return mTranscriptScrollCounter; }
+    /** Signed movement of transcript coordinates, including rows pulled back during resize. */
+    private long mTranscriptRowShiftCounter;
+    public long getTranscriptRowShiftCounter() { return mTranscriptRowShiftCounter; }
 
     private byte mUtf8ToFollow, mUtf8Index;
     private final byte[] mUtf8InputBuffer = new byte[4];
@@ -295,11 +303,9 @@ public final class TerminalEmulator {
     private void setDecsetinternalBit(int internalBit, boolean set) {
         if (set) {
             // The mouse modes are mutually exclusive.
-            if (internalBit == DECSET_BIT_MOUSE_TRACKING_PRESS_RELEASE) {
-                setDecsetinternalBit(DECSET_BIT_MOUSE_TRACKING_BUTTON_EVENT, false);
-            } else if (internalBit == DECSET_BIT_MOUSE_TRACKING_BUTTON_EVENT) {
-                setDecsetinternalBit(DECSET_BIT_MOUSE_TRACKING_PRESS_RELEASE, false);
-            }
+            int mouseModes = DECSET_BIT_MOUSE_TRACKING_PRESS_RELEASE
+                | DECSET_BIT_MOUSE_TRACKING_BUTTON_EVENT | DECSET_BIT_MOUSE_TRACKING_ANY_EVENT;
+            if ((internalBit & mouseModes) != 0) mCurrentDecSetFlags &= ~mouseModes;
         }
         if (set) {
             mCurrentDecSetFlags |= internalBit;
@@ -328,10 +334,14 @@ public final class TerminalEmulator {
                 return DECSET_BIT_MOUSE_TRACKING_PRESS_RELEASE;
             case 1002:
                 return DECSET_BIT_MOUSE_TRACKING_BUTTON_EVENT;
+            case 1003:
+                return DECSET_BIT_MOUSE_TRACKING_ANY_EVENT;
             case 1004:
                 return DECSET_BIT_SEND_FOCUS_EVENTS;
             case 1006:
                 return DECSET_BIT_MOUSE_PROTOCOL_SGR;
+            case 1007:
+                return DECSET_BIT_ALTERNATE_SCROLL;
             case 2004:
                 return DECSET_BIT_BRACKETED_PASTE_MODE;
             default:
@@ -408,15 +418,17 @@ public final class TerminalEmulator {
      * @param mouseButton one of the MOUSE_* constants of this class.
      */
     public void sendMouseEvent(int mouseButton, int column, int row, boolean pressed) {
+        if (!isMouseTrackingActive()) return;
         if (column < 1) column = 1;
         if (column > mColumns) column = mColumns;
         if (row < 1) row = 1;
         if (row > mRows) row = mRows;
 
-        if (mouseButton == MOUSE_LEFT_BUTTON_MOVED && !isDecsetInternalBitSet(DECSET_BIT_MOUSE_TRACKING_BUTTON_EVENT)) {
+        if ((mouseButton == MOUSE_LEFT_BUTTON_MOVED && !isDecsetInternalBitSet(DECSET_BIT_MOUSE_TRACKING_BUTTON_EVENT)
+                && !isMouseMotionTrackingActive()) || (mouseButton == MOUSE_MOVED && !isMouseMotionTrackingActive())) {
             // Do not send tracking.
         } else if (isDecsetInternalBitSet(DECSET_BIT_MOUSE_PROTOCOL_SGR)) {
-            mSession.write(String.format("\033[<%d;%d;%d" + (pressed ? 'M' : 'm'), mouseButton, column, row));
+            mSession.write(String.format(Locale.US, "\033[<%d;%d;%d" + (pressed ? 'M' : 'm'), mouseButton, column, row));
         } else {
             mouseButton = pressed ? mouseButton : 3; // 3 for release of all buttons.
             // Clip to screen, and clip to the limits of 8-bit data.
@@ -429,7 +441,6 @@ public final class TerminalEmulator {
     }
 
     public void resize(int columns, int rows, int cellWidthPixels, int cellHeightPixels) {
-        mSynchronizedOutput.end();
         this.mCellWidthPixels = cellWidthPixels;
         this.mCellHeightPixels = cellHeightPixels;
 
@@ -438,6 +449,7 @@ public final class TerminalEmulator {
         } else if (columns < 2 || rows < 2) {
             throw new IllegalArgumentException("rows=" + rows + ", columns=" + columns);
         }
+        mSynchronizedOutput.end();
 
         if (mRows != rows) {
             mRows = rows;
@@ -460,9 +472,13 @@ public final class TerminalEmulator {
     }
 
     private void resizeScreen() {
+        boolean sameColumns = mScreen.mColumns == mColumns;
+        int oldTranscriptRows = mScreen.getActiveTranscriptRows();
         final int[] cursor = {mCursorCol, mCursorRow};
         int newTotalRows = (mScreen == mAltBuffer) ? mRows : mMainBuffer.mTotalRows;
         mScreen.resize(mColumns, mRows, newTotalRows, cursor, getStyle(), isAlternateBufferActive());
+        if (sameColumns && mScreen == mMainBuffer)
+            mTranscriptRowShiftCounter += mScreen.getActiveTranscriptRows() - oldTranscriptRows;
         getGraphics().resize(cursor[1] - mCursorRow, mColumns, mRows, mScreen.getActiveTranscriptRows());
         mCursorCol = cursor[0];
         mCursorRow = cursor[1];
@@ -530,7 +546,21 @@ public final class TerminalEmulator {
 
     /** If mouse events are being sent as escape codes to the terminal. */
     public boolean isMouseTrackingActive() {
-        return isDecsetInternalBitSet(DECSET_BIT_MOUSE_TRACKING_PRESS_RELEASE) || isDecsetInternalBitSet(DECSET_BIT_MOUSE_TRACKING_BUTTON_EVENT);
+        return isDecsetInternalBitSet(DECSET_BIT_MOUSE_TRACKING_PRESS_RELEASE)
+            || isDecsetInternalBitSet(DECSET_BIT_MOUSE_TRACKING_BUTTON_EVENT) || isMouseMotionTrackingActive();
+    }
+
+    public boolean isMouseMotionTrackingActive() {
+        return isDecsetInternalBitSet(DECSET_BIT_MOUSE_TRACKING_ANY_EVENT);
+    }
+
+    public boolean isAlternateScrollEnabled() {
+        return isDecsetInternalBitSet(DECSET_BIT_ALTERNATE_SCROLL);
+    }
+
+    /** Live window focus notifications are input, never historical replay responses. */
+    public void sendFocusEvent(boolean focused) {
+        if (isDecsetInternalBitSet(DECSET_BIT_SEND_FOCUS_EVENTS)) mSession.write(focused ? "\033[I" : "\033[O");
     }
 
     private void setDefaultTabStops() {
@@ -1356,6 +1386,7 @@ public final class TerminalEmulator {
             case 1004:
             case 1005: // UTF-8 mouse mode, ignore.
             case 1006: // SGR Mouse Mode
+            case 1007: // Alternate scroll - setting bit is enough.
             case 1015:
             case 1034: // Interpret "meta" key, sets eighth bit.
                 break;
@@ -2358,7 +2389,10 @@ public final class TerminalEmulator {
             // .. and blank bottom row between margins:
             mScreen.blockSet(mLeftMargin, mBottomMargin - 1, mRightMargin - mLeftMargin, 1, ' ', currentStyle);
         } else {
-            if (mScreen.mTotalRows > mRows) mTranscriptScrollCounter++;
+            if (mScreen.mTotalRows > mRows) {
+                mTranscriptScrollCounter++;
+                mTranscriptRowShiftCounter++;
+            }
             mScreen.scrollDownOneLine(mTopMargin, mBottomMargin, currentStyle);
         }
     }
@@ -2704,6 +2738,7 @@ public final class TerminalEmulator {
         // Initial wrap-around is not accurate but makes terminal more useful, especially on a small screen:
         setDecsetinternalBit(DECSET_BIT_AUTOWRAP, true);
         setDecsetinternalBit(DECSET_BIT_CURSOR_ENABLED, true);
+        setDecsetinternalBit(DECSET_BIT_ALTERNATE_SCROLL, true);
         mSavedDecSetFlags = mSavedStateMain.mSavedDecFlags = mSavedStateAlt.mSavedDecFlags = mCurrentDecSetFlags;
 
         // XXX: Should we set terminal driver back to IUTF8 with termios?

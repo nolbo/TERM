@@ -234,6 +234,13 @@ private in-process usbmuxd sockets; Rootless never receives USB FDs or pair reco
 
 ## Terminal image rendering
 
+The UI process keeps terminal emulators and their output subscription in the
+application-owned `TerminalSessionStore`. Activity destruction releases its
+observer and saves its viewport without discarding terminal parser state or
+stopping output consumption. Runtime session snapshots remain authoritative
+for removing mirrors. See [TERMINAL_TUI.md](TERMINAL_TUI.md) for program scrolling,
+replay ordering, lifecycle validation and the limits after UI-process death.
+
 The shared emulator and view implement bounded SIXEL and kitty graphics,
 including animation, Unicode and relative placements. Runtime PTY owners resolve
 local media into direct image bytes before UI transport; rendering never opens

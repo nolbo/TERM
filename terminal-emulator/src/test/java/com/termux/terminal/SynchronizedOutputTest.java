@@ -24,4 +24,11 @@ public class SynchronizedOutputTest extends TerminalTestCase {
         state.begin(); assertEquals(1000, state.remainingMillis());
         state.end(); assertEquals(0, state.remainingMillis());
     }
+    public void testReattachingUnchangedGeometryPreservesPresentationBarrier() {
+        withTerminalSized(20, 8).enterString("\033[?2026hpartial");
+        mTerminal.resize(20, 8, INITIAL_CELL_WIDTH_PIXELS, INITIAL_CELL_HEIGHT_PIXELS);
+        assertTrue(mTerminal.getSynchronizedOutputDelayMillis() > 0);
+        enterString("\033[?2026l");
+        assertEquals(0, mTerminal.getSynchronizedOutputDelayMillis());
+    }
 }

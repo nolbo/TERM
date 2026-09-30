@@ -194,6 +194,15 @@ terminal query responses back to the live shell or repeat clipboard/bell
 effects. Live output still receives normal terminal replies. This metadata is
 not a guest protocol-v1 field; the wire codec rejects host replay events.
 
+Native/Rootless snapshots begin and end with empty `replay=true` output frames,
+including an empty snapshot. Both delimiters and all snapshot chunks are emitted
+under the session's PTY output mutex. A new mirror waits for this bracketed replay
+before accepting live output; an existing live mirror ignores another listener's
+attach replay. Exit delivery to a new mirror waits until replay completes.
+The emulator's bounded byte queue preserves the ordering and replay marker for
+each chunk and consumes only that chunk's byte count per main-thread message.
+These delimiters are host-local and do not change the AVF guest wire format.
+
 Session requests begin with a one-byte operation code. Strings are UTF-8 with a
 two-byte big-endian length (maximum 4096 bytes). Terminal input is explicitly
 binary and uses a four-byte big-endian length.

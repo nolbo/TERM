@@ -6,6 +6,7 @@ import java.io.StringWriter
 
 class TerminalApplication : Application() {
     internal val appUpdates by lazy { dev.terminal.app.update.AppUpdateController(this) }
+    internal val terminalSessions by lazy { TerminalSessionStore(this) }
 
     override fun onCreate() {
         super.onCreate()

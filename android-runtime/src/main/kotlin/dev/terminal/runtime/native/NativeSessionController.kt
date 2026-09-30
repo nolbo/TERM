@@ -141,10 +141,12 @@ class NativeSessionController(
         val entry = entries[sessionId] ?: error("Session not found")
         entry.outputMutex.withLock {
             val snapshot = entry.snapshot()
+            output.emit(SessionEvent.Output(sessionId, byteArrayOf(), replay = true))
             for (offset in snapshot.indices step REPLAY_FRAME_BYTES) {
                 output.emit(SessionEvent.Output(sessionId,
                     snapshot.copyOfRange(offset, minOf(offset + REPLAY_FRAME_BYTES, snapshot.size)), replay = true))
             }
+            output.emit(SessionEvent.Output(sessionId, byteArrayOf(), replay = true))
             entry.descriptor
         }
     }

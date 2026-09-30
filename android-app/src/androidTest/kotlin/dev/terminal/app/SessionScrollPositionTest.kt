@@ -95,10 +95,12 @@ class SessionScrollPositionTest {
             view.attachSession(first)
             fill(first)
             view.topRow = -40
+            val firstText = first.emulator.screen.getSelectedText(0, -40, 30, -40)
             view.attachSession(second)
             assertEquals(0, view.topRow)
             fill(second)
             view.topRow = -15
+            val secondText = second.emulator.screen.getSelectedText(0, -15, 30, -15)
             repeat(3) {
                 view.attachSession(first)
                 assertEquals(-40, view.topRow)
@@ -107,9 +109,9 @@ class SessionScrollPositionTest {
             }
             view.layout(0, 0, 800, 500)
             view.updateSize()
-            assertEquals(-15, view.topRow)
+            assertEquals(secondText, second.emulator.screen.getSelectedText(0, view.topRow, 30, view.topRow))
             view.attachSession(first)
-            assertEquals(-40, view.topRow)
+            assertEquals(firstText, first.emulator.screen.getSelectedText(0, view.topRow, 30, view.topRow))
             view.attachSession(second)
             // A background session can lose history; never restore an invalid row.
             val clear = "\u001b[3J".toByteArray()
@@ -117,7 +119,7 @@ class SessionScrollPositionTest {
             view.attachSession(first)
             assertEquals(0, view.topRow)
             view.attachSession(second)
-            assertEquals(-15, view.topRow)
+            assertEquals(secondText, second.emulator.screen.getSelectedText(0, view.topRow, 30, view.topRow))
         }
     }
 }

@@ -166,11 +166,13 @@ class RootlessSessionController(
         val entry = entries[sessionId] ?: error("Session not found")
         entry.outputMutex.withLock {
             val snapshot = entry.snapshot()
+            mutableEvents.emit(SessionEvent.Output(sessionId, byteArrayOf(), replay = true))
             // Keep Binder payloads small and serialize replay before subsequent live bytes.
             for (offset in snapshot.indices step REPLAY_FRAME_BYTES) {
                 mutableEvents.emit(SessionEvent.Output(sessionId,
                     snapshot.copyOfRange(offset, minOf(offset + REPLAY_FRAME_BYTES, snapshot.size)), replay = true))
             }
+            mutableEvents.emit(SessionEvent.Output(sessionId, byteArrayOf(), replay = true))
             entry.descriptor
         }
     }

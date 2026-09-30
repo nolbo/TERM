@@ -84,7 +84,7 @@ public final class TerminalView extends View {
     private int mScrollGeneration;
 
     // View state only: do not keep closed sessions (or their processes) alive.
-    private static final class ScrollPosition {
+    public static final class ScrollPosition {
         final int row;
         final float offset;
         final long transcriptScroll;
@@ -92,8 +92,9 @@ public final class TerminalView extends View {
             this.row = row; this.offset = offset; this.transcriptScroll = transcriptScroll;
         }
     }
-    private final WeakHashMap<TerminalSession, ScrollPosition> mSessionScrollPositions = new WeakHashMap<>();
+    private WeakHashMap<TerminalSession, ScrollPosition> mSessionScrollPositions = new WeakHashMap<>();
     private long mLastTranscriptScroll;
+    private float mMouseWheelRemainder;
     int[] mDefaultSelectors = new int[]{-1,-1,-1,-1};
 
     float mScaleFactor = 1.f;
@@ -357,16 +358,17 @@ public final class TerminalView extends View {
     public boolean attachSession(TerminalSession session) {
         if (session != mTermSession) mKittyPressedKeys.clear();
         if (session == mTermSession) return false;
+        if (mEmulator != null && hasWindowFocus()) mEmulator.sendFocusEvent(false);
         mScaleFactor = 1.f;
         if (mRenderer != null) mRenderer.clearPresentedFrame();
         stopScrollAnimation();
         stopTextSelectionMode();
-        if (mTermSession != null && mEmulator != null)
-            mSessionScrollPositions.put(mTermSession, new ScrollPosition(mTopRow, mScrollOffset, mEmulator.getTranscriptScrollCounter()));
+        saveSessionScrollPosition();
         ScrollPosition savedPosition = mSessionScrollPositions.get(session);
         mTopRow = savedPosition == null ? 0 : savedPosition.row;
         mScrollOffset = savedPosition == null || !mSmoothScrollingEnabled ? 0 : savedPosition.offset;
         mScrollRemainder = 0;
+        mMouseWheelRemainder = 0;
         mLastTranscriptScroll = savedPosition == null ? 0 : savedPosition.transcriptScroll;
 
         mTermSession = session;
@@ -378,14 +380,27 @@ public final class TerminalView extends View {
 
         if (mEmulator != null) {
             if (savedPosition != null && mTopRow < 0) anchorToTranscript();
-            else mLastTranscriptScroll = mEmulator.getTranscriptScrollCounter();
+            else mLastTranscriptScroll = mEmulator.getTranscriptRowShiftCounter();
             mEmulator.clearScrollCounter();
+            if (hasWindowFocus()) mEmulator.sendFocusEvent(true);
         }
 
         // Wait with enabling the scrollbar until we have a terminal to get scroll position from.
         setVerticalScrollBarEnabled(true);
 
         return true;
+    }
+
+    /** Share viewport anchors with a replacement view while keeping terminal state in its session. */
+    public void setSessionScrollPositions(WeakHashMap<TerminalSession, ScrollPosition> positions) {
+        mSessionScrollPositions = positions;
+    }
+
+    public void saveSessionScrollPosition() {
+        if (mTermSession != null && mEmulator != null) {
+            anchorToTranscript();
+            mSessionScrollPositions.put(mTermSession, new ScrollPosition(mTopRow, mScrollOffset, mEmulator.getTranscriptRowShiftCounter()));
+        }
     }
 
     @Override
@@ -607,11 +622,15 @@ public final class TerminalView extends View {
                 mTopRow -= rowShift;
                 decrementYTextSelectionCursors(rowShift);
                 // Selection already accounted for the output movement.
-                mLastTranscriptScroll = mEmulator.getTranscriptScrollCounter();
+                mLastTranscriptScroll = mEmulator.getTranscriptRowShiftCounter();
             }
         }
         anchorToTranscript();
-        if (mEmulator.isMouseTrackingActive() || mEmulator.isAlternateBufferActive()) mScrollOffset = 0;
+        if (mEmulator.isMouseTrackingActive() || mEmulator.isAlternateBufferActive()) {
+            if (mTopRow != 0 || mScrollOffset != 0) stopScrollAnimation();
+            mTopRow = 0;
+            mScrollOffset = 0;
+        }
 
         mEmulator.clearScrollCounter();
 
@@ -625,13 +644,20 @@ public final class TerminalView extends View {
         mScrollOffset = 0;
         mScrollRemainder = 0;
         if (mTopRow != 0) { mTopRow = 0; invalidate(); }
-        if (mEmulator != null) mLastTranscriptScroll = mEmulator.getTranscriptScrollCounter();
+        if (mEmulator != null) mLastTranscriptScroll = mEmulator.getTranscriptRowShiftCounter();
     }
 
     /** Drop a cached display list and schedule the latest emulator state for the next frame. */
     public void refresh() {
-        if (mRenderer != null) mRenderer.clearPresentedFrame();
+        if (mRenderer != null && (mEmulator == null || mEmulator.getSynchronizedOutputDelayMillis() == 0))
+            mRenderer.clearPresentedFrame();
         postInvalidateOnAnimation();
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasWindowFocus) {
+        super.onWindowFocusChanged(hasWindowFocus);
+        if (mEmulator != null) mEmulator.sendFocusEvent(hasWindowFocus);
     }
 
     private int[] mPaletteOverride;
@@ -649,12 +675,12 @@ public final class TerminalView extends View {
     }
 
     private void anchorToTranscript() {
-        long current = mEmulator.getTranscriptScrollCounter();
-        long advanced = Math.max(0, current - mLastTranscriptScroll);
+        long current = mEmulator.getTranscriptRowShiftCounter();
+        long advanced = current - mLastTranscriptScroll;
         if (mTopRow < 0) {
             long anchored = (long) mTopRow - advanced;
             int oldest = -mEmulator.getScreen().getActiveTranscriptRows();
-            mTopRow = (int) Math.max(oldest, anchored);
+            mTopRow = (int) Math.min(0, Math.max(oldest, anchored));
             if (anchored < oldest || mTopRow == 0) mScrollOffset = 0;
         }
         mLastTranscriptScroll = current;
@@ -779,7 +805,7 @@ public final class TerminalView extends View {
             for (int i = 0; i < amount; i++) {
                 sendMouseEventCode(event, up ? TerminalEmulator.MOUSE_WHEELUP_BUTTON : TerminalEmulator.MOUSE_WHEELDOWN_BUTTON, true);
             }
-        } else if (mEmulator.isAlternateBufferActive()) {
+        } else if (mEmulator.isAlternateBufferActive() && mEmulator.isAlternateScrollEnabled()) {
             // Send up and down key events for scrolling, which is what some terminals do to make scroll work in
             // e.g. less, which shifts to the alt screen without mouse handling.
             for (int i = 0; i < amount; i++) {
@@ -848,11 +874,19 @@ public final class TerminalView extends View {
     /** Overriding {@link View#onGenericMotionEvent(MotionEvent)}. */
     @Override
     public boolean onGenericMotionEvent(MotionEvent event) {
-        if (mEmulator != null && event.isFromSource(InputDevice.SOURCE_MOUSE) && event.getAction() == MotionEvent.ACTION_SCROLL) {
-            // Handle mouse wheel scrolling.
-            boolean up = event.getAxisValue(MotionEvent.AXIS_VSCROLL) > 0.0f;
-            doScroll(event, up ? -3 : 3);
-            return true;
+        if (mEmulator != null && event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+            if (event.getAction() == MotionEvent.ACTION_SCROLL) {
+                // Preserve magnitude and fractional high-resolution wheel input. Horizontal-only
+                // events must not synthesize a downward scroll.
+                mMouseWheelRemainder -= event.getAxisValue(MotionEvent.AXIS_VSCROLL) * 3;
+                int rows = (int) mMouseWheelRemainder;
+                mMouseWheelRemainder -= rows;
+                doScroll(event, rows);
+                return true;
+            } else if (event.getAction() == MotionEvent.ACTION_HOVER_MOVE && mEmulator.isMouseMotionTrackingActive()) {
+                sendMouseEventCode(event, TerminalEmulator.MOUSE_MOVED, true);
+                return true;
+            }
         }
         return false;
     }
@@ -1335,6 +1369,7 @@ public final class TerminalView extends View {
         if (mEmulator == null || (newColumns != mEmulator.mColumns || newRows != mEmulator.mRows)) {
             mTermSession.updateSize(newColumns, newRows, (int) mRenderer.getFontWidth(), mRenderer.getFontLineSpacing());
             mEmulator = mTermSession.getEmulator();
+            anchorToTranscript();
             mClient.onEmulatorSet();
 
             // Update mTerminalCursorBlinkerRunnable inner class mEmulator on session change
@@ -1496,7 +1531,7 @@ public final class TerminalView extends View {
         this.mTopRow = mTopRow;
         mScrollOffset = 0;
         stopScrollAnimation();
-        if (mEmulator != null) mLastTranscriptScroll = mEmulator.getTranscriptScrollCounter();
+        if (mEmulator != null) mLastTranscriptScroll = mEmulator.getTranscriptRowShiftCounter();
     }
 
 

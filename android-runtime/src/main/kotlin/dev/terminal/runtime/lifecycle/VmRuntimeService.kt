@@ -71,6 +71,7 @@ class VmRuntimeService : Service() {
     private val taskNotifications by lazy { dev.terminal.runtime.notifications.SessionTaskNotifications(this) }
     private val listeners = RemoteCallbackList<IRuntimeStateListener>()
     private val listenerLock = Any()
+    private val broadcastLock = Any()
     private lateinit var backend: RuntimeBackend
     private lateinit var rootlessBackends: Map<SessionRuntime, RootlessDebianBackend>
     private val storageBackends = java.util.concurrent.ConcurrentHashMap<Pair<SessionRuntime, String>, dev.terminal.runtime.api.RuntimeBackend>()
@@ -463,14 +464,14 @@ class VmRuntimeService : Service() {
         }
 
         override fun registerListener(listener: IRuntimeStateListener) {
-            synchronized(listenerLock) {
+            val snapshot = synchronized(listenerLock) {
                 listeners.register(listener)
-                val snapshot = publishedSessions
-                runCatching {
-                    listener.onRuntimeStateChanged(latestState.wireName, latestState.detail())
-                    listener.onSessionsChanged(snapshot.revision, snapshot.json)
-                    focusedSession?.let { listener.onSessionFocusRequested(it) }
-                }
+                publishedSessions
+            }
+            runCatching {
+                listener.onRuntimeStateChanged(latestState.wireName, latestState.detail())
+                listener.onSessionsChanged(snapshot.revision, snapshot.json)
+                focusedSession?.let { listener.onSessionFocusRequested(it) }
             }
         }
 
@@ -875,10 +876,16 @@ class VmRuntimeService : Service() {
     }
 
     private inline fun broadcast(action: (IRuntimeStateListener) -> Unit) {
-        synchronized(listenerLock) {
-            val count = listeners.beginBroadcast()
-            repeat(count) { index -> runCatching { action(listeners.getBroadcastItem(index)) } }
-            listeners.finishBroadcast()
+        synchronized(broadcastLock) {
+            val targets = synchronized(listenerLock) {
+                val count = listeners.beginBroadcast()
+                try { List(count) { listeners.getBroadcastItem(it) } }
+                finally { listeners.finishBroadcast() }
+            }
+            // A bounded terminal reader can wait for the UI to drain its queue. Never hold
+            // the registration lock over Binder calls: Activity recreation registers on
+            // that same UI thread and would otherwise deadlock against output backpressure.
+            targets.forEach { target -> runCatching { action(target) } }
         }
     }
 

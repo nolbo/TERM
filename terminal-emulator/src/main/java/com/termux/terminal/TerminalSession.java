@@ -31,8 +31,8 @@ import java.util.UUID;
 public final class TerminalSession extends TerminalOutput {
 
     private static final int MSG_NEW_INPUT = 1;
-    private static final int MSG_REPLAY_INPUT = 3;
     private static final int MSG_PROCESS_EXITED = 4;
+    private static final int MSG_BACKEND_INPUT = 5;
     private static final int PROCESS_IO_BUFFER_SIZE = 4096;
 
     public final String mHandle = UUID.randomUUID().toString();
@@ -82,6 +82,7 @@ public final class TerminalSession extends TerminalOutput {
     private final TerminalSessionBackend mBackend;
 
     private boolean mBackendStarted;
+    private final Object mBackendOutputLock = new Object();
 
 
     private static final String LOG_TAG = "TerminalSession";
@@ -145,21 +146,12 @@ public final class TerminalSession extends TerminalOutput {
             mBackend.start(columns, rows, cellWidthPixels, cellHeightPixels, new TerminalSessionBackend.Callback() {
                 @Override
                 public void onReplayOutput(byte[] data, int offset, int count) {
-                    byte[] snapshot = java.util.Arrays.copyOfRange(data, offset, offset + count);
-                    mMainThreadHandler.sendMessage(mMainThreadHandler.obtainMessage(MSG_REPLAY_INPUT, snapshot));
+                    enqueueBackendOutput(data, offset, count, true);
                 }
 
                 @Override
                 public void onOutput(byte[] data, int offset, int count) {
-                    // A backend frame may be much larger than ByteQueue. Post a drain message after
-                    // every queue-sized chunk so the producer cannot block before the UI is woken.
-                    while (count > 0) {
-                        int chunkSize = Math.min(count, PROCESS_IO_BUFFER_SIZE);
-                        if (!mProcessToTerminalIOQueue.write(data, offset, chunkSize)) return;
-                        mMainThreadHandler.sendEmptyMessage(MSG_NEW_INPUT);
-                        offset += chunkSize;
-                        count -= chunkSize;
-                    }
+                    enqueueBackendOutput(data, offset, count, false);
                 }
 
                 @Override
@@ -217,6 +209,19 @@ public final class TerminalSession extends TerminalOutput {
             }
         }.start();
 
+    }
+
+    /** One bounded byte stream for live and replay data; each message consumes only its own bytes. */
+    private void enqueueBackendOutput(byte[] data, int offset, int count, boolean replay) {
+        synchronized (mBackendOutputLock) {
+            while (count > 0) {
+                int chunk = Math.min(count, PROCESS_IO_BUFFER_SIZE);
+                if (!mProcessToTerminalIOQueue.write(data, offset, chunk)) return;
+                mMainThreadHandler.sendMessage(mMainThreadHandler.obtainMessage(MSG_BACKEND_INPUT, chunk, replay ? 1 : 0));
+                offset += chunk;
+                count -= chunk;
+            }
+        }
     }
 
     /** Write data to the shell process. */
@@ -399,9 +404,11 @@ public final class TerminalSession extends TerminalOutput {
 
         @Override
         public void handleMessage(Message msg) {
-            if (msg.what == MSG_REPLAY_INPUT) {
-                byte[] snapshot = (byte[]) msg.obj;
-                mEmulator.appendReplay(snapshot, snapshot.length);
+            if (msg.what == MSG_BACKEND_INPUT) {
+                byte[] frame = new byte[msg.arg1];
+                int count = mProcessToTerminalIOQueue.read(frame, false);
+                if (msg.arg2 == 1) mEmulator.appendReplay(frame, count);
+                else mEmulator.append(frame, count);
                 notifyScreenUpdate();
                 return;
             }
