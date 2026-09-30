@@ -395,6 +395,9 @@ freestanding APK 런타임에 kernel 재진입하여 다중 thread/nonleader exe
 signal disposition 객체를 도입하고 실제 kernel clone 구성요소를 검증했다.
 [exec 준비 메모리 소유권](../tools/direct-linux/SCRATCH_OWNERSHIP.md)은 준비 매핑을
 task별로 추적하고 guest 스택으로의 이전 및 exit/exec 후 회수를 검증했다.
+[task identity와 이탈 관찰](../tools/direct-linux/TASK_OWNERSHIP.md)은 TGID·exec 선택과
+관찰된 VM 이탈 뒤 회수를 연결했다. nonleader exec의 TID 교환을 mm 교체로 오인하지
+않으며, 관찰 불가능한 이탈과 변경 도중 사망 복구는 미완료다.
 guest shared-VM dispatcher 연결과 전체 spawn 수명은 아직 남아 있다.
 shared-VM spawn과 추가 FD/FS 조합을 비롯한
 전체 45개 목표는 그 문서의 항목별 상태로 계속 추적한다.

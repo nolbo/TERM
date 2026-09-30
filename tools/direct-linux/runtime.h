@@ -34,6 +34,10 @@ void dl_scratch_unmap(void *address);
 void dl_scratch_detach(void *address);
 void dl_scratch_clear(struct dl_scratch **owner);
 struct dl_scratch **dl_thread_scratch(void);
+struct dl_task_status { int tid; char state; uintptr_t start_stack; };
+// Raw host proc observation. Caller serializes descriptor creation with the
+// files lock. Failure leaves result untouched and is not evidence of death.
+long dl_task_status(int tid, struct dl_task_status *result);
 size_t dl_length(const char *s);
 void dl_copy(void *destination, const void *source, size_t size);
 int dl_equal_memory(const void *a, const void *b, size_t size);

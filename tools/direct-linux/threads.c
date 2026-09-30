@@ -14,6 +14,7 @@ static struct dl_thread threads[DL_THREAD_LIMIT];
 static unsigned thread_lock;
 static unsigned files_shared;
 static unsigned next_files_id = 1, threads_ready;
+static uintptr_t kernel_stack;
 struct dl_fd_snapshot { size_t count; int fds[]; };
 unsigned dl_memory_lock, dl_files_lock;
 extern long dl_spawn(unsigned long *, uintptr_t);
@@ -61,6 +62,12 @@ void dl_thread_init(void *allocation, size_t size, void *stack, size_t stack_siz
     __atomic_store_n(&t->stack_begin, (uintptr_t)stack, __ATOMIC_RELAXED);
     __atomic_store_n(&t->stack_end, (uintptr_t)stack + stack_size, __ATOMIC_RELAXED);
     __atomic_store_n(&t->tid, (int)DL_CALL(SYS_gettid, 0, 0, 0, 0, 0, 0), __ATOMIC_RELAXED);
+    __atomic_store_n(&t->tgid, (int)DL_CALL(SYS_getpid, 0, 0, 0, 0, 0, 0), __ATOMIC_RELAXED);
+    __atomic_store_n(&t->executing, 0, __ATOMIC_RELAXED);
+    struct dl_task_status status;
+    dl_lock(&dl_files_lock);
+    if (!dl_task_status(t->tid, &status)) kernel_stack = status.start_stack;
+    dl_unlock(&dl_files_lock);
     __atomic_store_n(&t->state, RUNNING, __ATOMIC_RELEASE);
     threads_ready = 1;
 }
@@ -128,14 +135,36 @@ static void close_other_pins(struct dl_thread *self, unsigned table)
                 DL_CALL(SYS_close, threads[i].io[j].fd, 0, 0, 0, 0, 0);
 }
 
+static int foreign_departed(struct dl_thread *t)
+{
+    int tid = __atomic_load_n(&t->tid, __ATOMIC_RELAXED);
+    int tgid = __atomic_load_n(&t->tgid, __ATOMIC_RELAXED);
+    unsigned executing = __atomic_load_n(&t->executing, __ATOMIC_ACQUIRE);
+    // A nonleader exec exchanges TIDs before replacing its mm. Its old TID
+    // disappearing is not enough: observe the group's new mm instead.
+    int nonleader_exec = executing && tid != tgid;
+    if (!nonleader_exec && DL_CALL(SYS_tgkill, tgid, tid, 0, 0, 0, 0) == -ESRCH) return 1;
+    struct dl_task_status status;
+    dl_lock(&dl_files_lock);
+    long r = dl_task_status(nonleader_exec ? tgid : tid, &status);
+    dl_unlock(&dl_files_lock);
+    if (r) return 0;
+    if (!nonleader_exec && (status.state == 'Z' || status.state == 'X' || status.state == 'x')) return 1;
+    // start_stack is stable in a shared mm; guest PR_SET_MM is not allowed.
+    // A hidden/zero value, equal value after exec, or read failure is unknown.
+    return kernel_stack && status.start_stack && status.start_stack != kernel_stack;
+}
+
 static unsigned reap(void)
 {
     long pid = DL_CALL(SYS_getpid, 0, 0, 0, 0, 0, 0);
     unsigned count = 0;
     for (unsigned i = 0; i < DL_THREAD_LIMIT; i++) {
         unsigned state = __atomic_load_n(&threads[i].state, __ATOMIC_ACQUIRE);
-        if (state == EXITING && DL_CALL(SYS_tgkill, pid,
-                __atomic_load_n(&threads[i].tid, __ATOMIC_RELAXED), 0, 0, 0, 0) == -ESRCH) {
+        int tgid = __atomic_load_n(&threads[i].tgid, __ATOMIC_RELAXED);
+        if ((state == RUNNING || state == EXITING) &&
+                (tgid != pid ? foreign_departed(threads + i) : state == EXITING &&
+                DL_CALL(SYS_tgkill, tgid, __atomic_load_n(&threads[i].tid, __ATOMIC_RELAXED), 0, 0, 0, 0) == -ESRCH)) {
             dispose(threads + i); state = FREE;
         }
         if (state != FREE) count++;
@@ -187,6 +216,7 @@ _Noreturn void dl_thread_start(struct dl_thread *thread)
         dl_lock(&dl_files_lock); free_snapshot(thread, 1); dl_unlock(&dl_files_lock);
     }
     __atomic_store_n(&thread->tid, (int)DL_CALL(SYS_gettid, 0, 0, 0, 0, 0, 0), __ATOMIC_RELAXED);
+    __atomic_store_n(&thread->tgid, (int)DL_CALL(SYS_getpid, 0, 0, 0, 0, 0, 0), __ATOMIC_RELAXED);
     __atomic_store_n(&thread->state, RUNNING, __ATOMIC_RELEASE);
     dl_resume(thread->frame);
 }
@@ -208,6 +238,9 @@ long dl_thread_clone(unsigned long a[6], ucontext_t *context)
     long r = DL_CALL(SYS_mprotect, allocation + dl_state.page, DL_SIGNAL_STACK_SIZE, PROT_READ | PROT_WRITE, 0, 0, 0);
     child->allocation = (void *)allocation; child->allocation_size = size;
     child->sighand = NULL;
+    __atomic_store_n(&child->tid, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&child->tgid, dl_thread_self()->tgid, __ATOMIC_RELAXED);
+    __atomic_store_n(&child->executing, 0, __ATOMIC_RELAXED);
     child->copied_fds = NULL;
     __atomic_store_n(&child->io_count, 0, __ATOMIC_RELAXED);
     __atomic_store_n(&child->stack_begin, allocation + dl_state.page, __ATOMIC_RELAXED);
@@ -269,6 +302,8 @@ void dl_fork_end(int child)
             if (threads + i != self && __atomic_load_n(&threads[i].state, __ATOMIC_ACQUIRE) != FREE) dispose(threads + i);
         next_files_id = 1; __atomic_store_n(&self->files_id, 1, __ATOMIC_RELAXED);
         __atomic_store_n(&self->tid, (int)DL_CALL(SYS_gettid, 0, 0, 0, 0, 0, 0), __ATOMIC_RELAXED);
+        __atomic_store_n(&self->tgid, (int)DL_CALL(SYS_getpid, 0, 0, 0, 0, 0, 0), __ATOMIC_RELAXED);
+        __atomic_store_n(&self->executing, 0, __ATOMIC_RELAXED);
         __atomic_store_n(&files_shared, 0, __ATOMIC_RELEASE);
     }
     dl_unlock(dl_sighand_lock(dl_thread_self()->sighand)); dl_unlock(&dl_files_lock);
@@ -282,6 +317,10 @@ long dl_exec_begin(void)
     return reap() != 1 || DL_CALL(SYS_gettid, 0, 0, 0, 0, 0, 0) != DL_CALL(SYS_getpid, 0, 0, 0, 0, 0, 0);
 }
 void dl_exec_end(void) { dl_unlock(&thread_lock); }
+void dl_exec_mark(int executing)
+{
+    __atomic_store_n(&dl_thread_self()->executing, (unsigned)executing, __ATOMIC_RELEASE);
+}
 int dl_files_may_be_shared(void) { return __atomic_load_n(&files_shared, __ATOMIC_ACQUIRE) != 0; }
 
 struct file_cleanup { unsigned stage; int tid; size_t count; int fds[DL_WAIT_LIMIT]; };

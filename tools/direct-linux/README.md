@@ -39,6 +39,10 @@ guest shared-VM spawn remains unfinished.
 [Preparation-memory ownership](SCRATCH_OWNERSHIP.md) tracks exec scratch mappings
 per task and transfers committed stacks to guest ownership. Real shared-VM
 component tests verify reclamation after exit and exec while a parent survives.
+[Task identity and departure observation](TASK_OWNERSHIP.md) connect TGID tracking,
+exec selection and conservative reclamation to the registry. Real shared-VM
+component tests cover exit, kill, leader/worker exec and unavailable proc data;
+unobserved transitions and interrupted mutations still block guest spawn support.
 It retains the full audit scope and remaining gates.
 
 The [Python/Git milestone](APPLICATIONS.md) and subsequent

@@ -607,9 +607,11 @@ static long kernel_exec(struct preparation *p, const struct dl_entry *entry)
             dl_copy(executable + length - 2, "exe", 4); // live TID, including a dead group leader
             // On success the old VM can remain alive in a CLONE_VM parent.
             // Never leave its runtime locks held across the irreversible step.
+            dl_exec_mark(1);
             dl_exec_end();
             r = DL_CALL(SYS_execve, executable, arguments, environment, 0, 0, 0);
             (void)dl_exec_begin();
+            dl_exec_mark(0);
         }
         dl_lock(&dl_files_lock);
         for (unsigned i = 0; i < 4; i++) if (original[i] >= 0)

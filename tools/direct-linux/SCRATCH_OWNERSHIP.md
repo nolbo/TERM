@@ -76,6 +76,10 @@ SIGKILL 및 준비 상태 변경 도중 사망에 대한 복구가 남았다.
 이번 구성요소 검사의 waitpid/새 이미지 SIGSTOP은 제품용 이탈 감지 구현이 아니다.
 기존 COW vfork 경로를 진짜 shared-VM vfork로 간주하지 않는다.
 
+후속 [task identity와 이탈 관찰](TASK_OWNERSHIP.md)은 TGID·exec 선택과 관찰 가능한
+VM 이탈의 자동 회수를 연결했다. 관찰하지 못한 nonleader exec 종료 및 잠금·목록
+변경 중 사망 복구와 guest dispatcher 연결은 여전히 남아 있다.
+
 ## 재현
 
 ```sh

@@ -57,6 +57,7 @@ long dl_io_hold(int fd, uintptr_t stack) { (void)fd; (void)stack; assert(0); ret
 void dl_io_release(unsigned slot) { (void)slot; assert(0); }
 long dl_exec_begin(void) { assert(0); return 0; }
 void dl_exec_end(void) { assert(0); }
+void dl_exec_mark(int executing) { (void)executing; assert(0); }
 
 static void argument_snapshots(void)
 {

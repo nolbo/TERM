@@ -40,7 +40,8 @@ long dl_sighand_copy(struct dl_sighand *source, struct dl_sighand **result);
 struct dl_thread {
     unsigned state;
     unsigned files_id;
-    int tid;
+    int tid, tgid;
+    unsigned executing;
     struct dl_fd_snapshot *copied_fds;
     struct { int fd; uintptr_t stack; } io[DL_WAIT_LIMIT];
     unsigned io_count;
@@ -59,6 +60,7 @@ long dl_fork_begin(void);
 void dl_fork_end(int child);
 long dl_exec_begin(void);
 void dl_exec_end(void);
+void dl_exec_mark(int executing);
 int dl_files_may_be_shared(void);
 long dl_files_unshare(void);
 int dl_internal_fd(int fd);

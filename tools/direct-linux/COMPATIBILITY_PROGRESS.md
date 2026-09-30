@@ -230,6 +230,25 @@ host/Android의 실제 CLONE_VM exit/exec와 CLONE_VM|CLONE_VFORK exec를 각각
 VM 이탈의 자동 감지와 guest shared-VM dispatcher, vfork 잠금·비정상 종료 복구는
 남아 있으므로 C04를 완료 처리하지 않는다.
 
+## 2026-09-30: C04의 process identity와 이탈 관찰
+
+[구현과 보수적 회수 조건](TASK_OWNERSHIP.md),
+[구성요소·guest 회귀 결과](results/tasks-runtime-2026-09-30.json).
+task record에 TGID와 kernel exec 전환 상태를 기록하고, foreign task의 종료 또는
+바뀐 VM stack을 관찰한 뒤 기존 stack/준비 목록/signal 참조를 회수한다.
+nonleader exec의 TID 교환만으로 해제하지 않으며 proc 접근 실패·0·같은 stack
+주소는 미확인 상태로 보존한다. guest wait 상태와 clear-child-TID도 보존한다.
+
+host/Android 실제 CLONE_VM 프로세스 각각 256회로 exit/SIGKILL/leader·worker exec,
+leader 선종료, proc 은닉, EMFILE, 주소 재사용 시 보존을 검증했다. 기존 실제 guest
+host 6개 suite와 ELF 회귀, native 감사·서명·canonical Gradle도 통과했다.
+Android 28.525초/3 tests/126회 실행/733 fixture hash, kernel 재진입 200회 통과.
+성능 재측정은 없으며 일반 휴대폰의 enforcing 정책 검증도 남아 있다.
+
+nonleader의 새 VM을 관찰하기 전 종료하면 record가 남을 수 있다. 잠금·소유 목록
+변경 도중 SIGKILL, 초기화 실패, FD snapshot, vfork 부모 정지, process별 상태와
+guest shared-VM dispatcher 연결도 남아 있어 C04 전체 완료는 아니다.
+
 ## 전체 목표 추적
 
 각 행의 원래 완료 조건은 감사 문서의 같은 ID를 따른다. 현 기기의 통과를
@@ -240,7 +259,7 @@ stock enforcing/다른 페이지 크기/모든 앱에 일반화하지 않는다.
 | C01 | stock Android 정책 | 미완료: enforcing 기기 필요. |
 | C02 | 페이지·커널·Bionic 차이 | 미완료: 16 KiB, 지원 버전·커널 matrix. |
 | C03 | pthread | 부분 구현·실행 검증: 기본 pthread/Python 통과. clone3/rseq/PI·추가 cancellation/CPU migration 남음. |
-| C04 | spawn/vfork | 진행: signal disposition과 exec 준비 메모리의 소유권·회수, 실제 CLONE_VM 구성요소 검사 추가. guest shared-VM spawn, VM 이탈 자동 감지·process 수명·vfork 잠금·비정상 종료 복구·전체 libc 의미는 미완료. |
+| C04 | spawn/vfork | 진행: signal/준비 메모리 소유권, TGID·exec 전환과 관찰된 VM 이탈 회수, 실제 CLONE_VM 구성요소 검사 추가. guest spawn, 관찰 불가능한 이탈·process 상태·vfork 잠금·변경 중 사망 복구·전체 libc 의미는 미완료. |
 | C05 | thread 수명·병행 exec | 다중 thread/nonleader/leader 선종료 fork·exec, kernel 거부 복원, 비공유 FD clone 검증. 전체 FD/FS/생성 실패·장시간 조합은 미완료. |
 | C06 | execveat/fexecve | 현재 환경 구현·host native 비교·Android 검증 완료: 빈/상대 경로, O_PATH/unlink, script+CLOEXEC, errno·실패 복원. C01/C02 플랫폼 gate는 별도. |
 | C07 | argv/env 한도 | 미완료. |
