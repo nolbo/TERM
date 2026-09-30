@@ -58,6 +58,10 @@ class DirectLinuxLoaderTest {
         val signalResults = JSONArray()
         val threadResults = JSONArray()
         val execFdResults = JSONArray()
+        val spawnResults = JSONArray()
+        val argumentResults = JSONArray()
+        val nodeResults = JSONArray()
+        val timerResults = JSONArray()
         fun launch(path: String, args: Array<out String>, useProot: Boolean, terminal: Boolean = false, useBaseline: Boolean = false): ProcessBuilder {
             check(!useProot || !useBaseline)
             val engine = if (useProot) packaged.resolvePackagedExecutable("proot").getOrThrow()
@@ -189,6 +193,41 @@ class DirectLinuxLoaderTest {
                 assertTrue(run("/bin/process-$kind", "inheritance").contains("PASS fork inheritance, partial madvise errors and subsequent exec"))
                 assertTrue(run("/bin/files-$kind").contains("PASS filesystem rename/dirfd/cwd/symlinks/modes/timestamps/unlinked-FDs"))
                 assertTrue(run("/bin/tty-$kind", "no-terminal").contains("PASS no controlling terminal"))
+            }
+            if (arguments.getString("directLinuxSpawn") == "true") {
+                android.system.Os.mkfifo(File(root, "tmp/spawn-fifo").path, 384)
+                for (kind in listOf("static", "dynamic")) {
+                    val output = run("/bin/spawn-$kind")
+                    val checks = output.lineSequence().filter { it.startsWith("PASS spawn ") }.toList()
+                    assertEquals(output, 3, checks.size)
+                    spawnResults.put(JSONObject().put("engine", "direct-linux").put("kind", kind).put("checks", JSONArray(checks)))
+                }
+                val output = run("/usr/bin/python3", "-c", "import os,subprocess; p=os.posix_spawn('/bin/true',['true'],{}); assert os.waitpid(p,0)==(p,0); p=subprocess.Popen(['/bin/true'],close_fds=False); assert p.wait()==0; p=subprocess.Popen(['/bin/true']); assert p.wait()==0; print('PASS Python posix_spawn and subprocess modes')")
+                assertTrue(output, output.contains("PASS Python posix_spawn and subprocess modes"))
+            }
+            if (arguments.getString("directLinuxArguments") == "true") {
+                for (kind in listOf("static", "dynamic")) {
+                    val output = run("/bin/arguments-$kind")
+                    assertTrue(output, output.contains("PASS arguments 104 native-contract exec cases"))
+                    argumentResults.put(JSONObject().put("kind", kind).put("checks", JSONArray(output.lineSequence().filter { it.startsWith("PASS arguments ") }.toList())))
+                }
+            }
+            if (arguments.getString("directLinuxNodes") == "true") {
+                for (kind in listOf("static", "dynamic")) {
+                    val output = run("/bin/node-$kind", "--guest")
+                    assertTrue(output, output.contains("PASS node compatibility"))
+                    val path = "/tmp/nodes-persist-$kind"
+                    assertTrue(run("/bin/node-$kind", "--persist-create", path).contains("PASS created persistent hardlinks and FIFO using guest syscalls"))
+                    assertTrue(run("/bin/node-$kind", "--persist-check", path).contains("PASS persisted inode/nlink, hardlinked symlinks and FIFO I/O"))
+                    nodeResults.put(JSONObject().put("kind", kind).put("output", output).put("persistence_verified", true))
+                }
+            }
+            if (arguments.getString("directLinuxTimers") == "true") {
+                for (kind in listOf("static", "dynamic")) {
+                    val output = run("/bin/timers-$kind", "direct")
+                    assertTrue(output, output.contains("PASS timer and queued-signal compatibility"))
+                    timerResults.put(JSONObject().put("kind", kind).put("checks", JSONArray(output.lineSequence().filter { it.startsWith("PASS ") }.toList())))
+                }
             }
             if (arguments.getString("directLinuxExecFd") == "true") {
                 for (kind in listOf("static", "dynamic")) {
@@ -505,6 +544,10 @@ class DirectLinuxLoaderTest {
                 .put("signal_results", signalResults)
                 .put("thread_results", threadResults)
                 .put("exec_fd_results", execFdResults)
+                .put("spawn_results", spawnResults)
+                .put("argument_results", argumentResults)
+                .put("node_results", nodeResults)
+                .put("timer_results", timerResults)
                 .put("exec_profile_stages", JSONArray(listOf("arguments", "read_validate", "reset", "unmap", "map", "entry", "dispose")))
                 .put("exec_profile_map_stages", JSONArray(listOf("reserve", "file_map", "verify", "bss", "final_protect")))
             if (benchmarks.length() > 0 || ptyResults.length() > 0 || networkResults.length() > 0 || signalResults.length() > 0 || threadResults.length() > 0) {

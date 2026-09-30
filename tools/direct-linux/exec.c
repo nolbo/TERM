@@ -10,6 +10,7 @@
 #include <signal.h>
 #include <sys/mman.h>
 #include <sys/prctl.h>
+#include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/syscall.h>
 #include <unistd.h>
@@ -18,7 +19,9 @@
 #define IMAGE_LIMIT (128UL * 1024 * 1024)
 #define STACK_SIZE (8UL * 1024 * 1024)
 #define PH_LIMIT 128
-#define ARG_LIMIT 128
+#define ARG_BYTES_MIN (128UL * 1024)
+#define ARG_BYTES_MAX (6UL * 1024 * 1024)
+#define SCRIPT_EXTRA_ARGS 8
 
 struct image {
     uintptr_t base, entry, phdr, low, high, alignment;
@@ -263,7 +266,6 @@ unmap:
     return -ENOMEM;
 }
 
-#define ENV_LIMIT 256
 // A bounded snapshot used only while copying one argv/env vector. Two slots
 // keep its pointer table and strings from evicting each other. The loader
 // allocates exactly two host pages rather than a worst-case fixed buffer.
@@ -275,8 +277,8 @@ struct source_page {
 struct preparation {
     struct image main, interpreter;
     char path[DL_PATH + 40]; // execveat adds /dev/fd/N/ to an input pathname
-    uintptr_t argv[ARG_LIMIT], env[ENV_LIMIT];
-    size_t argc, envc;
+    uintptr_t *argv, *env;
+    size_t argc, envc, argv_capacity, string_limit;
     char *stack, *top;
     uintptr_t execfn;
     struct source_page pointers, strings;
@@ -307,18 +309,19 @@ static long source_bytes(struct source_page *cache, uintptr_t address, const uns
 static long stack_string(struct preparation *p, const char *source, uintptr_t *result, struct source_page *cache)
 {
     // Copy bounded pages before committing, so invalid pointers leave the old
-    // image intact. Reserve 128 KiB per string; unused bytes are recovered.
-    char *destination = p->top - 131072;
-    if (destination < p->stack + STACK_SIZE - 2 * 1024 * 1024) return -E2BIG;
+    // image intact. Linux permits 32 host pages per string, including NUL.
+    size_t maximum = 32 * dl_state.page;
+    if ((size_t)(p->top - p->stack) < maximum) return -E2BIG;
+    char *destination = p->top - maximum;
     size_t used = 0;
-    while (used < 131072) {
+    while (used < maximum) {
         size_t n = dl_state.page - ((uintptr_t)source % dl_state.page);
         const unsigned char *bytes = (void *)(destination + used);
         if (cache) {
             long r = source_bytes(cache, (uintptr_t)source, &bytes, &n);
             if (r) return r;
         }
-        if (n > 131072 - used) n = 131072 - used;
+        if (n > maximum - used) n = maximum - used;
         if (!cache) {
             long r = dl_read_memory(destination + used, source, n);
             if (r) return r;
@@ -330,6 +333,8 @@ static long stack_string(struct preparation *p, const char *source, uintptr_t *r
         if (cache) dl_copy(destination + used, bytes, size);
         if (terminated) {
             size_t length = used + size;
+            size_t available = p->string_limit - (size_t)(p->stack + STACK_SIZE - p->top);
+            if (length > available) return -E2BIG;
             p->top -= length;
             // May overlap: move toward the higher address backwards.
             for (size_t j = length; j; j--) p->top[j - 1] = destination[j - 1];
@@ -341,33 +346,92 @@ static long stack_string(struct preparation *p, const char *source, uintptr_t *r
     return -E2BIG;
 }
 
-static long vector(struct preparation *p, char *const *source, uintptr_t *out, size_t *count, size_t limit)
+static long vector_pointer(struct preparation *p, char *const *source, size_t index, uintptr_t *pointer)
 {
-    *count = 0;
-    p->pointers.valid = p->strings.valid = 0;
+    if (index > (UINTPTR_MAX - (uintptr_t)source) / sizeof(*source)) return -EFAULT;
+    uintptr_t address = (uintptr_t)source + index * sizeof(*source);
+    size_t copied = 0;
+    // Also accept an unaligned pointer table spanning two readable pages.
+    while (copied < sizeof(*pointer)) {
+        const unsigned char *bytes; size_t n;
+        if (address > UINTPTR_MAX - copied) return -EFAULT;
+        long r = source_bytes(&p->pointers, address + copied, &bytes, &n);
+        if (r) return r;
+        if (n > sizeof(*pointer) - copied) n = sizeof(*pointer) - copied;
+        dl_copy((char *)pointer + copied, bytes, n); copied += n;
+    }
+    return 0;
+}
+
+static long vector_count(struct preparation *p, char *const *source, size_t *count)
+{
+    *count = 0; p->pointers.valid = 0;
     if (!source) return 0;
     for (;;) {
         uintptr_t pointer;
-        size_t copied = 0;
-        // Also accept an unaligned pointer table spanning two readable pages.
-        while (copied < sizeof(pointer)) {
-            const unsigned char *bytes; size_t n;
-            if ((uintptr_t)source > UINTPTR_MAX - copied) return -EFAULT;
-            long r = source_bytes(&p->pointers, (uintptr_t)source + copied, &bytes, &n);
-            if (r) return r;
-            if (n > sizeof(pointer) - copied) n = sizeof(pointer) - copied;
-            dl_copy((char *)&pointer + copied, bytes, n); copied += n;
-        }
+        long r = vector_pointer(p, source, *count, &pointer); if (r) return r;
         if (!pointer) return 0;
-        if (*count == limit) return -E2BIG;
-        long r = stack_string(p, (void *)pointer, out + (*count)++, &p->strings); if (r) return r;
-        if ((uintptr_t)source > UINTPTR_MAX - sizeof(pointer)) return -EFAULT;
-        source++;
+        if (*count == INT32_MAX) return -E2BIG;
+        ++*count;
     }
+}
+
+static long vector(struct preparation *p, char *const *source, uintptr_t *out, size_t count)
+{
+    p->pointers.valid = p->strings.valid = 0;
+    // argv[0] is last on the downward-growing string stack. A shebang can
+    // reclaim it just as remove_arg_zero() does, including at the byte limit.
+    while (count) {
+        uintptr_t pointer; --count;
+        long r = vector_pointer(p, source, count, &pointer); if (r) return r;
+        r = stack_string(p, (void *)pointer, out + count, &p->strings); if (r) return r;
+    }
+    return 0;
+}
+
+static long argument_limit(size_t *limit)
+{
+    struct rlimit stack;
+    long r = DL_CALL(SYS_prlimit64, 0, RLIMIT_STACK, 0, &stack, 0, 0); if (r) return r;
+    *limit = stack.rlim_cur / 4;
+    if (*limit > ARG_BYTES_MAX) *limit = ARG_BYTES_MAX;
+    if (*limit < ARG_BYTES_MIN) *limit = ARG_BYTES_MIN;
+    return 0;
+}
+
+static long allocate_vectors(struct preparation *p)
+{
+    p->argv_capacity = (p->argc ? p->argc : 1) + SCRIPT_EXTRA_ARGS;
+    long memory = dl_scratch_map(dl_thread_scratch(),
+        (p->argv_capacity + p->envc) * sizeof(uintptr_t), PROT_READ | PROT_WRITE);
+    if (memory < 0) return memory;
+    p->argv = (void *)memory; p->env = p->argv + p->argv_capacity;
+    return 0;
+}
+
+static long prepare_arguments(struct preparation *p, char *const *argv, char *const *env)
+{
+    long r = vector_count(p, argv, &p->argc); if (r) return r;
+    r = vector_count(p, env, &p->envc); if (r) return r;
+    size_t limit; r = argument_limit(&limit); if (r) return r;
+    size_t pointers = ((p->argc ? p->argc : 1) + p->envc) * sizeof(uintptr_t);
+    if (pointers >= limit) return -E2BIG;
+    p->string_limit = limit - pointers;
+    r = allocate_vectors(p); if (r) return r;
+    r = stack_string(p, p->path, &p->execfn, NULL); if (r) return r;
+    r = vector(p, env, p->env, p->envc); if (r) return r;
+    r = vector(p, argv, p->argv, p->argc); if (r) return r;
+    if (!p->argc) { p->argc = 1; r = stack_string(p, "", &p->argv[0], NULL); }
+    return r;
 }
 
 static uintptr_t finish_stack(struct preparation *p)
 {
+    // Argument limits reserve the Linux pointer budget; auxv and alignment
+    // fit in the remaining loader stack but still check before committing.
+    size_t overhead = (1 + p->argc + 1 + p->envc + 1) * sizeof(uintptr_t) +
+        24 * sizeof(Elf64_auxv_t) + 16 + sizeof("aarch64") + 15;
+    if ((size_t)(p->top - p->stack) < overhead) return 0;
     p->top -= 16;
     if (DL_CALL(SYS_getrandom, p->top, 16, 0, 0, 0, 0) != 16) return 0;
     uintptr_t random = (uintptr_t)p->top;
@@ -424,6 +488,7 @@ static long protect_image(int dirfd, const char *path, int flags, struct image *
 
 static void dispose_preparation(struct preparation *p)
 {
+    if (p->argv) dl_scratch_unmap(p->argv);
     dl_lock(&dl_files_lock);
     if (p->interpreter_slot >= 0) { dl_io_release((unsigned)p->interpreter_slot); p->interpreter.source_fd = -1; }
     if (p->main_slot >= 0) { dl_io_release((unsigned)p->main_slot); p->main.source_fd = -1; }
@@ -461,11 +526,14 @@ static long script_arguments(struct preparation *p, int inaccessible)
     // Linux rejects a script whose generated /dev/fd path will disappear at
     // exec. Do this before committing or changing any guest descriptor flags.
     if (inaccessible) return -ENOENT;
-    if (p->argc + 1 + optional > ARG_LIMIT) return -E2BIG;
+    if (p->argc + 1 + optional > p->argv_capacity) return -E2BIG;
+    // The kernel only reserves the original argv/env pointer budget, then
+    // replaces argv[0] and pushes interpreter arguments against that budget.
+    p->top += dl_length((char *)p->argv[0]) + 1;
     uintptr_t script, interpreter, option = 0;
     long r = stack_string(p, p->path, &script, NULL); if (r) return r;
-    r = stack_string(p, line + start, &interpreter, NULL); if (r) return r;
     if (optional) { r = stack_string(p, line + next, &option, NULL); if (r) return r; }
+    r = stack_string(p, line + start, &interpreter, NULL); if (r) return r;
     for (size_t i = p->argc; i > 1; i--) p->argv[i + optional] = p->argv[i - 1];
     p->argv[0] = interpreter;
     if (optional) p->argv[1] = option;
@@ -538,7 +606,7 @@ static long install_image(struct preparation *p, struct dl_entry *entry, unsigne
     p->stack = NULL; times[6] = profile_clock(); return 0;
 }
 
-#define HANDOFF_MAGIC 0x31464f444e414c44ULL
+#define HANDOFF_MAGIC 0x32464f444e414c44ULL
 struct handoff {
     uint64_t magic;
     size_t string_size;
@@ -560,6 +628,20 @@ static long write_all(int fd, const void *data, size_t size)
     return 0;
 }
 
+static long write_offsets(int fd, const uintptr_t *pointers, size_t count, uintptr_t base)
+{
+    // Stream bounded chunks, including in a borrowed vfork arena: retaining
+    // a second worst-case pointer table would exceed the arena's peak budget.
+    uintptr_t offsets[256];
+    while (count) {
+        size_t n = count < 256 ? count : 256;
+        for (size_t i = 0; i < n; i++) offsets[i] = pointers[i] - base;
+        long r = write_all(fd, offsets, n * sizeof(*offsets)); if (r) return r;
+        pointers += n; count -= n;
+    }
+    return 0;
+}
+
 static long kernel_exec(struct preparation *p, const struct dl_entry *entry)
 {
     long address = dl_scratch_map(dl_thread_scratch(), sizeof(struct handoff), PROT_READ | PROT_WRITE);
@@ -571,8 +653,7 @@ static long kernel_exec(struct preparation *p, const struct dl_entry *entry)
     dl_copy(wire->root, dl_state.root, DL_PATH);
     dl_copy(&wire->prepared, p, sizeof(*p));
     wire->string_size = (size_t)(p->stack + STACK_SIZE - p->top);
-    for (size_t i = 0; i < p->argc; i++) wire->prepared.argv[i] -= (uintptr_t)p->top;
-    for (size_t i = 0; i < p->envc; i++) wire->prepared.env[i] -= (uintptr_t)p->top;
+    wire->prepared.argv = wire->prepared.env = NULL;
     wire->prepared.execfn -= (uintptr_t)p->top;
     wire->prepared.stack = wire->prepared.top = NULL;
     wire->prepared.pointers = wire->prepared.strings = (struct source_page){0};
@@ -588,6 +669,8 @@ static long kernel_exec(struct preparation *p, const struct dl_entry *entry)
     // Data only: no executable memfd or writable-data kernel executable.
     r = DL_CALL(SYS_fchmod, fd, 0600, 0, 0, 0, 0);
     if (!r) r = write_all((int)fd, wire, sizeof(*wire));
+    if (!r) r = write_offsets((int)fd, p->argv, p->argc, (uintptr_t)p->top);
+    if (!r) r = write_offsets((int)fd, p->env, p->envc, (uintptr_t)p->top);
     if (!r) r = write_all((int)fd, p->top, wire->string_size);
     if (!r) r = DL_CALL(SYS_fcntl, fd, F_ADD_SEALS, F_SEAL_SEAL | F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK, 0, 0, 0);
     if (!r) {
@@ -646,15 +729,22 @@ long dl_exec_resume(int fd, struct dl_entry *entry)
     long r = read_exact(fd, wire, sizeof(*wire), 0, NULL);
     struct preparation *saved = &wire->prepared;
     struct stat st;
-    if (!r && (wire->magic != HANDOFF_MAGIC || wire->string_size > STACK_SIZE || !wire->string_size ||
-            !saved->argc || saved->argc > ARG_LIMIT || saved->envc > ENV_LIMIT || wire->root_fd < 0 ||
+    size_t limit = 0;
+    if (!r) r = argument_limit(&limit);
+    if (!r && (wire->magic != HANDOFF_MAGIC || !wire->string_size ||
+            saved->string_limit > limit || wire->string_size > saved->string_limit ||
+            !saved->argc || saved->argc > limit / sizeof(uintptr_t) + SCRIPT_EXTRA_ARGS ||
+            saved->envc > limit / sizeof(uintptr_t) ||
+            (saved->argc + saved->envc) * sizeof(uintptr_t) + wire->string_size >
+                limit + SCRIPT_EXTRA_ARGS * sizeof(uintptr_t) || wire->root_fd < 0 ||
             saved->main.source_fd < 0 || saved->main.source_fd == wire->root_fd ||
             saved->interpreter.source_fd < -1 || saved->interpreter.source_fd == saved->main.source_fd ||
             saved->interpreter.source_fd == wire->root_fd || wire->root_fd == fd ||
             saved->main.source_fd == fd || saved->interpreter.source_fd == fd ||
             !terminated(wire->root, DL_PATH) || wire->root[0] != '/' || dl_equal(wire->root, "/") ||
             !terminated(saved->path, sizeof(saved->path)) || (wire->flags & ~7) ||
-            DL_CALL(SYS_fstat, fd, &st, 0, 0, 0, 0) || st.st_size != (long)(sizeof(*wire) + wire->string_size))) r = -EINVAL;
+            DL_CALL(SYS_fstat, fd, &st, 0, 0, 0, 0) || st.st_size != (long)(sizeof(*wire) +
+                (saved->argc + saved->envc) * sizeof(uintptr_t) + wire->string_size))) r = -EINVAL;
     if (r) goto done;
     dl_state.root_fd = wire->root_fd;
     dl_copy(dl_state.root, wire->root, DL_PATH);
@@ -664,23 +754,35 @@ long dl_exec_resume(int fd, struct dl_entry *entry)
     if (memory < 0) { r = memory; goto done; }
     struct preparation *p = (void *)memory;
     p->main_slot = p->interpreter_slot = -1; p->main.source_fd = p->interpreter.source_fd = -1;
+    p->argc = saved->argc; p->envc = saved->envc; p->string_limit = saved->string_limit;
     unsigned long times[8] = {0}, costs[5] = {0}; times[0] = profile_clock();
+    r = allocate_vectors(p); if (r) goto prepared;
+    size_t offset = sizeof(*wire);
+    r = read_exact(fd, p->argv, p->argc * sizeof(uintptr_t), offset, NULL); if (r) goto prepared;
+    offset += p->argc * sizeof(uintptr_t);
+    r = read_exact(fd, p->env, p->envc * sizeof(uintptr_t), offset, NULL); if (r) goto prepared;
+    offset += p->envc * sizeof(uintptr_t);
     long mapping = dl_scratch_map(dl_thread_scratch(), STACK_SIZE + 2 * dl_state.page, PROT_NONE);
     if (mapping < 0) { r = mapping; goto prepared; }
     p->stack = (char *)mapping + dl_state.page;
     p->top = p->stack + STACK_SIZE - wire->string_size;
     r = DL_CALL(SYS_mprotect, p->stack, STACK_SIZE, PROT_READ | PROT_WRITE, 0, 0, 0); if (r) goto prepared;
-    r = read_exact(fd, p->top, wire->string_size, sizeof(*wire), NULL); if (r) goto prepared;
-    p->argc = saved->argc; p->envc = saved->envc;
+    r = read_exact(fd, p->top, wire->string_size, offset, NULL); if (r) goto prepared;
+    p->execfn = saved->execfn;
+    size_t expected_offset = 0;
     for (unsigned vector = 0; vector < 3 && !r; vector++) {
         size_t count = vector == 0 ? p->argc : vector == 1 ? p->envc : 1;
-        uintptr_t *from = vector == 0 ? saved->argv : vector == 1 ? saved->env : &saved->execfn;
         uintptr_t *to = vector == 0 ? p->argv : vector == 1 ? p->env : &p->execfn;
         for (size_t i = 0; i < count; i++) {
-            if (from[i] >= wire->string_size || !terminated(p->top + from[i], wire->string_size - from[i])) { r = -EINVAL; break; }
-            to[i] = (uintptr_t)p->top + from[i];
+            if (to[i] != expected_offset || to[i] >= wire->string_size) { r = -EINVAL; break; }
+            size_t maximum = wire->string_size - to[i];
+            if (maximum > 32 * dl_state.page) maximum = 32 * dl_state.page;
+            if (!terminated(p->top + to[i], maximum)) { r = -EINVAL; break; }
+            to[i] += (uintptr_t)p->top;
+            expected_offset += dl_length((char *)to[i]) + 1;
         }
     }
+    if (expected_offset != wire->string_size) r = -EINVAL;
     if (r) goto prepared;
     dl_copy(p->path, saved->path, sizeof(p->path)); times[1] = profile_clock();
     r = read_image_fd(saved->main.source_fd, &p->main, 0);
@@ -739,10 +841,7 @@ long dl_execat(int dirfd, const char *path, char *const *argv, char *const *env,
     if (stack < 0) { r = stack; goto done; }
     p->stack = (char *)stack + dl_state.page; p->top = p->stack + STACK_SIZE;
     r = DL_CALL(SYS_mprotect, p->stack, STACK_SIZE, PROT_READ | PROT_WRITE, 0, 0, 0); if (r) goto done;
-    r = vector(p, argv, p->argv, &p->argc, ARG_LIMIT); if (r) goto done;
-    r = vector(p, env, p->env, &p->envc, ENV_LIMIT); if (r) goto done;
-    if (!p->argc) { p->argc = 1; r = stack_string(p, "", &p->argv[0], NULL); if (r) goto done; }
-    r = stack_string(p, p->path, &p->execfn, NULL); if (r) goto done;
+    r = prepare_arguments(p, argv, env); if (r) goto done;
     times[1] = profile_clock();
     uintptr_t runtime_stack; __asm__ volatile("mov %0, sp" : "=r"(runtime_stack));
     for (unsigned depth = 0;; depth++) {

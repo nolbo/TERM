@@ -329,9 +329,11 @@ static long name_change(long nr, unsigned long *a)
     long r = dl_string(path, source); if (r) return r;
     long parent = walk(dirfd, path, 0, 0, first, NULL);
     if (parent < 0) return parent;
-    r = dl_device_change((int)parent, first, nr != SYS_mkdirat && nr != SYS_symlinkat);
+    r = dl_device_change((int)parent, first,
+        nr != SYS_mkdirat && nr != SYS_mknodat && nr != SYS_symlinkat);
     if (r) { release((int)parent); return r; }
-    if (nr == SYS_mkdirat || nr == SYS_unlinkat) r = DL_CALL(nr, parent, first, a[2], 0, 0, 0);
+    if (nr == SYS_mkdirat || nr == SYS_unlinkat || nr == SYS_mknodat)
+        r = DL_CALL(nr, parent, first, a[2], nr == SYS_mknodat ? a[3] : 0, 0, 0);
     else if (nr == SYS_symlinkat) {
         r = dl_string(path, (void *)a[0]);
         if (!r) r = DL_CALL(nr, path, parent, first, 0, 0, 0);
@@ -348,6 +350,57 @@ static long name_change(long nr, unsigned long *a)
         }
     }
     release((int)parent); return r;
+}
+
+static long hardlink(unsigned long *a)
+{
+    unsigned flags = (unsigned)a[4];
+    if (flags & ~(AT_SYMLINK_FOLLOW | AT_EMPTY_PATH)) return -EINVAL;
+    char path[DL_PATH], leaf[DL_PATH];
+    long r = dl_string(path, (void *)a[1]); if (r) return r;
+    int empty = !path[0] && (flags & AT_EMPTY_PATH);
+    long pin;
+    if (empty) {
+        if ((int)a[0] < 0 || dl_internal_fd((int)a[0])) return -EBADF;
+        pin = DL_CALL(SYS_fcntl, a[0], F_DUPFD_CLOEXEC, 0, 0, 0, 0);
+    } else {
+        int alias; const char *tail;
+        // The synthetic proc magic link belongs to a different filesystem;
+        // linking the link itself must never expose its host proc inode.
+        if (!(flags & AT_SYMLINK_FOLLOW) && fd_alias(path, &alias, &tail) && !*tail) {
+            if (alias < 0 || dl_internal_fd(alias)) return -ENOENT;
+            r = DL_CALL(SYS_fcntl, alias, F_GETFD, 0, 0, 0, 0);
+            return r == -EBADF ? -ENOENT : r < 0 ? r : -EXDEV;
+        }
+        pin = dl_open((int)a[0], path,
+            O_PATH | O_CLOEXEC | ((flags & AT_SYMLINK_FOLLOW) ? 0 : O_NOFOLLOW), 0);
+    }
+    if (pin < 0) return pin;
+    // Fixed /dev devices and inherited host descriptors cannot acquire names
+    // inside the guest. Ordinary guest inodes retain real kernel nlink, inode
+    // identity, metadata and persistence without a second metadata database.
+    r = dl_file_path((int)pin, path);
+    if (!r) r = dl_string(path, (void *)a[3]);
+    if (!r) {
+        long parent = walk((int)a[2], path, 0, 0, leaf, NULL);
+        if (parent < 0) r = parent;
+        else {
+            r = dl_device_change((int)parent, leaf, 0);
+            if (!r && empty) {
+                // Preserve the host kernel's AT_EMPTY_PATH capability policy,
+                // including its error for a deleted, un-linkable inode.
+                r = DL_CALL(SYS_linkat, pin, "", parent, leaf, flags, 0);
+            } else if (!r) {
+                // Following a proc FD magic link selects the pinned inode,
+                // including a pinned O_PATH|O_NOFOLLOW symlink itself. The
+                // original final symlink has already been handled in dl_open.
+                dl_fd_path(path, (int)pin);
+                r = DL_CALL(SYS_linkat, AT_FDCWD, path, parent, leaf, AT_SYMLINK_FOLLOW, 0);
+            }
+            release((int)parent);
+        }
+    }
+    release((int)pin); return r;
 }
 
 static long attributes(long nr, unsigned long *a)
@@ -397,7 +450,9 @@ long dl_filesystem(long nr, unsigned long *a, void *context)
     case SYS_getxattr: case SYS_lgetxattr: case SYS_setxattr: case SYS_lsetxattr:
     case SYS_listxattr: case SYS_llistxattr: case SYS_removexattr: case SYS_lremovexattr:
         return attributes(nr, a);
-    case SYS_mkdirat: case SYS_unlinkat: case SYS_renameat: case SYS_renameat2: case SYS_symlinkat:
+    case SYS_linkat: return hardlink(a);
+    case SYS_mkdirat: case SYS_mknodat: case SYS_unlinkat:
+    case SYS_renameat: case SYS_renameat2: case SYS_symlinkat:
         return name_change(nr, a);
     case SYS_openat:
         r = dl_string(path, (void *)a[1]); if (r) return r;

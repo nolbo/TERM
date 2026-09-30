@@ -249,6 +249,15 @@ nonleader의 새 VM을 관찰하기 전 종료하면 record가 남을 수 있다
 변경 도중 SIGKILL, 초기화 실패, FD snapshot, vfork 부모 정지, process별 상태와
 guest shared-VM dispatcher 연결도 남아 있어 C04 전체 완료는 아니다.
 
+## 2026-09-30: 실제 spawn과 C07/C18/C20 기능 확장
+
+[구현·제약·재현](SPAWN_COMPATIBILITY.md), [통합 실행 기록](results/spawn-compatibility-runtime-2026-09-30.json).
+실제 CLONE_VM|CLONE_VFORK, private FD/sighand/process, 부모 예약 arena와 kernel 완료 후 회수로 glibc vfork/posix_spawn을 연결했다. 부모 소유 잠금 handoff와 SIGKILL 경계, 병행 PATH spawn, Python subprocess 모드를 검증했다. C07은 Linux RLIMIT_STACK·pointer/문자열 예산으로 고정 인자 수 제한을 제거하고 native/Direct 정적·동적 각각 104개 조건을 대조했다. timer/queue/signalfd/timerfd와 process 소유권, 실제 hardlink/FIFO/node 생성 및 재시작 내구성도 구현했다.
+
+canonical 빌드·단위 테스트(runtime 186 pass/1 skip, image 4 pass), native 감사와 호스트 통합 20 suite가 통과했다. Android 전체 32.967초/3 tests/139회 상위 실행/741 fixture hash, kernel 재진입 200회가 통과했다. 신호 mask 상속 때문에 실패한 fixture 전제를 수정하고 차단 mask를 상속시킨 native 대조 및 Android 재검증을 기록했다.
+
+18회·54표본 shell 명령 30회 비교 중앙값은 이전 Direct 37.254 ms, 새 Direct 42.669 ms, 가속 PRoot 48.760 ms다. 새 Direct의 이전 대비 14.5% 회귀와 PRoot 대비 12.5% 개선을 함께 기록한다. 전체 앱 성능의 대체 증거가 아니다. 일반 CLONE_VM/clone3, 예약된 SIGSYS, enforcing 기기 hardlink 정책과 전체 C01–C45 범위는 남아 있다.
+
 ## 전체 목표 추적
 
 각 행의 원래 완료 조건은 감사 문서의 같은 ID를 따른다. 현 기기의 통과를
@@ -259,10 +268,10 @@ stock enforcing/다른 페이지 크기/모든 앱에 일반화하지 않는다.
 | C01 | stock Android 정책 | 미완료: enforcing 기기 필요. |
 | C02 | 페이지·커널·Bionic 차이 | 미완료: 16 KiB, 지원 버전·커널 matrix. |
 | C03 | pthread | 부분 구현·실행 검증: 기본 pthread/Python 통과. clone3/rseq/PI·추가 cancellation/CPU migration 남음. |
-| C04 | spawn/vfork | 진행: signal/준비 메모리 소유권, TGID·exec 전환과 관찰된 VM 이탈 회수, 실제 CLONE_VM 구성요소 검사 추가. guest spawn, 관찰 불가능한 이탈·process 상태·vfork 잠금·변경 중 사망 복구·전체 libc 의미는 미완료. |
+| C04 | spawn/vfork | 실제 shared-VM vfork·glibc posix_spawn[p]·Python subprocess 구현 및 host/Android 검증. SIGKILL·잠금 handoff·parent arena 회수 검사 추가. clone3·일반 CLONE_VM·중첩 생성·vfork의 임의 VM 변경과 전체 조합은 미완료. |
 | C05 | thread 수명·병행 exec | 다중 thread/nonleader/leader 선종료 fork·exec, kernel 거부 복원, 비공유 FD clone 검증. 전체 FD/FS/생성 실패·장시간 조합은 미완료. |
 | C06 | execveat/fexecve | 현재 환경 구현·host native 비교·Android 검증 완료: 빈/상대 경로, O_PATH/unlink, script+CLOEXEC, errno·실패 복원. C01/C02 플랫폼 gate는 별도. |
-| C07 | argv/env 한도 | 미완료. |
+| C07 | argv/env 한도 | 현 구현·host/Android 검증 완료: RLIMIT_STACK·pointer/문자열 비용·32-page 문자열·가변 argv/env·shebang 공간 회수·EFAULT, native 대조 104조건. C01/C02의 플랫폼 matrix는 별도 미완료. |
 | C08 | ELF 허용 범위 | 미완료: 큰 ELF/다양한 linker/CPU property. |
 | C09 | 실행 권한·동시 쓰기 | 미완료: 가상 mode와 ETXTBSY 수명. |
 | C10 | exec 전체 상태 | 병행 exec의 kernel 교체와 precommit/커널 거부 복원 검증. 전체 reset 계약·postcommit 실패 matrix는 미완료. |
@@ -273,9 +282,9 @@ stock enforcing/다른 페이지 크기/모든 앱에 일반화하지 않는다.
 | C15 | guest altstack | 미완료. |
 | C16 | guest SIGSYS | 미완료. |
 | C17 | signal context/restart | GP PC/SP/결과 노출·편집, 취소 unwind와 재시작 일부 검증. SVE/SME·전체 setcontext/manual frame·stop/continue·restart_syscall은 미완료. |
-| C18 | timer·queued signal | 미완료. |
+| C18 | timer·queued signal | timer/queue/signalfd/timerfd 및 fork/exec/process/thread 수명 구현·host/Android 검증. 예약 SIGSYS(C16)와 vfork 자식 POSIX timer API 제한은 미완료. |
 | C19 | identity·소유권 | 미완료. |
-| C20 | hardlink/FIFO/node | 미완료: FIFO 검사는 host가 fixture를 준비한 것이며 guest mkfifo 구현이 아님. |
+| C20 | hardlink/FIFO/node | 실제 hardlink·guest mkfifo·일반/socket inode·내구성 구현·host/Android 검증. char/block은 kernel EPERM 보존. enforcing hardlink 정책 및 필요한 가상 metadata 대안은 미완료. |
 | C21 | 최신 pathname API | 미완료. |
 | C22 | ACL/xattr/경쟁 | 미완료. |
 | C23 | guest proc | 미완료: guest-root FD 파일의 `/proc/self/fd/N` 별칭 추가. 전체 proc/열거/magic-link/익명 FD는 남음. |
@@ -302,5 +311,4 @@ stock enforcing/다른 페이지 크기/모든 앱에 일반화하지 않는다.
 | C44 | kernel 기능 범위 | 미완료: syscall별 가능/제한/플랫폼 불가 분류와 증거 필요. |
 | C45 | 회귀/비교 기준 | 진행: thread/매핑/FD 회귀와 reference 실패 기록 추가. 전체 matrix 미완료. |
 
-다음 구현은 C04의 실제 shared-VM spawn/vfork와 추가 C05/C26·C14/C17 조합으로
-이어간다. 전체 목표는 계속 진행 중이다.
+다음 구현은 남은 process/메모리/파일 의미와 실제 Debian package cycle의 선행 조건으로 이어간다. 전체 목표는 계속 진행 중이다.

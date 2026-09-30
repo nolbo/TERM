@@ -11,6 +11,39 @@
 #define SYS_BIT (1UL << (SIGSYS - 1))
 #define UNBLOCKABLE ((1UL << (SIGKILL - 1)) | (1UL << (SIGSTOP - 1)))
 struct action { uintptr_t handler, flags, restorer; unsigned long mask; };
+struct dl_timer { struct dl_timer *next; int id; };
+struct dl_process {
+    unsigned lock, references;
+    int timer_owner;
+    struct dl_timer *timers;
+};
+static struct dl_process initial_process = {.references = 1};
+struct dl_process *dl_process_initial(void) { return &initial_process; }
+unsigned *dl_process_lock(struct dl_process *process) { return &process->lock; }
+void dl_process_retain(struct dl_process *process)
+{
+    __atomic_add_fetch(&process->references, 1, __ATOMIC_RELAXED);
+}
+void dl_process_release(struct dl_process *process)
+{
+    if (!process) return;
+    if (!__atomic_sub_fetch(&process->references, 1, __ATOMIC_ACQ_REL) && process != &initial_process) {
+        while (process->timers) {
+            struct dl_timer *timer = process->timers; process->timers = timer->next;
+            DL_CALL(SYS_munmap, timer, sizeof(*timer), 0, 0, 0, 0);
+        }
+        DL_CALL(SYS_munmap, process, sizeof(*process), 0, 0, 0, 0);
+    }
+}
+long dl_process_new(struct dl_process **result)
+{
+    long mapping = DL_CALL(SYS_mmap, 0, sizeof(struct dl_process), PROT_READ | PROT_WRITE,
+        MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    if (mapping < 0) return mapping;
+    struct dl_process *process = (void *)mapping;
+    process->references = 1;
+    *result = process; return 0;
+}
 // Kernel CLONE_VM does not imply CLONE_SIGHAND. Keep the emulated handler,
 // transport mask bits and exec-reset candidates in the same sharing domain as
 // the kernel's dispositions, independently of the shared address space.
@@ -47,11 +80,38 @@ long dl_sighand_copy(struct dl_sighand *source, struct dl_sighand **result)
     *result = copy; return 0;
 }
 
+// Caller holds the table lock. Never delete IDs copied by fork: they belong
+// to the parent, and may already have been reused by a new child timer.
+static void timer_owner(struct dl_process *table)
+{
+    int pid = (int)DL_CALL(SYS_getpid, 0, 0, 0, 0, 0, 0);
+    if (table->timer_owner == pid) return;
+    while (table->timers) {
+        struct dl_timer *timer = table->timers; table->timers = timer->next;
+        DL_CALL(SYS_munmap, timer, sizeof(*timer), 0, 0, 0, 0);
+    }
+    table->timer_owner = pid;
+}
+
 long dl_signal_reset_exec(void)
 {
     struct dl_sighand *table = dl_thread_self()->sighand;
     dl_lock(&table->lock);
+    struct dl_process *process = dl_thread_self()->process;
+    dl_lock(&process->lock);
     long r = 0;
+    timer_owner(process);
+    // A kernel exec deletes POSIX timers. The in-process image replacement
+    // must do the same, while preserving setitimer and non-CLOEXEC timerfds.
+    while (process->timers) {
+        struct dl_timer *timer = process->timers;
+        r = DL_CALL(SYS_timer_delete, timer->id, 0, 0, 0, 0, 0);
+        if (r && r != -EINVAL) { dl_unlock(&process->lock); dl_unlock(&table->lock); return r; }
+        process->timers = timer->next;
+        DL_CALL(SYS_munmap, timer, sizeof(*timer), 0, 0, 0, 0);
+    }
+    dl_unlock(&process->lock);
+    r = 0;
     for (int signal = 1; signal <= 64; signal++) {
         unsigned long bit = 1UL << (signal - 1);
         if (!(table->exec_candidates & bit) || signal == SIGKILL || signal == SIGSTOP || signal == SIGSYS) continue;
@@ -64,6 +124,81 @@ long dl_signal_reset_exec(void)
         }
     }
     if (!r) table->exec_candidates = 0;
+    dl_unlock(&table->lock); return r;
+}
+
+long dl_signal_event(long nr, unsigned long a[6])
+{
+    if (nr == SYS_rt_sigqueueinfo || nr == SYS_rt_tgsigqueueinfo) {
+        unsigned signal = (unsigned)a[nr == SYS_rt_sigqueueinfo ? 1 : 2];
+        // The physical SIGSYS disposition belongs exclusively to seccomp.
+        // Do not let a user-generated queue enter it as a transport frame.
+        if (signal == SIGSYS) return -EOPNOTSUPP;
+        return DL_CALL(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+    }
+    if (nr == SYS_signalfd4) {
+        unsigned long mask;
+        if (a[2] != 8) return -EINVAL;
+        long r = dl_read_memory(&mask, (void *)a[1], 8); if (r) return r;
+        if (mask & SYS_BIT) return -EOPNOTSUPP;
+        dl_lock(&dl_files_lock);
+        r = (int)a[0] != -1 && dl_internal_fd((int)a[0]) ? -EBADF :
+            DL_CALL(nr, a[0], &mask, 8, a[3], 0, 0);
+        dl_unlock(&dl_files_lock); return r;
+    }
+    if (nr == SYS_timerfd_create) {
+        dl_lock(&dl_files_lock);
+        long r = DL_CALL(nr, a[0], a[1], 0, 0, 0, 0);
+        dl_unlock(&dl_files_lock); return r;
+    }
+    if (nr == SYS_timerfd_settime || nr == SYS_timerfd_gettime) {
+        if (dl_internal_fd((int)a[0])) return -EBADF;
+        return DL_CALL(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+    }
+    if (nr == SYS_getitimer || nr == SYS_setitimer)
+        return DL_CALL(nr, a[0], a[1], a[2], 0, 0, 0);
+
+    // A vfork child can be killed at any instruction while sharing this VM.
+    // Only its bounded exec preparation is supported; timer allocation must
+    // never abandon a lock or partially linked record in the parent's VM.
+    if (dl_thread_vfork()) return -EOPNOTSUPP;
+    struct dl_process *table = dl_thread_self()->process;
+    dl_lock(&table->lock);
+    timer_owner(table);
+    long r;
+    if (nr == SYS_timer_create) {
+        // Linux AArch64 UAPI is a 64-byte object; libc's timer_t is not the
+        // kernel's 32-bit timer ID. Copy once before validating the signal.
+        struct { uint64_t value; int signal, notify; unsigned char rest[48]; } event;
+        if (a[1]) {
+            r = dl_read_memory(&event, (void *)a[1], sizeof(event));
+            if (r) { dl_unlock(&table->lock); return r; }
+            if (event.notify != SIGEV_NONE && event.signal == SIGSYS) {
+                dl_unlock(&table->lock); return -EOPNOTSUPP;
+            }
+        }
+        r = DL_CALL(SYS_mmap, 0, sizeof(struct dl_timer), PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        if (r < 0) { dl_unlock(&table->lock); return r; }
+        struct dl_timer *timer = (void *)r;
+        r = DL_CALL(nr, a[0], a[1] ? &event : NULL, &timer->id, 0, 0, 0);
+        if (!r) {
+            r = dl_write_memory((void *)a[2], &timer->id, sizeof(timer->id));
+            if (r) DL_CALL(SYS_timer_delete, timer->id, 0, 0, 0, 0, 0);
+        }
+        if (r) DL_CALL(SYS_munmap, timer, sizeof(*timer), 0, 0, 0, 0);
+        else { timer->next = table->timers; table->timers = timer; }
+    } else {
+        r = DL_CALL(nr, a[0], a[1], a[2], a[3], a[4], a[5]);
+        if (!r && nr == SYS_timer_delete) {
+            struct dl_timer **link = &table->timers;
+            while (*link && (*link)->id != (int)a[0]) link = &(*link)->next;
+            if (*link) {
+                struct dl_timer *timer = *link; *link = timer->next;
+                DL_CALL(SYS_munmap, timer, sizeof(*timer), 0, 0, 0, 0);
+            }
+        }
+    }
     dl_unlock(&table->lock); return r;
 }
 struct frame { siginfo_t info; ucontext_t context; };

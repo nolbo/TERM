@@ -1,7 +1,7 @@
 # Direct Linux: 공유 VM의 task 관찰과 회수
 
 2026-09-30. C04의 선행 작업으로 process identity와 VM 이탈 관찰을 기존 task
-registry에 연결했다. **guest shared-VM clone/spawn은 여전히 지원하지 않는다.**
+registry에 연결했다. 이 선행 단계 이후 [실제 vfork/spawn](SPAWN_COMPATIBILITY.md)을 연결했으며, 그 경로는 proc 관찰 대신 kernel vfork 완료로 회수한다. 일반 shared-VM clone은 여전히 미지원이다.
 [실행 결과](results/tasks-runtime-2026-09-30.json)는 구성요소 검사와 실제 guest
 회귀를 구분한다. 전체 C01–C45 목표와 Rootless 대체 가능성은 미완료다.
 

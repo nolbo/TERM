@@ -12,7 +12,9 @@
 struct dl_state dl_state;
 static struct dl_scratch *scratch;
 struct dl_scratch **dl_thread_scratch(void) { return &scratch; }
-unsigned dl_memory_lock, dl_files_lock;
+unsigned dl_memory_lock;
+static unsigned file_lock;
+unsigned *dl_files_lock_current(void) { return &file_lock; }
 void dl_lock(unsigned *lock) { assert(!*lock); *lock = 1; }
 void dl_unlock(unsigned *lock) { assert(*lock); *lock = 0; }
 long dl_host_syscall(long n, long a, long b, long c, long d, long e, long f)
@@ -59,9 +61,16 @@ long dl_exec_begin(void) { assert(0); return 0; }
 void dl_exec_end(void) { assert(0); }
 void dl_exec_mark(int executing) { (void)executing; assert(0); }
 
+static long argument_snapshot(struct preparation *p, char *const *argv, char *const *env)
+{
+    if (p->argv) { dl_scratch_unmap(p->argv); p->argv = p->env = NULL; }
+    p->top = p->stack + STACK_SIZE;
+    return prepare_arguments(p, argv, env);
+}
+
 static void argument_snapshots(void)
 {
-    size_t page = dl_state.page, count;
+    size_t page = dl_state.page;
     struct preparation *p = calloc(1, sizeof(*p) + 2 * page); assert(p);
     p->pointers.bytes = p->source_pages; p->strings.bytes = p->source_pages + page;
     p->stack = mmap(NULL, STACK_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
@@ -71,50 +80,70 @@ static void argument_snapshots(void)
     char *text = data + 3 * page - 4; memcpy(text, "end", 4);
     char **table = (void *)(data + page);
     table[0] = text; table[1] = NULL;
-    assert(!vector(p, table, p->argv, &count, ARG_LIMIT));
-    assert(count == 1 && !strcmp((char *)p->argv[0], "end"));
+    assert(!argument_snapshot(p, table, NULL));
+    assert(p->argc == 1 && !strcmp((char *)p->argv[0], "end"));
     // Repeated strings/table entries reuse two snapshots within this vector.
-    for (int i = 0; i < ARG_LIMIT; i++) table[i] = text;
-    table[ARG_LIMIT] = NULL; memory_reads = 0;
-    assert(!vector(p, table, p->argv, &count, ARG_LIMIT) && count == ARG_LIMIT);
-    assert(memory_reads == 2);
-    for (size_t i = 0; i < count; i++) assert(!strcmp((char *)p->argv[i], "end"));
-    table[ARG_LIMIT] = text;
-    assert(vector(p, table, p->argv, &count, ARG_LIMIT) == -E2BIG);
+    for (int i = 0; i < 300; i++) table[i] = text;
+    table[300] = NULL; memory_reads = 0;
+    assert(!argument_snapshot(p, table, NULL) && p->argc == 300);
+    assert(memory_reads <= 6);
+    for (size_t i = 0; i < p->argc; i++) assert(!strcmp((char *)p->argv[i], "end"));
     // A new vector (including envp or a subsequent exec) must read fresh bytes.
     memcpy(text, "new", 4); table[0] = text; table[1] = NULL;
-    assert(!vector(p, table, p->env, &count, ENV_LIMIT));
-    assert(count == 1 && !strcmp((char *)p->env[0], "new"));
-    for (int i = 0; i < ENV_LIMIT; i++) table[i] = text;
-    table[ENV_LIMIT] = NULL;
-    assert(!vector(p, table, p->env, &count, ENV_LIMIT) && count == ENV_LIMIT);
-    assert(!vector(p, NULL, p->argv, &count, ARG_LIMIT) && !count);
+    assert(!argument_snapshot(p, NULL, table));
+    assert(p->envc == 1 && !strcmp((char *)p->env[0], "new"));
+    for (int i = 0; i < 300; i++) table[i] = text;
+    table[300] = NULL;
+    assert(!argument_snapshot(p, NULL, table) && p->envc == 300);
+    assert(!argument_snapshot(p, NULL, NULL) && p->argc == 1 && !*(char *)p->argv[0]);
     // Unaligned table entry straddles two accessible pages.
     char *cross = data + 2 * page - 3;
     memcpy(cross, &text, sizeof(text)); memset(cross + sizeof(text), 0, sizeof(text));
-    assert(!vector(p, (void *)cross, p->argv, &count, ARG_LIMIT));
-    assert(count == 1 && !strcmp((char *)p->argv[0], "new"));
+    assert(!argument_snapshot(p, (void *)cross, NULL));
+    assert(p->argc == 1 && !strcmp((char *)p->argv[0], "new"));
     // The terminating NULL can be the last word of a readable page.
     table = (void *)(data + 3 * page - sizeof(char *)); *table = NULL;
-    assert(!vector(p, table, p->argv, &count, ARG_LIMIT) && !count);
+    assert(!argument_snapshot(p, table, NULL) && p->argc == 1 && !*(char *)p->argv[0]);
     *table = data + page; strcpy(*table, "valid");
-    assert(vector(p, table, p->argv, &count, ARG_LIMIT) == -EFAULT);
+    assert(argument_snapshot(p, table, NULL) == -EFAULT);
     char *invalid[] = {data, NULL};
-    assert(vector(p, invalid, p->argv, &count, ARG_LIMIT) == -EFAULT);
-    assert(vector(p, (void *)1, p->argv, &count, ARG_LIMIT) == -EFAULT);
+    assert(argument_snapshot(p, invalid, NULL) == -EFAULT);
+    assert(argument_snapshot(p, (void *)1, NULL) == -EFAULT);
     // Nonterminated strings must fault instead of using bytes past a guard.
     text = data + 3 * page - 4; memset(text, 'x', 4);
     char *unterminated[] = {text, NULL};
-    assert(vector(p, unterminated, p->argv, &count, ARG_LIMIT) == -EFAULT);
-    char *large = mmap(NULL, 131072, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-    assert(large != MAP_FAILED); memset(large, 'a', 131072); large[131071] = 0;
+    assert(argument_snapshot(p, unterminated, NULL) == -EFAULT);
+    size_t maximum = 32 * page;
+    char *large = mmap(NULL, maximum, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(large != MAP_FAILED); memset(large, 'a', maximum); large[maximum - 1] = 0;
     char *long_vector[] = {large, NULL};
-    assert(!vector(p, long_vector, p->argv, &count, ARG_LIMIT) && count == 1);
-    assert(strlen((char *)p->argv[0]) == 131071 && !memcmp((char *)p->argv[0], large, 131072));
-    large[131071] = 'a';
-    assert(vector(p, long_vector, p->argv, &count, ARG_LIMIT) == -E2BIG);
-    assert(!munmap(large, 131072) && !munmap(data, 4 * page) && !munmap(p->stack, STACK_SIZE)); free(p);
-    puts("PASS exec argument snapshots, fresh vectors, limits, unaligned tables and guarded page boundaries");
+    assert(!argument_snapshot(p, long_vector, NULL) && p->argc == 1);
+    assert(strlen((char *)p->argv[0]) == maximum - 1 && !memcmp((char *)p->argv[0], large, maximum));
+    large[maximum - 1] = 'a';
+    assert(argument_snapshot(p, long_vector, NULL) == -E2BIG);
+    // Shebang rewriting must reclaim argv[0], not charge both the discarded
+    // giant string and the interpreter tuple at the original byte boundary.
+    large[maximum - 1] = 0;
+    strcpy(p->path, "/script");
+    char *script_vector[] = {large, "retained", NULL};
+    char *script_env[] = {"KEEP=value", NULL};
+    assert(!argument_snapshot(p, script_vector, script_env));
+    p->string_limit = (size_t)(p->stack + STACK_SIZE - p->top);
+    const char shebang[] = "#!/bin/interpreter optional argument\n";
+    memcpy(p->main.prefix, shebang, sizeof(shebang));
+    p->main.file_size = sizeof(shebang) - 1; p->main.source_fd = -1;
+    assert(!script_arguments(p, 0) && p->argc == 4);
+    assert(!strcmp((char *)p->argv[0], "/bin/interpreter"));
+    assert(!strcmp((char *)p->argv[1], "optional argument"));
+    assert(!strcmp((char *)p->argv[2], "/script") && !strcmp((char *)p->argv[3], "retained"));
+    assert(!strcmp((char *)p->env[0], "KEEP=value") && !strcmp((char *)p->execfn, "/script"));
+    uintptr_t next = (uintptr_t)p->top;
+    for (size_t i = 0; i < p->argc; i++) { assert(p->argv[i] == next); next += strlen((char *)next) + 1; }
+    assert(p->env[0] == next); next += strlen((char *)next) + 1;
+    assert(p->execfn == next && next + strlen((char *)next) + 1 == (uintptr_t)(p->stack + STACK_SIZE));
+    dl_scratch_unmap(p->argv);
+    assert(!munmap(large, maximum) && !munmap(data, 4 * page) && !munmap(p->stack, STACK_SIZE)); free(p);
+    puts("PASS exec argument snapshots, fresh vectors, limits, shebang reclamation, unaligned tables and guarded page boundaries");
 }
 
 int main(void)

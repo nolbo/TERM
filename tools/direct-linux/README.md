@@ -35,14 +35,19 @@ state and clean private pins across fork, private-table clone and interrupted un
 script FD paths and precommit CLOEXEC errors, checked against native Linux.
 [Signal-state ownership](SIGNAL_OWNERSHIP.md) separates shared VM from shared
 dispositions and verifies the component with real kernel clones on host/Android;
-guest shared-VM spawn remains unfinished.
+this was a component prerequisite for shared-VM spawn.
 [Preparation-memory ownership](SCRATCH_OWNERSHIP.md) tracks exec scratch mappings
 per task and transfers committed stacks to guest ownership. Real shared-VM
 component tests verify reclamation after exit and exec while a parent survives.
 [Task identity and departure observation](TASK_OWNERSHIP.md) connect TGID tracking,
 exec selection and conservative reclamation to the registry. Real shared-VM
 component tests cover exit, kill, leader/worker exec and unavailable proc data;
-unobserved transitions and interrupted mutations still block guest spawn support.
+unobserved transitions still constrain general shared-VM creation.
+[Spawn, argument, timer and filesystem compatibility](SPAWN_COMPATIBILITY.md)
+now implements real kernel vfork/posix_spawn with parent-owned preparation,
+Linux argument budgets, process-owned timers/queued signals, and actual hardlinks
+and guest-created FIFOs. General clone3/CLONE_VM, reserved SIGSYS and Android
+policy constraints remain explicit.
 It retains the full audit scope and remaining gates.
 
 The [Python/Git milestone](APPLICATIONS.md) and subsequent

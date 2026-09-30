@@ -217,8 +217,12 @@ int main(int argc, char **argv)
     CHECK(execve("/bin/true", (void *)1, env) == -1 && errno == EFAULT);
     char *invalid[] = {(void *)1, NULL};
     CHECK(execve("/bin/true", args, invalid) == -1 && errno == EFAULT);
-    char *excess[130]; for (int i = 0; i < 129; i++) excess[i] = "a"; excess[129] = NULL;
+    size_t maximum = 32 * (size_t)sysconf(_SC_PAGESIZE);
+    char *oversized = malloc(maximum + 1); CHECK(oversized);
+    memset(oversized, 'a', maximum); oversized[maximum] = 0;
+    char *excess[] = {oversized, NULL};
     CHECK(execve("/bin/true", excess, env) == -1 && errno == E2BIG);
+    free(oversized);
     CHECK(execve("/script-loop", args, env) == -1 && errno == ELOOP);
     CHECK(execve("/no-execute", args, env) == -1 && errno == EACCES);
     CHECK(fcntl(180, F_GETFD) == FD_CLOEXEC && value == 1234);

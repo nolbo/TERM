@@ -33,6 +33,10 @@ long dl_scratch_map(struct dl_scratch **owner, size_t size, int protection);
 void dl_scratch_unmap(void *address);
 void dl_scratch_detach(void *address);
 void dl_scratch_clear(struct dl_scratch **owner);
+// A vfork child borrows a parent-reserved arena. Reclaim its whole mapping
+// after kernel vfork completion, even if the child died during an allocation.
+long dl_scratch_reserve(struct dl_scratch **owner, size_t size);
+void dl_scratch_rewind(struct dl_scratch **owner);
 struct dl_scratch **dl_thread_scratch(void);
 struct dl_task_status { int tid; char state; uintptr_t start_stack; };
 // Raw host proc observation. Caller serializes descriptor creation with the
@@ -62,6 +66,7 @@ _Noreturn void dl_signal_return(void *context);
 long dl_signal_action(unsigned long args[6]);
 long dl_signal_reset_exec(void);
 long dl_signal_wait(long nr, unsigned long args[6], void *context);
+long dl_signal_event(long nr, unsigned long args[6]);
 void dl_signal_collect(uintptr_t stack);
 long dl_file_path(int fd, char out[DL_PATH]);
 // Caller supplies at least 40 bytes; fd < 0 names the live task's fd directory.

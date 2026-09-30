@@ -4,6 +4,7 @@
 #define _GNU_SOURCE
 #include <assert.h>
 #include <sched.h>
+#include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <sys/prctl.h>
@@ -111,7 +112,10 @@ static struct dl_thread *record(unsigned slot, struct dl_sighand *shared)
         assert(!dl_sighand_copy(threads[0].sighand, &t->sighand));
         dl_unlock(dl_sighand_lock(threads[0].sighand));
     }
-    t->files_id = 2;
+    if (shared) { t->process = threads[1].process; dl_process_retain(t->process); }
+    else assert(!dl_process_new(&t->process));
+    if (shared) { t->files = threads[1].files; files_retain(t->files); }
+    else assert(!files_create(&t->files));
     __atomic_store_n(&t->state, STARTING, __ATOMIC_RELEASE);
     return t;
 }
@@ -146,6 +150,103 @@ static void parser(void)
     puts("PASS bounded proc parsing: embedded parentheses/newline, signed fields, truncation and unchanged failure output");
 }
 
+struct handoff_job { unsigned locks[3], split, ready, held, recovered; int parent, error; };
+static int interrupted_handoff(void *opaque)
+{
+    struct handoff_job *job = opaque;
+    for (unsigned i = 0; i < job->split; i++) unlock_owned(job->locks + i, (unsigned)job->parent);
+    __atomic_store_n(&job->ready, 1, __ATOMIC_RELEASE);
+    spin(&job->held, 1);
+    DL_CALL(SYS_kill, DL_CALL(SYS_getpid, 0, 0, 0, 0, 0, 0), SIGKILL, 0, 0, 0, 0);
+    return 90;
+}
+static void *handoff_contender(void *opaque)
+{
+    struct handoff_job *job = opaque;
+    spin(&job->ready, 1);
+    unsigned *lock = job->split ? job->locks + job->split - 1 : NULL;
+    if (lock) dl_lock(lock);
+    __atomic_store_n(&job->held, 1, __ATOMIC_RELEASE);
+    spin(&job->recovered, 1);
+    if (lock) {
+        if ((__atomic_load_n(lock, __ATOMIC_RELAXED) & 0x7fffffffU) != (unsigned)DL_CALL(SYS_gettid, 0, 0, 0, 0, 0, 0))
+            job->error = 1;
+        dl_unlock(lock);
+    }
+    return NULL;
+}
+static void handoff_boundaries(void)
+{
+    const size_t size = 128 * 1024;
+    void *stack = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(stack != MAP_FAILED);
+    for (unsigned split = 0; split <= 3; split++) for (unsigned i = 0; i < 16; i++) {
+        struct handoff_job job = {.split = split, .parent = (int)DL_CALL(SYS_gettid, 0, 0, 0, 0, 0, 0)};
+        for (unsigned j = 0; j < 3; j++) dl_lock(job.locks + j);
+        pthread_t contender; assert(!pthread_create(&contender, NULL, handoff_contender, &job));
+        int pid = clone(interrupted_handoff, (char *)stack + size, CLONE_VM | CLONE_VFORK | SIGCHLD, &job);
+        assert(pid > 0);
+        for (unsigned j = 0; j < 3; j++) unlock_owned(job.locks + j, (unsigned)job.parent);
+        __atomic_store_n(&job.recovered, 1, __ATOMIC_RELEASE);
+        assert(!pthread_join(contender, NULL) && !job.error);
+        for (unsigned j = 0; j < 3; j++) assert(!job.locks[j]);
+        int status; assert(waitpid(pid, &status, 0) == pid && WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL);
+    }
+    assert(!munmap(stack, size));
+    puts("PASS 64 vfork SIGKILL handoff boundaries preserve locks acquired by another parent thread");
+}
+static void borrowed_arena(void)
+{
+    struct dl_scratch *arena = NULL;
+    assert(!dl_scratch_reserve(&arena, 32 * dl_state.page));
+    void *mapping = arena;
+    assert(dl_scratch_reserve(&arena, dl_state.page) == -EINVAL);
+    for (unsigned i = 0; i < 64; i++) {
+        long guarded = dl_scratch_map(&arena, 3 * dl_state.page, PROT_NONE); assert(guarded > 0);
+        assert(!mprotect((void *)(guarded + dl_state.page), dl_state.page, PROT_READ | PROT_WRITE));
+        *(unsigned char *)(guarded + dl_state.page) = 73;
+        assert(dl_scratch_map(&arena, 32 * dl_state.page, PROT_READ) == -ENOMEM);
+        assert(dl_scratch_map(&arena, dl_state.page, -1) == -EINVAL);
+        dl_scratch_unmap((void *)guarded);
+        dl_scratch_rewind(&arena);
+        long reused = dl_scratch_map(&arena, 3 * dl_state.page, PROT_READ | PROT_WRITE);
+        assert(reused == guarded && !*(unsigned char *)(reused + dl_state.page));
+        dl_scratch_rewind(&arena);
+    }
+    dl_scratch_clear(&arena); assert(!arena); unmapped(mapping);
+    puts("PASS borrowed arena bounds, guards, zeroed reuse, failed allocation and whole-owner reclamation");
+}
+
+static int snapshot_child(void *opaque)
+{
+    struct dl_thread *record = opaque;
+    free_snapshot(record, 1);
+    DL_CALL(SYS_kill, DL_CALL(SYS_getpid, 0, 0, 0, 0, 0, 0), SIGKILL, 0, 0, 0, 0);
+    return 91;
+}
+static void borrowed_snapshot(void)
+{
+    size_t size = 65536;
+    void *stack = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+    assert(stack != MAP_FAILED);
+    for (unsigned i = 0; i < 32; i++) {
+        int pipes[2]; assert(!pipe(pipes));
+        struct dl_fd_snapshot *copy = mmap(NULL, dl_state.page, PROT_READ | PROT_WRITE,
+            MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+        assert(copy != MAP_FAILED); copy->count = 1; copy->fds[0] = pipes[0];
+        struct dl_thread record = {.copied_fds = copy, .vfork_parent = (int)getpid()};
+        int pid = clone(snapshot_child, (char *)stack + size, CLONE_VM | CLONE_VFORK | SIGCHLD, &record);
+        assert(pid > 0 && record.copied_fds == copy);
+        unsigned char resident; assert(!mincore(copy, dl_state.page, &resident));
+        assert(fcntl(pipes[0], F_GETFD) >= 0);
+        free_snapshot(&record, 0); assert(!record.copied_fds); unmapped(copy);
+        int status; assert(waitpid(pid, &status, 0) == pid && WIFSIGNALED(status) && WTERMSIG(status) == SIGKILL);
+        assert(!close(pipes[0]) && !close(pipes[1]));
+    }
+    assert(!munmap(stack, size));
+    puts("PASS 32 killed vfork children retain immutable FD snapshots for parent-only reclamation");
+}
+
 int main(int argc, char **argv)
 {
     if (argc == 3 && !strcmp(argv[1], "--after-exec")) {
@@ -163,6 +264,9 @@ int main(int argc, char **argv)
     assert(!fclose(policy));
     alarm(50); dl_state.page = (size_t)sysconf(_SC_PAGESIZE);
     parser();
+    handoff_boundaries();
+    borrowed_arena();
+    borrowed_snapshot();
     void *parent_stack = mmap(NULL, dl_state.page, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     assert(parent_stack != MAP_FAILED);
     dl_thread_init(parent_stack, dl_state.page, parent_stack, dl_state.page);

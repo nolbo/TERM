@@ -16,11 +16,15 @@ struct dl_state dl_state;
 static pid_t owner;
 static struct dl_thread parent_thread, child_thread;
 static unsigned completed;
+static unsigned files_lock;
 static int child_error;
 struct dl_thread *dl_thread_self(void)
 {
     return DL_CALL(SYS_getpid, 0, 0, 0, 0, 0, 0) == owner ? &parent_thread : &child_thread;
 }
+int dl_thread_vfork(void) { return 0; } // component adapter, no guest dispatcher
+int dl_internal_fd(int fd) { (void)fd; return 0; }
+unsigned *dl_files_lock_current(void) { return &files_lock; }
 void dl_copy(void *d, const void *s, size_t n) { memcpy(d, s, n); }
 int dl_equal_memory(const void *a, const void *b, size_t n) { return !memcmp(a, b, n); }
 long dl_read_memory(void *d, const void *s, size_t n) { memcpy(d, s, n); return 0; }
@@ -91,6 +95,9 @@ static void one_clone(void *stack, int flags)
 {
     int shared = !!(flags & CLONE_SIGHAND);
     seed(); child_error = 0;
+    // Every clone below is a separate TGID even when sighand/VM are shared.
+    // POSIX timer ownership therefore always starts as a fresh process.
+    assert(!dl_process_new(&child_thread.process));
     unsigned before = __atomic_load_n(&completed, __ATOMIC_ACQUIRE);
     if (shared) {
         child_thread.sighand = parent_thread.sighand;
@@ -116,6 +123,10 @@ static void one_clone(void *stack, int flags)
     assert(!action(SIGUSR1, NULL, &observed) && !observed.handler && !observed.mask);
     void *mapping = child_thread.sighand;
     dl_sighand_release(child_thread.sighand); child_thread.sighand = NULL;
+    void *process_mapping = child_thread.process;
+    dl_process_release(child_thread.process); child_thread.process = NULL;
+    unsigned char process_residency;
+    assert(DL_CALL(SYS_mincore, process_mapping, dl_state.page, &process_residency, 0, 0, 0) == -ENOMEM);
     if (!shared) {
         unsigned char residency;
         assert(DL_CALL(SYS_mincore, mapping, dl_state.page, &residency, 0, 0, 0) == -ENOMEM);
@@ -135,6 +146,7 @@ int main(void)
     assert(!fclose(policy));
     owner = getpid(); dl_state.page = (size_t)sysconf(_SC_PAGESIZE);
     parent_thread.sighand = dl_sighand_initial();
+    parent_thread.process = dl_process_initial();
     void *allocation = mmap(NULL, 128 * 1024, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
     assert(allocation != MAP_FAILED);
     void *stack = (char *)allocation + 128 * 1024;
@@ -155,6 +167,7 @@ int main(void)
     dl_unlock(dl_sighand_lock(parent_thread.sighand));
     assert(result == -ENOMEM && !child_thread.sighand);
     // A failed kernel clone leaves no live user of the prepared private table.
+    assert(!dl_process_new(&child_thread.process));
     dl_lock(dl_sighand_lock(parent_thread.sighand));
     assert(!dl_sighand_copy(parent_thread.sighand, &child_thread.sighand));
     errno = 0; pid_t failed = clone(child, stack, CLONE_SIGHAND | SIGCHLD, NULL);
@@ -163,6 +176,7 @@ int main(void)
     assert(failed == -1 && error == EINVAL);
     void *mapping = child_thread.sighand;
     dl_sighand_release(child_thread.sighand); child_thread.sighand = NULL;
+    dl_process_release(child_thread.process); child_thread.process = NULL;
     unsigned char residency;
     assert(DL_CALL(SYS_mincore, mapping, dl_state.page, &residency, 0, 0, 0) == -ENOMEM);
     struct action observed, expected = parent_action();

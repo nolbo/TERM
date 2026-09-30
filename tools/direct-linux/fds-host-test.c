@@ -17,7 +17,8 @@ size_t dl_fd_path(char *out, int fd)
 {
     assert(fd == -1); return (size_t)sprintf(out, "/proc/%ld/fd", syscall(SYS_gettid));
 }
-unsigned dl_files_lock;
+static unsigned file_lock;
+unsigned *dl_files_lock_current(void) { return &file_lock; }
 void dl_lock(unsigned *lock) { assert(!*lock); *lock = 1; }
 void dl_unlock(unsigned *lock) { assert(*lock); *lock = 0; }
 int dl_files_may_be_shared(void) { return 0; }

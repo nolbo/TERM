@@ -30,6 +30,12 @@ struct dl_signal_state {
     unsigned delivery_count;
 };
 struct dl_sighand;
+struct dl_process;
+struct dl_process *dl_process_initial(void);
+void dl_process_retain(struct dl_process *process);
+void dl_process_release(struct dl_process *process);
+long dl_process_new(struct dl_process **result);
+unsigned *dl_process_lock(struct dl_process *process);
 struct dl_sighand *dl_sighand_initial(void);
 void dl_sighand_retain(struct dl_sighand *table);
 void dl_sighand_release(struct dl_sighand *table);
@@ -39,8 +45,11 @@ unsigned *dl_sighand_lock(struct dl_sighand *table);
 long dl_sighand_copy(struct dl_sighand *source, struct dl_sighand **result);
 struct dl_thread {
     unsigned state;
-    unsigned files_id;
+    struct dl_files *files;
     int tid, tgid;
+    int vfork_parent;
+    struct dl_files *vfork_files;
+    struct dl_sighand *vfork_sighand;
     unsigned executing;
     struct dl_fd_snapshot *copied_fds;
     struct { int fd; uintptr_t stack; } io[DL_WAIT_LIMIT];
@@ -50,18 +59,22 @@ struct dl_thread {
     size_t allocation_size;
     void *frame;
     struct dl_sighand *sighand;
+    struct dl_process *process;
     struct dl_scratch *scratch;
     struct dl_signal_state signals;
 };
 struct dl_thread *dl_thread_self(void);
 void dl_thread_init(void *allocation, size_t size, void *stack, size_t stack_size);
 long dl_thread_clone(unsigned long args[6], ucontext_t *context);
+int dl_thread_vfork(void);
 long dl_fork_begin(void);
 void dl_fork_end(int child);
 long dl_exec_begin(void);
 void dl_exec_end(void);
 void dl_exec_mark(int executing);
 int dl_files_may_be_shared(void);
+// Caller holds its current files lock. Successful unshare transfers that
+// ownership to the new table's lock; on failure the original remains held.
 long dl_files_unshare(void);
 int dl_internal_fd(int fd);
 unsigned dl_next_internal_fd(unsigned first);
@@ -73,5 +86,7 @@ extern _Noreturn void dl_resume(void *frame);
 _Noreturn void dl_thread_exit(int code);
 void dl_lock(unsigned *lock);
 void dl_unlock(unsigned *lock);
-extern unsigned dl_memory_lock, dl_files_lock;
+extern unsigned dl_memory_lock;
+unsigned *dl_files_lock_current(void);
+#define dl_files_lock (*dl_files_lock_current())
 #endif

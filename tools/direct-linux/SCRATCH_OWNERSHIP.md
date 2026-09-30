@@ -1,7 +1,7 @@
 # Direct Linux: exec 준비 메모리의 소유권
 
 2026-09-30. C04 shared-VM spawn의 선행 작업으로, exec 준비용 메모리를
-`dl_thread`별로 추적한다. **guest shared-VM clone/spawn은 아직 지원하지 않는다.**
+`dl_thread`별로 추적한다. 이 선행 단계의 결과이며, 이후 [실제 vfork/spawn](SPAWN_COMPATIBILITY.md)은 부모가 예약한 arena와 kernel 완료 통지를 사용한다.
 [실행 결과](results/scratch-runtime-2026-09-30.json)는 구성요소 검사와 실제
 guest 회귀를 구분해 기록한다.
 

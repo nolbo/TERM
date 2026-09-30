@@ -7,14 +7,20 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
+#include <time.h>
 #include "signals.c"
 
 struct dl_state dl_state;
 char dl_host_return[8];
 static unsigned queries, updates;
+static int created_timer;
 #ifdef DIRECT_LINUX_THREADS_H
 static struct dl_thread thread;
+static unsigned files_lock;
 struct dl_thread *dl_thread_self(void) { return &thread; }
+int dl_thread_vfork(void) { return 0; }
+int dl_internal_fd(int fd) { (void)fd; return 0; }
+unsigned *dl_files_lock_current(void) { return &files_lock; }
 void dl_lock(unsigned *lock) { assert(!*lock); *lock = 1; }
 void dl_unlock(unsigned *lock) { assert(*lock); *lock = 0; }
 #endif
@@ -31,7 +37,9 @@ long dl_write_memory(void *d, const void *s, size_t n)
 long dl_host_syscall(long n, long a, long b, long c, long d, long e, long f)
 {
     if (n == SYS_rt_sigaction) { if (b) updates++; else queries++; }
-    long r = syscall(n, a, b, c, d, e, f); return r < 0 ? -errno : r;
+    long r = syscall(n, a, b, c, d, e, f);
+    if (n == SYS_timer_create && r == 0) created_timer = *(int *)c;
+    return r < 0 ? -errno : r;
 }
 static void unused_handler(int signal) { (void)signal; assert(0); }
 static struct action query(int signal)
@@ -53,6 +61,7 @@ static long guest_action(int signal, uintptr_t handler, uintptr_t output)
 int main(void)
 {
     thread.sighand = dl_sighand_initial();
+    thread.process = dl_process_initial();
     kernel_action(SIGUSR1, (uintptr_t)unused_handler);
     kernel_action(SIGUSR2, (uintptr_t)SIG_IGN);
     kernel_action(SIGSYS, (uintptr_t)unused_handler);
@@ -102,5 +111,31 @@ int main(void)
     queries = updates = 0;
     assert(!dl_signal_reset_exec() && !queries && !updates);
     puts("PASS inherited/changed/ignored/one-shot/error signal reset and bounded kernel queries");
+    struct sigevent event = {.sigev_notify = SIGEV_NONE};
+    struct itimerspec remaining;
+    unsigned long timer_args[6] = {CLOCK_MONOTONIC, (uintptr_t)&event, 1, 0, 0, 0};
+    for (unsigned i = 0; i < 64; i++) {
+        assert(dl_signal_event(SYS_timer_create, timer_args) == -EFAULT);
+        assert(!thread.process->timers);
+        assert(syscall(SYS_timer_gettime, created_timer, &remaining) == -1 && errno == EINVAL);
+    }
+    int timer;
+    timer_args[2] = (uintptr_t)&timer;
+    assert(!dl_signal_event(SYS_timer_create, timer_args));
+    assert(thread.process->timers && thread.process->timers->id == timer);
+    child = fork(); assert(child >= 0);
+    if (!child) {
+        assert(!dl_signal_reset_exec() && !thread.process->timers);
+        _exit(0);
+    }
+    assert(waitpid(child, &status, 0) == child && WIFEXITED(status) && !WEXITSTATUS(status));
+    assert(syscall(SYS_timer_gettime, timer, &remaining) == 0);
+    assert(!dl_signal_reset_exec() && !thread.process->timers);
+    assert(syscall(SYS_timer_gettime, timer, &remaining) == -1 && errno == EINVAL);
+    struct dl_process *separate; assert(!dl_process_new(&separate));
+    assert(!separate->timers && !separate->timer_owner);
+    dl_process_retain(separate); dl_process_release(separate); dl_process_release(separate);
+    dl_process_release(NULL);
+    puts("PASS timer create-fault rollback, fork owner isolation, exec deletion and process references");
     return 0;
 }

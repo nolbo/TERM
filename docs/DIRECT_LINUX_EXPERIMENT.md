@@ -398,8 +398,8 @@ task별로 추적하고 guest 스택으로의 이전 및 exit/exec 후 회수를
 [task identity와 이탈 관찰](../tools/direct-linux/TASK_OWNERSHIP.md)은 TGID·exec 선택과
 관찰된 VM 이탈 뒤 회수를 연결했다. nonleader exec의 TID 교환을 mm 교체로 오인하지
 않으며, 관찰 불가능한 이탈과 변경 도중 사망 복구는 미완료다.
-guest shared-VM dispatcher 연결과 전체 spawn 수명은 아직 남아 있다.
-shared-VM spawn과 추가 FD/FS 조합을 비롯한
+[실제 spawn·인자·timer·파일 노드](../tools/direct-linux/SPAWN_COMPATIBILITY.md)는 kernel shared-VM vfork와 정적·동적 glibc posix_spawn, Linux의 RLIMIT_STACK 연동 인자 한도, timer/queued signal, 실제 hardlink/FIFO를 구현한다. vfork 자식의 준비 메모리는 부모가 예약하고 kernel 완료 뒤 회수한다. clone3·일반 CLONE_VM, 예약된 SIGSYS, enforcing 기기의 hardlink 정책 등은 남아 있다.
+추가 FD/FS 조합을 비롯한
 전체 45개 목표는 그 문서의 항목별 상태로 계속 추적한다.
 
 이후 [Unix pathname 단계](../tools/direct-linux/UNIX_SOCKETS.md)에서 지속되는 root FD

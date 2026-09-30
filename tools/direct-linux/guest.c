@@ -77,45 +77,8 @@ static long locked_brk(uintptr_t address)
     dl_lock(&dl_memory_lock); long result = guest_brk(address); dl_unlock(&dl_memory_lock); return result;
 }
 
-static long guest_clone(unsigned long *a, uintptr_t guest_sp)
+static long guest_clone(unsigned long *a)
 {
-    if (dl_state.vfork_fd >= 0) return -EOPNOTSUPP;
-    if (a[0] == (CLONE_VM | CLONE_VFORK | SIGCHLD) && (!a[1] || a[1] == guest_sp)) {
-        // Copy-on-write vfork compatibility: the parent waits for exec/exit.
-        // Shared-VM clone/spawn with a separate stack is explicitly unsupported.
-        long r = dl_fork_begin(); if (r) return r;
-        int pipes[2];
-        r = DL_CALL(SYS_pipe2, pipes, O_CLOEXEC, 0, 0, 0, 0);
-        if (r) { dl_fork_end(0); return r; }
-        long writer = DL_CALL(SYS_fcntl, pipes[1], F_DUPFD_CLOEXEC, 256, 0, 0, 0);
-        DL_CALL(SYS_close, pipes[1], 0, 0, 0, 0, 0);
-        if (writer < 0) { DL_CALL(SYS_close, pipes[0], 0, 0, 0, 0, 0); dl_fork_end(0); return writer; }
-        uintptr_t stack; __asm__ volatile("mov %0, sp" : "=r"(stack));
-        long reader_slot = dl_io_hold(pipes[0], stack);
-        long writer_slot = reader_slot < 0 ? reader_slot : dl_io_hold((int)writer, stack);
-        if (writer_slot < 0) {
-            if (reader_slot >= 0) dl_io_release((unsigned)reader_slot);
-            else DL_CALL(SYS_close, pipes[0], 0, 0, 0, 0, 0);
-            DL_CALL(SYS_close, writer, 0, 0, 0, 0, 0); dl_fork_end(0); return writer_slot;
-        }
-        r = dl_memory_fork_begin();
-        if (r) {
-            dl_io_release((unsigned)writer_slot); dl_io_release((unsigned)reader_slot);
-            dl_fork_end(0); return r;
-        }
-        r = DL_CALL(SYS_clone, SIGCHLD, 0, 0, 0, 0, 0);
-        dl_memory_fork_end(r == 0);
-        if (!r) {
-            dl_state.vfork_fd = dl_io_take((unsigned)writer_slot);
-            dl_io_release((unsigned)reader_slot); dl_fork_end(1); return 0;
-        }
-        dl_io_release((unsigned)writer_slot); dl_fork_end(0);
-        if (r > 0) {
-            char byte; long waited;
-            do { waited = DL_CALL(SYS_read, pipes[0], &byte, 1, 0, 0, 0); } while (waited == -EINTR);
-        }
-        dl_lock(&dl_files_lock); dl_io_release((unsigned)reader_slot); dl_unlock(&dl_files_lock); return r;
-    }
     // Only fork semantics: no VM, signal-handler, FS, or FD-table sharing.
     if ((a[0] & 255) != SIGCHLD ||
             (a[0] & ~(255UL | CLONE_CHILD_SETTID | CLONE_CHILD_CLEARTID | CLONE_PARENT_SETTID)) || a[1])
@@ -130,10 +93,17 @@ static long guest_clone(unsigned long *a, uintptr_t guest_sp)
 static long handle(long nr, unsigned long *a, ucontext_t *context)
 {
     long r;
+    if (dl_thread_vfork()) {
+        // This path implements the exec/_exit and libc spawn preparation
+        // contract. Arbitrary VM mutation and nested creation still require
+        // recoverable shared mapping/registry transactions.
+        if (nr == SYS_brk) return dl_state.heap_end;
+        if (nr == SYS_mmap || nr == SYS_munmap || nr == SYS_madvise || nr == SYS_clone) return -EOPNOTSUPP;
+    }
     switch (nr) {
     case SYS_openat: case SYS_newfstatat: case SYS_statx: case SYS_faccessat:
     case SYS_readlinkat: case SYS_getcwd: case SYS_chdir: case SYS_fchdir:
-    case SYS_mkdirat: case SYS_unlinkat: case SYS_renameat: case SYS_renameat2:
+    case SYS_mkdirat: case SYS_mknodat: case SYS_linkat: case SYS_unlinkat: case SYS_renameat: case SYS_renameat2:
     case SYS_symlinkat: case SYS_fchmodat: case SYS_fchownat: case SYS_utimensat:
     case SYS_statfs: case SYS_truncate:
     case SYS_getxattr: case SYS_lgetxattr: case SYS_setxattr: case SYS_lsetxattr:
@@ -201,17 +171,22 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_rt_sigsuspend: case SYS_rt_sigtimedwait:
     case SYS_ppoll: case SYS_pselect6: case SYS_epoll_pwait: case SYS_epoll_pwait2:
         return dl_signal_wait(nr, a, context);
+    case SYS_getitimer: case SYS_setitimer:
+    case SYS_timer_create: case SYS_timer_gettime: case SYS_timer_getoverrun: case SYS_timer_settime: case SYS_timer_delete:
+    case SYS_timerfd_create: case SYS_timerfd_settime: case SYS_timerfd_gettime:
+    case SYS_signalfd4: case SYS_rt_sigqueueinfo: case SYS_rt_tgsigqueueinfo:
+        return dl_signal_event(nr, a);
     case SYS_clone:
-        if (a[0] & CLONE_THREAD) {
-            if (dl_state.vfork_fd >= 0) return -EOPNOTSUPP;
+        if (a[0] & (CLONE_THREAD | CLONE_VFORK)) {
             return dl_thread_clone(a, context);
         }
-        return guest_clone(a, context->uc_mcontext.sp);
+        return guest_clone(a);
     case SYS_execve: case SYS_execveat:
         {
             struct dl_entry entry;
             dl_copy(&entry.mask, &context->uc_sigmask, 8);
             entry.virtual_sigsys = dl_thread_self()->signals.virtual_sigsys_mask;
+            dl_scratch_rewind(dl_thread_scratch());
             int kernel = (int)dl_exec_begin();
             r = nr == SYS_execve
                 ? dl_exec((void *)a[0], (void *)a[1], (void *)a[2], &entry, kernel ? 2 : 1)
@@ -250,6 +225,11 @@ static long handle(long nr, unsigned long *a, ucontext_t *context)
     case SYS_getpid: case SYS_getppid: case SYS_gettid:
     case SYS_tgkill: case SYS_kill: case SYS_rt_sigpending:
     case SYS_getuid: case SYS_geteuid: case SYS_getgid: case SYS_getegid:
+    // Spawn attributes act on ordinary kernel credentials/scheduling. The
+    // app has no privilege to acquire another identity or real-time policy.
+    case SYS_getresuid: case SYS_getresgid: case SYS_setresuid: case SYS_setresgid:
+    case SYS_sched_getparam: case SYS_sched_setparam:
+    case SYS_sched_getscheduler: case SYS_sched_setscheduler:
     case SYS_getrandom: case SYS_clock_gettime: case SYS_clock_getres:
     case SYS_prlimit64: case SYS_uname: case SYS_getrusage:
     case SYS_exit_group:
@@ -287,12 +267,12 @@ static void dispatch(int signal, siginfo_t *info, void *context)
     unsigned long args[6];
     for (int i = 0; i < 6; i++) args[i] = state->uc_mcontext.regs[i];
     unsigned long before = 0;
-    if (dl_state.startup_profile) {
+    if (dl_state.startup_profile && !dl_thread_vfork()) {
         before = startup_clock();
         if (info->si_syscall == SYS_exit || info->si_syscall == SYS_exit_group) startup_report(before);
     }
     long result = handle(info->si_syscall, args, state);
-    if (dl_state.startup_profile) {
+    if (dl_state.startup_profile && !dl_thread_vfork()) {
         unsigned long after = startup_clock();
         if (info->si_syscall == SYS_execve && !result) startup_exec(before, after);
         else if ((unsigned)info->si_syscall < 512) {
