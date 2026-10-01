@@ -8,7 +8,7 @@ It contains durable rules only:
 
 - how direct user requests define task scope;
 - how Codex should inspect, implement, validate, and report work;
-- the product architecture and security invariants;
+- where authoritative architecture and security contracts live and when to consult them;
 - the rules for efficient use of context, builds, tests, and MCP.
 
 Detailed and frequently changing design information belongs in docs, not here.
@@ -173,6 +173,47 @@ Never hide a failed check. Distinguish:
 - an environment/tooling failure;
 - a test that could not be run because required hardware or privilege is absent.
 
+### 4.4 Verification budget and mandatory stop rule
+
+Validation MUST be proportional to the changed behavior and its risk. The purpose
+of validation is to establish the acceptance criteria, not to maximize confidence
+after the criteria are already established.
+
+Use the smallest sufficient verification budget:
+
+- documentation or mechanical edits: inspect the final diff and run only a
+  directly relevant syntax, link, or formatting check when one exists;
+- narrow code changes: run the most focused relevant test or compile check, then
+  inspect the diff;
+- multi-file behavior changes: run affected-module checks and, when Section 7
+  makes it applicable, the canonical verification once near completion;
+- lifecycle, security, protocol, migration, or release changes: broaden
+  validation only for the concrete risks introduced by the task.
+
+After a relevant check passes, MUST NOT rerun an equivalent or broader check
+unless a subsequent edit could invalidate that result. Before every additional
+test, build, repository search, MCP call, device check, or documentation lookup,
+Codex MUST be able to name the unresolved acceptance criterion or plausible
+task-caused failure that the action can decide. If it cannot, skip the action.
+
+MUST NOT:
+
+- run additional builds or tests merely to gain more confidence;
+- inspect neighboring modules, call sites, docs, or external sources after the
+  requested behavior is established unless evidence points to a specific risk;
+- duplicate runtime validation across tools when the second tool would provide
+  materially equivalent evidence;
+- keep searching for alternative implementations after the chosen implementation
+  satisfies the request;
+- expand an unrelated defect discovered during validation into the current task
+  unless it blocks the requested result or creates an immediate correctness,
+  security, or data-loss risk.
+
+Passing acceptance criteria are a stop condition. Once the requested change is
+implemented, the relevant validation has passed or a concrete limitation is
+documented, and the final diff is clean, proceed to the final report. Do not use
+remaining context, tool access, or reasoning budget for optional reassurance.
+
 ## 5. Model and reasoning budget
 
 Model and reasoning effort are selected by the operator before a Codex CLI run.
@@ -312,153 +353,21 @@ from ordinary CI or a stock emulator. Use android and replicant MCP to perform
 the automatable subset when a suitable device is available, and identify the
 remaining manual or privileged steps.
 
-## 8. Product architecture contract
+## 8. Architecture source of truth
 
-The product is one terminal application with three explicit execution
-environments:
+The authoritative product architecture is `docs/ARCHITECTURE.md`. Do not keep
+a second architecture description in this file.
 
-~~~text
-                         Terminal application
-                                  |
-                         Unified session layer
-                                  |
-           +----------------------+----------------------+
-           |                      |                      |
-           v                      v                      v
-    Direct Native         Rootless Debian          AVF Debian
-  Android / Bionic       PRoot / glibc          AVF / crosvm
-  no extra privilege     no extra privilege      privileged setup
-           |                      |                      |
-           +----------------------+----------------------+
-                                  |
-                     Android capability broker
-~~~
+Before designing or changing runtime ownership, session lifecycle, execution
+environments, package semantics, Android capability boundaries, storage, power
+management, or UI/runtime separation, Codex MUST read the relevant sections of
+`docs/ARCHITECTURE.md`. Read the more specialized security, protocol, runtime,
+package, deployment, and design-system documents from the documentation map only
+when the task touches those contracts.
 
-The complete zero-special-permission product is:
-
-~~~text
-Direct Native + Rootless Debian
-~~~
-
-AVF is optional acceleration and full-kernel compatibility. It is not required
-for the app to be useful.
-
-Use this trade-off order:
-
-~~~text
-zero-setup usability
-  > persistent sessions/runtime
-  > correct lifecycle ownership
-  > security boundary
-  > Rootless Linux compatibility
-  > Android integration
-  > Native package usability
-  > AVF acceleration
-  > advanced features
-~~~
-
-### 8.1 Lifecycle and sessions
-
-These lifetimes are independent:
-
-~~~text
-Android UI lifecycle != runtime lifecycle != terminal session lifecycle
-~~~
-
-An Activity, Fragment, Compose screen, tab, WebView, or renderer MUST NOT own a
-shell process or VM. UI destruction, recreation, unbinding, or task removal may
-detach; it must not intentionally terminate live work.
-
-Session termination requires an explicit user action whose effect is clear. If
-a UI control called Close terminates a session, it must make that destructive
-effect explicit rather than treating tab disappearance as termination.
-
-All runtimes use a common session model for:
-
-- create and list;
-- attach and detach;
-- input and output;
-- resize;
-- rename where supported;
-- explicit terminate;
-- observable state and errors.
-
-The runtime service or guest session daemon is authoritative for live sessions.
-Cached UI state is never authoritative. If the runtime or PTY owner actually
-dies, report session loss honestly; do not fake restoration.
-
-Runtime-specific process ownership stays behind Native, Rootless, and AVF
-backend interfaces. UI code must not depend directly on PRoot, AVF, crosvm,
-vsock, or package-manager implementation details.
-
-### 8.2 Runtime semantics
-
-Direct Native is a first-class Android/Bionic environment for immediate shell
-startup, Android-centric tooling, scripting, SSH, Git, networking, storage
-helpers, automation, and bootstrap duties.
-
-Native packages target Android, Bionic, and an app-local prefix. They are not
-Debian binary packages. Package support is recipe-driven, automation-first,
-tested, and bounded to structurally valuable tools. Do not create a giant
-popularity-based package distribution.
-
-Modern Android executable restrictions are an architectural boundary. All
-dynamically installed or packaged native executables go through the centralized
-NativeExecutableLoader policy. Never pretend a package system is complete if
-installed binaries cannot execute under the current target SDK and distribution
-model.
-
-Rootless Debian is the primary permissionless broad Linux environment. It uses
-an independent PRoot/glibc rootfs and official Debian apt/dpkg. Represent its
-ptrace, filesystem, fake-root, mount, namespace, cgroup, systemd, and kernel
-limitations honestly.
-
-AVF Debian is a separate, optional real-kernel environment. It requires device
-support and privileged/product deployment. Normal APK permission declarations
-cannot grant signature permissions. Keep AVF-specific APIs behind the AVF
-backend and preserve Native/Rootless operation when AVF is unsupported or not
-authorized.
-
-Runtime selection is explicit. A failure in one selected runtime MUST NOT
-silently redirect the command or session to another runtime.
-
-Rootless and AVF do not share a complete rootfs or dpkg database. Share only
-deliberate higher-level state such as workspace data, selected user files,
-appropriate dotfiles, and a logical package/environment manifest.
-
-### 8.3 Android boundary, storage, and power
-
-Linux guests are untrusted. Android integration uses a typed capability broker.
-Every request must be authenticated where applicable, schema-validated,
-capability-checked, Android-permission-checked, bounded, and optionally confirmed
-by the user.
-
-Never expose unrestricted Binder, Context, ContentResolver, private app paths,
-raw host file descriptors, host UIDs, or arbitrary Android services to a guest.
-Capability grants are separate from Android OS permissions and are scoped to
-the host-selected environment or VM identity.
-
-Storage exposure is explicit and minimal. Keep runtime roots and package
-databases separate. Share a deliberate workspace rather than the entire
-app-private directory.
-
-A foreground service improves survivability but is not a permanent execution
-guarantee. Wake locks must be policy-driven, time-bounded where appropriate, and
-tied to meaningful work. Represent Android process death and power restrictions
-honestly.
-
-### 8.4 UI contract
-
-The UI presents Android Native, Rootless Linux, and AVF Linux as explicit
-choices with their setup, compatibility, and privilege differences.
-
-UI and settings may be reorganized when architecture or clarity requires it.
-Active application screens use the shared Jetpack Compose Material 3 system in
-docs/DESIGN_SYSTEM.md. Application chrome uses its deliberate dark color scheme
-and remains independent from the user-selected terminal canvas palette.
-
-The UI renders state and sends typed commands. It never becomes the hidden
-owner of a process, PTY, VM, package operation, or capability grant.
+If implementation and architecture documentation disagree, follow the conflict
+handling rule in Section 2 rather than silently treating either source as
+disposable.
 
 ## 9. Implementation rules
 
@@ -554,6 +463,11 @@ A task is complete only when:
 - the diff contains no accidental or unrelated changes;
 - relevant documentation is consistent;
 - for a release task, patch notes exist and match the released scope.
+
+These bullets are also a mandatory stop condition. When they are satisfied, stop
+inspecting, testing, researching, or improving unrelated code and write the final
+report. Continue only if new evidence shows that a completion condition is not
+actually satisfied.
 
 Report in Korean unless the user asks for another language. Lead with the
 outcome and keep the report compact:
