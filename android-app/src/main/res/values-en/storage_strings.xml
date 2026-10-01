@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="storage_title">Storage</string>
-    <string name="storage_summary">Persistent environments used by profiles. Create a fresh environment or connect compatible existing storage from a profile.</string>
+    <string name="storage_summary">Persistent environments used by profiles.</string>
     <string name="storage_used">Used storage</string>
     <string name="storage_unused">Unused storage</string>
     <string name="storage_existing">Existing storage %1$s · %2$s</string>
