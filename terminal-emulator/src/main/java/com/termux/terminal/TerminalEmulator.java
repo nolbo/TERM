@@ -124,6 +124,8 @@ public final class TerminalEmulator implements java.io.Serializable {
     private static final int DECSET_BIT_MOUSE_TRACKING_ANY_EVENT = 1 << 13;
     /** DECSET 1007 - translate wheel input to cursor keys on the alternate screen. */
     private static final int DECSET_BIT_ALTERNATE_SCROLL = 1 << 14;
+    /** DECSET 45 - reverse wrapping within a wrapped line (XTREVWRAP). */
+    private static final int DECSET_BIT_REVERSE_WRAP = 1 << 15;
     /** DECSET 1004 - focus reporting. */
     private static final int DECSET_BIT_SEND_FOCUS_EVENTS = 1 << 8;
     /** DECSET 1006 - SGR-like mouse protocol (the modern sane choice). */
@@ -228,12 +230,15 @@ public final class TerminalEmulator implements java.io.Serializable {
      * @see TerminalEmulator#mapDecSetBitToInternalBit(int)
      */
     private int mCurrentDecSetFlags, mSavedDecSetFlags;
+    private boolean mSavedAlternateScreen;
 
     /**
      * If insert mode (as opposed to replace mode) is active. In insert mode new characters are inserted, pushing
      * existing text to the right. Characters moved past the right margin are lost.
      */
     private boolean mInsertMode;
+    /** ANSI mode 20 (LNM): LF/VT/FF also perform a carriage return. */
+    private boolean mNewlineMode;
 
     /** An array of tab stops. mTabStop[i] is true if there is a tab stop set for column i. */
     private boolean[] mTabStop;
@@ -328,6 +333,8 @@ public final class TerminalEmulator implements java.io.Serializable {
                 return DECSET_BIT_AUTOWRAP;
             case 25:
                 return DECSET_BIT_CURSOR_ENABLED;
+            case 45:
+                return DECSET_BIT_REVERSE_WRAP;
             case 66:
                 return DECSET_BIT_APPLICATION_KEYPAD;
             case 69:
@@ -431,7 +438,9 @@ public final class TerminalEmulator implements java.io.Serializable {
         mUseLineDrawingUsesG0 = state.mUseLineDrawingUsesG0;
         mCurrentDecSetFlags = state.mCurrentDecSetFlags;
         mSavedDecSetFlags = state.mSavedDecSetFlags;
+        mSavedAlternateScreen = state.mSavedAlternateScreen;
         mInsertMode = state.mInsertMode;
+        mNewlineMode = state.mNewlineMode;
         mTabStop = state.mTabStop;
         mTopMargin = state.mTopMargin;
         mBottomMargin = state.mBottomMargin;
@@ -608,6 +617,16 @@ public final class TerminalEmulator implements java.io.Serializable {
         return isDecsetInternalBitSet(DECSET_BIT_APPLICATION_CURSOR_KEYS);
     }
 
+    public boolean isNewlineModeEnabled() {
+        return mNewlineMode;
+    }
+
+    /** Legacy key encoding after mode negotiation; kitty encoding takes precedence in the View. */
+    public String getKeyCode(int keyCode, int modifiers) {
+        String code = KeyHandler.getCode(keyCode, modifiers, isCursorKeysApplicationMode(), isKeypadApplicationMode());
+        return mNewlineMode && code != null && code.endsWith("\r") ? code + "\n" : code;
+    }
+
     /** If mouse events are being sent as escape codes to the terminal. */
     public boolean isMouseTrackingActive() {
         return isDecsetInternalBitSet(DECSET_BIT_MOUSE_TRACKING_PRESS_RELEASE)
@@ -743,16 +762,7 @@ public final class TerminalEmulator implements java.io.Serializable {
                     mSession.onBell();
                 break;
             case 8: // Backspace (BS, ^H).
-                if (mLeftMargin == mCursorCol) {
-                    // Jump to previous line if it was auto-wrapped.
-                    int previousRow = mCursorRow - 1;
-                    if (previousRow >= 0 && mScreen.getLineWrap(previousRow)) {
-                        mScreen.clearLineWrap(previousRow);
-                        setCursorRowCol(previousRow, mRightMargin - 1);
-                    }
-                } else {
-                    setCursorCol(mCursorCol - 1);
-                }
+                cursorBackward(1);
                 break;
             case 9: // Horizontal tab (HT, \t) - move to next tab stop, but not past edge of screen
                 // XXX: Should perhaps use color if writing to new cells. Try with
@@ -767,10 +777,11 @@ public final class TerminalEmulator implements java.io.Serializable {
             case 10: // Line feed (LF, \n).
             case 11: // Vertical tab (VT, \v).
             case 12: // Form feed (FF, \f).
+                if (mNewlineMode) carriageReturn();
                 doLinefeed();
                 break;
             case 13: // Carriage return (CR, \r).
-                setCursorCol(mLeftMargin);
+                carriageReturn();
                 break;
             case 14: // Shift Out (Ctrl-N, SO) → Switch to Alternate Character Set. This invokes the G1 character set.
                 mUseLineDrawingUsesG0 = false;
@@ -824,7 +835,7 @@ public final class TerminalEmulator implements java.io.Serializable {
                         break;
                     case ESC_CSI_EXCLAMATION:
                         if (b == 'p') { // Soft terminal reset (DECSTR, http://vt100.net/docs/vt510-rm/DECSTR).
-                            reset();
+                            reset(false);
                         } else {
                             unknownSequence(b);
                         }
@@ -850,6 +861,13 @@ public final class TerminalEmulator implements java.io.Serializable {
                         int effectiveLeftMargin = originMode ? mLeftMargin : 0;
                         int effectiveRightMargin = originMode ? mRightMargin : mColumns;
                         switch (b) {
+                            case 'p': { // Request ANSI mode (DECRQM).
+                                int mode = getArg0(0);
+                                int value = mode == 4 ? (mInsertMode ? 1 : 2)
+                                    : mode == 20 ? (mNewlineMode ? 1 : 2) : 0;
+                                mSession.write(String.format(Locale.US, "\033[%d;%d$y", mode, value));
+                                break;
+                            }
                             case 'v': // ${CSI}${SRC_TOP}${SRC_LEFT}${SRC_BOTTOM}${SRC_RIGHT}${SRC_PAGE}${DST_TOP}${DST_LEFT}${DST_PAGE}$v"
                                 // Copy rectangular area (DECCRA - http://vt100.net/docs/vt510-rm/DECCRA):
                                 // "If Pbs is greater than Pts, or Pls is greater than Prs, the terminal ignores DECCRA.
@@ -1366,7 +1384,7 @@ public final class TerminalEmulator implements java.io.Serializable {
                 switch (getArg0(-1)) {
                     case 6:
                         // Extended Cursor Position (DECXCPR - http://www.vt100.net/docs/vt510-rm/DECXCPR). Page=1.
-                        mSession.write(String.format(Locale.US, "\033[?%d;%d;1R", mCursorRow + 1, mCursorCol + 1));
+                        mSession.write(String.format(Locale.US, "\033[?%d;%dR", cursorReportRow(), cursorReportCol()));
                         break;
                     default:
                         finishSequence();
@@ -1378,14 +1396,27 @@ public final class TerminalEmulator implements java.io.Serializable {
                 if (mArgIndex >= mArgs.length) mArgIndex = mArgs.length - 1;
                 for (int i = 0; i <= mArgIndex; i++) {
                     int externalBit = mArgs[i];
+                    if (externalBit == 47 || externalBit == 1047 || externalBit == 1049) {
+                        // XTSAVE/XTRESTORE share a buffer cache and switch without clearing or cursor operations.
+                        if (b == 's') mSavedAlternateScreen = isAlternateBufferActive();
+                        else switchScreen(mSavedAlternateScreen, false);
+                        continue;
+                    }
                     int internalBit = mapDecSetBitToInternalBit(externalBit);
                     if (internalBit == -1) {
                         Logger.logWarn(mClient, LOG_TAG, "Ignoring request to save/recall decset bit=" + externalBit);
                     } else {
                         if (b == 's') {
-                            mSavedDecSetFlags |= internalBit;
+                            mSavedDecSetFlags = (mSavedDecSetFlags & ~internalBit) | (mCurrentDecSetFlags & internalBit);
                         } else {
-                            doDecSetOrReset((mSavedDecSetFlags & internalBit) != 0, externalBit);
+                            boolean setting = (mSavedDecSetFlags & internalBit) != 0;
+                            // Restoring a mode value must not home the cursor as DECOM set/reset does.
+                            setDecsetinternalBit(internalBit, setting);
+                            if (externalBit == 69 && !setting) {
+                                mLeftMargin = 0;
+                                mRightMargin = mColumns;
+                            }
+                            if (externalBit == 25 && mClient != null) mClient.onTerminalCursorStateChange(setting);
                         }
                     }
                 }
@@ -1429,7 +1460,7 @@ public final class TerminalEmulator implements java.io.Serializable {
             case 5: // Reverse video. No action.
                 break;
             case 6: // Set: Origin Mode. Reset: Normal Cursor Mode. Ansi name: DECOM.
-                if (setting) setCursorPosition(0, 0);
+                setCursorPosition(0, 0);
                 break;
             case 7: // Wrap-around bit, not specific action.
             case 8: // Auto-repeat Keys (DECARM). Do not implement.
@@ -1440,7 +1471,7 @@ public final class TerminalEmulator implements java.io.Serializable {
                     mClient.onTerminalCursorStateChange(setting);
                 break;
             case 40: // Allow 80 => 132 Mode, ignore.
-            case 45: // TODO: Reverse wrap-around. Implement???
+            case 45: // Reverse wrap-around - setting bit is enough.
             case 66: // Application keypad (DECNKM).
                 break;
             case 69: // Left and right margin mode (DECLRMM).
@@ -1469,32 +1500,20 @@ public final class TerminalEmulator implements java.io.Serializable {
                 else
                     restoreCursor();
                 break;
-            case 47:
-            case 1047:
+            case 47: // Switch buffers, preserving alternate contents and the current cursor/attributes.
+                switchScreen(setting, false);
+                break;
+            case 1047: // Clear alternate contents only on leaving it; no implicit cursor save/restore.
+                if (!setting && isAlternateBufferActive()) clearAlternateScreen();
+                switchScreen(setting, false);
+                break;
             case 1049: {
-                // Set: Save cursor as in DECSC and use Alternate Screen Buffer, clearing it first.
-                // Reset: Use Normal Screen Buffer and restore cursor as in DECRC.
-                TerminalBuffer newScreen = setting ? mAltBuffer : mMainBuffer;
-                if (newScreen != mScreen) {
-                    boolean resized = !(newScreen.mColumns == mColumns && newScreen.mScreenRows == mRows);
-                    if (setting) saveCursor();
-                    mScreen = newScreen;
-                    if (setting) mAltGraphics.reset();
-                    if (!setting) {
-                        int col = mSavedStateMain.mSavedCursorCol;
-                        int row = mSavedStateMain.mSavedCursorRow;
-                        restoreCursor();
-                        if (resized) {
-                            // Restore cursor position _not_ clipped to current screen (let resizeScreen() handle that):
-                            mCursorCol = col;
-                            mCursorRow = row;
-                        }
-                    }
-                    // Check if buffer size needs to be updated:
-                    if (resized) resizeScreen();
-                    // Clear new screen if alt buffer:
-                    if (newScreen == mAltBuffer)
-                        newScreen.blockSet(0, 0, mColumns, mRows, ' ', getStyle());
+                if (setting) {
+                    saveCursor();
+                    switchScreen(true, false);
+                    clearAlternateScreen();
+                } else {
+                    switchScreen(false, true);
                 }
                 break;
             }
@@ -1505,6 +1524,30 @@ public final class TerminalEmulator implements java.io.Serializable {
                 unknownParameter(externalBit);
                 break;
         }
+    }
+
+    private void switchScreen(boolean alternate, boolean restoreMainCursor) {
+        TerminalBuffer newScreen = alternate ? mAltBuffer : mMainBuffer;
+        boolean resized = newScreen.mColumns != mColumns || newScreen.mScreenRows != mRows;
+        mScreen = newScreen;
+        if (restoreMainCursor) {
+            restoreCursor();
+            if (resized) {
+                // Reflow must see the saved position in the old buffer's coordinates.
+                mCursorCol = mSavedStateMain.mSavedCursorCol;
+                mCursorRow = mSavedStateMain.mSavedCursorRow;
+            }
+        }
+        if (resized) {
+            resizeScreen();
+            mAboutToAutoWrap &= mCursorCol == mColumns - 1;
+        }
+    }
+
+    private void clearAlternateScreen() {
+        mAltBuffer.blockSet(0, 0, mAltBuffer.mColumns, mAltBuffer.mScreenRows, ' ', getStyle());
+        for (int row = 0; row < mAltBuffer.mScreenRows; row++) mAltBuffer.clearLineWrap(row);
+        mAltGraphics.reset();
     }
 
     private void doCsiBiggerThan(int b) {
@@ -1607,10 +1650,10 @@ public final class TerminalEmulator implements java.io.Serializable {
             }
         } else {
             if (newCursorRow == mBottomMargin) {
-                scrollDownOneLine();
+                if (cursorInHorizontalMargins()) scrollDownOneLine();
                 newCursorRow = mBottomMargin - 1;
             }
-            setCursorRow(newCursorRow);
+            setCursorRow(Math.min(newCursorRow, mRows - 1));
         }
     }
 
@@ -1668,8 +1711,11 @@ public final class TerminalEmulator implements java.io.Serializable {
                 break;
             case 'c': // RIS - Reset to Initial State (http://vt100.net/docs/vt510-rm/RIS).
                 reset();
+                switchScreen(false, false);
                 mMainBuffer.clearTranscript();
+                clearAlternateScreen();
                 blockClear(0, 0, mColumns, mRows);
+                for (int row = 0; row < mRows; row++) mMainBuffer.clearLineWrap(row);
                 setCursorPosition(0, 0);
                 break;
             case 'D': // INDEX
@@ -1688,13 +1734,14 @@ public final class TerminalEmulator implements java.io.Serializable {
             case 'M': // "${ESC}M" - reverse index (RI).
                 // http://www.vt100.net/docs/vt100-ug/chapter3.html: "Move the active position to the same horizontal
                 // position on the preceding line. If the active position is at the top margin, a scroll down is performed".
-                if (mCursorRow <= mTopMargin) {
+                if (mCursorRow == mTopMargin && cursorInHorizontalMargins()) {
                     getGraphics().scroll(mTopMargin, mBottomMargin, mLeftMargin, mRightMargin, 1, 0);
                     mScreen.blockCopy(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin, mBottomMargin - (mTopMargin + 1), mLeftMargin, mTopMargin + 1);
                     blockClear(mLeftMargin, mTopMargin, mRightMargin - mLeftMargin);
                 } else {
-                    mCursorRow--;
+                    cursorUp(1);
                 }
+                mAboutToAutoWrap = false;
                 break;
             case 'N': // SS2, ignore.
             case '0': // SS3, ignore.
@@ -1737,6 +1784,7 @@ public final class TerminalEmulator implements java.io.Serializable {
         state.mSavedBackColor = mBackColor;
         state.mSavedUnderlineColor = mUnderlineColor;
         state.mSavedDecFlags = mCurrentDecSetFlags;
+        state.mSavedAboutToAutoWrap = mAboutToAutoWrap;
         state.mUseLineDrawingG0 = mUseLineDrawingG0;
         state.mUseLineDrawingG1 = mUseLineDrawingG1;
         state.mUseLineDrawingUsesG0 = mUseLineDrawingUsesG0;
@@ -1750,8 +1798,13 @@ public final class TerminalEmulator implements java.io.Serializable {
         mForeColor = state.mSavedForeColor;
         mBackColor = state.mSavedBackColor;
         mUnderlineColor = state.mSavedUnderlineColor;
-        int mask = (DECSET_BIT_AUTOWRAP | DECSET_BIT_ORIGIN_MODE);
+        int mask = DECSET_BIT_ORIGIN_MODE;
         mCurrentDecSetFlags = (mCurrentDecSetFlags & ~mask) | (state.mSavedDecFlags & mask);
+        if (isDecsetInternalBitSet(DECSET_BIT_ORIGIN_MODE)) {
+            mCursorRow = Math.max(mTopMargin, Math.min(mCursorRow, mBottomMargin - 1));
+            mCursorCol = Math.max(mLeftMargin, Math.min(mCursorCol, mRightMargin - 1));
+        }
+        mAboutToAutoWrap = state.mSavedAboutToAutoWrap && mCursorCol == mRightMargin - 1;
         mUseLineDrawingG0 = state.mUseLineDrawingG0;
         mUseLineDrawingG1 = state.mUseLineDrawingG1;
         mUseLineDrawingUsesG0 = state.mUseLineDrawingUsesG0;
@@ -1778,7 +1831,8 @@ public final class TerminalEmulator implements java.io.Serializable {
             case '@': {
                 // "CSI{n}@" - Insert ${n} space characters (ICH) - http://www.vt100.net/docs/vt510-rm/ICH.
                 mAboutToAutoWrap = false;
-                int columnsAfterCursor = mColumns - mCursorCol;
+                if (!cursorInHorizontalMargins()) break;
+                int columnsAfterCursor = mRightMargin - mCursorCol;
                 int spacesToInsert = Math.min(getArg0(1), columnsAfterCursor);
                 int charsToMove = columnsAfterCursor - spacesToInsert;
                 mScreen.blockCopy(mCursorCol, mCursorRow, charsToMove, 1, mCursorCol + spacesToInsert, mCursorRow);
@@ -1786,26 +1840,28 @@ public final class TerminalEmulator implements java.io.Serializable {
             }
             break;
             case 'A': // "CSI${n}A" - Cursor up (CUU) ${n} rows.
-                setCursorRow(Math.max(0, mCursorRow - getArg0(1)));
+                cursorUp(getArg0(1));
                 break;
             case 'B': // "CSI${n}B" - Cursor down (CUD) ${n} rows.
-                setCursorRow(Math.min(mRows - 1, mCursorRow + getArg0(1)));
+                cursorDown(getArg0(1));
                 break;
             case 'C': // "CSI${n}C" - Cursor forward (CUF).
             case 'a': // "CSI${n}a" - Horizontal position relative (HPR). From ISO-6428/ECMA-48.
-                setCursorCol(Math.min(mRightMargin - 1, mCursorCol + getArg0(1)));
+                setCursorCol(Math.min(mCursorCol >= mRightMargin ? mColumns - 1 : mRightMargin - 1, mCursorCol + getArg0(1)));
                 break;
             case 'D': // "CSI${n}D" - Cursor backward (CUB) ${n} columns.
-                setCursorCol(Math.max(mLeftMargin, mCursorCol - getArg0(1)));
+                cursorBackward(getArg0(1));
                 break;
             case 'E': // "CSI{n}E - Cursor Next Line (CNL). From ISO-6428/ECMA-48.
-                setCursorPosition(0, mCursorRow + getArg0(1));
+                cursorDown(getArg0(1));
+                carriageReturn();
                 break;
             case 'F': // "CSI{n}F - Cursor Previous Line (CPL). From ISO-6428/ECMA-48.
-                setCursorPosition(0, mCursorRow - getArg0(1));
+                cursorUp(getArg0(1));
+                carriageReturn();
                 break;
             case 'G': // "CSI${n}G" - Cursor horizontal absolute (CHA) to column ${n}.
-                setCursorCol(Math.min(Math.max(1, getArg0(1)), mColumns) - 1);
+                setCursorColRespectingOriginMode(getArg0(1) - 1);
                 break;
             case 'H': // "${CSI}${ROW};${COLUMN}H" - Cursor position (CUP).
             case 'f': // "${CSI}${ROW};${COLUMN}f" - Horizontal and Vertical Position (HVP).
@@ -1859,23 +1915,26 @@ public final class TerminalEmulator implements java.io.Serializable {
                 break;
             case 'L': // "${CSI}{N}L" - insert ${N} lines (IL).
             {
+                mAboutToAutoWrap = false;
+                if (mCursorRow < mTopMargin || mCursorRow >= mBottomMargin || !cursorInHorizontalMargins()) break;
                 int linesAfterCursor = mBottomMargin - mCursorRow;
                 int linesToInsert = Math.min(getArg0(1), linesAfterCursor);
                 int linesToMove = linesAfterCursor - linesToInsert;
-                getGraphics().scroll(mCursorRow, mBottomMargin, 0, mColumns, linesToInsert, 0);
-                mScreen.blockCopy(0, mCursorRow, mColumns, linesToMove, 0, mCursorRow + linesToInsert);
-                blockClear(0, mCursorRow, mColumns, linesToInsert);
+                getGraphics().scroll(mCursorRow, mBottomMargin, mLeftMargin, mRightMargin, linesToInsert, 0);
+                mScreen.blockCopy(mLeftMargin, mCursorRow, mRightMargin - mLeftMargin, linesToMove, mLeftMargin, mCursorRow + linesToInsert);
+                blockClear(mLeftMargin, mCursorRow, mRightMargin - mLeftMargin, linesToInsert);
             }
             break;
             case 'M': // "${CSI}${N}M" - delete N lines (DL).
             {
                 mAboutToAutoWrap = false;
+                if (mCursorRow < mTopMargin || mCursorRow >= mBottomMargin || !cursorInHorizontalMargins()) break;
                 int linesAfterCursor = mBottomMargin - mCursorRow;
                 int linesToDelete = Math.min(getArg0(1), linesAfterCursor);
                 int linesToMove = linesAfterCursor - linesToDelete;
-                getGraphics().scroll(mCursorRow, mBottomMargin, 0, mColumns, -linesToDelete, 0);
-                mScreen.blockCopy(0, mCursorRow + linesToDelete, mColumns, linesToMove, 0, mCursorRow);
-                blockClear(0, mCursorRow + linesToMove, mColumns, linesToDelete);
+                getGraphics().scroll(mCursorRow, mBottomMargin, mLeftMargin, mRightMargin, -linesToDelete, 0);
+                mScreen.blockCopy(mLeftMargin, mCursorRow + linesToDelete, mRightMargin - mLeftMargin, linesToMove, mLeftMargin, mCursorRow);
+                blockClear(mLeftMargin, mCursorRow + linesToMove, mRightMargin - mLeftMargin, linesToDelete);
             }
             break;
             case 'P': // "${CSI}{N}P" - delete ${N} characters (DCH).
@@ -1886,7 +1945,8 @@ public final class TerminalEmulator implements java.io.Serializable {
                 // Character attributes move with the characters. The terminal adds blank spaces with no visual character
                 // attributes at the right margin. DCH has no effect outside the scrolling margins."
                 mAboutToAutoWrap = false;
-                int cellsAfterCursor = mColumns - mCursorCol;
+                if (!cursorInHorizontalMargins()) break;
+                int cellsAfterCursor = mRightMargin - mCursorCol;
                 int cellsToDelete = Math.min(getArg0(1), cellsAfterCursor);
                 int cellsToMove = cellsAfterCursor - cellsToDelete;
                 mScreen.blockCopy(mCursorCol + cellsToDelete, mCursorRow, cellsToMove, 1, mCursorCol, mCursorRow);
@@ -1894,7 +1954,7 @@ public final class TerminalEmulator implements java.io.Serializable {
             }
             break;
             case 'S': { // "${CSI}${N}S" - scroll up ${N} lines (default = 1) (SU).
-                final int linesToScroll = getArg0(1);
+                final int linesToScroll = Math.min(getArg0(1), mBottomMargin - mTopMargin);
                 for (int i = 0; i < linesToScroll; i++)
                     scrollDownOneLine();
                 break;
@@ -1959,10 +2019,10 @@ public final class TerminalEmulator implements java.io.Serializable {
                 if (getArg0(0) == 0) mSession.write("\033[?64;1;2;4;6;9;15;18;21;22c");
                 break;
             case 'd': // ESC [ Pn d - Vert Position Absolute
-                setCursorRow(Math.min(Math.max(1, getArg0(1)), mRows) - 1);
+                setCursorPosition(cursorReportCol() - 1, getArg0(1) - 1);
                 break;
             case 'e': // Vertical Position Relative (VPR). From ISO-6429 (ECMA-48).
-                setCursorPosition(mCursorCol, mCursorRow + getArg0(1));
+                cursorDown(getArg0(1));
                 break;
             // case 'f': "${CSI}${ROW};${COLUMN}f" - Horizontal and Vertical Position (HVP). Grouped with case 'H'.
             case 'g': // Clear tab stop
@@ -2000,7 +2060,7 @@ public final class TerminalEmulator implements java.io.Serializable {
                     case 6: // Cursor position report (CPR):
                         // Answer is ESC [ y ; x R, where x,y is
                         // the cursor location.
-                        mSession.write(String.format(Locale.US, "\033[%d;%dR", mCursorRow + 1, mCursorCol + 1));
+                        mSession.write(String.format(Locale.US, "\033[%d;%dR", cursorReportRow(), cursorReportCol()));
                         break;
                     default:
                         break;
@@ -2015,8 +2075,11 @@ public final class TerminalEmulator implements java.io.Serializable {
                 // scheme, but we store the first line below the bottom-most scrolling line.
                 // As a result, we adjust the top line by -1, but we leave the bottom line alone.
                 // Also require that top + 2 <= bottom.
-                mTopMargin = Math.max(0, Math.min(getArg0(1) - 1, mRows - 2));
-                mBottomMargin = Math.max(mTopMargin + 2, Math.min(getArg1(mRows), mRows));
+                int top = getArg0(1) - 1;
+                int bottom = Math.min(getArg1(mRows), mRows);
+                if (top < 0 || top >= bottom - 1) break;
+                mTopMargin = top;
+                mBottomMargin = bottom;
 
                 // DECSTBM moves the cursor to column 1, line 1 of the page respecting origin mode.
                 setCursorPosition(0, 0);
@@ -2025,8 +2088,11 @@ public final class TerminalEmulator implements java.io.Serializable {
             case 's':
                 if (isDecsetInternalBitSet(DECSET_BIT_LEFTRIGHT_MARGIN_MODE)) {
                     // Set left and right margins (DECSLRM - http://www.vt100.net/docs/vt510-rm/DECSLRM).
-                    mLeftMargin = Math.min(getArg0(1) - 1, mColumns - 2);
-                    mRightMargin = Math.max(mLeftMargin + 1, Math.min(getArg1(mColumns), mColumns));
+                    int left = getArg0(1) - 1;
+                    int right = Math.min(getArg1(mColumns), mColumns);
+                    if (left < 0 || left >= right - 1) break;
+                    mLeftMargin = left;
+                    mRightMargin = right;
                     // DECSLRM moves the cursor to column 1, line 1 of the page.
                     setCursorPosition(0, 0);
                 } else {
@@ -2413,22 +2479,22 @@ public final class TerminalEmulator implements java.io.Serializable {
 
     /** "CSI P_m h" for set or "CSI P_m l" for reset ANSI mode. */
     private void doSetMode(boolean newValue) {
-        int modeBit = getArg0(0);
-        switch (modeBit) {
-            case 4: // Set="Insert Mode". Reset="Replace Mode". (IRM).
-                mInsertMode = newValue;
-                break;
-            case 20: // Normal Linefeed (LNM).
-                unknownParameter(modeBit);
-                // http://www.vt100.net/docs/vt510-rm/LNM
-                break;
-            case 34:
-                // Normal cursor visibility - when using TERM=screen, see
-                // http://www.gnu.org/software/screen/manual/html_node/Control-Sequences.html
-                break;
-            default:
-                unknownParameter(modeBit);
-                break;
+        for (int i = 0; i <= Math.min(mArgIndex, mArgs.length - 1); i++) {
+            int modeBit = mArgs[i];
+            switch (modeBit) {
+                case 4: // Set="Insert Mode". Reset="Replace Mode". (IRM).
+                    mInsertMode = newValue;
+                    break;
+                case 20: // Normal Linefeed (LNM).
+                    mNewlineMode = newValue;
+                    break;
+                case 34:
+                    // Normal cursor visibility - when using TERM=screen.
+                    break;
+                default:
+                    unknownParameter(modeBit);
+                    break;
+            }
         }
     }
 
@@ -2705,17 +2771,15 @@ public final class TerminalEmulator implements java.io.Serializable {
 
         final boolean autoWrap = isDecsetInternalBitSet(DECSET_BIT_AUTOWRAP);
         final int displayWidth = WcWidth.width(codePoint);
-        final boolean cursorInLastColumn = mCursorCol == mRightMargin - 1;
+        final int right = mCursorCol >= mRightMargin ? mColumns : mRightMargin;
+        final int left = mCursorCol >= mRightMargin ? 0 : mLeftMargin;
+        final boolean cursorInLastColumn = mCursorCol == right - 1;
 
         if (autoWrap) {
             if (cursorInLastColumn && ((mAboutToAutoWrap && displayWidth == 1) || displayWidth == 2)) {
                 mScreen.setLineWrap(mCursorRow);
-                mCursorCol = mLeftMargin;
-                if (mCursorRow + 1 < mBottomMargin) {
-                    mCursorRow++;
-                } else {
-                    scrollDownOneLine();
-                }
+                doLinefeed();
+                mCursorCol = left;
             }
         } else if (cursorInLastColumn && displayWidth == 2) {
             // The behaviour when a wide character is output with cursor in the last column when
@@ -2726,8 +2790,8 @@ public final class TerminalEmulator implements java.io.Serializable {
         if (mInsertMode && displayWidth > 0) {
             // Move character to right one space.
             int destCol = mCursorCol + displayWidth;
-            if (destCol < mRightMargin)
-                mScreen.blockCopy(mCursorCol, mCursorRow, mRightMargin - destCol, 1, destCol, mCursorRow);
+            if (destCol < right)
+                mScreen.blockCopy(mCursorCol, mCursorRow, right - destCol, 1, destCol, mCursorRow);
         }
 
         int offsetDueToCombiningChar = ((displayWidth <= 0 && mCursorCol > 0 && !mAboutToAutoWrap) ? 1 : 0);
@@ -2741,9 +2805,9 @@ public final class TerminalEmulator implements java.io.Serializable {
         mScreen.setChar(column, mCursorRow, codePoint, getStyle(), mUnderlineColor);
 
         if (autoWrap && displayWidth > 0)
-            mAboutToAutoWrap = (mCursorCol == mRightMargin - displayWidth);
+            mAboutToAutoWrap = (mCursorCol == right - displayWidth);
 
-        mCursorCol = Math.min(mCursorCol + displayWidth, mRightMargin - 1);
+        mCursorCol = Math.min(mCursorCol + displayWidth, right - 1);
     }
 
     private void setCursorRow(int row) {
@@ -2758,7 +2822,48 @@ public final class TerminalEmulator implements java.io.Serializable {
 
     /** Set the cursor mode, but limit it to margins if {@link #DECSET_BIT_ORIGIN_MODE} is enabled. */
     private void setCursorColRespectingOriginMode(int col) {
-        setCursorPosition(col, mCursorRow);
+        setCursorPosition(col, cursorReportRow() - 1);
+    }
+
+    private int cursorReportRow() {
+        return mCursorRow + 1 - (isDecsetInternalBitSet(DECSET_BIT_ORIGIN_MODE) ? mTopMargin : 0);
+    }
+
+    private int cursorReportCol() {
+        return mCursorCol + 1 - (isDecsetInternalBitSet(DECSET_BIT_ORIGIN_MODE) ? mLeftMargin : 0);
+    }
+
+    private boolean cursorInHorizontalMargins() {
+        return mCursorCol >= mLeftMargin && mCursorCol < mRightMargin;
+    }
+
+    private void carriageReturn() {
+        setCursorCol(mCursorCol < mLeftMargin ? 0 : mLeftMargin);
+    }
+
+    private void cursorUp(int count) {
+        setCursorRow(Math.max(mCursorRow < mTopMargin ? 0 : mTopMargin, mCursorRow - count));
+    }
+
+    private void cursorDown(int count) {
+        setCursorRow(Math.min(mCursorRow >= mBottomMargin ? mRows - 1 : mBottomMargin - 1, mCursorRow + count));
+    }
+
+    private void cursorBackward(int count) {
+        int left = mCursorCol < mLeftMargin ? 0 : mLeftMargin;
+        boolean reverseWrap = isDecsetInternalBitSet(DECSET_BIT_REVERSE_WRAP) && isDecsetInternalBitSet(DECSET_BIT_AUTOWRAP);
+        if (reverseWrap && mAboutToAutoWrap) count--;
+        int top = mCursorRow < mTopMargin ? 0 : mTopMargin;
+        while (count > 0) {
+            int step = Math.min(count, Math.max(0, mCursorCol - left));
+            mCursorCol -= step;
+            count -= step;
+            if (count == 0 || !reverseWrap || mCursorRow <= top || !mScreen.getLineWrap(mCursorRow - 1)) break;
+            mCursorRow--;
+            mCursorCol = mRightMargin - 1;
+            count--;
+        }
+        mAboutToAutoWrap = false;
     }
 
     /** TODO: Better name, distinguished from {@link #setCursorPosition(int, int)} by not regarding origin mode. */
@@ -2778,13 +2883,20 @@ public final class TerminalEmulator implements java.io.Serializable {
 
     /** Reset terminal state so user can interact with it regardless of present state. */
     public void reset() {
+        reset(true);
+    }
+
+    private void reset(boolean full) {
         mSynchronizedOutput.end();
-        mMainGraphics.reset();
-        mAltGraphics.reset();
-        mMainKeyboard.reset();
-        mAltKeyboard.reset();
+        if (full) {
+            mMainGraphics.reset();
+            mAltGraphics.reset();
+            mMainKeyboard.reset();
+            mAltKeyboard.reset();
+            mSixelDisplayMode = false;
+            mNewlineMode = false;
+        }
         startGraphicsString();
-        mSixelDisplayMode = false;
         setCursorStyle();
         mArgIndex = 0;
         mContinueSequence = false;
@@ -2794,22 +2906,35 @@ public final class TerminalEmulator implements java.io.Serializable {
         mBottomMargin = mRows;
         mRightMargin = mColumns;
         mAboutToAutoWrap = false;
-        mUnderlineColor = mSavedStateMain.mSavedUnderlineColor = mSavedStateAlt.mSavedUnderlineColor = TextStyle.COLOR_INDEX_FOREGROUND;
-        mForeColor = mSavedStateMain.mSavedForeColor = mSavedStateAlt.mSavedForeColor = TextStyle.COLOR_INDEX_FOREGROUND;
-        mBackColor = mSavedStateMain.mSavedBackColor = mSavedStateAlt.mSavedBackColor = TextStyle.COLOR_INDEX_BACKGROUND;
-        setDefaultTabStops();
+        mEffect = 0;
+        mUnderlineColor = mForeColor = TextStyle.COLOR_INDEX_FOREGROUND;
+        mBackColor = TextStyle.COLOR_INDEX_BACKGROUND;
+        if (full) setDefaultTabStops();
 
         mUseLineDrawingG0 = mUseLineDrawingG1 = false;
         mUseLineDrawingUsesG0 = true;
 
-        mSavedStateMain.mSavedCursorRow = mSavedStateMain.mSavedCursorCol = mSavedStateMain.mSavedEffect = mSavedStateMain.mSavedDecFlags = 0;
-        mSavedStateAlt.mSavedCursorRow = mSavedStateAlt.mSavedCursorCol = mSavedStateAlt.mSavedEffect = mSavedStateAlt.mSavedDecFlags = 0;
-        mCurrentDecSetFlags = 0;
+        if (full) {
+            mSavedStateMain = new SavedScreenState();
+            mSavedStateAlt = new SavedScreenState();
+            mCurrentDecSetFlags = 0;
+            mSavedAlternateScreen = false;
+        } else {
+            mCurrentDecSetFlags &= ~(DECSET_BIT_ORIGIN_MODE | DECSET_BIT_LEFTRIGHT_MARGIN_MODE
+                | DECSET_BIT_APPLICATION_CURSOR_KEYS | DECSET_BIT_APPLICATION_KEYPAD | DECSET_BIT_REVERSE_WRAP);
+        }
         // Initial wrap-around is not accurate but makes terminal more useful, especially on a small screen:
         setDecsetinternalBit(DECSET_BIT_AUTOWRAP, true);
         setDecsetinternalBit(DECSET_BIT_CURSOR_ENABLED, true);
-        setDecsetinternalBit(DECSET_BIT_ALTERNATE_SCROLL, true);
-        mSavedDecSetFlags = mSavedStateMain.mSavedDecFlags = mSavedStateAlt.mSavedDecFlags = mCurrentDecSetFlags;
+        if (full) {
+            setDecsetinternalBit(DECSET_BIT_ALTERNATE_SCROLL, true);
+            mSavedDecSetFlags = mSavedStateMain.mSavedDecFlags = mSavedStateAlt.mSavedDecFlags = mCurrentDecSetFlags;
+        } else {
+            saveCursor();
+            SavedScreenState state = isAlternateBufferActive() ? mSavedStateAlt : mSavedStateMain;
+            state.mSavedCursorRow = state.mSavedCursorCol = 0;
+        }
+        if (mClient != null) mClient.onTerminalCursorStateChange(true);
 
         // XXX: Should we set terminal driver back to IUTF8 with termios?
         mUtf8Index = mUtf8ToFollow = 0;
@@ -2843,7 +2968,10 @@ public final class TerminalEmulator implements java.io.Serializable {
         boolean bracketed = isDecsetInternalBitSet(DECSET_BIT_BRACKETED_PASTE_MODE);
         // Bracketed paste is application data: preserve all newline characters,
         // including the final newline. Otherwise retain the legacy Enter encoding.
-        if (!bracketed) text = text.replaceAll("\r?\n", "\r");
+        if (!bracketed) {
+            text = text.replaceAll("\r?\n", "\r");
+            if (mNewlineMode) text = text.replace("\r", "\r\n");
+        }
         // Keep the paste envelope and payload in one transport write.
         mSession.write(bracketed ? "\033[200~" + text + "\033[201~" : text);
     }
@@ -2853,8 +2981,12 @@ public final class TerminalEmulator implements java.io.Serializable {
         private static final long serialVersionUID = 1L;
         /** Saved state of the cursor position, Used to implement the save/restore cursor position escape sequences. */
         int mSavedCursorRow, mSavedCursorCol;
-        int mSavedEffect, mSavedForeColor, mSavedBackColor, mSavedUnderlineColor;
+        int mSavedEffect;
+        int mSavedForeColor = TextStyle.COLOR_INDEX_FOREGROUND;
+        int mSavedBackColor = TextStyle.COLOR_INDEX_BACKGROUND;
+        int mSavedUnderlineColor = TextStyle.COLOR_INDEX_FOREGROUND;
         int mSavedDecFlags;
+        boolean mSavedAboutToAutoWrap;
         boolean mUseLineDrawingG0, mUseLineDrawingG1, mUseLineDrawingUsesG0 = true;
     }
 

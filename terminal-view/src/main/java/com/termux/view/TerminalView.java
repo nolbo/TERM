@@ -1267,7 +1267,10 @@ public final class TerminalView extends View {
             }
 
             // If left alt, send escape before the code point to make e.g. Alt+B and Alt+F work in readline:
-            mTermSession.writeCodePoint(altDown, codePoint);
+            if (codePoint == '\r' && mEmulator != null && mEmulator.isNewlineModeEnabled())
+                mTermSession.write(altDown ? "\033\r\n" : "\r\n");
+            else
+                mTermSession.writeCodePoint(altDown, codePoint);
         }
     }
 
@@ -1291,7 +1294,7 @@ public final class TerminalView extends View {
             return true;
 
         TerminalEmulator term = mTermSession.getEmulator();
-        String code = KeyHandler.getCode(keyCode, keyMod, term.isCursorKeysApplicationMode(), term.isKeypadApplicationMode());
+        String code = term.getKeyCode(keyCode, keyMod);
         if (code == null) return false;
         mTermSession.write(code);
         return true;

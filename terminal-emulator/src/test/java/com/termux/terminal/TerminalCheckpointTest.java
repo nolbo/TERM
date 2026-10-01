@@ -100,6 +100,22 @@ public class TerminalCheckpointTest extends TerminalTestCase {
         }
     }
 
+    public void testVtSavedModesNewlineAndPendingWrapSurviveCheckpoint() throws Exception {
+        withTerminalSized(5, 4);
+        enterString("\033[?1l\033[?1s\033[?1h\033[32mSHELL\033[?1049h\033[?47s\033[?45h\033[20h\033[Habcde\0337\033[3;");
+        MockTerminalOutput out = new MockTerminalOutput();
+        TerminalEmulator mirror = restore(mTerminal, out);
+        sameState(mTerminal, mirror);
+        String continuation = "2H\0338\b\033[?1r\033[20$p\033[?45$p\033[?1$p\033[?1049lX";
+        append(mTerminal, continuation);
+        append(mirror, continuation);
+        assertEquals("\033[20;1$y\033[?45;1$y\033[?1;2$y", mOutput.getOutputAndClear());
+        assertEquals("\033[20;1$y\033[?45;1$y\033[?1;2$y", out.getOutputAndClear());
+        sameState(mTerminal, mirror);
+        assertLinesAre("SHELL", "X    ", "     ", "     ");
+        assertForegroundColorAt(1, 0, 2);
+    }
+
     public void testMirrorSuppressesOnlyParsedRepliesAndCheckpointHasNoSideEffects() throws Exception {
         withTerminalSized(20, 8); enterString("hello\033[?1003h\033[?1006h\033[?2026h");
         MockTerminalOutput out = new MockTerminalOutput();

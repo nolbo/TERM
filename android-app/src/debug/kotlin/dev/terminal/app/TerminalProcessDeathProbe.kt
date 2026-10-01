@@ -74,7 +74,7 @@ class TerminalProcessDeathProbe : BroadcastReceiver() {
         val (id, store) = newSession(context, runtime, directory)
         val script = "stty -echo -icanon min 1 time 0; " +
             "i=0; while [ \$i -lt 150 ]; do printf 'history-%s\\r\\n' \"\$i\"; i=\$((i+1)); done; " +
-            "printf '\\033[?1049h\\033[?1003h\\033[?1006h\\033[?1007l\\033[?2004h\\033[2J\\033[H\\033[38;2;12;34;56mTUI_READY\\033[2;2H'; " +
+            "printf '\\033[?1049h\\033[?45h\\033[20h\\033[?1003h\\033[?1006h\\033[?1007l\\033[?2004h\\033[2J\\033[H\\033[38;2;12;34;56mTUI_READY\\033[2;2H'; " +
             "dd if=/dev/urandom of=\"\$TMPDIR/terminal-checkpoint-probe.rgb\" bs=393216 count=3 2>/dev/null; " +
             "printf '\\033_Ga=T,i=42,p=7,t=f,f=24,s=768,v=512,c=2,r=1,C=1,q=2;'; " +
             "printf '%s' \"\$TMPDIR/terminal-checkpoint-probe.rgb\" | base64 -w 0; printf '\\033\\\\\\033[4;'; " +
@@ -119,6 +119,7 @@ class TerminalProcessDeathProbe : BroadcastReceiver() {
             compareScreens(expected.screen, actual.screen, expected.mColumns, expected.mRows)
             compareScreens(mainBuffer(expected), mainBuffer(actual), expected.mColumns, expected.mRows)
             check(actual.isAlternateBufferActive && actual.isMouseMotionTrackingActive && !actual.isAlternateScrollEnabled)
+            check(actual.isNewlineModeEnabled && actual.getKeyCode(66, 0) == "\r\n")
             check(expected.mColors.mCurrentColors.contentEquals(actual.mColors.mCurrentColors))
             check(actual.cursorRow == expected.cursorRow && actual.cursorCol == expected.cursorCol)
             val image = actual.graphics.placements.single()

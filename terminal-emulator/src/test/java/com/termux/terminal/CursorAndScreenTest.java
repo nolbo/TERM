@@ -124,7 +124,7 @@ public class CursorAndScreenTest extends TerminalTestCase {
 		// If an attempt is made to move the cursor to the left of the left margin, the cursor stops at the left margin:
 		withTerminalSized(3, 2).enterString("AB\033[44DC").assertLinesAre("CB ", "   ");
 		// Enable left margin and verify that CUB ends at the set left margin:
-		withTerminalSized(6, 2).enterString("ABCD\033[?69h\033[2;6s\033[44DE").assertLinesAre("AECD  ", "      ");
+		withTerminalSized(6, 2).enterString("ABCD\033[?69h\033[2;6s\033[1;2H\033[44DE").assertLinesAre("AECD  ", "      ");
 	}
 
 	public void testCursorUp() {
@@ -151,10 +151,8 @@ public class CursorAndScreenTest extends TerminalTestCase {
 				assertCursorAt(i, j);
 				// Device Status Report (DSR):
 				assertEnteringStringGivesResponse("\033[6n", "\033[" + (i + 1) + ";" + (j + 1) + "R");
-				// DECXCPR — Extended Cursor Position. Note that http://www.vt100.net/docs/vt510-rm/DECXCPR says
-				// the response is "${CSI}${LINE};${COLUMN};${PAGE}R" while xterm (http://invisible-island.net/xterm/ctlseqs/ctlseqs.html)
-				// drops the question mark. Expect xterm behaviour here.
-				assertEnteringStringGivesResponse("\033[?6n", "\033[?" + (i + 1) + ";" + (j + 1) + ";1R");
+				// Xterm DECXCPR retains '?' and omits the default page number.
+				assertEnteringStringGivesResponse("\033[?6n", "\033[?" + (i + 1) + ";" + (j + 1) + "R");
 			}
 		}
 	}
@@ -218,7 +216,7 @@ public class CursorAndScreenTest extends TerminalTestCase {
 		// Backspace should not go to previous line if not auto-wrapped:
 		withTerminalSized(3, 3).enterString("hi\r\n\b\byou").assertLinesAre("hi ", "you", "   ");
 		// Backspace should go to previous line if auto-wrapped:
-		withTerminalSized(3, 3).enterString("hi y").assertLinesAre("hi ", "y  ", "   ").enterString("\b\b#").assertLinesAre("hi#", "y  ", "   ");
+		withTerminalSized(3, 3).enterString("\033[?45hhi y").assertLinesAre("hi ", "y  ", "   ").enterString("\b\b#").assertLinesAre("hi#", "y  ", "   ");
 		// Initial backspace should do nothing:
 		withTerminalSized(3, 3).enterString("\b\b\b\bhi").assertLinesAre("hi ", "   ", "   ");
 	}

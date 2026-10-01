@@ -2,6 +2,7 @@ package dev.terminal.app
 
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.KeyEvent
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -14,6 +15,29 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ProgramScrollDeviceTest {
+    @Test fun newlineModeAppliesToEnterControlMAndPasteThroughTheView() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val writes = ByteArrayOutputStream()
+        val chunks = mutableListOf<ByteArray>()
+        instrumentation.runOnMainSync {
+            val view = TerminalView(instrumentation.targetContext, null).apply {
+                setTerminalViewClient(TerminalInputCallbacks()); setTextSize(20); layout(0, 0, 800, 600)
+            }
+            val backend = RemoteTerminalBackend(write = { writes.write(it); chunks += it.copyOf() }, resize = { _, _ -> })
+            val session = TerminalSession("", "/", emptyArray(), emptyArray(), 1000, TerminalCallbacks {}, backend)
+            view.attachSession(session)
+            try {
+                val bytes = "\u001b[20h".toByteArray()
+                session.emulator.append(bytes, bytes.size)
+                assertTrue(view.handleKeyCode(KeyEvent.KEYCODE_ENTER, 0))
+                view.inputCodePoint('m'.code, true, false)
+                view.pasteText("one\ntwo")
+                assertEquals("\r\n\r\none\r\ntwo", writes.toString("UTF-8"))
+                assertEquals("Each input action must reach the transport in one write", 3, chunks.size)
+            } finally { backend.close() }
+        }
+    }
+
     @Test fun authoritativeExitedScreenKeepsItsResizeSubscriptionUntilDetach() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val backend = RemoteTerminalBackend(write = {}, resize = { _, _ -> }, authoritative = true)

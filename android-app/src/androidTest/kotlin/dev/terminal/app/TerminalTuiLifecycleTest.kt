@@ -11,6 +11,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.termux.terminal.TerminalEmulator
+import com.termux.terminal.TextStyle
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
 import dev.terminal.runtime.ipc.IRuntimeService
@@ -26,6 +27,51 @@ import org.junit.runner.RunWith
 class TerminalTuiLifecycleTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
+
+    @Test fun fullscreenVtModesAndShellCursorSurviveBackgroundAndCheckpointReattach() = withSession { service, id ->
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            val original = select(scenario, id)
+            val script = "stty -echo -icanon min 1 time 0; " +
+                "printf '\\033[2J\\033[H\\033[32mSHELL_BASE\\033[3;4H\\033[?1l\\033[?1s\\033[?1h\\033[?1049h\\033[31m\\033[?45;1003;1006;2004h\\033[20h\\033[HVT_READY'; " +
+                "dd bs=1 count=1 >/dev/null 2>&1; " +
+                "printf '\\033[2;5r\\033[?6h\\033[2;2HQ\\033[?1r\\033[6n'; " +
+                "answer=\$(dd bs=1 count=6 2>/dev/null); " +
+                "case \"\$answer\" in *'[2;3R') printf '\\033[4;1HVT_QUERY_OK';; *) printf '\\033[4;1HVT_QUERY_FAIL';; esac; " +
+                "dd bs=1 count=1 >/dev/null 2>&1; " +
+                "printf '\\033[?6l\\033[?1049lMAIN_CURSOR_RESTORED'; " +
+                "dd bs=1 count=1 >/dev/null 2>&1; stty echo icanon\n"
+            service.writeSessionInput(id, script.toByteArray())
+            await("VT ready") { screen(original).contains("VT_READY") }
+            scenario.moveToState(Lifecycle.State.CREATED)
+            service.writeSessionInput(id, "A".toByteArray())
+            await("origin-relative query while backgrounded") { screen(original).contains("VT_QUERY_OK") }
+
+            // Discard only our UI mirror, keeping the actual PTY and runtime emulator alive.
+            // The next Activity installs a checkpoint, including both cursor save slots.
+            instrumentation.runOnMainSync { (context.applicationContext as TerminalApplication).terminalSessions.remove(id) }
+            scenario.moveToState(Lifecycle.State.RESUMED)
+            scenario.recreate()
+            val restored = select(scenario, id)
+            assertNotSame(original, restored)
+            await("checkpoint installed in the new mirror") { screen(restored).contains("VT_QUERY_OK") }
+            instrumentation.runOnMainSync {
+                assertTrue(restored.emulator.isAlternateBufferActive)
+                assertTrue(restored.emulator.isMouseMotionTrackingActive)
+                assertFalse(restored.emulator.isCursorKeysApplicationMode)
+                assertTrue(restored.emulator.isNewlineModeEnabled)
+            }
+            service.writeSessionInput(id, "B".toByteArray())
+            await("saved main screen and cursor") { screen(restored).contains("MAIN_CURSOR_RESTORED") }
+            instrumentation.runOnMainSync {
+                val emulator = restored.emulator
+                assertFalse(emulator.isAlternateBufferActive)
+                assertEquals("SHELL_BASE", emulator.screen.getSelectedText(0, 0, 9, 0))
+                assertEquals("MAIN_CURSOR_RESTORED", emulator.screen.getSelectedText(3, 2, 22, 2))
+                assertEquals(2, TextStyle.decodeForeColor(emulator.screen.getStyleAt(2, 3)))
+            }
+            service.writeSessionInput(id, "C".toByteArray())
+        }
+    }
 
     @Test fun nativeTuiKeepsItsScreenParserAndMouseInputAcrossBackgroundAndRecreation() = withSession { service, id ->
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->

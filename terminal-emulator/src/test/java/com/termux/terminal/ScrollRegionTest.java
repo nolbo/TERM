@@ -117,8 +117,8 @@ public class ScrollRegionTest extends TerminalTestCase {
 		assertLinesAre("1 ", "2 ", "3 ", "QQ", "YY");
 	}
 
-	/** See https://github.com/termux/termux-app/issues/1340 */
-	public void testScrollRegionDoesNotLimitCursorMovement() {
+	/** Absolute positioning may leave margins; relative movement stops at the margin approached. */
+	public void testScrollRegionLimitsRelativeCursorMovement() {
 		withTerminalSized(6, 4)
 			.enterString("\033[4;7r\033[3;1Haaa\033[Axxx")
 			.assertLinesAre(
@@ -129,12 +129,12 @@ public class ScrollRegionTest extends TerminalTestCase {
 			);
 
 		withTerminalSized(6, 4)
-			.enterString("\033[1;3r\033[3;1Haaa\033[Bxxx")
+			.enterString("\033[1;3r\033[4;1Haaa\033[Bxxx")
 			.assertLinesAre(
 				"      ",
 				"      ",
-				"aaa   ",
-				"   xxx"
+				"      ",
+				"aaaxxx"
 			);
 	}
 
@@ -147,7 +147,7 @@ public class ScrollRegionTest extends TerminalTestCase {
 		int size = 3;
 		TerminalTestCase terminal = withTerminalSized(size, size)
 			// Enable horizontal margin and set left margin to 1:
-			.enterString("\033[?69h\033[2s")
+			.enterString("\033[?69h\033[2s\033[1;2H")
 			// Set foreground and background color:
 			.enterString("\033[" + (30 + newForeground) + ";" + (40 + newBackground) + "m")
 			// Enter newlines to scroll down:
