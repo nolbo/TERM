@@ -28,7 +28,7 @@ class SettingsSearchTest {
     @Test fun nestedResultsOpenTheirOwningScreensAndSections() {
         fun target(title: Int) = settingsSearchEntries.single { it.title == title }.target
         assertEquals(SettingsSearchTarget("appearance", 2), target(R.string.font_size))
-        assertEquals(SettingsSearchTarget("appearance", 4), target(R.string.follow_tui_background))
+        assertEquals(SettingsSearchTarget("terminal", 2), target(R.string.follow_tui_background))
         assertEquals(SettingsSearchTarget("terminal", 4), target(R.string.scrollback))
         assertEquals(SettingsSearchTarget("terminal", 6), target(R.string.shared_storage_access))
         assertEquals(SettingsSearchTarget("hotkeys"), target(R.string.hotkey_columns))
