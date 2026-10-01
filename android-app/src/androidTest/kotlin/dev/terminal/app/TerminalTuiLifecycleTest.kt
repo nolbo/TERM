@@ -10,6 +10,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.compose.ui.graphics.toArgb
 import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TextStyle
 import com.termux.terminal.TerminalSession
@@ -27,6 +28,58 @@ import org.junit.runner.RunWith
 class TerminalTuiLifecycleTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
+
+    @Test fun tuiChromeFollowsLiveOutputAndRestoresAcrossSettingsAndRecreation() = withSession { service, id ->
+        val preferences = context.getSharedPreferences(SettingsDetailActivity.TERMINAL_PREFERENCES, Context.MODE_PRIVATE)
+        val key = TerminalAppearance.KEY_FOLLOW_TUI_BACKGROUND
+        val original = preferences.all[key] as? Boolean
+        try {
+            preferences.edit().putBoolean(key, true).commit()
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val terminal = select(scenario, id)
+                val background = terminal.emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND]
+                fun chrome(): Int {
+                    var result = 0
+                    scenario.onActivity {
+                        val state = MainActivity::class.java.getDeclaredField("terminalChromeColors\$delegate")
+                            .apply { isAccessible = true }.get(it) as androidx.compose.runtime.State<*>
+                        result = (state.value as dev.terminal.app.ui.TerminalChromeColors).background.toArgb()
+                    }
+                    return result
+                }
+                val script = "stty -echo -icanon min 1 time 0; " +
+                    "printf '\\033[?1049h\\033[48;2;18;52;86m\\033[2J\\033[HTUI_DARK'; " +
+                    "dd bs=1 count=1 >/dev/null 2>&1; " +
+                    "printf '\\033[?2026h\\033[48;2;240;224;208m\\033[2J\\033[HTUI_LIGHT'; " +
+                    "dd bs=1 count=1 >/dev/null 2>&1; printf '\\033[?2026l'; " +
+                    "dd bs=1 count=1 >/dev/null 2>&1; " +
+                    "printf '\\033[0m\\033[?1049l'; stty echo icanon\n"
+                service.writeSessionInput(id, script.toByteArray())
+                await("dark TUI chrome") { chrome() == 0xFF123456.toInt() }
+                assertEquals(background, terminal.emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND])
+                service.writeSessionInput(id, "A".toByteArray())
+                await("synchronized theme received") { screen(terminal).contains("TUI_LIGHT") }
+                assertEquals(0xFF123456.toInt(), chrome())
+                service.writeSessionInput(id, "S".toByteArray())
+                await("live light theme") { chrome() == 0xFFF0E0D0.toInt() }
+                scenario.recreate()
+                select(scenario, id)
+                await("TUI chrome after recreation") { chrome() == 0xFFF0E0D0.toInt() }
+                scenario.moveToState(Lifecycle.State.CREATED)
+                preferences.edit().putBoolean(key, false).commit()
+                scenario.moveToState(Lifecycle.State.RESUMED)
+                await("disabled option restores palette") { chrome() == background }
+                scenario.moveToState(Lifecycle.State.CREATED)
+                preferences.edit().putBoolean(key, true).commit()
+                scenario.moveToState(Lifecycle.State.RESUMED)
+                await("enabled option restores TUI color") { chrome() == 0xFFF0E0D0.toInt() }
+                service.writeSessionInput(id, "B".toByteArray())
+                await("TUI exit restores palette") { chrome() == background }
+            }
+        } finally {
+            preferences.edit().apply { if (original == null) remove(key) else putBoolean(key, original) }.commit()
+        }
+    }
 
     @Test fun fullscreenVtModesAndShellCursorSurviveBackgroundAndCheckpointReattach() = withSession { service, id ->
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->

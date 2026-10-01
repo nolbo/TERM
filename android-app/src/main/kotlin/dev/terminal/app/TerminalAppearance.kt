@@ -19,6 +19,7 @@ object TerminalAppearance {
     val PADDING_RANGE = 0..32
     const val DEFAULT_FONT_SIZE_SP = 10
     const val KEY_PALETTE = "palette"
+    const val KEY_FOLLOW_TUI_BACKGROUND = "follow-tui-background"
     const val CUSTOM_PALETTE = "CUSTOM"
     private const val KEY_CUSTOM_FOREGROUND = "custom-palette-foreground"
     private const val KEY_CUSTOM_BACKGROUND = "custom-palette-background"

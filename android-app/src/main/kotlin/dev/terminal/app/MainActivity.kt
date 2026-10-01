@@ -157,11 +157,19 @@ class MainActivity : TerminalActivity() {
     private var toolbarMemorySections by mutableStateOf(MemoryToolSections())
     private var controlPressed by mutableStateOf(false)
     private var altPressed by mutableStateOf(false)
-    private var terminalBackgroundColor by mutableStateOf(Color.Black)
     private var terminalChromeColors by mutableStateOf(dev.terminal.app.ui.TerminalChromeColors(Color.Black))
-    private val paletteTransition = TerminalPaletteTransition { colors ->
-        terminalChromeColors = colors
-        terminalBackgroundColor = colors.background
+    private var followTuiBackground = false
+    private val paletteTransition = TerminalPaletteTransition(
+        followTuiBackground = { followTuiBackground },
+    ) { terminalChromeColors = it }
+    private val updateTerminalChrome = object : Runnable {
+        override fun run() {
+            mainHandler.removeCallbacks(this)
+            val view = terminalView ?: return
+            val delay = view.currentSession?.emulator?.synchronizedOutputDelayMillis ?: return
+            if (delay > 0) mainHandler.postDelayed(this, delay)
+            else paletteTransition.update(view)
+        }
     }
     private var paletteSessionId: String? = null
     private var paletteView: TerminalView? = null
@@ -319,6 +327,8 @@ class MainActivity : TerminalActivity() {
                 terminalView?.takeIf { it.currentSession === session }?.let { view ->
                     terminalStore.restoreViewport(view)
                     view.onScreenUpdated()
+                    mainHandler.removeCallbacks(updateTerminalChrome)
+                    updateTerminalChrome.run()
                 }
             } else if (id == activeSessionId) {
                 displayedSessionId = null
@@ -348,7 +358,7 @@ class MainActivity : TerminalActivity() {
         rootlessStatus = getString(R.string.rootless_setup_required)
         rootlessDetail = getString(R.string.rootless_setup_initial)
         runtimeChoices = defaultRuntimeChoices()
-        terminalBackgroundColor = Color(TerminalAppearance.backgroundColor(terminalPreferences()))
+        terminalChromeColors = dev.terminal.app.ui.TerminalChromeColors(Color(TerminalAppearance.backgroundColor(terminalPreferences())))
         terminalPaddingDp = TerminalAppearance.paddingDp(terminalPreferences())
         terminalInputCallbacks = TerminalInputCallbacks(
             onModifierStateChanged = ::syncModifierState,
@@ -357,7 +367,7 @@ class MainActivity : TerminalActivity() {
             onPinchScale = ::scaleTerminalFont,
             onWebLink = ::openTerminalWebLink,
         )
-        compose(systemBarBackground = { if (activeSessionId != null) terminalBackgroundColor else null }) { TerminalScreen() }
+        compose(systemBarBackground = { if (activeSessionId != null) terminalChromeColors.background else null }) { TerminalScreen() }
         val notificationPreferences = getSharedPreferences("notification-permission", MODE_PRIVATE)
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
@@ -387,6 +397,7 @@ class MainActivity : TerminalActivity() {
         super.onResume()
         toolbarInputActive = true
         val preferences = terminalPreferences()
+        followTuiBackground = preferences.getBoolean(TerminalAppearance.KEY_FOLLOW_TUI_BACKGROUND, false)
         hotkeyLayout = readHotkeyLayout(preferences)
         toolbarConfig = readToolbarConfig(preferences)
         toolbarCommands = readToolbarCommands(preferences)
@@ -398,6 +409,7 @@ class MainActivity : TerminalActivity() {
             paletteTransition.capture(it)
             TerminalAppearance.apply(preferences, it, sessionFontSize(), applyPalette = false)
             updateTerminalPalette(it)
+            updateTerminalChrome.run()
             terminalSessions.filterKeys { id -> id != activeSessionId }.forEach { (id, session) ->
                 val palette = sessionPalette(id).asProperties()
                 session.emulator?.mColors?.setDefaultColors(palette)
@@ -428,6 +440,7 @@ class MainActivity : TerminalActivity() {
         terminalView?.saveSessionScrollPosition()
         terminalStore.unobserve(this)
         paletteTransition.cancel()
+        mainHandler.removeCallbacks(updateTerminalChrome)
         paletteView = null
         bindingGeneration++
         terminalView?.removeCallbacks(showTerminalKeyboard)
@@ -456,7 +469,7 @@ class MainActivity : TerminalActivity() {
         val screenBackgroundColor = if (activeSessionId == null) {
             MaterialTheme.colorScheme.background
         } else {
-            terminalBackgroundColor
+            terminalChromeColors.background
         }
         val visibleSessions = sessions.map { session ->
             sessionWithDisplayTitles(session, applicationTerminalTitles[session.id])
@@ -519,13 +532,14 @@ class MainActivity : TerminalActivity() {
                         view.removeCallbacks(showTerminalKeyboard)
                         if (terminalView === view) {
                             paletteTransition.cancel()
+                            mainHandler.removeCallbacks(updateTerminalChrome)
                             paletteView = null
                             terminalView = null
                         }
                     },
                     modifier = Modifier.weight(1f).fillMaxWidth()
                         .clipToBounds()
-                        .background(terminalBackgroundColor)
+                        .background(terminalChromeColors.background)
                         .padding(terminalPaddingDp.dp),
                 )
                 val toolbarSessionId = activeSessionId
@@ -590,9 +604,9 @@ class MainActivity : TerminalActivity() {
                 Spacer(
                     Modifier.fillMaxWidth().windowInsetsTopHeight(topInsets)
                         .background(Brush.verticalGradient(listOf(
-                            terminalBackgroundColor,
-                            terminalBackgroundColor.copy(alpha = 0.6f),
-                            terminalBackgroundColor.copy(alpha = 0f),
+                            terminalChromeColors.background,
+                            terminalChromeColors.background.copy(alpha = 0.6f),
+                            terminalChromeColors.background.copy(alpha = 0f),
                         ))),
                 )
             }
@@ -810,6 +824,7 @@ class MainActivity : TerminalActivity() {
             paletteSessionId = id
             paletteView = view
             paletteTransition.show(view, animate)
+            if (session.emulator.synchronizedOutputDelayMillis > 0) updateTerminalChrome.run()
         }
     }
 

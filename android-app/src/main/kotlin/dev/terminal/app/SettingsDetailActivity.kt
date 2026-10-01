@@ -515,6 +515,12 @@ class SettingsDetailActivity : TerminalActivity() {
                 ActionSetting(R.string.customize_palette, R.string.customize_palette_support) {
                     startActivity(Intent(this@SettingsDetailActivity, PaletteEditorActivity::class.java))
                 }
+                SettingsDivider()
+                BooleanSetting(
+                    R.string.follow_tui_background,
+                    R.string.follow_tui_background_support,
+                    terminalPreferences.getBoolean(TerminalAppearance.KEY_FOLLOW_TUI_BACKGROUND, false),
+                ) { terminalPreferences.edit().putBoolean(TerminalAppearance.KEY_FOLLOW_TUI_BACKGROUND, it).apply() }
             }
         }
     }
