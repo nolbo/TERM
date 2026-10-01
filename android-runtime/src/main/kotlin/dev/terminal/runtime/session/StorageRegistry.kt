@@ -82,13 +82,16 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
             val encoded = profile.resolve().toJson().toString()
             val key = Key(profile.runtime, profile.storageId)
             validateConnection(key)
-            val allKeys = keys() + key
-            if (newStorageName != null) {
-                check(key !in keys()) { "A new storage name cannot rename an existing environment" }
-                putName(key, newStorageName)
+            val existingKeys = keys()
+            val fresh = key.storageId != "legacy" && key !in existingKeys
+            if (newStorageName != null) check(fresh) { "A new storage name cannot rename an existing environment" }
+            if (fresh) {
+                val storedNames = state.optJSONObject("storageNames")
+                val names = storedNames?.keys()?.asSequence()?.map { storedNames.getString(it) }?.toList().orEmpty()
+                putName(key, if (newStorageName.isNullOrBlank()) defaultName(profile.name, names) else uniqueName(newStorageName, names))
             }
             state.getJSONObject("profiles").put(profile.id, encoded)
-            state.put("storages", JSONArray(allKeys.map { it.json() }))
+            state.put("storages", JSONArray((existingKeys + key).map { it.json() }))
             persist()
         }
         fun deleteProfile(id: String, builtIn: Boolean) {
@@ -131,6 +134,25 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
     }
     companion object {
         const val MAX_NAME_LENGTH = 120
+        fun defaultName(profileName: String, existingNames: Collection<String> = emptyList()): String =
+            uniqueName(boundedName("Storage for " + profileName.trim().filterNot { it.isISOControl() }, MAX_NAME_LENGTH).trimEnd(), existingNames)
+
+        /** The caller reserves this name while holding the manifest transaction lock. */
+        fun uniqueName(requested: String, existingNames: Collection<String>): String {
+            val base = requested.trim()
+            require(base.isNotEmpty() && base.length <= MAX_NAME_LENGTH && base.none { it.isISOControl() }) { "Invalid storage name" }
+            val occupied = existingNames.toHashSet()
+            var candidate = base
+            var number = 2
+            while (candidate in occupied) {
+                val suffix = " (${number++})"
+                candidate = boundedName(base, MAX_NAME_LENGTH - suffix.length).trimEnd() + suffix
+            }
+            return candidate
+        }
+        private fun boundedName(value: String, length: Int): String = value.take(length).let {
+            if (it.lastOrNull()?.isHighSurrogate() == true) it.dropLast(1) else it
+        }
         private val locks = ConcurrentHashMap<String, Any>()
         private fun decodeKeys(array: JSONArray) = List(array.length()) { index -> array.getJSONObject(index).let {
             Key(requireNotNull(SessionRuntime.fromWireName(it.getString("runtime"))), it.getString("storageId"))

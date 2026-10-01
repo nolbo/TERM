@@ -153,6 +153,8 @@ class StorageManagerTest {
                 assertNull(find { it.text?.toString() == context.getString(R.string.storage_sessions) })
                 val registry = dev.terminal.runtime.session.StorageRegistry(context.filesDir)
                 val key = dev.terminal.runtime.session.StorageRegistry.Key(profile.runtime, profile.storageId)
+                val defaultName = registry.transaction { name(key) }
+                assertTrue(requireNotNull(defaultName).startsWith("Storage for ${profile.name}"))
                 fun editName(value: String, save: Boolean) {
                     clickContaining(context.getString(R.string.storage_name))
                     await { find { it.isEditable } != null }
@@ -163,7 +165,7 @@ class StorageManagerTest {
                     await { find { it.isEditable } == null }
                 }
                 editName("Discarded name", false)
-                assertNull(registry.transaction { name(key) })
+                assertEquals(defaultName, registry.transaction { name(key) })
                 editName("Storage UI name", true)
                 await { registry.transaction { name(key) } == "Storage UI name" }
                 val detail = requireNotNull(resumedActivity() as? StorageDetailActivity)

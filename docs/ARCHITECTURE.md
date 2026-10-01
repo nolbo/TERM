@@ -254,6 +254,8 @@ Optional display names are persisted per `(runtime, storageId)` in the manifest 
 renamed through the service; they do not change storage paths or launch snapshots.
 A fresh environment name entered during profile creation/editing is persisted
 atomically with that profile; existing storage selection never renames the environment.
+Fresh storage defaults to `Storage for <creator profile name>`; the same transaction
+reserves an available numeric suffix across all named environments, including orphans.
 Profile overrides and tombstones migrate from `session-profiles` preferences into
 an atomic app-private manifest on the first mutation. A process-shared file lock
 serializes profile writes and the final deletion reference check; defaults still

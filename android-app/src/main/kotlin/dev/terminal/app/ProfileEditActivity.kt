@@ -164,10 +164,14 @@ class ProfileEditActivity : TerminalActivity() {
                                 storageId = freshStorageId; storageChoice = "fresh"; dirty = true
                             }
                         }
-                        if (storageChoice == "fresh") ProfileField(R.string.profile_storage_name, freshStorageName,
-                            hint = R.string.storage_name_hint) {
-                            freshStorageName = it.filterNot { char -> char.isISOControl() }.take(StorageRegistry.MAX_NAME_LENGTH)
-                            dirty = true
+                        if (storageChoice == "fresh") {
+                            val suggestedName = if (name.isBlank()) "" else StorageRegistry.defaultName(name, storageNames.values.filterNotNull())
+                            ProfileField(R.string.profile_storage_name, freshStorageName.ifBlank { suggestedName },
+                                hint = R.string.profile_storage_name_hint) {
+                                val value = it.filterNot { char -> char.isISOControl() }.take(StorageRegistry.MAX_NAME_LENGTH)
+                                freshStorageName = if (value.trim() == suggestedName) "" else value
+                                dirty = true
+                            }
                         }
                     }
                     Text(stringResource(R.string.profile_storage_hint), modifier = Modifier.padding(horizontal = 16.dp),

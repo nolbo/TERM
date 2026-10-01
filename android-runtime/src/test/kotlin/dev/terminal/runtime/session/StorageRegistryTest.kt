@@ -12,6 +12,57 @@ class StorageRegistryTest {
     @get:Rule val temporary = TemporaryFolder()
     private fun profile(runtime: SessionRuntime = SessionRuntime.NATIVE) = SessionProfile(UUID.randomUUID().toString(), "Test", runtime,
         "/bin/sh", storageId = UUID.randomUUID().toString())
+    @Test fun defaultNamesUseCreatorNameAndAvoidNamesAcrossRuntimesAndOrphans() {
+        val registry = StorageRegistry(temporary.newFolder())
+        val first = profile().copy(name = "Development")
+        val second = profile(SessionRuntime.ROOTLESS).copy(name = first.name)
+        val third = profile(SessionRuntime.ROOTLESS_UBUNTU).copy(name = first.name)
+        fun key(profile: SessionProfile) = StorageRegistry.Key(profile.runtime, profile.storageId)
+        registry.transaction {
+            save(first)
+            save(second, "")
+            deleteProfile(first.id, false) // Unused storage still reserves its display name.
+            save(third)
+            assertEquals("Storage for Development", name(key(first)))
+            assertEquals("Storage for Development (2)", name(key(second)))
+            assertEquals("Storage for Development (3)", name(key(third)))
+            save(second.copy(name = "Renamed profile"))
+            assertEquals("Storage for Development (2)", name(key(second)))
+            val custom = profile()
+            save(custom, "Workspace")
+            val duplicate = profile()
+            save(duplicate, "Workspace")
+            assertEquals("Workspace", name(key(custom)))
+            assertEquals("Workspace (2)", name(key(duplicate)))
+        }
+    }
+    @Test fun generatedNamesAndSuffixesFitTheLimitWithoutSplittingUnicode() {
+        val longName = "x".repeat(128)
+        val first = StorageRegistry.defaultName(longName)
+        val second = StorageRegistry.defaultName(longName, listOf(first))
+        assertEquals(StorageRegistry.MAX_NAME_LENGTH, first.length)
+        assertTrue(second.endsWith(" (2)"))
+        assertEquals(StorageRegistry.MAX_NAME_LENGTH, second.length)
+        val unicode = StorageRegistry.defaultName("x".repeat(107) + "😀")
+        assertFalse(unicode.last().isHighSurrogate())
+        assertEquals("Storage for " + "x".repeat(107), unicode)
+        assertEquals("Storage for Dev (3)", StorageRegistry.defaultName("Dev", listOf("Storage for Dev", "Storage for Dev (2)")))
+    }
+    @Test fun simultaneousProfileCreationReservesDistinctNamesAcrossRegistryInstances() {
+        val files = temporary.newFolder()
+        val start = java.util.concurrent.CountDownLatch(1)
+        val profiles = listOf(profile(), profile()).map { it.copy(name = "Concurrent") }
+        val futures = profiles.map { profile ->
+            java.util.concurrent.CompletableFuture.runAsync {
+                assertTrue(start.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                StorageRegistry(files).transaction { save(profile) }
+            }
+        }
+        start.countDown()
+        futures.forEach { it.get(5, java.util.concurrent.TimeUnit.SECONDS) }
+        val names = StorageRegistry(files).transaction { profiles.map { name(StorageRegistry.Key(it.runtime, it.storageId)) }.toSet() }
+        assertEquals(setOf("Storage for Concurrent", "Storage for Concurrent (2)"), names)
+    }
     @Test fun newStorageNameAndProfileSaveTogetherWithoutRenamingSharedStorage() {
         val files = temporary.newFolder()
         val registry = StorageRegistry(files)
