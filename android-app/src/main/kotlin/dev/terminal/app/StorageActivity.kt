@@ -91,14 +91,14 @@ abstract class StorageScreenActivity : TerminalActivity() {
             LaunchedEffect(runtime, revision) {
                 val service = runtime ?: return@LaunchedEffect
                 while (true) {
-                    runCatching { withContext(Dispatchers.IO) { StorageItem.parse(service.storageJson) } }
+                    runStorageOperation { withContext(Dispatchers.IO) { StorageItem.parse(service.storageJson) } }
                         .onSuccess { entries = it }.onFailure { entries = null; error = it.message }
                     delay(2000)
                 }
             }
             LaunchedEffect(deleting) {
                 val row = deleting ?: return@LaunchedEffect
-                runCatching { withContext(Dispatchers.IO) {
+                runStorageOperation { withContext(Dispatchers.IO) {
                     (runtime ?: error(getString(R.string.storage_unavailable))).deleteStorage(row.runtime, row.id)
                 } }.onSuccess { result ->
                     if (result.isEmpty()) finish()
@@ -108,7 +108,7 @@ abstract class StorageScreenActivity : TerminalActivity() {
             }
             LaunchedEffect(renaming) {
                 val (row, value) = renaming ?: return@LaunchedEffect
-                runCatching { withContext(Dispatchers.IO) {
+                runStorageOperation { withContext(Dispatchers.IO) {
                     (runtime ?: error(getString(R.string.storage_unavailable))).renameStorage(row.runtime, row.id, value)
                 } }.onSuccess { result ->
                     if (result.isEmpty()) {
@@ -250,7 +250,7 @@ abstract class StorageScreenActivity : TerminalActivity() {
         LaunchedEffect(row.key, service) {
             val owner = service ?: return@LaunchedEffect
             while (true) {
-                runCatching { measurement.withPermit { withContext(Dispatchers.IO) { owner.measureStorage(row.runtime, row.id) } } }
+                runStorageOperation { measurement.withPermit { withContext(Dispatchers.IO) { owner.measureStorage(row.runtime, row.id) } } }
                     .onSuccess { bytes = it; failed = false }.onFailure { failed = true }
                 delay(60_000)
             }

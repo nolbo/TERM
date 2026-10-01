@@ -168,6 +168,8 @@ class StorageManagerTest {
                 assertEquals(defaultName, registry.transaction { name(key) })
                 editName("Storage UI name", true)
                 await { registry.transaction { name(key) } == "Storage UI name" }
+                await { find { it.text?.toString() == "Storage UI name" } != null }
+                assertNull(find { it.text?.toString()?.contains("The coroutine scope left the composition") == true })
                 val detail = requireNotNull(resumedActivity() as? StorageDetailActivity)
                 InstrumentationRegistry.getInstrumentation().runOnMainSync { detail.recreate() }
                 await { resumedActivity() is StorageDetailActivity && resumedActivity() !== detail && find { it.text?.toString() == "Storage UI name" } != null }
