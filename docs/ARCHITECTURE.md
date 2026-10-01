@@ -1,5 +1,153 @@
 # Architecture
 
+## Product architecture contract
+
+The product is one terminal application with three explicit execution
+environments:
+
+~~~text
+                         Terminal application
+                                  |
+                         Unified session layer
+                                  |
+           +----------------------+----------------------+
+           |                      |                      |
+           v                      v                      v
+    Direct Native         Rootless Debian          AVF Debian
+  Android / Bionic       PRoot / glibc          AVF / crosvm
+  no extra privilege     no extra privilege      privileged setup
+           |                      |                      |
+           +----------------------+----------------------+
+                                  |
+                     Android capability broker
+~~~
+
+The complete zero-special-permission product is:
+
+~~~text
+Direct Native + Rootless Debian
+~~~
+
+AVF is optional acceleration and full-kernel compatibility. It is not required
+for the app to be useful.
+
+Use this trade-off order:
+
+~~~text
+zero-setup usability
+  > persistent sessions/runtime
+  > correct lifecycle ownership
+  > security boundary
+  > Rootless Linux compatibility
+  > Android integration
+  > Native package usability
+  > AVF acceleration
+  > advanced features
+~~~
+
+### Lifecycle and sessions
+
+These lifetimes are independent:
+
+~~~text
+Android UI lifecycle != runtime lifecycle != terminal session lifecycle
+~~~
+
+An Activity, Fragment, Compose screen, tab, WebView, or renderer MUST NOT own a
+shell process or VM. UI destruction, recreation, unbinding, or task removal may
+detach; it must not intentionally terminate live work.
+
+Session termination requires an explicit user action whose effect is clear. If
+a UI control called Close terminates a session, it must make that destructive
+effect explicit rather than treating tab disappearance as termination.
+
+All runtimes use a common session model for:
+
+- create and list;
+- attach and detach;
+- input and output;
+- resize;
+- rename where supported;
+- explicit terminate;
+- observable state and errors.
+
+The runtime service or guest session daemon is authoritative for live sessions.
+Cached UI state is never authoritative. If the runtime or PTY owner actually
+dies, report session loss honestly; do not fake restoration.
+
+Runtime-specific process ownership stays behind Native, Rootless, and AVF
+backend interfaces. UI code must not depend directly on PRoot, AVF, crosvm,
+vsock, or package-manager implementation details.
+
+### Runtime semantics
+
+Direct Native is a first-class Android/Bionic environment for immediate shell
+startup, Android-centric tooling, scripting, SSH, Git, networking, storage
+helpers, automation, and bootstrap duties.
+
+Native packages target Android, Bionic, and an app-local prefix. They are not
+Debian binary packages. Package support is recipe-driven, automation-first,
+tested, and bounded to structurally valuable tools. Do not create a giant
+popularity-based package distribution.
+
+Modern Android executable restrictions are an architectural boundary. All
+dynamically installed or packaged native executables go through the centralized
+NativeExecutableLoader policy. Never pretend a package system is complete if
+installed binaries cannot execute under the current target SDK and distribution
+model.
+
+Rootless Debian is the primary permissionless broad Linux environment. It uses
+an independent PRoot/glibc rootfs and official Debian apt/dpkg. Represent its
+ptrace, filesystem, fake-root, mount, namespace, cgroup, systemd, and kernel
+limitations honestly.
+
+AVF Debian is a separate, optional real-kernel environment. It requires device
+support and privileged/product deployment. Normal APK permission declarations
+cannot grant signature permissions. Keep AVF-specific APIs behind the AVF
+backend and preserve Native/Rootless operation when AVF is unsupported or not
+authorized.
+
+Runtime selection is explicit. A failure in one selected runtime MUST NOT
+silently redirect the command or session to another runtime.
+
+Rootless and AVF do not share a complete rootfs or dpkg database. Share only
+deliberate higher-level state such as workspace data, selected user files,
+appropriate dotfiles, and a logical package/environment manifest.
+
+### Android boundary, storage, and power
+
+Linux guests are untrusted. Android integration uses a typed capability broker.
+Every request must be authenticated where applicable, schema-validated,
+capability-checked, Android-permission-checked, bounded, and optionally confirmed
+by the user.
+
+Never expose unrestricted Binder, Context, ContentResolver, private app paths,
+raw host file descriptors, host UIDs, or arbitrary Android services to a guest.
+Capability grants are separate from Android OS permissions and are scoped to
+the host-selected environment or VM identity.
+
+Storage exposure is explicit and minimal. Keep runtime roots and package
+databases separate. Share a deliberate workspace rather than the entire
+app-private directory.
+
+A foreground service improves survivability but is not a permanent execution
+guarantee. Wake locks must be policy-driven, time-bounded where appropriate, and
+tied to meaningful work. Represent Android process death and power restrictions
+honestly.
+
+### UI contract
+
+The UI presents Android Native, Rootless Linux, and AVF Linux as explicit
+choices with their setup, compatibility, and privilege differences.
+
+UI and settings may be reorganized when architecture or clarity requires it.
+Active application screens use the shared Jetpack Compose Material 3 system in
+docs/DESIGN_SYSTEM.md. Application chrome uses its deliberate dark color scheme
+and remains independent from the user-selected terminal canvas palette.
+
+The UI renders state and sends typed commands. It never becomes the hidden
+owner of a process, PTY, VM, package operation, or capability grant.
+
 ## Native / Rootless iPhone tool environment
 
 The iPhone transport only claims the active USB configuration; changing it requires
