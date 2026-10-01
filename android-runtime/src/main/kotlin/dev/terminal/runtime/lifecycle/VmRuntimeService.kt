@@ -1082,8 +1082,8 @@ class VmRuntimeService : Service() {
         return Notification.Builder(this, CHANNEL_ID)
         .setSmallIcon(R.drawable.ic_notification_terminal)
         .setContentTitle(
-            if (publishedSessions.runningCount > 0) "TERM · 실행 중인 세션 ${publishedSessions.runningCount}개"
-            else "TERM · 런타임 준비 중",
+            if (publishedSessions.runningCount > 0) "실행 중인 세션 ${publishedSessions.runningCount}개"
+            else "런타임 준비 중",
         )
         .setContentText(
             if (publishedSessions.runningCount > 0) "터미널을 닫아도 세션은 백그라운드에서 계속 실행됩니다."

@@ -36,6 +36,35 @@ class SessionNotificationTest {
         override fun onServiceDisconnected(name: ComponentName) = Unit
     }
 
+    @Test fun notificationTitleOmitsAppNameAsSessionCountChanges() {
+        assertTrue("Grant notification permission before running", manager.areNotificationsEnabled())
+        ActivityScenario.launch(MainActivity::class.java).use {
+            val service = bind()
+            val owned = mutableSetOf<String>()
+            try {
+                await("ready and idle") { service.state == "READY" && !hasNotification() }
+                assertTrue("Use an idle test installation", running(service).isEmpty())
+                repeat(2) {
+                    val before = running(service)
+                    service.createSession("NATIVE", "/system/bin/sh", "", 24, 80)
+                    await("new session") { running(service).size == before.size + 1 }
+                    owned += running(service) - before
+                }
+                await("two-session notification without app name") { notificationTitle() == "실행 중인 세션 2개" }
+                val first = owned.first()
+                service.terminateSession(first)
+                await("one-session notification without app name") { notificationTitle() == "실행 중인 세션 1개" }
+                owned.remove(first)
+                service.terminateSession(owned.single())
+                await("last exit removes notification") { running(service).isEmpty() && !hasNotification() }
+                owned.clear()
+            } finally {
+                owned.forEach { runCatching { service.terminateSession(it) } }
+                unbind()
+            }
+        }
+    }
+
     @Test fun sessionsRetainServiceUntilLastExit() {
         assertTrue("Grant notification permission before running", manager.areNotificationsEnabled())
         ActivityScenario.launch(MainActivity::class.java).use { activity ->
