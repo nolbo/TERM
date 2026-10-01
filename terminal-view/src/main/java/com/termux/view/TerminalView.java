@@ -258,14 +258,15 @@ public final class TerminalView extends View {
                 final TerminalSession sessionAtStartOfFling = mTermSession;
                 final boolean smooth = canSmoothScroll();
                 final int generation = ++mScrollGeneration;
-                final int lineSpacing = mRenderer.mFontLineSpacing;
                 // Scroller coordinates are terminal rows, while the gesture velocity is pixels/sec.
                 // Converting between them prevents fast swipes from skipping large history ranges.
                 int velocityRows = Math.round(-velocityY / mRenderer.mFontLineSpacing);
                 if (smooth) {
-                    mScroller.fling(0, Math.round((mTopRow + mScrollOffset) * lineSpacing), 0,
-                        Math.round(-velocityY), 0, 0,
-                        -mEmulator.getScreen().getActiveTranscriptRows() * lineSpacing, 0);
+                    // Keep the velocity curve independent of distance to a history edge.
+                    // Scroller clips its final distance to bounds without shortening the duration,
+                    // which slows a bounded fling. Clamp the viewport instead and stop at the edge.
+                    mScroller.fling(0, 0, 0, Math.round(-velocityY), 0, 0,
+                        Integer.MIN_VALUE, Integer.MAX_VALUE);
                 } else if (mouseTrackingAtStartOfFling) {
                     mScroller.fling(0, 0, 0, velocityRows, 0, 0, -mEmulator.mRows / 2, mEmulator.mRows / 2);
                 } else {
@@ -287,8 +288,12 @@ public final class TerminalView extends View {
                         boolean more = mScroller.computeScrollOffset();
                         int newY = mScroller.getCurrY();
                         int diff = newY - mLastY;
-                        if (smooth) scrollPixels(diff);
-                        else doScroll(e2, diff);
+                        if (smooth) {
+                            if (scrollPixels(diff)) {
+                                stopScrollAnimation();
+                                return;
+                            }
+                        } else doScroll(e2, diff);
                         mLastY = newY;
                         if (more) postOnAnimation(this);
                     }
@@ -864,7 +869,8 @@ public final class TerminalView extends View {
         mScrollGeneration++;
     }
 
-    private void scrollPixels(float distance) {
+    /** Returns true when movement reaches the edge in its travel direction. */
+    private boolean scrollPixels(float distance) {
         float position = Math.min(0, Math.max(-mEmulator.getScreen().getActiveTranscriptRows(),
             mTopRow + mScrollOffset + distance / mRenderer.mFontLineSpacing));
         float previousPosition = mTopRow + mScrollOffset;
@@ -874,6 +880,8 @@ public final class TerminalView extends View {
         awakenScrollBars();
         postInvalidateOnAnimation();
         saveSessionScrollPosition();
+        return (distance < 0 && position == -mEmulator.getScreen().getActiveTranscriptRows())
+            || (distance > 0 && position == 0);
     }
 
     /** Enables a CLOCK_TICK after this many ordinary scrollback rows; zero disables it. */

@@ -2,14 +2,31 @@ package dev.terminal.app
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.os.SystemClock
 import android.view.MotionEvent
+import android.view.ViewGroup
+import android.widget.Scroller
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.core.app.ActivityScenario
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
 import org.junit.Assert.*
 import org.junit.Test
 
 class SmoothScrollingTest {
+    private fun scroller(view: TerminalView) = TerminalView::class.java.getDeclaredField("mScroller")
+        .apply { isAccessible = true }.get(view) as Scroller
+
+    private fun fling(view: TerminalView, velocity: Float) {
+        val event = MotionEvent.obtain(0, 0, MotionEvent.ACTION_UP, 40f, 100f, 0)
+        try {
+            val listener = listener(view)
+            listener.javaClass.getDeclaredMethod("onFling", MotionEvent::class.java,
+                Float::class.javaPrimitiveType, Float::class.javaPrimitiveType)
+                .apply { isAccessible = true }.invoke(listener, event, 0f, velocity)
+        } finally { event.recycle() }
+    }
+
     private fun listener(view: TerminalView): Any {
         val recognizer = TerminalView::class.java.getDeclaredField("mGestureRecognizer")
             .apply { isAccessible = true }.get(view)
@@ -34,6 +51,69 @@ class SmoothScrollingTest {
         val bytes = text.toByteArray()
         session.emulator.append(bytes, bytes.size)
         view.onScreenUpdated()
+    }
+
+    @Test fun flingVelocityCurveDoesNotDependOnDistanceToEitherEdge() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val view = TerminalView(instrumentation.targetContext, null).apply {
+                setTerminalViewClient(TerminalInputCallbacks()); setTextSize(20)
+                setSmoothScrollingEnabled(true); layout(0, 0, 800, 400)
+            }
+            val session = session(); view.attachSession(session)
+            append(view, session, (1..200).joinToString("\r\n") { "line-$it" })
+            val history = session.emulator.screen.activeTranscriptRows
+            val spacing = view.getPointY(1).toFloat()
+            for (velocity in listOf(-1500f, -8000f, 1500f, 8000f)) {
+                fun trajectory(row: Int): Pair<Int, Int> {
+                    view.topRow = row
+                    drag(view, spacing / 2)
+                    fling(view, velocity)
+                    val scroller = scroller(view)
+                    val result = (scroller.finalY - scroller.startY) to scroller.duration
+                    drag(view, 0f) // Cancel before starting another fling.
+                    return result
+                }
+                val middle = trajectory(-history / 2)
+                assertEquals("Same velocity must keep its trajectory near the oldest row",
+                    middle, trajectory(-history + 1))
+                assertEquals("Same velocity must keep its trajectory near the latest row",
+                    middle, trajectory(-1))
+            }
+        }
+    }
+
+    @Test fun flingStopsAtEitherEdgeAndReverseDragMovesImmediately() {
+        ActivityScenario.launch(SettingsActivity::class.java).use { scenario ->
+            for (velocity in listOf(-8000f, 8000f)) {
+                lateinit var view: TerminalView
+                var history = 0
+                var spacing = 0f
+                scenario.onActivity { activity ->
+                    view = TerminalView(activity, null).apply {
+                        setTerminalViewClient(TerminalInputCallbacks()); setTextSize(20)
+                        setSmoothScrollingEnabled(true); layout(0, 0, 800, 400)
+                    }
+                    activity.setContentView(view, ViewGroup.LayoutParams(800, 400))
+                    val session = session(); view.attachSession(session)
+                    append(view, session, (1..200).joinToString("\r\n") { "line-$it" })
+                    history = session.emulator.screen.activeTranscriptRows
+                    spacing = view.getPointY(1).toFloat()
+                    view.topRow = if (velocity > 0) -history + 1 else -1
+                    drag(view, spacing / 2)
+                    fling(view, velocity)
+                }
+                // Allow the attached view's real frame callbacks to reach the nearby edge.
+                SystemClock.sleep(100)
+                scenario.onActivity {
+                    assertEquals(if (velocity > 0) -history else 0, view.topRow)
+                    assertEquals(0, view.getPointY(view.topRow))
+                    assertTrue("Fling must stop as soon as it reaches the history edge", scroller(view).isFinished)
+                    drag(view, if (velocity > 0) spacing / 2 else -spacing / 2)
+                    assertTrue("Reverse drag must immediately move away from the edge", view.getPointY(view.topRow) < 0)
+                }
+            }
+        }
     }
 
     @Test fun fractionalMotionRendersAndKeepsLinksAndTabAnchorsAligned() {
