@@ -89,7 +89,7 @@
     <string name="profile_storage_new">New independent storage</string>
     <string name="profile_storage_current">Keep current storage</string>
     <string name="profile_storage_shared">Share with %1$s</string>
-    <string name="profile_storage_hint">Independent storage keeps separate homes, workspaces, installed packages and Linux filesystems or VM disks. Rootless sharing uses the target distribution. Storage changes apply to new sessions without moving or deleting existing files. Native profiles share Android system executables.</string>
+    <string name="profile_storage_hint">New storage is a fresh environment; existing data is not copied. Only storage with the same runtime and distribution can be connected. Changes apply to future sessions, and previous storage is retained.</string>
     <string name="profiles_empty">No profiles yet. Add a profile to start a new session.</string>
     <string name="profile_settings">Profile settings</string>
     <string name="profile_identity">Name and runtime</string>

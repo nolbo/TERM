@@ -184,7 +184,90 @@ class VmRuntimeService : Service() {
     }
     private val kittyTitles = java.util.concurrent.ConcurrentHashMap<String, String>()
 
+    private val storageRegistry by lazy {
+        dev.terminal.runtime.session.StorageRegistry(filesDir) {
+            getSharedPreferences("session-profiles", MODE_PRIVATE).all.mapValues { it.value as String }
+        }
+    }
+    private fun storageDefaults(): List<dev.terminal.runtime.session.SessionProfile> = SessionRuntime.entries
+        .filter { it != SessionRuntime.AVF || (checkSelfPermission("android.permission.MANAGE_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+            checkSelfPermission("android.permission.USE_CUSTOM_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED) }
+        .map { dev.terminal.runtime.session.SessionProfile(dev.terminal.runtime.session.SessionProfile.builtInId(it),
+            when (it) { SessionRuntime.ROOTLESS -> "Debian"; SessionRuntime.ROOTLESS_UBUNTU -> "Ubuntu";
+                SessionRuntime.ROOTLESS_ARCH -> "Arch"; SessionRuntime.NATIVE -> "Native"; SessionRuntime.AVF -> "AVF" }, it, "/bin/sh") }
+
     private val binder = object : IRuntimeService.Stub() {
+        override fun getStorageJson(): String {
+            enforceHostToolUi()
+            return kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                val client = ensureSessionRegistry()
+                val sessions = client?.list()?.getOrThrow().orEmpty().filter { it.state != dev.terminal.protocol.SessionStatus.EXITED }
+                storageRegistry.transaction {
+                    val profiles = profiles(storageDefaults())
+                    val sessionKeys = sessions.associate { session -> session.id to dev.terminal.runtime.session.StorageRegistry.Key(
+                        requireNotNull(client?.runtimeOf(session.id)), client?.storageOf(session.id) ?: "legacy") }
+                    JSONArray((keys() + profiles.map { dev.terminal.runtime.session.StorageRegistry.Key(it.runtime, it.storageId) } + sessionKeys.values)
+                        .sortedWith(compareBy({ it.runtime.ordinal }, { it.storageId })).map { key ->
+                            val linked = profiles.filter { it.runtime == key.runtime && it.storageId == key.storageId }
+                            val active = sessions.filter { sessionKeys[it.id] == key }
+                            key.json().put("bytes", storageRegistry.cachedSize(key) ?: JSONObject.NULL)
+                                .put("profiles", JSONArray(linked.map { JSONObject().put("id", it.id).put("name", it.name) }))
+                                .put("sessions", JSONArray(active.map { JSONObject().put("id", it.id).put("title", it.title) }))
+                        }).toString()
+                }
+            }
+        }
+        override fun measureStorage(runtimeType: String, storageId: String): Long {
+            enforceHostToolUi()
+            val key = dev.terminal.runtime.session.StorageRegistry.Key(requireNotNull(SessionRuntime.fromWireName(runtimeType)), storageId)
+            return kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                preparationLocks.withStorage(key.runtime, key.storageId) {
+                    storageRegistry.transaction { check(key in keys() || key.storageId == "legacy") { "Storage not found" } }
+                    storageRegistry.measure(key)
+                }
+            }
+        }
+        override fun deleteStorage(runtimeType: String, storageId: String): String {
+            enforceHostToolUi()
+            return runCatching {
+                val key = dev.terminal.runtime.session.StorageRegistry.Key(requireNotNull(SessionRuntime.fromWireName(runtimeType)), storageId)
+                kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                    // Excludes backend preparation until the old controller has been removed.
+                    preparationLocks.withAll {
+                        val client = ensureSessionRegistry()
+                        val remove: suspend (suspend () -> Unit) -> Unit = { release ->
+                            storageRegistry.transaction {
+                                requireOrphan(key, storageDefaults())
+                                // Lock profile writes through the final reference check and filesystem removal.
+                                kotlinx.coroutines.runBlocking {
+                                    val owner = storageBackends[key.runtime to key.storageId]
+                                    owner?.stop(StopMode.GRACEFUL)?.getOrThrow()
+                                    release()
+                                    storageBackends.remove(key.runtime to key.storageId)
+                                    startedStorageBackends.remove(key.runtime to key.storageId)
+                                    if (key.runtime == SessionRuntime.AVF) {
+                                        // Reopen a stopped platform instance after restart without booting a VM.
+                                        val avf = owner ?: (applicationContext as? RuntimeBackendProvider)?.createRuntimeBackend(applicationContext)
+                                        check(avf is dev.terminal.runtime.avf.AvfBackend) { "AVF storage deletion requires a privileged runtime provider" }
+                                        avf.deleteStorage(key.storageId).getOrThrow()
+                                    }
+                                }
+                                delete(key)
+                            }
+                        }
+                        if (client != null) client.deleteStorageIfIdle(key.runtime, key.storageId, remove)
+                        else {
+                            // A never-started local environment has no controller to consult.
+                            // Retain fail-closed behavior if an owner exists but cannot be reached.
+                            check(!storageBackends.containsKey(key.runtime to key.storageId)) { "Cannot verify active sessions" }
+                            remove {}
+                        }
+                        if (client != null) refreshSessions(client)
+                    }
+                }
+                ""
+            }.exceptionOrNull()?.userMessage().orEmpty()
+        }
         override fun getSessionMemoryJson(): String {
             enforceHostToolUi()
             val info = android.app.ActivityManager.MemoryInfo()
@@ -269,6 +352,7 @@ class VmRuntimeService : Service() {
             val parsed = runCatching { dev.terminal.runtime.session.SessionLaunchSpec.fromJson(encoded) }
             launchRuntimeOperation(trackAsWork = true, errorOperation = "세션 생성:${parsed.getOrNull()?.runtime?.wireName ?: "UNKNOWN"}:${parsed.getOrNull()?.storageId ?: "legacy"}") {
                 val spec = parsed.getOrThrow()
+                storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(spec.runtime, spec.storageId)) }
                 val requestedRuntime = spec.runtime
                 Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
                 val client = ensureSessionRegistry()
@@ -803,6 +887,7 @@ class VmRuntimeService : Service() {
         registry: UnifiedSessionRegistry): Boolean {
         if (spec.storageId == "legacy") return ensureRuntimeController(spec.runtime, registry)
         return preparationLocks.withStorage(spec.runtime, spec.storageId) {
+            storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(spec.runtime, spec.storageId)) }
             if (registry.isRegistered(spec.runtime, spec.storageId)) return@withStorage true
             val key = spec.runtime to spec.storageId
             val root = dev.terminal.runtime.session.SessionStorage.root(filesDir, spec.runtime, spec.storageId)
@@ -1071,6 +1156,7 @@ class VmRuntimeService : Service() {
             put("runtime", (sessionClient as? UnifiedSessionRegistry)?.runtimeOf(session.id)?.wireName
                 ?: SessionRuntime.fromSessionId(session.id)?.wireName
                 ?: if (backend is NativeBackend) SessionRuntime.NATIVE.wireName else SessionRuntime.AVF.wireName)
+            put("storageId", (sessionClient as? UnifiedSessionRegistry)?.storageOf(session.id) ?: "legacy")
             put("title", session.title)
             put("explicitTitle", session.id in explicitTitleIds)
             put("initialTitle", initialTitles[session.id] ?: session.title)

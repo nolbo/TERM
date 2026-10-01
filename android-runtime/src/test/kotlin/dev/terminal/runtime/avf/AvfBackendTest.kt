@@ -38,6 +38,20 @@ class AvfBackendTest {
         assertTrue(state is RuntimeState.Failed)
     }
 
+    @Test fun storageDeletionRequiresProviderSupportAndPassesExactIdentity() = runBlocking {
+        val storage = java.util.UUID.randomUUID().toString()
+        assertTrue(AvfBackend(FailingDriver).deleteStorage(storage).isFailure)
+        var requested: String? = null
+        val supported = object : AvfPlatformDriver by FailingDriver {
+            override suspend fun deleteStorage(instanceId: String): Result<Unit> {
+                requested = instanceId
+                return Result.success(Unit)
+            }
+        }
+        assertTrue(AvfBackend(supported).deleteStorage(storage).isSuccess)
+        org.junit.Assert.assertEquals(storage, requested)
+    }
+
     private object FailingDriver : AvfPlatformDriver {
         override suspend fun prepare(config: RuntimeConfig): Result<Unit> =
             Result.failure(IllegalStateException("no platform AVF"))

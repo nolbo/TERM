@@ -26,6 +26,10 @@ import dev.terminal.app.ui.runtimeTitleResource
 import dev.terminal.runtime.session.SessionProfile
 import dev.terminal.runtime.session.SessionRuntime
 import org.json.JSONArray
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import dev.terminal.runtime.session.StorageRegistry
 
 class ProfileEditActivity : TerminalActivity() {
     private var hasAvfPrivileges by mutableStateOf(false)
@@ -55,6 +59,20 @@ class ProfileEditActivity : TerminalActivity() {
             var environment by rememberSaveable { mutableStateOf(initial.environment.entries.joinToString("\n") { "${it.key}=${it.value}" }) }
             var error by rememberSaveable { mutableStateOf<String?>(null) }
             var storageId by rememberSaveable { mutableStateOf(initial.storageId) }
+            var storageChoice by rememberSaveable { mutableStateOf(if (source != null && initial.id == source.id) "keep" else "fresh") }
+            var freshStorageId by rememberSaveable { mutableStateOf(if (storageChoice == "fresh") initial.storageId else java.util.UUID.randomUUID().toString()) }
+            var storageKeys by remember { mutableStateOf(emptyList<StorageRegistry.Key>()) }
+            val scope = rememberCoroutineScope()
+            var saving by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                runCatching { withContext(Dispatchers.IO) {
+                    val registry = StorageRegistry(filesDir) {
+                        getSharedPreferences("session-profiles", MODE_PRIVATE).all.mapValues { it.value as String }
+                    }
+                    val profileKeys = store.all().map { StorageRegistry.Key(it.runtime, it.storageId) }
+                    registry.transaction { (keys() + profileKeys).toList() }
+                } }.onSuccess { storageKeys = it }.onFailure { error = it.message }
+            }
             var icon by rememberSaveable { mutableStateOf(initial.icon) }
             var palette by rememberSaveable { mutableStateOf(initial.palette?.joinToString(",")) }
             val otherProfiles = remember { store.all().filter { it.id != initial.id } }
@@ -64,7 +82,11 @@ class ProfileEditActivity : TerminalActivity() {
             val editing = source != null && initial.id == source.id
             val back = { if (dirty) discard = true else finish() }
             val selectRuntime: (SessionRuntime) -> Unit = { option ->
-                if (runtime != option.wireName) storageId = java.util.UUID.randomUUID().toString()
+                if (runtime != option.wireName) {
+                    freshStorageId = java.util.UUID.randomUUID().toString()
+                    storageId = freshStorageId
+                    storageChoice = "fresh"
+                }
                 val old = store.builtIns().first { it.runtime.wireName == runtime }
                 val new = store.builtIns().first { it.runtime == option }
                 if (shell == old.shell) shell = new.shell
@@ -103,28 +125,25 @@ class ProfileEditActivity : TerminalActivity() {
                         }
                     }
                     ProfileSection(R.string.profile_storage) {
-                        val targets = otherProfiles.filter {
-                            if (rootless) it.runtime in listOf(SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH)
-                            else it.runtime.wireName == runtime
-                        }
-                        val shared = targets.firstOrNull { it.runtime.wireName == runtime && it.storageId == storageId }
-                        val currentLabel = if (shared != null) stringResource(R.string.profile_storage_shared, shared.name)
-                            else stringResource(if (editing && storageId == initial.storageId && runtime == initial.runtime.wireName)
-                                R.string.profile_storage_current else R.string.profile_storage_new)
-                        SettingsChoiceRow(stringResource(R.string.profile_storage), null,
-                            listOf(SettingsChoice(currentLabel, "current")) +
-                                (if (shared != null || (editing && storageId == initial.storageId && runtime == initial.runtime.wireName))
-                                    listOf(SettingsChoice(stringResource(R.string.profile_storage_new), "new")) else emptyList()) +
-                                targets.filter { it != shared }.map {
-                                    SettingsChoice(stringResource(R.string.profile_storage_shared, it.name), it.id)
-                                }, "current") { selected ->
-                            when (selected) {
-                                "current" -> Unit
-                                "new" -> { storageId = java.util.UUID.randomUUID().toString(); dirty = true }
-                                else -> targets.first { it.id == selected }.let { target ->
-                                    selectRuntime(target.runtime); storageId = target.storageId; dirty = true
-                                }
+                        val targets = storageKeys.filter { it.runtime.wireName == runtime }
+                            .filterNot { editing && runtime == initial.runtime.wireName && it.storageId == initial.storageId }
+                            .sortedBy { it.storageId }
+                        val choices = buildList {
+                            if (editing && runtime == initial.runtime.wireName) add(SettingsChoice(stringResource(R.string.profile_storage_current), "keep"))
+                            add(SettingsChoice(stringResource(R.string.profile_storage_new), "fresh"))
+                            targets.forEach { key ->
+                                val names = otherProfiles.filter { it.runtime == key.runtime && it.storageId == key.storageId }.joinToString { it.name }
+                                add(SettingsChoice(stringResource(R.string.storage_existing, key.storageId.take(8), names.ifEmpty { stringResource(R.string.storage_unused) }), "existing:${key.storageId}"))
                             }
+                        }
+                        SettingsChoiceRow(stringResource(R.string.profile_storage), null, choices, storageChoice) { selected ->
+                            storageId = when (selected) {
+                                "keep" -> initial.storageId
+                                "fresh" -> freshStorageId
+                                else -> targets.first { "existing:${it.storageId}" == selected }.storageId
+                            }
+                            storageChoice = selected
+                            dirty = true
                         }
                     }
                     Text(stringResource(R.string.profile_storage_hint), modifier = Modifier.padding(horizontal = 16.dp),
@@ -140,11 +159,15 @@ class ProfileEditActivity : TerminalActivity() {
                     }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                     Button(onClick = {
-                        runCatching {
-                            store.save(SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
-                                parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon, palette?.split(',')))
-                        }.onSuccess { finish() }.onFailure { error = it.message }
-                    }, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.profile_save)) }
+                        saving = true
+                        scope.launch {
+                            runCatching { withContext(Dispatchers.IO) {
+                                store.save(SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
+                                    parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon, palette?.split(',')))
+                            } }.onSuccess { finish() }.onFailure { error = it.message }
+                            saving = false
+                        }
+                    }, enabled = !saving, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.profile_save)) }
                     if (editing) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedButton(onClick = {
@@ -173,7 +196,10 @@ class ProfileEditActivity : TerminalActivity() {
                 title = { Text(stringResource(R.string.profile_delete)) },
                 text = { Text(stringResource(R.string.profile_delete_message, source?.name.orEmpty())) },
                 confirmButton = { TextButton(onClick = {
-                    runCatching { store.delete(id) }.onSuccess { finish() }.onFailure { error = it.message; deleting = false }
+                    scope.launch {
+                        runCatching { withContext(Dispatchers.IO) { store.delete(id) } }
+                            .onSuccess { finish() }.onFailure { error = it.message; deleting = false }
+                    }
                 }) { Text(stringResource(R.string.profile_delete), color = MaterialTheme.colorScheme.error) } },
                 dismissButton = { TextButton(onClick = { deleting = false }) { Text(stringResource(android.R.string.cancel)) } })
             if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text(stringResource(R.string.profile_discard)) },

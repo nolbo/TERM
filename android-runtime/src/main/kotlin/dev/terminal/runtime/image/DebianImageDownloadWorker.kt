@@ -54,10 +54,12 @@ class DebianImageDownloadWorker(
             when (val verification = DebianImageVerifier.verify(stagingRoot)) {
                 is ImageVerification.Invalid -> failure(verification.reason)
                 is ImageVerification.Ready -> when (
-                    val installed = DebianImageInstaller.install(
-                        stagingRoot,
-                        target,
-                    )
+                    val installed = dev.terminal.runtime.session.StorageRegistry(applicationContext.filesDir) {
+                        applicationContext.getSharedPreferences("session-profiles", Context.MODE_PRIVATE).all.mapValues { it.value as String }
+                    }.transaction {
+                        validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId))
+                        DebianImageInstaller.install(stagingRoot, target)
+                    }
                 ) {
                     is ImageInstallResult.Installed -> Result.success(Data.Builder().putString(KEY_STATUS, "installed").build())
                     is ImageInstallResult.AlreadyInstalled -> Result.success(Data.Builder().putString(KEY_STATUS, "already_installed").build())

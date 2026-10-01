@@ -4,6 +4,9 @@ import dev.terminal.runtime.ipc.IRuntimeStateListener;
 import dev.terminal.runtime.ipc.ITerminalStateListener;
 
 interface IRuntimeService {
+    String getStorageJson();
+    long measureStorage(String runtimeType, String storageId);
+    String deleteStorage(String runtimeType, String storageId);
     String getState();
     String getDetail();
     String getImageStatus();

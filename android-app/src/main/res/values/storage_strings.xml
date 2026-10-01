@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="storage_title">저장소</string>
+    <string name="storage_summary">프로필이 사용하는 영구 실행 환경입니다. 프로필에서 새 환경을 만들거나 호환되는 기존 환경을 연결할 수 있습니다.</string>
+    <string name="storage_used">사용 중인 저장소</string>
+    <string name="storage_unused">미사용 저장소</string>
+    <string name="storage_existing">기존 저장소 %1$s · %2$s</string>
+    <string name="storage_profiles">연결된 프로필</string>
+    <string name="storage_sessions">실행 중인 세션</string>
+    <string name="storage_none">없음</string>
+    <string name="storage_counts">약 %1$s · 프로필 %2$d개 · 활성 세션 %3$d개</string>
+    <string name="storage_size_calculating">용량 계산 중</string>
+    <string name="storage_size_unknown">용량 확인 불가</string>
+    <string name="storage_missing">저장소가 더 이상 존재하지 않습니다.</string>
+    <string name="storage_delete">저장소 삭제</string>
+    <string name="storage_delete_hint">삭제하면 이 실행 환경의 데이터가 영구적으로 제거됩니다.</string>
+    <string name="storage_delete_confirm">저장소 %1$s의 데이터를 영구적으로 삭제할까요? 이 작업은 되돌릴 수 없습니다.</string>
+    <string name="storage_legacy_protected">기존 데이터 보호를 위해 legacy 저장소는 삭제할 수 없습니다.</string>
+    <string name="storage_in_use_protected">연결된 프로필이나 활성 세션이 있으면 삭제할 수 없습니다.</string>
+</resources>

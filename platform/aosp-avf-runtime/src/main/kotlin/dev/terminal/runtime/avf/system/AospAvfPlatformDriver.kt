@@ -96,6 +96,20 @@ class AospAvfPlatformDriver(
         }
     }
 
+    override suspend fun deleteStorage(instanceId: String): Result<Unit> = mutex.withLock {
+        runCatching {
+            dev.terminal.runtime.session.SessionStorage.validate(instanceId)
+            require(instanceId != "legacy") { "Legacy storage is protected" }
+            val name = "droid-$instanceId"
+            val persisted = manager.get(name)
+            if (persisted != null) {
+                check(persisted.status == VirtualMachine.STATUS_STOPPED) { "AVF instance must be stopped before storage deletion" }
+                manager.delete(name)
+            }
+            prepared = null
+        }
+    }
+
     override suspend fun connectGuestAgent(): Result<GuestConnection> = connectGuestPort(DROID_SESSIOND_PORT)
 
     override suspend fun connectGuestBridge(): Result<GuestConnection> = connectGuestPort(DROID_AGENT_PORT)

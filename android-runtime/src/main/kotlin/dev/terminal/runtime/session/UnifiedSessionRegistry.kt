@@ -147,6 +147,27 @@ class UnifiedSessionRegistry(
         remove()
     }
 
+    /** Strict list failures block deletion; disconnected AVF is never assumed idle. */
+    suspend fun deleteStorageIfIdle(runtime: SessionRuntime, storageId: String, remove: suspend (release: suspend () -> Unit) -> Unit) =
+        mutationLocks.withStorage(runtime, storageId) {
+            val key = StorageKey(runtime, storageId)
+            val registration = registrations[key]
+            check(registration?.controller?.list()?.getOrThrow().orEmpty().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) { "Storage has active sessions" }
+            val release: suspend () -> Unit = {
+                val removedIds = owners.filterValues { it == key }.keys.toList()
+                terminalStates.mutex.withLock { removedIds.forEach(terminalStates::remove) }
+                registrations.remove(key)?.let { entry ->
+                    entry.jobs.forEach(Job::cancel)
+                    entry.controller.close()
+                }
+                owners.entries.removeAll { it.value == key }
+                lastKnownSessions.remove(key)
+                Unit
+            }
+            remove(release)
+            release()
+        }
+
     suspend fun create(spec: SessionLaunchSpec, rows: UShort, cols: UShort,
         runtimeEnvironment: Map<String, String> = emptyMap()): Result<SessionDescriptor> =
         createResolved(StorageKey(spec.runtime, spec.storageId), spec.shell, spec.workingDirectory,

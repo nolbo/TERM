@@ -27,6 +27,7 @@ class SettingsActivity : TerminalActivity() {
     private fun open(target: SettingsSearchTarget) {
         if (target.screen == SettingsDetailActivity.AVF && !SessionProfiles(this).hasAvfPrivileges()) return
         val activity = when (target.screen) {
+            "storage" -> StorageActivity::class.java
             "profiles" -> ProfilesActivity::class.java
             "updates" -> AppUpdatesActivity::class.java
             "usb" -> UsbDevicesActivity::class.java

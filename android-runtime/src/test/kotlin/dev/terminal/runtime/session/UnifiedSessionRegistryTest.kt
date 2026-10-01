@@ -324,6 +324,32 @@ class UnifiedSessionRegistryTest {
         registry.close()
     }
 
+    @Test fun storageDeletionRejectsActiveOrUnknownSessionsAndPreservesSiblings() = runBlocking {
+        val registry = UnifiedSessionRegistry()
+        val storage = java.util.UUID.randomUUID().toString()
+        val siblingStorage = java.util.UUID.randomUUID().toString()
+        val controller = FakeController("native-managed")
+        val sibling = FakeController("native-sibling")
+        registry.register(SessionRuntime.NATIVE, controller, storage)
+        registry.register(SessionRuntime.NATIVE, sibling, siblingStorage)
+        var deleted = false
+        assertTrue(runCatching { registry.deleteStorageIfIdle(SessionRuntime.NATIVE, storage) { deleted = true } }.isFailure)
+        controller.failList = true
+        assertTrue(runCatching { registry.deleteStorageIfIdle(SessionRuntime.NATIVE, storage) { deleted = true } }.isFailure)
+        assertFalse(deleted)
+        assertFalse(controller.closed)
+        controller.failList = false
+        registry.list().getOrThrow()
+        registry.terminate("native-managed", 9).getOrThrow()
+        registry.deleteStorageIfIdle(SessionRuntime.NATIVE, storage) { deleted = true }
+        assertTrue(deleted)
+        assertTrue(controller.closed)
+        assertFalse(registry.isRegistered(SessionRuntime.NATIVE, storage))
+        assertEquals(listOf("native-sibling"), registry.list().getOrThrow().map { it.id })
+        assertFalse(sibling.closed)
+        registry.close()
+    }
+
     private class FakeController(
         private val id: String,
         failList: Boolean = false,

@@ -13,11 +13,13 @@ class SessionProfiles(context: Context) {
     fun hasAvfPrivileges(): Boolean =
         app.checkSelfPermission("android.permission.MANAGE_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED &&
             app.checkSelfPermission("android.permission.USE_CUSTOM_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED
-    private val preferences = context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE)
+    private val registry = dev.terminal.runtime.session.StorageRegistry(app.filesDir) {
+        app.getSharedPreferences("session-profiles", Context.MODE_PRIVATE).all.mapValues { it.value as String }
+    }
     private val runtimePreferences = context.getSharedPreferences(SettingsDetailActivity.RUNTIME_PREFERENCES, Context.MODE_PRIVATE)
     fun all(): List<SessionProfile> {
         val defaults = builtIns()
-        val stored = preferences.all
+        val stored = registry.transaction { overrides() }
         return (defaults.map { it.id } + stored.keys.sorted()).distinct().mapNotNull { id ->
             if (id == SessionProfile.builtInId(SessionRuntime.AVF) && !hasAvfPrivileges()) return@mapNotNull null
             if (stored.containsKey(id)) {
@@ -47,12 +49,9 @@ class SessionProfiles(context: Context) {
     fun duplicate(profile: SessionProfile) = profile.copy(id = UUID.randomUUID().toString(), name = "${profile.name} copy",
         storageId = UUID.randomUUID().toString())
     fun save(profile: SessionProfile) {
-        val encoded = profile.resolve().toJson().toString()
-        check(preferences.edit().putString(profile.id, encoded).commit()) { "Could not save profile" }
+        registry.transaction { save(profile) }
     }
     fun delete(id: String) {
-        val editor = preferences.edit()
-        if (builtIns().any { it.id == id }) editor.putString(id, "") else editor.remove(id)
-        check(editor.commit()) { "Could not delete profile" }
+        registry.transaction { deleteProfile(id, builtIns().any { it.id == id }) }
     }
 }

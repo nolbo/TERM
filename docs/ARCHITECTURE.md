@@ -238,12 +238,30 @@ live session ownership. Kitty child sessions inherit their source storage.
 Native home/tmp, Rootless rootfs (including dpkg), home/tmp/workspace, and AVF
 VM instance/disk/image installation are scoped to storage. Android system and
 APK-packaged Native executables remain shared read-only platform resources.
-Sharing a Rootless profile also selects its distribution; different distributions
-cannot share a rootfs. This is filesystem organization, not an Android UID or
-security sandbox boundary.
+Connecting existing storage requires the same runtime, including the exact Rootless
+distribution; different distributions cannot share a rootfs. This is filesystem
+organization, not an Android UID or security sandbox boundary.
 Missing storage IDs decode as `legacy`, preserving existing roots and their
 shared workspace without copying or deleting data. Storage changes affect future
 launches only. There is no automatic storage garbage collection.
+`SessionStorage` remains the path resolver. `StorageRegistry` enumerates persisted
+and on-disk environments, measures approximate logical size lazily with a one-minute
+cache, and removes only explicitly selected orphans through `VmRuntimeService`.
+Used storage has a profile reference or an active session. The Settings detail
+view shows both references; profile editing can retain storage, allocate a fresh
+independent identity without copying data, or connect compatible existing storage.
+Profile overrides and tombstones migrate from `session-profiles` preferences into
+an atomic app-private manifest on the first mutation. A process-shared file lock
+serializes profile writes and the final deletion reference check; defaults still
+resolve from runtime preferences. Saved storage identities remain enumerated when
+their last reference disappears, even if never launched. Deleted IDs are tombstoned
+to reject stale editor saves and launch requests. Session/controller locks reject
+active or unknown session state and exclude creation during deletion. Legacy
+storage cannot be deleted. Size and deletion walks never follow symbolic links.
+AVF deletion also releases the stopped platform instance through its privileged
+driver; unsupported providers fail closed. Image workers check the same manifest
+under lock before installation so a pending download cannot recreate deleted storage.
+
 Independent AVF storage requires a privileged provider that creates independent
 backends plus a configured image catalog or a verified provisioned image at its
 storage root. Image workers are keyed by storage and never clone a running VM

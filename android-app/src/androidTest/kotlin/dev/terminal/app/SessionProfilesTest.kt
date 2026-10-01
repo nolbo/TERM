@@ -118,11 +118,19 @@ class SessionProfilesTest {
                 click(context.getString(R.string.save))
                 await { find { it.text?.toString() == context.getString(R.string.cancel) } == null }
                 await { find { it.text?.toString() == context.getString(R.string.profile_distribution) } != null }
-                // The storage section and row have the same title; select its clickable row.
+                click(context.getString(R.string.profile_distribution))
+                click(context.getString(R.string.runtime_ubuntu_title))
+                click(context.getString(R.string.save))
+                await { find { it.text?.toString() == context.getString(R.string.cancel) } == null }
+                // Only storage belonging to the selected distribution can be connected.
+                await {
+                    if (find { it.text?.toString() == context.getString(R.string.profile_storage) && (it.isClickable || it.parent?.isClickable == true) } != null) true
+                    else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
+                }
                 var storage = requireNotNull(find { it.text?.toString() == context.getString(R.string.profile_storage) && (it.isClickable || it.parent?.isClickable == true) })
                 while (!storage.isClickable) storage = requireNotNull(storage.parent)
                 assertTrue(storage.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
-                click(context.getString(R.string.profile_storage_shared, target.name))
+                click(context.getString(R.string.storage_existing, target.storageId.take(8), target.name))
                 click(context.getString(R.string.save))
                 await { find { it.text?.toString() == context.getString(R.string.cancel) } == null }
                 await {
@@ -193,8 +201,7 @@ class SessionProfilesTest {
     @Test fun tappingDefaultOpensEditorAndDeletionRequiresConfirmation() {
         val store = SessionProfiles(context)
         val original = store.builtIns().first()
-        val prefs = context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE)
-        val previous = prefs.getString(original.id, null)
+        val previous = profileOverrides()
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         fun find(predicate: (android.view.accessibility.AccessibilityNodeInfo) -> Boolean): android.view.accessibility.AccessibilityNodeInfo? {
             fun walk(node: android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
@@ -243,9 +250,7 @@ class SessionProfilesTest {
                 assertNull(SessionProfiles(context).find(original.id))
             }
         } finally {
-            val editor = prefs.edit()
-            if (previous == null) editor.remove(original.id) else editor.putString(original.id, previous)
-            assertTrue(editor.commit())
+            restoreProfileOverrides(previous)
         }
     }
 
@@ -253,8 +258,7 @@ class SessionProfilesTest {
         val store = SessionProfiles(context)
         val builtIns = store.builtIns()
         assertEquals(5, builtIns.size)
-        val prefs = context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE)
-        val previous = prefs.all
+        val previous = profileOverrides()
         try {
             builtIns.filter { it.runtime != dev.terminal.runtime.session.SessionRuntime.AVF || store.hasAvfPrivileges() }.forEach { original ->
                 val launch = original.resolve()
@@ -271,26 +275,21 @@ class SessionProfilesTest {
             assertEquals(copy, SessionProfiles(context).find(copy.id))
             store.delete(copy.id)
         } finally {
-            val editor = prefs.edit().clear()
-            previous.forEach { (key, value) -> editor.putString(key, value as String) }
-            assertTrue(editor.commit())
+            restoreProfileOverrides(previous)
         }
     }
 
     @Test fun avfDefaultIsVisibleOnlyWithBothPrivilegedPermissions() {
         val store = SessionProfiles(context)
         val id = dev.terminal.runtime.session.SessionProfile.builtInId(dev.terminal.runtime.session.SessionRuntime.AVF)
-        val prefs = context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE)
-        val previous = prefs.getString(id, null)
+        val previous = profileOverrides()
         try {
-            prefs.edit().remove(id).commit()
+            store.save(store.builtIns().first { it.id == id })
             assertEquals(store.hasAvfPrivileges(), store.find(id) != null)
             store.save(store.builtIns().first { it.id == id })
             assertEquals(store.hasAvfPrivileges(), SessionProfiles(context).find(id) != null)
         } finally {
-            val editor = prefs.edit()
-            if (previous == null) editor.remove(id) else editor.putString(id, previous)
-            assertTrue(editor.commit())
+            restoreProfileOverrides(previous)
         }
     }
 
@@ -332,8 +331,7 @@ class SessionProfilesTest {
         val profile = store.builtIns().first().copy(name = "Profile lifecycle test",
             workingDirectory = "/", environment = mapOf("PROFILE_TEST" to "original"),
             startupCommand = "export PROFILE_STARTUP=once", icon = "keyboard")
-        val preferences = context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE)
-        val previous = preferences.getString(profile.id, null)
+        val previous = profileOverrides()
         val queue = LinkedBlockingQueue<IRuntimeService>()
         val connection = object : ServiceConnection {
             override fun onServiceConnected(name: ComponentName, binder: IBinder) { queue.offer(IRuntimeService.Stub.asInterface(binder)) }
@@ -377,10 +375,21 @@ class SessionProfilesTest {
             owned.forEach { service.terminateSession(it) }
             store.delete(profile.id)
             context.unbindService(connection)
-            val editor = preferences.edit()
-            if (previous == null) editor.remove(profile.id) else editor.putString(profile.id, previous)
-            assertTrue(editor.commit())
+            restoreProfileOverrides(previous)
         }
+    }
+    private fun profileRegistry() = dev.terminal.runtime.session.StorageRegistry(context.filesDir) {
+        context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE).all.mapValues { it.value as String }
+    }
+    private fun profileOverrides() = profileRegistry().transaction { overrides() }
+    private fun restoreProfileOverrides(previous: Map<String, String>) = profileRegistry().transaction {
+        // Test cleanup preserves discovered storage records and restores only profile overrides.
+        val manifest = java.io.File(context.filesDir, "storage-registry.json")
+        val state = JSONObject(manifest.readText()).put("profiles", JSONObject(previous))
+        val atomic = android.util.AtomicFile(manifest)
+        val output = atomic.startWrite()
+        try { output.write(state.toString().toByteArray()); atomic.finishWrite(output) }
+        catch (failure: Throwable) { atomic.failWrite(output); throw failure }
     }
     private fun sessions(service: IRuntimeService): List<JSONObject> {
         val array = JSONArray(service.sessionsJson)

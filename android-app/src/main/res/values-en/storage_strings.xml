@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="storage_title">Storage</string>
+    <string name="storage_summary">Persistent environments used by profiles. Create a fresh environment or connect compatible existing storage from a profile.</string>
+    <string name="storage_used">Used storage</string>
+    <string name="storage_unused">Unused storage</string>
+    <string name="storage_existing">Existing storage %1$s · %2$s</string>
+    <string name="storage_profiles">Connected profiles</string>
+    <string name="storage_sessions">Running sessions</string>
+    <string name="storage_none">None</string>
+    <string name="storage_counts">About %1$s · %2$d profiles · %3$d active sessions</string>
+    <string name="storage_size_calculating">Calculating size</string>
+    <string name="storage_size_unknown">Size unavailable</string>
+    <string name="storage_missing">This storage no longer exists.</string>
+    <string name="storage_delete">Delete storage</string>
+    <string name="storage_delete_hint">Deleting storage permanently removes this environment’s data.</string>
+    <string name="storage_delete_confirm">Permanently delete all data in storage %1$s? This cannot be undone.</string>
+    <string name="storage_legacy_protected">Legacy storage is protected and cannot be deleted.</string>
+    <string name="storage_in_use_protected">Storage with connected profiles or active sessions cannot be deleted.</string>
+</resources>

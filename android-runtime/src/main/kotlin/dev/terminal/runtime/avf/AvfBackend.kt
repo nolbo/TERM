@@ -80,6 +80,9 @@ class AvfBackend(
         }.onFailure { state.value = RuntimeState.Failed(it.message ?: "AVF stop failed") }
     }
 
+    /** Provider must verify a stopped persistent instance, including after host process restart. */
+    suspend fun deleteStorage(instanceId: String): Result<Unit> = mutex.withLock { driver.deleteStorage(instanceId) }
+
     override fun observeState(): Flow<RuntimeState> = state.asStateFlow()
 
     override suspend fun connectGuestAgent(): Result<GuestConnection> = driver.connectGuestAgent()
@@ -97,6 +100,9 @@ interface AvfPlatformDriver {
     suspend fun start(config: RuntimeConfig): Result<Unit>
     suspend fun stop(mode: StopMode): Result<Unit>
     suspend fun connectGuestAgent(): Result<GuestConnection>
+    suspend fun deleteStorage(instanceId: String): Result<Unit> = Result.failure(
+        UnsupportedOperationException("AVF provider cannot verify and delete persistent storage"),
+    )
     suspend fun connectGuestBridge(): Result<GuestConnection> = Result.failure(
         UnsupportedOperationException("Guest capability bridge is unavailable"),
     )
