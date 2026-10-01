@@ -11,14 +11,20 @@ import android.text.format.Formatter
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CornerSize
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dev.terminal.app.ui.ProfileIcon
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.ui.runtimeTitleResource
@@ -68,6 +74,9 @@ class StorageActivity : TerminalActivity() {
             var error by remember { mutableStateOf<String?>(null) }
             var revision by remember { mutableIntStateOf(0) }
             val measurement = remember { Semaphore(1) }
+            val listState = rememberLazyListState()
+            val detailState = rememberLazyListState()
+            LaunchedEffect(selected) { if (selected != null) detailState.scrollToItem(0) }
             val back = { if (selected != null) selected = null else finish() }
             BackHandler { back() }
             LaunchedEffect(runtime, revision) {
@@ -81,7 +90,7 @@ class StorageActivity : TerminalActivity() {
             LaunchedEffect(deleting) {
                 val row = deleting ?: return@LaunchedEffect
                 runCatching { withContext(Dispatchers.IO) {
-                    (runtime ?: error(getString(R.string.usb_service_unavailable))).deleteStorage(row.runtime, row.id)
+                    (runtime ?: error(getString(R.string.storage_unavailable))).deleteStorage(row.runtime, row.id)
                 } }.onSuccess { result ->
                     if (result.isEmpty()) { selected = null; entries = entries?.filterNot { it.key == row.key }; revision++ }
                     else error = result
@@ -89,42 +98,92 @@ class StorageActivity : TerminalActivity() {
                 deleting = null
             }
             SettingsPageScaffold(stringResource(R.string.storage_title), back) { padding ->
-                LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    item { Text(stringResource(R.string.storage_summary), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                    error?.let { message -> item { Text(message, color = MaterialTheme.colorScheme.error) } }
-                    if (runtime == null) item { Text(stringResource(R.string.usb_service_unavailable)) }
-                    else if (entries == null) item { CircularProgressIndicator() }
+                LazyColumn(Modifier.fillMaxSize().padding(padding),
+                    state = if (selected == null) listState else detailState,
+                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+                    item {
+                        Text(stringResource(R.string.storage_summary), Modifier.padding(horizontal = 4.dp),
+                            style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    error?.let { message -> item {
+                        Card(Modifier.fillMaxWidth().padding(top = 20.dp), shape = MaterialTheme.shapes.extraLarge,
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer)) {
+                            Column(Modifier.padding(16.dp)) {
+                                Text(message, color = MaterialTheme.colorScheme.onErrorContainer)
+                                TextButton(onClick = { error = null }, shapes = ButtonDefaults.shapes()) {
+                                    Text(stringResource(R.string.usb_dismiss_error))
+                                }
+                            }
+                        }
+                    } }
+                    if (runtime == null || entries == null) item {
+                        StorageSection(R.string.storage_title) {
+                            ListItem(colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                leadingContent = if (runtime != null) { { LoadingIndicator(Modifier.size(32.dp)) } } else null,
+                                verticalAlignment = Alignment.CenterVertically) {
+                                Text(stringResource(if (runtime == null) R.string.storage_unavailable else R.string.storage_loading))
+                            }
+                        }
+                    }
                     val detail = entries?.firstOrNull { it.key == selected }
-                    if (selected != null && entries != null && detail == null) item { Text(stringResource(R.string.storage_missing)) }
-                    else if (detail != null) {
-                        item { StorageRow(detail, runtime, measurement, null) }
-                        item { Text(stringResource(R.string.storage_profiles), style = MaterialTheme.typography.titleMedium) }
-                        if (detail.profiles.isEmpty()) item { Text(stringResource(R.string.storage_none)) }
-                        items(detail.profiles, key = { "profile:${it.first}" }) { profile ->
-                            ListItem(onClick = { startActivity(Intent(this@StorageActivity, ProfileEditActivity::class.java).putExtra("profileId", profile.first)) },
-                                shapes = terminalListItemShapes(), modifier = Modifier.fillMaxWidth()) { Text(profile.second) }
+                    if (selected != null && entries != null && detail == null) item {
+                        StorageSection(R.string.storage_title) { StorageEmpty(R.string.storage_missing) }
+                    } else if (detail != null) {
+                        item { StorageSection(R.string.storage_title) { StorageRow(detail, runtime, measurement, null) } }
+                        item {
+                            StorageSection(R.string.storage_profiles) {
+                                if (detail.profiles.isEmpty()) StorageEmpty()
+                                detail.profiles.forEach { profile ->
+                                    ListItem(onClick = { startActivity(Intent(this@StorageActivity, ProfileEditActivity::class.java).putExtra("profileId", profile.first)) },
+                                        leadingContent = { ProfileIcon("auto", detail.runtime) },
+                                        trailingContent = { StorageChevron() }, verticalAlignment = Alignment.CenterVertically,
+                                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                        shapes = terminalListItemShapes(), modifier = Modifier.fillMaxWidth()) { Text(profile.second) }
+                                }
+                            }
                         }
-                        item { Text(stringResource(R.string.storage_sessions), style = MaterialTheme.typography.titleMedium) }
-                        if (detail.sessions.isEmpty()) item { Text(stringResource(R.string.storage_none)) }
-                        items(detail.sessions, key = { "session:${it.first}" }) { session ->
-                            ListItem(supportingContent = { Text(session.first) }) { Text(session.second.ifBlank { session.first }) }
+                        item {
+                            StorageSection(R.string.storage_sessions) {
+                                if (detail.sessions.isEmpty()) StorageEmpty()
+                                detail.sessions.forEach { session ->
+                                    ListItem(supportingContent = { Text(session.first, style = MaterialTheme.typography.bodySmall) },
+                                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                        verticalAlignment = Alignment.CenterVertically) { Text(session.second.ifBlank { session.first }) }
+                                }
+                            }
                         }
-                        item { Text(stringResource(when {
-                            detail.id == "legacy" -> R.string.storage_legacy_protected
-                            detail.used -> R.string.storage_in_use_protected
-                            else -> R.string.storage_delete_hint
-                        }), color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                        item { Button(onClick = { confirm = detail }, enabled = detail.canDelete && deleting == null,
-                            shapes = ButtonDefaults.shapes(), colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)) {
-                            Text(stringResource(R.string.storage_delete))
-                        } }
+                        item {
+                            Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
+                                Text(stringResource(when {
+                                    detail.id == "legacy" -> R.string.storage_legacy_protected
+                                    detail.used -> R.string.storage_in_use_protected
+                                    else -> R.string.storage_delete_hint
+                                }), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                TextButton(onClick = { confirm = detail }, enabled = detail.canDelete && deleting == null,
+                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shapes = ButtonDefaults.shapes(),
+                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                                    Icon(painterResource(R.drawable.ic_material_symbol_delete_24), null, Modifier.size(20.dp))
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(stringResource(R.string.storage_delete))
+                                }
+                            }
+                        }
                     } else if (selected == null && entries != null) {
                         listOf(true, false).forEach { used ->
-                            item { Text(stringResource(if (used) R.string.storage_used else R.string.storage_unused), style = MaterialTheme.typography.titleMedium) }
+                            val title = if (used) R.string.storage_used else R.string.storage_unused
+                            item {
+                                Text(stringResource(title), Modifier.padding(start = 16.dp, top = 20.dp, bottom = 8.dp),
+                                    style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                            }
                             val group = entries.orEmpty().filter { it.used == used }
-                            if (group.isEmpty()) item { Text(stringResource(R.string.storage_none)) }
-                            items(group, key = { it.key }) { row -> StorageRow(row, runtime, measurement) { selected = row.key } }
+                            if (group.isEmpty()) item { StorageGroupCard(true, true) { StorageEmpty() } }
+                            // Keep each row lazy while drawing one continuous section card.
+                            itemsIndexed(group, key = { _, row -> row.key }) { index, row ->
+                                StorageGroupCard(index == 0, index == group.lastIndex) {
+                                    StorageRow(row, runtime, measurement) { selected = row.key }
+                                }
+                            }
                         }
                     }
                 }
@@ -132,8 +191,9 @@ class StorageActivity : TerminalActivity() {
             confirm?.let { row -> AlertDialog(onDismissRequest = { confirm = null },
                 title = { Text(stringResource(R.string.storage_delete)) },
                 text = { Text(stringResource(R.string.storage_delete_confirm, row.id)) },
-                confirmButton = { TextButton(onClick = { confirm = null; deleting = row }) { Text(stringResource(R.string.storage_delete)) } },
-                dismissButton = { TextButton(onClick = { confirm = null }) { Text(stringResource(R.string.cancel)) } }) }
+                confirmButton = { TextButton(onClick = { confirm = null; deleting = row }, shapes = ButtonDefaults.shapes(),
+                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(stringResource(R.string.storage_delete)) } },
+                dismissButton = { TextButton(onClick = { confirm = null }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } }) }
         }
     }
     @Composable private fun StorageRow(row: StorageItem, service: IRuntimeService?, measurement: Semaphore, click: (() -> Unit)?) {
@@ -149,12 +209,43 @@ class StorageActivity : TerminalActivity() {
         }
         val size = bytes?.let { Formatter.formatShortFileSize(this, it) }
             ?: stringResource(if (failed) R.string.storage_size_unknown else R.string.storage_size_calculating)
-        val title = stringResource(runtimeTitleResource(row.runtime)) + " · " + row.id
+        val title = stringResource(runtimeTitleResource(row.runtime))
         val description = stringResource(R.string.storage_counts, size, row.profiles.size, row.sessions.size)
-        if (click == null) ListItem(supportingContent = { Text(description) }) { Text(title) }
-        else ListItem(onClick = click, supportingContent = { Text(description) }, shapes = terminalListItemShapes(),
-            modifier = Modifier.fillMaxWidth(), colors = ListItemDefaults.colors(containerColor = Color.Transparent)) { Text(title) }
+        val supporting: @Composable () -> Unit = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Text(row.id, style = MaterialTheme.typography.bodySmall,
+                    maxLines = if (click == null) 2 else 1, overflow = TextOverflow.Ellipsis)
+                Text(description)
+            }
+        }
+        val colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+        if (click == null) ListItem(supportingContent = supporting, leadingContent = { ProfileIcon("auto", row.runtime) },
+            verticalAlignment = Alignment.CenterVertically, colors = colors) { Text(title) }
+        else ListItem(onClick = click, supportingContent = supporting, leadingContent = { ProfileIcon("auto", row.runtime) },
+            trailingContent = { StorageChevron() }, verticalAlignment = Alignment.CenterVertically,
+            shapes = terminalListItemShapes(), modifier = Modifier.fillMaxWidth(), colors = colors) { Text(title) }
     }
+    @Composable private fun StorageSection(title: Int, content: @Composable ColumnScope.() -> Unit) {
+        Column(Modifier.fillMaxWidth().padding(top = 20.dp)) { ProfileSection(title, content) }
+    }
+    @Composable private fun StorageGroupCard(first: Boolean, last: Boolean, content: @Composable ColumnScope.() -> Unit) {
+        val corners = MaterialTheme.shapes.extraLarge
+        Card(Modifier.fillMaxWidth(), shape = corners.copy(
+            topStart = if (first) corners.topStart else CornerSize(0.dp),
+            topEnd = if (first) corners.topEnd else CornerSize(0.dp),
+            bottomStart = if (last) corners.bottomStart else CornerSize(0.dp),
+            bottomEnd = if (last) corners.bottomEnd else CornerSize(0.dp)),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), content = content)
+    }
+    @Composable private fun StorageEmpty(message: Int = R.string.storage_none) {
+        ListItem(colors = ListItemDefaults.colors(containerColor = Color.Transparent)) {
+            Text(stringResource(message), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+    }
+    @Composable private fun StorageChevron() {
+        Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null)
+    }
+
     override fun onStart() {
         super.onStart()
         binding = bindService(Intent(this, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE)

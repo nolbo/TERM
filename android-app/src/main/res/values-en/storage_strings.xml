@@ -2,6 +2,8 @@
 <resources>
     <string name="storage_title">Storage</string>
     <string name="storage_summary">Persistent environments used by profiles.</string>
+    <string name="storage_loading">Loading storage information…</string>
+    <string name="storage_unavailable">Storage information is unavailable.</string>
     <string name="storage_used">Used storage</string>
     <string name="storage_unused">Unused storage</string>
     <string name="storage_existing">Existing storage %1$s · %2$s</string>
