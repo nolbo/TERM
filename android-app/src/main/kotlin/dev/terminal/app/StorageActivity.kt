@@ -8,7 +8,6 @@ import android.content.ServiceConnection
 import android.os.Bundle
 import android.os.IBinder
 import android.text.format.Formatter
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -58,8 +57,12 @@ internal data class StorageItem(val runtime: String, val id: String, val bytes: 
     }
 }
 
-/** Observes storage and requests service operations; owns no runtime or filesystem lifecycle. */
-class StorageActivity : TerminalActivity() {
+class StorageActivity : StorageScreenActivity()
+
+/** Shared storage presentation and service operations; each screen owns its Activity lifecycle. */
+abstract class StorageScreenActivity : TerminalActivity() {
+    protected open val titleResource: Int get() = R.string.storage_title
+    protected open fun selectedStorage(): StorageRegistry.Key? = null
     private var runtime by mutableStateOf<IRuntimeService?>(null)
     private var binding = false
     private val connection = object : ServiceConnection {
@@ -68,9 +71,14 @@ class StorageActivity : TerminalActivity() {
     }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val selected = try {
+            selectedStorage()?.let { "${it.runtime.wireName}:${it.storageId}" }
+        } catch (_: IllegalArgumentException) {
+            finish()
+            return
+        }
         compose {
             var entries by remember { mutableStateOf<List<StorageItem>?>(null) }
-            var selected by rememberSaveable { mutableStateOf<String?>(null) }
             var confirm by remember { mutableStateOf<StorageItem?>(null) }
             var deleting by remember { mutableStateOf<StorageItem?>(null) }
             var editingName by rememberSaveable { mutableStateOf(false) }
@@ -79,11 +87,7 @@ class StorageActivity : TerminalActivity() {
             var error by remember { mutableStateOf<String?>(null) }
             var revision by remember { mutableIntStateOf(0) }
             val measurement = remember { Semaphore(1) }
-            val listState = rememberLazyListState()
-            val detailState = rememberLazyListState()
-            LaunchedEffect(selected) { if (selected != null) detailState.scrollToItem(0) }
-            val back = { if (selected != null) selected = null else finish() }
-            BackHandler { back() }
+            val scrollState = rememberLazyListState()
             LaunchedEffect(runtime, revision) {
                 val service = runtime ?: return@LaunchedEffect
                 while (true) {
@@ -97,7 +101,7 @@ class StorageActivity : TerminalActivity() {
                 runCatching { withContext(Dispatchers.IO) {
                     (runtime ?: error(getString(R.string.storage_unavailable))).deleteStorage(row.runtime, row.id)
                 } }.onSuccess { result ->
-                    if (result.isEmpty()) { selected = null; entries = entries?.filterNot { it.key == row.key }; revision++ }
+                    if (result.isEmpty()) finish()
                     else error = result
                 }.onFailure { error = it.message }
                 deleting = null
@@ -114,9 +118,9 @@ class StorageActivity : TerminalActivity() {
                 }.onFailure { error = it.message }
                 renaming = null
             }
-            SettingsPageScaffold(stringResource(R.string.storage_title), back) { padding ->
+            SettingsPageScaffold(stringResource(titleResource), { finish() }) { padding ->
                 LazyColumn(Modifier.fillMaxSize().padding(padding),
-                    state = if (selected == null) listState else detailState,
+                    state = scrollState,
                     contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
                     item {
                         Text(stringResource(R.string.storage_summary), Modifier.padding(horizontal = 4.dp),
@@ -160,7 +164,7 @@ class StorageActivity : TerminalActivity() {
                             StorageSection(R.string.storage_profiles) {
                                 if (detail.profiles.isEmpty()) StorageEmpty()
                                 detail.profiles.forEach { profile ->
-                                    ListItem(onClick = { startActivity(Intent(this@StorageActivity, ProfileEditActivity::class.java).putExtra("profileId", profile.first)) },
+                                    ListItem(onClick = { startActivity(Intent(this@StorageScreenActivity, ProfileEditActivity::class.java).putExtra("profileId", profile.first)) },
                                         leadingContent = { ProfileIcon("auto", detail.runtime) },
                                         trailingContent = { StorageChevron() }, verticalAlignment = Alignment.CenterVertically,
                                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
@@ -207,7 +211,9 @@ class StorageActivity : TerminalActivity() {
                             // Keep each row lazy while drawing one continuous section card.
                             itemsIndexed(group, key = { _, row -> row.key }) { index, row ->
                                 StorageGroupCard(index == 0, index == group.lastIndex) {
-                                    StorageRow(row, runtime, measurement) { selected = row.key }
+                                    StorageRow(row, runtime, measurement) {
+                                        startActivity(StorageDetailActivity.intent(this@StorageScreenActivity, row.runtime, row.id))
+                                    }
                                 }
                             }
                         }

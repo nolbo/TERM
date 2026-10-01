@@ -14,6 +14,8 @@ storage 변경은 이후 생성되는 Session에만 적용됩니다. 기존 `Ses
 
 ## 저장과 호환성
 
+저장소 목록의 사용 중·미사용 항목을 누르면 별도의 `StorageDetailActivity`에서 해당 `(runtime, storageId)`의 설정을 엽니다. 목록과 상세는 각자의 Activity·스크롤 상태를 가지며, 뒤로 가면 원래 목록 위치로 돌아옵니다. 상세에서 저장소를 삭제하면 목록으로 돌아가고 목록은 서비스의 최신 정보를 다시 읽습니다. 연결된 프로필을 누르면 기존 `ProfileEditActivity`로 이동합니다.
+
 `SessionStorage`는 경로 resolver로 유지합니다. `StorageRegistry`는 app-private `storage-registry.json`에 Profile override·삭제 표시와 저장소 ID 및 `(runtime, storageId)`별 표시용 이름을 기록합니다. 이름이 없는 기존 manifest는 그대로 읽으며 저장소 삭제 시 해당 이름도 제거합니다. 기존 `session-profiles` SharedPreferences는 처음 변경할 때 manifest로 옮기며 원본을 삭제하지 않습니다. 기본 프로필 설정은 기존 runtime preferences에서 계속 해석합니다. UI와 `:vmhost`는 같은 process-shared file lock과 원자적 파일 교체를 사용합니다. 파일 경로는 호스트가 runtime과 검증된 storage ID로 결정하며 Binder에서 임의 경로를 받지 않습니다.
 
 manifest는 프로필 이동 전의 저장소도 기록하므로 한 번도 실행하지 않은 미사용 환경까지 조회·삭제할 수 있습니다. 삭제한 저장소 ID는 재사용을 막아 오래된 편집 화면이나 launch 요청이 환경을 되살리지 못하게 합니다. 이전 APK로 다운그레이드하면 원본 SharedPreferences를 읽으므로 새 manifest의 프로필 변경이 반영되지 않습니다. 업그레이드 후 manifest가 기준이며 원본 preferences를 다시 가져오지 않습니다.
