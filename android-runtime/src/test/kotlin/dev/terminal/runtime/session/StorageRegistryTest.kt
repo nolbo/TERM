@@ -12,6 +12,25 @@ class StorageRegistryTest {
     @get:Rule val temporary = TemporaryFolder()
     private fun profile(runtime: SessionRuntime = SessionRuntime.NATIVE) = SessionProfile(UUID.randomUUID().toString(), "Test", runtime,
         "/bin/sh", storageId = UUID.randomUUID().toString())
+    @Test fun newStorageNameAndProfileSaveTogetherWithoutRenamingSharedStorage() {
+        val files = temporary.newFolder()
+        val registry = StorageRegistry(files)
+        val saved = profile()
+        val key = StorageRegistry.Key(saved.runtime, saved.storageId)
+        registry.transaction { save(saved, "  Development  ") }
+        val reopened = StorageRegistry(files)
+        assertEquals(saved, reopened.transaction { profiles(emptyList()).single() })
+        assertEquals("Development", reopened.transaction { name(key) })
+        assertFalse(registry.root(key).exists()) // Naming never creates or clones environment files.
+        val shared = saved.copy(id = "shared", name = "Sharing")
+        assertTrue(runCatching { reopened.transaction { save(shared, "Replacement name") } }.isFailure)
+        assertEquals("Development", reopened.transaction { name(key) })
+        reopened.transaction { save(shared) }
+        val invalid = profile()
+        assertTrue(runCatching { reopened.transaction { save(invalid, "x".repeat(StorageRegistry.MAX_NAME_LENGTH + 1)) } }.isFailure)
+        assertFalse(reopened.transaction { profiles(emptyList()).any { it.id == invalid.id } })
+        assertFalse(reopened.transaction { keys().any { it.storageId == invalid.storageId } })
+    }
     @Test fun storageNamesPersistIndependentlyOfProfilesAndAreRemovedOnDeletion() {
         val files = temporary.newFolder()
         val registry = StorageRegistry(files)

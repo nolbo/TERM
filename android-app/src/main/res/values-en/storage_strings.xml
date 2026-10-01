@@ -2,6 +2,9 @@
 <resources>
     <string name="storage_title">Storage</string>
     <string name="storage_settings">Storage settings</string>
+    <string name="profile_storage_existing">Existing storage</string>
+    <string name="profile_storage_name">Storage name</string>
+    <string name="profile_storage_empty">No compatible existing storage is available.</string>
     <string name="storage_name">Storage name</string>
     <string name="storage_name_hint">Leave blank to use the runtime name.</string>
     <string name="storage_summary">Persistent environments used by profiles.</string>

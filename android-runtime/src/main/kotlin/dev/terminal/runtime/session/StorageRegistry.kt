@@ -38,13 +38,16 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
         fun rename(key: Key, value: String, defaults: List<SessionProfile> = emptyList()) {
             check(key in keys() + profiles(defaults).map { Key(it.runtime, it.storageId) }) { "Storage not found" }
             check(key !in decodeKeys(state.getJSONArray("deleted"))) { "Storage has been deleted" }
+            putName(key, value)
+            state.put("storages", JSONArray((keys() + key).map { it.json() }))
+            persist()
+        }
+        private fun putName(key: Key, value: String) {
             val name = value.trim()
             require(name.length <= MAX_NAME_LENGTH && name.none { it.isISOControl() }) { "Invalid storage name" }
             val names = state.optJSONObject("storageNames") ?: JSONObject().also { state.put("storageNames", it) }
             val id = "${key.runtime.wireName}:${key.storageId}"
             if (name.isEmpty()) names.remove(id) else names.put(id, name)
-            state.put("storages", JSONArray((keys() + key).map { it.json() }))
-            persist()
         }
         fun overrides(): Map<String, String> = state.getJSONObject("profiles").let { profiles ->
             profiles.keys().asSequence().associateWith { profiles.getString(it) }
@@ -75,11 +78,15 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
                 "Storage runtime or Rootless distribution is incompatible"
             }
         }
-        fun save(profile: SessionProfile) {
+        fun save(profile: SessionProfile, newStorageName: String? = null) {
             val encoded = profile.resolve().toJson().toString()
             val key = Key(profile.runtime, profile.storageId)
             validateConnection(key)
             val allKeys = keys() + key
+            if (newStorageName != null) {
+                check(key !in keys()) { "A new storage name cannot rename an existing environment" }
+                putName(key, newStorageName)
+            }
             state.getJSONObject("profiles").put(profile.id, encoded)
             state.put("storages", JSONArray(allKeys.map { it.json() }))
             persist()

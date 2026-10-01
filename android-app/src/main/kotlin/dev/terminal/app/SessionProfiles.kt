@@ -48,8 +48,8 @@ class SessionProfiles(context: Context) {
     }
     fun duplicate(profile: SessionProfile) = profile.copy(id = UUID.randomUUID().toString(), name = "${profile.name} copy",
         storageId = UUID.randomUUID().toString())
-    fun save(profile: SessionProfile) {
-        registry.transaction { save(profile) }
+    fun save(profile: SessionProfile, newStorageName: String? = null) {
+        registry.transaction { save(profile, newStorageName) }
     }
     fun delete(id: String) {
         registry.transaction { deleteProfile(id, builtIns().any { it.id == id }) }

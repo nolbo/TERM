@@ -26,6 +26,7 @@ class SessionProfilesTest {
     @Test fun newProfileUsesSettingsRowsAndPreservesDialogDraftUntilSaved() {
         val store = SessionProfiles(context)
         val name = "New profile ${java.util.UUID.randomUUID()}"
+        val storageName = "Development ${java.util.UUID.randomUUID()}"
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         fun find(predicate: (android.view.accessibility.AccessibilityNodeInfo) -> Boolean): android.view.accessibility.AccessibilityNodeInfo? {
             fun walk(node: android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
@@ -44,12 +45,12 @@ class SessionProfilesTest {
                 node?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) == true
             }
         }
-        fun typeName() {
+        fun typeName(value: String = name) {
             await { find { it.isEditable } != null }
             assertTrue(requireNotNull(find { it.isEditable }).performAction(
                 android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT,
                 android.os.Bundle().apply {
-                    putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, name)
+                    putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
                 }))
         }
         try {
@@ -68,6 +69,16 @@ class SessionProfilesTest {
                 activity.recreate()
                 await { find { it.text?.toString() == name } != null }
                 await {
+                    if (find { it.text?.toString() == context.getString(R.string.profile_storage_name) } != null) true
+                    else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
+                }
+                click(R.string.profile_storage_name); typeName(storageName); click(R.string.save)
+                await { find { it.isEditable } == null }
+                val registry = dev.terminal.runtime.session.StorageRegistry(context.filesDir)
+                assertFalse(registry.transaction { keys().any { this.name(it) == storageName } })
+                activity.recreate()
+                await { find { it.text?.toString() == storageName } != null }
+                await {
                     if (find { it.text?.toString() == context.getString(R.string.profile_save) } != null) true
                     else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
                 }
@@ -76,6 +87,7 @@ class SessionProfilesTest {
                 val saved = store.all().single { it.name == name }
                 assertEquals("auto", saved.icon)
                 assertNotEquals("legacy", saved.storageId)
+                assertEquals(storageName, registry.transaction { this.name(dev.terminal.runtime.session.StorageRegistry.Key(saved.runtime, saved.storageId)) })
             }
         } finally { store.all().filter { it.name == name }.forEach { store.delete(it.id) } }
     }
@@ -86,6 +98,7 @@ class SessionProfilesTest {
         val target = store.duplicate(store.builtIns().first {
             it.runtime == dev.terminal.runtime.session.SessionRuntime.ROOTLESS_UBUNTU
         }).copy(name = "Shared Ubuntu fixture")
+        val storageName = "Ubuntu fixture ${java.util.UUID.randomUUID().toString().take(8)}"
         val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
         fun find(predicate: (android.view.accessibility.AccessibilityNodeInfo) -> Boolean): android.view.accessibility.AccessibilityNodeInfo? {
             fun walk(node: android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
@@ -104,8 +117,31 @@ class SessionProfilesTest {
                 node?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) == true
             }
         }
+        fun scrollStorageList() {
+            val bounds = android.graphics.Rect()
+            requireNotNull(find { it.isScrollable }).getBoundsInScreen(bounds)
+            val x = bounds.exactCenterX()
+            val start = bounds.top + bounds.height() * 0.75f
+            val end = bounds.top + bounds.height() * 0.5f
+            val downTime = SystemClock.uptimeMillis()
+            fun touch(action: Int, y: Float) {
+                android.view.MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y, 0).also { event ->
+                    event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+                    assertTrue(automation.injectInputEvent(event, true))
+                    event.recycle()
+                }
+            }
+            touch(android.view.MotionEvent.ACTION_DOWN, start)
+            for (step in 1..8) {
+                SystemClock.sleep(30)
+                touch(android.view.MotionEvent.ACTION_MOVE, start + (end - start) * step / 8)
+            }
+            SystemClock.sleep(200)
+            touch(android.view.MotionEvent.ACTION_MOVE, end)
+            touch(android.view.MotionEvent.ACTION_UP, end)
+        }
         try {
-            store.save(profile); store.save(target)
+            store.save(profile); store.save(target, newStorageName = storageName)
             ActivityScenario.launch<ProfileEditActivity>(Intent(context, ProfileEditActivity::class.java)
                 .putExtra("profileId", profile.id)).use {
                 click(context.getString(R.string.profile_runtime))
@@ -124,15 +160,11 @@ class SessionProfilesTest {
                 await { find { it.text?.toString() == context.getString(R.string.cancel) } == null }
                 // Only storage belonging to the selected distribution can be connected.
                 await {
-                    if (find { it.text?.toString() == context.getString(R.string.profile_storage) && (it.isClickable || it.parent?.isClickable == true) } != null) true
-                    else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
+                    var storage = find { it.text?.toString() == target.storageId }
+                    while (storage != null && !storage.isClickable) storage = storage.parent
+                    if (storage?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) == true) true
+                    else { scrollStorageList(); false }
                 }
-                var storage = requireNotNull(find { it.text?.toString() == context.getString(R.string.profile_storage) && (it.isClickable || it.parent?.isClickable == true) })
-                while (!storage.isClickable) storage = requireNotNull(storage.parent)
-                assertTrue(storage.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
-                click(context.getString(R.string.storage_existing, target.storageId.take(8), target.name))
-                click(context.getString(R.string.save))
-                await { find { it.text?.toString() == context.getString(R.string.cancel) } == null }
                 await {
                     if (find { it.text?.toString() == context.getString(R.string.profile_save) } != null) true
                     else {

@@ -7,6 +7,7 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -61,6 +62,8 @@ class ProfileEditActivity : TerminalActivity() {
             var storageId by rememberSaveable { mutableStateOf(initial.storageId) }
             var storageChoice by rememberSaveable { mutableStateOf(if (source != null && initial.id == source.id) "keep" else "fresh") }
             var freshStorageId by rememberSaveable { mutableStateOf(if (storageChoice == "fresh") initial.storageId else java.util.UUID.randomUUID().toString()) }
+            var freshStorageName by rememberSaveable { mutableStateOf("") }
+            var existingStorageId by rememberSaveable { mutableStateOf("") }
             var storageKeys by remember { mutableStateOf(emptyList<StorageRegistry.Key>()) }
             var storageNames by remember { mutableStateOf(emptyMap<StorageRegistry.Key, String?>()) }
             val scope = rememberCoroutineScope()
@@ -87,6 +90,7 @@ class ProfileEditActivity : TerminalActivity() {
                     freshStorageId = java.util.UUID.randomUUID().toString()
                     storageId = freshStorageId
                     storageChoice = "fresh"
+                    existingStorageId = ""
                 }
                 val old = store.builtIns().first { it.runtime.wireName == runtime }
                 val new = store.builtIns().first { it.runtime == option }
@@ -128,22 +132,41 @@ class ProfileEditActivity : TerminalActivity() {
                     ProfileSection(R.string.profile_storage) {
                         val targets = storageKeys.filter { it.runtime.wireName == runtime }
                             .filterNot { editing && runtime == initial.runtime.wireName && it.storageId == initial.storageId }
-                            .sortedBy { it.storageId }
-                        val choices = buildList {
-                            if (editing && runtime == initial.runtime.wireName) add(SettingsChoice(stringResource(R.string.profile_storage_current), "keep"))
-                            add(SettingsChoice(stringResource(R.string.profile_storage_new), "fresh"))
+                            .sortedWith(compareBy({ storageNames[it].orEmpty() }, { it.storageId }))
+                        if (!editing) SettingsChoiceRow(stringResource(R.string.profile_storage), null,
+                            listOf(SettingsChoice(stringResource(R.string.profile_storage_new), "fresh"),
+                                SettingsChoice(stringResource(R.string.profile_storage_existing), "existing")),
+                            if (storageChoice == "fresh") "fresh" else "existing") { selected ->
+                            storageChoice = if (selected == "fresh" || existingStorageId.isEmpty()) selected else "existing:$existingStorageId"
+                            storageId = if (selected == "fresh") freshStorageId else existingStorageId
+                            dirty = true
+                        }
+                        if (editing || storageChoice != "fresh") Column(Modifier.selectableGroup()) {
+                            if (editing && runtime == initial.runtime.wireName) {
+                                val current = StorageRegistry.Key(initial.runtime, initial.storageId)
+                                ProfileStorageRow(storageNames[current] ?: stringResource(runtimeTitleResource(runtime)),
+                                    stringResource(R.string.profile_storage_current) + " · " + initial.storageId,
+                                    storageChoice == "keep") {
+                                    storageId = initial.storageId; storageChoice = "keep"; dirty = true
+                                }
+                            }
                             targets.forEach { key ->
-                                val names = otherProfiles.filter { it.runtime == key.runtime && it.storageId == key.storageId }.joinToString { it.name }
-                                add(SettingsChoice(stringResource(R.string.storage_existing, storageNames[key] ?: key.storageId.take(8), names.ifEmpty { stringResource(R.string.storage_unused) }), "existing:${key.storageId}"))
+                                ProfileStorageRow(storageNames[key] ?: stringResource(runtimeTitleResource(runtime)),
+                                    key.storageId, storageChoice == "existing:${key.storageId}") {
+                                    existingStorageId = key.storageId; storageId = key.storageId
+                                    storageChoice = "existing:${key.storageId}"; dirty = true
+                                }
+                            }
+                            if (targets.isEmpty() && (!editing || runtime != initial.runtime.wireName)) ListItem(colors = ListItemDefaults.colors(containerColor = Color.Transparent)) {
+                                Text(stringResource(R.string.profile_storage_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                            if (editing) ProfileStorageRow(stringResource(R.string.profile_storage_new), null, storageChoice == "fresh") {
+                                storageId = freshStorageId; storageChoice = "fresh"; dirty = true
                             }
                         }
-                        SettingsChoiceRow(stringResource(R.string.profile_storage), null, choices, storageChoice) { selected ->
-                            storageId = when (selected) {
-                                "keep" -> initial.storageId
-                                "fresh" -> freshStorageId
-                                else -> targets.first { "existing:${it.storageId}" == selected }.storageId
-                            }
-                            storageChoice = selected
+                        if (storageChoice == "fresh") ProfileField(R.string.profile_storage_name, freshStorageName,
+                            hint = R.string.storage_name_hint) {
+                            freshStorageName = it.filterNot { char -> char.isISOControl() }.take(StorageRegistry.MAX_NAME_LENGTH)
                             dirty = true
                         }
                     }
@@ -164,11 +187,12 @@ class ProfileEditActivity : TerminalActivity() {
                         scope.launch {
                             runCatching { withContext(Dispatchers.IO) {
                                 store.save(SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
-                                    parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon, palette?.split(',')))
+                                    parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon, palette?.split(',')),
+                                    newStorageName = if (storageChoice == "fresh") freshStorageName else null)
                             } }.onSuccess { finish() }.onFailure { error = it.message }
                             saving = false
                         }
-                    }, enabled = !saving, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.profile_save)) }
+                    }, enabled = !saving && storageId.isNotEmpty(), modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.profile_save)) }
                     if (editing) {
                         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             OutlinedButton(onClick = {
@@ -208,6 +232,13 @@ class ProfileEditActivity : TerminalActivity() {
                 dismissButton = { TextButton(onClick = { discard = false }) { Text(stringResource(android.R.string.cancel)) } })
         }
     }
+}
+
+@Composable private fun ProfileStorageRow(title: String, supporting: String?, selected: Boolean, onClick: () -> Unit) {
+    ListItem(onClick = onClick, supportingContent = supporting?.let { { Text(it, style = MaterialTheme.typography.bodySmall) } },
+        trailingContent = { RadioButton(selected = selected, onClick = null) },
+        verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes(),
+        colors = ListItemDefaults.colors(containerColor = Color.Transparent), modifier = Modifier.fillMaxWidth()) { Text(title) }
 }
 
 @Composable internal fun ProfileSection(title: Int, content: @Composable ColumnScope.() -> Unit) {

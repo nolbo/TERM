@@ -26,6 +26,53 @@ import java.util.concurrent.TimeUnit
 @RunWith(AndroidJUnit4::class)
 class StorageManagerTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
+    @Test fun newProfileSelectsAnExistingStorageFromSettingsRows() {
+        val store = SessionProfiles(context)
+        val target = store.duplicate(store.builtIns().first()).copy(name = "Existing storage fixture")
+        val profileName = "Shared profile ${UUID.randomUUID()}"
+        val storageName = "Existing environment ${UUID.randomUUID()}"
+        val registry = dev.terminal.runtime.session.StorageRegistry(context.filesDir)
+        store.save(target, newStorageName = storageName)
+        val before = registry.transaction { keys() }
+        try {
+            ActivityScenario.launch(ProfileEditActivity::class.java).use {
+                clickContaining(context.getString(R.string.profile_name))
+                await { find { it.isEditable } != null }
+                assertTrue(requireNotNull(find { it.isEditable }).performAction(
+                    android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT,
+                    android.os.Bundle().apply { putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, profileName) }))
+                clickContaining(context.getString(R.string.save))
+                await { find { it.isEditable } == null }
+                await {
+                    if (find { it.text?.toString() == context.getString(R.string.profile_storage) && it.parent?.isClickable == true } != null) true
+                    else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
+                }
+                clickContaining(context.getString(R.string.profile_storage))
+                clickContaining(context.getString(R.string.profile_storage_existing))
+                clickContaining(context.getString(R.string.save))
+                await { find { it.text?.toString() == context.getString(R.string.cancel) } == null }
+                assertNull(find { it.text?.toString() == context.getString(R.string.profile_storage_name) })
+                await {
+                    if (find { it.text?.toString() == target.storageId } != null) true
+                    else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
+                }
+                clickContaining(target.storageId)
+                assertTrue(store.all().none { it.name == profileName })
+                await {
+                    if (find { it.text?.toString() == context.getString(R.string.profile_save) } != null) true
+                    else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
+                }
+                clickContaining(context.getString(R.string.profile_save))
+                await { store.all().any { it.name == profileName } }
+                assertEquals(target.storageId, store.all().single { it.name == profileName }.storageId)
+                assertEquals(before, registry.transaction { keys() })
+                assertEquals(storageName, registry.transaction { name(dev.terminal.runtime.session.StorageRegistry.Key(target.runtime, target.storageId)) })
+            }
+        } finally {
+            store.all().filter { it.name == profileName }.forEach { store.delete(it.id) }
+            store.delete(target.id)
+        }
+    }
     @Test fun profileSwitchKeepsLiveSessionAndServiceDeletesOnlyIdleOrphans() {
         val store = SessionProfiles(context)
         val original = store.duplicate(store.builtIns().first { it.runtime == SessionRuntime.NATIVE }).copy(name = "Storage manager test")
