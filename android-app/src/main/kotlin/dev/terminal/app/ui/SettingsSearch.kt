@@ -36,7 +36,7 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
               section: Int = 0, icon: Int = R.drawable.ic_material_symbol_settings_24) {
         add(SettingsSearchEntry(title, summary, path, SettingsSearchTarget(screen, section), icon))
     }
-    entry("storage", R.string.storage_title, R.string.storage_summary, icon = R.drawable.ic_material_symbol_memory_24)
+    entry("storage", R.string.storage_title, R.string.storage_summary, icon = R.drawable.ic_material_symbol_storage_24)
     entry("profiles", R.string.profiles, R.string.profiles_summary, icon = R.drawable.ic_material_symbol_add_24)
     entry("language", R.string.settings_language_title, R.string.settings_language_summary, icon = R.drawable.ic_material_symbol_text_format_24)
     entry("terminal", R.string.settings_terminal_title, R.string.settings_terminal_summary, icon = R.drawable.ic_material_symbol_settings_24)
