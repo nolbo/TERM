@@ -97,7 +97,7 @@ class NativeSessionController(
         ) } catch (failure: Exception) { releaseHostCapabilities(id); throw failure }
         val descriptor = SessionDescriptor(id, "Native shell", command, workingDirectory, System.currentTimeMillis(), rows, cols, SessionStatus.RUNNING)
         entries[id] = Entry(descriptor, process)
-        scope.launch {
+        val reader = scope.launch {
             pumpPtyOutput(
                 process.inputStream,
                 onOutput = { bytes ->
@@ -129,6 +129,7 @@ class NativeSessionController(
         }
         scope.launch {
             val code = process.waitFor()
+            reader.join()
             releaseHostCapabilities(id)
             entries[id]?.descriptor = entries[id]?.descriptor?.copy(state = SessionStatus.EXITED, exitCode = code) ?: return@launch
             output.emit(SessionEvent.Exited(id, code))

@@ -2,6 +2,25 @@ package com.termux.terminal;
 
 public class ResizeTest extends TerminalTestCase {
 
+    public void testAltScreenHeightRoundTripPreservesStyledSpaces() {
+        withTerminalSized(12, 4).enterString("\033[?1049h\033[48;2;21;43;65m\033[2J" +
+            "\033[38;2;12;34;56m\033[58;2;3;4;5m\033[4mA  \033[0m\033[2;1HB\033[H");
+        long[][] styles = new long[4][12];
+        int[][] underlines = new int[4][12];
+        TerminalBuffer screen = mTerminal.getScreen();
+        for (int row = 0; row < 4; row++) for (int col = 0; col < 12; col++) {
+            styles[row][col] = screen.getStyleAt(row, col);
+            underlines[row][col] = screen.mLines[screen.externalToInternalRow(row)].getUnderlineColor(col);
+        }
+        resize(12, 9).resize(12, 4).assertCursorAt(0, 0);
+        for (int row = 0; row < 4; row++) for (int col = 0; col < 12; col++) {
+            assertEquals("Style " + row + "/" + col, styles[row][col], screen.getStyleAt(row, col));
+            assertEquals("Underline " + row + "/" + col, underlines[row][col],
+                screen.mLines[screen.externalToInternalRow(row)].getUnderlineColor(col));
+        }
+        assertLinesAre("A           ", "B           ", "            ", "            ");
+    }
+
 	public void testResizeWhenHasHistory() {
 		final int cols = 3;
 		withTerminalSized(cols, 3).enterString("111222333444555666777888999").assertCursorAt(2, 2).assertLinesAre("777", "888", "999");

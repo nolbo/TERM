@@ -7,6 +7,12 @@ import android.content.ServiceConnection
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.ParcelFileDescriptor
+import com.termux.terminal.TerminalCheckpoint
+import dev.terminal.runtime.ipc.ITerminalStateListener
+import org.json.JSONObject
+import java.io.DataInputStream
+import java.util.Properties
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
 import dev.terminal.runtime.ipc.IRuntimeService
@@ -24,10 +30,11 @@ internal class TerminalSessionStore(context: Context) {
     private val main = Handler(Looper.getMainLooper())
     val sessions = mutableMapOf<String, TerminalSession>()
     val scrollPositions = WeakHashMap<TerminalSession, TerminalView.ScrollPosition>()
+    private val restoredPositions = mutableSetOf<TerminalSession>()
     private val backends = ConcurrentHashMap<String, RemoteTerminalBackend>()
     private val attached = mutableSetOf<String>()
-    private val pendingReplay = ConcurrentHashMap.newKeySet<String>()
-    private val replaying = ConcurrentHashMap.newKeySet<String>()
+    private val terminalListeners = ConcurrentHashMap<String, ITerminalStateListener>()
+    private val palettes = mutableMapOf<String, Properties>()
     private val ready = ConcurrentHashMap.newKeySet<String>()
     private var service: IRuntimeService? = null
     private var binding = false
@@ -52,12 +59,14 @@ internal class TerminalSessionStore(context: Context) {
         }
     }
 
-    fun getOrCreate(id: String, transcriptRows: Int, replayExpected: Boolean = true): TerminalSession = sessions.getOrPut(id) {
-        if (!replayExpected) ready.add(id)
+    fun getOrCreate(id: String, transcriptRows: Int, palette: Properties): TerminalSession = sessions.getOrPut(id) {
+        palettes[id] = palette
         val backend = RemoteTerminalBackend(
             write = { bytes -> call { it.writeSessionInput(id, bytes) } },
             resize = { columns, rows -> call { it.resizeSession(id, rows, columns) } },
             onStarted = { attachWhenReady(id) },
+            authoritative = true,
+            onGeometry = { configure(id) },
         )
         backends[id] = backend
         TerminalSession("", "/", emptyArray(), emptyArray(), transcriptRows,
@@ -67,16 +76,87 @@ internal class TerminalSessionStore(context: Context) {
     fun attachWhenReady(id: String) {
         val runtime = service ?: return
         if (sessions[id]?.emulator == null || !attached.add(id)) return
-        if (id !in ready) pendingReplay.add(id)
-        runCatching { runtime.attachSession(id) }.onFailure { disconnected() }
+        val currentGeneration = generation
+        val backend = backends.getValue(id)
+        val stream = object : ITerminalStateListener.Stub() {
+            override fun onCheckpoint(state: ParcelFileDescriptor) {
+                try {
+                    DataInputStream(ParcelFileDescriptor.AutoCloseInputStream(state)).use { input ->
+                        val position = if (input.readBoolean()) TerminalView.ScrollPosition(input.readInt(), input.readFloat(), input.readLong()) else null
+                        val emulator = TerminalCheckpoint.read(input)
+                        if (currentGeneration != generation) return
+                        backend.checkpoint(emulator)
+                        ready.add(id)
+                        main.post {
+                            if (currentGeneration != generation) return@post
+                            if (position != null) {
+                                sessions[id]?.let { scrollPositions[it] = position }
+                                sessions[id]?.let { restoredPositions.add(it) }
+                            }
+                            observer?.invoke(id)
+                        }
+                    }
+                } catch (error: Exception) { onError(error.message ?: "체크포인트 오류") }
+            }
+            override fun onOutput(bytes: ByteArray) {
+                if (currentGeneration == generation && id in ready) backend.mirrorOutput(bytes)
+            }
+            override fun onResize(columns: Int, rows: Int, cellWidth: Int, cellHeight: Int) {
+                if (currentGeneration == generation && id in ready) backend.resized(columns, rows, cellWidth, cellHeight)
+            }
+            override fun onExited(code: Int) {
+                if (currentGeneration == generation && id in ready) backend.exit(code)
+            }
+            override fun onError(message: String) {
+                main.post {
+                    if (currentGeneration == generation && terminalListeners[id] === this) {
+                        ready.remove(id)
+                        attached.remove(id)
+                        terminalListeners.remove(id)
+                        runCatching { service?.detachTerminal(id, this) }
+                        android.widget.Toast.makeText(context, "터미널 화면 복원 실패: $message", android.widget.Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        }
+        terminalListeners[id] = stream
+        runCatching {
+            runtime.attachTerminal(id, stream, backend.rows, backend.columns, backend.cellWidth, backend.cellHeight, paletteJson(id))
+        }.onFailure { disconnected() }
+    }
+
+    fun setPalette(id: String, palette: Properties) {
+        if (palettes[id] == palette) return
+        palettes[id] = palette
+        configure(id)
+    }
+
+    private fun paletteJson(id: String) = JSONObject().apply {
+        palettes[id]?.forEach { key, value -> put(key.toString(), value.toString()) }
+    }.toString()
+
+    private fun configure(id: String) {
+        val backend = backends[id] ?: return
+        if (id !in attached) return
+        call { it.configureTerminal(id, backend.rows, backend.columns, backend.cellWidth, backend.cellHeight, paletteJson(id)) }
+    }
+
+    fun saveViewport(session: TerminalSession, position: TerminalView.ScrollPosition) {
+        val id = sessions.entries.firstOrNull { it.value === session }?.key ?: return
+        if (id !in ready) return
+        call { it.setTerminalViewport(id, position.row, position.offset, position.transcriptScroll) }
+    }
+
+    fun restoreViewport(view: TerminalView) {
+        if (restoredPositions.remove(view.currentSession)) view.restoreSessionScrollPosition()
     }
 
     fun remove(id: String) {
         backends.remove(id)?.close()
-        sessions.remove(id)
+        sessions.remove(id)?.let(restoredPositions::remove)
         attached.remove(id)
-        pendingReplay.remove(id)
-        replaying.remove(id)
+        terminalListeners.remove(id)?.let { stream -> runCatching { service?.detachTerminal(id, stream) } }
+        palettes.remove(id)
         ready.remove(id)
         exitCodes.remove(id)
     }
@@ -89,25 +169,7 @@ internal class TerminalSessionStore(context: Context) {
     private fun createListener(currentGeneration: Long) = object : IRuntimeStateListener.Stub() {
         override fun onTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) {
             if (currentGeneration != generation) return
-            if (replay) {
-                // Empty replay frames bracket a snapshot under the PTY output mutex. Ignore
-                // another listener's attach replay when this mirror already has live state.
-                if (sessionId !in pendingReplay) return
-                if (bytes.isEmpty()) {
-                    if (!replaying.add(sessionId)) {
-                        replaying.remove(sessionId)
-                        pendingReplay.remove(sessionId)
-                        ready.add(sessionId)
-                        main.post {
-                            if (currentGeneration == generation) exitCodes[sessionId]?.let { backends[sessionId]?.exit(it) }
-                        }
-                    }
-                    return
-                }
-                if (sessionId in replaying) backends[sessionId]?.output(bytes, replay = true)
-            } else if (sessionId in ready) {
-                backends[sessionId]?.output(bytes)
-            }
+            // The dedicated checkpoint stream owns this mirror's bytes.
         }
 
         override fun onSessionsChanged(newRevision: Long, sessionsJson: String) {
@@ -126,7 +188,6 @@ internal class TerminalSessionStore(context: Context) {
                         val id = descriptor.getString("id")
                         val code = descriptor.getInt("exitCode")
                         exitCodes[id] = code
-                        if (id in ready) backends[id]?.exit(code)
                     }
                 }
                 releaseUnusedBinding()
@@ -137,7 +198,6 @@ internal class TerminalSessionStore(context: Context) {
             main.post {
                 if (currentGeneration == generation) {
                     exitCodes[sessionId] = exitCode
-                    if (sessionId in ready) backends[sessionId]?.exit(exitCode)
                 }
             }
         }
@@ -157,8 +217,7 @@ internal class TerminalSessionStore(context: Context) {
             revision = -1L
             runCatching {
                 runtime.registerListener(current)
-                sessions.toList().forEach { (id, session) ->
-                    session.emulator?.let { runtime.resizeSession(id, it.mRows, it.mColumns) }
+                sessions.keys.toList().forEach { id ->
                     attachWhenReady(id)
                 }
             }.onFailure { disconnected() }

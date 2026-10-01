@@ -3,7 +3,8 @@ package com.termux.terminal;
 import java.util.ArrayDeque;
 
 /** One screen's negotiated keyboard mode and platform-independent wire encoding. */
-public final class KittyKeyboard {
+public final class KittyKeyboard implements java.io.Serializable {
+    private static final long serialVersionUID = 1L;
     public static final int DISAMBIGUATE = 1, EVENTS = 2, ALTERNATES = 4, ALL_KEYS = 8, TEXT = 16;
     public static final int SHIFT = 1, ALT = 2, CTRL = 4, SUPER = 8, HYPER = 16, META = 32, CAPS = 64, NUM = 128;
     public static final int PRESS = 1, REPEAT = 2, RELEASE = 3;

@@ -1,6 +1,7 @@
 package dev.terminal.runtime.ipc;
 
 import dev.terminal.runtime.ipc.IRuntimeStateListener;
+import dev.terminal.runtime.ipc.ITerminalStateListener;
 
 interface IRuntimeService {
     String getState();
@@ -17,6 +18,10 @@ interface IRuntimeService {
     void createSessionFromSpec(String launchSpecJson, int rows, int cols);
     void createSession(String runtimeType, String shell, String cwd, int rows, int cols);
     void attachSession(String sessionId);
+    void attachTerminal(String sessionId, ITerminalStateListener listener, int rows, int cols, int cellWidth, int cellHeight, String paletteJson);
+    void detachTerminal(String sessionId, ITerminalStateListener listener);
+    void configureTerminal(String sessionId, int rows, int cols, int cellWidth, int cellHeight, String paletteJson);
+    void setTerminalViewport(String sessionId, int row, float offset, long transcriptShift);
     void detachSession(String sessionId);
     void writeSessionInput(String sessionId, in byte[] bytes);
     void resizeSession(String sessionId, int rows, int cols);

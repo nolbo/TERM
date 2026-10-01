@@ -202,5 +202,8 @@ relative placements and cropping without additional permissions. Native and
 Rootless PTY owners resolve local files before recording output; Rootless also
 binds a distribution-private `/dev/shm` for shared-memory transfers. AVF resolves
 files/shared memory inside the guest daemon. Native POSIX shared memory remains
-unsupported. Native/Rootless replay retains up to 8 MiB at safe sequence
-boundaries. See [TERMINAL_GRAPHICS.md](TERMINAL_GRAPHICS.md) for paths and limits.
+unsupported. Native/Rootless legacy replay retains up to 8 MiB at safe sequence
+boundaries. UI restoration uses complete runtime-owned terminal checkpoints,
+including retained history and graphics, independently of this raw replay limit.
+The updated AVF daemon drains every running PTY while its host is connected.
+See [TERMINAL_GRAPHICS.md](TERMINAL_GRAPHICS.md) for paths and limits.

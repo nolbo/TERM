@@ -229,3 +229,17 @@ password transport, arbitrary Android service or capability broker bypass is
 exposed. JSON size/depth, queued work, input, titles and argv are bounded; replay
 never executes commands. The grant covers all programs in the permitted PTY and
 can explicitly terminate matching sessions. See [KITTY_PROTOCOL.md](KITTY_PROTOCOL.md).
+
+## Host terminal checkpoints
+
+Terminal checkpoints are created and read only between components of the same
+app build. The runtime service is not exported; no guest capability, wire frame
+or file path accepts a serialized checkpoint. Transfers expose only the read end
+of an anonymous reliable pipe; no data file
+or guest-accessible checkpoint path is created. The reader
+uses an explicit class allowlist and refuses proxies. Output callbacks, Android
+clients, processes and filesystem handles are transient and never serialized.
+Existing text/history and graphics quotas still bound retained state; raw PTY
+output is never retained without limit to achieve restoration. The debug-only
+process-death probe requires the platform DUMP permission and is absent from
+release APKs.

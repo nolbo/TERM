@@ -88,18 +88,9 @@ object TerminalAppearance {
     fun backgroundColor(preferences: SharedPreferences): Int =
         Color.parseColor(paletteColors(preferences).background)
 
-    fun paletteColors(preferences: SharedPreferences): PaletteColors {
-        val base = presetPalette(preferences.getString(KEY_PALETTE, "DROID_DARK"))
-        if (preferences.getString(KEY_PALETTE, "DROID_DARK") != CUSTOM_PALETTE) return base
-        return PaletteColors(
-            preferences.getString(KEY_CUSTOM_FOREGROUND, base.foreground).orEmpty().takeIf(::isHexColor) ?: base.foreground,
-            preferences.getString(KEY_CUSTOM_BACKGROUND, base.background).orEmpty().takeIf(::isHexColor) ?: base.background,
-            preferences.getString(KEY_CUSTOM_CURSOR, base.cursor).orEmpty().takeIf(::isHexColor) ?: base.cursor,
-            base.ansi.mapIndexed { index, color ->
-                preferences.getString("$KEY_CUSTOM_ANSI_PREFIX$index", color).orEmpty().takeIf(::isHexColor) ?: color
-            },
-        )
-    }
+    fun paletteColors(preferences: SharedPreferences): PaletteColors = fromPaletteList(
+        dev.terminal.runtime.session.TerminalPalette.resolve({ key, fallback -> preferences.getString(key, fallback).orEmpty() }),
+    )
 
     fun saveCustomPalette(preferences: SharedPreferences, colors: PaletteColors) {
         require(isHexColor(colors.foreground) && isHexColor(colors.background) && isHexColor(colors.cursor) && colors.ansi.all(::isHexColor))
@@ -115,17 +106,7 @@ object TerminalAppearance {
 
     fun isHexColor(value: String): Boolean = value.matches(Regex("#[0-9a-fA-F]{6}"))
 
-    private fun presetPalette(value: String?): PaletteColors = when (value) {
-        "SOLARIZED_DARK" -> PaletteColors("#839496", "#002B36", "#93A1A1", DEFAULT_ANSI_COLORS)
-        "AMOLED" -> PaletteColors("#E6E6E6", "#000000", "#FFFFFF", DEFAULT_ANSI_COLORS)
-        else -> PaletteColors("#F1F3F5", "#000000", "#FFFFFF", DEFAULT_ANSI_COLORS)
-    }
-
     private const val ANSI_COLOR_COUNT = 16
-    private val DEFAULT_ANSI_COLORS = listOf(
-        "#000000", "#CD0000", "#00CD00", "#CDCD00", "#6495ED", "#CD00CD", "#00CDCD", "#E5E5E5",
-        "#7F7F7F", "#FF0000", "#00FF00", "#FFFF00", "#5C5CFF", "#FF00FF", "#00FFFF", "#FFFFFF",
-    )
 
     /**
      * Use custom fonts in list order according to their actual cmap coverage. The first usable

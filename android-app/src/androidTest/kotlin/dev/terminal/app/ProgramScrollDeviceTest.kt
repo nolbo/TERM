@@ -14,6 +14,29 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class ProgramScrollDeviceTest {
+    @Test fun authoritativeExitedScreenKeepsItsResizeSubscriptionUntilDetach() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val backend = RemoteTerminalBackend(write = {}, resize = { _, _ -> }, authoritative = true)
+        lateinit var session: TerminalSession
+        try {
+            instrumentation.runOnMainSync {
+                session = TerminalSession("", "/", emptyArray(), emptyArray(), 1000, TerminalCallbacks {}, backend)
+                session.initializeEmulator(80, 24, 10, 20)
+                backend.exit(7)
+            }
+            instrumentation.waitForIdleSync()
+            assertFalse(backend.isRunning())
+            assertTrue(session.emulator.screen.transcriptText.contains("Process completed (code 7)"))
+            instrumentation.runOnMainSync { backend.resized(80, 30, 10, 20) }
+            instrumentation.waitForIdleSync()
+            assertEquals(30, session.emulator.mRows)
+            backend.close()
+            instrumentation.runOnMainSync { backend.resized(80, 32, 10, 20) }
+            instrumentation.waitForIdleSync()
+            assertEquals(30, session.emulator.mRows)
+        } finally { backend.close() }
+    }
+
     @Test fun wheelAndTouchRoutesRespectProgramModesAndFractionalWheelInput() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val writes = ByteArrayOutputStream()

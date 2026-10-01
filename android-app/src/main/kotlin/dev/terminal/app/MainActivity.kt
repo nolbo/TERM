@@ -316,7 +316,10 @@ class MainActivity : TerminalActivity() {
             val session = terminalSessions[id]
             if (session != null) {
                 updateApplicationTerminalTitle(id, session.title)
-                terminalView?.takeIf { it.currentSession === session }?.onScreenUpdated()
+                terminalView?.takeIf { it.currentSession === session }?.let { view ->
+                    terminalStore.restoreViewport(view)
+                    view.onScreenUpdated()
+                }
             } else if (id == activeSessionId) {
                 displayedSessionId = null
                 runtimeAttachment.reset()
@@ -396,7 +399,9 @@ class MainActivity : TerminalActivity() {
             TerminalAppearance.apply(preferences, it, sessionFontSize(), applyPalette = false)
             updateTerminalPalette(it)
             terminalSessions.filterKeys { id -> id != activeSessionId }.forEach { (id, session) ->
-                session.emulator?.mColors?.setDefaultColors(sessionPalette(id).asProperties())
+                val palette = sessionPalette(id).asProperties()
+                session.emulator?.mColors?.setDefaultColors(palette)
+                terminalStore.setPalette(id, palette)
             }
             applyScrollSettings(it, preferences)
             it.refresh()
@@ -745,7 +750,7 @@ class MainActivity : TerminalActivity() {
         activeSessionId = id
         getSharedPreferences("terminal-ui-state", MODE_PRIVATE).edit().putString("active-session", id).apply()
         val session = terminalStore.getOrCreate(id, terminalPreferences().getInt(SettingsDetailActivity.KEY_SCROLLBACK, 10_000),
-            replayExpected = sessions.first { it.id == id }.runtime != "AVF")
+            palette = sessionPalette(id).asProperties())
         updateApplicationTerminalTitle(id, session.title)
         displayedSessionId = id
         terminalView?.let(::attachRenderer)
@@ -771,6 +776,7 @@ class MainActivity : TerminalActivity() {
 
     private fun attachRenderer(view: TerminalView) {
         view.setSessionScrollPositions(terminalStore.scrollPositions)
+        view.setScrollPositionListener { session, position -> terminalStore.saveViewport(session, position) }
         val id = activeSessionId ?: return
         val session = terminalSessions[id] ?: return
         if (view.currentSession === session) {
@@ -796,7 +802,9 @@ class MainActivity : TerminalActivity() {
         val session = terminalSessions[id] ?: return
         if (view.currentSession !== session) return
         val colors = session.emulator?.mColors ?: return
-        val changed = colors.setDefaultColors(sessionPalette(id).asProperties())
+        val palette = sessionPalette(id).asProperties()
+        val changed = colors.setDefaultColors(palette)
+        terminalStore.setPalette(id, palette)
         if (paletteSessionId != id || paletteView !== view || changed) {
             val animate = paletteView === view && paletteSessionId != null
             paletteSessionId = id

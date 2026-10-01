@@ -26,7 +26,8 @@ import java.util.Stack;
  * html - document for konsole - accessible!</li>
  * </ul>
  */
-public final class TerminalEmulator {
+public final class TerminalEmulator implements java.io.Serializable {
+    private static final long serialVersionUID = 1L;
 
     /** Log unknown or unimplemented escape sequences received from the shell process. */
     private static final boolean LOG_ESCAPE_SEQUENCES = false;
@@ -136,7 +137,7 @@ public final class TerminalEmulator {
 
 
     private String mTitle;
-    private final Stack<String> mTitleStack = new Stack<>();
+    private Stack<String> mTitleStack = new Stack<>();
 
     /** The cursor position. Between (0,0) and (mRows-1, mColumns-1). */
     private int mCursorRow, mCursorCol;
@@ -166,21 +167,21 @@ public final class TerminalEmulator {
 
 
     /** The normal screen buffer. Stores the characters that appear on the screen of the emulated terminal. */
-    private final TerminalBuffer mMainBuffer;
+    private TerminalBuffer mMainBuffer;
     /**
      * The alternate screen buffer, exactly as large as the display and contains no additional saved lines (so that when
      * the alternate screen buffer is active, you cannot scroll back to view saved lines).
      * <p>
      * See http://www.xfree86.org/current/ctlseqs.html#The%20Alternate%20Screen%20Buffer
      */
-    final TerminalBuffer mAltBuffer;
+    TerminalBuffer mAltBuffer;
     /** The current screen buffer, pointing at either {@link #mMainBuffer} or {@link #mAltBuffer}. */
     private TerminalBuffer mScreen;
-    private final TerminalGraphics mMainGraphics = new TerminalGraphics();
-    private final TerminalGraphics mAltGraphics = new TerminalGraphics();
-    private final KittyKeyboard mMainKeyboard = new KittyKeyboard(), mAltKeyboard = new KittyKeyboard();
+    private TerminalGraphics mMainGraphics = new TerminalGraphics();
+    private TerminalGraphics mAltGraphics = new TerminalGraphics();
+    private KittyKeyboard mMainKeyboard = new KittyKeyboard(), mAltKeyboard = new KittyKeyboard();
     public KittyKeyboard getKeyboard() { return isAlternateBufferActive() ? mAltKeyboard : mMainKeyboard; }
-    private final StringBuilder mGraphicsString = new StringBuilder();
+    private StringBuilder mGraphicsString = new StringBuilder();
     private boolean mGraphicsStringEscape, mGraphicsStringOverflow, mSixelDisplayMode;
 
     public TerminalGraphics getGraphics() {
@@ -190,22 +191,23 @@ public final class TerminalEmulator {
     }
 
     /** The terminal session this emulator is bound to. */
-    private final TerminalOutput mSession;
-    private boolean mReplaying;
-    private final SynchronizedOutput mSynchronizedOutput = new SynchronizedOutput();
+    private transient TerminalOutput mSession;
+    private transient boolean mReplaying;
+    private transient boolean mMirroring;
+    private SynchronizedOutput mSynchronizedOutput = new SynchronizedOutput();
     public long getSynchronizedOutputDelayMillis() { return mSynchronizedOutput.remainingMillis(); }
 
-    TerminalSessionClient mClient;
+    transient TerminalSessionClient mClient;
 
     /** Keeps track of the current argument of the current escape sequence. Ranges from 0 to MAX_ESCAPE_PARAMETERS-1. */
     private int mArgIndex;
     /** Holds the arguments of the current escape sequence. */
-    private final int[] mArgs = new int[MAX_ESCAPE_PARAMETERS];
+    private int[] mArgs = new int[MAX_ESCAPE_PARAMETERS];
     /** Holds the bit flags which arguments are sub parameters (after a colon) - bit N is set if <code>mArgs[N]</code> is a sub parameter. */
     private int mArgsSubParamsBitSet = 0;
 
     /** Holds OSC and device control arguments, which can be strings. */
-    private final StringBuilder mOSCOrDeviceControlArgs = new StringBuilder();
+    private StringBuilder mOSCOrDeviceControlArgs = new StringBuilder();
 
     /**
      * True if the current escape sequence should continue, false if the current escape sequence should be terminated.
@@ -216,8 +218,8 @@ public final class TerminalEmulator {
     /** The current state of the escape sequence state machine. One of the ESC_* constants. */
     private int mEscapeState;
 
-    private final SavedScreenState mSavedStateMain = new SavedScreenState();
-    private final SavedScreenState mSavedStateAlt = new SavedScreenState();
+    private SavedScreenState mSavedStateMain = new SavedScreenState();
+    private SavedScreenState mSavedStateAlt = new SavedScreenState();
 
     /** http://www.vt100.net/docs/vt102-ug/table5-15.html */
     private boolean mUseLineDrawingG0, mUseLineDrawingG1, mUseLineDrawingUsesG0 = true;
@@ -289,10 +291,10 @@ public final class TerminalEmulator {
     public long getTranscriptRowShiftCounter() { return mTranscriptRowShiftCounter; }
 
     private byte mUtf8ToFollow, mUtf8Index;
-    private final byte[] mUtf8InputBuffer = new byte[4];
+    private byte[] mUtf8InputBuffer = new byte[4];
     private int mLastEmittedCodePoint = -1;
 
-    public final TerminalColors mColors = new TerminalColors();
+    public TerminalColors mColors = new TerminalColors();
 
     private static final String LOG_TAG = "TerminalEmulator";
 
@@ -354,7 +356,7 @@ public final class TerminalEmulator {
         mSession = new TerminalOutput() {
             @Override
             public void write(byte[] data, int offset, int count) {
-                if (!mReplaying) session.write(data, offset, count);
+                if (!mReplaying && !mMirroring) session.write(data, offset, count);
             }
 
             @Override
@@ -392,6 +394,68 @@ public final class TerminalEmulator {
         mTabStop = new boolean[mColumns];
         reset();
     }
+
+    /** Install a complete state while retaining this mirror's output/client bindings. */
+    public void restoreState(TerminalEmulator state) {
+        mTitle = state.mTitle;
+        mTitleStack = state.mTitleStack;
+        mCursorRow = state.mCursorRow;
+        mCursorCol = state.mCursorCol;
+        mRows = state.mRows;
+        mColumns = state.mColumns;
+        mCellWidthPixels = state.mCellWidthPixels;
+        mCellHeightPixels = state.mCellHeightPixels;
+        mCursorStyle = state.mCursorStyle;
+        mMainBuffer = state.mMainBuffer;
+        mAltBuffer = state.mAltBuffer;
+        mScreen = state.mScreen;
+        mMainGraphics = state.mMainGraphics;
+        mAltGraphics = state.mAltGraphics;
+        mMainKeyboard = state.mMainKeyboard;
+        mAltKeyboard = state.mAltKeyboard;
+        mGraphicsString = state.mGraphicsString;
+        mGraphicsStringEscape = state.mGraphicsStringEscape;
+        mGraphicsStringOverflow = state.mGraphicsStringOverflow;
+        mSixelDisplayMode = state.mSixelDisplayMode;
+        mSynchronizedOutput = state.mSynchronizedOutput;
+        mArgIndex = state.mArgIndex;
+        mArgs = state.mArgs;
+        mArgsSubParamsBitSet = state.mArgsSubParamsBitSet;
+        mOSCOrDeviceControlArgs = state.mOSCOrDeviceControlArgs;
+        mContinueSequence = state.mContinueSequence;
+        mEscapeState = state.mEscapeState;
+        mSavedStateMain = state.mSavedStateMain;
+        mSavedStateAlt = state.mSavedStateAlt;
+        mUseLineDrawingG0 = state.mUseLineDrawingG0;
+        mUseLineDrawingG1 = state.mUseLineDrawingG1;
+        mUseLineDrawingUsesG0 = state.mUseLineDrawingUsesG0;
+        mCurrentDecSetFlags = state.mCurrentDecSetFlags;
+        mSavedDecSetFlags = state.mSavedDecSetFlags;
+        mInsertMode = state.mInsertMode;
+        mTabStop = state.mTabStop;
+        mTopMargin = state.mTopMargin;
+        mBottomMargin = state.mBottomMargin;
+        mLeftMargin = state.mLeftMargin;
+        mRightMargin = state.mRightMargin;
+        mAboutToAutoWrap = state.mAboutToAutoWrap;
+        mCursorBlinkingEnabled = state.mCursorBlinkingEnabled;
+        mCursorBlinkState = state.mCursorBlinkState;
+        mForeColor = state.mForeColor;
+        mBackColor = state.mBackColor;
+        mUnderlineColor = state.mUnderlineColor;
+        mEffect = state.mEffect;
+        mScrollCounter = state.mScrollCounter;
+        mTranscriptScrollCounter = state.mTranscriptScrollCounter;
+        mTranscriptRowShiftCounter = state.mTranscriptRowShiftCounter;
+        mUtf8ToFollow = state.mUtf8ToFollow;
+        mUtf8Index = state.mUtf8Index;
+        mUtf8InputBuffer = state.mUtf8InputBuffer;
+        mLastEmittedCodePoint = state.mLastEmittedCodePoint;
+        mColors = state.mColors;
+    }
+
+    public int getCellWidthPixels() { return mCellWidthPixels; }
+    public int getCellHeightPixels() { return mCellHeightPixels; }
 
     public void updateTerminalSessionClient(TerminalSessionClient client) {
         mClient = client;
@@ -577,6 +641,12 @@ public final class TerminalEmulator {
     public void append(byte[] buffer, int length) {
         for (int i = 0; i < length; i++)
             processByte(buffer[i]);
+    }
+
+    /** Parse a service-owned live stream. Queries are answered once by its authoritative emulator. */
+    public void appendMirror(byte[] buffer, int length) {
+        mMirroring = true;
+        try { append(buffer, length); } finally { mMirroring = false; }
     }
 
     /** Restore a transcript's screen state, without answering historical queries to the live PTY. */
@@ -2779,7 +2849,8 @@ public final class TerminalEmulator {
     }
 
     /** http://www.vt100.net/docs/vt510-rm/DECSC */
-    static final class SavedScreenState {
+    static final class SavedScreenState implements java.io.Serializable {
+        private static final long serialVersionUID = 1L;
         /** Saved state of the cursor position, Used to implement the save/restore cursor position escape sequences. */
         int mSavedCursorRow, mSavedCursorCol;
         int mSavedEffect, mSavedForeColor, mSavedBackColor, mSavedUnderlineColor;

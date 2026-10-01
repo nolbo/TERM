@@ -95,8 +95,10 @@ class TerminalTuiLifecycleTest {
     @Test fun activityCanRegisterWhileContinuousOutputUsesTheBoundedReader() = withSession { service, id ->
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             val terminal = select(scenario, id)
-            service.writeSessionInput(id, ("i=0; while [ \$i -lt 12000 ]; do printf 'burst-%s abcdefghijklmnopqrstuvwxyz\\n' \"\$i\"; " +
-                "i=\$((i+1)); done; printf '\\nBURST_COMPLETE\\n'\n").toByteArray())
+            // mksh's builtin avoids spawning 12,000 Android printf processes. This
+            // keeps the test focused on output backpressure and Activity registration.
+            service.writeSessionInput(id, ("i=0; while [ \$i -lt 12000 ]; do print -r -- \"burst-\$i abcdefghijklmnopqrstuvwxyz\"; " +
+                "i=\$((i+1)); done; print; print -r -- BURST_COMPLETE\n").toByteArray())
             scenario.recreate()
             assertSame(terminal, select(scenario, id))
             await("output and Activity registration must both complete") { "BURST_COMPLETE" in screen(terminal).lines() }

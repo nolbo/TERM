@@ -18,7 +18,8 @@ import java.util.zip.DataFormatException;
 import java.util.zip.Inflater;
 
 /** Per-screen kitty/SIXEL state. No process, path, descriptor or Android lifecycle ownership. */
-public final class TerminalGraphics {
+public final class TerminalGraphics implements java.io.Serializable {
+    private static final long serialVersionUID = 1L;
     public static final int MAX_TRANSFER_BYTES = 6 * 1024 * 1024;
     private static final int MAX_STORED_PIXELS = 8 * TerminalImage.MAX_PIXELS;
     private static final int MAX_IMAGES = 64, MAX_PLACEMENTS = 128, MAX_PARENT_DEPTH = 32;
@@ -28,13 +29,14 @@ public final class TerminalGraphics {
     private final Map<Long, Long> imageNumbers = new HashMap<>();
     private final List<Placement> placements = new ArrayList<>();
     private Map<String, String> pending;
-    private ByteArrayOutputStream transfer;
+    private transient ByteArrayOutputStream transfer;
     private long nextAnonymousId = -1, nextImageId = 1;
     private int screenRows = 24, screenColumns = 80;
     private TerminalBuffer textScreen;
     private long animationDelay = -1;
 
-    public static final class Placement {
+    public static final class Placement implements java.io.Serializable {
+        private static final long serialVersionUID = 1L;
         public TerminalImage image;
         public final long imageId, placementId;
         public final int columns, rows, z;
@@ -72,6 +74,21 @@ public final class TerminalGraphics {
         boolean intersects(float x1, float y1, float x2, float y2) {
             return positioned && column + clipLeft < x2 && column + clipRight > x1 &&
                 row + clipTop < y2 && row + clipBottom > y1;
+        }
+    }
+
+    private void writeObject(java.io.ObjectOutputStream out) throws java.io.IOException {
+        out.defaultWriteObject();
+        byte[] bytes = transfer == null ? null : transfer.toByteArray();
+        out.writeObject(bytes);
+    }
+    private void readObject(java.io.ObjectInputStream in) throws java.io.IOException, ClassNotFoundException {
+        in.defaultReadObject();
+        byte[] bytes = (byte[]) in.readObject();
+        if (bytes != null) {
+            if (bytes.length > MAX_TRANSFER_BYTES) throw new java.io.InvalidObjectException("Oversized graphics transfer");
+            transfer = new ByteArrayOutputStream(bytes.length);
+            transfer.write(bytes);
         }
     }
 
@@ -164,6 +181,8 @@ public final class TerminalGraphics {
     }
 
     Result kitty(String command, int col, int row, int cellWidth, int cellHeight, long now) {
+        // Protocol state must advance even when no renderer has drawn the animation.
+        refreshFrames(now);
         Result result = new Result();
         Map<String, String> keys = new LinkedHashMap<>();
         try {

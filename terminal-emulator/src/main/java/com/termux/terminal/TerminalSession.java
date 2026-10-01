@@ -33,6 +33,7 @@ public final class TerminalSession extends TerminalOutput {
     private static final int MSG_NEW_INPUT = 1;
     private static final int MSG_PROCESS_EXITED = 4;
     private static final int MSG_BACKEND_INPUT = 5;
+    private static final int MSG_CHECKPOINT = 6, MSG_REMOTE_RESIZE = 7;
     private static final int PROCESS_IO_BUFFER_SIZE = 4096;
 
     public final String mHandle = UUID.randomUUID().toString();
@@ -123,7 +124,8 @@ public final class TerminalSession extends TerminalOutput {
             } else {
                 JNI.setPtyWindowSize(mTerminalFileDescriptor, rows, columns, cellWidthPixels, cellHeightPixels);
             }
-            mEmulator.resize(columns, rows, cellWidthPixels, cellHeightPixels);
+            if (mBackend == null || !mBackend.ownsTerminalState())
+                mEmulator.resize(columns, rows, cellWidthPixels, cellHeightPixels);
         }
     }
 
@@ -144,6 +146,15 @@ public final class TerminalSession extends TerminalOutput {
         if (mBackend != null) {
             mBackendStarted = true;
             mBackend.start(columns, rows, cellWidthPixels, cellHeightPixels, new TerminalSessionBackend.Callback() {
+                @Override public void onCheckpoint(TerminalEmulator state) {
+                    mMainThreadHandler.obtainMessage(MSG_CHECKPOINT, state).sendToTarget();
+                }
+                @Override public void onResize(int columns, int rows, int cellWidth, int cellHeight) {
+                    mMainThreadHandler.obtainMessage(MSG_REMOTE_RESIZE, new int[]{columns, rows, cellWidth, cellHeight}).sendToTarget();
+                }
+                @Override public void onMirrorOutput(byte[] data, int offset, int count) {
+                    enqueueBackendOutput(data, offset, count, 2);
+                }
                 @Override
                 public void onReplayOutput(byte[] data, int offset, int count) {
                     enqueueBackendOutput(data, offset, count, true);
@@ -213,11 +224,15 @@ public final class TerminalSession extends TerminalOutput {
 
     /** One bounded byte stream for live and replay data; each message consumes only its own bytes. */
     private void enqueueBackendOutput(byte[] data, int offset, int count, boolean replay) {
+        enqueueBackendOutput(data, offset, count, replay ? 1 : 0);
+    }
+
+    private void enqueueBackendOutput(byte[] data, int offset, int count, int kind) {
         synchronized (mBackendOutputLock) {
             while (count > 0) {
                 int chunk = Math.min(count, PROCESS_IO_BUFFER_SIZE);
                 if (!mProcessToTerminalIOQueue.write(data, offset, chunk)) return;
-                mMainThreadHandler.sendMessage(mMainThreadHandler.obtainMessage(MSG_BACKEND_INPUT, chunk, replay ? 1 : 0));
+                mMainThreadHandler.sendMessage(mMainThreadHandler.obtainMessage(MSG_BACKEND_INPUT, chunk, kind));
                 offset += chunk;
                 count -= chunk;
             }
@@ -312,7 +327,9 @@ public final class TerminalSession extends TerminalOutput {
         mTerminalToProcessIOQueue.close();
         mProcessToTerminalIOQueue.close();
         if (mBackend != null) {
-            mBackend.close();
+            // An authoritative stream still owns the retained screen and its resize
+            // events after the child exits. Its UI store owns explicit detachment.
+            if (!mBackend.ownsTerminalState()) mBackend.close();
         } else {
             JNI.close(mTerminalFileDescriptor);
         }
@@ -404,10 +421,22 @@ public final class TerminalSession extends TerminalOutput {
 
         @Override
         public void handleMessage(Message msg) {
+            if (msg.what == MSG_CHECKPOINT) {
+                mEmulator.restoreState((TerminalEmulator) msg.obj);
+                notifyScreenUpdate();
+                return;
+            }
+            if (msg.what == MSG_REMOTE_RESIZE) {
+                int[] size = (int[]) msg.obj;
+                mEmulator.resize(size[0], size[1], size[2], size[3]);
+                notifyScreenUpdate();
+                return;
+            }
             if (msg.what == MSG_BACKEND_INPUT) {
                 byte[] frame = new byte[msg.arg1];
                 int count = mProcessToTerminalIOQueue.read(frame, false);
                 if (msg.arg2 == 1) mEmulator.appendReplay(frame, count);
+                else if (msg.arg2 == 2) mEmulator.appendMirror(frame, count);
                 else mEmulator.append(frame, count);
                 notifyScreenUpdate();
                 return;

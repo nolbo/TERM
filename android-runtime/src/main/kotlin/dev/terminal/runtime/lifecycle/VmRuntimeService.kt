@@ -78,6 +78,18 @@ class VmRuntimeService : Service() {
     private val startedStorageBackends = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<SessionRuntime, String>>()
     private val sessionClientMutex = Mutex()
     private val preparationLocks = StoragePreparationLocks()
+    private val terminalSinks = java.util.concurrent.ConcurrentHashMap<Pair<String, android.os.IBinder>, dev.terminal.runtime.session.RuntimeTerminalState.Sink>()
+    private val terminalDeaths = java.util.concurrent.ConcurrentHashMap<Pair<String, android.os.IBinder>, android.os.IBinder.DeathRecipient>()
+    private val terminalOperations = kotlinx.coroutines.channels.Channel<suspend () -> Unit>(512)
+    init {
+        scope.launch {
+            for (operation in terminalOperations) runCatching { operation() }
+                .onFailure { notifyOperationError("터미널 화면 복원", it.userMessage()) }
+        }
+    }
+    private fun terminalOperation(operation: suspend () -> Unit) {
+        check(terminalOperations.trySend(operation).isSuccess) { "Terminal state queue is full or closed" }
+    }
     private val sessionResizeMutex = Mutex()
     private val latestResizeRequests = LatestSessionResizeRequests()
     private var sessionClient: SessionController? = null
@@ -301,6 +313,93 @@ class VmRuntimeService : Service() {
             }
         }
 
+        override fun attachTerminal(sessionId: String, listener: dev.terminal.runtime.ipc.ITerminalStateListener,
+            rows: Int, cols: Int, cellWidth: Int, cellHeight: Int, paletteJson: String) = terminalOperation {
+            val key = sessionId to listener.asBinder()
+            try {
+                val registry = ensureSessionRegistry() ?: error("세션 런타임에 연결할 수 없습니다")
+                val sink = object : dev.terminal.runtime.session.RuntimeTerminalState.Sink {
+                    override fun checkpoint(emulator: com.termux.terminal.TerminalEmulator,
+                        viewport: dev.terminal.runtime.session.RuntimeTerminalState.Viewport?) {
+                        val pipe = android.os.ParcelFileDescriptor.createReliablePipe()
+                        val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+                        // The caller holds the terminal-state mutex until this writer completes.
+                        // Binder receives the read end before any potentially pipe-sized write.
+                        val writer = Thread({
+                            try {
+                                java.io.DataOutputStream(java.io.BufferedOutputStream(
+                                    android.os.ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]))).use { out ->
+                                    out.writeBoolean(viewport != null)
+                                    if (viewport != null) {
+                                        out.writeInt(viewport.row); out.writeFloat(viewport.offset); out.writeLong(viewport.transcriptShift)
+                                    }
+                                    com.termux.terminal.TerminalCheckpoint.write(emulator, out)
+                                }
+                            } catch (error: Throwable) {
+                                failure.set(error)
+                                runCatching { pipe[1].closeWithError("Terminal checkpoint failed") }
+                            }
+                        }, "TerminalCheckpointWriter")
+                        writer.start()
+                        try { listener.onCheckpoint(pipe[0]) }
+                        finally {
+                            // Closing the local read end also unblocks the writer after UI death.
+                            pipe[0].close()
+                            writer.join()
+                        }
+                        failure.get()?.let { throw java.io.IOException("Terminal checkpoint failed", it) }
+                    }
+
+                    override fun output(bytes: ByteArray) = listener.onOutput(bytes)
+                    override fun resized(columns: Int, rows: Int, cellWidth: Int, cellHeight: Int) = listener.onResize(columns, rows, cellWidth, cellHeight)
+                    override fun exited(code: Int) = listener.onExited(code)
+                }
+                terminalSinks.put(key, sink)?.let { old ->
+                    registry.terminalStates.mutex.withLock { registry.terminalStates.unsubscribe(sessionId, old) }
+                }
+                val death = android.os.IBinder.DeathRecipient {
+                    if (terminalSinks.remove(key, sink)) {
+                        terminalDeaths.remove(key)
+                        scope.launch { registry.terminalStates.mutex.withLock { registry.terminalStates.unsubscribe(sessionId, sink) } }
+                    }
+                }
+                terminalDeaths.put(key, death)?.let { listener.asBinder().unlinkToDeath(it, 0) }
+                listener.asBinder().linkToDeath(death, 0)
+                registry.configureTerminal(sessionId, rows, cols, cellWidth, cellHeight, terminalPalette(paletteJson), sink)
+            } catch (error: Exception) {
+                terminalDeaths.remove(key)?.let { runCatching { key.second.unlinkToDeath(it, 0) } }
+                terminalSinks.remove(key)?.let { sink ->
+                    (sessionClient as? UnifiedSessionRegistry)?.let { registry ->
+                        registry.terminalStates.mutex.withLock { registry.terminalStates.unsubscribe(sessionId, sink) }
+                    }
+                }
+                runCatching { listener.onError(error.userMessage()) }
+            }
+        }
+
+        override fun detachTerminal(sessionId: String, listener: dev.terminal.runtime.ipc.ITerminalStateListener) = terminalOperation {
+            val registry = sessionClient as? UnifiedSessionRegistry ?: return@terminalOperation
+            val key = sessionId to listener.asBinder()
+            terminalDeaths.remove(key)?.let { key.second.unlinkToDeath(it, 0) }
+            terminalSinks.remove(key)?.let { sink ->
+                registry.terminalStates.mutex.withLock { registry.terminalStates.unsubscribe(sessionId, sink) }
+            }
+        }
+
+        override fun configureTerminal(sessionId: String, rows: Int, cols: Int, cellWidth: Int, cellHeight: Int,
+            paletteJson: String) = terminalOperation {
+            val registry = sessionClient as? UnifiedSessionRegistry ?: error("세션 런타임에 연결되어 있지 않습니다")
+            registry.configureTerminal(sessionId, rows, cols, cellWidth, cellHeight, terminalPalette(paletteJson))
+        }
+
+        override fun setTerminalViewport(sessionId: String, row: Int, offset: Float, transcriptShift: Long) = terminalOperation {
+            require(row in -50_000..0 && offset.isFinite() && offset in 0f..1f)
+            val registry = sessionClient as? UnifiedSessionRegistry ?: return@terminalOperation
+            registry.terminalStates.mutex.withLock {
+                registry.terminalStates.viewport(sessionId, dev.terminal.runtime.session.RuntimeTerminalState.Viewport(row, offset, transcriptShift))
+            }
+        }
+
         override fun attachSession(sessionId: String) = launchRuntimeOperation {
             focusedSession = sessionId
             val client = ensureSessionClient()
@@ -363,6 +462,10 @@ class VmRuntimeService : Service() {
                     kittyIdentities.remove(sessionId)
                     kittyTitles.remove(sessionId)
                     latestResizeRequests.forget(sessionId)
+                    terminalSinks.keys.filter { it.first == sessionId }.forEach { key ->
+                        terminalSinks.remove(key)
+                        terminalDeaths.remove(key)?.let { runCatching { key.second.unlinkToDeath(it, 0) } }
+                    }
                     val snapshot = result.snapshot?.getOrNull()
                     Log.i(TAG, "session.terminate success id=$sessionId runtime=$runtime revision=${snapshot?.revision} count=${snapshot?.sessions?.size}")
                 }
@@ -555,6 +658,7 @@ class VmRuntimeService : Service() {
     }
 
     override fun onDestroy() {
+        terminalOperations.close()
         usbBroker.close()
         stopForeground(STOP_FOREGROUND_REMOVE)
         listeners.kill()
@@ -652,7 +756,14 @@ class VmRuntimeService : Service() {
                 check(!dev.terminal.runtime.rootless.RootlessNativeMigration.pending(java.io.File(filesDir, "rootless").toPath())) {
                     "중단된 가속 형식 이전이 있습니다. 설정에서 이전을 다시 실행해 복구하세요"
                 }
-            }, remoteCommand = { source, command -> kittyRemote.execute(source, command) })
+            }, remoteCommand = { source, command -> kittyRemote.execute(source, command) },
+                terminalStates = dev.terminal.runtime.session.RuntimeTerminalState(
+                    getSharedPreferences("terminal-ui", MODE_PRIVATE).getInt("scrollback-rows", 10_000)),
+                initialPalette = { spec ->
+                    val preferences = getSharedPreferences("terminal-ui", MODE_PRIVATE)
+                    dev.terminal.runtime.session.TerminalPalette.asProperties(
+                        dev.terminal.runtime.session.TerminalPalette.resolve({ key, fallback -> preferences.getString(key, fallback).orEmpty() }, spec.palette))
+                })
             registry.register(
                 if (selectedBackend is NativeBackend) SessionRuntime.NATIVE else SessionRuntime.AVF,
                 primaryController,
@@ -889,7 +1000,24 @@ class VmRuntimeService : Service() {
         }
     }
 
+    private fun terminalPalette(json: String): java.util.Properties {
+        require(json.length <= 16_384) { "Palette exceeds limit" }
+        val value = JSONObject(json)
+        require(value.length() <= 259)
+        return java.util.Properties().apply {
+            value.keys().forEach { key ->
+                require(key.length <= 32)
+                val color = value.getString(key)
+                require(color.length <= 32)
+                setProperty(key, color)
+            }
+        }
+    }
+
     private fun closeSessionClient() {
+        terminalDeaths.forEach { (key, death) -> runCatching { key.second.unlinkToDeath(death, 0) } }
+        terminalDeaths.clear()
+        terminalSinks.clear()
         kittyGrants.clear()
         kittyIdentities.clear()
         kittyTitles.clear()

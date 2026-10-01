@@ -202,6 +202,15 @@ public class KittyProtocolTest extends TerminalTestCase {
         a.delete(1, 301); assertEquals(2, a.frames.size()); assertEquals(1, a.current);
     }
 
+    public void testStoppingAnimationAfterDetachUsesElapsedFrameWithoutRenderer() {
+        TerminalGraphics graphics = new TerminalGraphics();
+        graphics.kitty("a=T,i=1,f=32,s=1,v=1,C=1;/wAA/w==", 0, 0, 10, 20, 100);
+        graphics.kitty("a=f,i=1,f=32,s=1,v=1,z=10;AP8A/w==", 0, 0, 10, 20, 100);
+        graphics.kitty("a=a,i=1,c=1,r=1,z=10,s=3", 0, 0, 10, 20, 100);
+        graphics.kitty("a=a,i=1,s=1", 0, 0, 10, 20, 115);
+        assertEquals(0xff00ff00, graphics.getPlacements().get(0).image.pixels[0]);
+    }
+
     public void testChunkedAnimationFrameAndInvalidControlRecovery() {
         withTerminalSized(20, 8);
         enterString(command("a=T,i=1,f=24,s=2,v=1,C=1", "/wAA/wAA"));

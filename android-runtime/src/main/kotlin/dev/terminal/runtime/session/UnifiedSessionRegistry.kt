@@ -6,6 +6,7 @@ import dev.terminal.protocol.SessionDescriptor
 import dev.terminal.protocol.SessionEvent
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -30,6 +31,10 @@ class UnifiedSessionRegistry(
     private val onInput: (String, ByteArray) -> Unit = { _, _ -> },
     private val recordLaunch: (String, SessionLaunchSpec) -> Unit = { _, _ -> },
     private val remoteCommand: (suspend (String, String) -> ByteArray?)? = null,
+    val terminalStates: RuntimeTerminalState = RuntimeTerminalState(),
+    private val initialPalette: (SessionLaunchSpec) -> java.util.Properties = { spec ->
+        spec.palette?.let(TerminalPalette::asProperties) ?: java.util.Properties()
+    },
 ) : SessionController {
     private data class Registration(val controller: SessionController, val jobs: List<Job>)
     private data class StorageKey(val runtime: SessionRuntime, val storageId: String = "legacy")
@@ -62,7 +67,7 @@ class UnifiedSessionRegistry(
     fun register(runtime: SessionRuntime, controller: SessionController, storageId: String = "legacy") {
         val key = StorageKey(runtime, storageId)
         registrations.remove(key)?.jobs?.forEach(Job::cancel)
-        val eventJob = scope.launch {
+        val eventJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             controller.events.collect { event ->
                 val sessionId = when (event) {
                     is SessionEvent.Output -> event.sessionId
@@ -74,15 +79,27 @@ class UnifiedSessionRegistry(
                     val parts = stream.accept(event.bytes)
                     keyboardFlags[sessionId] = stream.keyboard().flags()
                     for (part in parts) {
-                        if (part.bytes != null) mutableEvents.emit(SessionEvent.Output(sessionId, part.bytes))
+                        if (part.bytes != null) {
+                            val replies = terminalStates.mutex.withLock {
+                                terminalStates.output(sessionId, part.bytes)
+                            }
+                            replies.forEach { reply ->
+                                controller.write(sessionId, reply).onFailure {
+                                    android.util.Log.w("TerminalState", "Terminal query reply failed for $sessionId", it)
+                                }
+                            }
+                            mutableEvents.emit(SessionEvent.Output(sessionId, part.bytes))
+                        }
                         else commands.trySend(sessionId to part.command) // Bounded queue; overload cannot stall PTY draining.
                     }
                 } else {
                     if (event is SessionEvent.Exited) {
                         controlStreams.remove(sessionId)?.finish()?.takeIf { it.isNotEmpty() }?.let {
+                            terminalStates.mutex.withLock { terminalStates.output(sessionId, it) }
                             mutableEvents.emit(SessionEvent.Output(sessionId, it))
                         }
                         keyboardFlags.remove(sessionId)
+                        terminalStates.mutex.withLock { terminalStates.exited(sessionId, event.exitCode) }
                     }
                     mutableEvents.emit(event)
                 }
@@ -135,7 +152,7 @@ class UnifiedSessionRegistry(
         createResolved(StorageKey(spec.runtime, spec.storageId), spec.shell, spec.workingDirectory,
             dev.terminal.runtime.notifications.shellActivityEnvironment(spec.shell,
                 spec.environment + runtimeEnvironment) + (SessionCommand.KEY to SessionCommand.encode(spec.arguments())),
-            rows, cols).onSuccess { recordLaunch(it.id, spec) }
+            rows, cols, initialPalette(spec)).onSuccess { recordLaunch(it.id, spec) }
 
     /** Compatibility entry point: direct runtime requests still resolve a built-in profile. */
     suspend fun create(runtime: SessionRuntime, shell: String, cwd: String,
@@ -159,13 +176,17 @@ class UnifiedSessionRegistry(
         env: Map<String, String> = emptyMap(),
         rows: UShort,
         cols: UShort,
+        palette: java.util.Properties,
     ): Result<SessionDescriptor> = mutationLocks.withStorage(key.runtime, key.storageId) {
         runCatching { beforeCreate() }.exceptionOrNull()?.let { return@withStorage Result.failure(it) }
         controller(key).fold(
-            onSuccess = { controller -> controller.create(shell, cwd, env, rows, cols).onSuccess { created ->
+            onSuccess = { controller -> terminalStates.mutex.withLock { controller.create(shell, cwd, env, rows, cols).onSuccess { created ->
+                terminalStates.create(created.id, cols.toInt(), rows.toInt())
+                terminalStates.palette(created.id, palette)
+                if (key.runtime == SessionRuntime.AVF) controller.attach(created.id).getOrThrow()
                 owners[created.id] = key
                 lastKnownSessions.compute(key) { _, sessions -> sessions.orEmpty().filterNot { it.id == created.id } + created }
-            } },
+            } } },
             onFailure = { Result.failure(it) },
         )
     }
@@ -208,7 +229,21 @@ class UnifiedSessionRegistry(
     override suspend fun attach(sessionId: String): Result<SessionDescriptor> = route(sessionId) { it.attach(sessionId) }
     override suspend fun detach(sessionId: String): Result<Unit> = route(sessionId) { it.detach(sessionId) }
     override suspend fun resize(sessionId: String, rows: UShort, cols: UShort): Result<SessionDescriptor> =
-        route(sessionId) { it.resize(sessionId, rows, cols) }
+        terminalStates.mutex.withLock {
+            route(sessionId) { it.resize(sessionId, rows, cols) }.onSuccess {
+                terminalStates.resize(sessionId, cols.toInt(), rows.toInt())
+            }
+        }
+
+    suspend fun configureTerminal(sessionId: String, rows: Int, cols: Int, cellWidth: Int, cellHeight: Int,
+        palette: java.util.Properties, sink: RuntimeTerminalState.Sink? = null) = terminalStates.mutex.withLock {
+        require(rows in 1..65535 && cols in 1..65535 && cellWidth in 0..65535 && cellHeight in 0..65535)
+        if (!terminalStates.sameDimensions(sessionId, cols, rows))
+            route(sessionId) { it.resize(sessionId, rows.toUShort(), cols.toUShort()) }.getOrThrow()
+        terminalStates.resize(sessionId, cols, rows, cellWidth, cellHeight)
+        terminalStates.palette(sessionId, palette)
+        if (sink != null) terminalStates.subscribe(sessionId, sink)
+    }
     override suspend fun write(sessionId: String, bytes: ByteArray): Result<Int> = route(sessionId) { onInput(sessionId, bytes); it.write(sessionId, bytes) }
     override suspend fun terminate(sessionId: String, signal: Int): Result<Unit> {
         val key = ownerKey(sessionId) ?: return Result.failure(NoSuchElementException("Session not found"))
@@ -220,6 +255,7 @@ class UnifiedSessionRegistry(
             owners.remove(sessionId, key)
             controlStreams.remove(sessionId)
             keyboardFlags.remove(sessionId)
+            terminalStates.mutex.withLock { terminalStates.remove(sessionId) }
         }
     }
 
@@ -236,6 +272,7 @@ class UnifiedSessionRegistry(
         commands.close()
         controlStreams.clear()
         keyboardFlags.clear()
+        terminalStates.clear()
         registrations.clear()
         owners.clear()
         lastKnownSessions.clear()

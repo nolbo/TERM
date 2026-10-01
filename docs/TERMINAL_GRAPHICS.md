@@ -294,3 +294,15 @@ Some live screenshots intermittently showed a blank terminal despite that stable
 row; the cause is unresolved and the deterministic hardware regression did not
 reproduce it. This is not evidence that all visual flicker is eliminated, nor a
 validation of Codex running on the user's device.
+
+## Complete UI-process restoration
+
+The runtime now owns full terminal state for each session, including both screens,
+retained graphics/animation frames, parent/virtual placements and incomplete
+transfers. UI reconnects install a checkpoint before following ordered live output
+rather than depending on the last 8 MiB of raw bytes. Animation commands advance
+elapsed time even when no renderer is present. The synchronized-output deadline
+also survives a checkpoint; a new renderer waits for completion or that remaining
+deadline before presenting a partial batch. Actual runtime/VM death and images
+already evicted by existing quotas remain outside this guarantee. See
+[TERMINAL_TUI.md](TERMINAL_TUI.md) for lifecycle evidence and transfer boundaries.

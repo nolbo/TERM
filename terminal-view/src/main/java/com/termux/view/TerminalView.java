@@ -85,14 +85,15 @@ public final class TerminalView extends View {
 
     // View state only: do not keep closed sessions (or their processes) alive.
     public static final class ScrollPosition {
-        final int row;
-        final float offset;
-        final long transcriptScroll;
-        ScrollPosition(int row, float offset, long transcriptScroll) {
+        public final int row;
+        public final float offset;
+        public final long transcriptScroll;
+        public ScrollPosition(int row, float offset, long transcriptScroll) {
             this.row = row; this.offset = offset; this.transcriptScroll = transcriptScroll;
         }
     }
     private WeakHashMap<TerminalSession, ScrollPosition> mSessionScrollPositions = new WeakHashMap<>();
+    private java.util.function.BiConsumer<TerminalSession, ScrollPosition> mScrollPositionListener;
     private long mLastTranscriptScroll;
     private float mMouseWheelRemainder;
     int[] mDefaultSelectors = new int[]{-1,-1,-1,-1};
@@ -399,8 +400,28 @@ public final class TerminalView extends View {
     public void saveSessionScrollPosition() {
         if (mTermSession != null && mEmulator != null) {
             anchorToTranscript();
-            mSessionScrollPositions.put(mTermSession, new ScrollPosition(mTopRow, mScrollOffset, mEmulator.getTranscriptRowShiftCounter()));
+            ScrollPosition position = new ScrollPosition(mTopRow, mScrollOffset, mEmulator.getTranscriptRowShiftCounter());
+            ScrollPosition old = mSessionScrollPositions.put(mTermSession, position);
+            boolean sameAnchor = old != null && old.offset == position.offset &&
+                ((old.row == 0 && position.row == 0) ||
+                 (old.row < 0 && position.row < 0 && old.row + old.transcriptScroll == position.row + position.transcriptScroll));
+            if (mScrollPositionListener != null && !sameAnchor)
+                mScrollPositionListener.accept(mTermSession, position);
         }
+    }
+
+    public void setScrollPositionListener(java.util.function.BiConsumer<TerminalSession, ScrollPosition> listener) {
+        mScrollPositionListener = listener;
+    }
+
+    public void restoreSessionScrollPosition() {
+        ScrollPosition position = mSessionScrollPositions.get(mTermSession);
+        if (position == null || mEmulator == null) return;
+        mTopRow = position.row;
+        mScrollOffset = mSmoothScrollingEnabled ? position.offset : 0;
+        mLastTranscriptScroll = position.transcriptScroll;
+        anchorToTranscript();
+        onScreenUpdated();
     }
 
     @Override
@@ -634,6 +655,8 @@ public final class TerminalView extends View {
 
         mEmulator.clearScrollCounter();
 
+        saveSessionScrollPosition();
+
         invalidate();
         if (mAccessibilityEnabled) setContentDescription(getText());
     }
@@ -817,6 +840,7 @@ public final class TerminalView extends View {
             mScrollOffset = 0;
             performScrollHaptic(Math.abs(mTopRow - previousRow));
             if (!awakenScrollBars()) invalidate();
+            saveSessionScrollPosition();
         }
     }
 
@@ -849,6 +873,7 @@ public final class TerminalView extends View {
         performScrollHaptic(Math.abs(position - previousPosition));
         awakenScrollBars();
         postInvalidateOnAnimation();
+        saveSessionScrollPosition();
     }
 
     /** Enables a CLOCK_TICK after this many ordinary scrollback rows; zero disables it. */

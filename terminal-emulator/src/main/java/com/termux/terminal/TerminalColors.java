@@ -3,7 +3,8 @@ package com.termux.terminal;
 import android.graphics.Color;
 
 /** Current terminal colors (if different from default). */
-public final class TerminalColors {
+public final class TerminalColors implements java.io.Serializable {
+    private static final long serialVersionUID = 1L;
 
     /** Static data - a bit ugly but ok for now. */
     public static final TerminalColorScheme COLOR_SCHEME = new TerminalColorScheme();

@@ -5,7 +5,8 @@ import java.util.Arrays;
 import java.util.List;
 
 /** Fully composed immutable frames. The caller accounts for every frame in its pixel quota. */
-final class KittyAnimation {
+final class KittyAnimation implements java.io.Serializable {
+    private static final long serialVersionUID = 1L;
     static final int MAX_FRAMES = 128;
     final List<TerminalImage> frames = new ArrayList<>();
     final List<Integer> gaps = new ArrayList<>();

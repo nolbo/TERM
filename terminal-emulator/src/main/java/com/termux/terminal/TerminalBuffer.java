@@ -8,7 +8,8 @@ import java.util.Arrays;
  * <p>
  * See {@link #externalToInternalRow(int)} for how to map from logical screen rows to array indices.
  */
-public final class TerminalBuffer {
+public final class TerminalBuffer implements java.io.Serializable {
+    private static final long serialVersionUID = 1L;
 
     TerminalRow[] mLines;
     /** The length of {@link #mLines}. */
@@ -201,6 +202,17 @@ public final class TerminalBuffer {
      * @param cursor     An int[2] containing the (column, row) cursor location.
      */
     public void resize(int newColumns, int newRows, int newTotalRows, int[] cursor, long currentStyle, boolean altScreen) {
+        if (newColumns == mColumns && newTotalRows > mTotalRows) {
+            // Growing an alternate screen must preserve every existing cell, including
+            // styled spaces. Reflowing merely to enlarge its storage loses those cells
+            // during an IME hide/show or renderer reattachment at the same width.
+            TerminalRow[] expanded = new TerminalRow[newTotalRows];
+            for (int row = -mActiveTranscriptRows; row < mScreenRows; row++)
+                expanded[row + mActiveTranscriptRows] = mLines[externalToInternalRow(row)];
+            mLines = expanded;
+            mScreenFirstRow = mActiveTranscriptRows;
+            mTotalRows = newTotalRows;
+        }
         // newRows > mTotalRows should not normally happen since mTotalRows is TRANSCRIPT_ROWS (10000):
         if (newColumns == mColumns && newRows <= mTotalRows) {
             // Fast resize where just the rows changed.

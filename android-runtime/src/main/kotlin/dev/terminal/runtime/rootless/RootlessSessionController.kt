@@ -122,7 +122,7 @@ class RootlessSessionController(
             entries[id] = Entry(descriptor, process)
             process to descriptor
         } } catch (error: Exception) { usbBroker?.unregister(id); throw error }
-        scope.launch {
+        val reader = scope.launch {
             pumpPtyOutput(
                 process.inputStream,
                 onOutput = { bytes ->
@@ -154,6 +154,7 @@ class RootlessSessionController(
         }
         scope.launch {
             val code = process.waitFor()
+            reader.join()
             usbBroker?.unregister(id)
             entries[id]?.let { it.descriptor = it.descriptor.copy(state = SessionStatus.EXITED, exitCode = code) }
             mutableEvents.emit(SessionEvent.Exited(id, code))

@@ -1,5 +1,5 @@
-//! Serial v1 session dispatcher. Serial dispatch keeps the first transport
-//! spike simple; PTY output fan-out is added separately without changing it.
+//! Serial v1 dispatcher. Every live PTY is drained while the host is connected;
+//! renderer attachment never determines which terminal states the host can preserve.
 
 use crate::graphics_transport::{GraphicsTransport, Output as GraphicsOutput};
 use std::collections::HashMap;
@@ -45,10 +45,14 @@ impl SessionServer {
         attached: &mut Option<String>,
     ) -> Result<(), VsockError> {
         loop {
-            let pty_fd = attached.as_deref().and_then(|id| self.sessions.output_fd(id).ok());
-            let ready = wait_for_io(connection.raw_fd(), pty_fd)?;
-            if ready.output_ready {
-                self.stream_output(connection, attached)?;
+            let outputs: Vec<_> = self.sessions.list()
+                .filter(|session| session.state == crate::session::SessionState::Running)
+                .filter_map(|session| self.sessions.output_fd(&session.id).ok().map(|fd| (session.id.clone(), fd)))
+                .collect();
+            let descriptors: Vec<_> = outputs.iter().map(|(_, fd)| *fd).collect();
+            let ready = wait_for_io(connection.raw_fd(), &descriptors)?;
+            for index in ready.outputs {
+                self.stream_output(connection, attached, &outputs[index].0)?;
             }
             if ready.request_ready {
                 let frame = connection.read_frame()?;
@@ -154,8 +158,9 @@ impl SessionServer {
         &mut self,
         connection: &mut VsockConnection,
         attached: &mut Option<String>,
+        session_id: &str,
     ) -> Result<(), VsockError> {
-        let session_id = match attached.clone() { Some(id) => id, None => return Ok(()) };
+        let session_id = session_id.to_owned();
         let mut buffer = [0_u8; 8192];
         match self.sessions.read_output(&session_id, &mut buffer) {
             Ok(size) if size > 0 => {
@@ -170,8 +175,10 @@ impl SessionServer {
                     .map_err(|_| std::io::Error::other("unable to inspect exited session"))?
                     .ok_or_else(|| std::io::Error::other("PTY closed before its child exit status was available"))?;
                 self.write_event(connection, SessionEvent::Exited { session_id: &session_id, exit_code })?;
-                let _ = self.sessions.detach(&session_id);
-                *attached = None;
+                if attached.as_deref() == Some(session_id.as_str()) {
+                    let _ = self.sessions.detach(&session_id);
+                    *attached = None;
+                }
                 Ok(())
             }
             Err(_) => Err(VsockError::Io(std::io::Error::other("unable to read PTY output"))),
@@ -207,24 +214,24 @@ impl SessionServer {
     }
 }
 
-struct IoReady { request_ready: bool, output_ready: bool }
+struct IoReady { request_ready: bool, outputs: Vec<usize> }
 
-fn wait_for_io(connection_fd: std::os::fd::RawFd, pty_fd: Option<std::os::fd::RawFd>) -> Result<IoReady, VsockError> {
+fn wait_for_io(connection_fd: std::os::fd::RawFd, pty_fds: &[std::os::fd::RawFd]) -> Result<IoReady, VsockError> {
     let mut descriptors = vec![nix::libc::pollfd {
         fd: connection_fd,
         events: nix::libc::POLLIN,
         revents: 0,
     }];
-    if let Some(fd) = pty_fd {
+    for &fd in pty_fds {
         descriptors.push(nix::libc::pollfd { fd, events: nix::libc::POLLIN, revents: 0 });
     }
     let result = unsafe { nix::libc::poll(descriptors.as_mut_ptr(), descriptors.len() as _, -1) };
     if result < 0 { return Err(VsockError::Socket(nix::errno::Errno::last())); }
     let connection_events = descriptors[0].revents;
-    let output_events = descriptors.get(1).map(|entry| entry.revents).unwrap_or(0);
     Ok(IoReady {
         request_ready: connection_events & (nix::libc::POLLIN | nix::libc::POLLHUP | nix::libc::POLLERR) != 0,
-        output_ready: output_events & (nix::libc::POLLIN | nix::libc::POLLHUP | nix::libc::POLLERR) != 0,
+        outputs: descriptors.iter().skip(1).enumerate().filter_map(|(index, entry)|
+            (entry.revents & (nix::libc::POLLIN | nix::libc::POLLHUP | nix::libc::POLLERR) != 0).then_some(index)).collect(),
     })
 }
 
@@ -241,5 +248,29 @@ impl DispatchError {
             PtyError::InvalidEnvironment => Self::invalid("invalid PTY configuration"),
             PtyError::Nix(_) => Self { code: ErrorCode::GuestError, message: "guest PTY operation failed" },
         }
+    }
+}
+
+#[cfg(test)]
+mod multiplex_tests {
+    use super::*;
+    use std::io::Write;
+    use std::os::fd::AsRawFd;
+    use std::os::unix::net::UnixStream;
+
+    #[test]
+    fn polls_every_session_and_host_requests_without_a_selected_renderer() {
+        let (host, mut requests) = UnixStream::pair().unwrap();
+        let (first, mut first_writer) = UnixStream::pair().unwrap();
+        let (second, mut second_writer) = UnixStream::pair().unwrap();
+        second_writer.write_all(b"background").unwrap();
+        let ready = wait_for_io(host.as_raw_fd(), &[first.as_raw_fd(), second.as_raw_fd()]).unwrap();
+        assert!(!ready.request_ready);
+        assert_eq!(ready.outputs, vec![1]);
+        first_writer.write_all(b"other terminal").unwrap();
+        requests.write_all(b"request").unwrap();
+        let ready = wait_for_io(host.as_raw_fd(), &[first.as_raw_fd(), second.as_raw_fd()]).unwrap();
+        assert!(ready.request_ready);
+        assert_eq!(ready.outputs, vec![0, 1]);
     }
 }

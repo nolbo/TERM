@@ -17,6 +17,10 @@ public interface TerminalSessionBackend {
          */
         void onOutput(byte[] data, int offset, int count);
 
+        default void onCheckpoint(TerminalEmulator state) { throw new UnsupportedOperationException(); }
+        default void onMirrorOutput(byte[] data, int offset, int count) { onOutput(data, offset, count); }
+        default void onResize(int columns, int rows, int cellWidth, int cellHeight) {}
+
         /** Restore historical output without sending terminal replies or repeating side effects. */
         default void onReplayOutput(byte[] data, int offset, int count) {
             throw new UnsupportedOperationException("Transcript replay is not supported by this receiver");
@@ -28,6 +32,8 @@ public interface TerminalSessionBackend {
 
     /** Start or attach to the backend session. This method must return quickly. */
     void start(int columns, int rows, int cellWidthPixels, int cellHeightPixels, Callback callback);
+
+    default boolean ownsTerminalState() { return false; }
 
     /** Update the remote pty dimensions. */
     void resize(int columns, int rows, int cellWidthPixels, int cellHeightPixels);

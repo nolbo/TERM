@@ -189,19 +189,35 @@ an empty list remains empty and never creates an implicit default shell.
 Native and Rootless attach snapshots are marked `replay` in host-local
 `SessionEvent.Output` metadata and in the Android AIDL output callback. The
 marker is retained through the backend and main-thread emulator delivery.
-Replay restores screen, title, palette and terminal modes, but must not send
+Legacy replay applies retained screen, title, palette and mode controls, but must not send
 terminal query responses back to the live shell or repeat clipboard/bell
-effects. Live output still receives normal terminal replies. This metadata is
+effects. The authoritative runtime emulator answers live queries once; UI mirrors
+suppress parsed replies while retaining live clipboard/bell effects. This metadata is
 not a guest protocol-v1 field; the wire codec rejects host replay events.
 
-Native/Rootless snapshots begin and end with empty `replay=true` output frames,
-including an empty snapshot. Both delimiters and all snapshot chunks are emitted
-under the session's PTY output mutex. A new mirror waits for this bracketed replay
-before accepting live output; an existing live mirror ignores another listener's
-attach replay. Exit delivery to a new mirror waits until replay completes.
-The emulator's bounded byte queue preserves the ordering and replay marker for
-each chunk and consumes only that chunk's byte count per main-thread message.
-These delimiters are host-local and do not change the AVF guest wire format.
+Native/Rootless legacy replay snapshots remain bracketed by empty `replay=true`
+frames under the PTY output mutex. Application restoration uses a separate
+host-private `ITerminalStateListener`: a complete checkpoint, then ordered output,
+resize and exit callbacks. `attachTerminal` configures dimensions/palette and
+subscribes atomically under the authoritative emulator lock. Terminal commands
+and viewport updates use an ordered service queue. No guest wire field changes.
+
+A checkpoint descriptor is the read-only end of an anonymous reliable pipe.
+Serialization runs on a writer while the caller holds the state lock; no file
+path is exposed or retained. EOF is checked before installing the graph. Its header
+contains an optional viewport (row, fractional offset and
+transcript-shift counter), followed by `TSC1` and a gzip-compressed same-build
+terminal object graph. Only listed terminal/value/collection classes are allowed;
+serialized proxies are rejected. Output/client/process bindings are excluded.
+This format is neither persistent cross-version storage nor a guest input API.
+The UI installs the state without replaying queries or side effects. Its bounded
+byte queue processes subsequent mirror output at the exact checkpoint boundary.
+Runtime PTY readers drain final bytes before publishing process exit.
+
+The AVF guest streams every running PTY while the host is connected, independent
+of selected renderer attachment. Protocol v1 frame types and session IDs remain
+unchanged; deploying an older single-selected-PTY guest cannot provide the same
+multi-session restoration guarantee.
 
 Session requests begin with a one-byte operation code. Strings are UTF-8 with a
 two-byte big-endian length (maximum 4096 bytes). Terminal input is explicitly
@@ -239,8 +255,9 @@ Kitty media conversion does not change the session wire schema. File paths,
 shared-memory handles and guest descriptors never become host file operations;
 `droid-sessiond` reads bounded regular-file data in the guest and emits direct
 APCs in output frames of at most 32 KiB. Native/Rootless perform the equivalent
-conversion before their 8 MiB transcript/replay buffer. Renderer replies remain
-ordinary PTY input, with historical replies suppressed during Android replay.
+conversion before their 8 MiB transcript/replay buffer. Runtime emulator replies
+remain ordinary PTY input. UI mirrors suppress duplicate
+query replies, and checkpoint installation never re-executes historical effects.
 See [TERMINAL_GRAPHICS.md](TERMINAL_GRAPHICS.md) for protocol coverage and limits.
 
 Session descriptor exit codes are valid only when state is `EXITED`. The

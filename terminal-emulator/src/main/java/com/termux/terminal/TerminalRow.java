@@ -7,7 +7,8 @@ import java.util.Arrays;
  * <p>
  * The text in the row is stored in a char[] array, {@link #mText}, for quick access during rendering.
  */
-public final class TerminalRow {
+public final class TerminalRow implements java.io.Serializable {
+    private static final long serialVersionUID = 1L;
 
     private static final float SPARE_CAPACITY_FACTOR = 1.5f;
 

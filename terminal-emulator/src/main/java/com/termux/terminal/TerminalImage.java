@@ -1,7 +1,8 @@
 package com.termux.terminal;
 
 /** Decoded, bounded ARGB pixels. Never contains guest paths or host resources. */
-public final class TerminalImage {
+public final class TerminalImage implements java.io.Serializable {
+    private static final long serialVersionUID = 1L;
     public static final int MAX_DIMENSION = 2048;
     public static final int MAX_PIXELS = 1024 * 1024;
     public final int width, height;
