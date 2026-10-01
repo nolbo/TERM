@@ -98,6 +98,7 @@ class StorageManagerTest {
                 }
                 clickContaining(profile.storageId)
                 await { find { it.text?.toString() == profile.name } != null }
+                assertNull(find { it.text?.toString() == context.getString(R.string.storage_sessions) })
                 val deleteLabel = context.getString(R.string.storage_delete)
                 assertNotNull(find { it.text?.toString() == deleteLabel })
                 assertFalse(clickableAncestor(requireNotNull(find { it.text?.toString() == deleteLabel })).isEnabled)

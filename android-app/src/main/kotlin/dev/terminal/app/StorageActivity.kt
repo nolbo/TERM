@@ -142,9 +142,8 @@ class StorageActivity : TerminalActivity() {
                                 }
                             }
                         }
-                        item {
+                        if (detail.sessions.isNotEmpty()) item {
                             StorageSection(R.string.storage_sessions) {
-                                if (detail.sessions.isEmpty()) StorageEmpty()
                                 detail.sessions.forEach { session ->
                                     ListItem(supportingContent = { Text(session.first, style = MaterialTheme.typography.bodySmall) },
                                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
@@ -171,12 +170,13 @@ class StorageActivity : TerminalActivity() {
                         }
                     } else if (selected == null && entries != null) {
                         listOf(true, false).forEach { used ->
+                            val group = entries.orEmpty().filter { it.used == used }
+                            if (!used && group.isEmpty()) return@forEach
                             val title = if (used) R.string.storage_used else R.string.storage_unused
                             item {
                                 Text(stringResource(title), Modifier.padding(start = 16.dp, top = 20.dp, bottom = 8.dp),
                                     style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                             }
-                            val group = entries.orEmpty().filter { it.used == used }
                             if (group.isEmpty()) item { StorageGroupCard(true, true) { StorageEmpty() } }
                             // Keep each row lazy while drawing one continuous section card.
                             itemsIndexed(group, key = { _, row -> row.key }) { index, row ->
