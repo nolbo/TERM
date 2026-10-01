@@ -250,6 +250,8 @@ cache, and removes only explicitly selected orphans through `VmRuntimeService`.
 Used storage has a profile reference or an active session. The Settings detail
 view shows both references; profile editing can retain storage, allocate a fresh
 independent identity without copying data, or connect compatible existing storage.
+Optional display names are persisted per `(runtime, storageId)` in the manifest and
+renamed through the service; they do not change storage paths or launch snapshots.
 Profile overrides and tombstones migrate from `session-profiles` preferences into
 an atomic app-private manifest on the first mutation. A process-shared file lock
 serializes profile writes and the final deletion reference check; defaults still

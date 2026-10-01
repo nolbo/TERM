@@ -91,7 +91,7 @@ class StorageManagerTest {
         val profile = store.duplicate(store.builtIns().first()).copy(name = "Storage UI fixture")
         store.save(profile)
         try {
-            ActivityScenario.launch(StorageActivity::class.java).use {
+            ActivityScenario.launch(StorageActivity::class.java).use { scenario ->
                 await {
                     if (find { it.text?.toString()?.contains(profile.storageId) == true } != null) true
                     else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
@@ -99,6 +99,25 @@ class StorageManagerTest {
                 clickContaining(profile.storageId)
                 await { find { it.text?.toString() == profile.name } != null }
                 assertNull(find { it.text?.toString() == context.getString(R.string.storage_sessions) })
+                val registry = dev.terminal.runtime.session.StorageRegistry(context.filesDir)
+                val key = dev.terminal.runtime.session.StorageRegistry.Key(profile.runtime, profile.storageId)
+                fun editName(value: String, save: Boolean) {
+                    clickContaining(context.getString(R.string.storage_name))
+                    await { find { it.isEditable } != null }
+                    assertTrue(requireNotNull(find { it.isEditable }).performAction(
+                        android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT,
+                        android.os.Bundle().apply { putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value) }))
+                    clickContaining(context.getString(if (save) R.string.save else R.string.cancel))
+                    await { find { it.isEditable } == null }
+                }
+                editName("Discarded name", false)
+                assertNull(registry.transaction { name(key) })
+                editName("Storage UI name", true)
+                await { registry.transaction { name(key) } == "Storage UI name" }
+                scenario.recreate()
+                await { find { it.text?.toString() == "Storage UI name" } != null }
+                editName("", true)
+                await { registry.transaction { name(key) } == null }
                 val deleteLabel = context.getString(R.string.storage_delete)
                 assertNotNull(find { it.text?.toString() == deleteLabel })
                 assertFalse(clickableAncestor(requireNotNull(find { it.text?.toString() == deleteLabel })).isEnabled)

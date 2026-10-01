@@ -211,11 +211,22 @@ class VmRuntimeService : Service() {
                             val linked = profiles.filter { it.runtime == key.runtime && it.storageId == key.storageId }
                             val active = sessions.filter { sessionKeys[it.id] == key }
                             key.json().put("bytes", storageRegistry.cachedSize(key) ?: JSONObject.NULL)
+                                .put("name", name(key) ?: JSONObject.NULL)
                                 .put("profiles", JSONArray(linked.map { JSONObject().put("id", it.id).put("name", it.name) }))
                                 .put("sessions", JSONArray(active.map { JSONObject().put("id", it.id).put("title", it.title) }))
                         }).toString()
                 }
             }
+        }
+        override fun renameStorage(runtimeType: String, storageId: String, name: String): String {
+            enforceHostToolUi()
+            return runCatching {
+                val key = dev.terminal.runtime.session.StorageRegistry.Key(requireNotNull(SessionRuntime.fromWireName(runtimeType)), storageId)
+                kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                    storageRegistry.transaction { rename(key, name, storageDefaults()) }
+                }
+                ""
+            }.exceptionOrNull()?.userMessage().orEmpty()
         }
         override fun measureStorage(runtimeType: String, storageId: String): Long {
             enforceHostToolUi()

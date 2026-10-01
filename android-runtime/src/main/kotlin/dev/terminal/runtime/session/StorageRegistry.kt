@@ -34,6 +34,18 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
         } }
     }
     inner class Transaction internal constructor(private val state: JSONObject) {
+        fun name(key: Key): String? = state.optJSONObject("storageNames")?.optString("${key.runtime.wireName}:${key.storageId}")?.takeIf { it.isNotBlank() }
+        fun rename(key: Key, value: String, defaults: List<SessionProfile> = emptyList()) {
+            check(key in keys() + profiles(defaults).map { Key(it.runtime, it.storageId) }) { "Storage not found" }
+            check(key !in decodeKeys(state.getJSONArray("deleted"))) { "Storage has been deleted" }
+            val name = value.trim()
+            require(name.length <= MAX_NAME_LENGTH && name.none { it.isISOControl() }) { "Invalid storage name" }
+            val names = state.optJSONObject("storageNames") ?: JSONObject().also { state.put("storageNames", it) }
+            val id = "${key.runtime.wireName}:${key.storageId}"
+            if (name.isEmpty()) names.remove(id) else names.put(id, name)
+            state.put("storages", JSONArray((keys() + key).map { it.json() }))
+            persist()
+        }
         fun overrides(): Map<String, String> = state.getJSONObject("profiles").let { profiles ->
             profiles.keys().asSequence().associateWith { profiles.getString(it) }
         }
@@ -90,6 +102,7 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
             if (key.runtime == SessionRuntime.AVF) deleteTree(File(files, "shared-vms/${key.storageId}").toPath())
             state.put("storages", JSONArray(keys().filter { it != key }.map { it.json() }))
             state.put("deleted", JSONArray((decodeKeys(state.getJSONArray("deleted")) + key).map { it.json() }))
+            state.optJSONObject("storageNames")?.remove("${key.runtime.wireName}:${key.storageId}")
             sizes.remove(key)
             persist()
         }
@@ -110,6 +123,7 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
         return bytes
     }
     companion object {
+        const val MAX_NAME_LENGTH = 120
         private val locks = ConcurrentHashMap<String, Any>()
         private fun decodeKeys(array: JSONArray) = List(array.length()) { index -> array.getJSONObject(index).let {
             Key(requireNotNull(SessionRuntime.fromWireName(it.getString("runtime"))), it.getString("storageId"))

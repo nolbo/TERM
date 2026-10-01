@@ -52,4 +52,5 @@ interface IRuntimeService {
     void migrateRootlessToNative(String runtimeType);
     void setSessionTaskNotifications(boolean enabled);
     String getSessionMemoryJson();
+    String renameStorage(String runtimeType, String storageId, String name);
 }

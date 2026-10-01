@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="storage_title">Storage</string>
+    <string name="storage_name">Storage name</string>
+    <string name="storage_name_hint">Leave blank to use the runtime name.</string>
     <string name="storage_summary">Persistent environments used by profiles.</string>
     <string name="storage_loading">Loading storage information…</string>
     <string name="storage_unavailable">Storage information is unavailable.</string>

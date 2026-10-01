@@ -2,7 +2,7 @@
 
 저장소는 프로필이 사용하는 영구 실행 환경이며, 파일 탐색기나 별도의 저장소 생성 기능이 아닙니다. 식별자는 기존의 `(runtime, storageId)`를 유지합니다. Rootless의 Debian·Ubuntu·Arch는 서로 다른 runtime 값이므로 배포판 사이에 rootfs를 연결할 수 없습니다.
 
-설정의 **저장소 / Storage**에서 사용 중인 저장소와 미사용 저장소를 확인합니다. 프로필 참조 또는 활성 세션이 있으면 사용 중으로 분류합니다. 이미 종료된 세션은 활성 수에서 제외합니다. 각 항목은 실행 환경, 저장소 ID, 대략적인 용량, 프로필 수, 활성 세션 수를 표시합니다. 상세 화면에서는 연결된 프로필 설정을 열고 실행 중인 세션 목록을 확인할 수 있습니다. 저장소 ID는 표시용 이름으로 별도 변경하지 않습니다.
+설정의 **저장소 / Storage**에서 사용 중인 저장소와 미사용 저장소를 확인합니다. 프로필 참조 또는 활성 세션이 있으면 사용 중으로 분류합니다. 이미 종료된 세션은 활성 수에서 제외합니다. 각 항목은 저장소 이름(미설정 시 실행 환경 이름), 실행 환경, 저장소 ID, 대략적인 용량, 프로필 수, 활성 세션 수를 표시하며 저장소 아이콘은 표시하지 않습니다. 상세 화면에서는 연결된 프로필 설정을 열고 실행 중인 세션 목록을 확인할 수 있습니다. 상세 화면의 저장소 이름 행에서 최대 120자의 표시용 이름을 수정할 수 있습니다. 이름을 비우면 기본 표시로 돌아갑니다. 이름은 프로필과 독립적으로 저장되고 기존 저장소 선택 목록에도 표시되며, 저장소 ID와 경로·실행 중 세션은 바뀌지 않습니다.
 
 프로필 생성·복제는 기본적으로 독립 저장소 ID를 할당합니다. 프로필 편집의 저장소 선택은 현재 저장소 유지, 새 독립 저장소, 호환되는 기존 저장소를 지원합니다. 같은 runtime·Rootless 배포판에 속한 미사용 저장소도 다시 연결할 수 있습니다. 선택 대화상자의 저장은 초안에만 반영되고 프로필 전체 저장으로 적용됩니다. 새 독립 저장소는 데이터를 복제하지 않는 fresh environment이며 최초 실행에서 해당 runtime의 초기 환경을 준비합니다. 복제도 기존 환경의 데이터를 복사하지 않습니다.
 
@@ -14,7 +14,7 @@ storage 변경은 이후 생성되는 Session에만 적용됩니다. 기존 `Ses
 
 ## 저장과 호환성
 
-`SessionStorage`는 경로 resolver로 유지합니다. `StorageRegistry`는 app-private `storage-registry.json`에 Profile override·삭제 표시와 저장소 ID를 기록합니다. 기존 `session-profiles` SharedPreferences는 처음 변경할 때 manifest로 옮기며 원본을 삭제하지 않습니다. 기본 프로필 설정은 기존 runtime preferences에서 계속 해석합니다. UI와 `:vmhost`는 같은 process-shared file lock과 원자적 파일 교체를 사용합니다. 파일 경로는 호스트가 runtime과 검증된 storage ID로 결정하며 Binder에서 임의 경로를 받지 않습니다.
+`SessionStorage`는 경로 resolver로 유지합니다. `StorageRegistry`는 app-private `storage-registry.json`에 Profile override·삭제 표시와 저장소 ID 및 `(runtime, storageId)`별 표시용 이름을 기록합니다. 이름이 없는 기존 manifest는 그대로 읽으며 저장소 삭제 시 해당 이름도 제거합니다. 기존 `session-profiles` SharedPreferences는 처음 변경할 때 manifest로 옮기며 원본을 삭제하지 않습니다. 기본 프로필 설정은 기존 runtime preferences에서 계속 해석합니다. UI와 `:vmhost`는 같은 process-shared file lock과 원자적 파일 교체를 사용합니다. 파일 경로는 호스트가 runtime과 검증된 storage ID로 결정하며 Binder에서 임의 경로를 받지 않습니다.
 
 manifest는 프로필 이동 전의 저장소도 기록하므로 한 번도 실행하지 않은 미사용 환경까지 조회·삭제할 수 있습니다. 삭제한 저장소 ID는 재사용을 막아 오래된 편집 화면이나 launch 요청이 환경을 되살리지 못하게 합니다. 이전 APK로 다운그레이드하면 원본 SharedPreferences를 읽으므로 새 manifest의 프로필 변경이 반영되지 않습니다. 업그레이드 후 manifest가 기준이며 원본 preferences를 다시 가져오지 않습니다.
 

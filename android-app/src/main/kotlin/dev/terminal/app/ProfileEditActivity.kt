@@ -62,6 +62,7 @@ class ProfileEditActivity : TerminalActivity() {
             var storageChoice by rememberSaveable { mutableStateOf(if (source != null && initial.id == source.id) "keep" else "fresh") }
             var freshStorageId by rememberSaveable { mutableStateOf(if (storageChoice == "fresh") initial.storageId else java.util.UUID.randomUUID().toString()) }
             var storageKeys by remember { mutableStateOf(emptyList<StorageRegistry.Key>()) }
+            var storageNames by remember { mutableStateOf(emptyMap<StorageRegistry.Key, String?>()) }
             val scope = rememberCoroutineScope()
             var saving by remember { mutableStateOf(false) }
             LaunchedEffect(Unit) {
@@ -70,8 +71,8 @@ class ProfileEditActivity : TerminalActivity() {
                         getSharedPreferences("session-profiles", MODE_PRIVATE).all.mapValues { it.value as String }
                     }
                     val profileKeys = store.all().map { StorageRegistry.Key(it.runtime, it.storageId) }
-                    registry.transaction { (keys() + profileKeys).toList() }
-                } }.onSuccess { storageKeys = it }.onFailure { error = it.message }
+                    registry.transaction { (keys() + profileKeys).associateWith { this.name(it) } }
+                } }.onSuccess { storageKeys = it.keys.toList(); storageNames = it }.onFailure { error = it.message }
             }
             var icon by rememberSaveable { mutableStateOf(initial.icon) }
             var palette by rememberSaveable { mutableStateOf(initial.palette?.joinToString(",")) }
@@ -133,7 +134,7 @@ class ProfileEditActivity : TerminalActivity() {
                             add(SettingsChoice(stringResource(R.string.profile_storage_new), "fresh"))
                             targets.forEach { key ->
                                 val names = otherProfiles.filter { it.runtime == key.runtime && it.storageId == key.storageId }.joinToString { it.name }
-                                add(SettingsChoice(stringResource(R.string.storage_existing, key.storageId.take(8), names.ifEmpty { stringResource(R.string.storage_unused) }), "existing:${key.storageId}"))
+                                add(SettingsChoice(stringResource(R.string.storage_existing, storageNames[key] ?: key.storageId.take(8), names.ifEmpty { stringResource(R.string.storage_unused) }), "existing:${key.storageId}"))
                             }
                         }
                         SettingsChoiceRow(stringResource(R.string.profile_storage), null, choices, storageChoice) { selected ->

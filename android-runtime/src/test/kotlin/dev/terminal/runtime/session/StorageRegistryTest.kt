@@ -12,6 +12,39 @@ class StorageRegistryTest {
     @get:Rule val temporary = TemporaryFolder()
     private fun profile(runtime: SessionRuntime = SessionRuntime.NATIVE) = SessionProfile(UUID.randomUUID().toString(), "Test", runtime,
         "/bin/sh", storageId = UUID.randomUUID().toString())
+    @Test fun storageNamesPersistIndependentlyOfProfilesAndAreRemovedOnDeletion() {
+        val files = temporary.newFolder()
+        val registry = StorageRegistry(files)
+        val saved = profile()
+        val snapshot = saved.resolve()
+        val key = StorageRegistry.Key(saved.runtime, saved.storageId)
+        registry.transaction { save(saved); rename(key, "  Work environment  ") }
+        val reopened = StorageRegistry(files)
+        assertEquals("Work environment", reopened.transaction { name(key) })
+        reopened.transaction { save(saved.copy(name = "Edited profile")); deleteProfile(saved.id, false) }
+        assertEquals("Work environment", reopened.transaction { name(key) })
+        assertEquals(saved.storageId, snapshot.storageId)
+        reopened.transaction { rename(key, ""); assertNull(name(key)); rename(key, "Unused environment") }
+        assertTrue(runCatching { reopened.transaction { rename(key, "x".repeat(StorageRegistry.MAX_NAME_LENGTH + 1)) } }.isFailure)
+        reopened.transaction { requireOrphan(key, emptyList()); delete(key) }
+        assertNull(StorageRegistry(files).transaction { name(key) })
+        assertTrue(runCatching { reopened.transaction { rename(key, "Stale editor") } }.isFailure)
+        assertTrue(runCatching { reopened.transaction { rename(StorageRegistry.Key(saved.runtime, UUID.randomUUID().toString()), "Missing") } }.isFailure)
+    }
+    @Test fun legacyNamesAreScopedByRuntimeWithoutChangingIdentity() {
+        val registry = StorageRegistry(temporary.newFolder())
+        val defaults = listOf(profile().copy(storageId = "legacy"), profile(SessionRuntime.ROOTLESS).copy(storageId = "legacy"))
+        val native = StorageRegistry.Key(SessionRuntime.NATIVE, "legacy")
+        val rootless = StorageRegistry.Key(SessionRuntime.ROOTLESS, "legacy")
+        registry.transaction {
+            assertNull(name(native)) // Existing manifests need no migration for optional names.
+            rename(native, "Native environment", defaults)
+            rename(rootless, "Linux environment", defaults)
+            assertEquals("Native environment", name(native))
+            assertEquals("Linux environment", name(rootless))
+            assertTrue(runCatching { requireOrphan(native, emptyList()) }.isFailure)
+        }
+    }
     @Test fun migratedOverridesAndTombstonesPersistAcrossInstances() {
         val files = temporary.newFolder()
         val saved = profile()
