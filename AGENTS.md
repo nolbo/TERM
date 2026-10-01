@@ -430,6 +430,28 @@ The worktree may contain user or previous-session changes.
 If task-owned edits overlap unknown user changes and cannot be separated safely,
 stop and explain the exact conflict.
 
+### 10.1 Shared development and release history
+
+Local `dev` and `origin/dev` MUST preserve one shared commit history. Synchronize
+existing commits rather than recreating the same changes with new commit IDs.
+
+- Before an authorized pull, push, or release publication, fetch `origin/dev`
+  and inspect ancestry. For divergence, use `git log --left-right --cherry-mark
+  dev...origin/dev` to distinguish equivalent patches from new changes, then
+  merge while preserving local work within the user's authorized scope.
+- Releases and prereleases MUST use a commit from the shared `dev` history.
+  Preparation and patch-note commits belong on `dev`. Do not cherry-pick,
+  squash, rebase, or replay existing changes into a replacement history for
+  release preparation. History rewriting requires explicit user authorization.
+- To exclude experiments, use deliberate changes or feature gates on `dev`
+  within the authorized scope. A separate release history requires explicit
+  authorization and a distinct release ref; never replace `origin/dev` with it.
+- Authorized pushes of `dev` MUST be normal fast-forward pushes. On rejection,
+  fetch and reconcile; do not force-push or recreate commits to bypass it.
+  Afterwards verify that the remote tip matches the intended local commit and
+  report the pushed commit. These rules do not independently authorize pushing
+  or publishing.
+
 ## 11. Documentation map
 
 Read only the documents relevant to the task:
