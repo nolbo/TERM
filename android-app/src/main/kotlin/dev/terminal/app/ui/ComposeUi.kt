@@ -274,15 +274,20 @@ fun SettingsPageScaffold(
                 ))
             },
         )
-        // Only the system icons receive a scrim; content remains visible behind the back button.
-        Box(Modifier.fillMaxWidth().height(topInset).background(Brush.verticalGradient(listOf(
-            MaterialTheme.colorScheme.background.copy(alpha = 0.45f * contentHeaderState.collapsedFraction),
+        // Fade from the system edge to the back-button center, leaving the content visible.
+        Box(Modifier.fillMaxWidth().height(topInset + 32.dp).background(Brush.verticalGradient(listOf(
+            MaterialTheme.colorScheme.background.copy(alpha = 0.65f * contentHeaderState.collapsedFraction),
             Color.Transparent))))
         FilledIconButton(
             onClick = onBack,
             modifier = Modifier.align(Alignment.TopStart)
                 .windowInsetsPadding(systemInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
                 .padding(start = 16.dp, top = 8.dp).size(48.dp)
+                .graphicsLayer {
+                    shape = CircleShape
+                    // Material elevation level 2, introduced only as content reaches the floating button.
+                    shadowElevation = with(density) { (3.dp * contentHeaderState.collapsedFraction).toPx() }
+                }
                 .semantics { traversalIndex = -1f },
             shape = CircleShape,
             colors = IconButtonDefaults.filledIconButtonColors(

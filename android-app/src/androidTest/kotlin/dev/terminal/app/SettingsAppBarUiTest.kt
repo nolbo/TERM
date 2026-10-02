@@ -191,6 +191,8 @@ class SettingsAppBarUiTest {
                 assertNotEquals("Back button is filled from the expanded stage", pageBackground, initialBackColor)
                 assertEquals("Expanded back button has circular corners", pageBackground,
                     initialScreenshot.getPixel(initialBack.left + inset, initialBack.top + inset))
+                assertEquals("Expanded back button has no floating shadow", pageBackground,
+                    initialScreenshot.getPixel(initialBack.centerX(), initialBack.bottom + inset))
                 assertEquals("Transparent app bar exposes the page background", Color(0xFF0C0E11).toArgb(), pageBackground)
             } finally { initialScreenshot.recycle() }
             scrollDistance(screen, (initialViewport.top - smallTop) * 0.25f) {
@@ -242,14 +244,26 @@ class SettingsAppBarUiTest {
             try {
                 assertEquals("Content is visible in the former app-bar area", rowColor.toArgb(),
                     screenshot.getPixel(screen.width() * 3 / 4, initialBack.centerY()))
-                assertEquals("Back button has circular corners", rowColor.toArgb(),
-                    screenshot.getPixel(initialBack.left + inset, initialBack.top + inset))
+                val corner = screenshot.getPixel(initialBack.left + inset, initialBack.top + inset)
+                val cornerBackground = screenshot.getPixel(screen.width() * 3 / 4, initialBack.top + inset)
+                assertTrue("Back button keeps circular corners above the gradient",
+                    kotlin.math.abs(distanceFromContent(corner) - distanceFromContent(cornerBackground)) < 8)
                 assertEquals("Back button keeps the same filled background throughout scrolling", initialBackColor,
                     screenshot.getPixel(initialBack.centerX(), initialBack.bottom - inset * 3))
+                val shadow = screenshot.getPixel(initialBack.centerX(), initialBack.bottom + inset)
+                assertTrue("Floating back button has a subtle shadow outside its circular surface",
+                    distanceFromContent(shadow) in 1 until distanceFromContent(pageBackground) / 2)
                 val statusInset = initialBack.top - (8f * density).toInt()
-                if (statusInset > 0) assertTrue("Content remains clear behind the status-bar gradient",
-                    distanceFromContent(screenshot.getPixel(screen.width() * 3 / 4, statusInset / 2)) <
-                        distanceFromContent(pageBackground) / 3)
+                if (statusInset > 0) {
+                    val statusFade = distanceFromContent(screenshot.getPixel(screen.width() * 3 / 4, statusInset / 2))
+                    assertTrue("System edge has a stronger gradient while retaining visible content",
+                        statusFade > distanceFromContent(pageBackground) / 3 &&
+                            statusFade < distanceFromContent(pageBackground) * 0.7f)
+                }
+                val belowStatusFade = distanceFromContent(screenshot.getPixel(screen.width() * 3 / 4,
+                    statusInset + (12f * density).toInt()))
+                assertTrue("Gradient extends smoothly below the status bar without hiding content",
+                    belowStatusFade in 1 until distanceFromContent(pageBackground) / 2)
             } finally { screenshot.recycle() }
             touch(screen.width() * 0.75f, initialBack.exactCenterY(), initialBack.exactCenterY())
             assertEquals("Rows remain clickable in the former app-bar area", 1, rowClicks)
