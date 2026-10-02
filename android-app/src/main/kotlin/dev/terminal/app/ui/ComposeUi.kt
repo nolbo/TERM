@@ -7,8 +7,6 @@ import android.view.KeyEvent
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -221,12 +219,6 @@ fun SettingsPageScaffold(
     val headerState = rememberTopAppBarState()
     val contentHeaderState = rememberTopAppBarState()
     val density = LocalDensity.current
-    val fadeThreshold = with(density) { 4.dp.toPx() }
-    val floatingFraction by animateFloatAsState(
-        targetValue = if (contentHeaderState.heightOffset < -fadeThreshold) 1f else 0f,
-        animationSpec = tween(250),
-        label = "Settings header fade",
-    )
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
         state = headerState, canScroll = { contentHeaderState.heightOffset == 0f })
     val contentScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
@@ -242,7 +234,7 @@ fun SettingsPageScaffold(
     }
     Box(Modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
         Scaffold(
-            // Content moves one pixel per scroll pixel; only the header opacity is animated.
+            // Content moves one pixel per scroll pixel; the title fades as the large bar collapses.
             modifier = Modifier.nestedScroll(contentScrollBehavior.nestedScrollConnection)
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             floatingActionButton = floatingActionButton,
@@ -250,17 +242,16 @@ fun SettingsPageScaffold(
             // Top space belongs to the two header stages, including the initial status-bar inset.
             contentWindowInsets = systemInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
             topBar = {
-                if (floatingFraction < 1f) LargeTopAppBar(
-                    modifier = Modifier.graphicsLayer { alpha = 1f - floatingFraction },
+                if (headerState.collapsedFraction < 1f) LargeTopAppBar(
+                    modifier = Modifier.graphicsLayer { alpha = 1f - headerState.collapsedFraction },
                     title = { Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                    // Native 4dp insets plus 12dp align the slot with the pinned button
-                    // and leave 16dp between its circular background and the small title.
+                    // Reserve space aligned with the separately pinned circular back button.
                     navigationIcon = { Spacer(Modifier.padding(horizontal = 12.dp).size(48.dp)) },
                     windowInsets = systemInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                     scrollBehavior = scrollBehavior,
                     colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.background,
-                        scrolledContainerColor = MaterialTheme.colorScheme.background,
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent,
                     ),
                 ) else Spacer(Modifier.fillMaxWidth().height(smallHeaderHeight))
             },

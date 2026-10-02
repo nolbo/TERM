@@ -1,5 +1,6 @@
 package dev.terminal.app
 
+import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.SystemClock
 import android.view.InputDevice
@@ -78,7 +79,7 @@ class SettingsAppBarUiTest {
     }
 
     /** Stop before lifting so each checkpoint observes scroll distance without a fling. */
-    private fun scrollDistance(screen: Rect, distance: Float) {
+    private fun scrollDistance(screen: Rect, distance: Float, whileHeld: (() -> Unit)? = null) {
         val slop = ViewConfiguration.get(instrumentation.targetContext).scaledTouchSlop
         val fromY = screen.height() * 0.65f
         val delta = -distance - if (distance > 0f) slop else -slop
@@ -94,9 +95,21 @@ class SettingsAppBarUiTest {
             SystemClock.sleep(20)
         }
         SystemClock.sleep(350)
+        instrumentation.waitForIdleSync()
+        whileHeld?.invoke()
         event(MotionEvent.ACTION_UP, fromY + delta)
         SystemClock.sleep(350)
         instrumentation.waitForIdleSync()
+    }
+
+    private fun titleBrightness(screenshot: Bitmap, titleBounds: Rect): Int {
+        var brightness = 0
+        for (y in titleBounds.top.coerceAtLeast(0) until titleBounds.bottom.coerceAtMost(screenshot.height)) {
+            for (x in titleBounds.left.coerceAtLeast(0) until titleBounds.right.coerceAtMost(screenshot.width)) {
+                brightness = maxOf(brightness, android.graphics.Color.red(screenshot.getPixel(x, y)))
+            }
+        }
+        return brightness
     }
 
     @Test fun lazySettingsCollapseToFloatingBackAndEdgeToEdgeContent() = checkScrolling(lazy = true)
@@ -157,65 +170,58 @@ class SettingsAppBarUiTest {
             val expandedTitle = bounds(checkNotNull(find { it.text?.toString() == title }))
             assertTrue("Expanded title stays below the circular back button with a gap",
                 expandedTitle.top - initialBack.bottom >= (16f * density).toInt())
-            fun assertSmallTitleGap() {
-                val titleBounds = bounds(checkNotNull(find { it.text?.toString() == title }))
-                assertEquals("Small title is beside the back button", initialBack.centerY().toFloat(),
-                    titleBounds.exactCenterY(), 2f * density)
-                assertTrue("Small title keeps 16dp clear of the circular back button",
-                    titleBounds.left - initialBack.right >= (16f * density).toInt())
-            }
             val smallTop = initialBack.top + (56f * density).toInt()
             val inset = (2f * density).toInt()
             val initialScreenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
             val initialBackColor: Int
             val pageBackground: Int
+            val initialTitleBrightness: Int
             try {
+                initialTitleBrightness = titleBrightness(initialScreenshot, expandedTitle)
                 pageBackground = initialScreenshot.getPixel(screen.width() * 3 / 4, smallTop - (4f * density).toInt())
                 initialBackColor = initialScreenshot.getPixel(initialBack.centerX(), initialBack.bottom - inset * 3)
                 assertNotEquals("Back button is filled from the expanded stage", pageBackground, initialBackColor)
                 assertEquals("Expanded back button has circular corners", pageBackground,
                     initialScreenshot.getPixel(initialBack.left + inset, initialBack.top + inset))
-                assertEquals("App bar shares the page background", Color(0xFF0C0E11).toArgb(), pageBackground)
+                assertEquals("Transparent app bar exposes the page background", Color(0xFF0C0E11).toArgb(), pageBackground)
             } finally { initialScreenshot.recycle() }
+            scrollDistance(screen, (initialViewport.top - smallTop) * 0.25f) {
+                val partialTitle = bounds(checkNotNull(find { it.text?.toString() == title }))
+                val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+                try {
+                    assertTrue("Large title fades during collapse before reaching the small stage",
+                        titleBrightness(screenshot, partialTitle) < initialTitleBrightness - 20)
+                } finally { screenshot.recycle() }
+                assertEquals("Back button stays fixed during title fading", initialBack, bounds(back()))
+            }
+            await { bounds(checkNotNull(find { it.contentDescription?.toString() == viewport })) == initialViewport }
             scrollDistance(screen, (initialViewport.top - smallTop).toFloat())
-            assertNotNull("Native large-to-small collapse retains the title", find { it.text?.toString() == title })
+            assertNull("Large title disappears by the small stage", find { it.text?.toString() == title })
             val smallViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
             assertEquals("First stage retains a complete small app bar", smallTop.toFloat(), smallViewport.top.toFloat(), 2f * density)
             assertEquals(initialBack, bounds(back()))
-            assertSmallTitleGap()
-            fun barPixel(): Int {
-                val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
-                return try { screenshot.getPixel(screen.width() * 3 / 4, smallTop - (4f * density).toInt()) }
-                finally { screenshot.recycle() }
-            }
             fun distanceFromContent(color: Int): Int =
                 kotlin.math.abs(android.graphics.Color.red(color) - android.graphics.Color.red(rowColor.toArgb())) +
                     kotlin.math.abs(android.graphics.Color.green(color) - android.graphics.Color.green(rowColor.toArgb())) +
                     kotlin.math.abs(android.graphics.Color.blue(color) - android.graphics.Color.blue(rowColor.toArgb()))
-            val smallBackground = barPixel()
-            assertEquals("Small app bar keeps the page background", pageBackground, smallBackground)
             SystemClock.sleep(300)
-            assertNotNull("Stopping at the small stage does not trigger fading", find { it.text?.toString() == title })
-            // Preserve the title and background through the 4dp scroll allowance.
-            repeat(2) {
-                scrollDistance(screen, 2f * density)
-                assertNotNull("Scrolling within 4dp retains the small title", find { it.text?.toString() == title })
-                assertEquals("Scrolling within 4dp retains the app bar background", smallBackground, barPixel())
-                assertSmallTitleGap()
-            }
-            // Crossing the allowance, followed by no movement, completes the timed fade.
-            scrollDistance(screen, 2f * density)
-            assertNull("Scrolling beyond 4dp triggers a complete fade without further movement",
-                find { it.text?.toString() == title })
+            assertNull("Small stage does not show a title", find { it.text?.toString() == title })
+            scrollDistance(screen, 6f * density)
+            assertNull("Further scrolling keeps the title hidden", find { it.text?.toString() == title })
+            val transparentScreenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+            try {
+                assertEquals("Content is visible through the small app bar before all top space is removed", rowColor.toArgb(),
+                    transparentScreenshot.getPixel(screen.width() * 3 / 4, smallTop - (4f * density).toInt()))
+            } finally { transparentScreenshot.recycle() }
             assertEquals("Back button stays fixed", initialBack, bounds(back()))
             val fadedViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
-            assertEquals("Fading moves content only by the actual extra scroll distance",
+            assertEquals("Content moves only by the actual extra scroll distance",
                 smallViewport.top - 6f * density, fadedViewport.top.toFloat(), 1f)
             val fadedRow = bounds(checkNotNull(find { it.text?.toString() == "Setting 0" }))
             SystemClock.sleep(300)
             assertEquals("Content does not continue moving while the finger is stopped", fadedViewport,
                 bounds(checkNotNull(find { it.contentDescription?.toString() == viewport })))
-            assertEquals("Rows do not scroll automatically during the fade", fadedRow,
+            assertEquals("Rows do not scroll automatically after collapsing", fadedRow,
                 bounds(checkNotNull(find { it.text?.toString() == "Setting 0" })))
             scrollDistance(screen, (fadedViewport.top - screen.top).toFloat())
             val collapsedViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
