@@ -209,12 +209,14 @@ fun SettingsPageScaffold(
     title: String,
     onBack: () -> Unit,
     floatingActionButton: @Composable () -> Unit = {},
+    floatingActionButtonPosition: FabPosition = FabPosition.End,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
     Scaffold(
         modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
         floatingActionButton = floatingActionButton,
+        floatingActionButtonPosition = floatingActionButtonPosition,
         topBar = {
             LargeTopAppBar(
                 title = { Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis) },

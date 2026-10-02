@@ -21,7 +21,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.ProfileIcon
 import dev.terminal.app.ui.SettingsPageScaffold
@@ -124,10 +123,23 @@ abstract class StorageScreenActivity : TerminalActivity() {
                 }.onFailure { error = it.message }
                 renaming = null
             }
-            SettingsPageScaffold(stringResource(titleResource), { finish() }) { padding ->
+            val detail = entries?.firstOrNull { it.key == selectedKey }
+            SettingsPageScaffold(stringResource(titleResource), { finish() },
+                floatingActionButtonPosition = FabPosition.Center,
+                floatingActionButton = {
+                    detail?.let { row ->
+                        StorageActions(
+                            enabled = runtime != null && renaming == null && deleting == null,
+                            canDelete = row.canDelete,
+                            onRename = { nameDraft = row.name.orEmpty(); editingName = true },
+                            onDelete = { confirm = row },
+                        )
+                    }
+                }) { padding ->
                 LazyColumn(Modifier.fillMaxSize().padding(padding),
                     state = scrollState,
-                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)) {
+                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp,
+                        bottom = if (detail != null) FloatingToolbarDefaults.ContainerSize + FloatingToolbarDefaults.ScreenOffset * 2 else 8.dp)) {
                     item {
                         Text(stringResource(R.string.storage_summary), Modifier.padding(horizontal = 4.dp),
                             style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -152,19 +164,21 @@ abstract class StorageScreenActivity : TerminalActivity() {
                             }
                         }
                     }
-                    val detail = entries?.firstOrNull { it.key == selectedKey }
                     if (selectedKey != null && entries != null && detail == null) item {
                         StorageSection(R.string.storage_title) { StorageEmpty(R.string.storage_missing) }
                     } else if (detail != null) {
-                        item { StorageSection(R.string.storage_title) {
-                            StorageRow(detail, runtime, measurement, null)
-                            ListItem(onClick = { nameDraft = detail.name.orEmpty(); editingName = true },
-                                enabled = renaming == null,
-                                supportingContent = { Text(detail.name ?: stringResource(R.string.profile_not_set)) },
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
-                                shapes = terminalListItemShapes(), modifier = Modifier.fillMaxWidth()) {
-                                Text(stringResource(R.string.storage_name))
-                            }
+                        item { StorageSection(R.string.storage_information) {
+                            StorageInfoRow(R.string.storage_name, detail.name ?: stringResource(R.string.profile_not_set))
+                            StorageInfoRow(R.string.profile_runtime, stringResource(runtimeTitleResource(detail.runtime)))
+                            StorageInfoRow(R.string.storage_id, detail.id)
+                            StorageInfoRow(R.string.storage_size, storageSize(detail, runtime, measurement))
+                            StorageInfoRow(R.string.storage_profile_count, stringResource(R.string.storage_count_value, detail.profiles.size))
+                            StorageInfoRow(R.string.storage_session_count, stringResource(R.string.storage_count_value, detail.sessions.size))
+                            StorageInfoRow(R.string.storage_deletion, stringResource(when {
+                                detail.id == "legacy" -> R.string.storage_legacy_protected
+                                detail.used -> R.string.storage_in_use_protected
+                                else -> R.string.storage_delete_hint
+                            }))
                         } }
                         item {
                             StorageSection(R.string.storage_profiles) {
@@ -184,23 +198,6 @@ abstract class StorageScreenActivity : TerminalActivity() {
                                     ListItem(supportingContent = { Text(session.first, style = MaterialTheme.typography.bodySmall) },
                                         colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                                         verticalAlignment = Alignment.CenterVertically) { Text(session.second.ifBlank { session.first }) }
-                                }
-                            }
-                        }
-                        item {
-                            Column(Modifier.fillMaxWidth().padding(top = 20.dp)) {
-                                Text(stringResource(when {
-                                    detail.id == "legacy" -> R.string.storage_legacy_protected
-                                    detail.used -> R.string.storage_in_use_protected
-                                    else -> R.string.storage_delete_hint
-                                }), Modifier.padding(horizontal = 16.dp), style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                TextButton(onClick = { confirm = detail }, enabled = detail.canDelete && deleting == null,
-                                    modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shapes = ButtonDefaults.shapes(),
-                                    colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                                    Icon(painterResource(R.drawable.ic_material_symbol_delete_24), null, Modifier.size(20.dp))
-                                    Spacer(Modifier.width(8.dp))
-                                    Text(stringResource(R.string.storage_delete))
                                 }
                             }
                         }
@@ -250,7 +247,7 @@ abstract class StorageScreenActivity : TerminalActivity() {
                 dismissButton = { TextButton(onClick = { confirm = null }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } }) }
         }
     }
-    @Composable private fun StorageRow(row: StorageItem, service: IRuntimeService?, measurement: Semaphore, click: (() -> Unit)?) {
+    @Composable private fun storageSize(row: StorageItem, service: IRuntimeService?, measurement: Semaphore): String {
         var bytes by remember(row.key) { mutableStateOf(row.bytes) }
         var failed by remember(row.key) { mutableStateOf(false) }
         LaunchedEffect(row.key, service) {
@@ -261,26 +258,37 @@ abstract class StorageScreenActivity : TerminalActivity() {
                 delay(60_000)
             }
         }
-        val size = bytes?.let { Formatter.formatShortFileSize(this, it) }
+        return bytes?.let { Formatter.formatShortFileSize(this, it) }
             ?: stringResource(if (failed) R.string.storage_size_unknown else R.string.storage_size_calculating)
+    }
+    @Composable private fun StorageRow(row: StorageItem, service: IRuntimeService?, measurement: Semaphore, click: () -> Unit) {
+        val size = storageSize(row, service, measurement)
         val runtimeTitle = stringResource(runtimeTitleResource(row.runtime))
-        val title = row.name ?: runtimeTitle
-        val description = stringResource(R.string.storage_counts, size, row.profiles.size, row.sessions.size)
-        val supporting: @Composable () -> Unit = {
-            if (click != null) Text(size)
-            else Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (row.name != null) Text(runtimeTitle)
-                Text(row.id, style = MaterialTheme.typography.bodySmall,
-                    maxLines = if (click == null) 2 else 1, overflow = TextOverflow.Ellipsis)
-                Text(description)
-            }
-        }
         val colors = ListItemDefaults.colors(containerColor = Color.Transparent)
-        if (click == null) ListItem(supportingContent = supporting,
-            verticalAlignment = Alignment.CenterVertically, colors = colors) { Text(title) }
-        else ListItem(onClick = click, supportingContent = supporting,
+        ListItem(onClick = click, supportingContent = { Text(size) },
             trailingContent = { StorageChevron() }, verticalAlignment = Alignment.CenterVertically,
             shapes = terminalListItemShapes(), modifier = Modifier.fillMaxWidth(), colors = colors) { Text(runtimeTitle) }
+    }
+    @Composable private fun StorageInfoRow(label: Int, value: String) {
+        ListItem(supportingContent = { Text(value) }, verticalAlignment = Alignment.CenterVertically,
+            colors = ListItemDefaults.colors(containerColor = Color.Transparent)) {
+            Text(stringResource(label))
+        }
+    }
+    @Composable private fun StorageActions(enabled: Boolean, canDelete: Boolean, onRename: () -> Unit, onDelete: () -> Unit) {
+        HorizontalFloatingToolbar(expanded = true) {
+            TextButton(onClick = onRename, enabled = enabled, shapes = ButtonDefaults.shapes()) {
+                Icon(painterResource(R.drawable.ic_toolbar_edit), null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.storage_rename))
+            }
+            TextButton(onClick = onDelete, enabled = enabled && canDelete, shapes = ButtonDefaults.shapes(),
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                Icon(painterResource(R.drawable.ic_material_symbol_delete_24), null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.storage_delete))
+            }
+        }
     }
     @Composable private fun StorageSection(title: Int, content: @Composable ColumnScope.() -> Unit) {
         Column(Modifier.fillMaxWidth().padding(top = 20.dp)) { ProfileSection(title, content) }

@@ -7,6 +7,14 @@
     <string name="profile_storage_name_hint">Leave blank to name it automatically from the profile.</string>
     <string name="profile_storage_empty">No compatible existing storage is available.</string>
     <string name="storage_name">Storage name</string>
+    <string name="storage_rename">Rename</string>
+    <string name="storage_information">Storage information</string>
+    <string name="storage_id">Storage ID</string>
+    <string name="storage_size">Size</string>
+    <string name="storage_profile_count">Connected profile count</string>
+    <string name="storage_session_count">Active session count</string>
+    <string name="storage_count_value">%1$d</string>
+    <string name="storage_deletion">Deletion availability</string>
     <string name="storage_name_hint">Leave blank to use the runtime name.</string>
     <string name="storage_summary">Persistent environments used by profiles.</string>
     <string name="storage_loading">Loading storage information…</string>

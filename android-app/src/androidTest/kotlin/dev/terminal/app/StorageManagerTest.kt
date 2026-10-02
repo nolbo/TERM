@@ -227,14 +227,32 @@ class StorageManagerTest {
                 InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
                 await { resumedActivity() is StorageActivity && find { it.text?.toString() == runtimeTitle } != null }
                 scenario.onActivity { it.startActivity(StorageDetailActivity.intent(context, profile.runtime.wireName, profile.storageId)) }
-                await { resumedActivity() is StorageDetailActivity && find { it.text?.toString() == profile.name } != null }
+                await { resumedActivity() is StorageDetailActivity && find { it.text?.toString() == profile.storageId } != null }
+                val nameRow = requireNotNull(find { it.text?.toString() == context.getString(R.string.storage_name) })
+                assertFalse("Storage name is a read-only settings row", nameRow.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+                val renameLabel = context.getString(R.string.storage_rename)
+                val deleteLabel = context.getString(R.string.storage_delete)
+                fun buttonBounds(label: String) = android.graphics.Rect().also {
+                    clickableAncestor(requireNotNull(find { it.text?.toString() == label })).getBoundsInScreen(it)
+                }
+                val toolbarBounds = buttonBounds(renameLabel).apply { union(buttonBounds(deleteLabel)) }
+                val screen = android.graphics.Rect().also {
+                    InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow.getBoundsInScreen(it)
+                }
+                assertEquals("Floating toolbar is centered", screen.exactCenterX(), toolbarBounds.exactCenterX(), 2f)
+                assertTrue("Floating toolbar sits at the bottom", toolbarBounds.top > screen.centerY())
+                scrollToText(profile.name, bottomLimit = toolbarBounds.top)
+                val profileBounds = android.graphics.Rect().also {
+                    requireNotNull(find { it.text?.toString() == profile.name }).getBoundsInScreen(it)
+                }
+                assertTrue("Last profile stays clear of the floating toolbar", profileBounds.bottom <= toolbarBounds.top)
                 assertNull(find { it.text?.toString() == context.getString(R.string.storage_sessions) })
                 val registry = dev.terminal.runtime.session.StorageRegistry(context.filesDir)
                 val key = dev.terminal.runtime.session.StorageRegistry.Key(profile.runtime, profile.storageId)
                 val defaultName = registry.transaction { name(key) }
                 assertTrue(requireNotNull(defaultName).startsWith("Storage for ${profile.name}"))
                 fun editName(value: String, save: Boolean) {
-                    clickContaining(context.getString(R.string.storage_name))
+                    clickContaining(renameLabel)
                     await { find { it.isEditable } != null }
                     assertTrue(requireNotNull(find { it.isEditable }).performAction(
                         android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT,
@@ -246,14 +264,13 @@ class StorageManagerTest {
                 assertEquals(defaultName, registry.transaction { name(key) })
                 editName("Storage UI name", true)
                 await { registry.transaction { name(key) } == "Storage UI name" }
-                await { find { it.text?.toString() == "Storage UI name" } != null }
+                scrollToText("Storage UI name", forward = false)
                 assertNull(find { it.text?.toString()?.contains("The coroutine scope left the composition") == true })
                 val detail = requireNotNull(resumedActivity() as? StorageDetailActivity)
                 InstrumentationRegistry.getInstrumentation().runOnMainSync { detail.recreate() }
                 await { resumedActivity() is StorageDetailActivity && resumedActivity() !== detail && find { it.text?.toString() == "Storage UI name" } != null }
                 editName("", true)
                 await { registry.transaction { name(key) } == null }
-                val deleteLabel = context.getString(R.string.storage_delete)
                 assertNotNull(find { it.text?.toString() == deleteLabel })
                 assertFalse(clickableAncestor(requireNotNull(find { it.text?.toString() == deleteLabel })).isEnabled)
                 store.delete(profile.id)
@@ -298,6 +315,19 @@ class StorageManagerTest {
                 (it.isClickable || it.parent?.isClickable == true) }
             val button = label?.let { if (it.isClickable) it else it.parent }
             button?.isEnabled == true && button.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+        }
+    }
+    private fun scrollToText(text: String, forward: Boolean = true, bottomLimit: Int = Int.MAX_VALUE) {
+        await {
+            val node = find { it.isVisibleToUser && it.text?.toString() == text }
+            val bounds = android.graphics.Rect().also { node?.getBoundsInScreen(it) }
+            if (node != null && bounds.bottom <= bottomLimit) true
+            else {
+                find { it.isScrollable }?.performAction(if (forward)
+                    android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                    else android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+                false
+            }
         }
     }
     private fun find(predicate: (android.view.accessibility.AccessibilityNodeInfo) -> Boolean): android.view.accessibility.AccessibilityNodeInfo? {
