@@ -211,21 +211,25 @@ class StorageManagerTest {
         val store = SessionProfiles(context)
         val profile = store.duplicate(store.builtIns().first()).copy(name = "Storage UI fixture")
         store.save(profile)
+        val registry = dev.terminal.runtime.session.StorageRegistry(context.filesDir)
+        val key = dev.terminal.runtime.session.StorageRegistry.Key(profile.runtime, profile.storageId)
+        val defaultName = requireNotNull(registry.transaction { name(key) })
         try {
             ActivityScenario.launch(StorageActivity::class.java).use { scenario ->
                 val runtimeTitle = context.getString(dev.terminal.app.ui.runtimeTitleResource(profile.runtime.wireName))
                 await {
-                    if (find { it.text?.toString() == runtimeTitle } != null) true
+                    if (find { it.text?.toString() == defaultName } != null) true
                     else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
                 }
                 assertNull(find { it.text?.toString()?.contains(profile.storageId) == true })
-                assertNull(find { it.text?.toString()?.contains(profile.name) == true })
-                clickContaining(runtimeTitle)
+                assertNotNull(find { it.text?.toString()?.startsWith("$runtimeTitle · ") == true })
+                clickContaining(defaultName)
                 await { resumedActivity() is StorageDetailActivity }
                 val openedId = requireNotNull(resumedActivity()?.intent?.getStringExtra("storageId"))
+                assertEquals("The named row opens its own storage", profile.storageId, openedId)
                 await { find { it.text?.toString() == openedId } != null }
                 InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
-                await { resumedActivity() is StorageActivity && find { it.text?.toString() == runtimeTitle } != null }
+                await { resumedActivity() is StorageActivity && find { it.text?.toString() == defaultName } != null }
                 scenario.onActivity { it.startActivity(StorageDetailActivity.intent(context, profile.runtime.wireName, profile.storageId)) }
                 await { resumedActivity() is StorageDetailActivity && find { it.text?.toString() == profile.storageId } != null }
                 val nameRow = requireNotNull(find { it.text?.toString() == context.getString(R.string.storage_name) })
@@ -247,10 +251,7 @@ class StorageManagerTest {
                 }
                 assertTrue("Last profile stays clear of the floating toolbar", profileBounds.bottom <= toolbarBounds.top)
                 assertNull(find { it.text?.toString() == context.getString(R.string.storage_sessions) })
-                val registry = dev.terminal.runtime.session.StorageRegistry(context.filesDir)
-                val key = dev.terminal.runtime.session.StorageRegistry.Key(profile.runtime, profile.storageId)
-                val defaultName = registry.transaction { name(key) }
-                assertTrue(requireNotNull(defaultName).startsWith("Storage for ${profile.name}"))
+                assertTrue(defaultName.startsWith("Storage for ${profile.name}"))
                 fun editName(value: String, save: Boolean) {
                     clickContaining(renameLabel)
                     await { find { it.isEditable } != null }

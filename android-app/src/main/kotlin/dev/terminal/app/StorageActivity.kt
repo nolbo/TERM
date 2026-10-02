@@ -270,9 +270,9 @@ abstract class StorageScreenActivity : TerminalActivity() {
         val size = storageSize(row, service, measurement)
         val runtimeTitle = stringResource(runtimeTitleResource(row.runtime))
         val colors = terminalSettingsListItemColors()
-        ListItem(onClick = click, supportingContent = { Text(size) },
+        ListItem(onClick = click, supportingContent = { Text(stringResource(R.string.storage_runtime_size, runtimeTitle, size)) },
             trailingContent = { StorageChevron() }, verticalAlignment = Alignment.CenterVertically,
-            shapes = terminalListItemShapes(), modifier = Modifier.fillMaxWidth(), colors = colors) { Text(runtimeTitle) }
+            shapes = terminalListItemShapes(), modifier = Modifier.fillMaxWidth(), colors = colors) { Text(row.name ?: runtimeTitle) }
     }
     @Composable private fun StorageInfoRow(label: Int, value: String) {
         ListItem(modifier = Modifier.settingsItemSurface(), supportingContent = { Text(value) }, verticalAlignment = Alignment.CenterVertically,

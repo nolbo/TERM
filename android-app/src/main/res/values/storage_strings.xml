@@ -11,6 +11,7 @@
     <string name="storage_information">저장소 정보</string>
     <string name="storage_id">저장소 ID</string>
     <string name="storage_size">용량</string>
+    <string name="storage_runtime_size">%1$s · %2$s</string>
     <string name="storage_profile_count">연결된 프로필 수</string>
     <string name="storage_session_count">활성 세션 수</string>
     <string name="storage_count_value">%1$d개</string>
