@@ -80,6 +80,7 @@ public final class TerminalView extends View {
     /** Fraction of the first row above the viewport, in [0, 1). */
     private float mScrollOffset;
     private int mScrollbackTopInset;
+    private boolean mTerminalGridBottomAligned;
     private boolean mSmoothScrollingEnabled;
     private int mScrollGeneration;
 
@@ -805,9 +806,9 @@ public final class TerminalView extends View {
      */
     public int[] getColumnAndRow(MotionEvent event, boolean relativeToScroll) {
         int column = (int) (event.getX() / mRenderer.mFontWidth);
-        int row = (int) ((event.getY() - mScrollbackTopInset - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing);
+        int row = (int) ((event.getY() - getTerminalContentTopInset() - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing);
         if (relativeToScroll) {
-            row = (int) Math.floor((event.getY() - mScrollbackTopInset - mRenderer.mFontLineSpacingAndAscent)
+            row = (int) Math.floor((event.getY() - getTerminalContentTopInset() - mRenderer.mFontLineSpacingAndAscent)
                 / mRenderer.mFontLineSpacing + mScrollOffset) + mTopRow;
         }
         return new int[] { column, row };
@@ -1400,6 +1401,19 @@ public final class TerminalView extends View {
         invalidate();
     }
 
+    /** Keep complete terminal rows against the bottom edge without changing PTY geometry. */
+    public void setTerminalGridBottomAligned(boolean aligned) {
+        if (mTerminalGridBottomAligned == aligned) return;
+        mTerminalGridBottomAligned = aligned;
+        refresh();
+    }
+
+    public int getTerminalContentTopInset() {
+        if (!mTerminalGridBottomAligned || mRenderer == null) return mScrollbackTopInset;
+        return TerminalViewport.bottomAlignedTopInset(getHeight(), mScrollbackTopInset,
+            mRenderer.mFontLineSpacingAndAscent, mRenderer.mFontLineSpacing);
+    }
+
     private void applySize() {
         int viewWidth = getWidth();
         int viewHeight = getHeight();
@@ -1447,7 +1461,7 @@ public final class TerminalView extends View {
             long syncDelay = mEmulator.getSynchronizedOutputDelayMillis();
             mRenderer.setPaletteOverride(mPaletteOverride);
             mRenderer.setCanvasBackgroundOverride(mCanvasBackgroundOverride);
-            mRenderer.render(mEmulator, canvas, mTopRow, sel[0], sel[1], sel[2], sel[3], mScrollOffset, mScrollbackTopInset);
+            mRenderer.render(mEmulator, canvas, mTopRow, sel[0], sel[1], sel[2], sel[3], mScrollOffset, getTerminalContentTopInset());
             long graphicsDelay = syncDelay > 0 ? syncDelay : mEmulator.getGraphics().getAnimationDelayMillis();
             if (graphicsDelay >= 0) postInvalidateDelayed(Math.max(16, graphicsDelay));
 
@@ -1456,7 +1470,7 @@ public final class TerminalView extends View {
 
             // Draw in-progress Hangul/CJK text on top of terminal output until it is committed.
             canvas.save();
-            canvas.translate(0, mScrollbackTopInset - mScrollOffset * mRenderer.mFontLineSpacing);
+            canvas.translate(0, getTerminalContentTopInset() - mScrollOffset * mRenderer.mFontLineSpacing);
             drawComposingText(canvas);
             canvas.restore();
         }
@@ -1523,10 +1537,10 @@ public final class TerminalView extends View {
     public String getWebLinkAt(float x, float y) {
         if (mEmulator == null || mRenderer == null || x < 0 || y < 0) return null;
         int column = (int) (x / mRenderer.mFontWidth);
-        int screenRow = (int) Math.floor((y - mScrollbackTopInset - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing + mScrollOffset);
+        int screenRow = (int) Math.floor((y - getTerminalContentTopInset() - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing + mScrollOffset);
         int row = screenRow + mTopRow;
         int firstRow = TerminalViewport.firstDrawnRow(mTopRow, mEmulator.getScreen().getActiveTranscriptRows(),
-            mScrollbackTopInset, mRenderer.mFontLineSpacing);
+            getTerminalContentTopInset(), mRenderer.mFontLineSpacing);
         if (column >= mEmulator.mColumns || row < firstRow
                 || screenRow >= mEmulator.mRows + (mScrollOffset > 0 ? 1 : 0)) return null;
         com.termux.terminal.TerminalBuffer buffer = mEmulator.getScreen();
@@ -1553,7 +1567,7 @@ public final class TerminalView extends View {
     }
 
     public int getCursorY(float y) {
-        return (int) (((y - mScrollbackTopInset - 40) / mRenderer.mFontLineSpacing) + mTopRow + mScrollOffset);
+        return (int) (((y - getTerminalContentTopInset() - 40) / mRenderer.mFontLineSpacing) + mTopRow + mScrollOffset);
     }
 
     public int getPointX(int cx) {
@@ -1564,7 +1578,7 @@ public final class TerminalView extends View {
     }
 
     public int getPointY(int cy) {
-        return mScrollbackTopInset + Math.round((cy - mTopRow - mScrollOffset) * mRenderer.mFontLineSpacing);
+        return getTerminalContentTopInset() + Math.round((cy - mTopRow - mScrollOffset) * mRenderer.mFontLineSpacing);
     }
 
     public int getTopRow() {

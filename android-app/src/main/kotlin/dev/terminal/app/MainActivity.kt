@@ -521,6 +521,7 @@ class MainActivity : TerminalActivity() {
                 AndroidView(
                     factory = { context ->
                         TerminalView(context, null).apply {
+                            setTerminalGridBottomAligned(true)
                             isFocusable = true
                             isFocusableInTouchMode = true
                             terminalView = this

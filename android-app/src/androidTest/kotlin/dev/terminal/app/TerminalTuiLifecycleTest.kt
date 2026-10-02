@@ -8,6 +8,9 @@ import android.os.IBinder
 import android.os.SystemClock
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Rect
+import android.view.KeyEvent
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -17,6 +20,7 @@ import com.termux.terminal.TerminalEmulator
 import com.termux.terminal.TextStyle
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
+import com.termux.view.TerminalRenderer
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.lifecycle.VmRuntimeService
 import java.util.concurrent.LinkedBlockingQueue
@@ -30,6 +34,55 @@ import org.junit.runner.RunWith
 class TerminalTuiLifecycleTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
+
+    @Test fun toolbarModesKeepTerminalGridAdjacentToHandle() = withSession { _, id ->
+        val padding = TerminalAppearance.paddingDp(context.getSharedPreferences(
+            SettingsDetailActivity.TERMINAL_PREFERENCES, Context.MODE_PRIVATE)) * context.resources.displayMetrics.density
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            select(scenario, id)
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            for (mode in listOf(ToolbarSheetMode.Default, ToolbarSheetMode.Expanded, ToolbarSheetMode.Hidden, ToolbarSheetMode.Default)) {
+                scenario.onActivity { activity ->
+                    @Suppress("UNCHECKED_CAST")
+                    val state = MainActivity::class.java.getDeclaredField("toolbarSheetMode\$delegate")
+                        .apply { isAccessible = true }.get(activity) as androidx.compose.runtime.MutableState<ToolbarSheetMode>
+                    state.value = mode
+                }
+                SystemClock.sleep(1500)
+                val label = context.getString(R.string.toolbar_handle)
+                fun find(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+                    if (node == null) return null
+                    if (node.isVisibleToUser && node.contentDescription?.toString() == label) return node
+                    for (i in 0 until node.childCount) find(node.getChild(i))?.let { return it }
+                    return null
+                }
+                instrumentation.uiAutomation.clearCache()
+                val root = instrumentation.uiAutomation.rootInActiveWindow
+                val labels = mutableListOf<String>()
+                fun dump(node: AccessibilityNodeInfo?) {
+                    if (node == null) return
+                    if (node.contentDescription != null) labels += node.contentDescription.toString()
+                    for (i in 0 until node.childCount) dump(node.getChild(i))
+                }
+                dump(root)
+                val handle = checkNotNull(find(root)) { "$mode: missing $label, descriptions=$labels" }
+                val bounds = Rect().also { handle.getBoundsInScreen(it) }
+                scenario.onActivity {
+                    val terminalView = checkNotNull(view(scenario))
+                    val renderer = TerminalView::class.java.getDeclaredField("mRenderer")
+                        .apply { isAccessible = true }.get(terminalView) as TerminalRenderer
+                    val inset = terminalView.terminalContentTopInset
+                    val top = TerminalRenderer::class.java.getDeclaredField("mFontLineSpacingAndAscent")
+                        .apply { isAccessible = true }.getInt(renderer)
+                    val location = IntArray(2).also { terminalView.getLocationOnScreen(it) }
+                    val gridBottom = location[1] + inset + top + terminalView.currentSession.emulator.mRows * renderer.fontLineSpacing
+                    val gap = bounds.top - gridBottom
+                    assertTrue("$mode: gap=$gap, view=${terminalView.height}, rows=${terminalView.currentSession.emulator.mRows}, line=${renderer.fontLineSpacing}",
+                        kotlin.math.abs(gap - padding) <= 1)
+                }
+            }
+        }
+    }
 
     @Test fun tuiChromeFollowsLiveOutputAndRestoresAcrossSettingsAndRecreation() = withSession { service, id ->
         val preferences = context.getSharedPreferences(SettingsDetailActivity.TERMINAL_PREFERENCES, Context.MODE_PRIVATE)
