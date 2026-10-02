@@ -7,6 +7,8 @@ import android.view.KeyEvent
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -219,6 +221,12 @@ fun SettingsPageScaffold(
     val headerState = rememberTopAppBarState()
     val contentHeaderState = rememberTopAppBarState()
     val density = LocalDensity.current
+    val fadeThreshold = with(density) { 4.dp.toPx() }
+    val floatingFraction by animateFloatAsState(
+        targetValue = if (contentHeaderState.heightOffset < -fadeThreshold) 1f else 0f,
+        animationSpec = tween(250),
+        label = "Settings small title fade",
+    )
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
         state = headerState, canScroll = { contentHeaderState.heightOffset == 0f })
     val contentScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
@@ -242,8 +250,9 @@ fun SettingsPageScaffold(
             // Top space belongs to the two header stages, including the initial status-bar inset.
             contentWindowInsets = systemInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
             topBar = {
-                if (headerState.collapsedFraction < 1f) LargeTopAppBar(
-                    modifier = Modifier.graphicsLayer { alpha = 1f - headerState.collapsedFraction },
+                if (floatingFraction < 1f) LargeTopAppBar(
+                    // Material crossfades the large/small titles; extra scrolling fades the small title.
+                    modifier = Modifier.graphicsLayer { alpha = 1f - floatingFraction },
                     title = { Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                     // Reserve space aligned with the separately pinned circular back button.
                     navigationIcon = { Spacer(Modifier.padding(horizontal = 12.dp).size(48.dp)) },

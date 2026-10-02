@@ -170,6 +170,14 @@ class SettingsAppBarUiTest {
             val expandedTitle = bounds(checkNotNull(find { it.text?.toString() == title }))
             assertTrue("Expanded title stays below the circular back button with a gap",
                 expandedTitle.top - initialBack.bottom >= (16f * density).toInt())
+            fun assertSmallTitle() {
+                val smallTitle = bounds(checkNotNull(find { it.text?.toString() == title }))
+                assertTrue("Small title uses a smaller text size", smallTitle.height() < expandedTitle.height())
+                assertEquals("Small title is beside the back button", initialBack.centerY().toFloat(),
+                    smallTitle.exactCenterY(), 2f * density)
+                assertTrue("Small title keeps 16dp clear of the circular back button",
+                    smallTitle.left - initialBack.right >= (16f * density).toInt())
+            }
             val smallTop = initialBack.top + (56f * density).toInt()
             val inset = (2f * density).toInt()
             val initialScreenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
@@ -196,7 +204,7 @@ class SettingsAppBarUiTest {
             }
             await { bounds(checkNotNull(find { it.contentDescription?.toString() == viewport })) == initialViewport }
             scrollDistance(screen, (initialViewport.top - smallTop).toFloat())
-            assertNull("Large title disappears by the small stage", find { it.text?.toString() == title })
+            assertSmallTitle()
             val smallViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
             assertEquals("First stage retains a complete small app bar", smallTop.toFloat(), smallViewport.top.toFloat(), 2f * density)
             assertEquals(initialBack, bounds(back()))
@@ -205,9 +213,13 @@ class SettingsAppBarUiTest {
                     kotlin.math.abs(android.graphics.Color.green(color) - android.graphics.Color.green(rowColor.toArgb())) +
                     kotlin.math.abs(android.graphics.Color.blue(color) - android.graphics.Color.blue(rowColor.toArgb()))
             SystemClock.sleep(300)
-            assertNull("Small stage does not show a title", find { it.text?.toString() == title })
-            scrollDistance(screen, 6f * density)
-            assertNull("Further scrolling keeps the title hidden", find { it.text?.toString() == title })
+            assertSmallTitle()
+            repeat(2) {
+                scrollDistance(screen, 2f * density)
+                assertSmallTitle()
+            }
+            scrollDistance(screen, 2f * density)
+            assertNull("Scrolling beyond 4dp fades out the small title", find { it.text?.toString() == title })
             val transparentScreenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
             try {
                 assertEquals("Content is visible through the small app bar before all top space is removed", rowColor.toArgb(),
