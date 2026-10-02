@@ -34,6 +34,46 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
         } }
     }
     inner class Transaction internal constructor(private val state: JSONObject) {
+        fun migratedLegacyId(runtime: SessionRuntime): String? = state.optJSONObject("legacyStorageIds")
+            ?.optString(runtime.wireName)?.takeIf { it.isNotEmpty() }?.also { SessionStorage.validate(it); check(it != "legacy") }
+        fun canonicalKey(key: Key): Key = if (key.storageId == "legacy")
+            migratedLegacyId(key.runtime)?.let { Key(key.runtime, it) } ?: key else key
+        fun isDeleted(key: Key): Boolean = canonicalKey(key) in decodeKeys(state.getJSONArray("deleted"))
+        fun resolveProfile(profile: SessionProfile): SessionProfile =
+            profile.copy(storageId = canonicalKey(Key(profile.runtime, profile.storageId)).storageId)
+
+        /** Service calls this only after excluding creation and proving the old controller idle.
+         * One atomic manifest commit adopts the fixed old paths, names and every profile reference.
+         * No copy/rename journal is needed: until commit, the old environment remains untouched.
+         */
+        fun migrateLegacy(runtime: SessionRuntime, defaults: List<SessionProfile>): Key {
+            migratedLegacyId(runtime)?.let { return Key(runtime, it) }
+            val old = Key(runtime, "legacy")
+            val linked = profiles(defaults).filter { it.runtime == runtime && it.storageId == "legacy" }
+            val existing = keys()
+            check(old in existing || linked.isNotEmpty()) { "No legacy environment to migrate" }
+            val key = Key(runtime, java.util.UUID.randomUUID().toString())
+            val names = state.optJSONObject("storageNames")
+            val oldName = name(old)
+            val occupied = names?.keys()?.asSequence()?.map { names.getString(it) }?.toList().orEmpty()
+            putName(key, oldName ?: defaultName(linked.firstOrNull()?.name ?: runtime.wireName, occupied))
+            names?.remove("${runtime.wireName}:legacy")
+            val ids = state.optJSONObject("legacyStorageIds") ?: JSONObject().also { state.put("legacyStorageIds", it) }
+            ids.put(runtime.wireName, key.storageId)
+            val saved = state.getJSONObject("profiles")
+            saved.keys().asSequence().toList().forEach { id ->
+                val encoded = saved.getString(id)
+                if (encoded.isNotEmpty()) {
+                    val profile = SessionLaunchSpec.fromJson(encoded).toProfile()
+                    if (profile.runtime == runtime && profile.storageId == "legacy")
+                        saved.put(id, profile.copy(storageId = key.storageId).resolve().toJson().toString())
+                }
+            }
+            state.put("storages", JSONArray(((existing - old) + key).map { it.json() }))
+            sizes.remove(old)
+            persist()
+            return key
+        }
         fun name(key: Key): String? = state.optJSONObject("storageNames")?.optString("${key.runtime.wireName}:${key.storageId}")?.takeIf { it.isNotBlank() }
         fun rename(key: Key, value: String, defaults: List<SessionProfile> = emptyList()) {
             check(key in keys() + profiles(defaults).map { Key(it.runtime, it.storageId) }) { "Storage not found" }
@@ -54,10 +94,10 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
         }
         fun profiles(defaults: List<SessionProfile>): List<SessionProfile> {
             val overrides = overrides()
-            return (defaults.map { it.id } + overrides.keys).distinct().mapNotNull { id ->
+            return (defaults.map { it.id } + overrides.keys.sorted()).distinct().mapNotNull { id ->
                 if (id in overrides) overrides.getValue(id).takeIf { it.isNotEmpty() }?.let { SessionLaunchSpec.fromJson(it).toProfile() }
                 else defaults.firstOrNull { it.id == id }
-            }
+            }.map(::resolveProfile)
         }
         fun keys(): Set<Key> = buildSet {
             addAll(decodeKeys(state.getJSONArray("storages")))
@@ -66,21 +106,24 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
             }
             SessionRuntime.entries.forEach { runtime ->
                 val legacy = Key(runtime, "legacy")
-                if (Files.exists(root(legacy).toPath(), NOFOLLOW_LINKS)) add(legacy)
+                if (migratedLegacyId(runtime) == null && Files.exists(root(legacy).toPath(), NOFOLLOW_LINKS)) add(legacy)
                 File(files, "profile-storage/${runtime.wireName}").listFiles()?.forEach { child ->
                     if (runCatching { SessionStorage.validate(child.name) }.isSuccess && child.name != "legacy") add(Key(runtime, child.name))
                 }
             }
-        }
+        }.filterTo(mutableSetOf()) { it !in decodeKeys(state.getJSONArray("deleted")) }
         fun validateConnection(key: Key) {
-            check(key !in decodeKeys(state.getJSONArray("deleted"))) { "Storage has been deleted; choose a new environment" }
-            if (key.storageId != "legacy") check(keys().none { it.storageId == key.storageId && it.runtime != key.runtime }) {
+            val resolved = canonicalKey(key)
+            check(!isDeleted(resolved)) { "Storage has been deleted; choose a new environment" }
+            if (resolved.storageId != "legacy") check((keys() + SessionRuntime.entries.mapNotNull { runtime -> migratedLegacyId(runtime)?.let { Key(runtime, it) } })
+                .none { it.storageId == resolved.storageId && it.runtime != resolved.runtime }) {
                 "Storage runtime or Rootless distribution is incompatible"
             }
         }
         fun save(profile: SessionProfile, newStorageName: String? = null) {
-            val encoded = profile.resolve().toJson().toString()
-            val key = Key(profile.runtime, profile.storageId)
+            val resolved = resolveProfile(profile)
+            val encoded = resolved.resolve().toJson().toString()
+            val key = Key(resolved.runtime, resolved.storageId)
             validateConnection(key)
             val existingKeys = keys()
             val fresh = key.storageId != "legacy" && key !in existingKeys
@@ -109,7 +152,7 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
         fun delete(key: Key) {
             check(key.storageId != "legacy")
             deleteTree(root(key).toPath())
-            if (key.runtime == SessionRuntime.AVF) deleteTree(File(files, "shared-vms/${key.storageId}").toPath())
+            if (key.runtime == SessionRuntime.AVF) deleteTree(File(files, "shared-vms/${SessionStorage.avfInstanceId(files, key.storageId)}").toPath())
             state.put("storages", JSONArray(keys().filter { it != key }.map { it.json() }))
             state.put("deleted", JSONArray((decodeKeys(state.getJSONArray("deleted")) + key).map { it.json() }))
             state.optJSONObject("storageNames")?.remove("${key.runtime.wireName}:${key.storageId}")
@@ -128,7 +171,7 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
     fun measure(key: Key): Long {
         cachedSize(key)?.let { return it }
         var bytes = treeSize(root(key).toPath())
-        if (key.runtime == SessionRuntime.AVF && key.storageId != "legacy") bytes += treeSize(File(files, "shared-vms/${key.storageId}").toPath())
+        if (key.runtime == SessionRuntime.AVF) bytes += treeSize(File(files, "shared-vms/${SessionStorage.avfInstanceId(files, key.storageId)}").toPath())
         sizes[key] = Size(bytes, System.currentTimeMillis())
         return bytes
     }

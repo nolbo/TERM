@@ -26,6 +26,80 @@ import java.util.concurrent.TimeUnit
 @RunWith(AndroidJUnit4::class)
 class StorageManagerTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
+    @Test fun legacyLaunchUsesMigratedEnvironmentAndFreshStorageRemainsIndependent() {
+        val store = SessionProfiles(context)
+        val old = store.builtIns().first { it.runtime == SessionRuntime.NATIVE }
+            .copy(id = UUID.randomUUID().toString(), name = "Legacy upgrade fixture")
+        val fresh = store.duplicate(old).copy(name = "Fresh upgrade fixture")
+        val marker = UUID.randomUUID().toString()
+        val fileName = "upgrade-fixture-${UUID.randomUUID()}"
+        val sentinel = File(SessionStorage.legacyRoot(context.filesDir, old.runtime), "home/$fileName")
+        requireNotNull(sentinel.parentFile).mkdirs()
+        sentinel.writeText(marker)
+        store.save(old)
+        store.save(fresh)
+        val queue = LinkedBlockingQueue<IRuntimeService>()
+        val connection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, binder: IBinder) { queue.offer(IRuntimeService.Stub.asInterface(binder)) }
+            override fun onServiceDisconnected(name: ComponentName) = Unit
+        }
+        assertTrue(context.bindService(Intent(context, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE))
+        val service = requireNotNull(queue.poll(15, TimeUnit.SECONDS))
+        val sessionIds = mutableListOf<String>()
+        val output = StringBuffer()
+        val failures = LinkedBlockingQueue<String>()
+        val listener = object : dev.terminal.runtime.ipc.ITerminalStateListener.Stub() {
+            override fun onCheckpoint(state: android.os.ParcelFileDescriptor) {
+                android.os.ParcelFileDescriptor.AutoCloseInputStream(state).use { it.readBytes() }
+            }
+            override fun onOutput(bytes: ByteArray) { output.append(String(bytes, Charsets.UTF_8)) }
+            override fun onResize(columns: Int, rows: Int, cellWidth: Int, cellHeight: Int) = Unit
+            override fun onExited(code: Int) = Unit
+            override fun onError(message: String) { failures.offer(message) }
+        }
+        fun sessions() = JSONArray(service.sessionsJson).let { a -> List(a.length()) { a.getJSONObject(it) } }
+        try {
+            service.startRuntime()
+            await { service.state == "READY" }
+            val migrated = StorageItem.parse(service.storageJson).single { row -> row.profiles.any { it.first == old.id } }
+            assertNotEquals("legacy", migrated.id)
+            assertEquals(migrated.id, store.find(old.id)!!.storageId)
+            assertEquals(marker, sentinel.readText())
+            assertEquals(SessionStorage.legacyRoot(context.filesDir, old.runtime), SessionStorage.root(context.filesDir, old.runtime, migrated.id))
+            // An old cached launch request resolves to the adopted identity before Session creation.
+            service.createSessionFromSpec(old.resolve().toJson().toString(), 24, 80)
+            await { sessions().any { it.optString("profileId") == old.id } }
+            val oldSession = sessions().single { it.optString("profileId") == old.id }
+            val id = oldSession.getString("id").also { sessionIds += it }
+            assertEquals(migrated.id, oldSession.getJSONObject("launchSpec").getString("storageId"))
+            service.attachTerminal(id, listener, 24, 80, 10, 20, "{}")
+            service.writeSessionInput(id, "cat \"\$HOME/$fileName\"\n".toByteArray())
+            await { output.contains(marker) }
+            assertTrue(service.deleteStorage(old.runtime.wireName, migrated.id).isNotEmpty())
+            assertEquals(marker, sentinel.readText())
+            service.createSessionFromSpec(fresh.resolve().toJson().toString(), 24, 80)
+            await { sessions().any { it.optString("profileId") == fresh.id } }
+            val freshId = sessions().single { it.optString("profileId") == fresh.id }.getString("id").also { sessionIds += it }
+            assertFalse(File(SessionStorage.root(context.filesDir, fresh.runtime, fresh.storageId), "home/$fileName").exists())
+            service.attachTerminal(freshId, listener, 24, 80, 10, 20, "{}")
+            val suffix = UUID.randomUUID().toString()
+            service.writeSessionInput(freshId, "if [ ! -e \"\$HOME/$fileName\" ]; then printf '%s%s' 'FRESH_' '$suffix'; fi\n".toByteArray())
+            await { output.contains("FRESH_$suffix") }
+            assertTrue(failures.isEmpty())
+            // Restored legacy detail intents follow the same environment after adoption.
+            ActivityScenario.launch<StorageDetailActivity>(StorageDetailActivity.intent(context, old.runtime.wireName, "legacy")).use {
+                await { find { it.text?.toString()?.contains(migrated.id) == true } != null }
+                assertNull(find { it.text?.toString() == context.getString(R.string.storage_missing) })
+            }
+        } finally {
+            sessionIds.forEach { service.detachTerminal(it, listener); service.terminateSession(it) }
+            await { sessions().none { it.getString("id") in sessionIds } }
+            store.delete(old.id); store.delete(fresh.id)
+            service.deleteStorage(fresh.runtime.wireName, fresh.storageId)
+            sentinel.delete()
+            context.unbindService(connection)
+        }
+    }
     @Test fun newProfileSelectsAnExistingStorageFromSettingsRows() {
         val store = SessionProfiles(context)
         val target = store.duplicate(store.builtIns().first()).copy(name = "Existing storage fixture")

@@ -3,7 +3,6 @@ package dev.terminal.app
 import android.content.Context
 import dev.terminal.runtime.session.SessionProfile
 import dev.terminal.runtime.session.SessionRuntime
-import dev.terminal.runtime.session.SessionLaunchSpec
 import java.io.File
 import java.util.UUID
 
@@ -19,14 +18,8 @@ class SessionProfiles(context: Context) {
     private val runtimePreferences = context.getSharedPreferences(SettingsDetailActivity.RUNTIME_PREFERENCES, Context.MODE_PRIVATE)
     fun all(): List<SessionProfile> {
         val defaults = builtIns()
-        val stored = registry.transaction { overrides() }
-        return (defaults.map { it.id } + stored.keys.sorted()).distinct().mapNotNull { id ->
-            if (id == SessionProfile.builtInId(SessionRuntime.AVF) && !hasAvfPrivileges()) return@mapNotNull null
-            if (stored.containsKey(id)) {
-                (stored[id] as String).takeIf { it.isNotEmpty() }?.let {
-                    SessionLaunchSpec.fromJson(it).toProfile()
-                }
-            } else defaults.firstOrNull { it.id == id }
+        return registry.transaction { profiles(defaults) }.filter {
+            it.id != SessionProfile.builtInId(SessionRuntime.AVF) || hasAvfPrivileges()
         }
     }
     fun find(id: String): SessionProfile? = all().firstOrNull { it.id == id }

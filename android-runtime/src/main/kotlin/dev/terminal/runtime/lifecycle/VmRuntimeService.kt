@@ -78,6 +78,8 @@ class VmRuntimeService : Service() {
     private val startedStorageBackends = java.util.concurrent.ConcurrentHashMap.newKeySet<Pair<SessionRuntime, String>>()
     private val sessionClientMutex = Mutex()
     private val preparationLocks = StoragePreparationLocks()
+    private val storageMigrationMutex = Mutex()
+    private val primaryPreparationMutex = Mutex()
     private val terminalSinks = java.util.concurrent.ConcurrentHashMap<Pair<String, android.os.IBinder>, dev.terminal.runtime.session.RuntimeTerminalState.Sink>()
     private val terminalDeaths = java.util.concurrent.ConcurrentHashMap<Pair<String, android.os.IBinder>, android.os.IBinder.DeathRecipient>()
     private val terminalOperations = kotlinx.coroutines.channels.Channel<suspend () -> Unit>(512)
@@ -201,6 +203,7 @@ class VmRuntimeService : Service() {
             enforceHostToolUi()
             return kotlinx.coroutines.runBlocking(Dispatchers.IO) {
                 val client = ensureSessionRegistry()
+                migrateLegacyStorages(client)
                 val sessions = client?.list()?.getOrThrow().orEmpty().filter { it.state != dev.terminal.protocol.SessionStatus.EXITED }
                 storageRegistry.transaction {
                     val profiles = profiles(storageDefaults())
@@ -211,6 +214,7 @@ class VmRuntimeService : Service() {
                             val linked = profiles.filter { it.runtime == key.runtime && it.storageId == key.storageId }
                             val active = sessions.filter { sessionKeys[it.id] == key }
                             key.json().put("bytes", storageRegistry.cachedSize(key) ?: JSONObject.NULL)
+                                .put("migratedLegacy", key.storageId == migratedLegacyId(key.runtime))
                                 .put("name", name(key) ?: JSONObject.NULL)
                                 .put("profiles", JSONArray(linked.map { JSONObject().put("id", it.id).put("name", it.name) }))
                                 .put("sessions", JSONArray(active.map { JSONObject().put("id", it.id).put("title", it.title) }))
@@ -223,7 +227,7 @@ class VmRuntimeService : Service() {
             return runCatching {
                 val key = dev.terminal.runtime.session.StorageRegistry.Key(requireNotNull(SessionRuntime.fromWireName(runtimeType)), storageId)
                 kotlinx.coroutines.runBlocking(Dispatchers.IO) {
-                    storageRegistry.transaction { rename(key, name, storageDefaults()) }
+                    storageRegistry.transaction { rename(canonicalKey(key), name, storageDefaults()) }
                 }
                 ""
             }.exceptionOrNull()?.userMessage().orEmpty()
@@ -243,15 +247,21 @@ class VmRuntimeService : Service() {
             return runCatching {
                 val key = dev.terminal.runtime.session.StorageRegistry.Key(requireNotNull(SessionRuntime.fromWireName(runtimeType)), storageId)
                 kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                    val client = ensureSessionRegistry()
                     // Excludes backend preparation until the old controller has been removed.
                     preparationLocks.withAll {
-                        val client = ensureSessionRegistry()
                         val remove: suspend (suspend () -> Unit) -> Unit = { release ->
                             storageRegistry.transaction {
                                 requireOrphan(key, storageDefaults())
                                 // Lock profile writes through the final reference check and filesystem removal.
                                 kotlinx.coroutines.runBlocking {
                                     val owner = storageBackends[key.runtime to key.storageId]
+                                    val localController = when (owner) {
+                                        is NativeBackend -> owner.sessionController()
+                                        is RootlessDebianBackend -> owner.sessionController()
+                                        else -> null
+                                    }
+                                    check(localController?.list()?.getOrThrow().orEmpty().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) { "Storage has active sessions" }
                                     owner?.stop(StopMode.GRACEFUL)?.getOrThrow()
                                     release()
                                     storageBackends.remove(key.runtime to key.storageId)
@@ -362,49 +372,55 @@ class VmRuntimeService : Service() {
         private fun createResolvedSession(encoded: String, rows: Int, cols: Int) {
             val parsed = runCatching { dev.terminal.runtime.session.SessionLaunchSpec.fromJson(encoded) }
             launchRuntimeOperation(trackAsWork = true, errorOperation = "세션 생성:${parsed.getOrNull()?.runtime?.wireName ?: "UNKNOWN"}:${parsed.getOrNull()?.storageId ?: "legacy"}") {
-                val spec = parsed.getOrThrow()
-                storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(spec.runtime, spec.storageId)) }
-                val requestedRuntime = spec.runtime
-                Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
                 val client = ensureSessionRegistry()
                     ?: throw IllegalStateException("세션 런타임에 연결할 수 없습니다")
-                if (!ensureStorageController(spec, client)) {
-                    notifyOperationError("세션 생성:${requestedRuntime.wireName}:${spec.storageId}", runtimeUnavailableReason(requestedRuntime))
-                    return@launchRuntimeOperation
-                }
-                val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
-                val kittyId = nextKittyId()
-                val grantKitty = preferences.getBoolean(KEY_KITTY_REMOTE, false)
-                val result = sessionSnapshots.mutateAndRefresh(client) {
-                    client.create(
-                        spec,
-                        runtimeEnvironment = buildMap {
-                            if ("TERM" !in spec.environment) put("TERM", preferences.getString(KEY_NATIVE_TERM, "xterm-256color").orEmpty())
-                            if (preferences.getBoolean(KEY_KITTY_GRAPHICS, false) || grantKitty) {
-                                put("KITTY_WINDOW_ID", kittyId.toString())
-                            }
-                        },
-                        rows = rows.toUShortDimension(),
-                        cols = cols.toUShortDimension(),
-                    ).onSuccess {
-                        kittyIdentities[it.id] = kittyId
-                        if (grantKitty && preferences.getBoolean(KEY_KITTY_REMOTE, false)) kittyGrants.add(it.id)
+                migrateLegacyStorages(client)
+                storageMigrationMutex.withLock {
+                    val spec = storageRegistry.transaction {
+                        val resolved = resolveProfile(parsed.getOrThrow().toProfile()).resolve()
+                        validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(resolved.runtime, resolved.storageId))
+                        resolved
                     }
-                }
-                result.operation
-                    .onSuccess { created ->
-                        // Publish the new session before requesting focus so the UI
-                        // can attach its renderer and move keyboard input to it.
-                        if (result.snapshot?.isSuccess == true) {
-                            focusedSession = created.id
-                            broadcast { it.onSessionFocusRequested(created.id) }
+                    val requestedRuntime = spec.runtime
+                    Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
+                    if (!ensureStorageController(spec, client)) {
+                        notifyOperationError("세션 생성:${requestedRuntime.wireName}:${spec.storageId}", runtimeUnavailableReason(requestedRuntime))
+                        return@launchRuntimeOperation
+                    }
+                    val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
+                    val kittyId = nextKittyId()
+                    val grantKitty = preferences.getBoolean(KEY_KITTY_REMOTE, false)
+                    val result = sessionSnapshots.mutateAndRefresh(client) {
+                        client.create(
+                            spec,
+                            runtimeEnvironment = buildMap {
+                                if ("TERM" !in spec.environment) put("TERM", preferences.getString(KEY_NATIVE_TERM, "xterm-256color").orEmpty())
+                                if (preferences.getBoolean(KEY_KITTY_GRAPHICS, false) || grantKitty) {
+                                    put("KITTY_WINDOW_ID", kittyId.toString())
+                                }
+                            },
+                            rows = rows.toUShortDimension(),
+                            cols = cols.toUShortDimension(),
+                        ).onSuccess {
+                            kittyIdentities[it.id] = kittyId
+                            if (grantKitty && preferences.getBoolean(KEY_KITTY_REMOTE, false)) kittyGrants.add(it.id)
                         }
                     }
-                    .onFailure {
-                        Log.e(TAG, "session.create failed runtime=${requestedRuntime.wireName} cause=${it.javaClass.simpleName}: ${it.userMessage()}")
-                        notifyOperationError("세션 생성:${requestedRuntime.wireName}:${spec.storageId}", it.userMessage())
-                    }
-                result.snapshot?.onFailure { notifyOperationError("세션 목록 새로고침", it.userMessage()) }
+                    result.operation
+                        .onSuccess { created ->
+                            // Publish the new session before requesting focus so the UI
+                            // can attach its renderer and move keyboard input to it.
+                            if (result.snapshot?.isSuccess == true) {
+                                focusedSession = created.id
+                                broadcast { it.onSessionFocusRequested(created.id) }
+                            }
+                        }
+                        .onFailure {
+                            Log.e(TAG, "session.create failed runtime=${requestedRuntime.wireName} cause=${it.javaClass.simpleName}: ${it.userMessage()}")
+                            notifyOperationError("세션 생성:${requestedRuntime.wireName}:${spec.storageId}", it.userMessage())
+                        }
+                    result.snapshot?.onFailure { notifyOperationError("세션 목록 새로고침", it.userMessage()) }
+                }
             }
         }
 
@@ -610,12 +626,15 @@ class VmRuntimeService : Service() {
             val selected = SessionRuntime.fromWireName(runtimeType)
             val rootless = rootlessBackends[selected]
                 ?: throw IllegalArgumentException("알 수 없는 Rootless 환경: $runtimeType")
+            migrateLegacyStorages(ensureSessionRegistry())
+            val storageId = defaultStorageId(requireNotNull(selected))
+            storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(selected, storageId)) }
             if (preparationLocks.isLocked(requireNotNull(selected)) && rootless.status() !is RootlessStatus.Ready) rootless.reportPreparationWaiting()
-            preparationLocks.withStorage(requireNotNull(selected)) {
+            preparationLocks.withStorage(requireNotNull(selected), storageId) {
                 try {
                     val registry = sessionClient as? UnifiedSessionRegistry
                     if (registry != null && rootless.status() !is RootlessStatus.Ready) {
-                        registry.removeIfIdle(requireNotNull(selected)) { rootless.prepare().getOrThrow() }
+                        registry.removeIfIdle(requireNotNull(selected), storageId) { rootless.prepare().getOrThrow() }
                     } else rootless.prepare().getOrThrow()
                 } finally {
                     rootless.clearPreparationWaiting()
@@ -630,7 +649,7 @@ class VmRuntimeService : Service() {
             val rootless = rootlessBackends[selected] ?: throw IllegalArgumentException("Rootless 환경이 아닙니다")
             val registry = ensureSessionRegistry() ?: error("세션 상태를 확인할 수 없습니다")
             preparationLocks.withAll {
-                try { registry.migrateIfAllIdle(selected) { rootless.migrateToNative().getOrThrow() } }
+                try { registry.migrateIfAllIdle(selected, defaultStorageId(selected)) { rootless.migrateToNative().getOrThrow() } }
                 finally { notifyClients(latestState) }
             }
         }
@@ -639,13 +658,13 @@ class VmRuntimeService : Service() {
             val selected = SessionRuntime.fromWireName(runtimeType)
             val rootless = rootlessBackends[selected]
                 ?: throw IllegalArgumentException("알 수 없는 Rootless 환경: $runtimeType")
-            preparationLocks.withStorage(requireNotNull(selected)) {
+            preparationLocks.withStorage(requireNotNull(selected), defaultStorageId(selected)) {
                 try {
                     // Image management must work before the primary runtime has started.
                     // The backend also checks its PTY owner when there is no registry.
                     val registry = sessionClient as? UnifiedSessionRegistry
                     if (registry != null) {
-                        registry.removeIfIdle(requireNotNull(selected)) { rootless.remove(removeHome).getOrThrow() }
+                        registry.removeIfIdle(requireNotNull(selected), defaultStorageId(selected)) { rootless.remove(removeHome).getOrThrow() }
                     } else {
                         rootless.remove(removeHome).getOrThrow()
                     }
@@ -707,6 +726,8 @@ class VmRuntimeService : Service() {
             distribution.runtime to RootlessDebianBackend(applicationContext, distribution = distribution, usbBroker = usbBroker) { phase, detail ->
                 Log.i(TAG, "rootless distribution=${distribution.directory} phase=${phase.name}")
                 broadcast { it.onRootlessProgress(distribution.runtime.wireName, phase.displayName, detail) }
+                val id = defaultStorageId(distribution.runtime)
+                if (id != "legacy") broadcast { it.onRootlessProgress("${distribution.runtime.wireName}:$id", phase.displayName, detail) }
             }
         }
         scope.launch {
@@ -766,16 +787,26 @@ class VmRuntimeService : Service() {
     }
 
     private suspend fun prepareAndStart() {
+        migrateLegacyStorages(ensureSessionRegistry())
+        val runtime = if (backend is NativeBackend) SessionRuntime.NATIVE else SessionRuntime.AVF
+        preparationLocks.withStorage(runtime, defaultStorageId(runtime)) { startPrimaryBackend() }
+        migrateLegacyStorages(ensureSessionRegistry())
+    }
+
+    private suspend fun startPrimaryBackend() = primaryPreparationMutex.withLock {
         // Rebinding an Activity must be idempotent. In particular, do not
         // prepare a Native backend again after it has reached READY.
-        if (latestState is RuntimeState.Ready || latestState is RuntimeState.Active || latestState is RuntimeState.Idle) return
+        if (latestState is RuntimeState.Ready || latestState is RuntimeState.Active || latestState is RuntimeState.Idle) return@withLock
         if (backend is NativeBackend) {
-            backend.prepare(RuntimeConfig(imageDirectory = filesDir.toPath().resolve("native").toString())).getOrThrow()
+            backend.prepare(RuntimeConfig(imageDirectory = filesDir.toPath().resolve("native-runtime").toString())).getOrThrow()
             backend.start().getOrThrow()
-            return
+            return@withLock
         }
         val imageRoot = filesDir.toPath().resolve("vm/default")
-        if (RuntimeSetupCoordinator(applicationContext).ensureImage(imageRoot, DEFAULT_DEBIAN_RELEASE_ID) is SetupState.Downloading) return
+        val storageId = defaultStorageId(SessionRuntime.AVF)
+        if (storageRegistry.transaction { isDeleted(dev.terminal.runtime.session.StorageRegistry.Key(SessionRuntime.AVF, storageId)) }) return@withLock
+        storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(SessionRuntime.AVF, storageId)) }
+        if (RuntimeSetupCoordinator(applicationContext).ensureImage(imageRoot, DEFAULT_DEBIAN_RELEASE_ID, storageId) is SetupState.Downloading) return@withLock
         val sharedDirectory = sharedDirectories.provision(DEFAULT_VM_INSTANCE_ID).getOrThrow()
         val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
         val config = RuntimeConfig(
@@ -837,14 +868,11 @@ class VmRuntimeService : Service() {
         broadcast { it.onRuntimeStateChanged(state.wireName, state.detail()) }
     }
 
-    private suspend fun ensureSessionRegistry(): UnifiedSessionRegistry? = sessionClientMutex.withLock {
-        (sessionClient as? UnifiedSessionRegistry)?.let { return@withLock it }
-        val selectedBackend = backend
-        val client = when (selectedBackend) {
-            is NativeBackend -> selectedBackend.sessionController()
-            else -> selectedBackend.connectSessionClient().getOrNull()
-        }
-        client?.let { primaryController ->
+    private suspend fun ensureSessionRegistry(): UnifiedSessionRegistry? = storageMigrationMutex.withLock { ensureSessionRegistryLocked() }
+
+    private suspend fun ensureSessionRegistryLocked(): UnifiedSessionRegistry? = sessionClientMutex.withLock {
+        (sessionClient as? UnifiedSessionRegistry)?.let { attachPrimaryAvf(it); return@withLock it }
+        run {
             val registry = UnifiedSessionRegistry(onInput = taskNotifications::input, recordLaunch = { id, spec ->
                 getSharedPreferences("session-launches", MODE_PRIVATE).edit().putString(id, spec.toJson().toString()).commit()
             }, beforeCreate = {
@@ -859,10 +887,7 @@ class VmRuntimeService : Service() {
                     dev.terminal.runtime.session.TerminalPalette.asProperties(
                         dev.terminal.runtime.session.TerminalPalette.resolve({ key, fallback -> preferences.getString(key, fallback).orEmpty() }, spec.palette))
                 })
-            registry.register(
-                if (selectedBackend is NativeBackend) SessionRuntime.NATIVE else SessionRuntime.AVF,
-                primaryController,
-            )
+            attachPrimaryAvf(registry)
             sessionClient = registry
             scope.launch {
                 registry.events.collect { event ->
@@ -873,6 +898,7 @@ class VmRuntimeService : Service() {
                             kittyGrants.remove(event.sessionId)
                             broadcast { it.onSessionExited(event.sessionId, event.exitCode) }
                             refreshSessions(registry)
+                            scope.launch { migrateLegacyStorages(registry) }
                         }
                     }
                 }
@@ -894,9 +920,74 @@ class VmRuntimeService : Service() {
 
     private suspend fun ensureSessionClient(): SessionController? = ensureSessionRegistry()
 
+    private fun defaultStorageId(runtime: SessionRuntime): String =
+        dev.terminal.runtime.session.SessionStorage.migratedLegacyId(filesDir, runtime) ?: "legacy"
+
+    private suspend fun attachPrimaryAvf(registry: UnifiedSessionRegistry) {
+        if (backend is NativeBackend || latestState !is RuntimeState.Ready && latestState !is RuntimeState.Active && latestState !is RuntimeState.Idle) return
+        val id = defaultStorageId(SessionRuntime.AVF)
+        if (registry.isRegistered(SessionRuntime.AVF, id)) return
+        if (runCatching { storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(SessionRuntime.AVF, id)) } }.isFailure) return
+        backend.connectSessionClient().getOrNull()?.let {
+            registry.register(SessionRuntime.AVF, it, id)
+            if (id != "legacy") storageBackends[SessionRuntime.AVF to id] = backend
+        }
+    }
+
+    /** Runs on service IO/default dispatchers. No UI lifetime owns or stops an environment. */
+    private suspend fun migrateLegacyStorages(client: UnifiedSessionRegistry?) = storageMigrationMutex.withLock {
+        preparationLocks.withAll {
+            val defaults = storageDefaults()
+            for (runtime in SessionRuntime.entries) {
+                try {
+                    val pending = storageRegistry.transaction {
+                        migratedLegacyId(runtime) == null &&
+                            dev.terminal.runtime.session.StorageRegistry.Key(runtime, "legacy") in
+                            (keys() + profiles(defaults).map { dev.terminal.runtime.session.StorageRegistry.Key(it.runtime, it.storageId) })
+                    }
+                    if (pending) {
+                        val localOwner = storageBackends[runtime to "legacy"]
+                        val localController = when (localOwner) {
+                            is NativeBackend -> localOwner.sessionController()
+                            is RootlessDebianBackend -> localOwner.sessionController()
+                            else -> rootlessBackends[runtime]?.sessionController()
+                        }
+                        if (localController?.list()?.getOrThrow().orEmpty().any { it.state != dev.terminal.protocol.SessionStatus.EXITED }) continue
+                        // An unattached persistent VM may still be running after host restart.
+                        // Only its reachable PTY owner can prove that changing registration is safe.
+                        if (runtime == SessionRuntime.AVF && (backend !is dev.terminal.runtime.avf.AvfBackend || client?.isRegistered(runtime) != true)) continue
+                        val adopt = { storageRegistry.transaction { migrateLegacy(runtime, defaults).storageId } }
+                        if (client != null) {
+                            if (!client.adoptLegacyStorageIfIdle(runtime, adopt)) continue
+                        } else adopt()
+                        val migrated = defaultStorageId(runtime)
+                        storageBackends.remove(runtime to "legacy")?.let { storageBackends[runtime to migrated] = it }
+                        if (startedStorageBackends.remove(runtime to "legacy")) startedStorageBackends.add(runtime to migrated)
+                    }
+                    val id = defaultStorageId(runtime)
+                    if (id != "legacy" && storageRegistry.transaction { dev.terminal.runtime.session.StorageRegistry.Key(runtime, id) in keys() }) {
+                        rootlessBackends[runtime]?.let { storageBackends[runtime to id] = it }
+                        if (runtime == SessionRuntime.AVF && client?.isRegistered(runtime, id) == true) storageBackends[runtime to id] = backend
+                    }
+                } catch (failure: Exception) {
+                    if (failure is kotlinx.coroutines.CancellationException) throw failure
+                    Log.w(TAG, "Legacy storage migration deferred: ${runtime.wireName}", failure)
+                }
+            }
+        }
+    }
+
     private suspend fun ensureStorageController(spec: dev.terminal.runtime.session.SessionLaunchSpec,
         registry: UnifiedSessionRegistry): Boolean {
-        if (spec.storageId == "legacy") return ensureRuntimeController(spec.runtime, registry)
+        if (spec.storageId == "legacy" && spec.runtime != SessionRuntime.NATIVE) return ensureRuntimeController(spec.runtime, registry)
+        if (spec.runtime == SessionRuntime.AVF && spec.storageId == defaultStorageId(SessionRuntime.AVF)) {
+            return preparationLocks.withStorage(spec.runtime, spec.storageId) {
+                storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(spec.runtime, spec.storageId)) }
+                startPrimaryBackend()
+                attachPrimaryAvf(registry)
+                registry.isRegistered(spec.runtime, spec.storageId)
+            }
+        }
         return preparationLocks.withStorage(spec.runtime, spec.storageId) {
             storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(spec.runtime, spec.storageId)) }
             if (registry.isRegistered(spec.runtime, spec.storageId)) return@withStorage true

@@ -118,13 +118,35 @@ class UnifiedSessionRegistry(
     fun isRegistered(runtime: SessionRuntime, storageId: String = "legacy"): Boolean =
         registrations.containsKey(StorageKey(runtime, storageId))
 
+    /** Proves idleness from the owner, never a cached list, and excludes creation during commit.
+     * Existing controllers retain their paths and AVF instance; only their idle registration changes.
+     */
+    suspend fun adoptLegacyStorageIfIdle(runtime: SessionRuntime, adopt: () -> String): Boolean = mutationLocks.withAll {
+        listMutex.withLock {
+            val old = StorageKey(runtime)
+            val registration = registrations[old]
+            val sessions = registration?.controller?.list()?.getOrThrow().orEmpty()
+            if (sessions.any { it.state != dev.terminal.protocol.SessionStatus.EXITED }) return@withLock false
+            val next = StorageKey(runtime, adopt())
+            check(next != old && !registrations.containsKey(next)) { "Invalid migration target" }
+            if (registration != null) {
+                registrations.remove(old)
+                registration.jobs.forEach(Job::cancel)
+                register(runtime, registration.controller, next.storageId)
+                owners.entries.filter { it.value == old }.forEach { owners[it.key] = next }
+                lastKnownSessions.remove(old)?.let { lastKnownSessions[next] = it }
+            }
+            true
+        }
+    }
+
     /** Excludes creation in every runtime while shared workspace trees are replaced. */
-    suspend fun migrateIfAllIdle(runtime: SessionRuntime, migrate: suspend () -> Unit) = mutationLocks.withAll {
+    suspend fun migrateIfAllIdle(runtime: SessionRuntime, storageId: String = "legacy", migrate: suspend () -> Unit) = mutationLocks.withAll {
         listMutex.withLock {
             check(registrations.values.all { it.controller.list().getOrThrow().isEmpty() }) {
                 "가속 형식 이전 전에 앱의 모든 터미널 세션을 종료하세요. 작업 폴더를 사용하는 파일 작업도 마쳐야 합니다"
             }
-            val key = StorageKey(runtime)
+            val key = StorageKey(runtime, storageId)
             registrations.remove(key)?.jobs?.forEach(Job::cancel)
             owners.entries.removeAll { it.value == key }
             lastKnownSessions.remove(key)
@@ -132,9 +154,9 @@ class UnifiedSessionRegistry(
         migrate()
     }
 
-    suspend fun removeIfIdle(runtime: SessionRuntime, remove: suspend () -> Unit) = mutationLocks.withStorage(runtime) {
+    suspend fun removeIfIdle(runtime: SessionRuntime, storageId: String = "legacy", remove: suspend () -> Unit) = mutationLocks.withStorage(runtime, storageId) {
         listMutex.withLock {
-            val key = StorageKey(runtime)
+            val key = StorageKey(runtime, storageId)
             val registration = registrations[key]
             check(registration?.controller?.list()?.getOrThrow().orEmpty().isEmpty()) {
                 "이 배포판의 모든 세션을 종료한 뒤 제거 또는 환경 보완을 실행하세요."

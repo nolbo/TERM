@@ -39,7 +39,8 @@ import kotlinx.coroutines.withContext
 import org.json.JSONArray
 
 internal data class StorageItem(val runtime: String, val id: String, val bytes: Long?,
-    val profiles: List<Pair<String, String>>, val sessions: List<Pair<String, String>>, val name: String? = null) {
+    val profiles: List<Pair<String, String>>, val sessions: List<Pair<String, String>>, val name: String? = null,
+    val migratedLegacy: Boolean = false) {
     val key get() = "$runtime:$id"
     val used get() = profiles.isNotEmpty() || sessions.isNotEmpty()
     val canDelete get() = !used && id != "legacy"
@@ -51,7 +52,7 @@ internal data class StorageItem(val runtime: String, val id: String, val bytes: 
                 }
                 StorageItem(row.getString("runtime"), row.getString("storageId"),
                     if (row.isNull("bytes")) null else row.getLong("bytes"), names("profiles", "name"), names("sessions", "title"),
-                    row.optString("name").takeIf { !row.isNull("name") && it.isNotBlank() })
+                    row.optString("name").takeIf { !row.isNull("name") && it.isNotBlank() }, row.optBoolean("migratedLegacy"))
             } }
         }
     }
@@ -78,6 +79,7 @@ abstract class StorageScreenActivity : TerminalActivity() {
             return
         }
         compose {
+            var selectedKey by remember { mutableStateOf(selected) }
             var entries by remember { mutableStateOf<List<StorageItem>?>(null) }
             var confirm by remember { mutableStateOf<StorageItem?>(null) }
             var deleting by remember { mutableStateOf<StorageItem?>(null) }
@@ -92,7 +94,11 @@ abstract class StorageScreenActivity : TerminalActivity() {
                 val service = runtime ?: return@LaunchedEffect
                 while (true) {
                     runStorageOperation { withContext(Dispatchers.IO) { StorageItem.parse(service.storageJson) } }
-                        .onSuccess { entries = it }.onFailure { entries = null; error = it.message }
+                        .onSuccess { rows ->
+                            entries = rows
+                            rows.firstOrNull { it.migratedLegacy && selectedKey == "${it.runtime}:legacy" }
+                                ?.let { selectedKey = it.key }
+                        }.onFailure { entries = null; error = it.message }
                     delay(2000)
                 }
             }
@@ -146,8 +152,8 @@ abstract class StorageScreenActivity : TerminalActivity() {
                             }
                         }
                     }
-                    val detail = entries?.firstOrNull { it.key == selected }
-                    if (selected != null && entries != null && detail == null) item {
+                    val detail = entries?.firstOrNull { it.key == selectedKey }
+                    if (selectedKey != null && entries != null && detail == null) item {
                         StorageSection(R.string.storage_title) { StorageEmpty(R.string.storage_missing) }
                     } else if (detail != null) {
                         item { StorageSection(R.string.storage_title) {
@@ -198,7 +204,7 @@ abstract class StorageScreenActivity : TerminalActivity() {
                                 }
                             }
                         }
-                    } else if (selected == null && entries != null) {
+                    } else if (selectedKey == null && entries != null) {
                         listOf(true, false).forEach { used ->
                             val group = entries.orEmpty().filter { it.used == used }
                             if (!used && group.isEmpty()) return@forEach
@@ -220,7 +226,7 @@ abstract class StorageScreenActivity : TerminalActivity() {
                     }
                 }
             }
-            entries?.firstOrNull { it.key == selected }?.let { row ->
+            entries?.firstOrNull { it.key == selectedKey }?.let { row ->
                 if (editingName) AlertDialog(onDismissRequest = { editingName = false },
                     title = { Text(stringResource(R.string.storage_name)) },
                     text = { Column {

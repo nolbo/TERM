@@ -74,6 +74,14 @@ AVF `getOrCreate` retains an existing VM configuration. Image upgrade/reset is
 therefore deliberately deferred to an explicit migration design; the runtime
 does not replace an image under an existing VM instance.
 
+Legacy storage adoption assigns a registry UUID without moving the image or replacing
+`droid-default`. It waits until the service can reach that VM's PTY owner and prove no
+active sessions. The persisted runtime-to-UUID association resolves the adopted UUID
+back to `vm/default`, `shared-vms/default` and `droid-default`; the AOSP deletion driver
+verifies the original instance is stopped before deleting it. A disconnected/unavailable
+VM remains protected. This path still requires validation on the matching privileged
+AOSP product; the public-SDK build does not exercise VirtualMachineManager.
+
 ## Next validation sequence
 
 1. Build the driver against the target AOSP system SDK.

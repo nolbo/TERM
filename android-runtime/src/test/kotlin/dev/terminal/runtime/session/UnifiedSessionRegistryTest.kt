@@ -18,6 +18,47 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UnifiedSessionRegistryTest {
+    @Test fun legacyAdoptionDefersActiveOrUnverifiableOwnerAndPreservesLiveSnapshot() = runBlocking {
+        val launches = mutableMapOf<String, SessionLaunchSpec>()
+        val registry = UnifiedSessionRegistry(recordLaunch = { id, spec -> launches[id] = spec })
+        val controller = FakeController("native-legacy")
+        registry.register(SessionRuntime.NATIVE, controller)
+        val old = SessionProfile("old", "Old", SessionRuntime.NATIVE, "/bin/sh").resolve()
+        registry.create(old, 24u, 80u).getOrThrow()
+        var commits = 0
+        val newId = java.util.UUID.randomUUID().toString()
+        val adopt = { commits++; newId }
+        assertFalse(registry.adoptLegacyStorageIfIdle(SessionRuntime.NATIVE, adopt))
+        assertEquals(0, commits)
+        assertEquals("legacy", registry.storageOf("native-legacy"))
+        assertEquals(old, launches["native-legacy"])
+        registry.write("native-legacy", byteArrayOf(1)).getOrThrow()
+        controller.failList = true
+        assertTrue(runCatching { registry.adoptLegacyStorageIfIdle(SessionRuntime.NATIVE, adopt) }.isFailure)
+        assertEquals(0, commits)
+        controller.failList = false
+        registry.terminate("native-legacy", 9).getOrThrow()
+        assertTrue(registry.adoptLegacyStorageIfIdle(SessionRuntime.NATIVE, adopt))
+        assertEquals(1, commits)
+        assertFalse(controller.closed)
+        assertFalse(registry.isRegistered(SessionRuntime.NATIVE))
+        assertTrue(registry.isRegistered(SessionRuntime.NATIVE, newId))
+        registry.close()
+    }
+
+    @Test fun failedAdoptionCommitKeepsRegistrationAndCanRetry() = runBlocking {
+        val registry = UnifiedSessionRegistry()
+        val controller = FakeController("native-idle")
+        registry.register(SessionRuntime.NATIVE, controller)
+        registry.terminate("native-idle", 9).getOrThrow()
+        assertTrue(runCatching { registry.adoptLegacyStorageIfIdle(SessionRuntime.NATIVE) { error("manifest write failed") } }.isFailure)
+        assertTrue(registry.isRegistered(SessionRuntime.NATIVE))
+        assertFalse(controller.closed)
+        val id = java.util.UUID.randomUUID().toString()
+        assertTrue(registry.adoptLegacyStorageIfIdle(SessionRuntime.NATIVE) { id })
+        assertTrue(registry.isRegistered(SessionRuntime.NATIVE, id))
+        registry.close()
+    }
     @Test fun sameRuntimeStorageOwnersRemainIndependentAndSharingUsesSameOwner() = runBlocking {
         val registry = UnifiedSessionRegistry()
         val firstId = java.util.UUID.randomUUID().toString()

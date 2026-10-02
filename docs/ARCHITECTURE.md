@@ -241,9 +241,10 @@ APK-packaged Native executables remain shared read-only platform resources.
 Connecting existing storage requires the same runtime, including the exact Rootless
 distribution; different distributions cannot share a rootfs. This is filesystem
 organization, not an Android UID or security sandbox boundary.
-Missing storage IDs decode as `legacy`, preserving existing roots and their
-shared workspace without copying or deleting data. Storage changes affect future
-launches only. There is no automatic storage garbage collection.
+Missing storage IDs decode as `legacy` for compatibility. On service startup/use,
+idle legacy environments are adopted under a UUID with one atomic manifest commit;
+profile overrides, dynamic built-in defaults and display names resolve to that identity.
+Storage changes affect future launches only. There is no automatic storage garbage collection.
 `SessionStorage` remains the path resolver. `StorageRegistry` enumerates persisted
 and on-disk environments, measures approximate logical size lazily with a one-minute
 cache, and removes only explicitly selected orphans through `VmRuntimeService`.
@@ -262,11 +263,35 @@ serializes profile writes and the final deletion reference check; defaults still
 resolve from runtime preferences. Saved storage identities remain enumerated when
 their last reference disappears, even if never launched. Deleted IDs are tombstoned
 to reject stale editor saves and launch requests. Session/controller locks reject
-active or unknown session state and exclude creation during deletion. Legacy
-storage cannot be deleted. Size and deletion walks never follow symbolic links.
+active or unknown session state and exclude creation during deletion. Pending legacy
+storage cannot be deleted; adopted UUID storage uses the ordinary reference/session guards.
+Size and deletion walks never follow symbolic links.
 AVF deletion also releases the stopped platform instance through its privileged
 driver; unsupported providers fail closed. Image workers check the same manifest
 under lock before installation so a pending download cannot recreate deleted storage.
+
+**Legacy adoption decision:** keep existing files at fixed Native/Rootless/AVF paths,
+and persist only a runtime-to-UUID association in the same registry manifest. Moving
+rootfs trees or VM disks would change host paths, the existing shared `/workspace`,
+and AVF's persisted configuration. Adoption therefore preserves data, package databases,
+inode identity and `droid-default` rather than copying or renaming them. `SessionStorage`
+remains a path resolver with fixed allowlisted legacy locations; metadata cannot supply
+arbitrary paths. Existing Rootless environments retain the app-level shared workspace,
+which deletion of one distribution never removes. Fresh UUID environments retain their
+independent workspace and roots.
+
+The service excludes preparation and session creation while committing adoption.
+It checks the actual controller rather than a cached session list; active or unverifiable
+owners defer adoption and keep immutable running launch snapshots. AVF adoption requires
+the primary VM's reachable PTY owner, so an unattached persistent VM remains protected.
+After the last session exits or the next bind, the service retries. A failed/interrupted
+commit leaves old references and files intact; a committed runtime-to-UUID association
+is reused after restart. Built-in shell/preferences remain dynamic and tombstones stay
+deleted. The association survives storage deletion so old drafts, download jobs and
+legacy requests resolve to the tombstone instead of recreating deleted data. Native
+service readiness uses a separate `native-runtime` root and never recreates a deleted
+profile environment. The AOSP deletion driver resolves an adopted AVF UUID to its
+original `droid-default` instance; public-SDK builds still cannot validate that platform path.
 
 Independent AVF storage requires a privileged provider that creates independent
 backends plus a configured image catalog or a verified provisioned image at its

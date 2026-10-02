@@ -130,6 +130,12 @@ class MainActivity : TerminalActivity() {
             beginRootlessInstall()
             return
         }
+        if (profile.storageId != "legacy") {
+            newSessionMenuVisible = false
+            newSessionSheetVisible = false
+            createSession(profile.resolve())
+            return
+        }
         selectRuntime(runtimeChoices.first { it.id == profile.runtime.wireName })
     }
     private var runtimeChoices by mutableStateOf(emptyList<RuntimeChoiceUi>())

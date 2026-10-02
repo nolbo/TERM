@@ -100,7 +100,7 @@ class AospAvfPlatformDriver(
         runCatching {
             dev.terminal.runtime.session.SessionStorage.validate(instanceId)
             require(instanceId != "legacy") { "Legacy storage is protected" }
-            val name = "droid-$instanceId"
+            val name = "droid-${dev.terminal.runtime.session.SessionStorage.avfInstanceId(appContext.filesDir, instanceId)}"
             val persisted = manager.get(name)
             if (persisted != null) {
                 check(persisted.status == VirtualMachine.STATUS_STOPPED) { "AVF instance must be stopped before storage deletion" }

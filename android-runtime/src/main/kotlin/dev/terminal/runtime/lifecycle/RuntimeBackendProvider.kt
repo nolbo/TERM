@@ -21,4 +21,6 @@ interface RuntimeBackendProvider {
 internal fun resolveRuntimeBackend(context: Context): RuntimeBackend =
     (context.applicationContext as? RuntimeBackendProvider)
         ?.createRuntimeBackend(context.applicationContext)
-        ?: NativeBackend(context.applicationContext)
+        // The service's readiness controller owns no profile environment. Migrated Native
+        // storage remains at files/native and receives a separate UUID-scoped controller.
+        ?: NativeBackend(context.applicationContext, java.io.File(context.filesDir, "native-runtime"))
