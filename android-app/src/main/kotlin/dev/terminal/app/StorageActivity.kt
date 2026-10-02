@@ -39,6 +39,9 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import java.util.Locale
+
+private val storageSizeUnit = Regex("(?<![\\p{L}])[kmgtpe]?b(?![\\p{L}])", RegexOption.IGNORE_CASE)
 
 internal data class StorageItem(val runtime: String, val id: String, val bytes: Long?,
     val profiles: List<Pair<String, String>>, val sessions: List<Pair<String, String>>, val name: String? = null,
@@ -256,7 +259,11 @@ abstract class StorageScreenActivity : TerminalActivity() {
                 delay(60_000)
             }
         }
-        return bytes?.let { Formatter.formatShortFileSize(this, it) }
+        return bytes?.let { value ->
+            Formatter.formatShortFileSize(this, value).replace(storageSizeUnit) { unit ->
+                if (unit.value.startsWith("k", ignoreCase = true)) "kB" else unit.value.uppercase(Locale.ROOT)
+            }
+        }
             ?: stringResource(if (failed) R.string.storage_size_unknown else R.string.storage_size_calculating)
     }
     @Composable private fun StorageRow(row: StorageItem, service: IRuntimeService?, measurement: Semaphore, click: () -> Unit) {
