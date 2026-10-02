@@ -209,4 +209,20 @@
     <string name="toolbar_memory_display">Display</string>
     <string name="toolbar_memory_refresh_section">Automatic refresh</string>
     <string name="toolbar_command_edit_item">Edit %1$s</string>
+    <string name="app_info">App info</string>
+    <string name="app_info_summary">App version, build information, and open source licenses</string>
+    <string name="app_version">App version</string>
+    <string name="app_package_name">Package name</string>
+    <string name="app_build_type">Build type</string>
+    <string name="app_build_number">Build number</string>
+    <string name="app_build_revision">Build revision</string>
+    <string name="open_source_licenses">Open source licenses</string>
+    <string name="open_source_licenses_summary">Licenses and notices for open source components included in the app</string>
+    <string name="license_read_error">Unable to load the license document.</string>
+    <string name="license_iphone_runtime">iPhone runtime</string>
+    <string name="license_iphone_tools">iPhone tools</string>
+    <string name="license_directory_summary">License and notice documents</string>
+    <string name="license_document_summary">License text and notices</string>
+    <string name="license_rootless_notices">Rootless runtime notices</string>
+    <string name="license_runtime_logos">Distribution logo notices</string>
 </resources>

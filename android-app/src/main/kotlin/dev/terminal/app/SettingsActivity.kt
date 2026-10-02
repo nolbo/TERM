@@ -30,6 +30,7 @@ class SettingsActivity : TerminalActivity() {
             "storage" -> StorageActivity::class.java
             "profiles" -> ProfilesActivity::class.java
             "updates" -> AppUpdatesActivity::class.java
+            "about" -> AppInfoActivity::class.java
             "usb" -> UsbDevicesActivity::class.java
             "palette" -> PaletteEditorActivity::class.java
             else -> SettingsDetailActivity::class.java

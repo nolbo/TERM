@@ -8,7 +8,7 @@ class SettingsSearchTest {
     @Test fun avfCategoriesAndNestedSearchResultsRequirePrivileges() {
         val unprivileged = visibleSettingsSearchEntries(false)
         assertFalse(unprivileged.any { it.target.screen == "avf" })
-        assertEquals(listOf("storage", "profiles", "language", "terminal", "rootless", "native", "updates"),
+        assertEquals(listOf("storage", "profiles", "language", "terminal", "rootless", "native", "updates", "about"),
             unprivileged.filter { it.path.isEmpty() }.map { it.target.screen })
         assertEquals(settingsSearchEntries, visibleSettingsSearchEntries(true))
         assertTrue(visibleSettingsSearchEntries(true).any { it.target.screen == "avf" && it.path.isNotEmpty() })
@@ -39,7 +39,7 @@ class SettingsSearchTest {
     }
 
     @Test fun homeIncludesStorageAndResultKeysAreUnique() {
-        assertEquals(listOf("storage", "profiles", "language", "terminal", "rootless", "avf", "native", "updates"),
+        assertEquals(listOf("storage", "profiles", "language", "terminal", "rootless", "avf", "native", "updates", "about"),
             settingsSearchEntries.filter { it.path.isEmpty() }.map { it.target.screen })
         val keys = settingsSearchEntries.map { it.target.screen to it.title }
         assertEquals(keys.size, keys.toSet().size)

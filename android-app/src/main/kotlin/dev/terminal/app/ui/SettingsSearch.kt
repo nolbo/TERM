@@ -44,6 +44,11 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("avf", R.string.settings_avf_title, R.string.settings_avf_summary, icon = R.drawable.ic_material_symbol_memory_24)
     entry("native", R.string.settings_native_title, R.string.settings_native_summary, icon = R.drawable.ic_runtime_native)
     entry("updates", R.string.app_updates, R.string.update_settings_summary, icon = R.drawable.ic_material_symbol_download_24)
+    entry("about", R.string.app_info, R.string.app_info_summary, icon = R.drawable.ic_app_info_24)
+    listOf(R.string.app_version, R.string.app_package_name, R.string.app_build_type, R.string.app_build_number,
+        R.string.update_channel_label, R.string.app_build_revision, R.string.open_source_licenses).forEach {
+        entry("about", it, path = listOf(R.string.app_info), icon = R.drawable.ic_app_info_24)
+    }
 
     val terminal = listOf(R.string.settings_terminal_title)
     val appearance = terminal + R.string.settings_appearance_title
