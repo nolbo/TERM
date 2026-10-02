@@ -84,6 +84,43 @@ class ToolbarUiTest {
     }
     private fun bounds(node: AccessibilityNodeInfo) = Rect().also { node.getBoundsInScreen(it) }
     private fun handle() = description(label(R.string.toolbar_handle))
+
+    private fun assertNoHandleHover(node: AccessibilityNodeInfo) {
+        val rect = bounds(node)
+        val density = context.resources.displayMetrics.density
+        // The mouse cursor stays to the right of the sampled region.
+        val mouseX = rect.exactCenterX() + 14 * density
+        val sample = Rect(
+            maxOf(rect.left, (rect.exactCenterX() - 16 * density).toInt()), rect.top,
+            (mouseX - 8 * density).toInt(), rect.bottom,
+        )
+        fun pixels(): IntArray {
+            val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+            return IntArray(sample.width() * sample.height()).also {
+                bitmap.getPixels(it, 0, sample.width(), sample.left, sample.top, sample.width(), sample.height())
+                bitmap.recycle()
+            }
+        }
+        fun hover(action: Int, y: Float) {
+            val properties = MotionEvent.PointerProperties().apply { id = 0; toolType = MotionEvent.TOOL_TYPE_MOUSE }
+            val coordinates = MotionEvent.PointerCoords().apply { x = mouseX; this.y = y }
+            val now = SystemClock.uptimeMillis()
+            val event = MotionEvent.obtain(now, now, action, 1, arrayOf(properties), arrayOf(coordinates),
+                0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_MOUSE, 0)
+            try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+        }
+        for (y in listOf(rect.exactCenterY(), rect.top + 2 * density)) {
+            val before = pixels()
+            hover(MotionEvent.ACTION_HOVER_ENTER, y)
+            try {
+                hover(MotionEvent.ACTION_HOVER_MOVE, y)
+                SystemClock.sleep(250)
+                instrumentation.waitForIdleSync()
+                assertArrayEquals("Hover must not change the handle or its hit area", before, pixels())
+            } finally { hover(MotionEvent.ACTION_HOVER_EXIT, y) }
+            SystemClock.sleep(400)
+        }
+    }
     private fun action(label: String) {
         val node = handle()
         var current: AccessibilityNodeInfo? = node
@@ -113,7 +150,7 @@ class ToolbarUiTest {
             } }
             settle()
             assertEquals(ToolbarSheetMode.Default, mode.value)
-            handle()
+            assertNoHandleHover(handle())
             val page = bounds(text("first page"))
             val indicatorLabels = (1..2).map { context.getString(R.string.toolbar_page_position, it, 2) }
             assertNull(find { it.contentDescription?.toString() in indicatorLabels })
@@ -126,9 +163,11 @@ class ToolbarUiTest {
             drag(initial.exactCenterX(), initial.exactCenterY(), 0f, -800f)
             assertEquals(ToolbarSheetMode.Expanded, mode.value)
             val expandedHandle = bounds(handle())
+            assertNoHandleHover(handle())
             drag(expandedHandle.exactCenterX(), expandedHandle.exactCenterY(), 0f, 950f)
             assertEquals(ToolbarSheetMode.Hidden, mode.value)
             assertNull(find { it.text?.toString() == "second page" })
+            assertNoHandleHover(handle())
             click(handle())
             assertEquals(ToolbarSheetMode.Default, mode.value)
             text("second page")
@@ -146,6 +185,29 @@ class ToolbarUiTest {
             scenario.onActivity { config.value = config.value.copy(enabled = false) }
             settle()
             assertNull(find { it.contentDescription?.toString() == label(R.string.toolbar_handle) })
+        }
+    }
+
+    @Test fun newSessionHandleHasNoHoverIndicationAndStillDismissesByDragging() {
+        val visible = mutableStateOf(true)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Text("Session sheet fixture")
+                    if (visible.value) NewSessionSheet(SessionProfiles(context).builtIns(), {}, {}, { visible.value = false })
+                } }
+            } }
+            settle()
+            val handle = waitForNode("modal sheet handle") { node ->
+                node.isClickable && node.actionList.any { it.id == AccessibilityNodeInfo.AccessibilityAction.ACTION_DISMISS.id }
+            }
+            assertNoHandleHover(handle)
+            val rect = bounds(handle)
+            val screen = Rect().also { instrumentation.uiAutomation.rootInActiveWindow.getBoundsInScreen(it) }
+            val endY = screen.bottom - 32 * context.resources.displayMetrics.density
+            drag(rect.exactCenterX(), rect.exactCenterY(), 0f, endY - rect.exactCenterY())
+            assertFalse("Hover must preserve drag dismissal: handle=$rect screen=$screen", visible.value)
+            assertNull(find { node -> node.isClickable && node.actionList.any { it.id == AccessibilityNodeInfo.AccessibilityAction.ACTION_DISMISS.id } })
         }
     }
 

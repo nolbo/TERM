@@ -688,7 +688,7 @@ fun NewSessionSheet(profiles: List<dev.terminal.runtime.session.SessionProfile>,
     )
     val scope = rememberCoroutineScope()
     val haptics = LocalTerminalHaptics.current
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+    SessionBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 24.dp)) {
             item {
                 Text(stringResource(R.string.profiles),
@@ -747,7 +747,7 @@ private fun RuntimeSelectionSheet(
     val scope = rememberCoroutineScope()
     val haptics = LocalTerminalHaptics.current
 
-    ModalBottomSheet(
+    SessionBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
     ) {
