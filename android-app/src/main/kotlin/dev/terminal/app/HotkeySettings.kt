@@ -23,10 +23,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.terminal.app.ui.SettingsPageScaffold
+import dev.terminal.app.ui.SettingsExpansionContent
+import dev.terminal.app.ui.SettingsExpansionIcon
 import dev.terminal.app.ui.TerminalOnStatusBlueContainer
 import dev.terminal.app.ui.TerminalStatusBlueContainer
 import dev.terminal.app.ui.LocalTerminalMonospaceFontFamily
@@ -289,10 +292,19 @@ private fun HotkeyEditDialog(
                 OutlinedTextField(shortcut, { shortcut = it }, label = { Text(stringResource(R.string.hotkey_shortcut)) },
                     singleLine = true, isError = !validHotkey(hotkey.copy(name = "key")),
                     supportingText = { Text(stringResource(R.string.hotkey_shortcut_hint)) })
-                TextButton(onClick = { showHelp = !showHelp }, shapes = ButtonDefaults.shapes()) {
-                    Text(stringResource(R.string.hotkey_supported_keys))
+                Column {
+                    val expansion = stringResource(if (showHelp) R.string.usb_expanded else R.string.usb_collapsed)
+                    TextButton(onClick = { showHelp = !showHelp }, shapes = ButtonDefaults.shapes(),
+                        modifier = Modifier.semantics { stateDescription = expansion }) {
+                        Text(stringResource(R.string.hotkey_supported_keys))
+                        Spacer(Modifier.width(8.dp))
+                        SettingsExpansionIcon(showHelp)
+                    }
+                    SettingsExpansionContent(showHelp) {
+                        Text(stringResource(R.string.hotkey_shortcut_support), Modifier.padding(top = 12.dp),
+                            style = MaterialTheme.typography.bodySmall)
+                    }
                 }
-                if (showHelp) Text(stringResource(R.string.hotkey_shortcut_support), style = MaterialTheme.typography.bodySmall)
                 // Compact presets and basic keys share the same grid as the toolbar.
                 HotkeyGrid(HotkeyLayout(columns = 3, keys = listOf(
                     Hotkey("Ctrl+C", "CTRL+C"), Hotkey("Ctrl+D", "CTRL+D"), Hotkey("Ctrl+L", "CTRL+L"),

@@ -63,6 +63,12 @@ class UsbSettingsUiTest {
         }
         assertNull(find(text))
     }
+    private fun assertExpansion(text: String, expanded: Boolean) {
+        var node: AccessibilityNodeInfo? = waitFor(text)
+        while (node != null && node.stateDescription == null) node = node.parent
+        assertEquals(label(if (expanded) R.string.usb_expanded else R.string.usb_collapsed), node?.stateDescription?.toString())
+    }
+    private fun topOf(text: String): Int = Rect().also { waitFor(text).getBoundsInScreen(it) }.top
     private fun tap(text: String, last: Boolean = false) {
         waitFor(text)
         val matches = mutableListOf<AccessibilityNodeInfo>()
@@ -171,6 +177,37 @@ class UsbSettingsUiTest {
             assertTrue(commands.isEmpty())
             click(label(R.string.usb_confirm_remove))
             assertEquals(UsbSettingsCommand(UsbSettingsAction.REMOVE_STORAGE, "fixture-root"), commands.single())
+        }
+    }
+
+    @Test fun deviceExpansionReversesAndRestoresCollapsedRowSpacing() {
+        val first = fixture().devices.single()
+        val data = fixture().copy(requests = emptyList(), grants = emptyList(), devices = listOf(
+            first, first.copy(id = "fixture-serial", iphone = false, cdc = true),
+        ))
+        ActivityScenario.launch(UsbDevicesActivity::class.java).use { scenario ->
+            scenario.onActivity { it.setContent { DroidTheme {
+                UsbSettingsScreen(data, true, false, "", {}, {}, {}, {}, {})
+            } } }
+            val header = label(R.string.usb_device_iphone)
+            val nextHeader = label(R.string.usb_device_serial)
+            val details = instrumentation.targetContext.getString(R.string.usb_device_id, first.id)
+            val collapsedTop = topOf(nextHeader)
+            assertExpansion(header, false)
+            click(header)
+            waitFor(details)
+            assertExpansion(header, true)
+            // Reverse the running collapse rather than waiting for its outgoing content to disappear.
+            click(header)
+            click(header)
+            waitFor(details)
+            assertExpansion(header, true)
+            click(header)
+            waitAbsent(details)
+            assertExpansion(header, false)
+            val deadline = SystemClock.elapsedRealtime() + 5000
+            while (SystemClock.elapsedRealtime() < deadline && topOf(nextHeader) != collapsedTop) SystemClock.sleep(50)
+            assertEquals("Collapsing must restore the original row spacing", collapsedTop, topOf(nextHeader))
         }
     }
 

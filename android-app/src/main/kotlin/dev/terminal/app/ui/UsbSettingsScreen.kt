@@ -129,21 +129,29 @@ internal fun UsbSettingsScreen(
                 var help by rememberSaveable { mutableStateOf(false) }
                 var diagnostics by rememberSaveable { mutableStateOf(false) }
                 UsbSection(R.string.usb_section_help) {
-                    ExpandRow(R.string.usb_usage_title, help, { help = !help })
-                    if (help) Text(stringResource(R.string.usb_help), Modifier.padding(16.dp),
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    ExpandRow(R.string.usb_diagnostics, diagnostics, { diagnostics = !diagnostics }, enabled = state != null)
-                    if (diagnostics && state != null) Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        state.diagnostics.forEach { (key, count) ->
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                                Text(stringResource(when (key) {
-                                    "rawConnections" -> R.string.usb_diag_raw
-                                    "serialConnections" -> R.string.usb_diag_serial
-                                    "iphoneOperations" -> R.string.usb_diag_iphone
-                                    "fileConnections" -> R.string.usb_diag_files
-                                    else -> R.string.usb_section_requests
-                                }), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                                Text(count.toString(), style = MaterialTheme.typography.labelLarge)
+                    Column {
+                        ExpandRow(R.string.usb_usage_title, help, { help = !help })
+                        SettingsExpansionContent(help) {
+                            Text(stringResource(R.string.usb_help), Modifier.padding(top = SettingsItemSpacing).padding(16.dp),
+                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                    Column {
+                        ExpandRow(R.string.usb_diagnostics, diagnostics, { diagnostics = !diagnostics }, enabled = state != null)
+                        SettingsExpansionContent(diagnostics && state != null) {
+                            Column(Modifier.padding(top = SettingsItemSpacing).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                state?.diagnostics?.forEach { (key, count) ->
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                                        Text(stringResource(when (key) {
+                                            "rawConnections" -> R.string.usb_diag_raw
+                                            "serialConnections" -> R.string.usb_diag_serial
+                                            "iphoneOperations" -> R.string.usb_diag_iphone
+                                            "fileConnections" -> R.string.usb_diag_files
+                                            else -> R.string.usb_section_requests
+                                        }), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                        Text(count.toString(), style = MaterialTheme.typography.labelLarge)
+                                    }
+                                }
                             }
                         }
                     }
@@ -183,28 +191,32 @@ internal fun UsbSettingsScreen(
 private fun DeviceRow(device: UsbDeviceUi, active: Int) {
     var expanded by rememberSaveable(device.id) { mutableStateOf(false) }
     val expansion = stringResource(if (expanded) R.string.usb_expanded else R.string.usb_collapsed)
-    ListItem(onClick = { expanded = !expanded }, shapes = terminalListItemShapes(), colors = usbListColors(),
-        modifier = Modifier.fillMaxWidth().semantics { stateDescription = expansion },
-        supportingContent = {
-            Text(device.hardwareId + " · " + stringResource(if (active > 0) R.string.usb_connection_active else R.string.usb_device_connected),
-                color = if (active > 0) TerminalStatusBlue else MaterialTheme.colorScheme.onSurfaceVariant)
-        }, trailingContent = { ExpandIcon(expanded) }, verticalAlignment = Alignment.CenterVertically) {
-        Text(stringResource(if (device.iphone) R.string.usb_device_iphone else if (device.cdc || device.serialDrivers.isNotEmpty()) R.string.usb_device_serial else R.string.usb_device_generic))
-    }
-    if (expanded) SelectionContainer {
-        Column(Modifier.settingsItemSurface().padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(stringResource(R.string.usb_device_id, device.id), style = MaterialTheme.typography.bodySmall)
-            if (device.serialDrivers.isNotEmpty()) Text(stringResource(R.string.usb_serial_drivers, device.serialDrivers.joinToString()), style = MaterialTheme.typography.bodySmall)
-            device.interfaces.forEach { intf ->
-                Text(stringResource(R.string.usb_interface_details, intf.configuration, intf.id, intf.alternate) + "\n" +
-                    stringResource(when {
-                        intf.deviceClass == 255 && intf.subclass == 66 && intf.protocol == 1 -> R.string.usb_protocol_adb
-                        intf.deviceClass == 6 && intf.subclass == 1 && intf.protocol == 1 -> R.string.usb_protocol_mtp
-                        intf.deviceClass == 3 -> R.string.usb_protocol_hid
-                        intf.deviceClass == 8 -> R.string.usb_protocol_storage
-                        device.iphone && intf.deviceClass == 255 && intf.subclass == 254 && intf.protocol == 2 -> R.string.usb_protocol_iphone
-                        else -> R.string.usb_protocol_raw
-                    }), style = MaterialTheme.typography.bodySmall)
+    Column {
+        ListItem(onClick = { expanded = !expanded }, shapes = terminalListItemShapes(), colors = usbListColors(),
+            modifier = Modifier.fillMaxWidth().semantics { stateDescription = expansion },
+            supportingContent = {
+                Text(device.hardwareId + " · " + stringResource(if (active > 0) R.string.usb_connection_active else R.string.usb_device_connected),
+                    color = if (active > 0) TerminalStatusBlue else MaterialTheme.colorScheme.onSurfaceVariant)
+            }, trailingContent = { SettingsExpansionIcon(expanded) }, verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(if (device.iphone) R.string.usb_device_iphone else if (device.cdc || device.serialDrivers.isNotEmpty()) R.string.usb_device_serial else R.string.usb_device_generic))
+        }
+        SettingsExpansionContent(expanded) {
+            SelectionContainer(Modifier.padding(top = SettingsItemSpacing)) {
+                Column(Modifier.settingsItemSurface().padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(stringResource(R.string.usb_device_id, device.id), style = MaterialTheme.typography.bodySmall)
+                    if (device.serialDrivers.isNotEmpty()) Text(stringResource(R.string.usb_serial_drivers, device.serialDrivers.joinToString()), style = MaterialTheme.typography.bodySmall)
+                    device.interfaces.forEach { intf ->
+                        Text(stringResource(R.string.usb_interface_details, intf.configuration, intf.id, intf.alternate) + "\n" +
+                            stringResource(when {
+                                intf.deviceClass == 255 && intf.subclass == 66 && intf.protocol == 1 -> R.string.usb_protocol_adb
+                                intf.deviceClass == 6 && intf.subclass == 1 && intf.protocol == 1 -> R.string.usb_protocol_mtp
+                                intf.deviceClass == 3 -> R.string.usb_protocol_hid
+                                intf.deviceClass == 8 -> R.string.usb_protocol_storage
+                                device.iphone && intf.deviceClass == 255 && intf.subclass == 254 && intf.protocol == 2 -> R.string.usb_protocol_iphone
+                                else -> R.string.usb_protocol_raw
+                            }), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
             }
         }
     }
@@ -288,11 +300,9 @@ private fun usbListColors() = terminalSettingsListItemColors(containerColor = Ma
 @Composable
 private fun UsbIcon(id: Int) { Icon(painterResource(id), null, Modifier.size(24.dp)) }
 @Composable
-private fun ExpandIcon(expanded: Boolean) { UsbIcon(if (expanded) R.drawable.ic_material_symbol_arrow_upward_24 else R.drawable.ic_material_symbol_arrow_downward_24) }
-@Composable
 private fun ExpandRow(@StringRes title: Int, expanded: Boolean, onClick: () -> Unit, enabled: Boolean = true) {
     val expansion = stringResource(if (expanded) R.string.usb_expanded else R.string.usb_collapsed)
-    ListItem(onClick = onClick, enabled = enabled, trailingContent = { ExpandIcon(expanded) },
+    ListItem(onClick = onClick, enabled = enabled, trailingContent = { SettingsExpansionIcon(expanded) },
         modifier = Modifier.fillMaxWidth().semantics { stateDescription = expansion },
         shapes = terminalListItemShapes(), colors = usbListColors(), verticalAlignment = Alignment.CenterVertically) { Text(stringResource(title)) }
 }
