@@ -394,6 +394,79 @@ class ToolbarUiTest {
         }
     }
 
+    @Test fun settingsDragMorphsCornersAtBothEndsWithoutGroupClipping() {
+        val prefs = context.getSharedPreferences("toolbar-corners-test", 0)
+        val original = listOf(HOTKEY_TOOL, "second", "third")
+        val registry = toolbarTools + listOf(
+            ToolbarTool("second", R.string.diagnostics_title, "fixture"),
+            ToolbarTool("third", R.string.toolbar_empty, "fixture"))
+        prefs.edit().clear().putString(KEY_TOOLBAR, serializeToolbarConfig(ToolbarConfig(tools = original))).commit()
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity -> activity.setContent {
+                    DroidTheme { TerminalHapticFeedbackProvider { ToolbarSettings(prefs, {}, registry) {} } }
+                } }
+                settle()
+                click(description(label(R.string.toolbar_edit)))
+                val moveLabel = context.getString(R.string.toolbar_move, label(R.string.diagnostics_title))
+                fun rowBounds(): Rect {
+                    var node = description(moveLabel)
+                    while (!node.isClickable && node.parent != null) node = node.parent
+                    return bounds(node)
+                }
+                val first = bounds(description(context.getString(R.string.toolbar_move, label(R.string.settings_hotkeys_title))))
+                val handle = bounds(description(moveLabel))
+                val row = rowBounds()
+                val step = handle.exactCenterY() - first.exactCenterY()
+                val gridTop = row.top - step
+                val density = context.resources.displayMetrics.density
+                val start = SystemClock.uptimeMillis()
+                var pointerY = handle.exactCenterY()
+                fun touch(action: Int) {
+                    val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, handle.exactCenterX(), pointerY, 0)
+                    event.source = InputDevice.SOURCE_TOUCHSCREEN
+                    try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+                }
+                touch(MotionEvent.ACTION_DOWN)
+                try {
+                    pointerY += 36f * density
+                    touch(MotionEvent.ACTION_MOVE)
+                    SystemClock.sleep(350)
+                    fun cornersAt(slot: Float): Pair<Int, Int> {
+                        pointerY += gridTop + step * slot - rowBounds().top
+                        touch(MotionEvent.ACTION_MOVE)
+                        SystemClock.sleep(350)
+                        val lifted = rowBounds()
+                        val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+                        try {
+                            val inset = (2f * density).toInt()
+                            val background = screenshot.getPixel(lifted.centerX(), lifted.top + inset)
+                            assertEquals("Lifted surface extends beyond the former wrapper",
+                                background, screenshot.getPixel(row.right + 2, lifted.centerY()))
+                            fun cutout(y: Int): Int = (0..(40f * density).toInt()).first { x ->
+                                screenshot.getPixel(lifted.left + x, y) == background
+                            }
+                            return cutout(lifted.top + inset) to cutout(lifted.bottom - inset)
+                        } finally { screenshot.recycle() }
+                    }
+                    val middle = cornersAt(1f)
+                    val nearTop = cornersAt(0.5f)
+                    val top = cornersAt(0f)
+                    assertTrue("Top corners grow progressively", middle.first < nearTop.first && nearTop.first < top.first)
+                    assertEquals("Bottom corners stay small at the top", middle.second.toFloat(), top.second.toFloat(), 2f * density)
+                    val nearBottom = cornersAt(1.5f)
+                    val bottom = cornersAt(2f)
+                    assertTrue("Bottom corners grow progressively", middle.second < nearBottom.second && nearBottom.second < bottom.second)
+                    assertEquals("Top corners stay small at the bottom", middle.first.toFloat(), bottom.first.toFloat(), 2f * density)
+                    assertEquals(original, parseToolbarConfig(prefs.getString(KEY_TOOLBAR, null), available = registry.map { it.id }.toSet()).tools)
+                } finally { touch(MotionEvent.ACTION_CANCEL) }
+                settle()
+                assertEquals(original, parseToolbarConfig(prefs.getString(KEY_TOOLBAR, null), available = registry.map { it.id }.toSet()).tools)
+                assertEquals(row.top, rowBounds().top)
+            }
+        } finally { prefs.edit().clear().commit() }
+    }
+
     @Test fun settingsEditAddRemoveReorderAndNavigate() {
         val prefs = context.getSharedPreferences("toolbar-ui-test", 0)
         prefs.edit().clear().putString(KEY_TOOLBAR, serializeToolbarConfig(ToolbarConfig(tools = listOf(HOTKEY_TOOL, "clipboard")))).commit()

@@ -17,6 +17,7 @@ import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -42,7 +43,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.SettingsPageScaffold
-import dev.terminal.app.ui.SettingsGroup
 import dev.terminal.app.ui.SettingsItemSpacing
 import dev.terminal.app.ui.terminalListItemShapes
 
@@ -89,9 +89,7 @@ internal fun ToolbarSettings(preferences: SharedPreferences, onBack: () -> Unit,
                 Text(stringResource(R.string.toolbar_tools), Modifier.padding(start = 16.dp, bottom = 8.dp),
                     style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 if (config.tools.isEmpty() && !editing) Text(stringResource(R.string.toolbar_empty))
-                SettingsGroup {
-                    ToolbarReorderList(config, editing, tools, scroll, { viewport }, update, onOpenTool)
-                }
+                ToolbarReorderList(config, editing, tools, scroll, { viewport }, update, onOpenTool)
             }
             Text(stringResource(if (editing) R.string.toolbar_edit_summary else R.string.toolbar_settings_summary),
                 style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -175,6 +173,19 @@ private fun ToolbarReorderList(config: ToolbarConfig, editing: Boolean, tools: L
                 MaterialTheme.motionScheme.defaultSpatialSpec(), label = "toolbarLiftElevation")
             val color by animateColorAsState(if (lifted) MaterialTheme.colorScheme.secondaryContainer
                 else MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.motionScheme.fastEffectsSpec(), label = "toolbarLiftColor")
+            // Each surface owns its outline so the lifted row can extend beyond the group.
+            // Follow its actual position rather than snapping corners when the preview order changes.
+            val rowTop = if (lifted) dragTop else position.value
+            val bottomSlot = if (lifted) order.lastIndex else displayed.lastIndex
+            val topProximity = (1f - rowTop / rowPixels).coerceIn(0f, 1f)
+            val bottomProximity = (1f - (bottomSlot * rowPixels - rowTop) / rowPixels).coerceIn(0f, 1f)
+            val topRadius by animateDpAsState(4.dp + 24.dp * topProximity,
+                MaterialTheme.motionScheme.defaultSpatialSpec(), label = "toolbarRowTopCorners")
+            val bottomRadius by animateDpAsState(4.dp + 24.dp * bottomProximity,
+                MaterialTheme.motionScheme.defaultSpatialSpec(), label = "toolbarRowBottomCorners")
+            val rowShape = RoundedCornerShape(
+                topStart = topRadius.coerceIn(4.dp, 28.dp), topEnd = topRadius.coerceIn(4.dp, 28.dp),
+                bottomStart = bottomRadius.coerceIn(4.dp, 28.dp), bottomEnd = bottomRadius.coerceIn(4.dp, 28.dp))
             val name = stringResource(tool.title)
             val moveLabel = stringResource(R.string.toolbar_move, name)
             val upLabel = stringResource(R.string.toolbar_move_up)
@@ -186,10 +197,11 @@ private fun ToolbarReorderList(config: ToolbarConfig, editing: Boolean, tools: L
                     ListItem(onClick = { if (!editing) onOpen(tool.settings) },
                         modifier = Modifier.fillMaxWidth().height(rowHeight).graphicsLayer {
                             scaleX = scale; scaleY = scale; shadowElevation = elevation.toPx()
-                            shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
-                            clip = lifted
+                            shape = rowShape
+                            clip = true
                         },
-                        shapes = terminalListItemShapes(),
+                        shapes = ListItemDefaults.shapes(shape = rowShape, selectedShape = rowShape,
+                            pressedShape = rowShape, focusedShape = rowShape, hoveredShape = rowShape, draggedShape = rowShape),
                         colors = ListItemDefaults.colors(containerColor = color),
                         contentPadding = PaddingValues(start = startPadding, end = endPadding),
                         verticalAlignment = Alignment.CenterVertically) {
