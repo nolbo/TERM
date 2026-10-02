@@ -62,10 +62,10 @@ class AppInfoUiTest {
                 waitFor { it.text?.toString() == value }
             }
             click(waitFor(scroll = true) { it.text?.toString() == context.getString(R.string.open_source_licenses) })
-            click(waitFor(scroll = true) { it.text?.toString() == "Google Sans" })
+            click(waitFor(scroll = true) { it.text?.toString() == "Pretendard" })
             waitFor { it.text?.toString()?.contains("SIL OPEN FONT LICENSE") == true }
             click(waitFor { it.contentDescription?.toString() == context.getString(R.string.back) })
-            waitFor { it.text?.toString() == "Google Sans" }
+            waitFor { it.text?.toString() == "Pretendard" }
             click(waitFor(scroll = true) { it.text?.toString() == context.getString(R.string.license_iphone_runtime) })
             waitFor { it.text?.toString()?.contains("COPYING") == true }
         }
@@ -83,7 +83,7 @@ class AppInfoUiTest {
         visit("licenses")
         for (name in listOf("TERM-GPL-3.0.txt", "AndroidX-Kotlin-Apache-2.0.txt", "Markwon-Apache-2.0.txt",
             "CommonMark-BSD-2-Clause.txt", "Commons-Compress-Apache-2.0.txt", "XZ-for-Java-0BSD.txt",
-            "GoogleSans-OFL.txt", "GoogleSansCode-OFL.txt", "NotoSansCJK-OFL.txt",
+            "GoogleSans-OFL.txt", "GoogleSansCode-OFL.txt", "Pretendard-OFL.txt",
             "material-symbols-Apache-2.0.txt", "proot-GPL-2.0-or-later.txt")) {
             assertTrue("Missing bundled license: $name", "licenses/$name" in paths)
         }

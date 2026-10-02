@@ -150,7 +150,7 @@ class AppInfoActivity : TerminalActivity() {
         "licenses/usb-serial" -> "USB Serial for Android"
         "licenses/GoogleSans-OFL.txt" -> "Google Sans"
         "licenses/GoogleSansCode-OFL.txt" -> "Google Sans Code"
-        "licenses/NotoSansCJK-OFL.txt" -> "Noto Sans CJK"
+        "licenses/Pretendard-OFL.txt" -> "Pretendard"
         "licenses/AndroidX-Kotlin-Apache-2.0.txt" -> "AndroidX · Kotlin · kotlinx.coroutines"
         "licenses/TERM-GPL-3.0.txt" -> stringResource(R.string.app_name)
         "licenses/Termux-terminal-Apache-2.0.txt" -> "Termux terminal-view · terminal-emulator"

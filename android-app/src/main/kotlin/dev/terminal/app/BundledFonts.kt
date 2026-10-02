@@ -14,9 +14,9 @@ internal object BundledFonts {
     fun googleSans(context: Context): Typeface {
         sansTypeface?.let { return it }
         val family = variableFamily(context, R.font.google_sans_regular, R.font.google_sans_italic, 400..700 step 100)
-        val cjk = variableFamily(context, R.font.noto_sans_cjk_kr, null, 100..900 step 100)
+        val fallback = variableFamily(context, R.font.pretendard_variable, null, 100..900 step 100)
         return Typeface.CustomFallbackBuilder(family)
-            .addCustomFallback(cjk)
+            .addCustomFallback(fallback)
             .setStyle(FontStyle(400, FontStyle.FONT_SLANT_UPRIGHT))
             .setSystemFallback("sans-serif")
             .build().also { sansTypeface = it }

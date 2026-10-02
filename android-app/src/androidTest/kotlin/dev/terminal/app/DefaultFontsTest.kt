@@ -46,22 +46,34 @@ class DefaultFontsTest {
         assertArrayEquals(glyphPixels(expected), glyphPixels(actual))
     }
 
-    private val cjkFont by lazy {
-        Font.Builder(instrumentation.targetContext.resources, R.font.noto_sans_cjk_kr).build()
+    private val pretendardFont by lazy {
+        Font.Builder(instrumentation.targetContext.resources, R.font.pretendard_variable).build()
     }
 
-    private fun assertNotoCjkFallback(face: Typeface) {
+    private fun assertPretendardFallback(face: Typeface) {
         fun header(font: Font) = ByteArray(64).also { font.buffer.duplicate().apply { position(0) }.get(it) }
-        val text = "한漢かなカナ"
+        val text = "한글かなカナ"
         val paint = Paint().apply { typeface = face; textSize = 32f }
         val glyphs = TextRunShaper.shapeTextRun(text, 0, text.length, 0, text.length, 0f, 0f, false, paint)
         assertTrue(glyphs.glyphCount() > 0)
         for (index in 0 until glyphs.glyphCount()) {
-            assertNotEquals("CJK glyph must be present", 0, glyphs.getGlyphId(index))
+            assertNotEquals("Korean and kana glyphs must be present", 0, glyphs.getGlyphId(index))
             val actual = glyphs.getFont(index)
-            assertEquals("Must use the bundled CJK font rather than an OEM fallback", cjkFont.buffer.capacity(), actual.buffer.capacity())
-            assertArrayEquals(header(cjkFont), header(actual))
-            assertEquals("CJK must retain the requested UI weight", face.weight, actual.style.weight)
+            assertEquals("Must use bundled Pretendard rather than an OEM fallback", pretendardFont.buffer.capacity(), actual.buffer.capacity())
+            assertArrayEquals(header(pretendardFont), header(actual))
+            assertEquals("Pretendard must retain the requested UI weight", face.weight, actual.style.weight)
+        }
+    }
+
+    private fun assertUnsupportedHanUsesSystemFallback(face: Typeface) {
+        val text = "漢"
+        val paint = Paint().apply { typeface = face; textSize = 32f }
+        assertTrue("System fallback must retain unsupported Han glyphs", paint.hasGlyph(text))
+        val glyphs = TextRunShaper.shapeTextRun(text, 0, text.length, 0, text.length, 0f, 0f, false, paint)
+        assertTrue(glyphs.glyphCount() > 0)
+        for (index in 0 until glyphs.glyphCount()) {
+            assertNotEquals(0, glyphs.getGlyphId(index))
+            assertNotEquals("Unsupported Han must reach the system fallback", pretendardFont.buffer.capacity(), glyphs.getFont(index).buffer.capacity())
         }
     }
 
@@ -77,7 +89,10 @@ class DefaultFontsTest {
                     assertEquals(italic, face.isItalic)
                     val paint = Paint().apply { typeface = face; textSize = 32f }
                     assertTrue("Korean fallback missing", paint.hasGlyph("한"))
-                    if (family === sans) assertNotoCjkFallback(face)
+                    if (family === sans) {
+                        assertPretendardFallback(face)
+                        assertUnsupportedHanUsesSystemFallback(face)
+                    }
                     if (family === code) {
                         val width = paint.measureText("i")
                         for (glyph in listOf("W", "0", "@", " ")) {
@@ -128,7 +143,10 @@ class DefaultFontsTest {
             }
             assertNotNull("Theme fixture must compose", resolvedFaces.get())
             resolvedFaces.get()!!.forEach { (expected, actual) -> assertSameFace(expected, actual) }
-            resolvedFaces.get()!!.dropLast(1).forEach { (_, actual) -> assertNotoCjkFallback(actual) }
+            resolvedFaces.get()!!.dropLast(1).forEach { (_, actual) ->
+                assertPretendardFallback(actual)
+                assertUnsupportedHanUsesSystemFallback(actual)
+            }
         }
         val preferences = context.getSharedPreferences("default-font-test-${java.util.UUID.randomUUID()}", Context.MODE_PRIVATE)
         try {
