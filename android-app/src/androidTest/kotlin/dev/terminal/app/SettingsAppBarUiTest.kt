@@ -155,6 +155,18 @@ class SettingsAppBarUiTest {
             val screen = bounds(instrumentation.uiAutomation.rootInActiveWindow)
             val density = instrumentation.targetContext.resources.displayMetrics.density
             val smallTop = initialBack.top + (56f * density).toInt()
+            val inset = (2f * density).toInt()
+            val initialScreenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+            val initialBackColor: Int
+            val pageBackground: Int
+            try {
+                pageBackground = initialScreenshot.getPixel(screen.width() * 3 / 4, smallTop - (4f * density).toInt())
+                initialBackColor = initialScreenshot.getPixel(initialBack.centerX(), initialBack.bottom - inset * 3)
+                assertNotEquals("Back button is filled from the expanded stage", pageBackground, initialBackColor)
+                assertEquals("Expanded back button has circular corners", pageBackground,
+                    initialScreenshot.getPixel(initialBack.left + inset, initialBack.top + inset))
+                assertEquals("App bar shares the page background", Color(0xFF0C0E11).toArgb(), pageBackground)
+            } finally { initialScreenshot.recycle() }
             scrollDistance(screen, (initialViewport.top - smallTop).toFloat())
             assertNotNull("Native large-to-small collapse retains the title", find { it.text?.toString() == title })
             val smallViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
@@ -170,12 +182,14 @@ class SettingsAppBarUiTest {
                     kotlin.math.abs(android.graphics.Color.green(color) - android.graphics.Color.green(rowColor.toArgb())) +
                     kotlin.math.abs(android.graphics.Color.blue(color) - android.graphics.Color.blue(rowColor.toArgb()))
             val smallBackground = barPixel()
-            scrollDistance(screen, smallTop * 0.25f)
+            assertEquals("Small app bar keeps the page background", pageBackground, smallBackground)
+            val fadeDistance = smallTop * 0.6f
+            scrollDistance(screen, fadeDistance * 0.25f)
             assertNotNull("Title remains visible during the start of fading", find { it.text?.toString() == title })
             val firstFadeTop = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport })).top
             assertTrue("Floating transition starts after the small stage", firstFadeTop in 1 until smallViewport.top)
             val firstFadeBackground = barPixel()
-            scrollDistance(screen, smallTop * 0.5f)
+            scrollDistance(screen, fadeDistance * 0.5f)
             assertNotNull("Title fades progressively rather than disappearing at the small stage", find { it.text?.toString() == title })
             val secondFadeTop = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport })).top
             assertTrue(secondFadeTop in 1 until firstFadeTop)
@@ -183,7 +197,7 @@ class SettingsAppBarUiTest {
             assertTrue("App bar background fades progressively into the content",
                 distanceFromContent(secondFadeBackground) < distanceFromContent(firstFadeBackground) &&
                     distanceFromContent(firstFadeBackground) < distanceFromContent(smallBackground))
-            scrollDistance(screen, smallTop * 0.25f + 4f * density)
+            scrollDistance(screen, fadeDistance * 0.25f + 4f * density)
             assertNull("Collapsed header has no pinned title", find { it.text?.toString() == title })
             assertEquals("Back button stays fixed", initialBack, bounds(back()))
             val collapsedViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
@@ -192,11 +206,14 @@ class SettingsAppBarUiTest {
             try {
                 assertEquals("Content is visible in the former app-bar area", rowColor.toArgb(),
                     screenshot.getPixel(screen.width() * 3 / 4, initialBack.centerY()))
-                val inset = (2 * instrumentation.targetContext.resources.displayMetrics.density).toInt()
                 assertEquals("Back button has circular corners", rowColor.toArgb(),
                     screenshot.getPixel(initialBack.left + inset, initialBack.top + inset))
-                assertNotEquals("Back button has its own filled background", rowColor.toArgb(),
+                assertEquals("Back button keeps the same filled background throughout scrolling", initialBackColor,
                     screenshot.getPixel(initialBack.centerX(), initialBack.bottom - inset * 3))
+                val statusInset = initialBack.top - (8f * density).toInt()
+                if (statusInset > 0) assertTrue("Content remains clear behind the status-bar gradient",
+                    distanceFromContent(screenshot.getPixel(screen.width() * 3 / 4, statusInset / 2)) <
+                        distanceFromContent(pageBackground) / 3)
             } finally { screenshot.recycle() }
             touch(screen.width() * 0.75f, initialBack.exactCenterY(), initialBack.exactCenterY())
             assertEquals("Rows remain clickable in the former app-bar area", 1, rowClicks)

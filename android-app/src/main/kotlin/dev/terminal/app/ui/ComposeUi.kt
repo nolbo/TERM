@@ -227,7 +227,7 @@ fun SettingsPageScaffold(
     val layoutDirection = LocalLayoutDirection.current
     val topInset = with(density) { systemInsets.getTop(this).toDp() }
     val smallHeaderHeight = TopAppBarDefaults.LargeAppBarCollapsedHeight + topInset
-    val floatingLimit = with(density) { -smallHeaderHeight.toPx() }
+    val floatingLimit = with(density) { -(smallHeaderHeight * 0.6f).toPx() }
     SideEffect {
         floatingState.heightOffsetLimit = floatingLimit
         floatingState.heightOffset = floatingState.heightOffset.coerceIn(floatingLimit, 0f)
@@ -250,13 +250,17 @@ fun SettingsPageScaffold(
                     navigationIcon = { Spacer(Modifier.size(48.dp)) },
                     windowInsets = systemInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                     scrollBehavior = scrollBehavior,
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = MaterialTheme.colorScheme.background,
+                        scrolledContainerColor = MaterialTheme.colorScheme.background,
+                    ),
                 ) else Spacer(Modifier.fillMaxWidth().height(smallHeaderHeight))
             },
             containerColor = MaterialTheme.colorScheme.background,
             content = { padding ->
                 content(PaddingValues(
                     start = padding.calculateStartPadding(layoutDirection),
-                    top = (padding.calculateTopPadding() + with(density) { floatingState.heightOffset.toDp() }).coerceAtLeast(0.dp),
+                    top = (padding.calculateTopPadding() - smallHeaderHeight * floatingFraction).coerceAtLeast(0.dp),
                     end = padding.calculateEndPadding(layoutDirection),
                     bottom = padding.calculateBottomPadding(),
                 ))
@@ -264,7 +268,7 @@ fun SettingsPageScaffold(
         )
         // Only the system icons receive a scrim; content remains visible behind the back button.
         Box(Modifier.fillMaxWidth().height(topInset).background(Brush.verticalGradient(listOf(
-            MaterialTheme.colorScheme.background.copy(alpha = 0.8f * floatingFraction),
+            MaterialTheme.colorScheme.background.copy(alpha = 0.45f * floatingFraction),
             Color.Transparent))))
         FilledIconButton(
             onClick = onBack,
@@ -274,7 +278,7 @@ fun SettingsPageScaffold(
                 .semantics { traversalIndex = -1f },
             shape = CircleShape,
             colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = floatingFraction),
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                 contentColor = MaterialTheme.colorScheme.onSurface,
             ),
         ) {
