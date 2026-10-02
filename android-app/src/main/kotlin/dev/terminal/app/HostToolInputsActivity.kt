@@ -18,7 +18,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
-import dev.terminal.app.ui.AppScaffold
+import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.lifecycle.VmRuntimeService
@@ -59,8 +59,9 @@ class HostToolInputsActivity : TerminalActivity() {
                     delay(1000)
                 }
             }
-            AppScaffold(stringResource(R.string.host_tool_inputs_title), { finish() }) { padding ->
-                LazyColumn(Modifier.padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            SettingsPageScaffold(stringResource(R.string.host_tool_inputs_title), { finish() }) { padding ->
+                LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     item { Text(stringResource(R.string.host_tool_inputs_help)) }
                     if (message.isNotEmpty()) item { Text(message) }
                     if (operations.length() == 0) item { Text(stringResource(R.string.host_tool_none)) }

@@ -1,0 +1,161 @@
+package dev.terminal.app
+
+import android.graphics.Rect
+import android.os.SystemClock
+import android.view.InputDevice
+import android.view.MotionEvent
+import android.view.accessibility.AccessibilityNodeInfo
+import androidx.activity.compose.setContent
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Text
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.dp
+import androidx.test.core.app.ActivityScenario
+import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.platform.app.InstrumentationRegistry
+import dev.terminal.app.ui.DroidTheme
+import dev.terminal.app.ui.DiagnosticsScreen
+import dev.terminal.app.ui.SettingsPageScaffold
+import dev.terminal.app.ui.TerminalHapticFeedbackProvider
+import org.junit.Assert.*
+import org.junit.Test
+import org.junit.runner.RunWith
+
+@RunWith(AndroidJUnit4::class)
+class SettingsAppBarUiTest {
+    private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
+    private val title = "Settings app bar fixture"
+    private val viewport = "Settings scroll viewport"
+    private val rowColor = Color(0xFF193B68)
+
+    private fun find(predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
+        instrumentation.uiAutomation.clearCache()
+        fun walk(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+            if (node == null) return null
+            if (node.isVisibleToUser && predicate(node)) return node
+            for (i in 0 until node.childCount) walk(node.getChild(i))?.let { return it }
+            return null
+        }
+        return walk(instrumentation.uiAutomation.rootInActiveWindow)
+    }
+
+    private fun bounds(node: AccessibilityNodeInfo) = Rect().also(node::getBoundsInScreen)
+    private fun await(condition: () -> Boolean) {
+        val deadline = SystemClock.elapsedRealtime() + 5000
+        while (!condition()) {
+            check(SystemClock.elapsedRealtime() < deadline) { "Settings app bar did not reach the expected state" }
+            instrumentation.waitForIdleSync()
+            SystemClock.sleep(50)
+        }
+    }
+    private fun back(): AccessibilityNodeInfo {
+        var node = checkNotNull(find { it.contentDescription?.toString() == instrumentation.targetContext.getString(R.string.back) })
+        while (!node.isClickable) node = checkNotNull(node.parent)
+        return node
+    }
+
+    private fun touch(x: Float, fromY: Float, toY: Float) {
+        val start = SystemClock.uptimeMillis()
+        for (i in 0..20) {
+            val action = when (i) { 0 -> MotionEvent.ACTION_DOWN; 20 -> MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
+            val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, x, fromY + (toY - fromY) * i / 20, 0)
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+            SystemClock.sleep(20)
+        }
+        SystemClock.sleep(700)
+        instrumentation.waitForIdleSync()
+    }
+
+    @Test fun lazySettingsCollapseToFloatingBackAndEdgeToEdgeContent() = checkScrolling(lazy = true)
+    @Test fun columnSettingsCollapseToFloatingBackAndEdgeToEdgeContent() = checkScrolling(lazy = false)
+
+    @Test fun diagnosticsKeepsRefreshInContentAndCollapsesItsHeader() {
+        val context = instrumentation.targetContext
+        var refreshes = 0
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    DiagnosticsScreen({}, "Selectable diagnostic output\n".repeat(100)) { refreshes++ }
+                } }
+            } }
+            await { find { it.text?.toString() == context.getString(R.string.refresh) } != null }
+            var refresh = checkNotNull(find { it.text?.toString() == context.getString(R.string.refresh) })
+            while (!refresh.isClickable) refresh = checkNotNull(refresh.parent)
+            assertTrue(refresh.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            instrumentation.waitForIdleSync()
+            assertEquals(1, refreshes)
+            val initialBack = bounds(back())
+            val screen = bounds(instrumentation.uiAutomation.rootInActiveWindow)
+            touch(screen.exactCenterX(), screen.height() * 0.8f, screen.height() * 0.25f)
+            assertNull(find { it.text?.toString() == context.getString(R.string.diagnostics_title) })
+            assertEquals(initialBack, bounds(back()))
+            assertNull("Refresh scrolls with the content", find { it.text?.toString() == context.getString(R.string.refresh) })
+        }
+    }
+
+    private fun checkScrolling(lazy: Boolean) {
+        var backClicks = 0
+        var rowClicks = 0
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    SettingsPageScaffold(title, { backClicks++ }) { padding ->
+                        val modifier = Modifier.fillMaxSize().padding(padding)
+                            .semantics { contentDescription = viewport }
+                        val row = Modifier.fillMaxWidth().height(80.dp).background(rowColor).clickable { rowClicks++ }
+                        if (lazy) LazyColumn(modifier) {
+                            items(60) { Text("Setting $it", row.padding(16.dp)) }
+                        } else Column(modifier.verticalScroll(rememberScrollState())) {
+                            repeat(60) { Text("Setting $it", row.padding(16.dp)) }
+                        }
+                    }
+                } }
+            } }
+            await { find { it.contentDescription?.toString() == instrumentation.targetContext.getString(R.string.back) } != null }
+            await { find { it.contentDescription?.toString() == viewport } != null }
+            SystemClock.sleep(1000)
+            instrumentation.waitForIdleSync()
+            val initialBack = bounds(back())
+            val initialViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
+            assertNotNull(find { it.text?.toString() == title })
+            assertTrue("Expanded header keeps the first row below the back button", initialViewport.top > initialBack.bottom)
+            val screen = bounds(instrumentation.uiAutomation.rootInActiveWindow)
+            touch(screen.exactCenterX(), screen.height() * 0.8f, screen.height() * 0.25f)
+            assertNull("Collapsed header has no pinned title", find { it.text?.toString() == title })
+            assertEquals("Back button stays fixed", initialBack, bounds(back()))
+            val collapsedViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
+            assertEquals("Content reaches the top window edge", screen.top, collapsedViewport.top)
+            val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+            try {
+                assertEquals("Content is visible in the former app-bar area", rowColor.toArgb(),
+                    screenshot.getPixel(screen.width() * 3 / 4, initialBack.centerY()))
+                val inset = (2 * instrumentation.targetContext.resources.displayMetrics.density).toInt()
+                assertEquals("Back button has circular corners", rowColor.toArgb(),
+                    screenshot.getPixel(initialBack.left + inset, initialBack.top + inset))
+                assertNotEquals("Back button has its own filled background", rowColor.toArgb(),
+                    screenshot.getPixel(initialBack.centerX(), initialBack.bottom - inset * 3))
+            } finally { screenshot.recycle() }
+            touch(screen.width() * 0.75f, initialBack.exactCenterY(), initialBack.exactCenterY())
+            assertEquals("Rows remain clickable in the former app-bar area", 1, rowClicks)
+            assertTrue(back().performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            instrumentation.waitForIdleSync()
+            assertEquals(1, backClicks)
+            touch(screen.exactCenterX(), screen.height() * 0.3f, screen.height() * 0.4f)
+            assertNull("Header stays collapsed while content is still scrolled", find { it.text?.toString() == title })
+            repeat(4) { touch(screen.exactCenterX(), screen.height() * 0.25f, screen.height() * 0.8f) }
+            assertNotNull("Header returns at the start of the content", find { it.text?.toString() == title })
+            assertEquals(initialViewport, bounds(checkNotNull(find { it.contentDescription?.toString() == viewport })))
+            assertEquals(initialBack, bounds(back()))
+        }
+    }
+}

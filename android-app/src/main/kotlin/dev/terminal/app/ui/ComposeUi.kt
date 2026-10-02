@@ -51,6 +51,7 @@ import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -61,6 +62,8 @@ import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.isTraversalGroup
+import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -213,31 +216,55 @@ fun SettingsPageScaffold(
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
-    Scaffold(
-        modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
-        floatingActionButton = floatingActionButton,
-        floatingActionButtonPosition = floatingActionButtonPosition,
-        topBar = {
-            LargeTopAppBar(
-                title = { Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                navigationIcon = {
-                    IconButton(onClick = onBack, shapes = IconButtonDefaults.shapes()) {
-                        Icon(
-                            painterResource(R.drawable.ic_material_symbol_arrow_back_24),
-                            stringResource(R.string.back),
-                        )
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Color.Transparent,
-                    scrolledContainerColor = Color.Transparent,
-                ),
-                scrollBehavior = scrollBehavior,
-            )
-        },
-        containerColor = MaterialTheme.colorScheme.background,
-        content = content,
-    )
+    val systemInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
+    val topInset = with(LocalDensity.current) { systemInsets.getTop(this).toDp() }
+    Box(Modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
+        Scaffold(
+            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+            floatingActionButton = floatingActionButton,
+            floatingActionButtonPosition = floatingActionButtonPosition,
+            // The header includes the initial status-bar space and scrolls away completely.
+            // Reserving a top system inset here would leave a permanent strip above the list.
+            contentWindowInsets = systemInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
+            topBar = {
+                LargeTopAppBar(
+                    title = {
+                        if (scrollBehavior.state.collapsedFraction < 0.99f) {
+                            Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    },
+                    collapsedHeight = 0.dp,
+                    expandedHeight = TopAppBarDefaults.LargeAppBarExpandedHeight + topInset,
+                    windowInsets = systemInsets.only(WindowInsetsSides.Horizontal),
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent,
+                        scrolledContainerColor = Color.Transparent,
+                    ),
+                    scrollBehavior = scrollBehavior,
+                )
+            },
+            containerColor = MaterialTheme.colorScheme.background,
+            content = content,
+        )
+        // Only the system icons receive a scrim; content remains visible behind the back button.
+        Box(Modifier.fillMaxWidth().height(topInset).background(Brush.verticalGradient(listOf(
+            MaterialTheme.colorScheme.background.copy(alpha = 0.8f * scrollBehavior.state.collapsedFraction),
+            Color.Transparent))))
+        FilledIconButton(
+            onClick = onBack,
+            modifier = Modifier.align(Alignment.TopStart)
+                .windowInsetsPadding(systemInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                .padding(start = 16.dp, top = 8.dp).size(48.dp)
+                .semantics { traversalIndex = -1f },
+            shape = CircleShape,
+            colors = IconButtonDefaults.filledIconButtonColors(
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                contentColor = MaterialTheme.colorScheme.onSurface,
+            ),
+        ) {
+            Icon(painterResource(R.drawable.ic_material_symbol_arrow_back_24), stringResource(R.string.back))
+        }
+    }
 }
 
 private data class SetupRuntime(
@@ -1011,13 +1038,15 @@ private fun SettingsOverviewRow(destination: LocalizedSettingsEntry, onOpen: (Se
 
 @Composable
 fun DiagnosticsScreen(onBack: () -> Unit, text: String, onRefresh: () -> Unit) {
-    AppScaffold(
-        stringResource(R.string.diagnostics_title),
-        onBack,
-        actions = { IconButton(onClick = onRefresh, shapes = IconButtonDefaults.shapes()) { Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), stringResource(R.string.refresh)) } },
-    ) { padding ->
-        SelectionContainer {
-            Text(text, Modifier.fillMaxSize().padding(padding).padding(20.dp).verticalScroll(rememberScrollState()), fontFamily = FontFamily.Monospace)
+    SettingsPageScaffold(stringResource(R.string.diagnostics_title), onBack) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            FilledTonalButton(onClick = onRefresh, modifier = Modifier.align(Alignment.End), shapes = ButtonDefaults.shapes()) {
+                Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), null, Modifier.size(ButtonDefaults.IconSize))
+                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                Text(stringResource(R.string.refresh))
+            }
+            SelectionContainer { Text(text, fontFamily = FontFamily.Monospace) }
         }
     }
 }
