@@ -243,9 +243,6 @@ private fun ToolbarReorderList(config: ToolbarConfig, editing: Boolean, tools: L
                             }
                         }
                     }
-                    if (index < displayed.lastIndex && !lifted) HorizontalDivider(
-                        Modifier.align(Alignment.BottomCenter).padding(horizontal = 16.dp),
-                        color = MaterialTheme.colorScheme.outlineVariant)
                 }
             }
         } }
