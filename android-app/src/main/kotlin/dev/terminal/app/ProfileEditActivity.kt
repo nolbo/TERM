@@ -21,6 +21,7 @@ import dev.terminal.app.ui.settingsItemSurface
 import dev.terminal.app.ui.terminalSettingsListItemColors
 import dev.terminal.app.ui.terminalListItemShapes
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.FloatingToolbarAction
@@ -104,23 +105,24 @@ class ProfileEditActivity : TerminalActivity() {
                 dirty = true
             }
             val rootless = runtime in listOf("ROOTLESS", "ROOTLESS_UBUNTU", "ROOTLESS_ARCH")
+            val saveProfile: () -> Unit = {
+                saving = true
+                scope.launch {
+                    runCatching { withContext(Dispatchers.IO) {
+                        store.save(SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
+                            parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon, palette?.split(',')),
+                            newStorageName = if (storageChoice == "fresh") freshStorageName else null)
+                    } }.onSuccess { finish() }.onFailure { error = it.message }
+                    saving = false
+                }
+            }
             BackHandler { back() }
             SettingsPageScaffold(
                 stringResource(if (editing) R.string.profile_settings else R.string.add_profile), back,
                 floatingActionButtonPosition = FabPosition.Center,
                 floatingActionButton = {
-                    ProfileActions(editing = editing, saving = saving, canSave = storageId.isNotEmpty(), dirty = dirty,
-                        onSave = {
-                            saving = true
-                            scope.launch {
-                                runCatching { withContext(Dispatchers.IO) {
-                                    store.save(SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
-                                        parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon, palette?.split(',')),
-                                        newStorageName = if (storageChoice == "fresh") freshStorageName else null)
-                                } }.onSuccess { finish() }.onFailure { error = it.message }
-                                saving = false
-                            }
-                        },
+                    if (editing) ProfileActions(saving = saving, canSave = storageId.isNotEmpty(), dirty = dirty,
+                        onSave = saveProfile,
                         onDuplicate = {
                             startActivity(Intent(this@ProfileEditActivity, ProfileEditActivity::class.java)
                                 .putExtra("profileId", id).putExtra("duplicate", true))
@@ -130,7 +132,7 @@ class ProfileEditActivity : TerminalActivity() {
             ) { padding ->
                 Column(Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState())
                     .padding(start = 16.dp, end = 16.dp, top = 8.dp,
-                        bottom = FloatingToolbarDefaults.ContainerSize + FloatingToolbarDefaults.ScreenOffset * 2),
+                        bottom = if (editing) FloatingToolbarDefaults.ContainerSize + FloatingToolbarDefaults.ScreenOffset * 2 else 16.dp),
                     verticalArrangement = Arrangement.spacedBy(20.dp)) {
                     Text(stringResource(R.string.profile_future_only), modifier = Modifier.padding(horizontal = 4.dp),
                         style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -217,6 +219,13 @@ class ProfileEditActivity : TerminalActivity() {
                     if (editing) {
                         if (dirty) Text(stringResource(R.string.profile_duplicate_save_first),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Button(onClick = saveProfile, enabled = !saving && storageId.isNotEmpty(),
+                            modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+                            Icon(painterResource(R.drawable.ic_material_symbol_save_24), null, Modifier.size(ButtonDefaults.IconSize))
+                            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+                            Text(stringResource(R.string.profile_save))
+                        }
                     }
                 }
             }
@@ -238,7 +247,6 @@ class ProfileEditActivity : TerminalActivity() {
 }
 
 @Composable private fun ProfileActions(
-    editing: Boolean,
     saving: Boolean,
     canSave: Boolean,
     dirty: Boolean,
@@ -247,14 +255,12 @@ class ProfileEditActivity : TerminalActivity() {
     onDelete: () -> Unit,
 ) {
     HorizontalFloatingToolbar(expanded = true) {
-        FloatingToolbarAction(stringResource(R.string.profile_save), R.drawable.ic_material_symbol_check_circle_24,
+        FloatingToolbarAction(stringResource(R.string.profile_save), R.drawable.ic_material_symbol_save_24,
             enabled = !saving && canSave, onClick = onSave)
-        if (editing) {
-            FloatingToolbarAction(stringResource(R.string.profile_duplicate), R.drawable.ic_material_symbol_content_copy_24,
-                enabled = !saving && !dirty, onClick = onDuplicate)
-            FloatingToolbarAction(stringResource(R.string.profile_delete), R.drawable.ic_material_symbol_delete_24,
-                enabled = !saving, onClick = onDelete, destructive = true)
-        }
+        FloatingToolbarAction(stringResource(R.string.profile_duplicate), R.drawable.ic_material_symbol_content_copy_24,
+            enabled = !saving && !dirty, onClick = onDuplicate)
+        FloatingToolbarAction(stringResource(R.string.profile_delete), R.drawable.ic_material_symbol_delete_24,
+            enabled = !saving, onClick = onDelete, destructive = true)
     }
 }
 

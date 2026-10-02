@@ -57,6 +57,8 @@ class SessionProfilesTest {
             ActivityScenario.launch(ProfileEditActivity::class.java).use { activity ->
                 await { find { it.text?.toString() == context.getString(R.string.profile_name) } != null }
                 assertNull(find { it.isEditable })
+                assertNull("New profile save action belongs at the end of the content",
+                    find { it.isVisibleToUser && it.hasLabel(context.getString(R.string.profile_save)) })
                 click(R.string.profile_name); typeName(); click(R.string.cancel)
                 await { find { it.isEditable } == null }
                 assertNull(find { it.text?.toString() == name })
@@ -79,9 +81,18 @@ class SessionProfilesTest {
                 activity.recreate()
                 await { find { it.text?.toString() == storageName } != null }
                 await {
-                    if (find { it.hasLabel(context.getString(R.string.profile_save)) } != null) true
+                    if (find { it.isVisibleToUser && it.hasLabel(context.getString(R.string.profile_save)) } != null) true
                     else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
                 }
+                var saveButton = requireNotNull(find { it.isVisibleToUser && it.text?.toString() == context.getString(R.string.profile_save) })
+                while (!saveButton.isClickable) saveButton = requireNotNull(saveButton.parent)
+                val saveBounds = android.graphics.Rect().also(saveButton::getBoundsInScreen)
+                val screen = android.graphics.Rect().also(instrumentation.uiAutomation.rootInActiveWindow::getBoundsInScreen)
+                val environmentBounds = android.graphics.Rect().also {
+                    requireNotNull(find { it.isVisibleToUser && it.text?.toString() == context.getString(R.string.profile_environment) }).getBoundsInScreen(it)
+                }
+                assertTrue("Save is a full-width content button", saveBounds.width() > screen.width() * 0.8)
+                assertTrue("Save follows the last settings section", saveBounds.top >= environmentBounds.bottom)
                 click(R.string.profile_save)
                 await { store.all().any { it.name == name } }
                 val saved = store.all().single { it.name == name }
