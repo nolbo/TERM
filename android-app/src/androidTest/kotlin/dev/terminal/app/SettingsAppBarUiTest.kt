@@ -15,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
+import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -145,14 +146,17 @@ class SettingsAppBarUiTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 DroidTheme { TerminalHapticFeedbackProvider {
-                    SettingsPageScaffold(title, { backClicks++ }) { padding ->
-                        val modifier = Modifier.fillMaxSize().padding(padding)
-                            .semantics { contentDescription = viewport }
-                        val row = Modifier.fillMaxWidth().height(80.dp).background(rowColor).clickable { rowClicks++ }
-                        if (lazy) LazyColumn(modifier) {
-                            items(60) { Text("Setting $it", row.padding(16.dp)) }
-                        } else Column(modifier.verticalScroll(rememberScrollState())) {
-                            repeat(60) { Text("Setting $it", row.padding(16.dp)) }
+                    // A parent surface must not tint an opaque scaffold background behind the header.
+                    Surface(tonalElevation = 3.dp) {
+                        SettingsPageScaffold(title, { backClicks++ }) { padding ->
+                            val modifier = Modifier.fillMaxSize().padding(padding)
+                                .semantics { contentDescription = viewport }
+                            val row = Modifier.fillMaxWidth().height(80.dp).background(rowColor).clickable { rowClicks++ }
+                            if (lazy) LazyColumn(modifier) {
+                                items(60) { Text("Setting $it", row.padding(16.dp)) }
+                            } else Column(modifier.verticalScroll(rememberScrollState())) {
+                                repeat(60) { Text("Setting $it", row.padding(16.dp)) }
+                            }
                         }
                     }
                 } }
@@ -224,8 +228,9 @@ class SettingsAppBarUiTest {
             assertNull("Scrolling beyond 4dp fades out the small title", find { it.text?.toString() == title })
             val transparentScreenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
             try {
-                assertEquals("Content is visible through the small app bar before all top space is removed", rowColor.toArgb(),
-                    transparentScreenshot.getPixel(screen.width() * 3 / 4, smallTop - (4f * density).toInt()))
+                assertTrue("Content is visible through the small app bar before all top space is removed",
+                    distanceFromContent(transparentScreenshot.getPixel(screen.width() * 3 / 4,
+                        smallTop - (4f * density).toInt())) < distanceFromContent(pageBackground) / 10)
             } finally { transparentScreenshot.recycle() }
             assertEquals("Back button stays fixed", initialBack, bounds(back()))
             val fadedViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
@@ -242,8 +247,12 @@ class SettingsAppBarUiTest {
             assertEquals("Content reaches the top window edge", screen.top, collapsedViewport.top)
             val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
             try {
-                assertEquals("Content is visible in the former app-bar area", rowColor.toArgb(),
-                    screenshot.getPixel(screen.width() * 3 / 4, initialBack.centerY()))
+                val middleFade = distanceFromContent(screenshot.getPixel(screen.width() * 3 / 4, initialBack.centerY()))
+                val lowerFade = distanceFromContent(screenshot.getPixel(screen.width() * 3 / 4, smallTop - inset))
+                assertTrue("Former app-bar area has a transparent fading edge rather than a solid background",
+                    middleFade > lowerFade && middleFade < distanceFromContent(pageBackground) * 0.6f)
+                assertEquals("Content below the gradient is unobscured", rowColor.toArgb(),
+                    screenshot.getPixel(screen.width() * 3 / 4, smallTop + inset))
                 val corner = screenshot.getPixel(initialBack.left + inset, initialBack.top + inset)
                 val cornerBackground = screenshot.getPixel(screen.width() * 3 / 4, initialBack.top + inset)
                 assertTrue("Back button keeps circular corners above the gradient",
@@ -251,19 +260,22 @@ class SettingsAppBarUiTest {
                 assertEquals("Back button keeps the same filled background throughout scrolling", initialBackColor,
                     screenshot.getPixel(initialBack.centerX(), initialBack.bottom - inset * 3))
                 val shadow = screenshot.getPixel(initialBack.centerX(), initialBack.bottom + inset)
+                val shadowBackground = screenshot.getPixel(screen.width() * 3 / 4, initialBack.bottom + inset)
                 assertTrue("Floating back button has a subtle shadow outside its circular surface",
-                    distanceFromContent(shadow) in 1 until distanceFromContent(pageBackground) / 2)
+                    distanceFromContent(shadow) > distanceFromContent(shadowBackground) &&
+                        distanceFromContent(shadow) < distanceFromContent(pageBackground) / 2)
                 val statusInset = initialBack.top - (8f * density).toInt()
                 if (statusInset > 0) {
                     val statusFade = distanceFromContent(screenshot.getPixel(screen.width() * 3 / 4, statusInset / 2))
                     assertTrue("System edge has a stronger gradient while retaining visible content",
-                        statusFade > distanceFromContent(pageBackground) / 3 &&
-                            statusFade < distanceFromContent(pageBackground) * 0.7f)
+                        statusFade > distanceFromContent(pageBackground) * 0.8f &&
+                            statusFade < distanceFromContent(pageBackground))
                 }
                 val belowStatusFade = distanceFromContent(screenshot.getPixel(screen.width() * 3 / 4,
                     statusInset + (12f * density).toInt()))
                 assertTrue("Gradient extends smoothly below the status bar without hiding content",
-                    belowStatusFade in 1 until distanceFromContent(pageBackground) / 2)
+                    belowStatusFade > distanceFromContent(pageBackground) * 0.45f &&
+                        belowStatusFade < distanceFromContent(pageBackground) * 0.8f)
             } finally { screenshot.recycle() }
             touch(screen.width() * 0.75f, initialBack.exactCenterY(), initialBack.exactCenterY())
             assertEquals("Rows remain clickable in the former app-bar area", 1, rowClicks)

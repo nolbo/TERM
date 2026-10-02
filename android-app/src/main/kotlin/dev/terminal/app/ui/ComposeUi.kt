@@ -240,7 +240,8 @@ fun SettingsPageScaffold(
         contentHeaderState.heightOffsetLimit = contentHeaderLimit
         contentHeaderState.heightOffset = contentHeaderState.heightOffset.coerceIn(contentHeaderLimit, 0f)
     }
-    Box(Modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
+    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+        .semantics { isTraversalGroup = true }) {
         Scaffold(
             // Content moves one pixel per scroll pixel; the title fades as the large bar collapses.
             modifier = Modifier.nestedScroll(contentScrollBehavior.nestedScrollConnection)
@@ -264,20 +265,27 @@ fun SettingsPageScaffold(
                     ),
                 ) else Spacer(Modifier.fillMaxWidth().height(smallHeaderHeight))
             },
-            containerColor = MaterialTheme.colorScheme.background,
+            // Keep Surface's inherited tonal elevation from painting an opaque header backdrop.
+            containerColor = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.onSurface,
             content = { padding ->
-                content(PaddingValues(
-                    start = padding.calculateStartPadding(layoutDirection),
-                    top = (padding.calculateTopPadding() + with(density) { contentHeaderState.heightOffset.toDp() }).coerceAtLeast(0.dp),
-                    end = padding.calculateEndPadding(layoutDirection),
-                    bottom = padding.calculateBottomPadding(),
-                ))
+                Box(Modifier.fillMaxSize()) {
+                    content(PaddingValues(
+                        start = padding.calculateStartPadding(layoutDirection),
+                        top = (padding.calculateTopPadding() + with(density) { contentHeaderState.heightOffset.toDp() }).coerceAtLeast(0.dp),
+                        end = padding.calculateEndPadding(layoutDirection),
+                        bottom = padding.calculateBottomPadding(),
+                    ))
+                    // Full-strength edge fade above content, below the transparent bar and its title.
+                    Box(Modifier.fillMaxWidth().height(smallHeaderHeight).background(Brush.verticalGradient(
+                        0f to MaterialTheme.colorScheme.background,
+                        0.2f to MaterialTheme.colorScheme.background.copy(alpha = 0.9f),
+                        0.6f to MaterialTheme.colorScheme.background.copy(alpha = 0.38f),
+                        1f to Color.Transparent,
+                    )))
+                }
             },
         )
-        // Fade from the system edge to the back-button center, leaving the content visible.
-        Box(Modifier.fillMaxWidth().height(topInset + 32.dp).background(Brush.verticalGradient(listOf(
-            MaterialTheme.colorScheme.background.copy(alpha = 0.65f * contentHeaderState.collapsedFraction),
-            Color.Transparent))))
         FilledIconButton(
             onClick = onBack,
             modifier = Modifier.align(Alignment.TopStart)
