@@ -201,6 +201,16 @@ class SettingsAppBarUiTest {
             assertNull("Extra scrolling immediately triggers a complete fade without further movement",
                 find { it.text?.toString() == title })
             assertEquals("Back button stays fixed", initialBack, bounds(back()))
+            val fadedViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
+            assertEquals("Fading moves content only by the actual extra scroll distance",
+                smallViewport.top - 2f * density, fadedViewport.top.toFloat(), 1f)
+            val fadedRow = bounds(checkNotNull(find { it.text?.toString() == "Setting 0" }))
+            SystemClock.sleep(300)
+            assertEquals("Content does not continue moving while the finger is stopped", fadedViewport,
+                bounds(checkNotNull(find { it.contentDescription?.toString() == viewport })))
+            assertEquals("Rows do not scroll automatically during the fade", fadedRow,
+                bounds(checkNotNull(find { it.text?.toString() == "Setting 0" })))
+            scrollDistance(screen, (fadedViewport.top - screen.top).toFloat())
             val collapsedViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
             assertEquals("Content reaches the top window edge", screen.top, collapsedViewport.top)
             val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
