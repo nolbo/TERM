@@ -40,7 +40,10 @@ internal class TerminalPaletteTransition(
             )))
             chrome = fromChrome.interpolate(targetChrome, fraction)
             view.setPaletteOverride(if (fraction < 1f) current else null)
-            view.setBackgroundColor(current[TextStyle.COLOR_INDEX_BACKGROUND])
+            val canvasBackground = requireNotNull(chrome).background.toArgb()
+                .takeIf { followTuiBackground() && emulator.isAlternateBufferActive }
+            view.setCanvasBackgroundOverride(canvasBackground)
+            view.setBackgroundColor(canvasBackground ?: current[TextStyle.COLOR_INDEX_BACKGROUND])
             publish(requireNotNull(chrome))
         }
         if (!animate || !ValueAnimator.areAnimatorsEnabled() || start.contentEquals(colors.mCurrentColors)) {

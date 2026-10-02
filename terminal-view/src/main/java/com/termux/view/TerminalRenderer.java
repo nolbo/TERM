@@ -4,7 +4,6 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Picture;
-import android.graphics.PorterDuff;
 import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
@@ -97,8 +96,17 @@ public final class TerminalRenderer {
     }
 
     private int[] mPaletteOverride;
+    private Integer mCanvasBackgroundOverride;
 
     public void setPaletteOverride(int[] colors) { mPaletteOverride = colors; }
+    /** Canvas margins only; cell backgrounds and terminal palette remain unchanged. */
+    public void setCanvasBackgroundOverride(Integer color) { mCanvasBackgroundOverride = color; }
+
+    private int canvasBackground(TerminalEmulator emulator) {
+        return mCanvasBackgroundOverride != null ? mCanvasBackgroundOverride :
+            palette(emulator)[emulator.isReverseVideo()
+                ? TextStyle.COLOR_INDEX_FOREGROUND : TextStyle.COLOR_INDEX_BACKGROUND];
+    }
 
     private int[] palette(TerminalEmulator emulator) {
         return mPaletteOverride != null ? mPaletteOverride : emulator.mColors.mCurrentColors;
@@ -138,8 +146,7 @@ public final class TerminalRenderer {
         int firstRow = TerminalViewport.firstDrawnRow(topRow, emulator.getScreen().getActiveTranscriptRows(),
             topInset, mFontLineSpacing);
         // Include preceding transcript in the inset rather than clipping it at the safe boundary.
-        recording.drawColor(palette(emulator)[emulator.isReverseVideo()
-            ? TextStyle.COLOR_INDEX_FOREGROUND : TextStyle.COLOR_INDEX_BACKGROUND]);
+        recording.drawColor(canvasBackground(emulator));
         recording.translate(0, topInset + (firstRow - topRow - scrollOffset) * mFontLineSpacing);
         try { renderFrame(emulator, recording, firstRow, selectionY1, selectionY2, selectionX1, selectionX2,
             visibleRows + topRow - firstRow); }
@@ -154,8 +161,6 @@ public final class TerminalRenderer {
 
     private void renderFrame(TerminalEmulator emulator, Canvas canvas, int topRow,
                              int selectionY1, int selectionY2, int selectionX1, int selectionX2, int visibleRows) {
-        if (emulator.isReverseVideo())
-            canvas.drawColor(palette(emulator)[TextStyle.COLOR_INDEX_FOREGROUND], PorterDuff.Mode.SRC);
         List<TerminalGraphics.Placement> images = emulator.getGraphics().getRenderPlacements(
             emulator.getScreen(), topRow, topRow + visibleRows, emulator.mColumns, System.nanoTime() / 1_000_000);
         Set<TerminalImage> visible = new HashSet<>();
@@ -361,8 +366,9 @@ public final class TerminalRenderer {
         float right = left + runWidthColumns * mFontWidth;
 
         if (mDrawPass != 2 && (backColor != palette[TextStyle.COLOR_INDEX_BACKGROUND] ||
+            (mCanvasBackgroundOverride != null && backColor != mCanvasBackgroundOverride) ||
             TextStyle.decodeBackColor(textStyle) != TextStyle.COLOR_INDEX_BACKGROUND || reverseVideoHere)) {
-            // Only draw non-default background.
+            // Default cells also need paint when the canvas margins use a different color.
             mTextPaint.setColor(backColor);
             canvas.drawRect(left, y - mFontLineSpacingAndAscent + mFontAscent, right, y, mTextPaint);
         }

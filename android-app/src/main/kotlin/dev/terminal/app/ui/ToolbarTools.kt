@@ -37,6 +37,7 @@ import org.json.JSONObject
 @Composable
 internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refreshSeconds: Int,
     onSelectSession: (String) -> Unit, sections: MemoryToolSections = MemoryToolSections(), load: suspend () -> String?) {
+    val colors = LocalToolbarColors.current
     var snapshot by remember { mutableStateOf<JSONObject?>(null) }
     var failed by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
@@ -61,7 +62,7 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
             if (sections.device) item {
                 val total = data.optLong("totalBytes", -1)
                 val used = if (total > 0) total - data.optLong("availableBytes").coerceIn(0, total) else -1
-                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer) {
+                Surface(shape = MaterialTheme.shapes.large, color = colors.container, contentColor = colors.onContainer) {
                     Column(Modifier.fillMaxWidth().padding(12.dp)) {
                         MemoryUsageSummary(stringResource(R.string.toolbar_memory_device), used, total)
                     }
@@ -70,11 +71,11 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
             if (sections.app) item {
                 val app = data.optJSONObject("appMemory")
                 val appTotal = app?.optLong("total", -1) ?: -1
-                Surface(shape = MaterialTheme.shapes.large, color = MaterialTheme.colorScheme.surfaceContainer) {
+                Surface(shape = MaterialTheme.shapes.large, color = colors.container, contentColor = colors.onContainer) {
                     Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                         MemoryUsageSummary(stringResource(R.string.toolbar_memory_app), appTotal, data.optLong("totalBytes", -1))
                         if (app != null) {
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                            HorizontalDivider(color = colors.divider)
                             appMemoryAreas.forEach { (key, title) ->
                                 val amount = app.optLong(key, -1)
                                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -85,7 +86,7 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
                                     }
                                     if (amount >= 0 && appTotal > 0) LinearProgressIndicator(
                                         progress = { (amount.toDouble() / appTotal).toFloat().coerceIn(0f, 1f) },
-                                        modifier = Modifier.fillMaxWidth())
+                                        modifier = Modifier.fillMaxWidth(), color = colors.accent, trackColor = colors.divider)
                                 }
                             }
                         }
@@ -108,7 +109,13 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
                     onClick = { onSelectSession(session.id) },
                     enabled = active,
                     shapes = terminalListItemShapes(),
-                    colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    colors = ListItemDefaults.colors(
+                        containerColor = colors.container, contentColor = colors.onContainer,
+                        trailingContentColor = colors.onContainer,
+                        disabledContainerColor = colors.container,
+                        disabledContentColor = colors.onContainer.copy(alpha = 0.38f),
+                        disabledTrailingContentColor = colors.onContainer.copy(alpha = 0.38f),
+                    ),
                     trailingContent = {
                         Text(bytes?.let(::memorySize) ?: stringResource(R.string.toolbar_unavailable),
                             style = MaterialTheme.typography.labelMedium)
@@ -137,6 +144,7 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
 
 @Composable
 private fun MemoryUsageSummary(title: String, used: Long, total: Long) {
+    val colors = LocalToolbarColors.current
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(title, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
@@ -145,10 +153,10 @@ private fun MemoryUsageSummary(title: String, used: Long, total: Long) {
         }
         if (used >= 0 && total > 0) {
             val ratio = (used.toDouble() / total).toFloat().coerceIn(0f, 1f)
-            LinearProgressIndicator(progress = { ratio }, modifier = Modifier.fillMaxWidth())
+            LinearProgressIndicator(progress = { ratio }, modifier = Modifier.fillMaxWidth(), color = colors.accent, trackColor = colors.divider)
             Text(stringResource(R.string.toolbar_memory_of_device,
                 java.text.NumberFormat.getPercentInstance().apply { maximumFractionDigits = 1 }.format(ratio), memorySize(total)),
-                style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                style = MaterialTheme.typography.labelSmall, color = colors.onContainer)
         }
     }
 }
@@ -165,6 +173,7 @@ private fun memorySize(bytes: Long) = String.format(java.util.Locale.getDefault(
 @Composable
 internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean, target: String,
     onSend: (String, Boolean) -> Unit, onSave: (ToolbarCommand) -> Unit) {
+    val colors = LocalToolbarColors.current
     var pending by remember { mutableStateOf<ToolbarCommand?>(null) }
     var editId by rememberSaveable { mutableStateOf<String?>(null) }
     var name by rememberSaveable { mutableStateOf("") }
@@ -177,11 +186,11 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
             verticalArrangement = Arrangement.spacedBy(4.dp)) {
             if (commands.isEmpty()) item {
                 Text(stringResource(R.string.toolbar_commands_empty), Modifier.padding(8.dp),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    style = MaterialTheme.typography.bodySmall, color = colors.foreground)
             }
             items(commands, key = { it.id }) { command ->
                 Surface(onClick = { pending = command }, enabled = active,
-                    shape = MaterialTheme.shapes.extraLarge, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+                    shape = MaterialTheme.shapes.extraLarge, color = colors.container, contentColor = colors.onContainer) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
                         .padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -191,7 +200,7 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                             Text(command.text, fontFamily = FontFamily.Monospace,
                                 style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                color = colors.onContainer)
                         }
                         IconButton(onClick = { editId = command.id; name = command.name; text = command.text }) {
                             Icon(painterResource(R.drawable.ic_toolbar_edit),

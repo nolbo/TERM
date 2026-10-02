@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.SystemClock
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -47,6 +49,15 @@ class TerminalTuiLifecycleTest {
                     }
                     return result
                 }
+                fun assertCanvas(expected: Int) {
+                    scenario.onActivity {
+                        val terminalView = checkNotNull(view(scenario))
+                        val bitmap = Bitmap.createBitmap(terminalView.width, terminalView.height, Bitmap.Config.ARGB_8888)
+                        terminalView.draw(Canvas(bitmap))
+                        assertEquals("Terminal canvas top margin", expected, bitmap.getPixel(0, 0))
+                        bitmap.recycle()
+                    }
+                }
                 val script = "stty -echo -icanon min 1 time 0; " +
                     "printf '\\033[?1049h\\033[48;2;18;52;86m\\033[2J\\033[HTUI_DARK'; " +
                     "dd bs=1 count=1 >/dev/null 2>&1; " +
@@ -56,19 +67,23 @@ class TerminalTuiLifecycleTest {
                     "printf '\\033[0m\\033[?1049l'; stty echo icanon\n"
                 service.writeSessionInput(id, script.toByteArray())
                 await("dark TUI chrome") { chrome() == 0xFF123456.toInt() }
+                assertCanvas(0xFF123456.toInt())
                 assertEquals(background, terminal.emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND])
                 service.writeSessionInput(id, "A".toByteArray())
                 await("synchronized theme received") { screen(terminal).contains("TUI_LIGHT") }
                 assertEquals(0xFF123456.toInt(), chrome())
                 service.writeSessionInput(id, "S".toByteArray())
                 await("live light theme") { chrome() == 0xFFF0E0D0.toInt() }
+                assertCanvas(0xFFF0E0D0.toInt())
                 scenario.recreate()
                 select(scenario, id)
                 await("TUI chrome after recreation") { chrome() == 0xFFF0E0D0.toInt() }
+                assertCanvas(0xFFF0E0D0.toInt())
                 scenario.moveToState(Lifecycle.State.CREATED)
                 preferences.edit().putBoolean(key, false).commit()
                 scenario.moveToState(Lifecycle.State.RESUMED)
                 await("disabled option restores palette") { chrome() == background }
+                assertCanvas(background)
                 scenario.moveToState(Lifecycle.State.CREATED)
                 preferences.edit().putBoolean(key, true).commit()
                 scenario.moveToState(Lifecycle.State.RESUMED)

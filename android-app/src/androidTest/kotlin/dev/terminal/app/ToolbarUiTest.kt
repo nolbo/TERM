@@ -11,6 +11,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -221,6 +222,49 @@ class ToolbarUiTest {
             while (!row.isClickable && row.parent != null) row = row.parent
             assertTrue(row.isClickable)
             assertTrue("Session row is fully reachable by scrolling", bounds(row).height() >= 48 * density)
+        }
+    }
+
+    @Test fun memoryCardsSessionRowsAndCommandsFollowChangingToolbarColors() {
+        val colors = mutableStateOf(TerminalChromeColors(Color(0xFF123456)))
+        val tool = mutableStateOf(MEMORY_TOOL)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Column(Modifier.fillMaxSize()) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(ToolbarConfig(tools = listOf(tool.value)), ToolbarSheetMode.Expanded,
+                            {}, 400.dp, colors.value) { id, active ->
+                            if (id == MEMORY_TOOL) {
+                                ToolbarMemoryTool(active, listOf(SessionUi("one", "NATIVE", "Color session", "RUNNING")),
+                                    30, {}) { """{"totalBytes":1048576,"availableBytes":524288,"sessions":{"one":1024}}""" }
+                            } else {
+                                ToolbarCommandsTool(listOf(ToolbarCommand("one", "Color command", "echo test")),
+                                    active, "Color session", { _, _ -> }, {})
+                            }
+                        }
+                    }
+                } }
+            } }
+            fun assertContainer(title: String) {
+                val area = bounds(text(title))
+                val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+                try {
+                    // The blank inset inside each rounded container avoids text and progress pixels.
+                    val x = (16 * context.resources.displayMetrics.density).toInt()
+                    assertEquals(title, colors.value.container.toArgb(), screenshot.getPixel(x, area.centerY()))
+                } finally { screenshot.recycle() }
+            }
+            for (background in listOf(Color(0xFF123456), Color(0xFFF0E0D0))) {
+                scenario.onActivity { colors.value = TerminalChromeColors(background); tool.value = MEMORY_TOOL }
+                settle()
+                assertContainer(label(R.string.toolbar_memory_device))
+                assertContainer(label(R.string.toolbar_memory_app))
+                assertContainer("Color session")
+                scenario.onActivity { tool.value = COMMANDS_TOOL }
+                settle()
+                assertContainer("Color command")
+            }
         }
     }
 

@@ -689,6 +689,13 @@ public final class TerminalView extends View {
     }
 
     private int[] mPaletteOverride;
+    private Integer mCanvasBackgroundOverride;
+
+    /** Visual canvas fill independent from the colors of terminal cells. */
+    public void setCanvasBackgroundOverride(Integer color) {
+        mCanvasBackgroundOverride = color;
+        invalidate();
+    }
 
     /** Temporary visual colors; terminal OSC state and defaults remain authoritative. */
     public void setPaletteOverride(int[] colors) {
@@ -1439,6 +1446,7 @@ public final class TerminalView extends View {
 
             long syncDelay = mEmulator.getSynchronizedOutputDelayMillis();
             mRenderer.setPaletteOverride(mPaletteOverride);
+            mRenderer.setCanvasBackgroundOverride(mCanvasBackgroundOverride);
             mRenderer.render(mEmulator, canvas, mTopRow, sel[0], sel[1], sel[2], sel[3], mScrollOffset, mScrollbackTopInset);
             long graphicsDelay = syncDelay > 0 ? syncDelay : mEmulator.getGraphics().getAnimationDelayMillis();
             if (graphicsDelay >= 0) postInvalidateDelayed(Math.max(16, graphicsDelay));

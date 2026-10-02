@@ -37,7 +37,7 @@ import dev.terminal.app.R
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
-internal val LocalToolbarBackground = staticCompositionLocalOf { Color.Black }
+internal val LocalToolbarColors = staticCompositionLocalOf { TerminalChromeColors(Color.Black) }
 internal val ToolbarHotkeyViewportHeight = (HOTKEY_HEIGHT_DP * 2 + 4 + 8).dp
 
 /** Persistent, non-modal bottom sheet with a handle-only hidden anchor. No runtime ownership. */
@@ -128,7 +128,7 @@ internal fun TerminalToolbar(
                             Text(stringResource(R.string.toolbar_empty), style = MaterialTheme.typography.bodyMedium)
                         }
                     } else {
-                        CompositionLocalProvider(LocalToolbarBackground provides colors.background) {
+                        CompositionLocalProvider(LocalToolbarColors provides colors) {
                             ToolbarPages(config.tools, pager, state.settledValue != ToolbarSheetMode.Hidden,
                                 content = content)
                         }
@@ -190,7 +190,7 @@ private fun ColumnScope.ToolbarPages(tools: List<String>, pager: PagerState, int
 /** Only fade edges with more content beyond them; overlays never intercept gestures. */
 @Composable
 internal fun ToolbarScrollEdges(backward: Boolean, forward: Boolean, modifier: Modifier = Modifier,
-    background: Color = LocalToolbarBackground.current, content: @Composable () -> Unit) {
+    background: Color = LocalToolbarColors.current.background, content: @Composable () -> Unit) {
     Box(modifier.clipToBounds()) {
         content()
         ScrollEdgeFade(backward, Brush.verticalGradient(listOf(background, background.copy(alpha = 0f))),
