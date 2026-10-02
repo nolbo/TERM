@@ -2,6 +2,7 @@ package dev.terminal.app.ui
 
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.key
@@ -39,7 +40,7 @@ internal fun FloatingToolbarAction(
                 onClick = onClick,
                 enabled = enabled,
                 modifier = Modifier.size(48.dp),
-                shapes = IconButtonDefaults.shapes(),
+                shape = CircleShape,
                 colors = if (destructive) IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error)
                     else IconButtonDefaults.iconButtonColors(),
             ) {

@@ -531,7 +531,7 @@ internal fun TerminalChrome(
                                         haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                                         onTerminate(session)
                                     },
-                                    shapes = IconButtonDefaults.shapes(),
+                                    shape = CircleShape,
                                     enabled = session.id !in terminatingSessionIds,
                                 ) {
                                     Icon(painterResource(R.drawable.ic_material_symbol_close_24), stringResource(R.string.terminate_session_description, sessionTitle))
