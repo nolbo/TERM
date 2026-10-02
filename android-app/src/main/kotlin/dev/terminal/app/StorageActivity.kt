@@ -23,6 +23,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.ProfileIcon
+import dev.terminal.app.ui.FloatingToolbarAction
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.ui.runtimeTitleResource
@@ -277,17 +278,10 @@ abstract class StorageScreenActivity : TerminalActivity() {
     }
     @Composable private fun StorageActions(enabled: Boolean, canDelete: Boolean, onRename: () -> Unit, onDelete: () -> Unit) {
         HorizontalFloatingToolbar(expanded = true) {
-            TextButton(onClick = onRename, enabled = enabled, shapes = ButtonDefaults.shapes()) {
-                Icon(painterResource(R.drawable.ic_toolbar_edit), null, Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.storage_rename))
-            }
-            TextButton(onClick = onDelete, enabled = enabled && canDelete, shapes = ButtonDefaults.shapes(),
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                Icon(painterResource(R.drawable.ic_material_symbol_delete_24), null, Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.storage_delete))
-            }
+            FloatingToolbarAction(stringResource(R.string.storage_rename), R.drawable.ic_toolbar_edit,
+                enabled = enabled, onClick = onRename)
+            FloatingToolbarAction(stringResource(R.string.storage_delete), R.drawable.ic_material_symbol_delete_24,
+                enabled = enabled && canDelete, onClick = onDelete, destructive = true)
         }
     }
     @Composable private fun StorageSection(title: Int, content: @Composable ColumnScope.() -> Unit) {

@@ -40,7 +40,7 @@ class SessionProfilesTest {
         }
         fun click(label: Int) {
             await {
-                var node = find { it.text?.toString() == context.getString(label) }
+                var node = find { it.hasLabel(context.getString(label)) }
                 while (node != null && !node.isClickable) node = node.parent
                 node?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) == true
             }
@@ -79,7 +79,7 @@ class SessionProfilesTest {
                 activity.recreate()
                 await { find { it.text?.toString() == storageName } != null }
                 await {
-                    if (find { it.text?.toString() == context.getString(R.string.profile_save) } != null) true
+                    if (find { it.hasLabel(context.getString(R.string.profile_save)) } != null) true
                     else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
                 }
                 click(R.string.profile_save)
@@ -112,7 +112,7 @@ class SessionProfilesTest {
         }
         fun click(text: String) {
             await {
-                var node = find { it.text?.toString() == text }
+                var node = find { it.hasLabel(text) }
                 while (node != null && !node.isClickable) node = node.parent
                 node?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) == true
             }
@@ -166,7 +166,7 @@ class SessionProfilesTest {
                     else { scrollStorageList(); false }
                 }
                 await {
-                    if (find { it.text?.toString() == context.getString(R.string.profile_save) } != null) true
+                    if (find { it.hasLabel(context.getString(R.string.profile_save)) } != null) true
                     else {
                         find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
                         false
@@ -246,7 +246,7 @@ class SessionProfilesTest {
             return walk(automation.rootInActiveWindow)
         }
         fun click(text: String) {
-            var node = find { it.text?.toString() == text } ?: error("Missing: $text")
+            var node = find { it.hasLabel(text) } ?: error("Missing: $text")
             while (!node.isClickable) node = node.parent ?: error("Not clickable: $text")
             assertTrue(node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
         }
@@ -258,11 +258,11 @@ class SessionProfilesTest {
                 await { find { it.text?.toString() == context.getString(R.string.profile_name) } != null }
                 val delete = context.getString(R.string.profile_delete)
                 fun actionBounds(label: Int): android.graphics.Rect {
-                    var button = requireNotNull(find { it.isVisibleToUser && it.text?.toString() == context.getString(label) })
+                    var button = requireNotNull(find { it.isVisibleToUser && it.hasLabel(context.getString(label)) })
                     while (!button.isClickable) button = requireNotNull(button.parent)
                     return android.graphics.Rect().also(button::getBoundsInScreen)
                 }
-                await { find { it.isVisibleToUser && it.text?.toString() == delete } != null }
+                await { find { it.isVisibleToUser && it.hasLabel(delete) } != null }
                 val actions = listOf(R.string.profile_save, R.string.profile_duplicate, R.string.profile_delete)
                 val before = actions.map(::actionBounds)
                 val toolbar = android.graphics.Rect(before.first()).apply { before.drop(1).forEach { union(it) } }
@@ -280,9 +280,9 @@ class SessionProfilesTest {
                 click(delete)
                 await { find { it.text?.toString() == context.getString(R.string.profile_delete_message, original.name) } != null }
                 // The confirmation button is the clickable node with the delete label.
-                var button = find { it.text?.toString() == delete && it.isClickable }
+                var button = find { it.hasLabel(delete) && it.isClickable }
                 if (button == null) {
-                    button = find { it.text?.toString() == delete && it.parent?.isClickable == true }?.parent
+                    button = find { it.hasLabel(delete) && it.parent?.isClickable == true }?.parent
                 }
                 assertNotNull(button)
                 assertTrue(button!!.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
@@ -343,7 +343,7 @@ class SessionProfilesTest {
                 fun node(text: String, editable: Boolean = true): android.view.accessibility.AccessibilityNodeInfo? {
                     fun search(current: android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
                         if (current == null) return null
-                        if ((!editable || current.isEditable) && current.text?.toString() == text) return current
+                        if ((!editable || current.isEditable) && current.hasLabel(text)) return current
                         for (index in 0 until current.childCount) search(current.getChild(index))?.let { return it }
                         return null
                     }

@@ -257,12 +257,12 @@ class ProfilePaletteTest {
     private fun click(id: Int) = click(context.getString(id))
     private fun click(text: String) {
         await {
-            if (find { it.text?.toString() == text && it.isVisibleToUser } != null) true else {
+            if (find { it.hasLabel(text) && it.isVisibleToUser } != null) true else {
                 find { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
                 false
             }
         }
-        var node = requireNotNull(find { it.text?.toString() == text && it.isVisibleToUser })
+        var node = requireNotNull(find { it.hasLabel(text) && it.isVisibleToUser })
         while (!node.isClickable) node = requireNotNull(node.parent)
         assertTrue(node.performAction(AccessibilityNodeInfo.ACTION_CLICK))
     }

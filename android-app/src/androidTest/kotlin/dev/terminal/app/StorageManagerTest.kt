@@ -233,7 +233,7 @@ class StorageManagerTest {
                 val renameLabel = context.getString(R.string.storage_rename)
                 val deleteLabel = context.getString(R.string.storage_delete)
                 fun buttonBounds(label: String) = android.graphics.Rect().also {
-                    clickableAncestor(requireNotNull(find { it.text?.toString() == label })).getBoundsInScreen(it)
+                    clickableAncestor(requireNotNull(find { it.hasLabel(label) })).getBoundsInScreen(it)
                 }
                 val toolbarBounds = buttonBounds(renameLabel).apply { union(buttonBounds(deleteLabel)) }
                 val screen = android.graphics.Rect().also {
@@ -271,10 +271,10 @@ class StorageManagerTest {
                 await { resumedActivity() is StorageDetailActivity && resumedActivity() !== detail && find { it.text?.toString() == "Storage UI name" } != null }
                 editName("", true)
                 await { registry.transaction { name(key) } == null }
-                assertNotNull(find { it.text?.toString() == deleteLabel })
-                assertFalse(clickableAncestor(requireNotNull(find { it.text?.toString() == deleteLabel })).isEnabled)
+                assertNotNull(find { it.hasLabel(deleteLabel) })
+                assertFalse(clickableAncestor(requireNotNull(find { it.hasLabel(deleteLabel) })).isEnabled)
                 store.delete(profile.id)
-                await { clickableAncestor(requireNotNull(find { it.text?.toString() == deleteLabel })).isEnabled }
+                await { clickableAncestor(requireNotNull(find { it.hasLabel(deleteLabel) })).isEnabled }
                 clickContaining(deleteLabel)
                 await { find { it.text?.toString() == context.getString(R.string.storage_delete_confirm, profile.storageId) } != null }
                 clickContaining(context.getString(R.string.cancel))
@@ -311,7 +311,7 @@ class StorageManagerTest {
     }
     private fun clickContaining(text: String) {
         await {
-            val label = find { it.text?.toString()?.contains(text) == true &&
+            val label = find { (it.text?.toString()?.contains(text) == true || it.contentDescription?.toString()?.contains(text) == true) &&
                 (it.isClickable || it.parent?.isClickable == true) }
             val button = label?.let { if (it.isClickable) it else it.parent }
             button?.isEnabled == true && button.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)

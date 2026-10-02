@@ -11,7 +11,6 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.res.painterResource
 import dev.terminal.app.ui.SettingsChoice
 import dev.terminal.app.ui.SettingsChoiceRow
 import androidx.compose.ui.Alignment
@@ -21,6 +20,7 @@ import dev.terminal.app.ui.terminalListItemShapes
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import dev.terminal.app.ui.FloatingToolbarAction
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.ui.runtimeTitleResource
@@ -244,23 +244,13 @@ class ProfileEditActivity : TerminalActivity() {
     onDelete: () -> Unit,
 ) {
     HorizontalFloatingToolbar(expanded = true) {
-        TextButton(onClick = onSave, enabled = !saving && canSave, shapes = ButtonDefaults.shapes()) {
-            Icon(painterResource(R.drawable.ic_material_symbol_check_circle_24), null, Modifier.size(20.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.profile_save))
-        }
+        FloatingToolbarAction(stringResource(R.string.profile_save), R.drawable.ic_material_symbol_check_circle_24,
+            enabled = !saving && canSave, onClick = onSave)
         if (editing) {
-            TextButton(onClick = onDuplicate, enabled = !saving && !dirty, shapes = ButtonDefaults.shapes()) {
-                Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), null, Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.profile_duplicate))
-            }
-            TextButton(onClick = onDelete, enabled = !saving, shapes = ButtonDefaults.shapes(),
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                Icon(painterResource(R.drawable.ic_material_symbol_delete_24), null, Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.profile_delete))
-            }
+            FloatingToolbarAction(stringResource(R.string.profile_duplicate), R.drawable.ic_material_symbol_content_copy_24,
+                enabled = !saving && !dirty, onClick = onDuplicate)
+            FloatingToolbarAction(stringResource(R.string.profile_delete), R.drawable.ic_material_symbol_delete_24,
+                enabled = !saving, onClick = onDelete, destructive = true)
         }
     }
 }
