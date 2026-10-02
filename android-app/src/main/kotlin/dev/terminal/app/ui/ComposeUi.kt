@@ -32,6 +32,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
@@ -68,7 +69,6 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.isTraversalGroup
 import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -164,6 +164,7 @@ fun DroidTheme(
     content: @Composable () -> Unit,
 ) {
     val view = LocalView.current
+    val typography = remember { Typography(fontFamily = GoogleSansFontFamily) }
     SideEffect {
         val window = (view.context as? Activity)?.window ?: return@SideEffect
         WindowCompat.getInsetsController(window, view).apply {
@@ -171,13 +172,15 @@ fun DroidTheme(
             isAppearanceLightNavigationBars = systemBarBackground?.let { TerminalChromeColors(it).darkSystemIcons } ?: false
         }
     }
-    MaterialExpressiveTheme(
-        colorScheme = TerminalDarkColors,
-        motionScheme = MotionScheme.expressive(),
-        typography = Typography(),
-        shapes = Shapes(),
-        content = content,
-    )
+    CompositionLocalProvider(LocalTerminalMonospaceFontFamily provides GoogleSansCodeFontFamily) {
+        MaterialExpressiveTheme(
+            colorScheme = TerminalDarkColors,
+            motionScheme = MotionScheme.expressive(),
+            typography = typography,
+            shapes = Shapes(),
+            content = content,
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -1087,7 +1090,7 @@ fun DiagnosticsScreen(onBack: () -> Unit, text: String, onRefresh: () -> Unit) {
                 Spacer(Modifier.width(ButtonDefaults.IconSpacing))
                 Text(stringResource(R.string.refresh))
             }
-            SelectionContainer { Text(text, fontFamily = FontFamily.Monospace) }
+            SelectionContainer { Text(text, fontFamily = LocalTerminalMonospaceFontFamily.current) }
         }
     }
 }
@@ -1100,7 +1103,7 @@ fun CrashScreen(onBack: () -> Unit, report: String, onCopy: () -> Unit, onClose:
     AppScaffold(stringResource(R.string.crash_report_title), onBack, snackbarHost) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.crash_report_intro))
-            SelectionContainer { Text(report, Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), fontFamily = FontFamily.Monospace) }
+            SelectionContainer { Text(report, Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), fontFamily = LocalTerminalMonospaceFontFamily.current) }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onClose, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.close)) }
                 Spacer(Modifier.width(8.dp))

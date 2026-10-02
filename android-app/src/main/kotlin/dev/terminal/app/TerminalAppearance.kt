@@ -1,6 +1,7 @@
 package dev.terminal.app
 
 import android.content.SharedPreferences
+import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.fonts.Font
@@ -135,15 +136,15 @@ object TerminalAppearance {
         return TerminalFontFamily(
             customFaces.filter { it.first == CustomTerminalFontStyle.REGULAR }.map { it.second },
             customFaces.filter { it.first == CustomTerminalFontStyle.ITALIC }.map { it.second },
-            builtInTypeface(preferences),
+            builtInTypeface(preferences, terminalView.context),
         )
     }
 
-    private fun builtInTypeface(preferences: SharedPreferences): Typeface =
+    private fun builtInTypeface(preferences: SharedPreferences, context: Context): Typeface =
         if (builtInSystemFallback(preferences) == "sans-serif-monospace") {
             Typeface.create("sans-serif-monospace", Typeface.NORMAL)
         } else {
-            Typeface.MONOSPACE
+            BundledFonts.googleSansCode(context)
         }
 
     private fun builtInSystemFallback(preferences: SharedPreferences): String =

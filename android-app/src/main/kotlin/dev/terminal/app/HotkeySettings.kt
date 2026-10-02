@@ -23,13 +23,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalOnStatusBlueContainer
 import dev.terminal.app.ui.TerminalStatusBlueContainer
+import dev.terminal.app.ui.LocalTerminalMonospaceFontFamily
 import dev.terminal.app.ui.LocalTerminalHaptics
 import dev.terminal.app.ui.terminalListItemShapes
 import java.util.Locale
@@ -67,7 +67,7 @@ internal fun HotkeyGrid(
                             val description = if (editing) stringResource(R.string.hotkey_edit_description, index + 1, key.name, key.shortcut)
                                 else "${key.name}: ${key.shortcut}"
                             val content: @Composable () -> Unit = {
-                                Text(key.name, fontFamily = FontFamily.Monospace, fontSize = layout.fontSize.sp,
+                                Text(key.name, fontFamily = LocalTerminalMonospaceFontFamily.current, fontSize = layout.fontSize.sp,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
                             if (!editing && key.shortcut in setOf("CTRL", "ALT")) {

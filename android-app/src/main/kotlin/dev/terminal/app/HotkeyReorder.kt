@@ -37,12 +37,12 @@ import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.clearAndSetSemantics
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.round
 import androidx.compose.ui.unit.sp
+import dev.terminal.app.ui.LocalTerminalMonospaceFontFamily
 import dev.terminal.app.ui.LocalTerminalHaptics
 
 private data class HotkeyDrag(
@@ -188,7 +188,7 @@ internal fun ReorderableHotkeyPreview(
                 shadowElevation = liftElevation,
             ) {
                 Box(contentAlignment = Alignment.Center) {
-                    Text(key.name, fontFamily = FontFamily.Monospace, fontSize = layout.fontSize.sp,
+                    Text(key.name, fontFamily = LocalTerminalMonospaceFontFamily.current, fontSize = layout.fontSize.sp,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }

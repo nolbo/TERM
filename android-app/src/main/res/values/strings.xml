@@ -128,7 +128,7 @@
     <string name="font_size_support">8~72sp · 저장 후 터미널로 돌아가면 적용됩니다.</string>
     <string name="font_family">글꼴</string>
     <string name="font_family_support">터미널에 사용할 고정폭 글꼴입니다.</string>
-    <string name="font_monospace">기본 고정폭</string>
+    <string name="font_monospace">Google Sans Code (기본)</string>
     <string name="font_sans_monospace">Sans 고정폭</string>
     <string name="section_custom_fonts">사용자 글꼴</string>
     <string name="add_custom_font">글꼴 파일 추가</string>

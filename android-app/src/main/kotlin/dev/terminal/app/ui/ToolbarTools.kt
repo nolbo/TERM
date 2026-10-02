@@ -24,7 +24,6 @@ import androidx.compose.ui.semantics.toggleableState
 import androidx.compose.ui.state.ToggleableState
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.*
 import dev.terminal.app.R
@@ -198,7 +197,7 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
                         Column(Modifier.weight(1f)) {
                             Text(command.name, style = MaterialTheme.typography.labelLarge,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(command.text, fontFamily = FontFamily.Monospace,
+                            Text(command.text, fontFamily = LocalTerminalMonospaceFontFamily.current,
                                 style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 color = colors.onContainer)
                         }
@@ -229,7 +228,7 @@ private fun ToolbarSendDialog(text: String, target: String, onDismiss: () -> Uni
         text = { Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.toolbar_execute_description))
-            SelectionContainer { Text(text, fontFamily = FontFamily.Monospace) }
+            SelectionContainer { Text(text, fontFamily = LocalTerminalMonospaceFontFamily.current) }
         } },
         confirmButton = { Button(onClick = onSend) { Text(stringResource(R.string.toolbar_run)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } })
@@ -295,7 +294,7 @@ internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences,
                     Text(stringResource(R.string.toolbar_commands_description))
                     commands.forEach { command ->
                         ListItem(onClick = { editId = command.id; name = command.name; text = command.text },
-                            supportingContent = { Text(command.text, fontFamily = FontFamily.Monospace,
+                            supportingContent = { Text(command.text, fontFamily = LocalTerminalMonospaceFontFamily.current,
                                 style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) },
                             trailingContent = { IconButton(onClick = { deleteId = command.id }) {
                                 Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_material_symbol_delete_24),
@@ -333,7 +332,7 @@ private fun ToolbarCommandEditDialog(draft: ToolbarCommand, onName: (String) -> 
                 label = { Text(stringResource(R.string.toolbar_command_name)) }, singleLine = true)
             OutlinedTextField(draft.text, { if (it.length <= MAX_TOOLBAR_TEXT) onText(it) },
                 label = { Text(stringResource(R.string.toolbar_command_text)) },
-                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = FontFamily.Monospace),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = LocalTerminalMonospaceFontFamily.current),
                 minLines = 3, maxLines = 8)
             Text(stringResource(R.string.toolbar_text_limit), style = MaterialTheme.typography.bodySmall)
         } },

@@ -1,7 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.DroidTerminal" parent="Theme.AppCompat.DayNight.NoActionBar">
-        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:fontFamily">@font/google_sans</item>
+        <item name="fontFamily">@font/google_sans</item>
         <item name="android:windowBackground">@color/launch_surface</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:windowNoTitle">true</item>
