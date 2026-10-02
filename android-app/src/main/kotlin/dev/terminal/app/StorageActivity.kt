@@ -261,7 +261,7 @@ abstract class StorageScreenActivity : TerminalActivity() {
         }
         return bytes?.let { value ->
             Formatter.formatShortFileSize(this, value).replace(storageSizeUnit) { unit ->
-                if (unit.value.startsWith("k", ignoreCase = true)) "kB" else unit.value.uppercase(Locale.ROOT)
+                unit.value.uppercase(Locale.ROOT)
             }
         }
             ?: stringResource(if (failed) R.string.storage_size_unknown else R.string.storage_size_calculating)

@@ -214,6 +214,10 @@ class StorageManagerTest {
         val registry = dev.terminal.runtime.session.StorageRegistry(context.filesDir)
         val key = dev.terminal.runtime.session.StorageRegistry.Key(profile.runtime, profile.storageId)
         val defaultName = requireNotNull(registry.transaction { name(key) })
+        val capacityFixture = File(SessionStorage.root(context.filesDir, profile.runtime, profile.storageId), "capacity-format-fixture").apply {
+            requireNotNull(parentFile).mkdirs()
+            writeBytes(ByteArray(2048))
+        }
         try {
             ActivityScenario.launch(StorageActivity::class.java).use { scenario ->
                 val runtimeTitle = context.getString(dev.terminal.app.ui.runtimeTitleResource(profile.runtime.wireName))
@@ -222,12 +226,15 @@ class StorageManagerTest {
                     else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
                 }
                 assertNull(find { it.text?.toString()?.contains(profile.storageId) == true })
-                assertNotNull(find { it.text?.toString()?.startsWith("$runtimeTitle · ") == true })
+                await { find { it.text?.toString()?.let { text -> text.startsWith("$runtimeTitle · ") && text.endsWith("KB") } == true } != null }
+                assertNull(find { it.text?.toString()?.contains("kB") == true })
                 clickContaining(defaultName)
                 await { resumedActivity() is StorageDetailActivity }
                 val openedId = requireNotNull(resumedActivity()?.intent?.getStringExtra("storageId"))
                 assertEquals("The named row opens its own storage", profile.storageId, openedId)
                 await { find { it.text?.toString() == openedId } != null }
+                await { find { it.text?.toString()?.endsWith("KB") == true } != null }
+                assertNull(find { it.text?.toString()?.contains("kB") == true })
                 InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
                 await { resumedActivity() is StorageActivity && find { it.text?.toString() == defaultName } != null }
                 scenario.onActivity { it.startActivity(StorageDetailActivity.intent(context, profile.runtime.wireName, profile.storageId)) }
@@ -295,6 +302,8 @@ class StorageManagerTest {
                 InstrumentationRegistry.getInstrumentation().runOnMainSync { detail.finish() }
             }
             store.delete(profile.id)
+            capacityFixture.delete()
+            capacityFixture.parentFile?.delete()
         }
     }
     private fun resumedActivity(): android.app.Activity? {
