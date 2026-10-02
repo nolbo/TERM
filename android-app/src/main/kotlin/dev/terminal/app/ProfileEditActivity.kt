@@ -102,8 +102,33 @@ class ProfileEditActivity : TerminalActivity() {
             }
             val rootless = runtime in listOf("ROOTLESS", "ROOTLESS_UBUNTU", "ROOTLESS_ARCH")
             BackHandler { back() }
-            SettingsPageScaffold(stringResource(if (editing) R.string.profile_settings else R.string.add_profile), back) { padding ->
-                Column(Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            SettingsPageScaffold(
+                stringResource(if (editing) R.string.profile_settings else R.string.add_profile), back,
+                floatingActionButtonPosition = FabPosition.Center,
+                floatingActionButton = {
+                    ProfileActions(editing = editing, saving = saving, canSave = storageId.isNotEmpty(), dirty = dirty,
+                        onSave = {
+                            saving = true
+                            scope.launch {
+                                runCatching { withContext(Dispatchers.IO) {
+                                    store.save(SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
+                                        parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon, palette?.split(',')),
+                                        newStorageName = if (storageChoice == "fresh") freshStorageName else null)
+                                } }.onSuccess { finish() }.onFailure { error = it.message }
+                                saving = false
+                            }
+                        },
+                        onDuplicate = {
+                            startActivity(Intent(this@ProfileEditActivity, ProfileEditActivity::class.java)
+                                .putExtra("profileId", id).putExtra("duplicate", true))
+                        },
+                        onDelete = { deleting = true })
+                },
+            ) { padding ->
+                Column(Modifier.fillMaxSize().padding(padding).imePadding().verticalScroll(rememberScrollState())
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp,
+                        bottom = FloatingToolbarDefaults.ContainerSize + FloatingToolbarDefaults.ScreenOffset * 2),
+                    verticalArrangement = Arrangement.spacedBy(20.dp)) {
                     Text(stringResource(R.string.profile_future_only), modifier = Modifier.padding(horizontal = 4.dp),
                         style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     ProfileSection(R.string.profile_identity) {
@@ -186,36 +211,7 @@ class ProfileEditActivity : TerminalActivity() {
                         ProfileField(R.string.profile_environment, environment, false, R.string.profile_environment_hint) { environment = it; dirty = true }
                     }
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
-                    Button(onClick = {
-                        saving = true
-                        scope.launch {
-                            runCatching { withContext(Dispatchers.IO) {
-                                store.save(SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
-                                    parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon, palette?.split(',')),
-                                    newStorageName = if (storageChoice == "fresh") freshStorageName else null)
-                            } }.onSuccess { finish() }.onFailure { error = it.message }
-                            saving = false
-                        }
-                    }, enabled = !saving && storageId.isNotEmpty(), modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.profile_save)) }
                     if (editing) {
-                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            OutlinedButton(onClick = {
-                                startActivity(Intent(this@ProfileEditActivity, ProfileEditActivity::class.java)
-                                    .putExtra("profileId", id).putExtra("duplicate", true))
-                            }, enabled = !dirty, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                                shapes = ButtonDefaults.shapes()) {
-                                Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), null, Modifier.size(20.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(stringResource(R.string.profile_duplicate))
-                            }
-                            TextButton(onClick = { deleting = true }, modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                                shapes = ButtonDefaults.shapes(),
-                                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                                Icon(painterResource(R.drawable.ic_material_symbol_delete_24), null, Modifier.size(20.dp))
-                                Spacer(Modifier.width(8.dp))
-                                Text(stringResource(R.string.profile_delete))
-                            }
-                        }
                         if (dirty) Text(stringResource(R.string.profile_duplicate_save_first),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
@@ -234,6 +230,37 @@ class ProfileEditActivity : TerminalActivity() {
             if (discard) AlertDialog(onDismissRequest = { discard = false }, title = { Text(stringResource(R.string.profile_discard)) },
                 confirmButton = { TextButton(onClick = { finish() }) { Text(stringResource(android.R.string.ok)) } },
                 dismissButton = { TextButton(onClick = { discard = false }) { Text(stringResource(android.R.string.cancel)) } })
+        }
+    }
+}
+
+@Composable private fun ProfileActions(
+    editing: Boolean,
+    saving: Boolean,
+    canSave: Boolean,
+    dirty: Boolean,
+    onSave: () -> Unit,
+    onDuplicate: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    HorizontalFloatingToolbar(expanded = true) {
+        TextButton(onClick = onSave, enabled = !saving && canSave, shapes = ButtonDefaults.shapes()) {
+            Icon(painterResource(R.drawable.ic_material_symbol_check_circle_24), null, Modifier.size(20.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(stringResource(R.string.profile_save))
+        }
+        if (editing) {
+            TextButton(onClick = onDuplicate, enabled = !saving && !dirty, shapes = ButtonDefaults.shapes()) {
+                Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.profile_duplicate))
+            }
+            TextButton(onClick = onDelete, enabled = !saving, shapes = ButtonDefaults.shapes(),
+                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
+                Icon(painterResource(R.drawable.ic_material_symbol_delete_24), null, Modifier.size(20.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.profile_delete))
+            }
         }
     }
 }

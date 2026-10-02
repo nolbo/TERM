@@ -257,13 +257,21 @@ class SessionProfilesTest {
                 click(original.name)
                 await { find { it.text?.toString() == context.getString(R.string.profile_name) } != null }
                 val delete = context.getString(R.string.profile_delete)
-                await {
-                    if (find { it.text?.toString() == delete } != null) true
-                    else {
-                        find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
-                        false
-                    }
+                fun actionBounds(label: Int): android.graphics.Rect {
+                    var button = requireNotNull(find { it.isVisibleToUser && it.text?.toString() == context.getString(label) })
+                    while (!button.isClickable) button = requireNotNull(button.parent)
+                    return android.graphics.Rect().also(button::getBoundsInScreen)
                 }
+                await { find { it.isVisibleToUser && it.text?.toString() == delete } != null }
+                val actions = listOf(R.string.profile_save, R.string.profile_duplicate, R.string.profile_delete)
+                val before = actions.map(::actionBounds)
+                val toolbar = android.graphics.Rect(before.first()).apply { before.drop(1).forEach { union(it) } }
+                val screen = android.graphics.Rect().also(automation.rootInActiveWindow::getBoundsInScreen)
+                assertTrue("Actions must float near the bottom", toolbar.top > screen.height() * 0.7)
+                assertTrue("Toolbar must be centered", kotlin.math.abs(toolbar.centerX() - screen.centerX()) < 16)
+                assertTrue("Actions must share one row", before.all { it.top == before.first().top })
+                assertTrue(requireNotNull(find { it.isScrollable }).performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD))
+                await { actions.map(::actionBounds) == before }
                 click(delete)
                 await { find { it.text?.toString() == context.getString(R.string.profile_delete_message, original.name) } != null }
                 click(context.getString(android.R.string.cancel))
@@ -354,6 +362,19 @@ class SessionProfilesTest {
                 activity.recreate()
                 await { node("Unsaved profile draft") != null }
                 assertEquals("Editor original", store.find(profile.id)!!.name)
+                fun action(label: Int): android.view.accessibility.AccessibilityNodeInfo {
+                    var button = requireNotNull(node(context.getString(label), false))
+                    while (!button.isClickable) button = requireNotNull(button.parent)
+                    return button
+                }
+                assertTrue(action(R.string.save).performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+                await { node("Unsaved profile draft", false)?.isEditable == false }
+                activity.recreate()
+                await { node("Unsaved profile draft", false) != null }
+                assertFalse("Unsaved changes must disable duplication", action(R.string.profile_duplicate).isEnabled)
+                assertTrue(action(R.string.profile_save).isEnabled)
+                assertTrue(action(R.string.profile_save).performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+                await { store.find(profile.id)?.name == "Unsaved profile draft" }
             }
         } finally { store.delete(profile.id) }
     }
