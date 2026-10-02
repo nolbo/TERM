@@ -923,7 +923,7 @@ internal fun SettingsOverview(onBack: () -> Unit, onOpen: (SettingsSearchTarget)
         LazyColumn(
             Modifier.fillMaxSize().padding(padding),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(if (query.isBlank()) 16.dp else 8.dp),
         ) {
             item {
                 TextField(
@@ -963,41 +963,50 @@ internal fun SettingsOverview(onBack: () -> Unit, onOpen: (SettingsSearchTarget)
                         style = MaterialTheme.typography.bodyLarge,
                     )
                 }
+            } else if (query.isBlank()) {
+                val groups = listOf(listOf("storage", "profiles"), listOf("language", "terminal"),
+                    listOf("rootless", "avf", "native"), listOf("updates"))
+                    .map { screens -> visibleRows.filter { it.entry.target.screen in screens } }
+                    .filter { it.isNotEmpty() }
+                items(groups, key = { "group:${it.first().entry.target.screen}" }) { group ->
+                    SettingsGroup {
+                        group.forEach { destination -> SettingsOverviewRow(destination, onOpen) }
+                    }
+                }
             } else {
                 items(visibleRows, key = { "${it.entry.target.screen}:${it.entry.title}" }) { destination ->
-                    ListItem(
-                        onClick = { onOpen(destination.entry.target) },
-                        supportingContent = { Text(listOf(destination.path, destination.summary).filter { it.isNotEmpty() }.joinToString("\n")) },
-                        leadingContent = {
-                            Surface(
-                                modifier = Modifier.size(40.dp),
-                                shape = CircleShape,
-                                color = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        painterResource(destination.entry.icon),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(24.dp),
-                                    )
-                                }
-                            }
-                        },
-                        trailingContent = {
-                            Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null)
-                        },
-                        verticalAlignment = Alignment.CenterVertically,
-                        shapes = terminalListItemShapes(),
-                        colors = ListItemDefaults.colors(
-                            containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                        ),
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp),
-                    ) { Text(destination.title) }
+                    SettingsOverviewRow(destination, onOpen)
                 }
             }
         }
     }
+}
+
+@Composable
+private fun SettingsOverviewRow(destination: LocalizedSettingsEntry, onOpen: (SettingsSearchTarget) -> Unit) {
+    ListItem(
+        onClick = { onOpen(destination.entry.target) },
+        supportingContent = { Text(listOf(destination.path, destination.summary).filter { it.isNotEmpty() }.joinToString("\n")) },
+        leadingContent = {
+            Surface(
+                modifier = Modifier.size(40.dp),
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                contentColor = MaterialTheme.colorScheme.onSecondaryContainer,
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(painterResource(destination.entry.icon), contentDescription = null, modifier = Modifier.size(24.dp))
+                }
+            }
+        },
+        trailingContent = if (destination.entry.path.isEmpty()) null else {
+            { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) }
+        },
+        verticalAlignment = Alignment.CenterVertically,
+        shapes = terminalListItemShapes(),
+        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp),
+    ) { Text(destination.title) }
 }
 
 @Composable
