@@ -4,6 +4,7 @@ import android.graphics.Rect
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -76,6 +77,28 @@ class SettingsAppBarUiTest {
         instrumentation.waitForIdleSync()
     }
 
+    /** Stop before lifting so each checkpoint observes scroll distance without a fling. */
+    private fun scrollDistance(screen: Rect, distance: Float) {
+        val slop = ViewConfiguration.get(instrumentation.targetContext).scaledTouchSlop
+        val fromY = screen.height() * 0.65f
+        val delta = -distance - if (distance > 0f) slop else -slop
+        val start = SystemClock.uptimeMillis()
+        fun event(action: Int, y: Float) {
+            val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, screen.exactCenterX(), y, 0)
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+        }
+        event(MotionEvent.ACTION_DOWN, fromY)
+        for (i in 1..20) {
+            event(MotionEvent.ACTION_MOVE, fromY + delta * i / 20)
+            SystemClock.sleep(20)
+        }
+        SystemClock.sleep(350)
+        event(MotionEvent.ACTION_UP, fromY + delta)
+        SystemClock.sleep(350)
+        instrumentation.waitForIdleSync()
+    }
+
     @Test fun lazySettingsCollapseToFloatingBackAndEdgeToEdgeContent() = checkScrolling(lazy = true)
     @Test fun columnSettingsCollapseToFloatingBackAndEdgeToEdgeContent() = checkScrolling(lazy = false)
 
@@ -130,7 +153,37 @@ class SettingsAppBarUiTest {
             assertNotNull(find { it.text?.toString() == title })
             assertTrue("Expanded header keeps the first row below the back button", initialViewport.top > initialBack.bottom)
             val screen = bounds(instrumentation.uiAutomation.rootInActiveWindow)
-            touch(screen.exactCenterX(), screen.height() * 0.8f, screen.height() * 0.25f)
+            val density = instrumentation.targetContext.resources.displayMetrics.density
+            val smallTop = initialBack.top + (56f * density).toInt()
+            scrollDistance(screen, (initialViewport.top - smallTop).toFloat())
+            assertNotNull("Native large-to-small collapse retains the title", find { it.text?.toString() == title })
+            val smallViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
+            assertEquals("First stage retains a complete small app bar", smallTop.toFloat(), smallViewport.top.toFloat(), 2f * density)
+            assertEquals(initialBack, bounds(back()))
+            fun barPixel(): Int {
+                val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+                return try { screenshot.getPixel(screen.width() * 3 / 4, smallTop - (4f * density).toInt()) }
+                finally { screenshot.recycle() }
+            }
+            fun distanceFromContent(color: Int): Int =
+                kotlin.math.abs(android.graphics.Color.red(color) - android.graphics.Color.red(rowColor.toArgb())) +
+                    kotlin.math.abs(android.graphics.Color.green(color) - android.graphics.Color.green(rowColor.toArgb())) +
+                    kotlin.math.abs(android.graphics.Color.blue(color) - android.graphics.Color.blue(rowColor.toArgb()))
+            val smallBackground = barPixel()
+            scrollDistance(screen, smallTop * 0.25f)
+            assertNotNull("Title remains visible during the start of fading", find { it.text?.toString() == title })
+            val firstFadeTop = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport })).top
+            assertTrue("Floating transition starts after the small stage", firstFadeTop in 1 until smallViewport.top)
+            val firstFadeBackground = barPixel()
+            scrollDistance(screen, smallTop * 0.5f)
+            assertNotNull("Title fades progressively rather than disappearing at the small stage", find { it.text?.toString() == title })
+            val secondFadeTop = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport })).top
+            assertTrue(secondFadeTop in 1 until firstFadeTop)
+            val secondFadeBackground = barPixel()
+            assertTrue("App bar background fades progressively into the content",
+                distanceFromContent(secondFadeBackground) < distanceFromContent(firstFadeBackground) &&
+                    distanceFromContent(firstFadeBackground) < distanceFromContent(smallBackground))
+            scrollDistance(screen, smallTop * 0.25f + 4f * density)
             assertNull("Collapsed header has no pinned title", find { it.text?.toString() == title })
             assertEquals("Back button stays fixed", initialBack, bounds(back()))
             val collapsedViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
@@ -150,6 +203,7 @@ class SettingsAppBarUiTest {
             assertTrue(back().performAction(AccessibilityNodeInfo.ACTION_CLICK))
             instrumentation.waitForIdleSync()
             assertEquals(1, backClicks)
+            touch(screen.exactCenterX(), screen.height() * 0.8f, screen.height() * 0.25f)
             touch(screen.exactCenterX(), screen.height() * 0.3f, screen.height() * 0.4f)
             assertNull("Header stays collapsed while content is still scrolled", find { it.text?.toString() == title })
             repeat(4) { touch(screen.exactCenterX(), screen.height() * 0.25f, screen.height() * 0.8f) }

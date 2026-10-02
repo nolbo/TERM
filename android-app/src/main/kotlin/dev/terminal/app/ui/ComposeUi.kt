@@ -46,6 +46,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -215,40 +216,55 @@ fun SettingsPageScaffold(
     floatingActionButtonPosition: FabPosition = FabPosition.End,
     content: @Composable (PaddingValues) -> Unit,
 ) {
-    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior()
+    val headerState = rememberTopAppBarState()
+    val floatingState = rememberTopAppBarState()
+    val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
+        state = headerState, canScroll = { floatingState.heightOffset == 0f })
+    val floatingScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
+        state = floatingState, canScroll = { headerState.collapsedFraction == 1f }, snapAnimationSpec = null)
     val systemInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
-    val topInset = with(LocalDensity.current) { systemInsets.getTop(this).toDp() }
+    val density = LocalDensity.current
+    val layoutDirection = LocalLayoutDirection.current
+    val topInset = with(density) { systemInsets.getTop(this).toDp() }
+    val smallHeaderHeight = TopAppBarDefaults.LargeAppBarCollapsedHeight + topInset
+    val floatingLimit = with(density) { -smallHeaderHeight.toPx() }
+    SideEffect {
+        floatingState.heightOffsetLimit = floatingLimit
+        floatingState.heightOffset = floatingState.heightOffset.coerceIn(floatingLimit, 0f)
+    }
+    val floatingFraction = floatingState.collapsedFraction
     Box(Modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
         Scaffold(
-            modifier = Modifier.nestedScroll(scrollBehavior.nestedScrollConnection),
+            // Outer scrolling hides the small bar only after the native large-to-small transition.
+            modifier = Modifier.nestedScroll(floatingScrollBehavior.nestedScrollConnection)
+                .nestedScroll(scrollBehavior.nestedScrollConnection),
             floatingActionButton = floatingActionButton,
             floatingActionButtonPosition = floatingActionButtonPosition,
-            // The header includes the initial status-bar space and scrolls away completely.
-            // Reserving a top system inset here would leave a permanent strip above the list.
+            // Top space belongs to the two header stages, including the initial status-bar inset.
             contentWindowInsets = systemInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
             topBar = {
-                LargeTopAppBar(
-                    title = {
-                        if (scrollBehavior.state.collapsedFraction < 0.99f) {
-                            Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        }
-                    },
-                    collapsedHeight = 0.dp,
-                    expandedHeight = TopAppBarDefaults.LargeAppBarExpandedHeight + topInset,
-                    windowInsets = systemInsets.only(WindowInsetsSides.Horizontal),
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = Color.Transparent,
-                        scrolledContainerColor = Color.Transparent,
-                    ),
+                if (floatingFraction < 1f) LargeTopAppBar(
+                    modifier = Modifier.graphicsLayer { alpha = 1f - floatingFraction },
+                    title = { Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
+                    // Reserve the native navigation slot for the separately pinned back button.
+                    navigationIcon = { Spacer(Modifier.size(48.dp)) },
+                    windowInsets = systemInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                     scrollBehavior = scrollBehavior,
-                )
+                ) else Spacer(Modifier.fillMaxWidth().height(smallHeaderHeight))
             },
             containerColor = MaterialTheme.colorScheme.background,
-            content = content,
+            content = { padding ->
+                content(PaddingValues(
+                    start = padding.calculateStartPadding(layoutDirection),
+                    top = (padding.calculateTopPadding() + with(density) { floatingState.heightOffset.toDp() }).coerceAtLeast(0.dp),
+                    end = padding.calculateEndPadding(layoutDirection),
+                    bottom = padding.calculateBottomPadding(),
+                ))
+            },
         )
         // Only the system icons receive a scrim; content remains visible behind the back button.
         Box(Modifier.fillMaxWidth().height(topInset).background(Brush.verticalGradient(listOf(
-            MaterialTheme.colorScheme.background.copy(alpha = 0.8f * scrollBehavior.state.collapsedFraction),
+            MaterialTheme.colorScheme.background.copy(alpha = 0.8f * floatingFraction),
             Color.Transparent))))
         FilledIconButton(
             onClick = onBack,
@@ -258,7 +274,7 @@ fun SettingsPageScaffold(
                 .semantics { traversalIndex = -1f },
             shape = CircleShape,
             colors = IconButtonDefaults.filledIconButtonColors(
-                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                containerColor = MaterialTheme.colorScheme.surfaceContainerHigh.copy(alpha = floatingFraction),
                 contentColor = MaterialTheme.colorScheme.onSurface,
             ),
         ) {
