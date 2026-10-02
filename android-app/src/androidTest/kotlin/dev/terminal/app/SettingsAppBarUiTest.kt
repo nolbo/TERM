@@ -196,14 +196,21 @@ class SettingsAppBarUiTest {
             assertEquals("Small app bar keeps the page background", pageBackground, smallBackground)
             SystemClock.sleep(300)
             assertNotNull("Stopping at the small stage does not trigger fading", find { it.text?.toString() == title })
-            // A tiny extra scroll, followed by no movement, must complete the timed fade.
+            // Preserve the title and background through the 4dp scroll allowance.
+            repeat(2) {
+                scrollDistance(screen, 2f * density)
+                assertNotNull("Scrolling within 4dp retains the small title", find { it.text?.toString() == title })
+                assertEquals("Scrolling within 4dp retains the app bar background", smallBackground, barPixel())
+                assertSmallTitleGap()
+            }
+            // Crossing the allowance, followed by no movement, completes the timed fade.
             scrollDistance(screen, 2f * density)
-            assertNull("Extra scrolling immediately triggers a complete fade without further movement",
+            assertNull("Scrolling beyond 4dp triggers a complete fade without further movement",
                 find { it.text?.toString() == title })
             assertEquals("Back button stays fixed", initialBack, bounds(back()))
             val fadedViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
             assertEquals("Fading moves content only by the actual extra scroll distance",
-                smallViewport.top - 2f * density, fadedViewport.top.toFloat(), 1f)
+                smallViewport.top - 6f * density, fadedViewport.top.toFloat(), 1f)
             val fadedRow = bounds(checkNotNull(find { it.text?.toString() == "Setting 0" }))
             SystemClock.sleep(300)
             assertEquals("Content does not continue moving while the finger is stopped", fadedViewport,

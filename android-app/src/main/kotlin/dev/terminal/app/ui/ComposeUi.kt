@@ -220,9 +220,11 @@ fun SettingsPageScaffold(
 ) {
     val headerState = rememberTopAppBarState()
     val contentHeaderState = rememberTopAppBarState()
+    val density = LocalDensity.current
+    val fadeThreshold = with(density) { 4.dp.toPx() }
     val floatingFraction by animateFloatAsState(
-        targetValue = if (contentHeaderState.heightOffset < 0f) 1f else 0f,
-        animationSpec = tween(150),
+        targetValue = if (contentHeaderState.heightOffset < -fadeThreshold) 1f else 0f,
+        animationSpec = tween(250),
         label = "Settings header fade",
     )
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
@@ -230,7 +232,6 @@ fun SettingsPageScaffold(
     val contentScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
         state = contentHeaderState, canScroll = { headerState.collapsedFraction == 1f }, snapAnimationSpec = null)
     val systemInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
-    val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val topInset = with(density) { systemInsets.getTop(this).toDp() }
     val smallHeaderHeight = TopAppBarDefaults.LargeAppBarCollapsedHeight + topInset
