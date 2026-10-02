@@ -246,8 +246,9 @@ fun SettingsPageScaffold(
                 if (floatingFraction < 1f) LargeTopAppBar(
                     modifier = Modifier.graphicsLayer { alpha = 1f - floatingFraction },
                     title = { Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                    // Reserve the native navigation slot for the separately pinned back button.
-                    navigationIcon = { Spacer(Modifier.size(48.dp)) },
+                    // Native 4dp insets plus 12dp align the slot with the pinned button
+                    // and leave 16dp between its circular background and the small title.
+                    navigationIcon = { Spacer(Modifier.padding(horizontal = 12.dp).size(48.dp)) },
                     windowInsets = systemInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal),
                     scrollBehavior = scrollBehavior,
                     colors = TopAppBarDefaults.topAppBarColors(

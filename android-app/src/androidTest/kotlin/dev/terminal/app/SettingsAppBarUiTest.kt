@@ -154,6 +154,16 @@ class SettingsAppBarUiTest {
             assertTrue("Expanded header keeps the first row below the back button", initialViewport.top > initialBack.bottom)
             val screen = bounds(instrumentation.uiAutomation.rootInActiveWindow)
             val density = instrumentation.targetContext.resources.displayMetrics.density
+            val expandedTitle = bounds(checkNotNull(find { it.text?.toString() == title }))
+            assertTrue("Expanded title stays below the circular back button with a gap",
+                expandedTitle.top - initialBack.bottom >= (16f * density).toInt())
+            fun assertSmallTitleGap() {
+                val titleBounds = bounds(checkNotNull(find { it.text?.toString() == title }))
+                assertEquals("Small title is beside the back button", initialBack.centerY().toFloat(),
+                    titleBounds.exactCenterY(), 2f * density)
+                assertTrue("Small title keeps 16dp clear of the circular back button",
+                    titleBounds.left - initialBack.right >= (16f * density).toInt())
+            }
             val smallTop = initialBack.top + (56f * density).toInt()
             val inset = (2f * density).toInt()
             val initialScreenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
@@ -172,6 +182,7 @@ class SettingsAppBarUiTest {
             val smallViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
             assertEquals("First stage retains a complete small app bar", smallTop.toFloat(), smallViewport.top.toFloat(), 2f * density)
             assertEquals(initialBack, bounds(back()))
+            assertSmallTitleGap()
             fun barPixel(): Int {
                 val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
                 return try { screenshot.getPixel(screen.width() * 3 / 4, smallTop - (4f * density).toInt()) }
@@ -186,11 +197,13 @@ class SettingsAppBarUiTest {
             val fadeDistance = smallTop * 0.6f
             scrollDistance(screen, fadeDistance * 0.25f)
             assertNotNull("Title remains visible during the start of fading", find { it.text?.toString() == title })
+            assertSmallTitleGap()
             val firstFadeTop = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport })).top
             assertTrue("Floating transition starts after the small stage", firstFadeTop in 1 until smallViewport.top)
             val firstFadeBackground = barPixel()
             scrollDistance(screen, fadeDistance * 0.5f)
             assertNotNull("Title fades progressively rather than disappearing at the small stage", find { it.text?.toString() == title })
+            assertSmallTitleGap()
             val secondFadeTop = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport })).top
             assertTrue(secondFadeTop in 1 until firstFadeTop)
             val secondFadeBackground = barPixel()
