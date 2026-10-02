@@ -48,6 +48,7 @@ internal fun HotkeyGrid(
     modifier: Modifier = Modifier,
     control: Boolean = false,
     alt: Boolean = false,
+    shift: Boolean = false,
     editing: Boolean = false,
     enabled: Boolean = true,
     terminalColors: dev.terminal.app.ui.TerminalChromeColors? = null,
@@ -73,10 +74,14 @@ internal fun HotkeyGrid(
                                 Text(key.name, fontFamily = LocalTerminalMonospaceFontFamily.current, fontSize = layout.fontSize.sp,
                                     maxLines = 1, overflow = TextOverflow.Ellipsis)
                             }
-                            if (!editing && key.shortcut in setOf("CTRL", "ALT")) {
+                            if (!editing && key.shortcut in setOf("CTRL", "ALT", "SHIFT")) {
                                 FilledTonalToggleButton(
                                     enabled = enabled,
-                                    checked = if (key.shortcut == "CTRL") control else alt,
+                                    checked = when (key.shortcut) {
+                                        "CTRL" -> control
+                                        "ALT" -> alt
+                                        else -> shift
+                                    },
                                     onCheckedChange = {
                                         haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                                         onKey(index)
@@ -309,8 +314,9 @@ private fun HotkeyEditDialog(
                 HotkeyGrid(HotkeyLayout(columns = 3, keys = listOf(
                     Hotkey("Ctrl+C", "CTRL+C"), Hotkey("Ctrl+D", "CTRL+D"), Hotkey("Ctrl+L", "CTRL+L"),
                     Hotkey("Ctrl", "CTRL"), Hotkey("Alt", "ALT"), Hotkey("Tab", "TAB"),
+                    Hotkey("Shift", "SHIFT"),
                 )), editing = true) { preset ->
-                    shortcut = listOf("CTRL+C", "CTRL+D", "CTRL+L", "CTRL", "ALT", "TAB")[preset]
+                    shortcut = listOf("CTRL+C", "CTRL+D", "CTRL+L", "CTRL", "ALT", "TAB", "SHIFT")[preset]
                     if (name.isBlank()) name = shortcut
                 }
                 HotkeySizeControl(R.string.hotkey_span, span, 1..4) { span = it }

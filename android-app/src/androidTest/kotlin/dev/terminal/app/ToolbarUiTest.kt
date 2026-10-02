@@ -211,6 +211,37 @@ class ToolbarUiTest {
         }
     }
 
+    @Test fun standaloneShiftUsesAToggleAndCanBeCancelled() {
+        val shift = mutableStateOf(false)
+        val layout = HotkeyLayout(keys = listOf(Hotkey("Shift", "SHIFT")))
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Box(Modifier.height(100.dp)) {
+                        ToolbarHotkeys(layout, false, false, shift.value, TerminalChromeColors(Color.Black), true) { key ->
+                            assertEquals(TerminalToolbarKey.Shift, key)
+                            shift.value = !shift.value
+                        }
+                    }
+                } }
+            } }
+            settle()
+            fun shiftButton(): AccessibilityNodeInfo {
+                var node = description("Shift: SHIFT")
+                while (!node.isClickable && node.parent != null) node = requireNotNull(node.parent)
+                assertTrue("SHIFT must expose an interactive button", node.isClickable)
+                return node
+            }
+            assertFalse(shiftButton().let { it.isSelected || it.isChecked })
+            click(description("Shift: SHIFT"))
+            assertTrue(shift.value)
+            assertTrue(shiftButton().let { it.isSelected || it.isChecked })
+            click(description("Shift: SHIFT"))
+            assertFalse(shift.value)
+            assertFalse(shiftButton().let { it.isSelected || it.isChecked })
+        }
+    }
+
     @Test fun hotkeysUseToolbarHeightAndScrollOverflow() {
         val layout = HotkeyLayout(columns = 2, keys = (1..12).map { Hotkey("Key $it", "F$it") })
         val mode = mutableStateOf(ToolbarSheetMode.Default)
@@ -221,7 +252,7 @@ class ToolbarUiTest {
                         Spacer(Modifier.weight(1f))
                         TerminalToolbar(ToolbarConfig(), mode.value, { mode.value = it },
                             240.dp, TerminalChromeColors(Color.Black)) { _, active ->
-                            ToolbarHotkeys(layout, false, false, TerminalChromeColors(Color.Black), active, {})
+                            ToolbarHotkeys(layout, false, false, false, TerminalChromeColors(Color.Black), active, {})
                         }
                     }
                 } }

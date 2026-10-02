@@ -203,16 +203,17 @@ internal fun ToolbarScrollEdges(backward: Boolean, forward: Boolean, modifier: M
 }
 
 @Composable
-internal fun ToolbarHotkeys(layout: HotkeyLayout, control: Boolean, alt: Boolean,
+internal fun ToolbarHotkeys(layout: HotkeyLayout, control: Boolean, alt: Boolean, shift: Boolean,
     colors: TerminalChromeColors, enabled: Boolean, onKey: (TerminalToolbarKey) -> Unit) {
     val scroll = rememberScrollState()
     Box(Modifier.fillMaxSize().clipToBounds()) {
-        HotkeyGrid(layout = layout, control = control, alt = alt, terminalColors = colors,
+        HotkeyGrid(layout = layout, control = control, alt = alt, shift = shift, terminalColors = colors,
             enabled = enabled,
             modifier = Modifier.fillMaxSize().verticalScroll(scroll).padding(4.dp)) { index ->
             onKey(when (val shortcut = layout.keys[index].shortcut) {
                 "CTRL" -> TerminalToolbarKey.Control
                 "ALT" -> TerminalToolbarKey.Alt
+                "SHIFT" -> TerminalToolbarKey.Shift
                 else -> TerminalToolbarKey.Shortcut(shortcut)
             })
         }

@@ -928,6 +928,7 @@ sealed interface TerminalToolbarKey {
     data class Shortcut(val value: String) : TerminalToolbarKey
     data object Control : TerminalToolbarKey
     data object Alt : TerminalToolbarKey
+    data object Shift : TerminalToolbarKey
     data class KeyCode(val value: Int) : TerminalToolbarKey
     data class CodePoint(val value: Int) : TerminalToolbarKey
 }

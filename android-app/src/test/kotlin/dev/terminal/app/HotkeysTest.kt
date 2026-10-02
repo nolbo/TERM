@@ -20,7 +20,7 @@ class HotkeysTest {
         for (key in listOf("UP", "DOWN", "LEFT", "RIGHT", "BACKSPACE", "DELETE", "PAGEUP", "PAGEDOWN", "CTRL+LEFT")) {
             assertTrue(key, isRepeatableHotkey(key))
         }
-        for (key in listOf("ENTER", "ESC", "TAB", "CTRL", "ALT", "CTRL+C", "HOME", "END", "INVALID")) {
+        for (key in listOf("ENTER", "ESC", "TAB", "CTRL", "ALT", "SHIFT", "CTRL+C", "HOME", "END", "INVALID")) {
             assertFalse(key, isRepeatableHotkey(key))
         }
     }
@@ -45,6 +45,13 @@ class HotkeysTest {
         assertEquals(layout, parseHotkeyLayout(serializeHotkeyLayout(layout)))
         assertEquals(layout.keys.reversed(), moveHotkey(layout, 0, 1).keys)
         assertEquals(layout, moveHotkey(layout, -1, 3))
+    }
+
+    @Test fun standaloneShiftCanBeSavedAndRestoredAsAModifier() {
+        val layout = HotkeyLayout(keys = listOf(Hotkey("Shift", "SHIFT"), Hotkey("Tab", "TAB")))
+        assertTrue(validHotkey(layout.keys.first()))
+        assertEquals(layout, parseHotkeyLayout(serializeHotkeyLayout(layout)))
+        assertNull(parseHotkeyChord("SHIFT"))
     }
 
     @Test fun invalidStoredSettingsFallBackWithoutPartialMutation() {

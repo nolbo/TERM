@@ -67,7 +67,7 @@ class TerminalMultitouchTest {
                             TerminalToolbar(config = ToolbarConfig(), mode = mode.value,
                                 onModeChange = { mode.value = it },
                                 maxHeight = 400.dp, colors = TerminalChromeColors(Color.Black)) { _, interactive ->
-                                ToolbarHotkeys(HotkeyLayout(), false, false, TerminalChromeColors(Color.Black), interactive, {})
+                                ToolbarHotkeys(HotkeyLayout(), false, false, false, TerminalChromeColors(Color.Black), interactive, {})
                             }
                         }
                     } }

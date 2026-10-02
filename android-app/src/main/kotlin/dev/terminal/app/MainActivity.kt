@@ -163,6 +163,7 @@ class MainActivity : TerminalActivity() {
     private var toolbarMemorySections by mutableStateOf(MemoryToolSections())
     private var controlPressed by mutableStateOf(false)
     private var altPressed by mutableStateOf(false)
+    private var shiftPressed by mutableStateOf(false)
     private var terminalChromeColors by mutableStateOf(dev.terminal.app.ui.TerminalChromeColors(Color.Black))
     private var followTuiBackground = false
     private val paletteTransition = TerminalPaletteTransition(
@@ -594,7 +595,7 @@ class MainActivity : TerminalActivity() {
                                         serializeToolbarCommands(toolbarCommands)).apply()
                                 })
                             HOTKEY_TOOL -> ToolbarHotkeys(
-                                layout = hotkeyLayout, control = controlPressed, alt = altPressed,
+                                layout = hotkeyLayout, control = controlPressed, alt = altPressed, shift = shiftPressed,
                                 colors = terminalChromeColors, enabled = toolbarInputActive && interactive,
                                 onKey = { key ->
                                     if (activeSessionId == toolbarSessionId) sendToolbarKey(key)
@@ -688,6 +689,10 @@ class MainActivity : TerminalActivity() {
             }
             TerminalToolbarKey.Alt -> {
                 terminalInputCallbacks.altPressed = !terminalInputCallbacks.altPressed
+                syncModifierState()
+            }
+            TerminalToolbarKey.Shift -> {
+                terminalInputCallbacks.shiftPressed = !terminalInputCallbacks.shiftPressed
                 syncModifierState()
             }
             is TerminalToolbarKey.CodePoint -> terminalView?.inputCodePoint(key.value, false, false)
@@ -1029,6 +1034,7 @@ class MainActivity : TerminalActivity() {
     private fun syncModifierState() {
         controlPressed = terminalInputCallbacks.controlPressed
         altPressed = terminalInputCallbacks.altPressed
+        shiftPressed = terminalInputCallbacks.shiftPressed
     }
 
     private fun updateRuntimeChoices(json: String) {

@@ -5,11 +5,14 @@ import android.view.KeyEvent
 import com.termux.view.TerminalView
 
 internal fun dispatchHotkeyShortcut(view: TerminalView, callbacks: TerminalInputCallbacks, value: String) {
-    val chord = parseHotkeyChord(value) ?: return
+    var chord = parseHotkeyChord(value) ?: return
     // A complete chord replaces latched modifiers; plain keys retain latch behavior.
     if (chord.control || chord.alt || chord.shift) {
         callbacks.controlPressed = false
         callbacks.altPressed = false
+        callbacks.shiftPressed = false
+    } else if (callbacks.shiftPressed) {
+        chord = chord.copy(shift = true)
     }
     val keyCode = chord.keyCode
     if (keyCode != null) {

@@ -29,6 +29,7 @@ class TerminalInputCallbacks(
 ) : TerminalViewClient {
     var controlPressed = false
     var altPressed = false
+    var shiftPressed = false
     override fun onSingleTapUp(e: MotionEvent) = onShowKeyboard()
     override fun onDoubleTap(e: MotionEvent): Boolean {
         onToggleTerminalChrome()
@@ -38,10 +39,15 @@ class TerminalInputCallbacks(
     override fun onScale(s: Float) = onPinchScale(s)
     override fun onOpenLink(url: String) = onWebLink(url)
     override fun shouldEnforceCharBasedInput()=false; override fun shouldEnableImeComposing()=true; override fun shouldUseCtrlSpaceWorkaround()=false; override fun isTerminalViewSelected()=true; override fun copyModeChanged(c:Boolean)=Unit
-    override fun onKeyDown(k:Int,e:KeyEvent,s:TerminalSession)=false; override fun onKeyUp(k:Int,e:KeyEvent)=false; override fun onLongPress(e:MotionEvent)=false
+    override fun onKeyDown(k:Int,e:KeyEvent,s:TerminalSession): Boolean {
+        if (!KeyEvent.isModifierKey(k) && !e.isSystem) consumeModifiersAfterDispatch()
+        return false
+    }
+    override fun onKeyUp(k:Int,e:KeyEvent)=false; override fun onLongPress(e:MotionEvent)=false
     override fun readControlKey() = controlPressed
     override fun readAltKey() = altPressed
-    override fun readShiftKey()=false; override fun readFnKey()=false
+    override fun readShiftKey() = shiftPressed
+    override fun readFnKey()=false
     // Returning false delegates UTF-8, Enter, Ctrl/Alt and IME composition to
     // TerminalView's standard Termux/xterm input path.
     override fun onCodePoint(c:Int,ctrl:Boolean,s:TerminalSession):Boolean {
@@ -53,10 +59,11 @@ class TerminalInputCallbacks(
     override fun logError(a:String,b:String)=Unit; override fun logWarn(a:String,b:String)=Unit; override fun logInfo(a:String,b:String)=Unit; override fun logDebug(a:String,b:String)=Unit; override fun logVerbose(a:String,b:String)=Unit; override fun logStackTraceWithMessage(a:String,b:String,e:Exception)=Unit; override fun logStackTrace(a:String,e:Exception)=Unit
 
     private fun consumeModifiersAfterDispatch() {
-        if (!controlPressed && !altPressed) return
+        if (!controlPressed && !altPressed && !shiftPressed) return
         Handler(Looper.getMainLooper()).post {
             controlPressed = false
             altPressed = false
+            shiftPressed = false
             onModifierStateChanged()
         }
     }

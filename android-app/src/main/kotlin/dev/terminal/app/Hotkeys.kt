@@ -54,7 +54,7 @@ internal val namedHotkeyCodes = mapOf(
     "LEFT" to KeyEvent.KEYCODE_DPAD_LEFT, "RIGHT" to KeyEvent.KEYCODE_DPAD_RIGHT,
 ) + (1..12).associate { "F$it" to KeyEvent.KEYCODE_F1 + it - 1 }
 
-/** One explicit chord, not shell text. CTRL and ALT alone are toolbar latches. */
+/** One explicit chord, not shell text. CTRL, ALT and SHIFT alone are toolbar latches. */
 internal fun parseHotkeyChord(value: String): HotkeyChord? {
     val parts = value.trim().split('+').map { it.trim().uppercase(Locale.ROOT) }
     val modifiers = parts.dropLast(1)
@@ -68,7 +68,7 @@ internal fun parseHotkeyChord(value: String): HotkeyChord? {
 internal fun validHotkey(key: Hotkey): Boolean =
     key.name.isNotBlank() && key.name.length <= 32 && key.name.none { it.isISOControl() } &&
         key.span in 1..4 && key.shortcut.length <= 80 &&
-        (key.shortcut in setOf("CTRL", "ALT") || parseHotkeyChord(key.shortcut) != null)
+        (key.shortcut in setOf("CTRL", "ALT", "SHIFT") || parseHotkeyChord(key.shortcut) != null)
 
 internal fun readHotkeyLayout(preferences: SharedPreferences): HotkeyLayout =
     parseHotkeyLayout(preferences.getString(KEY_HOTKEYS, null))

@@ -557,7 +557,7 @@ public final class TerminalView extends View {
                     return;
                 }
                 final int textLengthInChars = text.length();
-                if (!mClient.readControlKey() && !mClient.readAltKey()) {
+                if (!mClient.readControlKey() && !mClient.readAltKey() && !mClient.readShiftKey()) {
                     String committed = mEmulator.getKeyboard().committedText(text.toString());
                     if (committed != null) { mTermSession.write(committed); return; }
                 }

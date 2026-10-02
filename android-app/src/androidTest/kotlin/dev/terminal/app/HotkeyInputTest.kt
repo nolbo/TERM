@@ -1,5 +1,7 @@
 package dev.terminal.app
 
+import android.view.KeyEvent
+import android.view.inputmethod.EditorInfo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.termux.terminal.TerminalSession
@@ -12,6 +14,61 @@ import org.junit.runner.RunWith
 /** Captures terminal bytes with an in-memory backend; never sends commands to a live shell. */
 @RunWith(AndroidJUnit4::class)
 class HotkeyInputTest {
+    @Test fun standaloneShiftAppliesToNextToolbarHardwareOrImeInputAndThenClears() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val bytes = ByteArrayOutputStream()
+        val backend = RemoteTerminalBackend(write = { bytes.write(it) }, resize = { _, _ -> })
+        val callbacks = TerminalInputCallbacks {}
+        lateinit var view: TerminalView
+        lateinit var session: TerminalSession
+        instrumentation.runOnMainSync {
+            session = TerminalSession("", "", emptyArray(), emptyArray(), 100, TerminalCallbacks {}, backend)
+            view = TerminalView(instrumentation.targetContext, null)
+            view.setTerminalViewClient(callbacks)
+            view.setTextSize(16)
+            view.layout(0, 0, 800, 400)
+            view.attachSession(session)
+        }
+        try {
+            fun expect(expected: String, control: Boolean = false, alt: Boolean = false, input: () -> Unit) {
+                instrumentation.runOnMainSync {
+                    bytes.reset()
+                    callbacks.shiftPressed = true
+                    callbacks.controlPressed = control
+                    callbacks.altPressed = alt
+                    input()
+                    assertArrayEquals(expected.toByteArray(), bytes.toByteArray())
+                }
+                instrumentation.waitForIdleSync()
+                instrumentation.runOnMainSync {
+                    assertFalse(callbacks.shiftPressed)
+                    assertFalse(callbacks.controlPressed)
+                    assertFalse(callbacks.altPressed)
+                    bytes.reset()
+                    dispatchHotkeyShortcut(view, callbacks, "C")
+                    assertEquals("c", bytes.toString("UTF-8"))
+                }
+            }
+            expect("C") { dispatchHotkeyShortcut(view, callbacks, "C") }
+            expect("!") { dispatchHotkeyShortcut(view, callbacks, "1") }
+            expect("\u001b[Z") { dispatchHotkeyShortcut(view, callbacks, "TAB") }
+            expect("\u001b[1;8D", control = true, alt = true) { dispatchHotkeyShortcut(view, callbacks, "LEFT") }
+            expect("\u001bb") { dispatchHotkeyShortcut(view, callbacks, "ALT+B") }
+            expect("\u0003") { dispatchHotkeyShortcut(view, callbacks, "CTRL+C") }
+            expect("!") { view.onKeyDown(KeyEvent.KEYCODE_1, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_1)) }
+            expect("\u001b[Z") { view.onKeyDown(KeyEvent.KEYCODE_TAB, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_TAB)) }
+            expect("A") { view.onCreateInputConnection(EditorInfo()).commitText("a", 1) }
+            // Negotiated IME text must also honor SHIFT rather than bypass modifier handling.
+            instrumentation.runOnMainSync {
+                val mode = "\u001b[>1u".toByteArray()
+                session.emulator.append(mode, mode.size)
+            }
+            expect("A") { view.onCreateInputConnection(EditorInfo()).commitText("a", 1) }
+        } finally {
+            instrumentation.runOnMainSync { backend.close() }
+        }
+    }
+
     @Test fun chordsSendExactTerminalBytesAndReplaceLatchedModifiers() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {
