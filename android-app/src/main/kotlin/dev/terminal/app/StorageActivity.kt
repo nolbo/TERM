@@ -177,11 +177,6 @@ abstract class StorageScreenActivity : TerminalActivity() {
                             StorageInfoRow(R.string.storage_size, storageSize(detail, runtime, measurement))
                             StorageInfoRow(R.string.storage_profile_count, stringResource(R.string.storage_count_value, detail.profiles.size))
                             StorageInfoRow(R.string.storage_session_count, stringResource(R.string.storage_count_value, detail.sessions.size))
-                            StorageInfoRow(R.string.storage_deletion, stringResource(when {
-                                detail.id == "legacy" -> R.string.storage_legacy_protected
-                                detail.used -> R.string.storage_in_use_protected
-                                else -> R.string.storage_delete_hint
-                            }))
                         } }
                         item {
                             StorageSection(R.string.storage_profiles) {
