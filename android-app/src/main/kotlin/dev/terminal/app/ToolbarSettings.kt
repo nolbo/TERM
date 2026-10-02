@@ -187,6 +187,7 @@ private fun ToolbarReorderList(config: ToolbarConfig, editing: Boolean, tools: L
                         modifier = Modifier.fillMaxWidth().height(rowHeight).graphicsLayer {
                             scaleX = scale; scaleY = scale; shadowElevation = elevation.toPx()
                             shape = androidx.compose.foundation.shape.RoundedCornerShape(28.dp)
+                            clip = lifted
                         },
                         shapes = terminalListItemShapes(),
                         colors = ListItemDefaults.colors(containerColor = color),

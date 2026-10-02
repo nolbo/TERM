@@ -424,14 +424,31 @@ class ToolbarUiTest {
                 val second = bounds(description(context.getString(R.string.toolbar_move, label(R.string.diagnostics_title))))
                 val original = listOf(HOTKEY_TOOL, "second")
                 val delta = (second.exactCenterY() - first.exactCenterY()) * 1.4f
+                fun assertDraggedCorners() {
+                    var node = description(context.getString(R.string.toolbar_move, label(R.string.settings_hotkeys_title)))
+                    while (!node.isClickable && node.parent != null) node = node.parent
+                    val row = bounds(node)
+                    val inset = (2f * context.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+                    val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+                    try {
+                        val background = screenshot.getPixel(row.right - inset, row.centerY())
+                        for (x in listOf(row.left + inset, row.right - inset)) {
+                            for (y in listOf(row.top + inset, row.bottom - inset)) {
+                                assertNotEquals("Dragged row must retain rounded corners at ($x, $y)",
+                                    background, screenshot.getPixel(x, y))
+                            }
+                        }
+                    } finally { screenshot.recycle() }
+                }
                 drag(first.exactCenterX(), first.exactCenterY(), 0f, delta, cancel = true) {
+                    assertDraggedCorners()
                     val movingNeighbor = bounds(description(context.getString(R.string.toolbar_move, label(R.string.diagnostics_title))))
                     assertTrue("Neighbor moves before drop", movingNeighbor.centerY() < second.centerY())
                     assertEquals(original, parseToolbarConfig(prefs.getString(KEY_TOOLBAR, null), available = registry.map { it.id }.toSet()).tools)
                 }
                 assertEquals(original, parseToolbarConfig(prefs.getString(KEY_TOOLBAR, null), available = registry.map { it.id }.toSet()).tools)
                 assertEquals(second.centerY(), bounds(description(context.getString(R.string.toolbar_move, label(R.string.diagnostics_title)))).centerY())
-                drag(first.exactCenterX(), first.exactCenterY(), 0f, delta)
+                drag(first.exactCenterX(), first.exactCenterY(), 0f, delta) { assertDraggedCorners() }
                 assertEquals(listOf("second", HOTKEY_TOOL), parseToolbarConfig(prefs.getString(KEY_TOOLBAR, null), available = registry.map { it.id }.toSet()).tools)
                 click(description(context.getString(R.string.toolbar_remove, label(R.string.settings_hotkeys_title))))
                 assertNull(find { it.contentDescription?.toString() == context.getString(R.string.toolbar_move, label(R.string.settings_hotkeys_title)) })
