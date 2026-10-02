@@ -7,6 +7,8 @@ import android.view.KeyEvent
 import androidx.annotation.DrawableRes
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -47,8 +49,11 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalView
@@ -217,26 +222,38 @@ fun SettingsPageScaffold(
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val headerState = rememberTopAppBarState()
-    val floatingState = rememberTopAppBarState()
+    var floating by rememberSaveable { mutableStateOf(false) }
+    val floatingFraction by animateFloatAsState(
+        targetValue = if (floating) 1f else 0f,
+        animationSpec = tween(150),
+        label = "Settings header fade",
+    )
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
-        state = headerState, canScroll = { floatingState.heightOffset == 0f })
-    val floatingScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
-        state = floatingState, canScroll = { headerState.collapsedFraction == 1f }, snapAnimationSpec = null)
+        state = headerState, canScroll = { !floating && floatingFraction == 0f })
+    val floatingScrollConnection = remember(headerState) {
+        object : NestedScrollConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                if (available.y < 0f && headerState.collapsedFraction == 1f) floating = true
+                // The extra scroll triggers the timed fade and continues into the content.
+                return Offset.Zero
+            }
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                // Restore only when downward scrolling reaches the beginning of the content.
+                if (available.y > 0f) floating = false
+                return Offset.Zero
+            }
+        }
+    }
     val systemInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
     val density = LocalDensity.current
     val layoutDirection = LocalLayoutDirection.current
     val topInset = with(density) { systemInsets.getTop(this).toDp() }
     val smallHeaderHeight = TopAppBarDefaults.LargeAppBarCollapsedHeight + topInset
-    val floatingLimit = with(density) { -(smallHeaderHeight * 0.6f).toPx() }
-    SideEffect {
-        floatingState.heightOffsetLimit = floatingLimit
-        floatingState.heightOffset = floatingState.heightOffset.coerceIn(floatingLimit, 0f)
-    }
-    val floatingFraction = floatingState.collapsedFraction
     Box(Modifier.fillMaxSize().semantics { isTraversalGroup = true }) {
         Scaffold(
             // Outer scrolling hides the small bar only after the native large-to-small transition.
-            modifier = Modifier.nestedScroll(floatingScrollBehavior.nestedScrollConnection)
+            modifier = Modifier.nestedScroll(floatingScrollConnection)
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             floatingActionButton = floatingActionButton,
             floatingActionButtonPosition = floatingActionButtonPosition,

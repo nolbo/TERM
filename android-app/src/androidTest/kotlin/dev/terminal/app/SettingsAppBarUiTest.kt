@@ -194,24 +194,12 @@ class SettingsAppBarUiTest {
                     kotlin.math.abs(android.graphics.Color.blue(color) - android.graphics.Color.blue(rowColor.toArgb()))
             val smallBackground = barPixel()
             assertEquals("Small app bar keeps the page background", pageBackground, smallBackground)
-            val fadeDistance = smallTop * 0.6f
-            scrollDistance(screen, fadeDistance * 0.25f)
-            assertNotNull("Title remains visible during the start of fading", find { it.text?.toString() == title })
-            assertSmallTitleGap()
-            val firstFadeTop = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport })).top
-            assertTrue("Floating transition starts after the small stage", firstFadeTop in 1 until smallViewport.top)
-            val firstFadeBackground = barPixel()
-            scrollDistance(screen, fadeDistance * 0.5f)
-            assertNotNull("Title fades progressively rather than disappearing at the small stage", find { it.text?.toString() == title })
-            assertSmallTitleGap()
-            val secondFadeTop = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport })).top
-            assertTrue(secondFadeTop in 1 until firstFadeTop)
-            val secondFadeBackground = barPixel()
-            assertTrue("App bar background fades progressively into the content",
-                distanceFromContent(secondFadeBackground) < distanceFromContent(firstFadeBackground) &&
-                    distanceFromContent(firstFadeBackground) < distanceFromContent(smallBackground))
-            scrollDistance(screen, fadeDistance * 0.25f + 4f * density)
-            assertNull("Collapsed header has no pinned title", find { it.text?.toString() == title })
+            SystemClock.sleep(300)
+            assertNotNull("Stopping at the small stage does not trigger fading", find { it.text?.toString() == title })
+            // A tiny extra scroll, followed by no movement, must complete the timed fade.
+            scrollDistance(screen, 2f * density)
+            assertNull("Extra scrolling immediately triggers a complete fade without further movement",
+                find { it.text?.toString() == title })
             assertEquals("Back button stays fixed", initialBack, bounds(back()))
             val collapsedViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))
             assertEquals("Content reaches the top window edge", screen.top, collapsedViewport.top)
