@@ -267,7 +267,8 @@ abstract class StorageScreenActivity : TerminalActivity() {
         val title = row.name ?: runtimeTitle
         val description = stringResource(R.string.storage_counts, size, row.profiles.size, row.sessions.size)
         val supporting: @Composable () -> Unit = {
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            if (click != null) Text(size)
+            else Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 if (row.name != null) Text(runtimeTitle)
                 Text(row.id, style = MaterialTheme.typography.bodySmall,
                     maxLines = if (click == null) 2 else 1, overflow = TextOverflow.Ellipsis)
@@ -279,7 +280,7 @@ abstract class StorageScreenActivity : TerminalActivity() {
             verticalAlignment = Alignment.CenterVertically, colors = colors) { Text(title) }
         else ListItem(onClick = click, supportingContent = supporting,
             trailingContent = { StorageChevron() }, verticalAlignment = Alignment.CenterVertically,
-            shapes = terminalListItemShapes(), modifier = Modifier.fillMaxWidth(), colors = colors) { Text(title) }
+            shapes = terminalListItemShapes(), modifier = Modifier.fillMaxWidth(), colors = colors) { Text(runtimeTitle) }
     }
     @Composable private fun StorageSection(title: Int, content: @Composable ColumnScope.() -> Unit) {
         Column(Modifier.fillMaxWidth().padding(top = 20.dp)) { ProfileSection(title, content) }

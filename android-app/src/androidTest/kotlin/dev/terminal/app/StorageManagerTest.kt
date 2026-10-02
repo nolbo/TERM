@@ -212,17 +212,21 @@ class StorageManagerTest {
         val profile = store.duplicate(store.builtIns().first()).copy(name = "Storage UI fixture")
         store.save(profile)
         try {
-            ActivityScenario.launch(StorageActivity::class.java).use {
+            ActivityScenario.launch(StorageActivity::class.java).use { scenario ->
+                val runtimeTitle = context.getString(dev.terminal.app.ui.runtimeTitleResource(profile.runtime.wireName))
                 await {
-                    if (find { it.text?.toString()?.contains(profile.storageId) == true } != null) true
+                    if (find { it.text?.toString() == runtimeTitle } != null) true
                     else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
                 }
-                clickContaining(profile.storageId)
+                assertNull(find { it.text?.toString()?.contains(profile.storageId) == true })
+                assertNull(find { it.text?.toString()?.contains(profile.name) == true })
+                clickContaining(runtimeTitle)
                 await { resumedActivity() is StorageDetailActivity }
-                await { find { it.text?.toString() == profile.name } != null }
+                val openedId = requireNotNull(resumedActivity()?.intent?.getStringExtra("storageId"))
+                await { find { it.text?.toString() == openedId } != null }
                 InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
-                await { resumedActivity() is StorageActivity && find { it.text?.toString()?.contains(profile.storageId) == true } != null }
-                clickContaining(profile.storageId)
+                await { resumedActivity() is StorageActivity && find { it.text?.toString() == runtimeTitle } != null }
+                scenario.onActivity { it.startActivity(StorageDetailActivity.intent(context, profile.runtime.wireName, profile.storageId)) }
                 await { resumedActivity() is StorageDetailActivity && find { it.text?.toString() == profile.name } != null }
                 assertNull(find { it.text?.toString() == context.getString(R.string.storage_sessions) })
                 val registry = dev.terminal.runtime.session.StorageRegistry(context.filesDir)
