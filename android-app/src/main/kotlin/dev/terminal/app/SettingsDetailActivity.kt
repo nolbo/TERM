@@ -43,6 +43,7 @@ import dev.terminal.app.ui.RootlessSettingsState
 import dev.terminal.app.ui.RootlessSettingsStatus
 import dev.terminal.app.ui.RuntimeEnvironmentIcon
 import dev.terminal.app.ui.RootlessProgressIndicator
+import dev.terminal.app.ui.FloatingToolbarAction
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.ui.TerminalHapticDensity
@@ -214,7 +215,13 @@ class SettingsDetailActivity : TerminalActivity() {
     }
 
     private fun setRootlessStates(status: RootlessSettingsStatus, detail: String) {
-        rootlessRuntimeIds.forEach { rootlessStates[it] = RootlessSettingsState(status, detail) }
+        rootlessRuntimeIds.forEach { setRootlessState(it, status, detail) }
+    }
+
+    private fun setRootlessState(runtimeType: String, status: RootlessSettingsStatus, detail: String) {
+        // Keep the last known image presence while checking, removing, or reporting a connection error.
+        val previous = rootlessStates[runtimeType] ?: RootlessSettingsState(status, detail)
+        rootlessStates[runtimeType] = previous.copy(status = status, detail = detail, progress = null)
     }
 
     private fun refreshServiceState(runtimeType: String? = null) {
@@ -222,7 +229,7 @@ class SettingsDetailActivity : TerminalActivity() {
         val service = runtime
         if (service == null) {
             targets.forEach {
-                rootlessStates[it] = RootlessSettingsState(RootlessSettingsStatus.CHECKING, getString(R.string.rootless_status_connecting))
+                setRootlessState(it, RootlessSettingsStatus.CHECKING, getString(R.string.rootless_status_connecting))
             }
             return
         }
@@ -230,7 +237,7 @@ class SettingsDetailActivity : TerminalActivity() {
             val snapshot = service.runtimeStatusJson
             targets.forEach { rootlessStates[it] = parseRootlessSettingsState(snapshot, it) }
         }.onFailure { error ->
-            targets.forEach { rootlessStates[it] = RootlessSettingsState(RootlessSettingsStatus.ERROR, error.message.orEmpty()) }
+            targets.forEach { setRootlessState(it, RootlessSettingsStatus.ERROR, error.message.orEmpty()) }
         }
     }
 
@@ -244,7 +251,7 @@ class SettingsDetailActivity : TerminalActivity() {
 
     private fun removeRootless(runtimeType: String, removeHome: Boolean) {
         val service = runtime ?: return
-        rootlessStates[runtimeType] = RootlessSettingsState(RootlessSettingsStatus.CHECKING, getString(R.string.rootless_removing))
+        setRootlessState(runtimeType, RootlessSettingsStatus.CHECKING, getString(R.string.rootless_removing))
         runCatching { service.removeRootless(runtimeType, removeHome) }.onFailure {
             refreshServiceState(runtimeType)
             Toast.makeText(this, it.message.orEmpty(), Toast.LENGTH_LONG).show()
@@ -263,12 +270,12 @@ class SettingsDetailActivity : TerminalActivity() {
 
     private fun prepareRootless(runtimeType: String) {
         val service = runtime ?: run {
-            rootlessStates[runtimeType] = RootlessSettingsState(RootlessSettingsStatus.ERROR, getString(R.string.runtime_disconnected))
+            setRootlessState(runtimeType, RootlessSettingsStatus.ERROR, getString(R.string.runtime_disconnected))
             return
         }
-        rootlessStates[runtimeType] = RootlessSettingsState(RootlessSettingsStatus.CHECKING, getString(R.string.rootless_install_detail), rootlessStates[runtimeType]?.installed == true)
+        setRootlessState(runtimeType, RootlessSettingsStatus.CHECKING, getString(R.string.rootless_install_detail))
         runCatching { service.prepareRootless(runtimeType) }.onFailure {
-            rootlessStates[runtimeType] = RootlessSettingsState(RootlessSettingsStatus.ERROR, it.message.orEmpty())
+            setRootlessState(runtimeType, RootlessSettingsStatus.ERROR, it.message.orEmpty())
         }
     }
 
@@ -688,11 +695,18 @@ class SettingsDetailActivity : TerminalActivity() {
     }
 
     private fun androidx.compose.foundation.lazy.LazyListScope.rootlessItems() {
-        item {
-            SettingsSection(R.string.section_status) {
-                rootlessRuntimeIds.forEachIndexed { index, runtimeType ->
-                    RootlessStatusSetting(runtimeType, rootlessStates.getValue(runtimeType)) {
-                        handleRootlessAction(runtimeType)
+        for (installed in listOf(true, false)) {
+            val distributions = rootlessRuntimeIds.filter { rootlessStates.getValue(it).installed == installed }
+            if (distributions.isNotEmpty()) {
+                item(key = "rootless-installed-$installed") {
+                    SettingsSection(if (installed) R.string.rootless_installed_distributions else R.string.rootless_uninstalled_distributions) {
+                        distributions.forEach { runtimeType ->
+                            key(runtimeType) {
+                                RootlessStatusSetting(runtimeType, rootlessStates.getValue(runtimeType)) {
+                                    handleRootlessAction(runtimeType)
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1017,11 +1031,27 @@ class SettingsDetailActivity : TerminalActivity() {
                             Text(stringResource(R.string.rootless_migrate))
                         }
                     }
-                    actionLabel?.let { TextButton(onClick = action, shapes = ButtonDefaults.shapes()) { Text(stringResource(it)) } }
-                    if (state.installed && state.status != RootlessSettingsStatus.READY && state.status != RootlessSettingsStatus.CHECKING) {
-                        TextButton(onClick = { pendingRootlessRemoval = runtimeType }, shapes = ButtonDefaults.shapes()) {
-                            Text(stringResource(R.string.rootless_remove))
+                    actionLabel?.let { label ->
+                        if (label == R.string.install || label == R.string.rootless_remove) {
+                            FloatingToolbarAction(
+                                label = stringResource(label),
+                                icon = if (label == R.string.install) R.drawable.ic_material_symbol_download_24 else R.drawable.ic_material_symbol_delete_24,
+                                enabled = true,
+                                onClick = action,
+                                destructive = label == R.string.rootless_remove,
+                            )
+                        } else {
+                            TextButton(onClick = action, shapes = ButtonDefaults.shapes()) { Text(stringResource(label)) }
                         }
+                    }
+                    if (state.installed && state.status != RootlessSettingsStatus.READY && state.status != RootlessSettingsStatus.CHECKING) {
+                        FloatingToolbarAction(
+                            label = stringResource(R.string.rootless_remove),
+                            icon = R.drawable.ic_material_symbol_delete_24,
+                            enabled = true,
+                            onClick = { pendingRootlessRemoval = runtimeType },
+                            destructive = true,
+                        )
                     }
                 }
             },

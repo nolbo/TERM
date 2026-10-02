@@ -123,6 +123,8 @@
     <string name="section_shell">셸</string>
     <string name="section_history">터미널 기록</string>
     <string name="section_status">상태</string>
+    <string name="rootless_installed_distributions">설치된 배포판</string>
+    <string name="rootless_uninstalled_distributions">설치되지 않은 배포판</string>
     <string name="section_environment">환경</string>
     <string name="font_size">글자 크기</string>
     <string name="font_size_support">8~72sp · 저장 후 터미널로 돌아가면 적용됩니다.</string>
