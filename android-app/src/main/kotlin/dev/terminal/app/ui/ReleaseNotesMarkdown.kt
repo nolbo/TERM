@@ -18,6 +18,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.widget.TextViewCompat
+import dev.terminal.app.BundledFonts
 import io.noties.markwon.AbstractMarkwonPlugin
 import io.noties.markwon.Markwon
 import io.noties.markwon.MarkwonConfiguration
@@ -67,6 +68,7 @@ internal fun ReleaseNotesMarkdown(markdown: String, modifier: Modifier = Modifie
             movementMethod = LinkMovementMethod.getInstance()
         } },
         update = { view ->
+            view.typeface = BundledFonts.googleSans(view.context)
             view.setTextSize(TypedValue.COMPLEX_UNIT_PX, textSize)
             TextViewCompat.setLineHeight(view, lineHeight)
             view.setTextColor(colors.onSurface.toArgb())

@@ -96,6 +96,7 @@ class ReleaseNotesMarkdownDeviceTest {
     }
 
     private fun assertRendered(view: TextView) {
+        assertSame("Native release notes must use the UI CJK fallback chain", BundledFonts.googleSans(view.context), view.typeface)
         val text = view.text as Spanned
         assertFalse(text.toString().contains("**"))
         assertEquals(2, text.getSpans(0, text.length, HeadingSpan::class.java).size)

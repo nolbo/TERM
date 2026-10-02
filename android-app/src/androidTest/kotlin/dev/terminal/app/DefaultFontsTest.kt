@@ -7,6 +7,8 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Typeface
+import android.graphics.fonts.Font
+import android.graphics.text.TextRunShaper
 import android.os.SystemClock
 import android.view.ContextThemeWrapper
 import android.widget.TextView
@@ -44,6 +46,25 @@ class DefaultFontsTest {
         assertArrayEquals(glyphPixels(expected), glyphPixels(actual))
     }
 
+    private val cjkFont by lazy {
+        Font.Builder(instrumentation.targetContext.resources, R.font.noto_sans_cjk_kr).build()
+    }
+
+    private fun assertNotoCjkFallback(face: Typeface) {
+        fun header(font: Font) = ByteArray(64).also { font.buffer.duplicate().apply { position(0) }.get(it) }
+        val text = "한漢かなカナ"
+        val paint = Paint().apply { typeface = face; textSize = 32f }
+        val glyphs = TextRunShaper.shapeTextRun(text, 0, text.length, 0, text.length, 0f, 0f, false, paint)
+        assertTrue(glyphs.glyphCount() > 0)
+        for (index in 0 until glyphs.glyphCount()) {
+            assertNotEquals("CJK glyph must be present", 0, glyphs.getGlyphId(index))
+            val actual = glyphs.getFont(index)
+            assertEquals("Must use the bundled CJK font rather than an OEM fallback", cjkFont.buffer.capacity(), actual.buffer.capacity())
+            assertArrayEquals(header(cjkFont), header(actual))
+            assertEquals("CJK must retain the requested UI weight", face.weight, actual.style.weight)
+        }
+    }
+
     @Test fun bundledFamiliesSupportRealStylesFixedWidthAndKoreanFallback() {
         val context = instrumentation.targetContext
         val sans = BundledFonts.googleSans(context)
@@ -56,6 +77,7 @@ class DefaultFontsTest {
                     assertEquals(italic, face.isItalic)
                     val paint = Paint().apply { typeface = face; textSize = 32f }
                     assertTrue("Korean fallback missing", paint.hasGlyph("한"))
+                    if (family === sans) assertNotoCjkFallback(face)
                     if (family === code) {
                         val width = paint.measureText("i")
                         for (glyph in listOf("W", "0", "@", " ")) {
@@ -106,6 +128,7 @@ class DefaultFontsTest {
             }
             assertNotNull("Theme fixture must compose", resolvedFaces.get())
             resolvedFaces.get()!!.forEach { (expected, actual) -> assertSameFace(expected, actual) }
+            resolvedFaces.get()!!.dropLast(1).forEach { (_, actual) -> assertNotoCjkFallback(actual) }
         }
         val preferences = context.getSharedPreferences("default-font-test-${java.util.UUID.randomUUID()}", Context.MODE_PRIVATE)
         try {
