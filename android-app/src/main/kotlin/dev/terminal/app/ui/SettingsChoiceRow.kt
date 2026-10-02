@@ -11,7 +11,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.unit.dp
@@ -33,7 +32,7 @@ internal fun SettingsChoiceRow(title: String, supporting: String?, choices: List
             modifier = Modifier.widthIn(max = 160.dp)) },
         verticalAlignment = Alignment.CenterVertically,
         shapes = terminalListItemShapes(),
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        colors = terminalSettingsListItemColors(),
         modifier = Modifier.fillMaxWidth(),
     ) { Text(title) }
     if (visible) AlertDialog(

@@ -14,8 +14,11 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import dev.terminal.app.ui.SettingsChoice
 import dev.terminal.app.ui.SettingsChoiceRow
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextOverflow
+import dev.terminal.app.ui.SettingsGroup
+import dev.terminal.app.ui.SettingsItemSpacing
+import dev.terminal.app.ui.settingsItemSurface
+import dev.terminal.app.ui.terminalSettingsListItemColors
 import dev.terminal.app.ui.terminalListItemShapes
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
@@ -166,7 +169,7 @@ class ProfileEditActivity : TerminalActivity() {
                             storageId = if (selected == "fresh") freshStorageId else existingStorageId
                             dirty = true
                         }
-                        if (editing || storageChoice != "fresh") Column(Modifier.selectableGroup()) {
+                        if (editing || storageChoice != "fresh") Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(SettingsItemSpacing)) {
                             if (editing && runtime == initial.runtime.wireName) {
                                 val current = StorageRegistry.Key(initial.runtime, initial.storageId)
                                 ProfileStorageRow(storageNames[current] ?: stringResource(runtimeTitleResource(runtime)),
@@ -182,7 +185,7 @@ class ProfileEditActivity : TerminalActivity() {
                                     storageChoice = "existing:${key.storageId}"; dirty = true
                                 }
                             }
-                            if (targets.isEmpty() && (!editing || runtime != initial.runtime.wireName)) ListItem(colors = ListItemDefaults.colors(containerColor = Color.Transparent)) {
+                            if (targets.isEmpty() && (!editing || runtime != initial.runtime.wireName)) ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors()) {
                                 Text(stringResource(R.string.profile_storage_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             if (editing) ProfileStorageRow(stringResource(R.string.profile_storage_new), null, storageChoice == "fresh") {
@@ -259,17 +262,14 @@ class ProfileEditActivity : TerminalActivity() {
     ListItem(onClick = onClick, supportingContent = supporting?.let { { Text(it, style = MaterialTheme.typography.bodySmall) } },
         trailingContent = { RadioButton(selected = selected, onClick = null) },
         verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes(),
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent), modifier = Modifier.fillMaxWidth()) { Text(title) }
+        colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth()) { Text(title) }
 }
 
 @Composable internal fun ProfileSection(title: Int, content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxWidth()) {
         Text(stringResource(title), modifier = Modifier.padding(start = 16.dp, bottom = 8.dp),
             style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-            Column(content = content)
-        }
+        SettingsGroup(content = content)
     }
 }
 
@@ -281,7 +281,7 @@ class ProfileEditActivity : TerminalActivity() {
         supportingContent = { Text(value.ifBlank { stringResource(R.string.profile_not_set) },
             maxLines = 2, overflow = TextOverflow.Ellipsis) },
         verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes(),
-        colors = ListItemDefaults.colors(containerColor = Color.Transparent), modifier = Modifier.fillMaxWidth(),
+        colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth(),
     ) { Text(stringResource(label)) }
     if (visible) AlertDialog(onDismissRequest = { visible = false }, title = { Text(stringResource(label)) },
         text = {

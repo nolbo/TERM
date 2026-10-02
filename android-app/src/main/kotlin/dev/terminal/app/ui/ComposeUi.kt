@@ -134,12 +134,12 @@ internal fun sessionStateBadgeColor(state: String): Color = when (state) {
  */
 @Composable
 internal fun terminalListItemShapes(): ListItemShapes = ListItemDefaults.shapes(
-    shape = MaterialTheme.shapes.extraLarge,
+    shape = if (LocalSettingsGroup.current) SettingsItemShape else MaterialTheme.shapes.extraLarge,
 )
 
 /** Disabled settings retain their surface and dim only their foreground content. */
 @Composable
-internal fun terminalSettingsListItemColors(containerColor: Color = Color.Transparent): ListItemColors {
+internal fun terminalSettingsListItemColors(containerColor: Color = settingsItemContainerColor()): ListItemColors {
     val disabledContent = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
     return ListItemDefaults.colors(
         containerColor = containerColor,

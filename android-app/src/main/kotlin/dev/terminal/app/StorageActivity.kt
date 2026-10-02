@@ -18,7 +18,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
@@ -27,6 +26,9 @@ import dev.terminal.app.ui.FloatingToolbarAction
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.ui.runtimeTitleResource
+import dev.terminal.app.ui.SettingsItemSpacing
+import dev.terminal.app.ui.settingsItemSurface
+import dev.terminal.app.ui.terminalSettingsListItemColors
 import dev.terminal.app.ui.terminalListItemShapes
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.lifecycle.VmRuntimeService
@@ -158,7 +160,7 @@ abstract class StorageScreenActivity : TerminalActivity() {
                     } }
                     if (runtime == null || entries == null) item {
                         StorageSection(R.string.storage_title) {
-                            ListItem(colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors(),
                                 leadingContent = if (runtime != null) { { LoadingIndicator(Modifier.size(32.dp)) } } else null,
                                 verticalAlignment = Alignment.CenterVertically) {
                                 Text(stringResource(if (runtime == null) R.string.storage_unavailable else R.string.storage_loading))
@@ -188,7 +190,7 @@ abstract class StorageScreenActivity : TerminalActivity() {
                                     ListItem(onClick = { startActivity(Intent(this@StorageScreenActivity, ProfileEditActivity::class.java).putExtra("profileId", profile.first)) },
                                         leadingContent = { ProfileIcon("auto", detail.runtime) },
                                         trailingContent = { StorageChevron() }, verticalAlignment = Alignment.CenterVertically,
-                                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                        colors = terminalSettingsListItemColors(),
                                         shapes = terminalListItemShapes(), modifier = Modifier.fillMaxWidth()) { Text(profile.second) }
                                 }
                             }
@@ -196,8 +198,8 @@ abstract class StorageScreenActivity : TerminalActivity() {
                         if (detail.sessions.isNotEmpty()) item {
                             StorageSection(R.string.storage_sessions) {
                                 detail.sessions.forEach { session ->
-                                    ListItem(supportingContent = { Text(session.first, style = MaterialTheme.typography.bodySmall) },
-                                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                    ListItem(modifier = Modifier.settingsItemSurface(), supportingContent = { Text(session.first, style = MaterialTheme.typography.bodySmall) },
+                                        colors = terminalSettingsListItemColors(),
                                         verticalAlignment = Alignment.CenterVertically) { Text(session.second.ifBlank { session.first }) }
                                 }
                             }
@@ -212,7 +214,7 @@ abstract class StorageScreenActivity : TerminalActivity() {
                                     style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                             }
                             if (group.isEmpty()) item { StorageGroupCard(true, true) { StorageEmpty() } }
-                            // Keep each row lazy while drawing one continuous section card.
+                            // Keep each row lazy with small gaps and reduced inner corners.
                             itemsIndexed(group, key = { _, row -> row.key }) { index, row ->
                                 StorageGroupCard(index == 0, index == group.lastIndex) {
                                     StorageRow(row, runtime, measurement) {
@@ -265,14 +267,14 @@ abstract class StorageScreenActivity : TerminalActivity() {
     @Composable private fun StorageRow(row: StorageItem, service: IRuntimeService?, measurement: Semaphore, click: () -> Unit) {
         val size = storageSize(row, service, measurement)
         val runtimeTitle = stringResource(runtimeTitleResource(row.runtime))
-        val colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+        val colors = terminalSettingsListItemColors()
         ListItem(onClick = click, supportingContent = { Text(size) },
             trailingContent = { StorageChevron() }, verticalAlignment = Alignment.CenterVertically,
             shapes = terminalListItemShapes(), modifier = Modifier.fillMaxWidth(), colors = colors) { Text(runtimeTitle) }
     }
     @Composable private fun StorageInfoRow(label: Int, value: String) {
-        ListItem(supportingContent = { Text(value) }, verticalAlignment = Alignment.CenterVertically,
-            colors = ListItemDefaults.colors(containerColor = Color.Transparent)) {
+        ListItem(modifier = Modifier.settingsItemSurface(), supportingContent = { Text(value) }, verticalAlignment = Alignment.CenterVertically,
+            colors = terminalSettingsListItemColors()) {
             Text(stringResource(label))
         }
     }
@@ -289,15 +291,15 @@ abstract class StorageScreenActivity : TerminalActivity() {
     }
     @Composable private fun StorageGroupCard(first: Boolean, last: Boolean, content: @Composable ColumnScope.() -> Unit) {
         val corners = MaterialTheme.shapes.extraLarge
-        Card(Modifier.fillMaxWidth(), shape = corners.copy(
-            topStart = if (first) corners.topStart else CornerSize(0.dp),
-            topEnd = if (first) corners.topEnd else CornerSize(0.dp),
-            bottomStart = if (last) corners.bottomStart else CornerSize(0.dp),
-            bottomEnd = if (last) corners.bottomEnd else CornerSize(0.dp)),
+        Card(Modifier.fillMaxWidth().padding(bottom = if (last) 0.dp else SettingsItemSpacing), shape = corners.copy(
+            topStart = if (first) corners.topStart else CornerSize(4.dp),
+            topEnd = if (first) corners.topEnd else CornerSize(4.dp),
+            bottomStart = if (last) corners.bottomStart else CornerSize(4.dp),
+            bottomEnd = if (last) corners.bottomEnd else CornerSize(4.dp)),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow), content = content)
     }
     @Composable private fun StorageEmpty(message: Int = R.string.storage_none) {
-        ListItem(colors = ListItemDefaults.colors(containerColor = Color.Transparent)) {
+        ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors()) {
             Text(stringResource(message), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }

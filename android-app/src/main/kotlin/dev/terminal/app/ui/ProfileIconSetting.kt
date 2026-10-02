@@ -61,7 +61,7 @@ internal fun ProfileIconSetting(value: String, runtime: String, onChange: (Strin
         trailingContent = { ProfileIcon(value, runtime, tint = TerminalStatusBlue) },
         supportingContent = { Text(iconLabel(value)) },
         verticalAlignment = Alignment.CenterVertically,
-        shapes = terminalListItemShapes(), colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+        shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(),
         modifier = Modifier.fillMaxWidth(),
     ) { Text(stringResource(R.string.profile_icon)) }
     if (visible) AlertDialog(onDismissRequest = { if (!busy) visible = false },

@@ -33,6 +33,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
+import dev.terminal.app.ui.terminalSettingsListItemColors
+import dev.terminal.app.ui.SettingsGroup
 import dev.terminal.app.ui.terminalListItemShapes
 
 /** Full-screen draft: no terminal palette changes until the user saves all 19 colors. */
@@ -140,7 +142,7 @@ private fun PalettePreview(colors: List<String>) {
 private fun PaletteGroup(@StringRes title: Int, colors: List<String>, indices: IntRange, onEdit: (Int) -> Unit) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text(stringResource(title), modifier = Modifier.padding(start = 4.dp), style = MaterialTheme.typography.titleMedium)
-        Column(Modifier.background(MaterialTheme.colorScheme.surfaceContainerLow, RoundedCornerShape(28.dp)).padding(8.dp)) {
+        SettingsGroup {
             indices.forEach { index ->
                 ListItem(
                     supportingContent = { Text(colors[index]) },
@@ -150,7 +152,7 @@ private fun PaletteGroup(@StringRes title: Int, colors: List<String>, indices: I
                     },
                     onClick = { onEdit(index) },
                     shapes = terminalListItemShapes(),
-                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    colors = terminalSettingsListItemColors(),
                     modifier = Modifier.fillMaxWidth(),
                     content = { Text(stringResource(paletteLabel(index))) },
                 )

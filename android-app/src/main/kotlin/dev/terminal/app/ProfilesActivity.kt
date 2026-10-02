@@ -10,13 +10,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.ui.runtimeTitleResource
+import dev.terminal.app.ui.terminalSettingsListItemColors
 import dev.terminal.app.ui.terminalListItemShapes
 import dev.terminal.runtime.session.SessionProfile
 
@@ -36,7 +36,7 @@ class ProfilesActivity : TerminalActivity() {
                         ListItem(onClick = { startActivity(Intent(this@ProfilesActivity, ProfileEditActivity::class.java)) },
                             leadingContent = { Icon(painterResource(R.drawable.ic_material_symbol_add_24), null) },
                             trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
-                            shapes = terminalListItemShapes(), colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                            shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(),
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text(stringResource(R.string.add_profile)) }
                     }
@@ -48,7 +48,7 @@ class ProfilesActivity : TerminalActivity() {
                                 supportingContent = { Text(stringResource(runtimeTitleResource(profile.runtime.wireName)) + " · " + profile.shell) },
                                 trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
                                 verticalAlignment = Alignment.CenterVertically,
-                                shapes = terminalListItemShapes(), colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                                shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(),
                                 modifier = Modifier.fillMaxWidth(),
                             ) { Text(profile.name) }
                         }

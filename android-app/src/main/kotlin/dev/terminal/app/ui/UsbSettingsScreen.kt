@@ -48,7 +48,7 @@ internal fun UsbSettingsScreen(
             }
             if (state == null) item {
                 UsbSection(R.string.usb_section_devices) {
-                    ListItem(colors = usbListColors(), leadingContent = { LoadingIndicator(Modifier.size(32.dp)) },
+                    ListItem(modifier = Modifier.settingsItemSurface(), colors = usbListColors(), leadingContent = { LoadingIndicator(Modifier.size(32.dp)) },
                         supportingContent = { Text(stringResource(R.string.usb_connecting_hint)) },
                         verticalAlignment = Alignment.CenterVertically) { Text(stringResource(R.string.usb_connecting)) }
                 }
@@ -56,8 +56,7 @@ internal fun UsbSettingsScreen(
             if (state != null) {
                 if (state.requests.isNotEmpty()) item {
                     UsbSection(R.string.usb_section_requests, state.requests.size) {
-                        state.requests.forEachIndexed { index, access ->
-                            if (index > 0) UsbDivider()
+                        state.requests.forEach { access ->
                             AccessRow(access, state, pending = true)
                             if (access.waiting) Text(stringResource(R.string.usb_waiting_permission),
                                 Modifier.padding(horizontal = 16.dp), color = TerminalStatusBlue, style = MaterialTheme.typography.bodyMedium)
@@ -74,8 +73,7 @@ internal fun UsbSettingsScreen(
                     UsbSection(R.string.usb_section_devices, state.devices.size) {
                         if (!state.supported) UsbEmpty(R.string.usb_unsupported, R.string.usb_host_hint)
                         else if (state.devices.isEmpty()) UsbEmpty(R.string.usb_no_devices, R.string.usb_cable_hint)
-                        state.devices.forEachIndexed { index, device ->
-                            if (index > 0) UsbDivider()
+                        state.devices.forEach { device ->
                             key(device.id) { DeviceRow(device, state.grants.count { it.device == device.id && it.active }) }
                         }
                     }
@@ -86,8 +84,7 @@ internal fun UsbSettingsScreen(
                 item {
                     UsbSection(R.string.usb_section_grants, state.grants.size) {
                         if (state.grants.isEmpty()) UsbEmpty(R.string.usb_no_grants, R.string.usb_grants_hint)
-                        state.grants.forEachIndexed { index, access ->
-                            if (index > 0) UsbDivider()
+                        state.grants.forEach { access ->
                             AccessRow(access, state, pending = false)
                             TextButton(onClick = { confirm = UsbSettingsCommand(UsbSettingsAction.REVOKE, access.session) },
                                 enabled = connected && !busy, shapes = ButtonDefaults.shapes(), modifier = Modifier.padding(horizontal = 8.dp)) {
@@ -103,8 +100,7 @@ internal fun UsbSettingsScreen(
                         trailingContent = { UsbIcon(R.drawable.ic_material_symbol_chevron_right_24) }, shapes = terminalListItemShapes(),
                         colors = usbListColors(), verticalAlignment = Alignment.CenterVertically) { Text(stringResource(R.string.usb_add_storage)) }
                     state?.storage?.forEach { root ->
-                        UsbDivider()
-                        ListItem(colors = usbListColors(), supportingContent = {
+                        ListItem(modifier = Modifier.settingsItemSurface(), colors = usbListColors(), supportingContent = {
                             Text(stringResource(when {
                                 !root.available -> R.string.usb_storage_unavailable
                                 root.writable -> R.string.usb_storage_writable
@@ -136,7 +132,6 @@ internal fun UsbSettingsScreen(
                     ExpandRow(R.string.usb_usage_title, help, { help = !help })
                     if (help) Text(stringResource(R.string.usb_help), Modifier.padding(16.dp),
                         style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    UsbDivider()
                     ExpandRow(R.string.usb_diagnostics, diagnostics, { diagnostics = !diagnostics }, enabled = state != null)
                     if (diagnostics && state != null) Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         state.diagnostics.forEach { (key, count) ->
@@ -197,7 +192,7 @@ private fun DeviceRow(device: UsbDeviceUi, active: Int) {
         Text(stringResource(if (device.iphone) R.string.usb_device_iphone else if (device.cdc || device.serialDrivers.isNotEmpty()) R.string.usb_device_serial else R.string.usb_device_generic))
     }
     if (expanded) SelectionContainer {
-        Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.settingsItemSurface().padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(stringResource(R.string.usb_device_id, device.id), style = MaterialTheme.typography.bodySmall)
             if (device.serialDrivers.isNotEmpty()) Text(stringResource(R.string.usb_serial_drivers, device.serialDrivers.joinToString()), style = MaterialTheme.typography.bodySmall)
             device.interfaces.forEach { intf ->
@@ -217,7 +212,7 @@ private fun DeviceRow(device: UsbDeviceUi, active: Int) {
 
 @Composable
 private fun AccessRow(access: UsbAccessUi, state: UsbSettingsSnapshot, pending: Boolean) {
-    ListItem(colors = usbListColors(), supportingContent = {
+    ListItem(modifier = Modifier.settingsItemSurface(), colors = usbListColors(), supportingContent = {
         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
             Text(stringResource(R.string.usb_session_label, runtimeLabel(access.runtime), access.session))
             Text(stringResource(R.string.usb_target_label, targetLabel(access, state)))
@@ -280,17 +275,14 @@ private fun UsbSection(@StringRes title: Int, count: Int? = null, content: @Comp
     Column {
         Text(stringResource(title) + (count?.let { " · $it" } ?: ""), Modifier.padding(start = 16.dp, bottom = 8.dp),
             style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-        Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge,
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) { Column(content = content) }
+        SettingsGroup(content = content)
     }
 }
 @Composable
 private fun UsbEmpty(@StringRes title: Int, @StringRes hint: Int) {
-    ListItem(colors = usbListColors(), supportingContent = { Text(stringResource(hint)) },
+    ListItem(modifier = Modifier.settingsItemSurface(), colors = usbListColors(), supportingContent = { Text(stringResource(hint)) },
         verticalAlignment = Alignment.CenterVertically) { Text(stringResource(title)) }
 }
-@Composable
-private fun UsbDivider() { HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = MaterialTheme.colorScheme.outlineVariant) }
 @Composable
 private fun usbListColors() = terminalSettingsListItemColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
 @Composable

@@ -29,7 +29,6 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -52,6 +51,9 @@ import dev.terminal.app.ui.TerminalStatusBlue
 import dev.terminal.app.ui.runtimeTitleResource
 import dev.terminal.app.ui.rootlessRuntimeIds
 import dev.terminal.app.ui.parseRootlessSettingsState
+import dev.terminal.app.ui.SettingsGroup
+import dev.terminal.app.ui.settingsItemSurface
+import dev.terminal.app.ui.terminalSettingsListItemColors
 import dev.terminal.app.ui.terminalListItemShapes
 import dev.terminal.app.ui.validatedIntegerDraft
 import dev.terminal.app.ui.validatedShellDraft
@@ -438,18 +440,15 @@ class SettingsDetailActivity : TerminalActivity() {
                 ) {
                     terminalPreferences.edit().putInt(KEY_FONT_SIZE, it).apply()
                 }
-                SettingsDivider()
                 ChoiceSetting(
                     R.string.font_family,
                     R.string.font_family_support,
                     listOf(Choice(R.string.font_monospace, "MONOSPACE"), Choice(R.string.font_sans_monospace, "SANS_MONOSPACE")),
                     terminalPreferences.getString(KEY_FONT_FAMILY, "MONOSPACE") ?: "MONOSPACE",
                 ) { terminalPreferences.edit().putString(KEY_FONT_FAMILY, it).apply() }
-                SettingsDivider()
                 BooleanSetting(R.string.fixed_width, R.string.fixed_width_support, terminalPreferences.getBoolean(KEY_FIXED_WIDTH, true)) {
                     terminalPreferences.edit().putBoolean(KEY_FIXED_WIDTH, it).apply()
                 }
-                SettingsDivider()
                 BooleanSetting(
                     R.string.natural_wide_glyphs,
                     R.string.natural_wide_glyphs_support,
@@ -482,7 +481,6 @@ class SettingsDetailActivity : TerminalActivity() {
                     if (selectedStyle == CustomTerminalFontStyle.ITALIC) R.string.add_italic_font_support else R.string.add_custom_font_support,
                 ) { openCustomFontPicker(selectedStyle) }
                 if (visibleFonts.isNotEmpty()) {
-                    SettingsDivider()
                     visibleFonts.forEachIndexed { visibleIndex, (index, font) ->
                         CustomFontSetting(
                             font = font,
@@ -493,7 +491,6 @@ class SettingsDetailActivity : TerminalActivity() {
                             onMoveDown = { moveCustomFont(index, nextFontIndex(index, font.style)) },
                             onRemove = { removeCustomFont(font) },
                         )
-                        if (visibleIndex != visibleFonts.lastIndex) SettingsDivider()
                     }
                 }
             }
@@ -511,7 +508,6 @@ class SettingsDetailActivity : TerminalActivity() {
                     ),
                     paletteSelection,
                 ) { paletteSelection = it; terminalPreferences.edit().putString(KEY_PALETTE, it).apply() }
-                SettingsDivider()
                 ActionSetting(R.string.customize_palette, R.string.customize_palette_support) {
                     startActivity(Intent(this@SettingsDetailActivity, PaletteEditorActivity::class.java))
                 }
@@ -525,15 +521,12 @@ class SettingsDetailActivity : TerminalActivity() {
                 IntegerSetting(KEY_AVF_MEMORY, R.string.memory, R.string.memory_support, R.string.unit_mib, runtimePreferences.getInt(KEY_AVF_MEMORY, 2048), 512..32768) {
                     saveRuntimeInt(KEY_AVF_MEMORY, it)
                 }
-                SettingsDivider()
                 IntegerSetting(KEY_AVF_CPU, R.string.virtual_cpu, R.string.virtual_cpu_support, R.string.unit_count, runtimePreferences.getInt(KEY_AVF_CPU, 2), 1..16) {
                     saveRuntimeInt(KEY_AVF_CPU, it)
                 }
-                SettingsDivider()
                 BooleanSetting(R.string.protected_vm, R.string.protected_vm_support, runtimePreferences.getBoolean(KEY_AVF_PROTECTED, false)) {
                     saveRuntimeBoolean(KEY_AVF_PROTECTED, it)
                 }
-                SettingsDivider()
                 BooleanSetting(R.string.guest_network, R.string.guest_network_support, runtimePreferences.getBoolean(KEY_AVF_NETWORK, true)) {
                     saveRuntimeBoolean(KEY_AVF_NETWORK, it)
                 }
@@ -551,14 +544,12 @@ class SettingsDetailActivity : TerminalActivity() {
                     runtimePreferences.edit().putString(KEY_WAKE_POLICY, it).apply()
                     runCatching { runtime?.setWakePolicy(it) }
                 }
-                SettingsDivider()
                 ActionSetting(R.string.debian_image, R.string.debian_image_support) {
                     startActivity(
                         Intent(this@SettingsDetailActivity, SetupActivity::class.java)
                             .putExtra(SetupActivity.EXTRA_SHOW_SETUP, true),
                     )
                 }
-                SettingsDivider()
                 ActionSetting(R.string.diagnostics_title, R.string.diagnostics_support) {
                     startActivity(Intent(this@SettingsDetailActivity, DiagnosticsActivity::class.java))
                 }
@@ -590,12 +581,10 @@ class SettingsDetailActivity : TerminalActivity() {
                     startActivity(Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
                         .putExtra(EXTRA_CATEGORY, TOOLBAR))
                 }
-                SettingsDivider()
                 ActionSetting(R.string.settings_appearance_title, R.string.settings_appearance_summary) {
                     startActivity(Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
                         .putExtra(EXTRA_CATEGORY, APPEARANCE))
                 }
-                SettingsDivider()
                 BooleanSetting(
                     R.string.follow_tui_background,
                     R.string.follow_tui_background_support,
@@ -614,16 +603,13 @@ class SettingsDetailActivity : TerminalActivity() {
                     runtimePreferences.edit().putString(KEY_NATIVE_TERM, it).apply()
                     syncRuntimeSettings()
                 }
-                SettingsDivider()
                 BooleanSetting(R.string.login_shell, R.string.login_shell_support, runtimePreferences.getBoolean(KEY_NATIVE_LOGIN, true)) {
                     saveRuntimeBoolean(KEY_NATIVE_LOGIN, it)
                 }
-                SettingsDivider()
                 BooleanSetting(R.string.terminal_open_links, R.string.terminal_open_links_support,
                     terminalPreferences.getBoolean(KEY_OPEN_LINKS, false)) {
                     terminalPreferences.edit().putBoolean(KEY_OPEN_LINKS, it).apply()
                 }
-                SettingsDivider()
                 BooleanSetting(R.string.session_task_notifications, R.string.session_task_notifications_support,
                     runtimePreferences.getBoolean(dev.terminal.runtime.notifications.SessionNotificationSettings.KEY_ENABLED, false)) { enabled ->
                     saveRuntimeBoolean(dev.terminal.runtime.notifications.SessionNotificationSettings.KEY_ENABLED, enabled)
@@ -632,17 +618,14 @@ class SettingsDetailActivity : TerminalActivity() {
                         taskNotificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
                     }
                 }
-                SettingsDivider()
                 ActionSetting(R.string.session_task_system_settings, R.string.session_task_permission_required) {
                     startActivity(Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                         .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, packageName))
                 }
-                SettingsDivider()
                 BooleanSetting(R.string.kitty_remote_control, R.string.kitty_remote_control_support,
                     runtimePreferences.getBoolean(KEY_KITTY_REMOTE, false)) {
                     saveRuntimeBoolean(KEY_KITTY_REMOTE, it)
                 }
-                SettingsDivider()
                 BooleanSetting(R.string.kitty_graphics_compatibility, R.string.kitty_graphics_compatibility_support,
                     runtimePreferences.getBoolean(KEY_KITTY_GRAPHICS, false)) {
                     saveRuntimeBoolean(KEY_KITTY_GRAPHICS, it)
@@ -658,7 +641,6 @@ class SettingsDetailActivity : TerminalActivity() {
                 ) {
                     terminalPreferences.edit().putBoolean(KEY_SMOOTH_SCROLLING, it).apply()
                 }
-                SettingsDivider()
                 IntegerSetting(KEY_SCROLLBACK, R.string.scrollback, R.string.scrollback_support, R.string.unit_rows, terminalPreferences.getInt(KEY_SCROLLBACK, 10_000), 1_000..100_000) {
                     terminalPreferences.edit().putInt(KEY_SCROLLBACK, it).apply()
                 }
@@ -673,7 +655,6 @@ class SettingsDetailActivity : TerminalActivity() {
                 ) {
                     terminalPreferences.edit().putBoolean(TerminalHapticPreferences.KEY_ENABLED, it).apply()
                 }
-                SettingsDivider()
                 ChoiceSetting(
                     R.string.haptic_density,
                     R.string.haptic_density_support,
@@ -687,7 +668,6 @@ class SettingsDetailActivity : TerminalActivity() {
                 ) {
                     terminalPreferences.edit().putString(TerminalHapticPreferences.KEY_DENSITY, it).apply()
                 }
-                SettingsDivider()
                 BooleanSetting(
                     R.string.haptic_scroll,
                     R.string.haptic_scroll_support,
@@ -711,7 +691,6 @@ class SettingsDetailActivity : TerminalActivity() {
         item {
             SettingsSection(R.string.section_status) {
                 rootlessRuntimeIds.forEachIndexed { index, runtimeType ->
-                    if (index > 0) SettingsDivider()
                     RootlessStatusSetting(runtimeType, rootlessStates.getValue(runtimeType)) {
                         handleRootlessAction(runtimeType)
                     }
@@ -783,27 +762,9 @@ class SettingsDetailActivity : TerminalActivity() {
                 color = MaterialTheme.colorScheme.primary,
                 style = MaterialTheme.typography.labelLarge,
             )
-            if (hasOptions) Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.extraLarge,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-                ),
-            ) {
-                Column(content = content)
-            } else {
-                Column(content = content)
-            }
+            if (hasOptions) SettingsGroup(content = content) else Column(content = content)
             footer()
         }
-    }
-
-    @Composable
-    private fun SettingsDivider() {
-        HorizontalDivider(
-            modifier = Modifier.padding(horizontal = 16.dp),
-            color = MaterialTheme.colorScheme.outlineVariant,
-        )
     }
 
     @Composable
@@ -945,7 +906,7 @@ class SettingsDetailActivity : TerminalActivity() {
     @Composable
     private fun InfoSetting(@StringRes title: Int, @StringRes supporting: Int) {
         Column(
-            Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 12.dp),
+            Modifier.fillMaxWidth().settingsItemSurface().padding(horizontal = 16.dp, vertical = 12.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             Text(stringResource(title), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -1008,9 +969,7 @@ class SettingsDetailActivity : TerminalActivity() {
     }
 
     @Composable
-    private fun preferenceListItemColors() = ListItemDefaults.colors(
-        containerColor = Color.Transparent,
-    )
+    private fun preferenceListItemColors() = terminalSettingsListItemColors()
 
     @Composable
     private fun RootlessStatusSetting(runtimeType: String, state: RootlessSettingsState, action: () -> Unit) {

@@ -42,6 +42,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.SettingsPageScaffold
+import dev.terminal.app.ui.SettingsGroup
+import dev.terminal.app.ui.SettingsItemSpacing
 import dev.terminal.app.ui.terminalListItemShapes
 
 @Composable
@@ -87,8 +89,7 @@ internal fun ToolbarSettings(preferences: SharedPreferences, onBack: () -> Unit,
                 Text(stringResource(R.string.toolbar_tools), Modifier.padding(start = 16.dp, bottom = 8.dp),
                     style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                 if (config.tools.isEmpty() && !editing) Text(stringResource(R.string.toolbar_empty))
-                Card(Modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge,
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
+                SettingsGroup {
                     ToolbarReorderList(config, editing, tools, scroll, { viewport }, update, onOpenTool)
                 }
             }
@@ -105,7 +106,8 @@ private fun ToolbarReorderList(config: ToolbarConfig, editing: Boolean, tools: L
     val density = LocalDensity.current
     // Match the single-line ListItem used by Profiles → Add profile.
     val rowHeight = 56.dp
-    val rowPixels = with(density) { rowHeight.toPx() }
+    val rowStep = rowHeight + SettingsItemSpacing
+    val rowPixels = with(density) { rowStep.toPx() }
     val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val effects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     var dragging by remember { mutableStateOf<String?>(null) }
@@ -117,7 +119,7 @@ private fun ToolbarReorderList(config: ToolbarConfig, editing: Boolean, tools: L
     val update by rememberUpdatedState(onUpdate)
     val order = preview ?: config.tools
     val displayed = order + if (editing) tools.map { it.id }.filter { it !in order } else emptyList()
-    val height by animateDpAsState(rowHeight * displayed.size, MaterialTheme.motionScheme.defaultSpatialSpec(), label = "toolbarListHeight")
+    val height by animateDpAsState(if (displayed.isEmpty()) 0.dp else rowStep * displayed.size - SettingsItemSpacing, MaterialTheme.motionScheme.defaultSpatialSpec(), label = "toolbarListHeight")
     fun cancel() { dragging = null; preview = null }
     fun reorder() {
         val id = dragging ?: return
@@ -172,7 +174,7 @@ private fun ToolbarReorderList(config: ToolbarConfig, editing: Boolean, tools: L
             val elevation by animateDpAsState(if (lifted) 8.dp else 0.dp,
                 MaterialTheme.motionScheme.defaultSpatialSpec(), label = "toolbarLiftElevation")
             val color by animateColorAsState(if (lifted) MaterialTheme.colorScheme.secondaryContainer
-                else Color.Transparent, MaterialTheme.motionScheme.fastEffectsSpec(), label = "toolbarLiftColor")
+                else MaterialTheme.colorScheme.surfaceContainerLow, MaterialTheme.motionScheme.fastEffectsSpec(), label = "toolbarLiftColor")
             val name = stringResource(tool.title)
             val moveLabel = stringResource(R.string.toolbar_move, name)
             val upLabel = stringResource(R.string.toolbar_move_up)
