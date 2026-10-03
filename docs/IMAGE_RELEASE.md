@@ -1,6 +1,6 @@
 # Debian ARM64 image release procedure
 
-End users do not build or repackage Debian images. On a supported privileged product build, creating the first AVF session downloads the signed-build catalog's approved release, decompresses and verifies it, installs it once, and continues startup. Ordinary debug/release builds include the reviewed default catalog when it exists. Until a real image has been published and approved, they retain an empty catalog; a normal APK cannot gain custom VM privileges through this installer.
+End users do not build or repackage Debian images. On a supported privileged product build, creating the first AVF session downloads the signed-build catalog's approved release, decompresses and verifies it, installs it once, and continues startup. Ordinary debug/release builds include the reviewed default catalog in `image/catalog-approved.properties`. The initial approved release is `avf-debian-920f34393b22d3e00806b251796684b4a2ad6f2a`; its Korean release notes record the installation requirements and limits. A normal APK cannot gain custom VM privileges through this installer. Builds without an approved default or an explicit candidate catalog retain an empty catalog.
 
 ## Automated producer
 
@@ -30,6 +30,8 @@ Use an immutable release ID consistently in the URI and command. This is a produ
 ## Publication and product build
 
 The workflow's `publish` option is false by default and is available only through manual dispatch. Publication waits for both image verification and the catalog-bearing APK build. It requires an immutable release ID, previously committed Korean notes at `docs/release-notes/<release-id>.md`, and `TERMINAL_UPDATES_TOKEN` with release access to public `nolbo/TERM`. The source commit must belong to shared `dev` history and is recorded in the artifact provenance. TERM is a distribution repository: the workflow creates a new image prerelease there without copying private source history or replacing an existing release. Release approval/versioning and patch-note policy remain governed by `AGENTS.md` and `VERSIONING.md`.
+
+An already verified candidate can be promoted without rebuilding it: download that successful run's image artifact, check its recorded source commit against shared `dev`, verify the full directory against the producer job's manifest hash, and publish those exact bytes with committed Korean notes. Publication still requires explicit authorization and a new immutable release ID. Perform the same credential-free public verification below before approving the default catalog. This preserves the reviewed image and its hashes instead of creating different filesystem bytes in another factory run.
 
 Runtime downloads must be available without credentials. The source repository is private, so its release URLs cannot serve automatic installation; the workflow uses public TERM release URLs. HTTPS redirects to the GitHub asset CDN are supported, including signed query strings; content remains pinned by the manifest and artifact SHA-256 values. Host all five `<artifact>.gz` files beside the uncompressed `manifest.properties` at the catalog's URI. Never host mutable `latest` contents under an approved manifest hash. An OEM may use its own immutable HTTPS directory, but the repository's publication verifier intentionally accepts only the TERM distribution repository.
 
