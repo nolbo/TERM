@@ -59,6 +59,8 @@ does not claim that a dead VM still owns persistent sessions.
 
 Selecting an AVF profile, including legacy/default storage, sends an explicit startup request even when Native is the primary runtime. The common selection action starts AVF rather than redirecting its unstarted VM to settings. Runtime availability reports actual primary or independent AVF owner state and never labels AVF unsupported solely because Native is the primary owner. The runtime service checks device and permission boundaries before installation/boot; the primary owner's ready state does not gate this independent AVF request. The Activity reports that preparation has started and keeps any session-creation error in a dismissible dialog. Image installation completion does not imply VM or session readiness.
 
+For an installed image, setup and catalog guards check path existence, and the driver's `prepare` step performs the full startup checksum verification once through `DebianImageInstaller.verifyForStartup`. This also adopts fully verified older images before their writable disk changes. Corrupt images still fail preparation and are never replaced automatically. SHA-256 streaming uses a 256 KiB buffer. Additional sessions reuse the prepared runtime. Logcat tag `TermAvfDriver` records `image.verify duration_ms` and `vm.sessiond duration_ms` (including whether a running VM was reused); these separate checksum cost from VM boot/connection cost on the actual device.
+
 The first disk mapping is fixed and part of the signed image ABI:
 
 ```text

@@ -1,13 +1,15 @@
 package dev.terminal.runtime.avf.system
 
 import android.content.Context
+import android.os.SystemClock
+import android.util.Log
 import android.system.virtualmachine.VirtualMachine
 import android.system.virtualmachine.VirtualMachineCallback
 import android.system.virtualmachine.VirtualMachineConfig
 import android.system.virtualmachine.VirtualMachineCustomImageConfig
 import android.system.virtualmachine.VirtualMachineManager
 import dev.terminal.image.DebianImageLayout
-import dev.terminal.image.DebianImageVerifier
+import dev.terminal.image.DebianImageInstaller
 import dev.terminal.image.ImageVerification
 import dev.terminal.runtime.api.GuestConnection
 import dev.terminal.runtime.api.GuestByteStream
@@ -60,7 +62,10 @@ class AospAvfPlatformDriver(
             }
             require(config.memoryMib >= MIN_MEMORY_MIB) { "VM memory must be at least $MIN_MEMORY_MIB MiB" }
             require(config.cpuCount >= 1) { "VM CPU count must be positive" }
-            when (val verification = DebianImageVerifier.verifyInstalled(Paths.get(config.imageDirectory))) {
+            val verificationStartedAt = SystemClock.elapsedRealtime()
+            val verification = DebianImageInstaller.verifyForStartup(Paths.get(config.imageDirectory))
+            Log.i(TAG, "image.verify duration_ms=${SystemClock.elapsedRealtime() - verificationStartedAt} ready=${verification is ImageVerification.Ready}")
+            when (verification) {
                 is ImageVerification.Ready -> Unit
                 is ImageVerification.Invalid -> error(verification.reason)
             }
@@ -69,6 +74,7 @@ class AospAvfPlatformDriver(
     }
 
     override suspend fun start(config: RuntimeConfig): Result<Unit> = mutex.withLock {
+        val bootStartedAt = SystemClock.elapsedRealtime()
         var nextMachine: VirtualMachine? = null
         var startedHere = false
         try {
@@ -92,6 +98,7 @@ class AospAvfPlatformDriver(
                 ParcelFileDescriptorFrameTransport(vm.connectVsock(DROID_SESSIOND_PORT), GUEST_CID_UNAVAILABLE)
             })
             check(machine === vm) { "AVF stopped while connecting to the Debian session daemon" }
+            Log.i(TAG, "vm.sessiond duration_ms=${SystemClock.elapsedRealtime() - bootStartedAt} reused=${!startedHere}")
             Result.success(Unit)
         } catch (failure: Throwable) {
             pendingSessionConnection.getAndSet(null)?.let { connection ->
@@ -257,6 +264,7 @@ class AospAvfPlatformDriver(
     private fun vmName(config: RuntimeConfig): String = "droid-${config.instanceId}"
 
     private companion object {
+        const val TAG = "TermAvfDriver"
         val VM_NAME = Regex("[A-Za-z0-9._-]{1,64}")
         const val MIN_MEMORY_MIB = 512
         const val MIB = 1024L * 1024L

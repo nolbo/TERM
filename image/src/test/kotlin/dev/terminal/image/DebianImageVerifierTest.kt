@@ -5,9 +5,19 @@ import java.nio.file.Path
 import java.net.URI
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class DebianImageVerifierTest {
+    @Test fun hashesEveryByteAcrossMultipleReadBuffers() {
+        val artifact = Files.createTempFile("debian-hash-test", ".img")
+        try {
+            Files.write(artifact, ByteArray(600_017) { (it * 37).toByte() })
+            assertEquals("02ad2bd651b7aeb8b36f9b66b9cb677eb01beae890a133960b7ce9de054eaf1c",
+                DebianImageVerifier.sha256(artifact))
+        } finally { Files.delete(artifact) }
+    }
+
     @Test
     fun verifiesKnownGoodDebianArm64Layout() {
         val root = Files.createTempDirectory("debian-image-test")

@@ -60,7 +60,7 @@ class AvfDriverIntegrationTest {
                 runtime.createSession("NATIVE", "/system/bin/sh", "", 24, 80)
                 await { sessions().firstOrNull { id -> id !in before }?.also { id -> owned = id } != null }
                 runtime.writeSessionInput(requireNotNull(owned), "printf native-ok > '${marker.absolutePath}'\n".toByteArray())
-                await { marker.exists() }
+                await { marker.isFile && marker.readText() == "native-ok" }
                 assertEquals("native-ok", marker.readText())
             } finally {
                 owned?.let { id -> service?.terminateSession(id) }

@@ -48,6 +48,7 @@ object DebianImageVerifier {
     private const val EXPECTED_DISTRIBUTION = "debian"
     private const val EXPECTED_ARCHITECTURE = "arm64"
     private val SHA256 = Regex("[0-9a-f]{64}")
+    private const val HASH_BUFFER_BYTES = 256 * 1024
 
     private const val INSTALL_RECEIPT = ".installed-manifest-sha256"
 
@@ -118,7 +119,7 @@ object DebianImageVerifier {
 
     private fun sha256(input: InputStream): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteArray(DEFAULT_BUFFER_SIZE)
+        val buffer = ByteArray(HASH_BUFFER_BYTES)
         while (true) {
             val count = input.read(buffer)
             if (count < 0) break

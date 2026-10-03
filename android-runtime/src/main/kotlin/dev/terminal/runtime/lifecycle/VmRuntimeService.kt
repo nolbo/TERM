@@ -1043,7 +1043,7 @@ class VmRuntimeService : Service() {
             }
             if (spec.runtime == SessionRuntime.AVF && key !in startedStorageBackends) {
                 check(BundledDebianImageCatalog.find(DEFAULT_DEBIAN_RELEASE_ID) != null ||
-                    DebianImageVerifier.verifyInstalled(root.toPath()) is ImageVerification.Ready) {
+                    java.nio.file.Files.exists(root.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
                     "이 제품 빌드에는 프로필 전용 AVF 이미지 설치 카탈로그가 없습니다."
                 }
                 RuntimeSetupCoordinator(applicationContext).ensureImage(root.toPath(), DEFAULT_DEBIAN_RELEASE_ID, spec.storageId)

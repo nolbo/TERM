@@ -30,6 +30,9 @@ vdc = config.img  (read-only)
 ```
 
 The guest image's kernel command line and `fstab` must agree with that mapping.
+
+Image provisioning only installs a missing path; the driver verifies an installed image once in `prepare` using `DebianImageInstaller.verifyForStartup`. This checks every immutable artifact and adopts fully verified older installations without resetting writable state. Both default and independent storage paths use this boundary before boot. Logcat tag `TermAvfDriver` reports image verification and VM/sessiond connection durations separately; adding sessions to a prepared VM avoids this startup work.
+
 Legacy and adopted-default profiles retain `droid-default`, using `SessionStorage.avfInstanceId` even though Native is now the default owner. `getOrCreate` reuses an existing AVF instance and ignores a replacement config. Before running a stopped instance, the driver applies the verified configuration through `setConfig`, which rejects incompatible VM identity changes. The `systemd.hostname=localhost` boot parameter gives both existing and new Debian images a short guest hostname without changing persistent VM names or image files. Already-running guests are reconnected without reconfiguration; the hostname applies on their next boot. Image upgrades still require an explicit reset/migration flow.
 
 `VirtualMachine.run()` is asynchronous. The driver retries the `droid-sessiond` vsock port (40500) for up to 120 seconds without waiting for Microdroid's `onPayloadReady` callback, which this custom Debian guest does not send. A successful `RuntimeBackend.start()` means sessiond accepted a connection; `connectGuestAgent()` hands that same descriptor to the session client. Error/stop callbacks fail the wait with their original reason. Failed new boots are stopped; already-running instances are reconnected without rerunning Linux or replacing their disks.

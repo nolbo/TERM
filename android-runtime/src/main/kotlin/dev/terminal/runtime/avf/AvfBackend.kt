@@ -97,6 +97,7 @@ class AvfBackend(
 
 /** Implemented in the AOSP/system-SDK deployment module in the next spike. */
 interface AvfPlatformDriver {
+    /** Must fully verify the installed image before accepting it for [start]. */
     suspend fun prepare(config: RuntimeConfig): Result<Unit>
     suspend fun start(config: RuntimeConfig): Result<Unit>
     suspend fun stop(mode: StopMode): Result<Unit>
