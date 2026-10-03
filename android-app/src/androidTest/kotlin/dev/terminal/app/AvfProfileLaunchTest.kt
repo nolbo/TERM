@@ -54,12 +54,15 @@ class AvfProfileLaunchTest {
                     val choices = MainActivity::class.java.getDeclaredField("runtimeChoices\$delegate")
                         .apply { isAccessible = true }.get(activity) as MutableState<List<RuntimeChoiceUi>>
                     choices.value = listOf(RuntimeChoiceUi("NATIVE", true, "ready"), RuntimeChoiceUi("AVF", false, "not booted"))
-                    val legacy = SessionProfile("avf-legacy", "AVF", SessionRuntime.AVF,
-                        "/bin/bash", emptyList(), "/home/user")
+                    val legacy = SessionProfiles(activity).builtIns().first { it.runtime == SessionRuntime.AVF }
                     val independent = legacy.copy(id = "avf-independent", storageId = UUID.randomUUID().toString())
                     selectProfile.invoke(activity, legacy)
                     selectProfile.invoke(activity, independent)
                     assertEquals(listOf(legacy.resolve(), independent.resolve()), requested)
+                    @Suppress("UNCHECKED_CAST")
+                    val unavailable = MainActivity::class.java.getDeclaredField("unavailableChoice\$delegate")
+                        .apply { isAccessible = true }.get(activity) as MutableState<RuntimeChoiceUi?>
+                    assertNull("The default AVF profile must not redirect to settings", unavailable.value)
                 } finally {
                     runtimeField.set(activity, original)
                 }

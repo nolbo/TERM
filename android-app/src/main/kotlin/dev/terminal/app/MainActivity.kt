@@ -135,7 +135,7 @@ class MainActivity : TerminalActivity() {
             beginRootlessInstall()
             return
         }
-        if (profile.storageId != "legacy" || profile.runtime == dev.terminal.runtime.session.SessionRuntime.AVF) {
+        if (profile.storageId != "legacy") {
             newSessionMenuVisible = false
             newSessionSheetVisible = false
             createSession(profile.resolve())

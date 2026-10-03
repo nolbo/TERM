@@ -8,6 +8,7 @@ import dev.terminal.runtime.api.RuntimeState
 import dev.terminal.runtime.api.StopMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.emptyFlow
@@ -83,7 +84,7 @@ class AvfBackend(
     /** Provider must verify a stopped persistent instance, including after host process restart. */
     suspend fun deleteStorage(instanceId: String): Result<Unit> = mutex.withLock { driver.deleteStorage(instanceId) }
 
-    override fun observeState(): Flow<RuntimeState> = state.asStateFlow()
+    override fun observeState(): StateFlow<RuntimeState> = state.asStateFlow()
 
     override suspend fun connectGuestAgent(): Result<GuestConnection> = driver.connectGuestAgent()
 

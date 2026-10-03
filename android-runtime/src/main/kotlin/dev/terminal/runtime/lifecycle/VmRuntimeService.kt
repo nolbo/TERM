@@ -1393,9 +1393,10 @@ class VmRuntimeService : Service() {
                 })
             })
         }
+        val avf = avfRuntimeAvailability(backend, storageBackends.filterKeys { it.first == SessionRuntime.AVF }.values)
         put(SessionRuntime.AVF.wireName, JSONObject().apply {
-            put("available", backend !is NativeBackend && latestState is RuntimeState.Ready)
-            put("detail", if (backend is NativeBackend) "특권 AVF 제품 빌드가 필요합니다" else latestState.detail())
+            put("available", avf.available)
+            put("detail", avf.detail)
         })
     }.toString()
 

@@ -170,7 +170,7 @@ class UiModelsTest {
             runtimeSelectionAction(RuntimeChoiceUi("ROOTLESS", available = false, detail = "install")),
         )
         assertEquals(
-            RuntimeSelectionAction.SETTINGS,
+            RuntimeSelectionAction.CREATE,
             runtimeSelectionAction(RuntimeChoiceUi("AVF", available = false, detail = "unsupported")),
         )
         assertEquals(

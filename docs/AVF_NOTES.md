@@ -57,7 +57,7 @@ custom image configuration and retries port 40500 after `run()` until `droid-ses
 Later AVF errors and stop callbacks are fed back into `AvfBackend`, so the UI
 does not claim that a dead VM still owns persistent sessions.
 
-Selecting an AVF profile, including legacy/default storage, sends an explicit startup request even when Native is the primary runtime. The runtime service checks device and permission boundaries before installation/boot; the primary owner's ready state does not gate this independent AVF request. The Activity reports that preparation has started and keeps any session-creation error in a dismissible dialog. Image installation completion does not imply VM or session readiness.
+Selecting an AVF profile, including legacy/default storage, sends an explicit startup request even when Native is the primary runtime. The common selection action starts AVF rather than redirecting its unstarted VM to settings. Runtime availability reports actual primary or independent AVF owner state and never labels AVF unsupported solely because Native is the primary owner. The runtime service checks device and permission boundaries before installation/boot; the primary owner's ready state does not gate this independent AVF request. The Activity reports that preparation has started and keeps any session-creation error in a dismissible dialog. Image installation completion does not imply VM or session readiness.
 
 The first disk mapping is fixed and part of the signed image ABI:
 
