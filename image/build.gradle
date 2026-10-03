@@ -18,17 +18,20 @@ dependencies {
 }
 
 // Generated only by the image producer, then included in the APK's signature.
-// A missing product catalog retains the permissionless public build.
+// Reviewed default pins survive ordinary debug/release builds. An explicit factory
+// catalog overrides them only for that build; absent pins keep the public build empty.
 def avfCatalog = providers.gradleProperty('avfImageCatalog')
+def defaultCatalog = file('catalog-approved.properties')
+def hasApprovedCatalog = avfCatalog.isPresent() || defaultCatalog.isFile()
 tasks.named('processResources') {
     // Always overwrite the resource, including product -> public incremental builds.
-    def catalogFile = avfCatalog.isPresent() ? rootProject.file(avfCatalog.get()) : file('catalog-empty.properties')
-    inputs.property('approvedCatalogPresent', avfCatalog.isPresent())
+    def catalogFile = avfCatalog.isPresent() ? rootProject.file(avfCatalog.get()) : (hasApprovedCatalog ? defaultCatalog : file('catalog-empty.properties'))
+    inputs.property('approvedCatalogPresent', hasApprovedCatalog)
     from(catalogFile) {
         into 'dev/terminal/image'
         rename { 'approved-debian.properties' }
     }
-    if (avfCatalog.isPresent()) {
+    if (hasApprovedCatalog) {
         inputs.file(catalogFile)
         doFirst {
             if (!catalogFile.isFile()) throw new GradleException('AVF image catalog file is missing')

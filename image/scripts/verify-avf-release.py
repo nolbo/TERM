@@ -1,0 +1,211 @@
+#!/usr/bin/env python3
+"""Verify factory artifacts and published images before approving an APK catalog."""
+import argparse
+import gzip
+import hashlib
+import json
+from pathlib import Path
+import re
+import tempfile
+import urllib.parse
+import urllib.request
+import zipfile
+
+ARTIFACTS = {'kernel': 'vmlinuz', 'initrd': 'initrd.img', 'system': 'system.img',
+             'home': 'home.img', 'config': 'config.img'}
+MAX_BYTES = 32 * 1024 ** 3
+METADATA_LIMIT = 64 * 1024
+PUBLIC_BASE = 'https://github.com/nolbo/TERM/releases/download/'
+
+
+def properties(data):
+    if len(data) > METADATA_LIMIT:
+        raise ValueError('Metadata exceeds size limit')
+    result = {}
+    for line in data.decode('ascii').splitlines():
+        if not line or line.startswith('#'):
+            continue
+        if '\\' in line or '=' not in line:
+            raise ValueError('Unsupported properties encoding')
+        key, value = line.split('=', 1)
+        if key in result or not key or key != key.strip() or value != value.strip():
+            raise ValueError('Duplicate or noncanonical properties')
+        result[key] = value
+    return result
+
+
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def release_id(value):
+    if not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,63}', value) or 'latest' in value or 'current' in value:
+        raise ValueError('An immutable release ID is required')
+    return value
+
+
+def catalog(data):
+    approved = properties(data)
+    required = {'id', 'releaseId', 'manifestUri', 'manifestSha256', 'maxArtifactBytes', 'compression'}
+    if set(approved) != required or approved['id'] != 'debian-arm64-current':
+        raise ValueError('Invalid approved catalog fields')
+    tag = release_id(approved['releaseId'])
+    if approved['manifestUri'] != f'{PUBLIC_BASE}{tag}/manifest.properties':
+        raise ValueError('Catalog must use the public immutable TERM release URL')
+    if not re.fullmatch(r'[0-9a-f]{64}', approved['manifestSha256']):
+        raise ValueError('Invalid pinned manifest hash')
+    if not approved['maxArtifactBytes'].isdigit() or not 0 < int(approved['maxArtifactBytes']) <= MAX_BYTES:
+        raise ValueError('Invalid artifact size limit')
+    if approved['compression'] != 'gzip':
+        raise ValueError('Factory artifact compression must be gzip')
+    return approved
+
+
+def manifest(data, approved):
+    if digest(data) != approved['manifestSha256']:
+        raise ValueError('Manifest differs from the pinned catalog hash')
+    values = properties(data)
+    required = {'formatVersion', 'distribution', 'architecture'} | {key + '.sha256' for key in ARTIFACTS}
+    if set(values) != required or (values['formatVersion'], values['distribution'], values['architecture']) != ('1', 'debian', 'arm64'):
+        raise ValueError('Expected Debian ARM64 image manifest v1')
+    if any(not re.fullmatch(r'[0-9a-f]{64}', values[key + '.sha256']) for key in ARTIFACTS):
+        raise ValueError('Invalid artifact hash')
+    return values
+
+
+def read_metadata(path):
+    if path.is_symlink() or not path.is_file() or path.stat().st_size > METADATA_LIMIT:
+        raise ValueError(f'Invalid metadata file: {path.name}')
+    return path.read_bytes()
+
+
+def verify_stream(stream, limit, expected):
+    size = 0
+    checksum = hashlib.sha256()
+    while chunk := stream.read(min(1024 * 1024, limit - size + 1)):
+        size += len(chunk)
+        if size > limit:
+            raise ValueError('Expanded image artifact exceeds its limit')
+        checksum.update(chunk)
+    if not size or checksum.hexdigest() != expected:
+        raise ValueError('Image artifact checksum mismatch or empty artifact')
+
+
+class BoundedReader:
+    def __init__(self, stream, limit):
+        self.stream, self.limit, self.size = stream, limit, 0
+
+    def read(self, size=-1):
+        size = min(size if size >= 0 else self.limit + 1, self.limit - self.size + 1)
+        chunk = self.stream.read(size)
+        self.size += len(chunk)
+        if self.size > self.limit:
+            raise ValueError('Downloaded image artifact exceeds its limit')
+        return chunk
+
+
+def verify_directory(root, metadata_only=False, expected_commit=None, expected_manifest_sha=None):
+    approved = catalog(read_metadata(root / 'catalog.properties'))
+    if expected_manifest_sha is not None and approved['manifestSha256'] != expected_manifest_sha:
+        raise ValueError('Catalog differs from the producer job manifest hash')
+    values = manifest(read_metadata(root / 'manifest.properties'), approved)
+    provenance = json.loads(read_metadata(root / 'provenance.json'))
+    if provenance['releaseId'] != approved['releaseId'] or not re.fullmatch(r'[0-9a-f]{40}', provenance['sourceCommit']):
+        raise ValueError('Invalid source provenance')
+    if expected_commit is not None and provenance['sourceCommit'] != expected_commit:
+        raise ValueError('Image came from another source commit')
+    if not re.fullmatch(r'[0-9a-f]{64}', provenance['sourceSha256']) or provenance['diskMapping'] != ['system.img:ro', 'home.img:rw', 'config.img:ro']:
+        raise ValueError('Invalid source image hash or disk mapping')
+    checksums = {}
+    for line in read_metadata(root / 'SHA256SUMS').decode('ascii').splitlines():
+        checksum, name = line.split('  ', 1)
+        if not re.fullmatch(r'[0-9a-f]{64}', checksum) or name in checksums:
+            raise ValueError('Invalid publication checksums')
+        checksums[name] = checksum
+    names = {'catalog.properties', 'manifest.properties', 'provenance.json'} | {name + '.gz' for name in ARTIFACTS.values()}
+    if set(checksums) != names:
+        raise ValueError('Incomplete publication checksums')
+    for name in names:
+        if name.endswith('.gz') and metadata_only:
+            continue
+        path = root / name
+        if path.is_symlink() or not path.is_file() or (name.endswith('.gz') and path.stat().st_size > int(approved['maxArtifactBytes'])):
+            raise ValueError(f'Missing or unsafe image artifact: {name}')
+        with path.open('rb') as stream:
+            if hashlib.file_digest(stream, 'sha256').hexdigest() != checksums[name]:
+                raise ValueError(f'Publication checksum mismatch: {name}')
+    if not metadata_only:
+        for key, name in ARTIFACTS.items():
+            with (root / (name + '.gz')).open('rb') as raw, gzip.GzipFile(fileobj=BoundedReader(raw, int(approved['maxArtifactBytes']))) as stream:
+                verify_stream(stream, int(approved['maxArtifactBytes']), values[key + '.sha256'])
+    return approved
+
+
+def https_url(url):
+    parsed = urllib.parse.urlsplit(url)
+    if parsed.scheme != 'https' or not parsed.hostname or parsed.username or parsed.password or parsed.fragment:
+        raise ValueError('Only credential-free HTTPS downloads are allowed')
+    return url
+
+
+class HttpsRedirects(urllib.request.HTTPRedirectHandler):
+    max_redirections = 5
+
+    def redirect_request(self, request, fp, code, message, headers, url):
+        return super().redirect_request(request, fp, code, message, headers, https_url(url))
+
+
+def verify_published(approved, opener=None):
+    opener = opener or urllib.request.build_opener(HttpsRedirects())
+    with opener.open(https_url(approved['manifestUri']), timeout=60) as response:
+        https_url(response.url)
+        data = response.read(METADATA_LIMIT + 1)
+    values = manifest(data, approved)
+    for key, name in ARTIFACTS.items():
+        url = urllib.parse.urljoin(approved['manifestUri'], name + '.gz')
+        with opener.open(https_url(url), timeout=60) as response:
+            https_url(response.url)
+            with gzip.GzipFile(fileobj=BoundedReader(response, int(approved['maxArtifactBytes']))) as stream:
+                verify_stream(stream, int(approved['maxArtifactBytes']), values[key + '.sha256'])
+
+
+def approve(root, output, **verification):
+    approved = verify_directory(root, metadata_only=True, **verification)
+    verify_published(approved)
+    output.parent.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(dir=output.parent, prefix='.approved-', delete=False) as temporary:
+        temporary.write(read_metadata(root / 'catalog.properties'))
+        staged = Path(temporary.name)
+    try:
+        staged.replace(output)
+    finally:
+        staged.unlink(missing_ok=True)
+    return approved
+
+
+def verify_apk(path, expected_catalog):
+    catalog(expected_catalog)
+    with zipfile.ZipFile(path) as apk:
+        actual = apk.read('dev/terminal/image/approved-debian.properties')
+    if actual != expected_catalog:
+        raise ValueError('APK did not embed the exact approved image catalog')
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--directory', type=Path, required=True)
+    parser.add_argument('--metadata-only', action='store_true')
+    parser.add_argument('--expected-commit')
+    parser.add_argument('--expected-manifest-sha')
+    parser.add_argument('--approve', type=Path, help='Verify public downloads before writing the tracked default catalog')
+    parser.add_argument('--apk', type=Path)
+    args = parser.parse_args()
+    checks = dict(expected_commit=args.expected_commit, expected_manifest_sha=args.expected_manifest_sha)
+    approved = approve(args.directory, args.approve, **checks) if args.approve else verify_directory(args.directory, args.metadata_only, **checks)
+    if args.apk:
+        verify_apk(args.apk, read_metadata(args.directory / 'catalog.properties'))
+    print(f"Verified AVF release {approved['releaseId']}: {approved['manifestSha256']}")
+
+
+if __name__ == '__main__':
+    main()

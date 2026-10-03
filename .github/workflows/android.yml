@@ -79,6 +79,8 @@ jobs:
         run: |
           ./gradlew :android-app:assembleDebug :android-app:testDebugUnitTest :android-runtime:testDebugUnitTest :image:test --build-cache --console=plain
           python3 tools/rootless/prepare-release-runtime.py --verify-apk android-app/build/outputs/apk/debug/android-app-debug.apk
+          python3 tools/avf/verify-driver-apk.py android-app/build/outputs/apk/debug/android-app-debug.apk
+          python3 -m unittest discover -s tests/image -p 'test_*.py'
           python3 -m unittest discover -s tests/updates -p 'test_*.py'
       - name: USB host safety regression gate (not physical validation)
         run: |

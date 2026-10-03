@@ -1,13 +1,21 @@
 name: Build approved AVF Debian image
 
 on:
+  push:
+    branches: [dev]
+    paths:
+      - 'guest/**'
+      - 'image/**'
+      - 'tests/image/**'
+      - 'tools/avf/**'
+      - '.github/workflows/avf_image.yml'
   workflow_dispatch:
     inputs:
       release_id:
         description: Immutable image release ID
         required: true
       publish:
-        description: Publish assets to a GitHub release (requires committed Korean patch notes)
+        description: Publish verified assets to public TERM (requires committed Korean patch notes)
         type: boolean
         default: false
       source_sha256:
@@ -16,14 +24,16 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   image:
     if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-24.04-arm
     timeout-minutes: 90
-    permissions:
-      contents: write
+    outputs:
+      release_id: ${{ steps.metadata.outputs.release_id }}
+      manifest_sha256: ${{ steps.metadata.outputs.manifest_sha256 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -34,20 +44,19 @@ jobs:
           AVF_RELEASE_ID: ${{ inputs.release_id }}
           AVF_PUBLISH: ${{ inputs.publish }}
         run: |
-          python3 - <<'PY'
-          import os, re
-          release = os.environ['AVF_RELEASE_ID']
-          if not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,63}', release):
-              raise SystemExit('Invalid AVF release ID')
+          avf_release_id=${AVF_RELEASE_ID:-avf-debian-$GITHUB_SHA}
+          python3 - "$avf_release_id" <<'PY'
+          import runpy, sys
+          runpy.run_path('image/scripts/verify-avf-release.py')['release_id'](sys.argv[1])
           PY
+          echo "AVF_RELEASE_ID=$avf_release_id" >> "$GITHUB_ENV"
           git fetch --no-tags origin dev
           git merge-base --is-ancestor "$GITHUB_SHA" origin/dev
           if [ "$AVF_PUBLISH" = true ]; then
-            test -s "docs/release-notes/$AVF_RELEASE_ID.md"
+            test -s "docs/release-notes/$avf_release_id.md"
           fi
       - name: Build image, guest services, disks and pinned catalog
         env:
-          AVF_RELEASE_ID: ${{ inputs.release_id }}
           AVF_SOURCE_SHA256: ${{ inputs.source_sha256 }}
         run: |
           python3 -m unittest discover -s tests/image -p 'test_*.py'
@@ -55,13 +64,25 @@ jobs:
           if [ -n "$AVF_SOURCE_SHA256" ]; then
             avf_arguments+=(--source-sha256 "$AVF_SOURCE_SHA256")
           fi
+          # The source repository is private. Runtime downloads must use public TERM.
           python3 image/scripts/build-avf-image.py \
             --release-id "$AVF_RELEASE_ID" \
-            --base-uri "https://github.com/$GITHUB_REPOSITORY/releases/download/$AVF_RELEASE_ID/" \
+            --base-uri "https://github.com/nolbo/TERM/releases/download/$AVF_RELEASE_ID/" \
             --output image/build/approved "${avf_arguments[@]}"
+          python3 image/scripts/verify-avf-release.py --directory image/build/approved --expected-commit "$GITHUB_SHA"
+      - name: Record verified metadata
+        id: metadata
+        run: |
+          python3 - <<'PY'
+          import os, pathlib, runpy
+          verify = runpy.run_path('image/scripts/verify-avf-release.py')
+          approved = verify['verify_directory'](pathlib.Path('image/build/approved'), metadata_only=True, expected_commit=os.environ['GITHUB_SHA'])
+          with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
+              output.write(f"release_id={approved['releaseId']}\nmanifest_sha256={approved['manifestSha256']}\n")
+          PY
       - uses: actions/upload-artifact@v4
         with:
-          name: avf-debian-${{ inputs.release_id }}
+          name: avf-debian-${{ steps.metadata.outputs.release_id }}
           compression-level: 0
           if-no-files-found: error
           path: |
@@ -69,20 +90,123 @@ jobs:
             image/build/approved/*.properties
             image/build/approved/provenance.json
             image/build/approved/SHA256SUMS
-      - name: Publish immutable image assets
-        if: inputs.publish
+      - uses: actions/upload-artifact@v4
+        with:
+          name: avf-catalog-${{ steps.metadata.outputs.release_id }}
+          if-no-files-found: error
+          path: |
+            image/build/approved/catalog.properties
+            image/build/approved/manifest.properties
+            image/build/approved/provenance.json
+            image/build/approved/SHA256SUMS
+
+  apk:
+    needs: image
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      TERMINAL_UPDATE_CHANNEL: dev
+      TERMINAL_UPDATE_REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: avf-catalog-${{ needs.image.outputs.release_id }}
+          path: image/build/approved
+      - name: Validate factory metadata from this source commit
+        env:
+          AVF_MANIFEST_SHA256: ${{ needs.image.outputs.manifest_sha256 }}
+        run: |
+          python3 image/scripts/verify-avf-release.py --directory image/build/approved --metadata-only \
+            --expected-commit "$GITHUB_SHA" --expected-manifest-sha "$AVF_MANIFEST_SHA256"
+          echo "ORG_GRADLE_PROJECT_avfImageCatalog=$GITHUB_WORKSPACE/image/build/approved/catalog.properties" >> "$GITHUB_ENV"
+      - name: Reuse the canonical Android workflow version-code sequence
         env:
           GH_TOKEN: ${{ github.token }}
-          AVF_RELEASE_ID: ${{ inputs.release_id }}
         run: |
-          # Refuse replacement of published image assets or a mutable latest tag.
-          python3 - <<'PY'
-          import os
-          if 'latest' in os.environ['AVF_RELEASE_ID'] or 'current' in os.environ['AVF_RELEASE_ID']:
-              raise SystemExit('Publication requires an immutable release ID')
-          PY
-          gh release create "$AVF_RELEASE_ID" --target "$GITHUB_SHA" \
-            --title "AVF Debian $AVF_RELEASE_ID" \
-            --notes-file "docs/release-notes/$AVF_RELEASE_ID.md" \
+          # This is a review APK, not a new channel release. Do not create a second sequence.
+          terminal_android_sequence=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/android.yml/runs?per_page=5" --jq '[.workflow_runs[].run_number] | max')
+          [[ "$terminal_android_sequence" =~ ^[0-9]+$ ]]
+          echo "TERMINAL_UPDATE_VERSION_CODE=$((1000000 + terminal_android_sequence))" >> "$GITHUB_ENV"
+      - name: Use Maven AAPT2 on the CI host
+        run: sed -i '/^android.aapt2FromMavenOverride=/d' gradle.properties
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: true
+      - name: Install pinned Android Rust toolchain
+        run: rustup toolchain install 1.89.0 --profile minimal --target aarch64-linux-android
+      - name: Prepare verified Rootless runtime
+        run: |
+          python3 tools/rootless/prepare-release-runtime.py --output "$GITHUB_WORKSPACE/android-runtime/build/verifiedRootless"
+          echo "ORG_GRADLE_PROJECT_rootlessAcceleratedPayload=$GITHUB_WORKSPACE/android-runtime/build/verifiedRootless" >> "$GITHUB_ENV"
+          echo "ORG_GRADLE_PROJECT_rootlessStdioBuffer=true" >> "$GITHUB_ENV"
+          echo "TERMINAL_REQUIRE_ROOTLESS_ACCELERATION=true" >> "$GITHUB_ENV"
+      - name: Build and verify the catalog-bearing debug APK
+        env:
+          AVF_MANIFEST_SHA256: ${{ needs.image.outputs.manifest_sha256 }}
+        run: |
+          ./gradlew :android-app:assembleDebug :android-runtime:testDebugUnitTest :image:test --build-cache --console=plain
+          python3 tools/avf/verify-driver-apk.py android-app/build/outputs/apk/debug/android-app-debug.apk
+          python3 tools/rootless/prepare-release-runtime.py --verify-apk android-app/build/outputs/apk/debug/android-app-debug.apk
+          python3 image/scripts/verify-avf-release.py --directory image/build/approved --metadata-only \
+            --expected-commit "$GITHUB_SHA" --expected-manifest-sha "$AVF_MANIFEST_SHA256" \
+            --apk android-app/build/outputs/apk/debug/android-app-debug.apk
+      - uses: actions/upload-artifact@v4
+        with:
+          name: avf-debug-${{ needs.image.outputs.release_id }}
+          compression-level: 0
+          if-no-files-found: error
+          path: android-app/build/outputs/apk/debug/android-app-debug.apk
+
+  publish:
+    needs: [image, apk]
+    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: avf-public-image-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        with:
+          name: avf-debian-${{ needs.image.outputs.release_id }}
+          path: image/build/approved
+      - name: Verify and publish immutable image assets to public TERM
+        env:
+          GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
+          AVF_RELEASE_ID: ${{ needs.image.outputs.release_id }}
+          AVF_MANIFEST_SHA256: ${{ needs.image.outputs.manifest_sha256 }}
+        run: |
+          set +x
+          test -n "$GH_TOKEN"
+          git fetch --no-tags origin dev
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/dev
+          test -s "docs/release-notes/$AVF_RELEASE_ID.md"
+          test "$(gh api repos/nolbo/TERM --jq '.private')" = false
+          python3 image/scripts/verify-avf-release.py --directory image/build/approved \
+            --expected-commit "$GITHUB_SHA" --expected-manifest-sha "$AVF_MANIFEST_SHA256"
+          # TERM is a distribution repository; provenance records the shared dev source commit.
+          # Do not publish private source history or replace any existing release or asset.
+          gh release create "$AVF_RELEASE_ID" --repo nolbo/TERM --latest=false --prerelease \
+            --title "AVF Debian $AVF_RELEASE_ID" --notes-file "docs/release-notes/$AVF_RELEASE_ID.md" \
             image/build/approved/*.gz image/build/approved/*.properties \
             image/build/approved/provenance.json image/build/approved/SHA256SUMS
+          python3 image/scripts/verify-avf-release.py --directory image/build/approved --metadata-only \
+            --expected-commit "$GITHUB_SHA" --expected-manifest-sha "$AVF_MANIFEST_SHA256" \
+            --approve image/catalog-approved.properties
+      - uses: actions/upload-artifact@v4
+        with:
+          name: avf-approved-default-${{ needs.image.outputs.release_id }}
+          if-no-files-found: error
+          path: image/catalog-approved.properties
