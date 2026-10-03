@@ -273,6 +273,39 @@ class ToolbarUiTest {
         }
     }
 
+    @Test fun sessionListKeepsManualScrollWhenInteractionOrActiveTabChanges() {
+        val selected = mutableStateOf("tab-0")
+        val active = mutableStateOf(true)
+        val sessions = (0..14).map { SessionUi("tab-$it", "NATIVE", "Shell $it", "RUNNING") }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Box(Modifier.fillMaxWidth().height(350.dp)) {
+                        ToolbarSessionsTool(sessions, selected.value, active.value, emptySet(), emptyList(),
+                            {}, {}, false, { selected.value = it }, {}, {}, {}, {}, {})
+                    }
+                } }
+            } }
+            settle()
+            val markerBefore = bounds(text("Shell 4"))
+            val density = context.resources.displayMetrics.density
+            drag(markerBefore.exactCenterX(), markerBefore.exactCenterY(), 0f, -156 * density)
+            val scrolled = bounds(text("Shell 4"))
+            assertTrue("Manual scroll moves away from the active tab", scrolled.top < markerBefore.top)
+            scenario.onActivity { active.value = false }
+            settle()
+            scenario.onActivity { active.value = true }
+            settle()
+            assertEquals("Becoming interactive must preserve the position", scrolled, bounds(text("Shell 4")))
+            scenario.onActivity { selected.value = "tab-7" }
+            settle()
+            assertEquals("Changing the active tab must preserve the position", scrolled, bounds(text("Shell 4")))
+            click(text("Shell 4"))
+            assertEquals("tab-4", selected.value)
+            assertEquals("Selecting a visible tab must preserve the position", scrolled, bounds(text("Shell 4")))
+        }
+    }
+
     @Test fun settingsCannotRemoveSessionTool() {
         val prefs = context.getSharedPreferences("toolbar-mandatory-test", 0)
         prefs.edit().clear().commit()

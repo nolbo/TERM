@@ -66,12 +66,6 @@ internal fun ReorderableSessionTabs(sessions: List<SessionUi>, activeSessionId: 
     }
     // Runtime changes and paging away revoke a drag; title updates keep stable IDs.
     LaunchedEffect(ids, active, activeSessionId) { cancel() }
-    LaunchedEffect(activeSessionId, active) {
-        if (active) {
-            val index = ids.indexOf(activeSessionId)
-            if (index >= 0) scroll.animateScrollTo((index * stepPx).roundToInt())
-        }
-    }
     LaunchedEffect(dragging) {
         if (dragging == null) return@LaunchedEffect
         var previous = withFrameNanos { it }

@@ -547,7 +547,8 @@ class MainActivity : TerminalActivity() {
                             maxHeight = toolbarMaxHeight,
                             colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,
                         ) { tool, interactive ->
-                            androidx.compose.runtime.key(toolbarSessionId, tool) {
+                            // Session navigation keeps its scroll position across tab switches.
+                            androidx.compose.runtime.key(if (tool == SESSIONS_TOOL) SESSIONS_TOOL else toolbarSessionId, tool) {
                                 val active = toolbarInputActive && interactive
                                 val selected = visibleSessions.firstOrNull { it.id == toolbarSessionId }
                                 val canSend = active && selected?.state == "RUNNING"
