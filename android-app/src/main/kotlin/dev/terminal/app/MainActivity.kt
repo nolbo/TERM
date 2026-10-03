@@ -81,6 +81,9 @@ import dev.terminal.app.ui.TerminalToolbarKey
 import dev.terminal.app.ui.rootlessRuntimeIds
 import dev.terminal.app.ui.runtimeTitleResource
 import dev.terminal.app.ui.parseRuntimeChoices
+import dev.terminal.app.ui.KEY_SESSION_TAB_ORDER
+import dev.terminal.app.ui.orderSessionTabs
+import dev.terminal.app.ui.parseSessionTabOrder
 import dev.terminal.app.ui.parseSessions
 import dev.terminal.app.ui.sessionWithDisplayTitles
 import dev.terminal.app.ui.failSessionTermination
@@ -101,6 +104,7 @@ import java.util.UUID
 /** Compose console projection. Runtime and shell ownership stay in :vmhost. */
 class MainActivity : TerminalActivity() {
     private var sessions by mutableStateOf(emptyList<SessionUi>())
+    private var sessionTabOrder = emptyList<String>()
     private var profiles by mutableStateOf(emptyList<dev.terminal.runtime.session.SessionProfile>())
     private var rootlessLaunchSpec: dev.terminal.runtime.session.SessionLaunchSpec? = null
     private var selectedLaunchSpec: dev.terminal.runtime.session.SessionLaunchSpec? = null
@@ -347,6 +351,8 @@ class MainActivity : TerminalActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        sessionTabOrder = parseSessionTabOrder(
+            getSharedPreferences("terminal-ui-state", MODE_PRIVATE).getString(KEY_SESSION_TAB_ORDER, null))
         observeTerminalSessions()
         toolbarSheetMode = savedInstanceState?.getString("terminal-toolbar-mode")?.let { name ->
             ToolbarSheetMode.entries.firstOrNull { it.name == name }
@@ -370,7 +376,6 @@ class MainActivity : TerminalActivity() {
         terminalInputCallbacks = TerminalInputCallbacks(
             onModifierStateChanged = ::syncModifierState,
             onShowKeyboard = ::requestTerminalKeyboard,
-            onToggleTerminalChrome = ::toggleTerminalChrome,
             onPinchScale = ::scaleTerminalFont,
             onWebLink = ::openTerminalWebLink,
         )
@@ -569,6 +574,7 @@ class MainActivity : TerminalActivity() {
                                         onNew = ::showNewSessionMenu,
                                         onDismissNewSession = { newSessionMenuVisible = false },
                                         onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
+                                        onReorder = ::reorderSessionTabs,
                                     )
                                     MEMORY_TOOL -> ToolbarMemoryTool(active, visibleSessions, toolbarMemoryInterval,
                                         onSelectSession = { id -> attach(id); requestTerminalKeyboard() }, sections = toolbarMemorySections) {
@@ -716,7 +722,8 @@ class MainActivity : TerminalActivity() {
     private fun renderSessions(revision: Long, json: String) {
         if (revision < lastSessionRevision) return
         lastSessionRevision = revision
-        val updated = parseSessions(json)
+        val updated = orderSessionTabs(parseSessions(json), sessionTabOrder)
+        sessionTabOrder = updated.map { it.id }
         val tabUpdate = reconcileSessionTabs(sessions, activeSessionId, terminatingSessionIds, updated)
         val removedSessionIds = tabUpdate.removedSessionIds
         sessions = updated
@@ -754,7 +761,8 @@ class MainActivity : TerminalActivity() {
             attach(selected)
         }
         getSharedPreferences("terminal-ui-state", MODE_PRIVATE).edit()
-            .putString("active-session", activeSessionId).apply()
+            .putString("active-session", activeSessionId)
+            .putString(KEY_SESSION_TAB_ORDER, org.json.JSONArray(sessionTabOrder).toString()).apply()
         removedSessionIds.forEach { id ->
             terminalStore.remove(id)
             applicationTerminalTitles = applicationTerminalTitles - id
@@ -879,9 +887,12 @@ class MainActivity : TerminalActivity() {
         return sessionFontSizes.scale(id, sessionFontSize(), scale) { applySessionFontSize(view) }
     }
 
-    private fun toggleTerminalChrome() {
-        if (activeSessionId != null) toolbarSheetMode =
-            if (toolbarSheetMode == ToolbarSheetMode.Hidden) ToolbarSheetMode.Default else ToolbarSheetMode.Hidden
+    private fun reorderSessionTabs(order: List<String>) {
+        // A runtime update may remove/add a tab while a drag is finishing.
+        sessions = orderSessionTabs(sessions, order)
+        sessionTabOrder = sessions.map { it.id }
+        getSharedPreferences("terminal-ui-state", MODE_PRIVATE).edit()
+            .putString(KEY_SESSION_TAB_ORDER, org.json.JSONArray(sessionTabOrder).toString()).apply()
     }
 
     private fun openTerminalWebLink(url: String): Boolean {

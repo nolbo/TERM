@@ -18,7 +18,7 @@ class HotkeyInputTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val bytes = ByteArrayOutputStream()
         val backend = RemoteTerminalBackend(write = { bytes.write(it) }, resize = { _, _ -> })
-        val callbacks = TerminalInputCallbacks {}
+        val callbacks = TerminalInputCallbacks()
         lateinit var view: TerminalView
         lateinit var session: TerminalSession
         instrumentation.runOnMainSync {
@@ -74,7 +74,7 @@ class HotkeyInputTest {
         instrumentation.runOnMainSync {
             val bytes = ByteArrayOutputStream()
             val backend = RemoteTerminalBackend(write = { bytes.write(it) }, resize = { _, _ -> })
-            val callbacks = TerminalInputCallbacks {}
+            val callbacks = TerminalInputCallbacks()
             val session = TerminalSession("", "", emptyArray(), emptyArray(), 100, TerminalCallbacks {}, backend)
             val view = TerminalView(instrumentation.targetContext, null)
             view.setTerminalViewClient(callbacks)

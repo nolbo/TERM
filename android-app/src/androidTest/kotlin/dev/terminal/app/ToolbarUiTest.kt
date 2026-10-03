@@ -67,13 +67,15 @@ class ToolbarUiTest {
         }
         settle()
     }
-    private fun drag(x: Float, y: Float, dx: Float, dy: Float, cancel: Boolean = false, duringDrag: (() -> Unit)? = null) {
+    private fun drag(x: Float, y: Float, dx: Float, dy: Float, cancel: Boolean = false, longPress: Boolean = false, holdAtEnd: Long = 0, duringDrag: (() -> Unit)? = null) {
         val start = SystemClock.uptimeMillis()
         for (i in 0..20) {
             val action = when (i) { 0 -> MotionEvent.ACTION_DOWN; 20 -> if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
             val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, x + dx * i / 20, y + dy * i / 20, 0)
             event.source = InputDevice.SOURCE_TOUCHSCREEN
             try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+            if (i == 0 && longPress) SystemClock.sleep(android.view.ViewConfiguration.getLongPressTimeout().toLong() + 150)
+            if (i == 19 && holdAtEnd > 0) SystemClock.sleep(holdAtEnd)
             if (i == 10 && duringDrag != null) {
                 SystemClock.sleep(250)
                 duringDrag()
@@ -182,12 +184,49 @@ class ToolbarUiTest {
             renamed = null
             click(description(context.getString(R.string.terminate_session_description, "Second shell")))
             assertEquals("second", terminated)
-            val rename = waitForNode("Rename action") { it.actionList.any { action ->
+            assertNull(find { it.actionList.any { action ->
                 action.label?.toString() == context.getString(R.string.rename_session_description, "Second shell")
+            } })
+        }
+    }
+
+    @Test fun longPressReordersTabsWithoutSelectingOrRenamingAndCancelRestoresOrder() {
+        val tabs = mutableStateOf((0..9).map { SessionUi("tab-$it", "NATIVE", "Shell $it", "RUNNING") })
+        var renamed = 0
+        var selected = "tab-0"
+        var commits = 0
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Box(Modifier.fillMaxWidth().height(350.dp)) {
+                        ToolbarSessionsTool(tabs.value, "tab-0", true, emptySet(), emptyList(),
+                            {}, {}, false, { selected = it }, { renamed++ }, {}, {}, {}, {},
+                            onReorder = { ids -> tabs.value = orderSessionTabs(tabs.value, ids); commits++ })
+                    }
+                } }
             } }
-            assertTrue(rename.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
             settle()
-            assertEquals("second", renamed)
+            val first = bounds(text("Shell 0"))
+            val third = bounds(text("Shell 2"))
+            drag(first.exactCenterX(), first.exactCenterY(), 0f,
+                third.exactCenterY() - first.exactCenterY(), longPress = true)
+            assertEquals(listOf("tab-1", "tab-2", "tab-0"), tabs.value.take(3).map { it.id })
+            assertEquals(1, commits)
+            assertEquals("tab-0", selected)
+            assertEquals(0, renamed)
+            val afterMove = tabs.value
+            val second = bounds(text("Shell 1"))
+            drag(second.exactCenterX(), second.exactCenterY(), 0f,
+                third.exactCenterY() - first.exactCenterY(), cancel = true, longPress = true)
+            assertEquals(afterMove, tabs.value)
+            assertEquals(1, commits)
+            // Holding near the bottom reveals tabs beyond the initially visible rows.
+            val start = bounds(text("Shell 1"))
+            val density = context.resources.displayMetrics.density
+            drag(start.exactCenterX(), start.exactCenterY(), 0f,
+                330 * density - start.exactCenterY(), longPress = true, holdAtEnd = 800)
+            assertTrue("Drag auto-scrolls to later tabs", tabs.value.indexOfFirst { it.id == "tab-1" } >= 5)
+            assertEquals(0, renamed)
         }
     }
 

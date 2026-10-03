@@ -6,20 +6,18 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
 import java.io.ByteArrayOutputStream
-import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class TerminalDoubleTapTest {
-    @Test fun doubleTapReachesChromeToggleWithoutSendingTerminalInput() {
+    @Test fun doubleTapHasNoActionAndSendsNoTerminalInput() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {
             val bytes = ByteArrayOutputStream()
             val backend = RemoteTerminalBackend(write = { bytes.write(it) }, resize = { _, _ -> })
-            var toggles = 0
-            val callbacks = TerminalInputCallbacks(onToggleTerminalChrome = { toggles++ })
+            val callbacks = TerminalInputCallbacks()
             val session = TerminalSession("", "", emptyArray(), emptyArray(), 100, TerminalCallbacks {}, backend)
             val view = TerminalView(instrumentation.targetContext, null)
             view.setTerminalViewClient(callbacks)
@@ -41,7 +39,8 @@ class TerminalDoubleTapTest {
                 dispatch(MotionEvent.ACTION_DOWN, start + 160)
                 dispatch(MotionEvent.ACTION_UP, start + 200)
 
-                assertEquals(1, toggles)
+                val event = MotionEvent.obtain(start, start + 200, MotionEvent.ACTION_UP, 400f, 200f, 0)
+                try { org.junit.Assert.assertFalse(callbacks.onDoubleTap(event)) } finally { event.recycle() }
                 assertTrue(bytes.size() == 0)
             } finally {
                 backend.close()

@@ -23,10 +23,10 @@ import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Real layout + gesture regression: hiding the toolbar releases its content height. */
+/** Double tapping terminal content must leave toolbar and terminal geometry unchanged. */
 @RunWith(AndroidJUnit4::class)
 class AppBarResizeTest {
-    @Test fun doubleTapReleasesAndRestoresToolbarHeight() {
+    @Test fun doubleTapDoesNotChangeToolbarOrTerminalHeight() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val visible = mutableStateOf(true)
         lateinit var terminal: TerminalView
@@ -45,9 +45,7 @@ class AppBarResizeTest {
                             AndroidView(factory = { context ->
                                 TerminalView(context, null).apply {
                                     terminal = this
-                                    setTerminalViewClient(TerminalInputCallbacks(onToggleTerminalChrome = {
-                                        visible.value = !visible.value
-                                    }))
+                                    setTerminalViewClient(TerminalInputCallbacks())
                                     setTextSize(16)
                                     attachSession(session)
                                 }
@@ -81,8 +79,8 @@ class AppBarResizeTest {
                 }
                 settle()
                 scenario.onActivity {
-                    assertFalse(visible.value)
-                    assertEquals(initialHeight + barHeight, terminal.height)
+                    assertTrue(visible.value)
+                    assertEquals(initialHeight, terminal.height)
                     assertEquals(initialTop, top())
                     assertTrue("System status bar inset remains", top() > 0)
                     doubleTap()

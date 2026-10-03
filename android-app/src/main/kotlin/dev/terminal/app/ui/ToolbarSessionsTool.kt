@@ -4,14 +4,9 @@ package dev.terminal.app.ui
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
-import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -21,18 +16,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.onLongClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.terminal.app.R
-import kotlinx.coroutines.withTimeoutOrNull
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -52,11 +43,9 @@ internal fun ToolbarSessionsTool(
     onDismissNewSession: () -> Unit,
     onSettings: () -> Unit,
     colors: TerminalChromeColors = LocalToolbarColors.current,
+    onReorder: (List<String>) -> Unit = {},
 ) {
     val haptics = LocalTerminalHaptics.current
-    val scroll = rememberLazyListState()
-    val selectedIndex = sessions.indexOfFirst { it.id == activeSessionId }
-    LaunchedEffect(selectedIndex) { if (selectedIndex >= 0) scroll.animateScrollToItem(selectedIndex) }
     LaunchedEffect(active) { if (!active && newSessionMenuExpanded) onDismissNewSession() }
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp),
@@ -104,129 +93,88 @@ internal fun ToolbarSessionsTool(
                 Icon(painterResource(R.drawable.ic_material_symbol_settings_24), stringResource(R.string.settings), tint = colors.appBarIcon)
             }
         }
-        ToolbarScrollEdges(scroll.canScrollBackward, scroll.canScrollForward, Modifier.weight(1f).fillMaxWidth()) {
-            LazyColumn(Modifier.fillMaxSize(), state = scroll,
-                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                items(sessions, key = { it.id }) { session ->
-                    val selected = session.id == activeSessionId
-                    val tabInteractionSource = remember(session.id) { MutableInteractionSource() }
-                    val tabPressed by tabInteractionSource.collectIsPressedAsState()
-                    // Match the empty-state Button: release/cancel immediately targets the resting shape.
-                    val cornerRadius by animateDpAsState(
-                        targetValue = if (tabPressed) 8.dp else 20.dp,
-                        animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
-                        label = "Session tab corner radius",
-                    )
-                    val tabShape = RoundedCornerShape(cornerRadius)
-                    val sessionTitle = session.title.ifBlank { stringResource(R.string.shell_default_title) }
-                    val stateLabel = sessionStateLabel(session.state)
-                    val renameLabel = stringResource(R.string.rename_session_description, sessionTitle)
-                    Tab(
-                        selected = selected,
-                        enabled = active,
-                        onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                            onSelect(session.id)
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 4.dp)
-                            .height(48.dp)
-                            .clip(tabShape)
-                            .background(if (selected) colors.container else Color.Transparent)
-                            .semantics {
-                                stateDescription = stateLabel
-                                onLongClick(label = renameLabel) {
-                                    if (!active) return@onLongClick false
-                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onRename(session)
-                                    true
-                                }
-                            },
-                        selectedContentColor = colors.accent,
-                        unselectedContentColor = colors.unselectedTabContent,
-                        interactionSource = tabInteractionSource,
+        ReorderableSessionTabs(sessions, activeSessionId, active, onReorder,
+            Modifier.weight(1f).fillMaxWidth()) { session, itemModifier, dragging ->
+            val selected = session.id == activeSessionId
+            val tabInteractionSource = remember(session.id) { MutableInteractionSource() }
+            val tabPressed by tabInteractionSource.collectIsPressedAsState()
+            // Match the empty-state Button: release/cancel immediately targets the resting shape.
+            val cornerRadius by animateDpAsState(
+                targetValue = if (tabPressed) 8.dp else 20.dp,
+                animationSpec = MaterialTheme.motionScheme.defaultEffectsSpec(),
+                label = "Session tab corner radius",
+            )
+            val tabShape = RoundedCornerShape(cornerRadius)
+            val sessionTitle = session.title.ifBlank { stringResource(R.string.shell_default_title) }
+            val stateLabel = sessionStateLabel(session.state)
+            val renameLabel = stringResource(R.string.rename_session_description, sessionTitle)
+            Tab(
+                selected = selected,
+                enabled = active && !dragging,
+                onClick = {
+                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                    onSelect(session.id)
+                },
+                modifier = itemModifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 4.dp)
+                    .height(48.dp)
+                    .clip(tabShape)
+                    .background(if (selected) colors.container else Color.Transparent)
+                    .semantics {
+                        stateDescription = stateLabel
+                    },
+                selectedContentColor = colors.accent,
+                unselectedContentColor = colors.unselectedTabContent,
+                interactionSource = tabInteractionSource,
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        Modifier
+                            .weight(1f)
+                            .heightIn(min = 40.dp)
+                            .padding(start = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Row(
-                                Modifier
-                                    .weight(1f)
-                                    .heightIn(min = 40.dp)
-                                    .padding(start = 12.dp)
-                                    .pointerInput(session.id, session.title, active) {
-                                        if (!active) return@pointerInput
-                                        awaitEachGesture {
-                                            val down = awaitFirstDown(
-                                                requireUnconsumed = false,
-                                                pass = PointerEventPass.Initial,
-                                            )
-                                            val releasedOrMoved = withTimeoutOrNull(viewConfiguration.longPressTimeoutMillis) {
-                                                while (true) {
-                                                    val change = awaitPointerEvent(PointerEventPass.Initial)
-                                                        .changes
-                                                        .firstOrNull { it.id == down.id }
-                                                        ?: return@withTimeoutOrNull true
-                                                    if (!change.pressed ||
-                                                        (change.position - down.position).getDistance() > viewConfiguration.touchSlop
-                                                    ) {
-                                                        return@withTimeoutOrNull true
-                                                    }
-                                                }
-                                            }
-                                            if (releasedOrMoved == null) {
-                                                haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                onRename(session)
-                                                do {
-                                                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                                                    event.changes.forEach { it.consume() }
-                                                } while (event.changes.any { it.pressed })
-                                            }
-                                        }
-                                    },
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                ProfileIcon(
-                                    session.launchSpec?.icon ?: "auto", session.runtime,
-                                    contentDescription = stringResource(runtimeTitleResource(session.runtime)),
-                                    size = 20.dp,
-                                    tint = if (selected) colors.accent else colors.unselectedTabContent,
+                        ProfileIcon(
+                            session.launchSpec?.icon ?: "auto", session.runtime,
+                            contentDescription = stringResource(runtimeTitleResource(session.runtime)),
+                            size = 20.dp,
+                            tint = if (selected) colors.accent else colors.unselectedTabContent,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        Column {
+                            Text(sessionTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium)
+                            session.subtitle?.let { subtitle ->
+                                Text(
+                                    subtitle.ifBlank { stringResource(R.string.shell_default_title) },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 14.sp),
+                                    color = (if (selected) colors.onContainer else colors.unselectedTabContent).copy(alpha = 0.75f),
                                 )
-                                Spacer(Modifier.width(8.dp))
-                                Column {
-                                    Text(sessionTitle, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium)
-                                    session.subtitle?.let { subtitle ->
-                                        Text(
-                                            subtitle.ifBlank { stringResource(R.string.shell_default_title) },
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis,
-                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 14.sp),
-                                            color = (if (selected) colors.onContainer else colors.unselectedTabContent).copy(alpha = 0.75f),
-                                        )
-                                    }
-                                }
-                            }
-                            if (selected) IconButton(
-                                onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                                    onRename(session)
-                                },
-                                shape = CircleShape,
-                                enabled = active,
-                            ) {
-                                Icon(painterResource(R.drawable.ic_toolbar_edit), renameLabel)
-                            }
-                            IconButton(
-                                onClick = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                                    onTerminate(session)
-                                },
-                                shape = CircleShape,
-                                enabled = active && session.id !in terminatingSessionIds,
-                            ) {
-                                Icon(painterResource(R.drawable.ic_material_symbol_close_24), stringResource(R.string.terminate_session_description, sessionTitle))
                             }
                         }
+                    }
+                    if (selected) IconButton(
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                            onRename(session)
+                        },
+                        shape = CircleShape,
+                        enabled = active && !dragging,
+                    ) {
+                        Icon(painterResource(R.drawable.ic_toolbar_edit), renameLabel)
+                    }
+                    IconButton(
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                            onTerminate(session)
+                        },
+                        shape = CircleShape,
+                        enabled = active && !dragging && session.id !in terminatingSessionIds,
+                    ) {
+                        Icon(painterResource(R.drawable.ic_material_symbol_close_24), stringResource(R.string.terminate_session_description, sessionTitle))
                     }
                 }
             }

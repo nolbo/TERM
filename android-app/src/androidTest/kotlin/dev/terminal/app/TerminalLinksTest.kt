@@ -15,7 +15,6 @@ class TerminalLinksTest {
         lateinit var backend: RemoteTerminalBackend
         var enabled = true
         val opened = mutableListOf<String>()
-        var doubles = 0
         var keyboard = 0
         var start = 0L
         fun event(action: Int, offset: Long, y: Float = 15f) {
@@ -34,7 +33,6 @@ class TerminalLinksTest {
             view.setTerminalViewClient(TerminalInputCallbacks(
                 onShowKeyboard = { keyboard++ },
                 onWebLink = { if (enabled) opened.add(it) else false },
-                onToggleTerminalChrome = { doubles++ },
             ))
             view.setTextSize(20)
             view.setSmoothScrollingEnabled(true)
@@ -53,7 +51,6 @@ class TerminalLinksTest {
                 event(MotionEvent.ACTION_DOWN, 0); event(MotionEvent.ACTION_UP, 40)
                 event(MotionEvent.ACTION_DOWN, 150); event(MotionEvent.ACTION_UP, 190)
             }
-            assertEquals(1, doubles)
             assertTrue(opened.isEmpty())
             gesture {
                 event(MotionEvent.ACTION_DOWN, 0)
