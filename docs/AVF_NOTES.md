@@ -36,7 +36,7 @@ a separate future design decision.
 
 Image download is a one-time WorkManager task, not a VM owner. It accepts only
 a release ID from a bundled/OEM catalog; the catalog pins an HTTPS manifest URL,
-its SHA-256 hash, and an artifact-size limit. The image factory produces the approved catalog, embedded by `-PavfImageCatalog=...` at product build time. Without that input the public source build retains an empty catalog. HTTPS asset redirects are bounded and cannot downgrade to HTTP; both compressed transfers and decompressed artifacts have size limits. The pinned manifest and uncompressed artifact hashes remain mandatory.
+its SHA-256 hash, and an artifact-size limit. The image factory produces the catalog. Ordinary builds embed the reviewed `image/catalog-approved.properties` when present, and `-PavfImageCatalog=...` overrides it for an isolated product/candidate build. Without either input the source build retains an empty catalog. Default approval requires successful unauthenticated public downloads and remains a reviewed source change. HTTPS asset redirects are bounded and cannot downgrade to HTTP; both compressed transfers and decompressed artifacts have size limits. The pinned manifest and uncompressed artifact hashes remain mandatory.
 
 The runtime process requests work through WorkManager's multiprocess API, which runs the installer in the configured main application process. Installation uses a data-sync foreground notification. The pending session waits for completion and continues automatically; failure/cancellation reports an error. Existing images are never overwritten, including invalid installations. Both the public and AOSP application classes provide the same main-process WorkManager configuration.
 
@@ -62,7 +62,7 @@ The first disk mapping is fixed and part of the signed image ABI:
 vda=system.img (RO), vdb=home.img (RW), vdc=config.img (RO)
 ```
 
-The automated producer uses Google's direct-kernel ARM64 Debian image as the base. It installs the three TERM services and CLI, rebuilds the matching initrd, and mounts the read-only vda filesystem as an overlay lower layer with persistent upper/work directories on vdb. Thus home files and root filesystem/package changes survive reboot without modifying the distributed system image. The AOSP driver explicitly passes `root=/dev/vda rootfstype=ext4 ro console=hvc0`. The config disk is mounted read-only at `/etc/droid-config`. See `IMAGE_RELEASE.md` for the producer and its two-boot QEMU gate.
+The automated producer uses Google's direct-kernel ARM64 Debian image as the base. It preserves the original kernel and restores its matching modules from the paired module-only initrd, since the rootfs has no installed kernel package. It installs the three TERM services and CLI, generates a boot initrd, and mounts the read-only vda filesystem as an overlay lower layer with persistent upper/work directories on vdb. Thus home files and root filesystem/package changes survive reboot without modifying the distributed system image. The AOSP driver explicitly passes `root=/dev/vda rootfstype=ext4 ro console=hvc0`. The config disk is mounted read-only at `/etc/droid-config`. See `IMAGE_RELEASE.md` for the producer and its two-boot QEMU gate.
 
 AVF `getOrCreate` retains an existing VM configuration. Image upgrade/reset is
 therefore deliberately deferred to an explicit migration design; the runtime

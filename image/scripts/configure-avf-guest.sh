@@ -1,18 +1,37 @@
 #!/bin/bash
 set -euo pipefail
+trap 'printf "AVF guest configuration failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 test "$(dpkg --print-architecture)" = arm64
-test -x /usr/sbin/update-initramfs
+command -v unmkinitramfs mkinitramfs depmod modprobe >/dev/null
 test -x /usr/bin/systemctl
+# Google's direct-boot rootfs has no installed kernel or modules. The paired
+# initrd is a modules archive, not an initramfs-tools boot ramdisk.
+ramdisk=$(mktemp -d /tmp/term-source-initrd.XXXXXX)
+trap 'rm -rf "$ramdisk"' EXIT
+unmkinitramfs /tmp/term-avf/source-initrd.img "$ramdisk"
 kernel=
-for candidate in /lib/modules/*; do
-  version=${candidate##*/}
-  if cmp -s /tmp/term-avf/source-vmlinuz "/boot/vmlinuz-$version"; then
-    kernel=$version
-    break
+for candidate in "$ramdisk"/lib/modules/* "$ramdisk"/usr/lib/modules/* \
+                 "$ramdisk"/main/lib/modules/* "$ramdisk"/main/usr/lib/modules/*; do
+  [ -d "$candidate" ] || continue
+  if [ -n "$kernel" ]; then
+    echo 'Source initrd contains more than one kernel module tree' >&2
+    exit 1
   fi
+  test -f "$candidate/modules.dep"
+  test -f "$candidate/modules.builtin"
+  version=${candidate##*/}
+  if [ -f "/boot/vmlinuz-$version" ]; then
+    cmp /tmp/term-avf/source-vmlinuz "/boot/vmlinuz-$version"
+  fi
+  mkdir -p /lib/modules
+  cp -a "$candidate" /lib/modules/
+  kernel=$version
 done
 test -n "$kernel"
-grep -Eq '^CONFIG_OVERLAY_FS=(y|m)$' "/boot/config-$kernel"
+depmod -a "$kernel"
+modprobe --set-version "$kernel" --show-depends overlay >/dev/null
+rm -rf "$ramdisk"
 bash /tmp/term-avf/install-droid-guest.sh / /tmp/term-avf/bin
 install -m 0755 /tmp/term-avf/image-selftest /usr/local/lib/droid/image-selftest
 if ! id droid >/dev/null 2>&1; then
@@ -30,8 +49,7 @@ install -D -m 0755 /tmp/term-avf/droid-overlay /etc/initramfs-tools/scripts/loca
 for module in overlay virtio_blk virtio_pci virtio_mmio ext4; do
   printf '%s\n' "$module" >> /etc/initramfs-tools/modules
 done
-update-initramfs -u -k "$kernel"
-cp "/boot/initrd.img-$kernel" /boot/term-initrd.img
+mkinitramfs -c gzip -o /boot/term-initrd.img "$kernel"
 for service in droid-sessiond droid-agent droid-port-agent; do
   systemctl enable "$service.service"
   systemd-analyze verify "/etc/systemd/system/$service.service"
