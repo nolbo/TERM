@@ -22,4 +22,5 @@ dependencies {
     implementation project(':android-runtime')
     implementation project(':image')
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+    testImplementation 'junit:junit:4.13.2'
 }

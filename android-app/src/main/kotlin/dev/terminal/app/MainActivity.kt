@@ -135,7 +135,7 @@ class MainActivity : TerminalActivity() {
             beginRootlessInstall()
             return
         }
-        if (profile.storageId != "legacy") {
+        if (profile.storageId != "legacy" || profile.runtime == dev.terminal.runtime.session.SessionRuntime.AVF) {
             newSessionMenuVisible = false
             newSessionSheetVisible = false
             createSession(profile.resolve())
@@ -152,6 +152,7 @@ class MainActivity : TerminalActivity() {
     private var newSessionMenuVisible by mutableStateOf(false)
     private var newSessionSheetVisible by mutableStateOf(false)
     private var unavailableChoice by mutableStateOf<RuntimeChoiceUi?>(null)
+    private var avfLaunchFailure by mutableStateOf<String?>(null)
     private var pendingRename by mutableStateOf<SessionUi?>(null)
     private var pendingTermination by mutableStateOf<SessionUi?>(null)
     private var terminatingSessionIds by mutableStateOf(emptySet<String>())
@@ -275,6 +276,10 @@ class MainActivity : TerminalActivity() {
             val feedback = getString(R.string.operation_failed, operation.substringBefore(':'), message)
             runtimeMessage = getString(R.string.runtime_error_prompt, feedback)
             feedbackMessage = feedback
+            if (operation.substringBefore(':') == "세션 생성" &&
+                operation.substringAfter(':', "").substringBefore(':') == "AVF") {
+                avfLaunchFailure = message
+            }
             if ((rootlessInstallInFlight || rootlessVisible) && operation.substringAfter(':', "").substringBefore(':') == rootlessInstallRuntime &&
                 operation.substringAfter(':', "").substringAfter(':', "legacy") == (rootlessLaunchSpec?.storageId ?: "legacy")) {
                 rootlessInstallInFlight = false
@@ -676,6 +681,18 @@ class MainActivity : TerminalActivity() {
                 onDismiss = { unavailableChoice = null },
             )
         }
+        avfLaunchFailure?.let { message ->
+            androidx.compose.material3.AlertDialog(
+                onDismissRequest = { avfLaunchFailure = null },
+                title = { Text(getString(R.string.avf_session_start_failed)) },
+                text = { Text(message) },
+                confirmButton = {
+                    androidx.compose.material3.TextButton(onClick = { avfLaunchFailure = null }) {
+                        Text(getString(R.string.close))
+                    }
+                },
+            )
+        }
         pendingTermination?.let { session ->
             val title = session.title.ifBlank { stringResource(R.string.shell_default_title) }
             AlertDialog(
@@ -1058,6 +1075,12 @@ class MainActivity : TerminalActivity() {
         SessionProfiles(this).builtIns().first { it.runtime.wireName == runtimeType }.resolve()
 
     private fun createSession(spec: dev.terminal.runtime.session.SessionLaunchSpec) = safeRuntimeCall { service ->
+        if (spec.runtime == dev.terminal.runtime.session.SessionRuntime.AVF) {
+            avfLaunchFailure = null
+            val starting = getString(R.string.avf_session_starting)
+            runtimeMessage = starting
+            feedbackMessage = starting
+        }
         service.createSessionFromSpec(spec.toJson().toString(), 24, 80)
     }
 

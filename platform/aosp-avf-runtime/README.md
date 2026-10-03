@@ -32,11 +32,7 @@ Legacy and adopted-default profiles retain `droid-default`, using `SessionStorag
 therefore image upgrades must use an explicit reset/migration flow rather than
 silently replacing boot or disk files.
 
-`VirtualMachine.run()` is asynchronous. The driver waits for the AVF ready
-callback, then retries the `droid-sessiond` vsock port (40500) for a bounded
-period. A successful `RuntimeBackend.start()` consequently means the VM has
-reported ready, while a successful `connectGuestAgent()` means sessiond has
-accepted a vsock connection.
+`VirtualMachine.run()` is asynchronous. The driver retries the `droid-sessiond` vsock port (40500) for up to 120 seconds without waiting for Microdroid's `onPayloadReady` callback, which this custom Debian guest does not send. A successful `RuntimeBackend.start()` means sessiond accepted a connection; `connectGuestAgent()` hands that same descriptor to the session client. Error/stop callbacks fail the wait with their original reason. Failed new boots are stopped; already-running instances are reconnected without rerunning Linux or replacing their disks.
 
 The capability bridge uses a second, dedicated guest-agent port: `40501`.
 `VmRuntimeService` connects it only after the VM is ready and dispatches its

@@ -202,6 +202,8 @@
     <string name="avf_image_settings_description">AVF Debian 이미지의 자동 설치 안내와 오프라인 설치를 관리합니다.</string>
     <string name="avf_image_current_build">현재 빌드</string>
     <string name="avf_install_title">AVF Debian 이미지 설치</string>
+    <string name="avf_session_starting">AVF 세션을 준비하고 있습니다. 이미지 확인 후 Debian을 시작하고 세션 데몬에 연결합니다.</string>
+    <string name="avf_session_start_failed">AVF 세션을 열 수 없습니다</string>
     <string name="avf_install_step_done">완료</string>
     <string name="avf_install_step_stopped">중단</string>
     <string name="avf_install_step_running">진행 중</string>

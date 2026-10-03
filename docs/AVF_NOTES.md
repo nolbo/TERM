@@ -51,10 +51,11 @@ vsock access.
 ## Privileged AOSP deployment driver
 
 `platform/aosp-avf-runtime` contains `AospAvfPlatformDriver`, compiled and packaged by Gradle against compile-only platform ABI declarations (or an OEM-supplied full framework jar). It creates/reuses a named VM with a
-custom image configuration, waits for the AVF ready callback after `run()`, and
-then retries port 40500 until `droid-sessiond` accepts a vsock connection.
+custom image configuration and retries port 40500 after `run()` until `droid-sessiond` accepts a vsock connection, with a 120-second boot limit. Custom Debian guests do not send Microdroid's `onPayloadReady` notification, so it is not a startup prerequisite. The accepted connection is handed to the session client rather than closed and opened again. Platform errors and stop callbacks interrupt this wait and retain their original reason; an unreachable daemon reports its port and timeout. A failed new boot is stopped, while a previously running instance is reconnected without restarting it or replacing disks.
 Later AVF errors and stop callbacks are fed back into `AvfBackend`, so the UI
 does not claim that a dead VM still owns persistent sessions.
+
+Selecting an AVF profile, including legacy/default storage, sends an explicit startup request even when Native is the primary runtime. The runtime service checks device and permission boundaries before installation/boot; the primary owner's ready state does not gate this independent AVF request. The Activity reports that preparation has started and keeps any session-creation error in a dismissible dialog. Image installation completion does not imply VM or session readiness.
 
 The first disk mapping is fixed and part of the signed image ABI:
 

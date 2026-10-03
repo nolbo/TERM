@@ -20,7 +20,8 @@ import dev.terminal.runtime.vsock.ParcelFileDescriptorByteStream
 import java.nio.file.Paths
 import java.util.concurrent.Executor
 import java.util.concurrent.atomic.AtomicBoolean
-import kotlinx.coroutines.CompletableDeferred
+import java.util.concurrent.atomic.AtomicReference
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -47,7 +48,7 @@ class AospAvfPlatformDriver(
 
     private var prepared: RuntimeConfig? = null
     @Volatile private var machine: VirtualMachine? = null
-    @Volatile private var readySignal: CompletableDeferred<Unit>? = null
+    private val pendingSessionConnection = AtomicReference<GuestConnection?>()
     private val events = MutableSharedFlow<AvfPlatformEvent>(extraBufferCapacity = 4)
 
     override fun observeEvents(): Flow<AvfPlatformEvent> = events.asSharedFlow()
@@ -68,23 +69,42 @@ class AospAvfPlatformDriver(
     }
 
     override suspend fun start(config: RuntimeConfig): Result<Unit> = mutex.withLock {
-        runCatching {
+        var nextMachine: VirtualMachine? = null
+        var startedHere = false
+        try {
             check(prepared == config) { "Prepare the exact image configuration before starting" }
-            check(machine == null) { "VM is already running" }
-
-            val vmConfig = buildConfig(config)
-            val nextMachine = manager.getOrCreate(vmName(config), vmConfig)
-            val nextReadySignal = CompletableDeferred<Unit>()
-            nextMachine.setCallback(Executor { it.run() }, callback(nextReadySignal))
-            machine = nextMachine
-            readySignal = nextReadySignal
-            nextMachine.run()
-
-            // `run()` means startup was requested, not that Linux or sessiond is reachable.
-            withTimeout(BOOT_TIMEOUT_MS) { nextReadySignal.await() }
-        }.onFailure {
-            machine = null
-            readySignal = null
+            check(pendingSessionConnection.get() == null) { "VM session connection is already prepared" }
+            val vm = machine ?: manager.getOrCreate(vmName(config), buildConfig(config))
+            nextMachine = vm
+            val boot = AvfGuestBoot()
+            vm.setCallback(Executor { it.run() }, callback(boot))
+            machine = vm
+            // A previous host/boot timeout may have left this persistent VM running.
+            // Reconnect to it without restarting Linux or replacing its writable disks.
+            if (vm.status == VirtualMachine.STATUS_STOPPED) {
+                startedHere = true
+                vm.run()
+            }
+            pendingSessionConnection.set(boot.awaitSessiond(BOOT_TIMEOUT_MS, GUEST_CONNECT_RETRY_MS) {
+                ParcelFileDescriptorFrameTransport(vm.connectVsock(DROID_SESSIOND_PORT), GUEST_CID_UNAVAILABLE)
+            })
+            check(machine === vm) { "AVF stopped while connecting to the Debian session daemon" }
+            Result.success(Unit)
+        } catch (failure: Throwable) {
+            pendingSessionConnection.getAndSet(null)?.let { connection ->
+                runCatching { connection.close() }.exceptionOrNull()?.let(failure::addSuppressed)
+            }
+            // Retain existing running guests on a reconnect failure. Stop only a new boot
+            // owned by this operation, so a timeout does not leave an orphan VM behind.
+            if (startedHere) nextMachine?.let { vm ->
+                val stopped = runCatching {
+                    if (vm.status != VirtualMachine.STATUS_STOPPED) vm.stop()
+                    vm.status == VirtualMachine.STATUS_STOPPED
+                }.getOrElse { failure.addSuppressed(it); false }
+                if (stopped && machine === vm) machine = null
+            }
+            if (failure is CancellationException) throw failure
+            Result.failure(failure)
         }
     }
 
@@ -93,8 +113,8 @@ class AospAvfPlatformDriver(
             val activeMachine = machine ?: return@runCatching
             // AVF stop is immediate. A graceful guest shutdown RPC belongs to LifecycleService.
             activeMachine.stop()
+            pendingSessionConnection.getAndSet(null)?.close()
             machine = null
-            readySignal = null
         }
     }
 
@@ -112,7 +132,12 @@ class AospAvfPlatformDriver(
         }
     }
 
-    override suspend fun connectGuestAgent(): Result<GuestConnection> = connectGuestPort(DROID_SESSIOND_PORT)
+    override suspend fun connectGuestAgent(): Result<GuestConnection> {
+        val pending = mutex.withLock {
+            pendingSessionConnection.getAndSet(null)
+        }
+        return pending?.let { Result.success(it) } ?: connectGuestPort(DROID_SESSIOND_PORT)
+    }
 
     override suspend fun connectGuestBridge(): Result<GuestConnection> = connectGuestPort(DROID_AGENT_PORT)
 
@@ -182,23 +207,21 @@ class AospAvfPlatformDriver(
             .build()
     }
 
-    private fun callback(ready: CompletableDeferred<Unit>): VirtualMachineCallback {
+    private fun callback(boot: AvfGuestBoot): VirtualMachineCallback {
         val failureReported = AtomicBoolean(false)
         return object : VirtualMachineCallback {
             override fun onPayloadStarted(vm: VirtualMachine) = Unit
 
-            override fun onPayloadReady(vm: VirtualMachine) {
-                ready.complete(Unit)
-            }
+            override fun onPayloadReady(vm: VirtualMachine) = Unit
 
             override fun onPayloadFinished(vm: VirtualMachine, exitCode: Int) {
                 markMachineStopped(vm)
                 if (exitCode == 0) {
-                    ready.completeExceptionally(IllegalStateException("Guest exited during boot"))
+                    boot.fail(IllegalStateException("Guest exited during boot"))
                     events.tryEmit(AvfPlatformEvent.Stopped)
                 } else {
                     val failure = IllegalStateException("Guest exited (code $exitCode)")
-                    ready.completeExceptionally(failure)
+                    boot.fail(failure)
                     failureReported.set(true)
                     events.tryEmit(AvfPlatformEvent.Failed(failure.message.orEmpty()))
                 }
@@ -207,14 +230,14 @@ class AospAvfPlatformDriver(
             override fun onError(vm: VirtualMachine, errorCode: Int, message: String) {
                 markMachineStopped(vm)
                 val failure = IllegalStateException("AVF error $errorCode: $message")
-                ready.completeExceptionally(failure)
+                boot.fail(failure)
                 failureReported.set(true)
                 events.tryEmit(AvfPlatformEvent.Failed(failure.message.orEmpty()))
             }
 
             override fun onStopped(vm: VirtualMachine, reason: Int) {
                 markMachineStopped(vm)
-                ready.completeExceptionally(IllegalStateException("AVF stopped (reason $reason)"))
+                boot.fail(IllegalStateException("AVF stopped (reason $reason)"))
                 if (!failureReported.get()) events.tryEmit(AvfPlatformEvent.Stopped)
             }
         }
@@ -223,7 +246,7 @@ class AospAvfPlatformDriver(
     private fun markMachineStopped(stoppedMachine: VirtualMachine) {
         if (machine === stoppedMachine) {
             machine = null
-            readySignal = null
+            pendingSessionConnection.getAndSet(null)?.let { runCatching { it.close() } }
         }
     }
 
