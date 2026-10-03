@@ -12,6 +12,8 @@ Ordinary APK builds include `AospAvfPlatformDriver` through `:aosp-avf-runtime`.
 
 Custom-image configuration methods are hidden in AOSP and absent even from ordinary System SDK stubs. A compatible platform implementation and authorization to call those methods remain necessary in addition to the two permissions. Packaging the driver does not grant permissions or bypass API policy. Unsupported devices receive an explicit AVF error and continue using Native/Rootless. See `platform/aosp-avf-runtime/README.md` for ABI pinning, an exact OEM framework-jar override, and APK/device validation.
 
+After the device/permission checks, backend creation allocates a custom-image builder before requesting installation or creating a VM. A linkage error here rejects startup immediately and explains both an incompatible ABI and non-SDK policy denial, retaining the original error as its cause. AOSP's pinned `VirtualMachineCustomImageConfig.Builder` has a no-argument constructor; `No direct method <init>()V` alone does not prove a different constructor, since ART also reports blocked hidden methods as missing methods. ADB grants for the two VM permissions do not by themselves authorize these hidden APIs. Use the target framework's actual signatures and the app's hidden-API logcat entries to distinguish the two cases; see `DEPLOYMENT.md`.
+
 ## Debian image contract
 
 The initial runtime accepts only a verified Debian ARM64 image directory:

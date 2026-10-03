@@ -15,6 +15,8 @@ android.permission.USE_CUSTOM_VIRTUAL_MACHINE
 
 Packaging the driver grants neither permission. The device must also expose compatible custom-image methods and authorize their use under its platform API policy: custom-image configuration is `@hide` in AOSP, not an ordinary public or System SDK API. Granting the two permissions alone is therefore not proof that every stock APK can execute it. No reflection, hidden-API exemptions, permission grants, or bundled framework implementation are used. Missing API linkage reports an explicit AVF failure instead of affecting the Native default owner.
 
+After the capability checks, the factory allocates a custom-image builder to check constructor access before any image download or VM creation. A constructor/configuration `LinkageError` reports that either the ABI is incompatible or Android denied hidden-API access, preserving the original error. The pinned constructor is `Builder()`; ART's `NoSuchMethodError` can also mean policy denial. Compare the target framework's signatures and hidden-API logcat messages before changing the constructor or rebuilding against an OEM jar. See `docs/DEPLOYMENT.md` at the repository root for diagnosis.
+
 Verify the built APK with `python3 tools/avf/verify-driver-apk.py android-app/build/outputs/apk/debug/android-app-debug.apk`. This inspects DEX class definitions, including that all compile-only platform classes are absent. `AvfDriverIntegrationTest` verifies the unsupported-device guard and a real Native shell through the runtime service; actual AVF boot still requires an authorized AOSP/ARM64 target and approved image.
 
 ## Fixed initial image mapping

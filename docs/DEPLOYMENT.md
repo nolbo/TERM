@@ -9,3 +9,21 @@ The image workflow builds a catalog-bearing candidate APK before optional public
 Keep the WorkManager initializer removal in the application manifest as well as the runtime library manifest. Release Lint checks the application's on-demand configuration and must see its explicit removal; other AndroidX Startup initializers remain enabled.
 Run `tests/integration/acceptance.sh` on the target device for the end-to-end
 acceptance sequence.
+
+## Custom-image API access failures
+
+`No direct method <init>()V` for `VirtualMachineCustomImageConfig$Builder` can indicate either an incompatible platform ABI or Android non-SDK policy denial. The pinned AOSP API has the no-argument constructor. The [Android non-SDK interface documentation](https://developer.android.com/guide/app-compatibility/restrictions-non-sdk-interfaces) specifies that blocked direct method calls throw `NoSuchMethodError`; therefore granting the two VM permissions through ADB is not sufficient evidence of custom-image API access.
+
+The runtime checks constructor access after capability checks and before image installation or VM creation. Startup reports the platform-access problem together with the original linkage error; existing images are retained.
+
+On the target device, reproduce the failure and inspect only its AVF hidden-API log entries:
+
+```sh
+adb logcat -d -v brief | rg 'virtualmachine/VirtualMachineCustomImageConfig|hiddenapi|Accessing hidden'
+adb shell settings get global hidden_api_policy
+adb pull /apex/com.android.virt/javalib/framework-virtualization.jar
+```
+
+An entry identifying the constructor with `linking, denied` establishes policy denial. Inspect the pulled framework DEX to confirm the actual constructor signature if no denial is observed; reflection also filters blocked methods and is not proof of their absence. For a real signature difference, compile against the compatible OEM implementation using `-PavfFrameworkJar=...` and adapt the direct driver calls. For policy denial, provision a product that authorizes its private platform APIs or an explicitly authorized development device under the Android-documented policy. The APK does not change device-wide enforcement, grant itself an exemption, or replace the framework implementation.
+
+For an operator-authorized development device, Android documents `adb shell settings put global hidden_api_policy 1` to allow non-SDK access while retaining warning logs. Record the previous setting first, save live session work before restarting the app processes, and restore that previous setting after testing (`adb shell settings delete global hidden_api_policy` restores the default only when the original value was unset). This is a device-wide development policy, not an APK installation step or a production deployment fix. Repeating the constructor call after restarting the app tests policy denial; a persistent linkage error still requires comparison with the target framework ABI.

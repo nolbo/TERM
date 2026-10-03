@@ -172,7 +172,7 @@ class AospAvfPlatformDriver(
         }
     }
 
-    private fun buildConfig(config: RuntimeConfig): VirtualMachineConfig {
+    private fun buildConfig(config: RuntimeConfig): VirtualMachineConfig = requireAvfPlatformApi {
         val image = DebianImageLayout(Paths.get(config.imageDirectory))
         val customImage = VirtualMachineCustomImageConfig.Builder()
             .setName(vmName(config))
@@ -190,7 +190,7 @@ class AospAvfPlatformDriver(
             .addDisk(VirtualMachineCustomImageConfig.Disk.RODisk(image.configImage.toString()))
             .build()
 
-        return VirtualMachineConfig.Builder(appContext)
+        VirtualMachineConfig.Builder(appContext)
             .setProtectedVm(config.protectedVm)
             .setMemoryBytes(config.memoryMib.toLong() * MIB)
             .setCpuTopology(

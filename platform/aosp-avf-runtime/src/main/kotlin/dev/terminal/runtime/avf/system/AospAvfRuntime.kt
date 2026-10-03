@@ -3,6 +3,7 @@ package dev.terminal.runtime.avf.system
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import android.system.virtualmachine.VirtualMachineCustomImageConfig
 import dev.terminal.runtime.api.RuntimeBackend
 import dev.terminal.runtime.avf.AvfBackend
 
@@ -17,10 +18,11 @@ object AospAvfRuntime {
             context.checkSelfPermission("android.permission.USE_CUSTOM_VIRTUAL_MACHINE") == PackageManager.PERMISSION_GRANTED) {
             "AVF requires MANAGE_VIRTUAL_MACHINE and USE_CUSTOM_VIRTUAL_MACHINE system permissions"
         }
-        return try {
+        return requireAvfPlatformApi {
+            // Configuration allocation is side-effect free: check access before the
+            // runtime owner enqueues a multi-gigabyte image download or creates a VM.
+            VirtualMachineCustomImageConfig.Builder()
             AvfBackend(AospAvfPlatformDriver(context))
-        } catch (failure: LinkageError) {
-            throw IllegalStateException("The device must expose a compatible AVF custom-image platform API", failure)
         }
     }
 }
