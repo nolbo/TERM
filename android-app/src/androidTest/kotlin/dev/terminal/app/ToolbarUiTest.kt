@@ -340,6 +340,43 @@ class ToolbarUiTest {
         } finally { prefs.edit().clear().commit() }
     }
 
+    @Test fun defaultHeightStaysFixedWhenPagingBetweenSessionsAndOtherTools() {
+        val tools = listOf(SESSIONS_TOOL, HOTKEY_TOOL, MEMORY_TOOL, COMMANDS_TOOL)
+        val mode = mutableStateOf(ToolbarSheetMode.Default)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Column(Modifier.fillMaxSize()) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(ToolbarConfig(tools = tools), mode.value, { mode.value = it },
+                            400.dp, TerminalChromeColors(Color.Black)) { id, _ ->
+                            Text("$id viewport", Modifier.fillMaxSize())
+                        }
+                    }
+                } }
+            } }
+            settle()
+            val initialHandle = bounds(handle())
+            val initialViewport = bounds(text("$SESSIONS_TOOL viewport"))
+            val density = context.resources.displayMetrics.density
+            assertEquals(24f * density, initialHandle.height().toFloat(), 1f)
+            assertEquals(92f * density, initialViewport.height().toFloat(), 1f)
+            assertEquals(116f * density, (initialViewport.bottom - initialHandle.top).toFloat(), 1f)
+            val route = tools.drop(1) + tools.dropLast(1).reversed()
+            for ((index, destination) in route.withIndex()) {
+                val direction = if (index < tools.size - 1) -1 else 1
+                val startX = initialViewport.exactCenterX() - direction * initialViewport.width() * 0.3f
+                drag(startX, initialViewport.exactCenterY(), direction * initialViewport.width() * 0.65f, 0f,
+                    duringDrag = {
+                        assertEquals("The handle must stay in place during paging", initialHandle, bounds(handle()))
+                    })
+                assertEquals(ToolbarSheetMode.Default, mode.value)
+                assertEquals("The handle must stay in place on $destination", initialHandle, bounds(handle()))
+                assertEquals("Every tool must use the same viewport", initialViewport, bounds(text("$destination viewport")))
+            }
+        }
+    }
+
     @Test fun sheetDragPagingHiddenHandleAndDisabledState() {
         val mode = mutableStateOf(ToolbarSheetMode.Default)
         val config = mutableStateOf(ToolbarConfig(tools = listOf("first", "second")))
