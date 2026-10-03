@@ -12,6 +12,8 @@ Filesystem parsing and guest configuration run in a libguestfs appliance inside 
 
 The appliance uses the direct backend with `LIBGUESTFS_BACKEND_SETTINGS=force_tcg`, so hosted ARM64 runners do not require KVM. Without this setting, libguestfs can detect host KVM support while the container has no KVM device and select an unusable host GIC configuration. Debug/trace output is enabled to report appliance failures. Guest build failures terminate the factory immediately.
 
+The direct-kernel smoke VM explicitly disables QEMU's default NIC with `-nic none`. It requires no network access or network boot ROM; the container can retain its minimal QEMU package set.
+
 Google's current direct-boot rootfs does not contain `/boot/vmlinuz-*` or `/lib/modules`; its paired initrd contains the matching kernel modules without a userspace boot script. The producer preserves Google's kernel, restores that single module tree inside the isolated guest, verifies overlay support through its module metadata, and generates an initramfs-tools ramdisk with the overlay hook. It rejects absent or ambiguous module trees rather than substituting another kernel. The system image grows to at least 6 GiB inside the appliance to hold modules, the generated initrd, and TERM services; larger inputs are never truncated. The two-boot gate remains mandatory to establish that this kernel and ramdisk actually boot and retain overlay writes.
 
 For local product development, the same pipeline is one command:

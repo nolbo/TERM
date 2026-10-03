@@ -6,7 +6,7 @@ import subprocess
 root = Path("/output")
 for expected in ["TERM_AVF_FIRST_BOOT_OK", "TERM_AVF_PERSISTENCE_OK"]:
     command = ["qemu-system-aarch64", "-machine", "virt", "-cpu", "max", "-accel", "tcg",
-               "-m", "2048", "-display", "none", "-monitor", "none", "-no-reboot",
+               "-m", "2048", "-display", "none", "-monitor", "none", "-no-reboot", "-nic", "none",
                "-kernel", str(root / "vmlinuz"), "-initrd", str(root / "initrd.img"),
                "-append", "root=/dev/vda rootfstype=ext4 ro console=hvc0 init=/usr/local/lib/droid/image-selftest",
                "-device", "virtio-serial-pci", "-chardev", "stdio,id=console,signal=off",
