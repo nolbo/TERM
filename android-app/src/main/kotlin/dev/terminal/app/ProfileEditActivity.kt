@@ -21,7 +21,6 @@ import dev.terminal.app.ui.settingsItemSurface
 import dev.terminal.app.ui.terminalSettingsListItemColors
 import dev.terminal.app.ui.terminalListItemShapes
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.FloatingToolbarAction
@@ -222,8 +221,6 @@ class ProfileEditActivity : TerminalActivity() {
                     } else {
                         Button(onClick = saveProfile, enabled = !saving && storageId.isNotEmpty(),
                             modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                            Icon(painterResource(R.drawable.ic_material_symbol_save_24), null, Modifier.size(ButtonDefaults.IconSize))
-                            Spacer(Modifier.width(ButtonDefaults.IconSpacing))
                             Text(stringResource(R.string.profile_save))
                         }
                     }
