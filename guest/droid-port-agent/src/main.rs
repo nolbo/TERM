@@ -48,7 +48,12 @@ fn report_loop(host: &mut File) {
 }
 
 fn listening_ports() -> BTreeSet<u16> {
-    ["/proc/net/tcp", "/proc/net/tcp6"].iter().flat_map(|path| std::fs::read_to_string(path).unwrap_or_default().lines().skip(1).filter_map(parse)).collect()
+    let mut ports = BTreeSet::new();
+    for path in ["/proc/net/tcp", "/proc/net/tcp6"] {
+        let contents = std::fs::read_to_string(path).unwrap_or_default();
+        ports.extend(contents.lines().skip(1).filter_map(parse));
+    }
+    ports
 }
 
 fn parse(line: &str) -> Option<u16> {

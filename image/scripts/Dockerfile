@@ -1,9 +1,9 @@
 FROM rust:1.89.0-bookworm AS guest
 WORKDIR /src
 COPY guest /src/guest
-RUN mkdir /binaries && \
+RUN set -eu; mkdir /binaries && \
     for package in droid-sessiond droid-agent droid-port-agent droid-cli; do \
-      cargo build --release --manifest-path guest/$package/Cargo.toml; \
+      cargo build --release --manifest-path guest/$package/Cargo.toml || exit 1; \
     done && \
     cp guest/droid-sessiond/target/release/droid-sessiond \
        guest/droid-agent/target/release/droid-agent \
