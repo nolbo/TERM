@@ -102,7 +102,7 @@
     <string name="settings_search_clear">검색어 지우기</string>
     <string name="settings_search_no_results">일치하는 설정이 없습니다.</string>
     <string name="settings_appearance_title">터미널 모양</string>
-    <string name="settings_appearance_summary">글꼴, 문자 폭, 팔레트와 배경</string>
+    <string name="settings_appearance_summary">글꼴, 팔레트와 배경</string>
     <string name="settings_rootless_summary">Debian, Ubuntu, Arch Linux ARM · 추가 권한 없음</string>
     <string name="settings_avf_title">가상 머신</string>
     <string name="settings_avf_summary">AVF 리소스, 전원, 네트워크와 이미지</string>
@@ -145,10 +145,6 @@
     <string name="move_font_up">글꼴 우선순위 올리기</string>
     <string name="move_font_down">글꼴 우선순위 내리기</string>
     <string name="remove_custom_font">%1$s 글꼴 제거</string>
-    <string name="fixed_width">고정 문자 폭</string>
-    <string name="fixed_width_support">모든 글리프를 동일한 셀 폭으로 렌더링합니다.</string>
-    <string name="natural_wide_glyphs">자연스러운 넓은 글자</string>
-    <string name="natural_wide_glyphs_support">한글/CJK 등 2셀 글리프를 가로로 늘리지 않고 비율을 유지한 채 셀 중앙에 표시합니다.</string>
     <string name="color_palette">색상 팔레트</string>
     <string name="follow_tui_background">전체 화면 TUI 배경색 따르기</string>
     <string name="follow_tui_background_support">Neovim 등 전체 화면 터미널 앱의 주 배경색에 앱 바, 툴바와 시스템 표시줄 아이콘을 맞춥니다. 종료하면 기존 색상으로 돌아옵니다.</string>

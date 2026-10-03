@@ -20,7 +20,7 @@ class SettingsGroupUiTest {
             .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, SettingsDetailActivity.APPEARANCE)
             .putExtra(SettingsDetailActivity.EXTRA_SECTION_INDEX, 2)
         ActivityScenario.launch<SettingsDetailActivity>(intent).use {
-            val labels = listOf(R.string.font_size, R.string.font_family, R.string.fixed_width, R.string.natural_wide_glyphs)
+            val labels = listOf(R.string.font_size, R.string.font_family)
             fun row(label: Int): AccessibilityNodeInfo? {
                 fun walk(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
                     if (node == null) return null

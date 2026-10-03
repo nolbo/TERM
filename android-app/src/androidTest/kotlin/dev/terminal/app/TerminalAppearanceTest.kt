@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.test.platform.app.InstrumentationRegistry
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
+import com.termux.view.TerminalGlyphRenderOptions
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
@@ -20,7 +21,9 @@ class TerminalAppearanceTest {
             var resizes = 0
             val backend = RemoteTerminalBackend(write = {}, resize = { _, _ -> resizes++ })
             try {
-                preferences.edit().putInt("font-size-sp", 10).commit()
+                preferences.edit().putInt("font-size-sp", 10)
+                    .putBoolean("fixed-width", false)
+                    .putBoolean("natural-wide-glyphs", false).commit()
                 val view = TerminalView(context, null).apply {
                     setTerminalViewClient(TerminalInputCallbacks())
                     TerminalAppearance.apply(preferences, this, 18)
@@ -36,6 +39,11 @@ class TerminalAppearanceTest {
                 val history = session.emulator.screen.transcriptText
                 val rendererField = TerminalView::class.java.getDeclaredField("mRenderer").apply { isAccessible = true }
                 val renderer = rendererField.get(view)
+                val optionsField = renderer.javaClass.getDeclaredField("mGlyphRenderOptions").apply { isAccessible = true }
+                val fixedWidthField = renderer.javaClass.getDeclaredField("mForceFixedWidth").apply { isAccessible = true }
+                assertTrue("Retired preferences must not disable natural wide glyphs",
+                    (optionsField.get(renderer) as TerminalGlyphRenderOptions).naturalWideGlyphs())
+                assertTrue("Single-cell text must retain grid alignment", fixedWidthField.getBoolean(renderer))
                 resizes = 0
                 repeat(5) {
                     TerminalAppearance.apply(preferences, view, 18)

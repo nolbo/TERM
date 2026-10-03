@@ -453,14 +453,6 @@ class SettingsDetailActivity : TerminalActivity() {
                     listOf(Choice(R.string.font_monospace, "MONOSPACE"), Choice(R.string.font_sans_monospace, "SANS_MONOSPACE")),
                     terminalPreferences.getString(KEY_FONT_FAMILY, "MONOSPACE") ?: "MONOSPACE",
                 ) { terminalPreferences.edit().putString(KEY_FONT_FAMILY, it).apply() }
-                BooleanSetting(R.string.fixed_width, R.string.fixed_width_support, terminalPreferences.getBoolean(KEY_FIXED_WIDTH, true)) {
-                    terminalPreferences.edit().putBoolean(KEY_FIXED_WIDTH, it).apply()
-                }
-                BooleanSetting(
-                    R.string.natural_wide_glyphs,
-                    R.string.natural_wide_glyphs_support,
-                    terminalPreferences.getBoolean(KEY_NATURAL_WIDE_GLYPHS, false),
-                ) { terminalPreferences.edit().putBoolean(KEY_NATURAL_WIDE_GLYPHS, it).apply() }
             }
         }
         item {
@@ -1083,8 +1075,6 @@ class SettingsDetailActivity : TerminalActivity() {
         const val KEY_OPEN_LINKS = "open-web-links"
         const val KEY_FONT_FAMILY = "font-family"
         const val KEY_PALETTE = "palette"
-        const val KEY_FIXED_WIDTH = "fixed-width"
-        const val KEY_NATURAL_WIDE_GLYPHS = "natural-wide-glyphs"
         const val KEY_SCROLLBACK = "scrollback-rows"
         const val KEY_SMOOTH_SCROLLING = "smooth-scrolling"
         const val KEY_AVF_MEMORY = "avf-memory-mib"

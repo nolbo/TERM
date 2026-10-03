@@ -9,7 +9,7 @@ package com.termux.view;
 public final class TerminalGlyphRenderOptions {
 
     public static final TerminalGlyphRenderOptions DEFAULT =
-        new TerminalGlyphRenderOptions(false, 1.0f, 0.0f);
+        new TerminalGlyphRenderOptions(true, 1.0f, 0.0f);
 
     private final boolean mNaturalWideGlyphs;
     private final float mFallbackScale;

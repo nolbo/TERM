@@ -48,11 +48,11 @@ public class TerminalGlyphPlacementTest {
     }
 
     @Test
-    public void renderOptionsAreNeutralAndDisabledByDefault() {
+    public void renderOptionsPreserveNaturalWideGlyphsByDefault() {
         TerminalGlyphRenderOptions defaults = TerminalGlyphRenderOptions.DEFAULT;
-        assertFalse(defaults.naturalWideGlyphs());
+        assertTrue(defaults.naturalWideGlyphs());
         assertEquals(1.0f, defaults.fallbackScale(), 0.0f);
         assertEquals(0.0f, defaults.fallbackBaselineOffsetEm(), 0.0f);
-        assertTrue(defaults.withNaturalWideGlyphs(true).naturalWideGlyphs());
+        assertFalse(defaults.withNaturalWideGlyphs(false).naturalWideGlyphs());
     }
 }

@@ -71,8 +71,8 @@ object TerminalAppearance {
             terminalView.setTypefaceFamily(fontFamily(preferences, terminalView))
             appliedFonts[terminalView] = fonts
         }
-        terminalView.setForceFixedWidth(preferences.getBoolean(KEY_FIXED_WIDTH, true))
-        terminalView.setNaturalWideGlyphRendering(preferences.getBoolean(KEY_NATURAL_WIDE_GLYPHS, false))
+        terminalView.setForceFixedWidth(true)
+        terminalView.setNaturalWideGlyphRendering(true)
         if (!applyPalette) return false
         val paletteChanged = terminalView.currentSession?.emulator?.mColors?.setDefaultColors(colors.asProperties()) ?: false
         terminalView.setBackgroundColor(Color.parseColor(colors.background))
@@ -156,8 +156,6 @@ object TerminalAppearance {
 
     private const val KEY_FONT_SIZE = "font-size-sp"
     private const val KEY_FONT_FAMILY = "font-family"
-    private const val KEY_FIXED_WIDTH = "fixed-width"
-    private const val KEY_NATURAL_WIDE_GLYPHS = "natural-wide-glyphs"
 }
 
 internal fun fontSizeSpToPx(fontSizeSp: Int, convertToPixels: (Float) -> Float): Int =
