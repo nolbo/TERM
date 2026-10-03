@@ -238,6 +238,9 @@ private fun ToolbarSendDialog(text: String, target: String, onDismiss: () -> Uni
 internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences, onBack: () -> Unit,
     initialCommandId: String? = null) {
     val tool = toolbarTools.first { it.settings == screen }
+    var skipCloseConfirmation by remember {
+        mutableStateOf(preferences.getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false))
+    }
     var refresh by remember { mutableIntStateOf(preferences.getInt("toolbar-memory-interval", 5)) }
     var memorySections by remember { mutableStateOf(readMemoryToolSections(preferences)) }
     var commands by remember { mutableStateOf(readToolbarCommands(preferences)) }
@@ -254,6 +257,21 @@ internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences,
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             when (tool.id) {
+                SESSIONS_TOOL -> SettingsGroup {
+                    ListItem(onClick = {
+                        skipCloseConfirmation = !skipCloseConfirmation
+                        preferences.edit().putBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, skipCloseConfirmation).apply()
+                    }, supportingContent = { Text(stringResource(R.string.session_skip_close_confirmation_summary)) },
+                        trailingContent = { Switch(skipCloseConfirmation, onCheckedChange = null) },
+                        modifier = Modifier.fillMaxWidth().semantics {
+                            role = Role.Switch
+                            toggleableState = if (skipCloseConfirmation) ToggleableState.On else ToggleableState.Off
+                        },
+                        colors = ListItemDefaults.colors(containerColor = settingsItemContainerColor()),
+                        verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes()) {
+                        Text(stringResource(R.string.session_skip_close_confirmation))
+                    }
+                }
                 MEMORY_TOOL -> {
                     MemorySettingsSection(stringResource(R.string.toolbar_memory_display)) {
                         val options = listOf(Triple(KEY_MEMORY_DEVICE, R.string.toolbar_memory_device, memorySections.device),

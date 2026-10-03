@@ -161,6 +161,8 @@
     <string name="toolbar_edit_summary">Changes apply immediately. Drag handles to reorder, or use the buttons to add and remove tools. The Sessions tool cannot be removed.</string>
     <string name="toolbar_handle">Toolbar drag handle</string>
     <string name="session_sheet_handle">Session sheet drag handle</string>
+    <string name="session_skip_close_confirmation">Do not ask when closing tabs</string>
+    <string name="session_skip_close_confirmation_summary">The tab close button immediately terminates the session and its running work without confirmation.</string>
     <string name="toolbar_hidden">Hidden</string>
     <string name="toolbar_default">Default</string>
     <string name="toolbar_expanded">Expanded</string>

@@ -572,7 +572,13 @@ class MainActivity : TerminalActivity() {
                                         onSelectProfile = ::selectProfile, onAddProfile = ::addProfile,
                                         newSessionMenuExpanded = newSessionMenuVisible,
                                         onSelect = { attach(it); requestTerminalKeyboard() },
-                                        onRename = { pendingRename = it }, onTerminate = { pendingTermination = it },
+                                        onRename = { pendingRename = it }, onTerminate = {
+                                            if (terminalPreferences().getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false)) {
+                                                terminate(it.id)
+                                            } else {
+                                                pendingTermination = it
+                                            }
+                                        },
                                         onNew = ::showNewSessionMenu,
                                         onDismissNewSession = { newSessionMenuVisible = false },
                                         onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },

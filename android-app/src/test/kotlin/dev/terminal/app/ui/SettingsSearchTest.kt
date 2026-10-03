@@ -32,6 +32,7 @@ class SettingsSearchTest {
         assertEquals(SettingsSearchTarget("terminal", 4), target(R.string.scrollback))
         assertEquals(SettingsSearchTarget("terminal", 6), target(R.string.shared_storage_access))
         assertEquals(SettingsSearchTarget("hotkeys"), target(R.string.hotkey_columns))
+        assertEquals(SettingsSearchTarget("toolbar-sessions"), target(R.string.session_skip_close_confirmation))
         assertEquals(SettingsSearchTarget("palette"), target(R.string.palette_cursor))
         assertEquals(SettingsSearchTarget("usb"), target(R.string.usb_section_storage))
         assertEquals(SettingsSearchTarget("profiles"), target(R.string.profile_directory))

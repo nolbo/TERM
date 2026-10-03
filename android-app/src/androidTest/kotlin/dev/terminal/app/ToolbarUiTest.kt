@@ -1,6 +1,11 @@
 package dev.terminal.app
 
+import android.content.ComponentName
+import android.content.Context
+import android.content.Intent
+import android.content.ServiceConnection
 import android.graphics.Rect
+import android.os.IBinder
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
@@ -17,9 +22,14 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.terminal.app.ui.*
+import dev.terminal.runtime.ipc.IRuntimeService
+import dev.terminal.runtime.lifecycle.VmRuntimeService
+import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 
 @RunWith(AndroidJUnit4::class)
 class ToolbarUiTest {
@@ -323,13 +333,16 @@ class ToolbarUiTest {
     @Test fun settingsCannotRemoveSessionTool() {
         val prefs = context.getSharedPreferences("toolbar-mandatory-test", 0)
         prefs.edit().clear().commit()
+        var opened: String? = null
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 scenario.onActivity { activity -> activity.setContent {
-                    DroidTheme { TerminalHapticFeedbackProvider { ToolbarSettings(prefs, {}) {} } }
+                    DroidTheme { TerminalHapticFeedbackProvider { ToolbarSettings(prefs, {}) { opened = it } } }
                 } }
                 settle()
                 text(label(R.string.toolbar_sessions))
+                click(text(label(R.string.toolbar_sessions)))
+                assertEquals("toolbar-sessions", opened)
                 click(description(label(R.string.toolbar_edit)))
                 description(context.getString(R.string.toolbar_move, label(R.string.toolbar_sessions)))
                 assertNull(find { it.contentDescription?.toString() ==
@@ -338,6 +351,113 @@ class ToolbarUiTest {
                 assertEquals(listOf(SESSIONS_TOOL), readToolbarConfig(prefs).tools)
             }
         } finally { prefs.edit().clear().commit() }
+    }
+
+    @Test fun sessionSettingsDefaultToConfirmationAndPersistAcrossRecreation() {
+        val prefs = context.getSharedPreferences(SettingsDetailActivity.TERMINAL_PREFERENCES, 0)
+        val previous = if (prefs.contains(KEY_SKIP_SESSION_CLOSE_CONFIRMATION))
+            prefs.getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false) else null
+        prefs.edit().remove(KEY_SKIP_SESSION_CLOSE_CONFIRMATION).commit()
+        try {
+            val intent = Intent(context, SettingsDetailActivity::class.java)
+                .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, "toolbar-sessions")
+            ActivityScenario.launch<SettingsDetailActivity>(intent).use { scenario ->
+                settle()
+                text(label(R.string.session_skip_close_confirmation_summary))
+                assertFalse(prefs.getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false))
+                click(text(label(R.string.session_skip_close_confirmation)))
+                assertTrue(prefs.getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false))
+                scenario.recreate()
+                settle()
+                val toggle = waitForNode("enabled session close switch") { it.isCheckable && it.isChecked }
+                // Tapping the switch and the rest of its row must each toggle exactly once.
+                click(toggle)
+                assertFalse(prefs.getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, true))
+                scenario.recreate()
+                settle()
+                waitForNode("disabled session close switch") { it.isCheckable && !it.isChecked }
+            }
+        } finally {
+            val editor = prefs.edit()
+            if (previous == null) editor.remove(KEY_SKIP_SESSION_CLOSE_CONFIRMATION)
+            else editor.putBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, previous)
+            editor.commit()
+        }
+    }
+
+    @Test fun sessionClosePreferenceControlsConfirmationAndKeepsOtherSessions() {
+        val prefs = context.getSharedPreferences(SettingsDetailActivity.TERMINAL_PREFERENCES, 0)
+        val previous = if (prefs.contains(KEY_SKIP_SESSION_CLOSE_CONFIRMATION))
+            prefs.getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false) else null
+        prefs.edit().remove(KEY_SKIP_SESSION_CLOSE_CONFIRMATION).commit()
+        val connected = LinkedBlockingQueue<IRuntimeService>()
+        val connection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+                connected.offer(IRuntimeService.Stub.asInterface(binder))
+            }
+            override fun onServiceDisconnected(name: ComponentName) = Unit
+        }
+        var bound = false
+        var service: IRuntimeService? = null
+        val owned = mutableSetOf<String>()
+        fun await(message: String, condition: () -> Boolean) {
+            val deadline = SystemClock.elapsedRealtime() + 10_000
+            while (!condition() && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100)
+            assertTrue(message, condition())
+        }
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use {
+                bound = context.bindService(Intent(context, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE)
+                assertTrue(bound)
+                val runtime = requireNotNull(connected.poll(10, TimeUnit.SECONDS))
+                service = runtime
+                fun running(): Set<String> {
+                    val sessions = JSONArray(runtime.sessionsJson)
+                    return (0 until sessions.length()).map { sessions.getJSONObject(it) }
+                        .filter { it.getString("state") == "RUNNING" }.map { it.getString("id") }.toSet()
+                }
+                await("Runtime ready") { runtime.state == "READY" }
+                fun create(title: String): String {
+                    val before = running()
+                    runtime.createSession("NATIVE", "/system/bin/sh", "", 24, 80)
+                    await("Test session created") { (running() - before).size == 1 }
+                    val id = (running() - before).single()
+                    owned += id
+                    runtime.renameSession(id, title)
+                    return id
+                }
+                val firstTitle = "Close confirmation first"
+                val secondTitle = "Close confirmation second"
+                val first = create(firstTitle)
+                val second = create(secondTitle)
+                settle()
+                action(label(R.string.toolbar_expand))
+                fun close(title: String) = click(description(context.getString(R.string.terminate_session_description, title)))
+                close(firstTitle)
+                text(label(R.string.terminate_session_title))
+                assertTrue(running().containsAll(owned))
+                click(text(label(R.string.cancel)))
+                assertTrue("Cancel keeps both sessions running", running().containsAll(owned))
+                prefs.edit().putBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, true).commit()
+                close(firstTitle)
+                await("Skip confirmation terminates the selected session") { first !in running() }
+                assertNull(find { it.text?.toString() == label(R.string.terminate_session_title) })
+                assertTrue("Closing one tab keeps its sibling running", second in running())
+                prefs.edit().putBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false).commit()
+                close(secondTitle)
+                text(label(R.string.terminate_session_title))
+                assertTrue("Turning the option off restores confirmation", second in running())
+                click(text(label(R.string.terminate)))
+                await("Confirmed close terminates the session") { second !in running() }
+            }
+        } finally {
+            owned.forEach { id -> runCatching { service?.terminateSession(id) } }
+            if (bound) context.unbindService(connection)
+            val editor = prefs.edit()
+            if (previous == null) editor.remove(KEY_SKIP_SESSION_CLOSE_CONFIRMATION)
+            else editor.putBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, previous)
+            editor.commit()
+        }
     }
 
     @Test fun defaultHeightStaysFixedWhenPagingBetweenSessionsAndOtherTools() {
