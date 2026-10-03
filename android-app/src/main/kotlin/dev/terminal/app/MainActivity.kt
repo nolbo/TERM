@@ -159,6 +159,7 @@ class MainActivity : TerminalActivity() {
     private var rootlessRunning by mutableStateOf(false)
     private var rootlessStatus by mutableStateOf("")
     private var rootlessProgress by mutableStateOf<RootlessProgressUi?>(null)
+    private var avfImageInstallations by mutableStateOf(emptyList<dev.terminal.runtime.image.AvfImageInstallSnapshot>())
     private var rootlessDetail by mutableStateOf("")
     private var rootlessError by mutableStateOf<String?>(null)
     private var hotkeyLayout by mutableStateOf(HotkeyLayout())
@@ -352,6 +353,7 @@ class MainActivity : TerminalActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        dev.terminal.runtime.image.AvfImageInstallMonitor(this).observe(this) { avfImageInstallations = it }
         sessionTabOrder = parseSessionTabOrder(
             getSharedPreferences("terminal-ui-state", MODE_PRIVATE).getString(KEY_SESSION_TAB_ORDER, null))
         toolbarSheetMode = savedInstanceState?.getString("terminal-toolbar-mode")?.let { name ->
@@ -513,6 +515,8 @@ class MainActivity : TerminalActivity() {
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val toolbarMaxHeight = (maxHeight * 0.6f).coerceAtMost(480.dp)
                 Column(Modifier.fillMaxSize()) {
+                    dev.terminal.app.ui.AvfImageInstallationUi(avfImageInstallations,
+                        Modifier.windowInsetsPadding(topInsets))
                     if (activeSessionId == null) {
                         Box(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(topInsets)) {
                             TerminalEmptyState(runtimeMessage, ::showNewSessionSheet,

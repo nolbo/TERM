@@ -75,6 +75,7 @@ class SettingsDetailActivity : TerminalActivity() {
     private var bindingRequested = false
     private var activityStarted = false
     private val rootlessStates = mutableStateMapOf<String, RootlessSettingsState>()
+    private var avfImageInstallations by mutableStateOf(emptyList<dev.terminal.runtime.image.AvfImageInstallSnapshot>())
     private var pendingRootlessRemoval by mutableStateOf<String?>(null)
     private var wakePolicy by mutableStateOf(DEFAULT_WAKE_POLICY)
     private var customFonts by mutableStateOf(emptyList<CustomTerminalFont>())
@@ -147,6 +148,9 @@ class SettingsDetailActivity : TerminalActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (category == AVF_IMAGE) {
+            dev.terminal.runtime.image.AvfImageInstallMonitor(this).observe(this) { avfImageInstallations = it }
+        }
         // Old task entries can still point to the removed tool's settings screen.
         if (category == "toolbar-clipboard") intent.putExtra(EXTRA_CATEGORY, TOOLBAR)
         if (category == AVF && !SessionProfiles(this).hasAvfPrivileges()) {
@@ -556,6 +560,11 @@ class SettingsDetailActivity : TerminalActivity() {
     }
 
     private fun androidx.compose.foundation.lazy.LazyListScope.avfImageItems() {
+        if (avfImageInstallations.isNotEmpty()) {
+            items(avfImageInstallations.size) { index ->
+                dev.terminal.app.ui.AvfImageInstallCard(avfImageInstallations[index])
+            }
+        }
         item {
             SettingsSection(R.string.section_status) {
                 InfoSetting(R.string.avf_image_current_build, when {

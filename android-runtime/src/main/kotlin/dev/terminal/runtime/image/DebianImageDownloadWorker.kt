@@ -32,7 +32,13 @@ class DebianImageDownloadWorker(
     appContext: Context,
     workerParams: WorkerParameters,
 ) : CoroutineWorker(appContext, workerParams) {
+    private var startedAt = 0L
+    private var lastProgress = Data.EMPTY
+    private var lastReportedAt = -1L
+    private var notificationChannelCreated = false
+
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        startedAt = android.os.SystemClock.elapsedRealtime()
         val releaseId = inputData.getString(KEY_RELEASE_ID) ?: return@withContext failure("Missing release ID")
         val release = BundledDebianImageCatalog.find(releaseId) ?: return@withContext failure("Unknown approved Debian release")
         val storageId = inputData.getString(KEY_STORAGE_ID) ?: "legacy"
@@ -45,24 +51,26 @@ class DebianImageDownloadWorker(
             .resolve("${release.id}-${UUID.randomUUID()}")
         return@withContext try {
             setForeground(foregroundInfo())
+            report(AvfImageInstallPhase.PREPARING)
             if (Files.exists(target)) {
+                report(AvfImageInstallPhase.VERIFY)
                 return@withContext if (DebianImageVerifier.verifyInstalled(target) is ImageVerification.Ready) {
-                    Result.success()
+                    success("already_installed")
                 } else failure("Existing AVF image is invalid; refusing replacement")
             }
             Files.createDirectories(target.parent)
             Files.createDirectories(stagingRoot)
+            report(AvfImageInstallPhase.MANIFEST)
             DebianArtifactDownloader { isStopped }.download(release.manifestUri,
                 stagingRoot.resolve(DebianImageLayout.MANIFEST_FILE), 64 * 1024)
             if (DebianImageVerifier.sha256(stagingRoot.resolve(DebianImageLayout.MANIFEST_FILE)) != release.manifestSha256) {
                 return@withContext failure("Downloaded manifest checksum does not match catalog")
             }
             DebianImageVerifier.parse(stagingRoot.resolve(DebianImageLayout.MANIFEST_FILE))
-            downloadArtifact(release, DebianImageLayout.KERNEL_IMAGE, stagingRoot)
-            downloadArtifact(release, DebianImageLayout.INITRD_IMAGE, stagingRoot)
-            downloadArtifact(release, DebianImageLayout.SYSTEM_IMAGE, stagingRoot)
-            downloadArtifact(release, DebianImageLayout.HOME_IMAGE, stagingRoot)
-            downloadArtifact(release, DebianImageLayout.CONFIG_IMAGE, stagingRoot)
+            listOf(DebianImageLayout.KERNEL_IMAGE, DebianImageLayout.INITRD_IMAGE,
+                DebianImageLayout.SYSTEM_IMAGE, DebianImageLayout.HOME_IMAGE, DebianImageLayout.CONFIG_IMAGE)
+                .forEachIndexed { index, name -> downloadArtifact(release, name, stagingRoot, index + 1) }
+            report(AvfImageInstallPhase.VERIFY)
             when (val verification = DebianImageVerifier.verify(stagingRoot)) {
                 is ImageVerification.Invalid -> failure(verification.reason)
                 is ImageVerification.Ready -> when (
@@ -70,12 +78,13 @@ class DebianImageDownloadWorker(
                         applicationContext.getSharedPreferences("session-profiles", Context.MODE_PRIVATE).all.mapValues { it.value as String }
                     }.transaction {
                         validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId))
+                        report(AvfImageInstallPhase.INSTALL)
                         DebianImageInstaller.install(stagingRoot, target)
                     }
                 ) {
-                    is ImageInstallResult.Installed -> Result.success(Data.Builder().putString(KEY_STATUS, "installed").build())
+                    is ImageInstallResult.Installed -> success("installed")
                     is ImageInstallResult.AlreadyInstalled -> if (installed.verification is ImageVerification.Ready)
-                        Result.success(Data.Builder().putString(KEY_STATUS, "already_installed").build())
+                        success("already_installed")
                         else failure("Existing AVF image is invalid; refusing replacement")
                     is ImageInstallResult.Failed -> failure(installed.reason)
                 }
@@ -91,24 +100,63 @@ class DebianImageDownloadWorker(
         }
     }
 
-    private fun downloadArtifact(release: DebianImageRelease, name: String, stagingRoot: Path) {
+    private fun downloadArtifact(release: DebianImageRelease, name: String, stagingRoot: Path, index: Int) {
         val artifactUri = release.manifestUri.resolve(if (release.gzipArtifacts) "$name.gz" else name)
+        report(AvfImageInstallPhase.DOWNLOAD, index)
         DebianArtifactDownloader { isStopped }.download(artifactUri, stagingRoot.resolve(name),
-            release.maxArtifactBytes, release.gzipArtifacts)
+            release.maxArtifactBytes, release.gzipArtifacts) { bytes, total ->
+                report(AvfImageInstallPhase.DOWNLOAD, index, bytes, total)
+            }
+    }
+
+    private fun report(phase: AvfImageInstallPhase, artifact: Int = 0, bytes: Long? = null, total: Long? = null) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (lastProgress.getString(AvfImageInstallMonitor.KEY_PHASE) == phase.name &&
+            lastProgress.getInt(AvfImageInstallMonitor.KEY_ARTIFACT, 0) == artifact &&
+            now - lastReportedAt < 500 && (total == null || bytes != total)) return
+        lastProgress = Data.Builder()
+            .putString(AvfImageInstallMonitor.KEY_STORAGE, inputData.getString(KEY_STORAGE_ID) ?: "legacy")
+            .putString(AvfImageInstallMonitor.KEY_PHASE, phase.name)
+            .putInt(AvfImageInstallMonitor.KEY_ARTIFACT, artifact)
+            .putLong(AvfImageInstallMonitor.KEY_BYTES, bytes ?: -1)
+            .putLong(AvfImageInstallMonitor.KEY_TOTAL, total ?: -1)
+            .putLong(AvfImageInstallMonitor.KEY_STARTED, startedAt)
+            .putLong(AvfImageInstallMonitor.KEY_UPDATED, now).build()
+        // Blocking callbacks run only on Dispatchers.IO. Persist each throttled update in order.
+        setProgressAsync(lastProgress).get()
+        lastReportedAt = now
+        applicationContext.getSystemService(NotificationManager::class.java)
+            .notify(id.hashCode() and Int.MAX_VALUE, foregroundInfo().notification)
+    }
+
+    private fun success(status: String): Result {
+        report(AvfImageInstallPhase.COMPLETE)
+        // WorkManager clears running progress at completion; outputData retains the final snapshot.
+        return Result.success(Data.Builder().putAll(lastProgress).putString(KEY_STATUS, status).build())
     }
 
     private fun foregroundInfo(): ForegroundInfo {
         val manager = applicationContext.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "AVF 이미지 설치", NotificationManager.IMPORTANCE_LOW))
+        if (!notificationChannelCreated) {
+            manager.createNotificationChannel(NotificationChannel(CHANNEL_ID, "AVF 이미지 설치", NotificationManager.IMPORTANCE_LOW))
+            notificationChannelCreated = true
+        }
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.stat_sys_download)
             .setContentTitle("AVF Debian 자동 설치")
-            .setContentText("이미지를 내려받아 검증하고 있습니다. 완료 후 세션이 시작됩니다.")
+            .setContentText(when (lastProgress.getString(AvfImageInstallMonitor.KEY_PHASE)) {
+                "MANIFEST" -> "설치 정보 확인 중"
+                "DOWNLOAD" -> "이미지 다운로드 및 압축 해제 중"
+                "VERIFY" -> "이미지 무결성 검증 중"
+                "INSTALL" -> "이미지 설치 및 최종 검증 중"
+                "COMPLETE" -> "이미지 설치 완료"
+                else -> "이미지 설치 준비 중"
+            })
             .setOngoing(true).setProgress(0, 0, true).build()
         return ForegroundInfo(id.hashCode() and Int.MAX_VALUE, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
     }
 
-    private fun failure(message: String): Result = Result.failure(Data.Builder().putString(KEY_ERROR, message).build())
+    private fun failure(message: String): Result = Result.failure(Data.Builder().putAll(lastProgress).putString(KEY_ERROR, message.take(240)).build())
 
     private fun deleteTree(root: Path) {
         Files.walk(root).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) } }
@@ -131,6 +179,8 @@ class DebianImageDownloadWorker(
         internal fun request(releaseId: String, storageId: String): androidx.work.OneTimeWorkRequest {
             dev.terminal.runtime.session.SessionStorage.validate(storageId)
             return OneTimeWorkRequestBuilder<DebianImageDownloadWorker>()
+                .addTag("${AvfImageInstallMonitor.STORAGE_TAG}$storageId")
+                .addTag("${AvfImageInstallMonitor.REQUESTED_TAG}${System.currentTimeMillis()}")
                 .setInputData(Data.Builder().putString(KEY_RELEASE_ID, releaseId).putString(KEY_STORAGE_ID, storageId).build())
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()

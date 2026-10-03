@@ -65,4 +65,31 @@ class DebianArtifactDownloaderTest {
             assertThrows(IllegalArgumentException::class.java) { downloader.download(origin, destination, 512, gzip = true) }
         } finally { Files.deleteIfExists(destination) }
     }
+
+    @Test fun progressCountsCompressedTransferAndKeepsUnknownLengthIndeterminate() {
+        val payload = ByteArray(8192) { 1 }
+        val compressed = ByteArrayOutputStream().also { bytes -> GZIPOutputStream(bytes).use { it.write(payload) } }.toByteArray()
+        for (knownLength in listOf(true, false)) {
+            val downloader = DebianArtifactDownloader().apply {
+                openConnection = { uri -> object : HttpURLConnection(uri.toURL()) {
+                    override fun connect() = Unit
+                    override fun disconnect() = Unit
+                    override fun usingProxy() = false
+                    override fun getResponseCode() = 200
+                    override fun getInputStream() = ByteArrayInputStream(compressed)
+                    override fun getContentLengthLong() = if (knownLength) compressed.size.toLong() else -1L
+                } }
+            }
+            val updates = mutableListOf<Pair<Long, Long?>>()
+            val destination = Files.createTempFile("debian-progress", ".img")
+            try {
+                downloader.download(origin, destination, payload.size.toLong(), gzip = true) { bytes, total -> updates += bytes to total }
+                assertEquals(0L, updates.first().first)
+                assertEquals(compressed.size.toLong(), updates.last().first)
+                assertTrue(updates.zipWithNext().all { (before, after) -> before.first <= after.first })
+                assertTrue(updates.all { it.second == if (knownLength) compressed.size.toLong() else null })
+                assertArrayEquals(payload, Files.readAllBytes(destination))
+            } finally { Files.deleteIfExists(destination) }
+        }
+    }
 }
