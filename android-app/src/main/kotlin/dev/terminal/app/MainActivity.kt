@@ -292,6 +292,7 @@ class MainActivity : TerminalActivity() {
                 bindingRequested = false
                 return
             }
+            runtimeRetry.reset()
             runtime = IRuntimeService.Stub.asInterface(service)
             bound = true
             runCatching {
@@ -353,7 +354,6 @@ class MainActivity : TerminalActivity() {
         super.onCreate(savedInstanceState)
         sessionTabOrder = parseSessionTabOrder(
             getSharedPreferences("terminal-ui-state", MODE_PRIVATE).getString(KEY_SESSION_TAB_ORDER, null))
-        observeTerminalSessions()
         toolbarSheetMode = savedInstanceState?.getString("terminal-toolbar-mode")?.let { name ->
             ToolbarSheetMode.entries.firstOrNull { it.name == name }
         } ?: if (savedInstanceState?.getBoolean("terminal-extra-keys-visible", true) == false)
@@ -401,6 +401,7 @@ class MainActivity : TerminalActivity() {
         super.onStart()
         observeTerminalSessions()
         activityStarted = true
+        runtimeRetry.reset()
         mainHandler.removeCallbacks(reconnectRuntime)
         bindRuntime()
     }
@@ -442,13 +443,24 @@ class MainActivity : TerminalActivity() {
         keyboardRequested = false
         terminalView?.removeCallbacks(showTerminalKeyboard)
         mainHandler.removeCallbacks(reconnectRuntime)
-        // Keep the transport and local emulator alive while another Activity or app is in
-        // front. Recreating them here forces a full scrollback replay on every return.
+        terminalView?.saveSessionScrollPosition()
+        terminalStore.unobserve(this)
+        // The store keeps the mirror for a short grace period; runtime ownership is unchanged.
+        if (bindingRequested) {
+            listener?.let { current -> runCatching { runtime?.unregisterListener(current) } }
+            runCatching { unbindService(connection) }
+        }
+        bindingGeneration++
+        bindingRequested = false
+        bound = false
+        runtime = null
+        listener = null
+        runtimeAttachment.reset()
         super.onStop()
     }
 
     override fun onDestroy() {
-        // Release this screen's observer; the application keeps consuming terminal output.
+        // Release only this screen's UI resources.
         terminalView?.saveSessionScrollPosition()
         terminalStore.unobserve(this)
         paletteTransition.cancel()
@@ -1100,6 +1112,7 @@ class MainActivity : TerminalActivity() {
     }
 
     private fun safeRuntimeCall(action: (IRuntimeService) -> Unit) {
+        runtimeRetry.reset()
         val service = runtime
         if (service == null) {
             if (activityStarted) bindRuntime()
@@ -1122,8 +1135,10 @@ class MainActivity : TerminalActivity() {
         listener = null
         runtimeAttachment.reset()
         runtimeMessage = getString(R.string.runtime_reconnecting_prompt)
-        if (activityStarted) mainHandler.postDelayed(reconnectRuntime, RECONNECT_DELAY_MS)
+        if (activityStarted) mainHandler.postDelayed(reconnectRuntime, runtimeRetry.nextDelayMs())
     }
+
+    private val runtimeRetry = dev.terminal.runtime.lifecycle.ReconnectBackoff()
 
     private val reconnectRuntime = Runnable {
         if (activityStarted && !bindingRequested) bindRuntime()
@@ -1139,7 +1154,7 @@ class MainActivity : TerminalActivity() {
         }.getOrDefault(false)
         if (!bindingRequested) {
             listener = null
-            if (activityStarted) mainHandler.postDelayed(reconnectRuntime, RECONNECT_DELAY_MS)
+            if (activityStarted) mainHandler.postDelayed(reconnectRuntime, runtimeRetry.nextDelayMs())
         }
     }
 
@@ -1172,7 +1187,6 @@ class MainActivity : TerminalActivity() {
         const val EXTRA_START_RUNTIME = "start_runtime"
         private const val DEFAULT_GUEST_HOME = "/home/user"
         private const val DEFAULT_NATIVE_SHELL = "/system/bin/sh"
-        private const val RECONNECT_DELAY_MS = 1_000L
     }
 }
 

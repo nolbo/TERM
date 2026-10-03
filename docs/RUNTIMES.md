@@ -215,3 +215,13 @@ boundaries. UI restoration uses complete runtime-owned terminal checkpoints,
 including retained history and graphics, independently of this raw replay limit.
 The updated AVF daemon drains every running PTY while its host is connected.
 See [TERMINAL_GRAPHICS.md](TERMINAL_GRAPHICS.md) for paths and limits.
+
+## Battery and background work
+
+`KEEP_ACTIVE_WORK_RUNNING` follows live OSC 133 command activity, host operations and AVF `WORK_ACTIVE`/`WORK_IDLE`, rather than the mere existence of a running shell. Known idle prompts release the partial wake lock; silent known commands keep it until completion even after UI detaches. Task notification settings are independent. If hooks are unavailable or overwritten, a conservative ten-minute lease from creation or live I/O preserves temporary protection without an indefinite idle wake lock. Silent work in an uninstrumented shell beyond that lease cannot be identified reliably; use working command hooks, AVF work reports or the explicit `ALWAYS_AWAKE` policy for that case. Background shell jobs without a command/guest work signal are subject to the same signal limitation.
+
+UI terminal mirrors remain subscribed for five seconds after the terminal Activity becomes invisible, then detach without stopping PTYs, sessions, the runtime or runtime-side terminal parsing. Return restores both screens, scrollback, parser state, graphics and saved viewport from a fresh authoritative checkpoint. UI redraw notifications are combined once per frame; output bytes are neither dropped nor throttled. Hidden/background terminal views cancel graphics redraw callbacks.
+
+Failed guest/session, bridge and port-agent links back off through 2, 4, 8, 15, 30, 60 and 120 seconds, capped at 120 seconds. Success, explicit work and new session creation reset backoff; pending delays respond to explicit work. No session or pending/guest work means no reconnect loop. Connected event-driven port/task observers remain event-driven.
+
+USB and host-tool UI polling stops with Activity visibility/service unbinding and uses ten-second intervals when no approvals or active operations need updates. Their current AIDL contract has no state-change callback, so bounded polling is retained. Memory polling runs only while its tool and Activity are visible and slows to at least fifteen seconds for unchanged snapshots. These UI polling policies never own or suspend the underlying operations.

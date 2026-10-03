@@ -53,7 +53,6 @@ import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
 import org.json.JSONObject
 import dev.terminal.protocol.SessionController
-import dev.terminal.protocol.SessionConnectionState
 import dev.terminal.protocol.SessionDescriptor
 import dev.terminal.protocol.SessionEvent
 import dev.terminal.protocol.GuestWorkEvent
@@ -94,13 +93,17 @@ class VmRuntimeService : Service() {
     }
     private val sessionResizeMutex = Mutex()
     private val latestResizeRequests = LatestSessionResizeRequests()
-    private var sessionClient: SessionController? = null
+    @Volatile private var sessionClient: SessionController? = null
     private val orderedSessionInput = OrderedSessionInput(scope) { id, bytes ->
         runCatching {
             val client = sessionClient ?: error("세션 런타임에 연결되어 있지 않습니다")
             client.write(id, bytes).getOrThrow()
         }.onFailure { notifyOperationError("입력 전송", it.userMessage()) }
     }
+    private val guestRetry = ReconnectBackoff()
+    private val bridgeRetry = ReconnectBackoff()
+    private val portRetry = ReconnectBackoff()
+    private var wakeExpiryJob: Job? = null
     private var reconnectJob: Job? = null
     private var bridgeJob: Job? = null
     private var portAgentJob: Job? = null
@@ -109,7 +112,7 @@ class VmRuntimeService : Service() {
     private lateinit var wakePolicies: WakePolicyStore
     private lateinit var capabilityGrants: SharedPreferencesCapabilityGrantStore
     private lateinit var usbBroker: dev.terminal.runtime.usb.UsbBroker
-    private var guestReportedWorkActive = false
+    @Volatile private var guestReportedWorkActive = false
     private val portRegistry = PortForwardRegistry()
     private lateinit var portForwarder: LocalhostPortForwarder
     @Volatile private var publishedSessions = PublishedSessions(0L, "[]", 0)
@@ -522,6 +525,7 @@ class VmRuntimeService : Service() {
         }
 
         override fun attachSession(sessionId: String) = launchRuntimeOperation {
+            resetReconnectBackoff()
             focusedSession = sessionId
             val client = ensureSessionClient()
                 ?: throw IllegalStateException("세션 런타임에 연결할 수 없습니다")
@@ -541,6 +545,7 @@ class VmRuntimeService : Service() {
         }
 
         override fun writeSessionInput(sessionId: String, bytes: ByteArray) {
+            resetReconnectBackoff()
             if (!orderedSessionInput.offer(sessionId, bytes)) {
                 notifyOperationError("입력 전송", "입력 대기열이 가득 찼거나 런타임이 종료되었습니다")
             }
@@ -722,6 +727,7 @@ class VmRuntimeService : Service() {
         capabilityGrants = SharedPreferencesCapabilityGrantStore(applicationContext)
         usbBroker = dev.terminal.runtime.usb.UsbBroker(applicationContext) { delta ->
             hostBackgroundOperationCount.addAndGet(delta)
+            updateWakeState()
             updateServiceLifetime()
         }
         backend = resolveRuntimeBackend(applicationContext)
@@ -747,13 +753,7 @@ class VmRuntimeService : Service() {
                 updateServiceLifetime()
                 notifyClients(state)
                 if (state is RuntimeState.Ready) {
-                    scheduleGuestReconnect()
-                    // Native mode has no guest transport. Repeated connection attempts
-                    // here used to wake the process every two seconds indefinitely.
-                    if (backend !is NativeBackend) {
-                        scheduleBridgeServer()
-                        schedulePortAgentCollector()
-                    }
+                    updateReconnectWork()
                 }
             }
         }
@@ -834,6 +834,7 @@ class VmRuntimeService : Service() {
     private fun launchRuntimeOperation(trackAsWork: Boolean = false, errorOperation: String = "런타임 작업", block: suspend () -> Unit) {
         scope.launch(Dispatchers.Main.immediate) {
             if (trackAsWork) {
+                resetReconnectBackoff()
                 hostBackgroundOperationCount.incrementAndGet()
                 updateWakeState()
             }
@@ -883,7 +884,13 @@ class VmRuntimeService : Service() {
     private suspend fun ensureSessionRegistryLocked(): UnifiedSessionRegistry? = sessionClientMutex.withLock {
         (sessionClient as? UnifiedSessionRegistry)?.let { attachPrimaryAvf(it); return@withLock it }
         run {
-            val registry = UnifiedSessionRegistry(onInput = taskNotifications::input, recordLaunch = { id, spec ->
+            val registry = UnifiedSessionRegistry(onDisconnected = { runtime, _ ->
+                if (runtime == SessionRuntime.AVF) scheduleGuestReconnect()
+            }, onInput = { id, bytes ->
+                taskNotifications.input(id, bytes)
+                updateWakeState()
+            }, recordLaunch = { id, spec ->
+                resetReconnectBackoff()
                 getSharedPreferences("session-launches", MODE_PRIVATE).edit().putString(id, spec.toJson().toString()).commit()
             }, beforeCreate = {
                 check(!dev.terminal.runtime.rootless.RootlessNativeMigration.pending(java.io.File(filesDir, "rootless").toPath())) {
@@ -913,16 +920,6 @@ class VmRuntimeService : Service() {
                     }
                 }
             }
-            scope.launch {
-                registry.connectionState.collect { connectionState ->
-                    if (connectionState == SessionConnectionState.DISCONNECTED && sessionClient === registry) {
-                        sessionClient = null
-                        // A transport disconnect is not proof that the guest PTY
-                        // owner died. Retain the last snapshot while reconnecting.
-                        if (latestState is RuntimeState.Ready) scheduleGuestReconnect()
-                    }
-                }
-            }
             refreshSessions(registry)
             registry
         }
@@ -936,10 +933,15 @@ class VmRuntimeService : Service() {
     private suspend fun attachPrimaryAvf(registry: UnifiedSessionRegistry) {
         if (backend is NativeBackend || latestState !is RuntimeState.Ready && latestState !is RuntimeState.Active && latestState !is RuntimeState.Idle) return
         val id = defaultStorageId(SessionRuntime.AVF)
-        if (registry.isRegistered(SessionRuntime.AVF, id)) return
+        if (registry.isRegistered(SessionRuntime.AVF, id) && id !in registry.disconnectedStorages(SessionRuntime.AVF)) return
         if (runCatching { storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(SessionRuntime.AVF, id)) } }.isFailure) return
         backend.connectSessionClient().getOrNull()?.let {
             registry.register(SessionRuntime.AVF, it, id)
+            guestRetry.reset()
+            registry.list().getOrNull().orEmpty().filter { session ->
+                registry.runtimeOf(session.id) == SessionRuntime.AVF && registry.storageOf(session.id) == id &&
+                    session.state == dev.terminal.protocol.SessionStatus.RUNNING
+            }.forEach { session -> registry.attach(session.id) }
             if (id != "legacy") storageBackends[SessionRuntime.AVF to id] = backend
         }
     }
@@ -1098,50 +1100,102 @@ class VmRuntimeService : Service() {
         } finally { selectedRootless?.clearPreparationWaiting() }
     }
 
-    private fun scheduleGuestReconnect() {
-        if (reconnectJob?.isActive == true || sessionClient != null) return
+    private fun hasReconnectWork() = reconnectNeeded(publishedSessions.runningCount,
+        hostBackgroundOperationCount.get(), guestReportedWorkActive)
+
+    private fun primaryReady() = latestState is RuntimeState.Ready ||
+        latestState is RuntimeState.Active || latestState is RuntimeState.Idle
+
+    private fun resetReconnectBackoff() {
+        guestRetry.reset(); bridgeRetry.reset(); portRetry.reset()
+        updateReconnectWork()
+    }
+
+    @Synchronized private fun updateReconnectWork() {
+        if (!hasReconnectWork()) {
+            reconnectJob?.cancel(); bridgeJob?.cancel(); portAgentJob?.cancel()
+            return
+        }
+        if (!primaryReady()) return
+        scheduleGuestReconnect()
+        if (backend !is NativeBackend) {
+            scheduleBridgeServer()
+            schedulePortAgentCollector()
+        }
+    }
+
+    @Synchronized private fun scheduleGuestReconnect() {
+        if (reconnectJob?.isActive == true || !hasReconnectWork()) return
         reconnectJob = scope.launch {
-            while (latestState is RuntimeState.Ready && sessionClient == null) {
-                if (ensureSessionRegistry() != null) return@launch
-                delay(GUEST_RECONNECT_DELAY_MS)
+            while (primaryReady() && hasReconnectWork()) {
+                val registry = ensureSessionRegistry()
+                if (registry != null) {
+                    // Reconnect only failed AVF transports, preserving Native/Rootless owners.
+                    for (id in registry.disconnectedStorages(SessionRuntime.AVF)) {
+                        // ensureSessionRegistry already attempted the primary transport once.
+                        if (id == defaultStorageId(SessionRuntime.AVF)) continue
+                        val owner = storageBackends[SessionRuntime.AVF to id] ?: continue
+                        owner.connectSessionClient().getOrNull()?.let { controller ->
+                            registry.register(SessionRuntime.AVF, controller, id)
+                            guestRetry.reset()
+                            registry.list().getOrNull().orEmpty().filter { session ->
+                                registry.runtimeOf(session.id) == SessionRuntime.AVF && registry.storageOf(session.id) == id &&
+                                    session.state == dev.terminal.protocol.SessionStatus.RUNNING
+                            }.forEach { session -> registry.attach(session.id) }
+                        }
+                    }
+                    val primaryMissing = backend !is NativeBackend &&
+                        !registry.isRegistered(SessionRuntime.AVF, defaultStorageId(SessionRuntime.AVF))
+                    if (!primaryMissing && registry.disconnectedStorages(SessionRuntime.AVF).isEmpty()) {
+                        guestRetry.reset()
+                        refreshSessions(registry)
+                        return@launch
+                    }
+                }
+                guestRetry.awaitRetry()
             }
         }
     }
 
-    private fun scheduleBridgeServer() {
-        if (bridgeJob?.isActive == true) return
+    @Synchronized private fun scheduleBridgeServer() {
+        if (bridgeJob?.isActive == true || !hasReconnectWork()) return
         bridgeJob = scope.launch {
             val broker = AndroidCapabilityBroker(applicationContext, DEFAULT_VM_INSTANCE_ID, capabilityGrants)
-            while (latestState is RuntimeState.Ready) {
+            while (primaryReady() && hasReconnectWork()) {
                 backend.connectGuestBridge().getOrNull()?.let { connection ->
-                    runCatching {
+                    bridgeRetry.reset()
+                    try {
                         BridgeHostServer(broker) { work ->
                             guestReportedWorkActive = work == GuestWorkEvent.WORK_ACTIVE
                             updateWakeState()
+                            updateServiceLifetime()
                         }.serve(connection)
-                    }
-                    connection.close()
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (error: Exception) { Log.w(TAG, "bridge disconnected: ${error.javaClass.simpleName}") }
+                    finally { connection.close() }
                 }
-                delay(BRIDGE_RECONNECT_DELAY_MS)
+                if (hasReconnectWork()) bridgeRetry.awaitRetry()
             }
         }
     }
 
-    private fun schedulePortAgentCollector() {
-        if (portAgentJob?.isActive == true) return
+    @Synchronized private fun schedulePortAgentCollector() {
+        if (portAgentJob?.isActive == true || !hasReconnectWork()) return
         portAgentJob = scope.launch {
-            while (latestState is RuntimeState.Ready) {
+            while (primaryReady() && hasReconnectWork()) {
                 backend.connectGuestPortAgent().getOrNull()?.let { connection ->
-                    runCatching {
+                    portRetry.reset()
+                    try {
                         PortAgentCollector(
                             registry = portRegistry,
                             onListening = { port -> portForwarder.start(port) },
                             onClosed = { port -> portForwarder.stop(port) },
                         ).collect(connection)
-                    }
-                    connection.close()
+                    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (error: Exception) { Log.w(TAG, "port agent disconnected: ${error.javaClass.simpleName}") }
+                    finally { connection.close() }
                 }
-                delay(BRIDGE_RECONNECT_DELAY_MS)
+                if (hasReconnectWork()) portRetry.awaitRetry()
             }
         }
     }
@@ -1158,6 +1212,8 @@ class VmRuntimeService : Service() {
             json = json,
             runningCount = snapshot.sessions.count { it.state == dev.terminal.protocol.SessionStatus.RUNNING },
         )
+        taskNotifications.running(snapshot.sessions.filter { it.state == dev.terminal.protocol.SessionStatus.RUNNING }
+            .mapTo(mutableSetOf()) { it.id })
         publishedSessions = published
         updateWakeState()
         updateServiceLifetime()
@@ -1172,6 +1228,7 @@ class VmRuntimeService : Service() {
 
     private fun notifyTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) {
         taskNotifications.output(sessionId, bytes, replay) { sessionNotificationTitle(sessionId) }
+        if (!replay) updateWakeState()
         broadcast { it.onTerminalOutput(sessionId, bytes, replay) }
     }
 
@@ -1234,17 +1291,25 @@ class VmRuntimeService : Service() {
 
     private fun Throwable.userMessage(): String = message?.takeIf { it.isNotBlank() } ?: javaClass.simpleName
 
-    private fun updateWakeState() = wakeController.update(
-        wakePolicies.get(),
-        if (publishedSessions.runningCount == 0 && hostBackgroundOperationCount.get() == 0) {
-            RuntimeWakeController.GuestWorkState.STOPPED
-        } else runtimeWorkState(
-            latestState,
-            publishedSessions.runningCount,
-            guestReportedWorkActive,
-            hostBackgroundOperationCount.get() > 0,
-        ),
-    )
+    @Synchronized private fun updateWakeState() {
+        wakeController.update(wakePolicies.get(),
+            if (!hasReconnectWork()) RuntimeWakeController.GuestWorkState.STOPPED
+            else runtimeWorkState(latestState, taskNotifications.workActive(), guestReportedWorkActive,
+                hostBackgroundOperationCount.get() > 0))
+        // One expiry job for unknown-shell leases, never a permanent polling loop.
+        if (taskNotifications.nextExpiryMs() == null) {
+            wakeExpiryJob?.cancel()
+            wakeExpiryJob = null
+        } else if (wakeExpiryJob?.isActive != true) {
+            wakeExpiryJob = scope.launch {
+                while (true) {
+                    val wait = taskNotifications.nextExpiryMs() ?: break
+                    delay(wait)
+                    updateWakeState()
+                }
+            }
+        }
+    }
 
     private fun imageStatus(): String = if (backend is NativeBackend) {
         "Native 사용자 공간 준비됨. AVF Debian은 권한 있는 제품 빌드에서 사용할 수 있습니다."
@@ -1348,9 +1413,10 @@ class VmRuntimeService : Service() {
     }
 
     private fun updateServiceLifetime() {
+        updateReconnectWork()
         scope.launch(Dispatchers.Main.immediate) {
             // Read current state here, not a captured snapshot from a worker thread.
-            val keepAlive = publishedSessions.runningCount > 0 || hostBackgroundOperationCount.get() > 0
+            val keepAlive = hasReconnectWork()
             if (keepAlive) {
                 if (!foreground) {
                     // Binding alone must not own a live PTY after the Activity detaches.
@@ -1464,8 +1530,6 @@ class VmRuntimeService : Service() {
         const val NOTIFICATION_ID = 1001
         const val FORCE_STOP = 1
         const val SIGKILL = 9
-        const val GUEST_RECONNECT_DELAY_MS = 2_000L
-        const val BRIDGE_RECONNECT_DELAY_MS = 2_000L
         const val DEFAULT_VM_INSTANCE_ID = "default"
         const val DEFAULT_DEBIAN_RELEASE_ID = "debian-arm64-current"
         const val RUNTIME_SETTINGS = "runtime-settings"
@@ -1515,7 +1579,7 @@ internal class LatestSessionResizeRequests {
 
 internal fun runtimeWorkState(
     runtimeState: RuntimeState,
-    runningSessionCount: Int,
+    sessionWorkActive: Boolean,
     guestReportedWorkActive: Boolean,
     hostBackgroundWorkActive: Boolean,
 ): RuntimeWakeController.GuestWorkState = when {
@@ -1524,6 +1588,6 @@ internal fun runtimeWorkState(
     hostBackgroundWorkActive -> RuntimeWakeController.GuestWorkState.ACTIVE
     runtimeState is RuntimeState.Stopped -> RuntimeWakeController.GuestWorkState.STOPPED
     runtimeState is RuntimeState.Suspended -> RuntimeWakeController.GuestWorkState.IDLE
-    runningSessionCount > 0 || guestReportedWorkActive -> RuntimeWakeController.GuestWorkState.ACTIVE
+    sessionWorkActive || guestReportedWorkActive -> RuntimeWakeController.GuestWorkState.ACTIVE
     else -> RuntimeWakeController.GuestWorkState.IDLE
 }

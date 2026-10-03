@@ -22,7 +22,7 @@ import org.json.JSONArray
 import java.util.concurrent.ConcurrentHashMap
 import java.util.WeakHashMap
 
-/** UI-process mirrors and their output subscription survive destruction of an Activity.
+/** UI-process mirrors survive short Activity transitions; long absences detach only subscriptions.
  * The runtime's session list remains authoritative; this store never creates or terminates PTYs.
  */
 internal class TerminalSessionStore(context: Context) {
@@ -43,19 +43,55 @@ internal class TerminalSessionStore(context: Context) {
     private var listener: IRuntimeStateListener? = null
     private var observerOwner: Any? = null
     private var observer: ((String) -> Unit)? = null
+    private val retry = dev.terminal.runtime.lifecycle.ReconnectBackoff()
+    private val staleMirrors = mutableSetOf<String>()
+    private val redrawIds = mutableSetOf<String>()
+    private var redrawPending = false
+    private val redrawFrame = android.view.Choreographer.FrameCallback {
+        redrawPending = false
+        val ids = redrawIds.toList()
+        redrawIds.clear()
+        ids.forEach { observer?.invoke(it) }
+    }
+    private fun redraw(id: String) {
+        if (observer == null) return
+        redrawIds.add(id)
+        if (!redrawPending) {
+            redrawPending = true
+            android.view.Choreographer.getInstance().postFrameCallback(redrawFrame)
+        }
+    }
+    private val detachBackground = Runnable {
+        if (observer != null) return@Runnable
+        staleMirrors += sessions.keys
+        sessions.keys.toList().forEach(::remove)
+        releaseUnusedBinding()
+    }
+    internal fun hasMirror(id: String) = id in attached
+    companion object { const val BACKGROUND_GRACE_MS = 5_000L }
     private val exitCodes = mutableMapOf<String, Int>()
 
     fun observe(owner: Any, changed: (String) -> Unit) {
+        main.removeCallbacks(detachBackground)
+        retry.reset()
         observerOwner = owner
         observer = changed
         connect()
+        val stale = staleMirrors.toList()
+        staleMirrors.clear()
+        stale.forEach(changed)
+        sessions.keys.toList().forEach(::attachWhenReady)
     }
 
     fun unobserve(owner: Any) {
         if (observerOwner === owner) {
             observerOwner = null
             observer = null
-            releaseUnusedBinding()
+            android.view.Choreographer.getInstance().removeFrameCallback(redrawFrame)
+            redrawPending = false
+            redrawIds.clear()
+            main.removeCallbacks(detachBackground)
+            main.postDelayed(detachBackground, BACKGROUND_GRACE_MS)
         }
     }
 
@@ -70,11 +106,12 @@ internal class TerminalSessionStore(context: Context) {
         )
         backends[id] = backend
         TerminalSession("", "/", emptyArray(), emptyArray(), transcriptRows,
-            TerminalCallbacks(redraw = { observer?.invoke(id) }), backend)
+            TerminalCallbacks(redraw = { redraw(id) }), backend)
     }
 
     fun attachWhenReady(id: String) {
         val runtime = service ?: return
+        if (observer == null && sessions.isEmpty()) return
         if (sessions[id]?.emulator == null || !attached.add(id)) return
         val currentGeneration = generation
         val backend = backends.getValue(id)
@@ -212,6 +249,7 @@ internal class TerminalSessionStore(context: Context) {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) {
             val runtime = IRuntimeService.Stub.asInterface(binder)
             service = runtime
+            retry.reset()
             val current = createListener(++generation)
             listener = current
             revision = -1L
@@ -245,7 +283,7 @@ internal class TerminalSessionStore(context: Context) {
         if (binding) return
         main.removeCallbacks(reconnect)
         binding = context.bindService(Intent(context, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE)
-        if (!binding) main.postDelayed(reconnect, 1000)
+        if (!binding) main.postDelayed(reconnect, retry.nextDelayMs())
     }
 
     private fun disconnected() {
@@ -259,6 +297,6 @@ internal class TerminalSessionStore(context: Context) {
         lost.forEach(::remove)
         lost.forEach { observer?.invoke(it) }
         main.removeCallbacks(reconnect)
-        main.postDelayed(reconnect, 1000)
+        if (observer != null) main.postDelayed(reconnect, retry.nextDelayMs())
     }
 }

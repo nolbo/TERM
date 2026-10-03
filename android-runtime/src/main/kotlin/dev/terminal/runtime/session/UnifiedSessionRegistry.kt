@@ -28,6 +28,7 @@ import kotlinx.coroutines.sync.withLock
 class UnifiedSessionRegistry(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val beforeCreate: () -> Unit = {},
+    private val onDisconnected: (SessionRuntime, String) -> Unit = { _, _ -> },
     private val onInput: (String, ByteArray) -> Unit = { _, _ -> },
     private val recordLaunch: (String, SessionLaunchSpec) -> Unit = { _, _ -> },
     private val remoteCommand: (suspend (String, String) -> ByteArray?)? = null,
@@ -66,7 +67,10 @@ class UnifiedSessionRegistry(
 
     fun register(runtime: SessionRuntime, controller: SessionController, storageId: String = "legacy") {
         val key = StorageKey(runtime, storageId)
-        registrations.remove(key)?.jobs?.forEach(Job::cancel)
+        registrations.remove(key)?.let { old ->
+            old.jobs.forEach(Job::cancel)
+            if (old.controller !== controller) old.controller.close()
+        }
         val eventJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             controller.events.collect { event ->
                 val sessionId = when (event) {
@@ -108,7 +112,8 @@ class UnifiedSessionRegistry(
         val stateJob = scope.launch {
             controller.connectionState.collect { state ->
                 if (state == SessionConnectionState.DISCONNECTED) {
-                    owners.entries.removeAll { it.value == key }
+                    // Transport loss is not session loss; preserve sibling owners and checkpoints.
+                    onDisconnected(key.runtime, key.storageId)
                 }
             }
         }
@@ -117,6 +122,10 @@ class UnifiedSessionRegistry(
 
     fun isRegistered(runtime: SessionRuntime, storageId: String = "legacy"): Boolean =
         registrations.containsKey(StorageKey(runtime, storageId))
+
+    fun disconnectedStorages(runtime: SessionRuntime): List<String> = registrations.entries
+        .filter { it.key.runtime == runtime && it.value.controller.connectionState.value == SessionConnectionState.DISCONNECTED }
+        .map { it.key.storageId }
 
     /** Proves idleness from the owner, never a cached list, and excludes creation during commit.
      * Existing controllers retain their paths and AVF instance; only their idle registration changes.

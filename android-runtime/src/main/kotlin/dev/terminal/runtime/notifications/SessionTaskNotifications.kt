@@ -29,6 +29,9 @@ internal class SessionTaskNotifications(private val context: Context) {
         if (!value) manager.activeNotifications.filter { it.notification.channelId == CHANNEL_ID }
             .forEach { manager.cancel(it.tag, it.id) }
     }
+    fun running(ids: Set<String>) = tracker.running(ids)
+    fun workActive() = tracker.workActive()
+    fun nextExpiryMs() = tracker.nextExpiryMs()
     fun input(id: String, bytes: ByteArray) = tracker.input(id, bytes)
     fun output(id: String, bytes: ByteArray, replay: Boolean, title: () -> String) =
         tracker.output(id, bytes, replay).forEach { post(it, title()) }

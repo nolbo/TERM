@@ -640,6 +640,24 @@ public final class TerminalView extends View {
         return mEmulator == null ? 1 : mEmulator.getScreen().getActiveRows() + mTopRow - mEmulator.mRows;
     }
 
+    private final Runnable mGraphicsFrame = () -> {
+        if (isShown() && getWindowVisibility() == VISIBLE) invalidate();
+    };
+
+    @Override
+    protected void onWindowVisibilityChanged(int visibility) {
+        super.onWindowVisibilityChanged(visibility);
+        if (mGraphicsFrame != null) removeCallbacks(mGraphicsFrame);
+        if (visibility == VISIBLE) postInvalidateOnAnimation();
+    }
+
+    @Override
+    protected void onVisibilityChanged(View changedView, int visibility) {
+        super.onVisibilityChanged(changedView, visibility);
+        if (mGraphicsFrame != null) removeCallbacks(mGraphicsFrame);
+        if (isShown()) postInvalidateOnAnimation();
+    }
+
     public void onScreenUpdated() {
         if (mEmulator == null) return;
 
@@ -665,7 +683,7 @@ public final class TerminalView extends View {
 
         saveSessionScrollPosition();
 
-        invalidate();
+        postInvalidateOnAnimation();
         if (mAccessibilityEnabled) setContentDescription(getText());
     }
 
@@ -1474,7 +1492,9 @@ public final class TerminalView extends View {
             mRenderer.setCanvasBackgroundOverride(mCanvasBackgroundOverride);
             mRenderer.render(mEmulator, canvas, mTopRow, sel[0], sel[1], sel[2], sel[3], mScrollOffset, getTerminalContentTopInset());
             long graphicsDelay = syncDelay > 0 ? syncDelay : mEmulator.getGraphics().getAnimationDelayMillis();
-            if (graphicsDelay >= 0) postInvalidateDelayed(Math.max(16, graphicsDelay));
+            removeCallbacks(mGraphicsFrame);
+            if (graphicsDelay >= 0 && isShown() && getWindowVisibility() == VISIBLE)
+                postDelayed(mGraphicsFrame, Math.max(16, graphicsDelay));
 
             // render the text selection handles
             renderTextSelection();
@@ -1986,6 +2006,7 @@ public final class TerminalView extends View {
 
     @Override
     protected void onDetachedFromWindow() {
+        removeCallbacks(mGraphicsFrame);
         if (mRenderer != null) mRenderer.clearPresentedFrame();
         super.onDetachedFromWindow();
 

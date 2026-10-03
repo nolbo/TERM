@@ -9,6 +9,66 @@ class SessionActivityTrackerTest {
     private fun SessionActivityTracker.send(value: String, id: String = "native-a", replay: Boolean = false) = output(id, value.toByteArray(), replay)
     private fun osc(value: String) = "\u001b]$value\u0007"
 
+    @Test fun idleAndLongSilentCommandWorkAreIndependentOfNotifications() {
+        val tracker = tracker(false)
+        tracker.running(setOf("native-a"))
+        assertTrue(tracker.workActive())
+        tracker.send(osc("133;A"))
+        assertFalse(tracker.workActive())
+        tracker.input("native-a", "sleep 7200".toByteArray())
+        assertFalse(tracker.workActive())
+        tracker.input("native-a", "\r".toByteArray())
+        now = 7_200_000
+        assertTrue(tracker.workActive())
+        tracker.setEnabled(true)
+        assertTrue(tracker.workActive())
+        tracker.send(osc("133;D;0"))
+        assertFalse(tracker.workActive())
+        assertNull(tracker.nextExpiryMs())
+    }
+
+    @Test fun fragmentedBoundariesAndSiblingExitPreserveOtherCommands() {
+        val tracker = tracker(false)
+        tracker.running(setOf("native-a", "rootless-b"))
+        tracker.send(osc("133;A"))
+        tracker.send("\u001b]133;", "rootless-b")
+        tracker.send("C\u0007", "rootless-b")
+        tracker.forget("native-a")
+        now = 10_000_000
+        assertTrue(tracker.workActive())
+        tracker.running(setOf("rootless-b"))
+        assertTrue(tracker.workActive())
+        tracker.exited("rootless-b", 0)
+        assertFalse(tracker.workActive())
+    }
+
+    @Test fun unknownShellLeaseExpiresAndReplayOrSnapshotNeverRenewsIt() {
+        val tracker = tracker(false)
+        tracker.running(setOf("native-a"))
+        now = SessionActivityTracker.UNKNOWN_WORK_LEASE_MS - 1
+        tracker.running(setOf("native-a"))
+        tracker.send("old output", replay = true)
+        assertEquals(1L, tracker.nextExpiryMs())
+        now++
+        assertFalse(tracker.workActive())
+        assertNull(tracker.nextExpiryMs())
+        tracker.input("native-a", "sleep 30\r".toByteArray())
+        assertTrue(tracker.workActive())
+        now += SessionActivityTracker.UNKNOWN_WORK_LEASE_MS
+        assertFalse(tracker.workActive())
+        tracker.send("live output")
+        assertTrue(tracker.workActive())
+        tracker.running(emptySet())
+        assertFalse(tracker.workActive())
+    }
+
+    @Test fun pasteAtPromptNeverBecomesActiveWork() {
+        val tracker = tracker(false)
+        tracker.send(osc("133;A"))
+        tracker.input("native-a", "\u001b[200~sleep 30\n\u001b[201~".toByteArray())
+        assertFalse(tracker.workActive())
+    }
+
     @Test fun onlyLongCommandsCompleteAndReplayedHistoryNeverNotifies() {
         val tracker = tracker()
         tracker.send(osc("133;C")); now = 9999

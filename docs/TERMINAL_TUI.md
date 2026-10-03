@@ -53,7 +53,9 @@ Neovim의 `mouse` 설정처럼 마우스를 켠 프로그램은 휠 이벤트를
 
 `UnifiedSessionRegistry`의 `RuntimeTerminalState`가 `:vmhost` 서비스 프로세스에서 세션 생성 직후부터 터미널 상태를 유지한다. Native·Rootless 출력과 AVF 스트림을 UI 존재 여부와 관계없이 해석하고, 커서 위치·색상·기능 질의에 한 번만 응답한다. 프로필 또는 전역 팔레트는 첫 출력 전에 적용한다. PTY·VM 소유권은 기존 런타임 컨트롤러에 남는다.
 
-`TerminalSessionStore`는 Application에 속한 UI 미러다. Activity가 멈추거나 파괴되어도 살아 있는 미러는 출력을 소비한다. 새 UI 프로세스나 재연결은 원시 출력 재생 대신 런타임의 완전한 체크포인트를 설치한다. 기본·대체 버퍼와 설정된 범위의 스크롤백, 셀 문자·폭·줄바꿈·스타일·밑줄 색상, 현재·저장 커서, 여백·탭·문자 집합, 입력·마우스·키보드 모드와 스택, 제목·팔레트, 미완성 UTF-8·CSI·OSC·DCS·APC, 진행 중 이미지 전송·SIXEL·kitty 이미지·애니메이션·배치를 전달한다. UI의 출력·클라이언트 바인딩은 전송하지 않는다.
+`TerminalSessionStore`는 Application에 속한 UI 미러다. Activity가 보이지 않으면 5초 동안 미러와 출력 구독을 유지한다. 유예 시간 안에 돌아오면 기존 미러를 그대로 사용한다. 이후에는 UI 미러·체크포인트·출력 구독과 UI의 서비스 바인딩을 해제하여 중복 파싱을 중단한다. runtime·PTY·authoritative emulator는 계속 출력을 처리하며 세션 종료나 runtime stop은 실행하지 않는다. 복귀하면 새 미러에 runtime checkpoint와 저장된 viewport를 설치하므로 이전 구독의 늦은 출력이 새 화면에 섞이지 않는다. 새 UI 프로세스나 재연결은 원시 출력 재생 대신 런타임의 완전한 체크포인트를 설치한다. 기본·대체 버퍼와 설정된 범위의 스크롤백, 셀 문자·폭·줄바꿈·스타일·밑줄 색상, 현재·저장 커서, 여백·탭·문자 집합, 입력·마우스·키보드 모드와 스택, 제목·팔레트, 미완성 UTF-8·CSI·OSC·DCS·APC, 진행 중 이미지 전송·SIXEL·kitty 이미지·애니메이션·배치를 전달한다. UI의 출력·클라이언트 바인딩은 전송하지 않는다.
+
+출력 바이트는 기존 순서와 backpressure를 그대로 유지한다. UI 변경 알림만 Choreographer frame 단위로 합쳐 terminal redraw·접근성·chrome 갱신을 줄인다. kitty/SIXEL 애니메이션 redraw는 실제로 보이는 TerminalView에서만 예약하며 창 숨김·뷰 숨김·detach 시 예약된 callback을 제거한다. 숨겨진 탭의 미러는 렌더링 타이머를 소유하지 않는다.
 
 ## 복원 순서와 화면 위치
 
@@ -119,3 +121,11 @@ Activity 재생성·파괴·재진입과 UI 프로세스 종료 후의 재연결
 - 실제 UI 프로세스만 종료한 전체 화면·일반 기록 위치 시나리오도 다시 성공했다. 런타임 PID가 유지됐으며 9 MiB 백그라운드 출력과 1 MiB를 넘는 체크포인트에서 두 버퍼·기록·셀 스타일·색상·이미지·입력 모드·미완성 CSI·OSC 및 읽던 기록 앵커를 복원했다. 새 개행 모드와 Enter 인코딩도 복원 확인에 포함했다.
 - 첫 기기 실행에서 새 미러의 비동기 체크포인트 설치 전에 검사해 실패한 테스트는 설치 완료를 기다리도록 수정한 뒤 다시 통과했다. 기존 여백 테스트는 xterm의 영역 안·밖 커서 동작을 구분하는 입력으로 갱신했다.
 - Android MCP로 APK 설치와 실제 프로세스 종료·복귀를 검증했고 Replicant로 기기 입력·수명 회귀를 실행했다. Context7 조회를 공식 xterm 문서·원본 코드로 대조했으며, VT510 문서 조회 실패는 해당 공식 자료로 보완했다. 연결된 외부 앱 작업이 없어 codex_apps는 사용하지 않았다.
+
+## 배터리 최적화 검증 (2026-10-03)
+
+- canonical `:android-app:assembleDebug :android-runtime:testDebugUnitTest :image:test`와 추가 `:android-app:testDebugUnitTest :terminal-view:testDebugUnitTest`가 통과했다. runtime 단위 테스트는 230개 성공·외부 archive fixture가 필요한 1개 생략, 앱 117개·image 4개·terminal-view 14개가 성공했다.
+- Android 15 ARM64 redroid에서 idle prompt의 실제 partial wake lock 해제와 조용한 command의 background 유지·종료 해제, 5초 유예 내 미러 재사용과 이후 구독 해제, PTY·sibling 보존, 기본·대체 화면·미완성 CSI·scrollback·graphics·viewport 복원, 출력 폭주·재생성 및 polling STOP/START를 검증했다. 관련 기기 검사 14개가 성공했고 Rootless graphics 1개는 이미지 미설치로 생략했다.
+- 최초 instrumentation 호출의 timeout으로 UiAutomation 연결이 끊긴 문제는 기기에서 검사 프로세스를 독립 실행하고 결과를 읽는 방식으로 해결했다. 기존 viewport fixture는 runtime checkpoint와 경합하는 UI 미러 직접 수정 대신 실제 PTY 출력을 사용하도록 바꿨고, toolbar fixture는 키보드 숨김을 BACK 탐색 입력과 분리했다.
+- Android MCP는 target 확인·APK 설치·instrumentation·`dumpsys power` 증거를 제공했다. Replicant는 UI 상태·탐색을 확인했다. Replicant의 기본 launch 실패와 non-exported MainActivity 직접 시작 실패는 실제 exported SetupActivity로 우회했다. Context7은 Android View frame callback·취소 API를 확인했으며 외부 앱 저장소 작업이 없어 codex_apps는 사용하지 않았다.
+- AVF 특권 guest/bridge 실연결과 실제 배터리 소비량 측정은 수행하지 않았다. backoff 단계·reset·대기 중 reset·무작업 retry 중단 및 AVF transport 교체 시 sibling/checkpoint 보존은 단위 테스트로 검증했다. 명령 경계 신호가 없는 셸의 10분 lease 한계는 RUNTIMES와 사용자 가이드에 명시했다.

@@ -41,13 +41,14 @@ internal fun ToolbarMemoryTool(active: Boolean, sessions: List<SessionUi>, refre
     var failed by remember { mutableStateOf(false) }
     var refresh by remember { mutableIntStateOf(0) }
     val loader by rememberUpdatedState(load)
-    LaunchedEffect(active, refresh, refreshSeconds, sections) {
-        if (!active || !sections.any) return@LaunchedEffect
+    VisiblePolling(active, refresh, refreshSeconds, sections) {
+        if (!active || !sections.any) return@VisiblePolling
         while (isActive) {
             val result = withContext(Dispatchers.IO) { runCatching { loader()?.let(::JSONObject) }.getOrNull() }
+            val unchanged = result?.toString() == snapshot?.toString()
             snapshot = result
             failed = result == null
-            delay(refreshSeconds.coerceIn(2, 30) * 1000L)
+            delay((if (unchanged) maxOf(15, refreshSeconds) else refreshSeconds).coerceIn(2, 30) * 1000L)
         }
     }
     val scroll = rememberLazyListState()

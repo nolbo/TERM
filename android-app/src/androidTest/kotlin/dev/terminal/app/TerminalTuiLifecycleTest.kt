@@ -35,12 +35,142 @@ class TerminalTuiLifecycleTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
 
+    @Test fun idlePromptReleasesWakeLockButSilentCommandKeepsItAfterUiDetach() = withSession { service, id ->
+        val oldPolicy = service.wakePolicy
+        fun held(): Boolean = instrumentation.uiAutomation.executeShellCommand("dumpsys power").use { fd ->
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(fd).bufferedReader().use { reader ->
+                reader.readText().lineSequence().any { it.contains("PARTIAL_WAKE_LOCK") && it.contains("DroidTerminal:guest-work") }
+            }
+        }
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val terminal = select(scenario, id)
+                service.writeSessionInput(id, "printf 'WAKE_PROMPT_READY\\n'\n".toByteArray())
+                await("prompt ready") { "WAKE_PROMPT_READY" in screen(terminal).lines() }
+                service.setWakePolicy("KEEP_ACTIVE_WORK_RUNNING")
+                await("idle shell releases partial wake lock") { !held() }
+                service.writeSessionInput(id, "sleep 12; printf 'WAKE_COMMAND_DONE\\n'\n".toByteArray())
+                await("command acquires partial wake lock") { held() }
+                scenario.moveToState(Lifecycle.State.CREATED)
+                val store = (context.applicationContext as TerminalApplication).terminalSessions
+                await("UI mirror detached while silent command runs") {
+                    var detached = false
+                    instrumentation.runOnMainSync { detached = !store.hasMirror(id) }
+                    detached
+                }
+                assertTrue("UI detach cannot release command wake lock", held())
+                await("command completion releases partial wake lock") { !held() }
+                scenario.moveToState(Lifecycle.State.RESUMED)
+                val restored = select(scenario, id)
+                await("command output survived background") { screen(restored).contains("WAKE_COMMAND_DONE") }
+            }
+        } finally { service.setWakePolicy(oldPolicy) }
+    }
+
+    @Test fun gracePeriodKeepsMirrorThenBackgroundDetachRestoresCheckpointAndSibling() = withSession { service, id ->
+        withSession { _, sibling ->
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val original = select(scenario, id)
+                val store = (context.applicationContext as TerminalApplication).terminalSessions
+                val script = "stty -echo -icanon min 1 time 0; " +
+                    "printf '\\033[2J\\033[HSHELL_BEFORE\\033[?1049h\\033[HGRACE_READY'; " +
+                    "dd bs=1 count=1 >/dev/null 2>&1; " +
+                    "printf '\\033[2;1HBACKGROUND_ONLY\\033[4;'; " +
+                    "dd bs=1 count=1 >/dev/null 2>&1; " +
+                    "printf '1HRESTORED_PARSER'; " +
+                    "dd bs=1 count=1 >/dev/null 2>&1; " +
+                    "printf '\\033[?1049l'; stty echo icanon\n"
+                service.writeSessionInput(id, script.toByteArray())
+                await("TUI ready") { screen(original).contains("GRACE_READY") }
+                scenario.moveToState(Lifecycle.State.CREATED)
+                instrumentation.runOnMainSync { assertTrue(store.hasMirror(id)) }
+                scenario.moveToState(Lifecycle.State.RESUMED)
+                assertSame(original, select(scenario, id))
+                scenario.moveToState(Lifecycle.State.CREATED)
+                await("background subscription detached after grace") {
+                    var detached = false
+                    instrumentation.runOnMainSync { detached = !store.hasMirror(id) && id !in store.sessions }
+                    detached
+                }
+                service.writeSessionInput(id, "A".toByteArray())
+                service.writeSessionInput(sibling, "printf 'SIBLING_STILL_ALIVE\\n'\n".toByteArray())
+                // A fresh checkpoint proves runtime consumed output after all UI mirrors detached.
+                SystemClock.sleep(300)
+                assertFalse(screen(original).contains("BACKGROUND_ONLY"))
+                val listed = JSONArray(service.sessionsJson)
+                assertTrue((0 until listed.length()).any {
+                    listed.getJSONObject(it).getString("id") == id && listed.getJSONObject(it).getString("state") == "RUNNING"
+                })
+                scenario.moveToState(Lifecycle.State.RESUMED)
+                val restored = select(scenario, id)
+                assertNotSame(original, restored)
+                await("background alternate screen restored") { screen(restored).contains("BACKGROUND_ONLY") }
+                instrumentation.runOnMainSync { assertTrue(restored.emulator.isAlternateBufferActive) }
+                service.writeSessionInput(id, "B".toByteArray())
+                await("unfinished CSI restored") { screen(restored).contains("RESTORED_PARSER") }
+                service.writeSessionInput(id, "C".toByteArray())
+                await("main buffer restored") { screen(restored).contains("SHELL_BEFORE") }
+                val other = select(scenario, sibling)
+                await("sibling survived UI detach") { screen(other).contains("SIBLING_STILL_ALIVE") }
+            }
+        }
+    }
+
+    @Test fun scrollbackViewportAndGraphicsRestoreAfterGraceExpiry() = withSession { service, id ->
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            val original = select(scenario, id)
+            val script = "i=1; while [ \$i -le 200 ]; do printf 'anchor-%s\\r\\n' \"\$i\"; i=\$((i+1)); done; " +
+                "stty -echo -icanon min 1 time 0; dd bs=1 count=1 >/dev/null 2>&1; " +
+                "printf '\\r\\nAFTER_DETACH\\r\\n\\033_Ga=T,i=97,f=24,s=1,v=1,C=1,q=2;/wAA\\033\\\\'; " +
+                "dd bs=1 count=1 >/dev/null 2>&1; stty echo icanon\n"
+            val encoded = java.util.Base64.getEncoder().encodeToString(script.toByteArray())
+            service.writeSessionInput(id, "sh -c \"\$(printf %s $encoded | base64 -d)\"\n".toByteArray())
+            await("runtime scrollback ready") { "anchor-200" in screen(original).lines() }
+            var anchor = ""
+            instrumentation.runOnMainSync {
+                val terminalView = checkNotNull(view(scenario))
+                terminalView.topRow = -40
+                terminalView.saveSessionScrollPosition()
+                anchor = original.emulator.screen.getSelectedText(0, terminalView.topRow, 30, terminalView.topRow)
+            }
+            scenario.moveToState(Lifecycle.State.CREATED)
+            val store = (context.applicationContext as TerminalApplication).terminalSessions
+            await("scrollback mirror detached") {
+                var detached = false
+                instrumentation.runOnMainSync { detached = !store.hasMirror(id) }
+                detached
+            }
+            service.writeSessionInput(id, "A".toByteArray())
+            SystemClock.sleep(300)
+            scenario.moveToState(Lifecycle.State.RESUMED)
+            val restored = select(scenario, id)
+            await("graphics and output checkpoint") {
+                var done = false
+                instrumentation.runOnMainSync {
+                    done = restored.emulator.screen.transcriptText.contains("AFTER_DETACH") &&
+                        restored.emulator.graphics.placements.any { it.imageId == 97L }
+                }
+                done
+            }
+            scenario.onActivity {
+                val terminalView = checkNotNull(view(scenario))
+                assertTrue("viewport must remain in history", terminalView.topRow < 0)
+                assertEquals(anchor, restored.emulator.screen.getSelectedText(0, terminalView.topRow, 30, terminalView.topRow))
+                assertEquals(0xffff0000.toInt(), restored.emulator.graphics.placements.first { it.imageId == 97L }.image.pixels[0])
+            }
+            service.writeSessionInput(id, "B".toByteArray())
+        }
+    }
+
     @Test fun toolbarModesKeepTerminalGridAdjacentToHandle() = withSession { _, id ->
         val padding = TerminalAppearance.paddingDp(context.getSharedPreferences(
             SettingsDetailActivity.TERMINAL_PREFERENCES, Context.MODE_PRIVATE)) * context.resources.displayMetrics.density
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             select(scenario, id)
-            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            scenario.onActivity { activity ->
+                activity.getSystemService(android.view.inputmethod.InputMethodManager::class.java)
+                    .hideSoftInputFromWindow(view(scenario)?.windowToken, 0)
+            }
             for (mode in listOf(ToolbarSheetMode.Default, ToolbarSheetMode.Expanded, ToolbarSheetMode.Hidden, ToolbarSheetMode.Default)) {
                 scenario.onActivity { activity ->
                     @Suppress("UNCHECKED_CAST")
@@ -237,12 +367,13 @@ class TerminalTuiLifecycleTest {
         var anchoredText = ""
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             terminal = select(scenario, id)
+            service.writeSessionInput(id, "i=1; while [ \$i -le 200 ]; do printf 'history-%s\\n' \"\$i\"; i=\$((i+1)); done\n".toByteArray())
+            await("runtime history available") { "history-200" in screen(terminal).lines() }
             instrumentation.runOnMainSync {
-                val bytes = (1..200).joinToString("\r\n") { "history-$it" }.toByteArray()
-                terminal.emulator.append(bytes, bytes.size)
                 view(scenario)!!.onScreenUpdated()
                 view(scenario)!!.topRow = -40
                 anchoredText = terminal.emulator.screen.getSelectedText(0, -40, 30, -40)
+                view(scenario)!!.saveSessionScrollPosition()
             }
         }
         // No Activity owns or observes this terminal now. Its application-scoped

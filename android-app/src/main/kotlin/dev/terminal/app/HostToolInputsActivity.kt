@@ -19,6 +19,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.SettingsPageScaffold
+import dev.terminal.app.ui.VisiblePolling
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.lifecycle.VmRuntimeService
@@ -51,12 +52,13 @@ class HostToolInputsActivity : TerminalActivity() {
         compose {
             val scope = rememberCoroutineScope()
             var busy by remember { mutableStateOf(false) }
-            LaunchedEffect(service) {
-                val runtime = service ?: return@LaunchedEffect
+            VisiblePolling(service, busy) {
+                val runtime = service ?: return@VisiblePolling
                 while (true) {
                     runCatching { withContext(Dispatchers.IO) { JSONArray(runtime.hostToolOperationsJson) } }
                         .onSuccess { operations = it }.onFailure { message = "HOST_INPUT_UNAVAILABLE" }
-                    delay(1000)
+                    val active = (0 until operations.length()).any { operations.getJSONObject(it).optString("state") == "RUNNING" }
+                    delay(if (active) 1_000 else 10_000)
                 }
             }
             SettingsPageScaffold(stringResource(R.string.host_tool_inputs_title), { finish() }) { padding ->

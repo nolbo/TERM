@@ -288,6 +288,41 @@ class UnifiedSessionRegistryTest {
         registry.close()
     }
 
+    @Test fun reconnectingAnAvfTransportPreservesSiblingOwnersAndTerminalCheckpoint() = runBlocking {
+        val disconnected = java.util.concurrent.LinkedBlockingQueue<Pair<SessionRuntime, String>>()
+        val native = FakeController("native-a")
+        val avf = FakeController("avf-a")
+        val registry = UnifiedSessionRegistry(onDisconnected = { runtime, storage -> disconnected.offer(runtime to storage) })
+        try {
+            registry.register(SessionRuntime.NATIVE, native)
+            registry.register(SessionRuntime.AVF, avf)
+            registry.list().getOrThrow()
+            registry.terminalStates.create("avf-a", 80, 24)
+            registry.terminalStates.output("avf-a", "KEPT".toByteArray())
+            avf.failList = true
+            avf.disconnect()
+            assertEquals(SessionRuntime.AVF to "legacy", disconnected.poll(2, java.util.concurrent.TimeUnit.SECONDS))
+            assertEquals(listOf("legacy"), registry.disconnectedStorages(SessionRuntime.AVF))
+            assertEquals(SessionRuntime.AVF, registry.runtimeOf("avf-a"))
+            assertEquals(listOf("native-a", "avf-a"), registry.list().getOrThrow().map { it.id })
+            registry.register(SessionRuntime.AVF, FakeController("avf-a"))
+            assertTrue(registry.disconnectedStorages(SessionRuntime.AVF).isEmpty())
+            registry.write("native-a", byteArrayOf(1)).getOrThrow()
+            assertEquals(1, native.writeCount)
+            assertFalse(native.closed)
+            val checkpoint = object : RuntimeTerminalState.Sink {
+                override fun checkpoint(emulator: com.termux.terminal.TerminalEmulator, viewport: RuntimeTerminalState.Viewport?) {
+                    assertTrue(emulator.screen.transcriptText.contains("KEPT"))
+                }
+                override fun output(bytes: ByteArray) = Unit
+                override fun resized(columns: Int, rows: Int, cellWidth: Int, cellHeight: Int) = Unit
+                override fun exited(code: Int) = Unit
+            }
+            registry.terminalStates.subscribe("avf-a", checkpoint)
+            assertTrue(avf.closed)
+        } finally { registry.close() }
+    }
+
     @Test fun duplicateTerminationCannotTouchSiblingOrCloseRegistry() = runBlocking {
         val native = FakeController("native-a", extraIds = listOf("native-b"))
         val registry = UnifiedSessionRegistry()
@@ -400,6 +435,7 @@ class UnifiedSessionRegistryTest {
         private val mutableState = MutableStateFlow(SessionConnectionState.CONNECTED)
         override val events: SharedFlow<SessionEvent> = mutableEvents
         override val connectionState: StateFlow<SessionConnectionState> = mutableState
+        fun disconnect() { mutableState.value = SessionConnectionState.DISCONNECTED }
         var writeCount = 0
         var detachCount = 0
         var createCount = 0

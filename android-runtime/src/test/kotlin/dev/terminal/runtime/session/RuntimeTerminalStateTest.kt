@@ -86,6 +86,28 @@ class RuntimeTerminalStateTest {
         assertTrue(state.output("id", "queued after termination".toByteArray()).isEmpty())
     }
 
+    @Test fun backgroundDetachRestoresIntoSameMirrorWithoutTouchingSiblingOrSessionState() {
+        val state = RuntimeTerminalState()
+        state.create("a", 40, 8); state.create("b", 40, 8)
+        val a = Mirror(); val b = Mirror()
+        state.subscribe("a", a); state.subscribe("b", b)
+        state.output("a", "SHELL\u001b[?1049hTUI".toByteArray())
+        state.viewport("a", RuntimeTerminalState.Viewport(-2, .25f, 5))
+        state.unsubscribe("a", a)
+        val prior = a.order.size
+        state.output("a", "BACKGROUND\u001b[4;".toByteArray())
+        state.output("b", "SIBLING".toByteArray())
+        assertEquals(prior, a.order.size)
+        assertTrue(b.emulator.screen.transcriptText.contains("SIBLING"))
+        state.subscribe("a", a)
+        assertTrue(a.emulator.isAlternateBufferActive)
+        assertTrue(a.emulator.screen.transcriptText.contains("BACKGROUND"))
+        assertEquals(RuntimeTerminalState.Viewport(-2, .25f, 5), a.viewport)
+        state.output("a", "1HRESTORED\u001b[?1049l".toByteArray())
+        assertTrue(a.emulator.screen.transcriptText.contains("SHELL"))
+        assertFalse(a.emulator.isAlternateBufferActive)
+    }
+
     @Test fun initialAndRestoredPaletteQueriesUseTheSameDefaultsAndKeepOscChanges() {
         val state = RuntimeTerminalState(); state.create("id", 40, 8)
         val colors = TerminalPalette.resolve({ key, fallback -> if (key == "palette") "SOLARIZED_DARK" else fallback })

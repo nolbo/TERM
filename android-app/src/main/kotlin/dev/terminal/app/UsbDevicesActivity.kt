@@ -11,6 +11,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import dev.terminal.app.ui.VisiblePolling
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.ui.UsbSettingsAction
 import dev.terminal.app.ui.UsbSettingsCommand
@@ -52,12 +53,12 @@ class UsbDevicesActivity : TerminalActivity() {
                     .onFailure { error = getString(R.string.usb_action_failed) }
                 storageSelection = null
             }
-            LaunchedEffect(runtime) {
-                val service = runtime ?: return@LaunchedEffect
+            VisiblePolling(runtime, command, storageSelection) {
+                val service = runtime ?: return@VisiblePolling
                 while (true) {
                     runCatching { withContext(Dispatchers.IO) { UsbSettingsSnapshot.parse(JSONObject(service.usbStateJson)) } }
                         .onSuccess { state = it }.onFailure { state = null; error = getString(R.string.usb_service_unavailable) }
-                    delay(1000)
+                    delay(if (state?.requests?.isNotEmpty() == true || state?.diagnostics?.any { it.second > 0 } == true) 1_000 else 10_000)
                 }
             }
             LaunchedEffect(command) {

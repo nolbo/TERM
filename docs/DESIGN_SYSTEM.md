@@ -255,7 +255,7 @@ Application 소유 controller에서 관찰하므로 화면 재생성·닫기로 
 설치는 별도 확인을 거쳐 시스템 설치 화면에 넘기며, APK 교체로 실행 중인
 터미널 세션이 끊길 수 있음을 안내한다. UI는 세션 종료나 자동 앱 삭제를 하지 않는다.
 
-Compose 상태는 서비스 상태의 투영일 뿐 권위 있는 세션 저장소가 아니다. Activity가 시작되거나 서비스에 재연결되면 세션 목록과 runtime 상태를 다시 읽는다. `AndroidView` 재구성은 `TerminalView`를 불필요하게 만들거나 세션을 종료하지 않으며, Activity 정지는 renderer callback을 detach하고 로컬 emulator projection만 폐기한다.
+Compose 상태는 서비스 상태의 투영일 뿐 권위 있는 세션 저장소가 아니다. Activity가 시작되거나 서비스에 재연결되면 세션 목록과 runtime 상태를 다시 읽는다. `AndroidView` 재구성은 `TerminalView`를 불필요하게 만들거나 세션을 종료하지 않으며, Activity가 보이지 않으면 renderer callback을 detach하며, 로컬 emulator projection과 출력 구독은 5초 유예 후 폐기한다. 유예 시간 안에 복귀하면 미러를 재사용하고, 이후에는 authoritative runtime checkpoint로 복원한다. UI의 메모리·USB·host-tool polling은 화면이 보일 때만 실행하며 idle 상태에서는 간격을 늘린다.
 
 PTY, 프로세스, Rootless 설치와 VM은 계속 `:vmhost` runtime 서비스가 소유한다. 대화상자 닫기, 세션 전환, Activity 재생성 또는 UI task 제거는 terminate 명령이 아니다. 실제 종료는 사용자가 명시적으로 요청한 세션 종료 동작을 runtime이 처리할 때만 일어난다. 기본적으로 종료 확인 대화상자를 거치며, 사용자가 **탭 삭제 시 묻지 않기**를 켠 경우에는 종료 아이콘 클릭이 명시적 종료 요청이다.
 

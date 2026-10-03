@@ -325,7 +325,10 @@ Runtime selection is explicit. A failed Rootless or AVF request is never moved
 to another backend.
 
 The UI tracks runtime attachment separately from its cached terminal renderer.
-Background/foreground transitions retain the live UI mirror and transport. On
+Background transitions retain the live UI mirror for a five-second grace period.
+After that, invisible UI subscriptions detach and cached mirrors are discarded;
+PTYs, runtime terminal state, and background operations continue. Foreground
+return installs a complete checkpoint into a fresh mirror before live output. On
 resume, appearance is applied at the session's effective font size without an
 intermediate default-size resize. Unchanged text size and font settings reuse
 the renderer and loaded fonts; changing the custom font list, order or style
@@ -405,12 +408,27 @@ guest work. Neither component treats a foreground service as an execution
 guarantee.
 
 Wake policy is persisted host-side. `KEEP_ACTIVE_WORK_RUNNING` follows runtime
-work rather than UI attachment: a running session, host-owned setup/start
-operation, or authenticated guest `WORK_ACTIVE` report is active, while
-Activity detach alone does not make it idle. `WORK_IDLE`, the authoritative
-session list, and runtime stop/failure return the policy to idle or stopped
-state. Each partial-wake-lock acquisition remains time-bounded and is renewed
-only while that authoritative work state remains active.
+work rather than UI attachment: live OSC 133 command boundaries (including
+Native prompt submission), host-owned setup/start operations, and authenticated
+guest `WORK_ACTIVE` reports are active. A shell at a known prompt is idle even
+while its session remains RUNNING. Notification preferences do not reset command
+work state. Unsupported or overridden shell hooks retain a ten-minute protection
+lease from creation or the latest live input/output; replay and session-list
+refresh never renew it. This conservative fallback cannot identify a silent
+command beyond that lease without boundaries or a guest work report.
+Activity detach does not change known work. `WORK_IDLE`, command completion,
+owner exit and runtime stop/failure release their corresponding work signals.
+Wake acquisitions remain time-bounded and renew on the original nine-minute
+deadline while work remains active, including silent long commands.
+
+Guest session, bridge and port-agent connection failures use independent bounded
+backoff (2, 4, 8, 15, 30, 60, then 120 seconds). A successful connection, explicit
+input/attachment, setup/start or new session resets the relevant retry state;
+explicit work interrupts a pending delay without replacing healthy connections.
+Retries stop when no running session, pending host operation or guest work
+remains. AVF reconnect replaces only the failed transport registration and
+reattaches its sessions, preserving sibling controllers and terminal checkpoints.
+Port and task notifications remain event-driven.
 
 Settings live in separate UI and `:vmhost` processes. The settings Activity
 sends validated AVF, Native-session, and wake-policy values through typed AIDL
@@ -445,8 +463,10 @@ The runtime process maintains authoritative terminal emulators in
 including both buffers, retained history, parser/input modes and graphics. It
 answers terminal queries independently of UI lifetime. The application-owned
 `TerminalSessionStore` subscribes through an ordered checkpoint/output stream.
-Activity destruction retains its mirror; UI-process death creates a new mirror
-from complete runtime state and its saved viewport. Checkpoints use host-private,
+Brief Activity transitions retain their mirror. Invisible UI releases its
+checkpoint/output subscriptions after the grace period; foreground return and
+UI-process recreation create a new mirror from complete runtime state and its
+saved viewport. No UI detach terminates a session or stops a runtime. Checkpoints use host-private,
 read-only file descriptors rather than Binder-sized byte arrays or a bounded raw
 transcript. PTY and VM ownership remains behind the runtime controllers. See
 [TERMINAL_TUI.md](TERMINAL_TUI.md) for state transfer, lifecycle guarantees and tests.
