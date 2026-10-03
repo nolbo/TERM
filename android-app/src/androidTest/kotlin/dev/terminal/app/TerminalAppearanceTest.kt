@@ -1,6 +1,7 @@
 package dev.terminal.app
 
 import android.content.Context
+import android.net.Uri
 import androidx.test.platform.app.InstrumentationRegistry
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
@@ -11,6 +12,7 @@ import org.junit.Assert.assertSame
 import org.junit.Assert.assertNotSame
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class TerminalAppearanceTest {
     @Test fun resumeKeepsSessionGeometryAndRendererUntilFontSettingsChange() {
@@ -22,6 +24,7 @@ class TerminalAppearanceTest {
             val backend = RemoteTerminalBackend(write = {}, resize = { _, _ -> resizes++ })
             try {
                 preferences.edit().putInt("font-size-sp", 10)
+                    .putString("font-family", "SANS_MONOSPACE")
                     .putBoolean("fixed-width", false)
                     .putBoolean("natural-wide-glyphs", false).commit()
                 val view = TerminalView(context, null).apply {
@@ -39,6 +42,9 @@ class TerminalAppearanceTest {
                 val history = session.emulator.screen.transcriptText
                 val rendererField = TerminalView::class.java.getDeclaredField("mRenderer").apply { isAccessible = true }
                 val renderer = rendererField.get(view)
+                val typefaceField = renderer.javaClass.getDeclaredField("mTypeface").apply { isAccessible = true }
+                assertSame("Retired font selection must use Google Sans Code",
+                    BundledFonts.googleSansCode(context), typefaceField.get(renderer))
                 val optionsField = renderer.javaClass.getDeclaredField("mGlyphRenderOptions").apply { isAccessible = true }
                 val fixedWidthField = renderer.javaClass.getDeclaredField("mForceFixedWidth").apply { isAccessible = true }
                 assertTrue("Retired preferences must not disable natural wide glyphs",
@@ -55,10 +61,19 @@ class TerminalAppearanceTest {
                 assertEquals(history, session.emulator.screen.transcriptText)
                 assertEquals(-30, view.topRow)
 
-                preferences.edit().putString("font-family", "SANS_MONOSPACE").commit()
+                preferences.edit().putString("font-family", "MONOSPACE").commit()
+                TerminalAppearance.apply(preferences, view, 18)
+                assertSame("Retired font selection must not reload fonts", renderer, rendererField.get(view))
+
+                val customFont = File("/system/fonts/Roboto-Regular.ttf")
+                assertTrue("The device must provide a test font", customFont.isFile)
+                saveCustomTerminalFonts(preferences,
+                    listOf(CustomTerminalFont(Uri.fromFile(customFont).toString(), "Test font")))
                 TerminalAppearance.apply(preferences, view, 18)
                 assertNotSame(renderer, rendererField.get(view))
                 val updated = rendererField.get(view)
+                assertNotSame("Custom fonts must keep priority over Google Sans Code",
+                    BundledFonts.googleSansCode(context), typefaceField.get(updated))
                 TerminalAppearance.apply(preferences, view, 18)
                 assertSame(updated, rendererField.get(view))
                 TerminalAppearance.apply(preferences, view, 22)

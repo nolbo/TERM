@@ -33,7 +33,7 @@ TERM의 활성 Android UI는 Jetpack Compose와 Material 3 Expressive를 기준�
 
 - 비동적 다크 색상표는 primary/secondary/tertiary, 모든 on/container, surface container 단계, inverse, outline, error, scrim 역할을 명시한다. 일반 동작과 강조는 `MaterialTheme.colorScheme` 역할을 사용하고, 활성·가용·준비·진행 상태는 이름이 명시된 파란색 semantic token을 사용한다.
 - 앱 루트는 `MaterialExpressiveTheme`와 `MotionScheme.expressive()`를 제공한다. 별도 Expressive API가 있는 버튼과 아이콘 버튼은 상태에 따라 형태가 변하는 `shapes` 오버로드를 사용하고, 로딩은 shape-morphing `LoadingIndicator` 또는 wavy progress indicator를 사용한다. 별도 Expressive 오버로드가 없는 scaffold, dialog, text field, switch, radio button, card, tab은 같은 테마 아래 최신 Material 3 토큰과 motion scheme을 상속한다.
-- 앱 기본 글꼴은 번들 Google Sans이며, 일반·강조 텍스트 모두 Material 3 type scale을 유지한다. 기본 고정폭 글꼴은 번들 Google Sans Code이며 터미널, extra key, 명령 본문, 진단 및 크래시 payload에 사용한다. 일반 UI는 Google Sans가 지원하지 않는 문자를 번들 Pretendard로 먼저 대체하고, 두 글꼴 모두 지원하지 않으면 Android 시스템 글꼴을 사용한다. Pretendard가 지원하는 한글·가나에도 요청한 UI 굵기를 유지하며, Compose와 릴리스 노트의 네이티브 TextView에 같은 순서를 적용한다. Google Sans Code의 시스템 대체 글꼴은 유지한다. 터미널 사용자 글꼴의 우선순위와 Sans 고정폭 선택은 유지한다.
+- 앱 기본 글꼴은 번들 Google Sans이며, 일반·강조 텍스트 모두 Material 3 type scale을 유지한다. 기본 고정폭 글꼴은 번들 Google Sans Code이며 터미널, extra key, 명령 본문, 진단 및 크래시 payload에 사용한다. 일반 UI는 Google Sans가 지원하지 않는 문자를 번들 Pretendard로 먼저 대체하고, 두 글꼴 모두 지원하지 않으면 Android 시스템 글꼴을 사용한다. Pretendard가 지원하는 한글·가나에도 요청한 UI 굵기를 유지하며, Compose와 릴리스 노트의 네이티브 TextView에 같은 순서를 적용한다. Google Sans Code의 시스템 대체 글꼴은 유지한다. 터미널 사용자 글꼴의 우선순위는 유지하며, 기본 고정폭 글꼴 선택 항목과 검색 결과는 제공하지 않는다. 이전 글꼴 선택값은 무시하고 번들 Google Sans Code를 사용한다.
 - 앱 내부 아이콘은 24 dp Material Symbols Rounded의 기본 비채움 스타일을 사용한다. 방향성 아이콘은 RTL 레이아웃에서 자동 반전한다.
 - 간격은 4 dp 배수를 기본으로 한다. 독립된 카드와 설정 행은 평상시 `extraLarge`(28 dp) 컨테이너 shape를 사용해 높은 곡률이 화면에서 명확히 드러나게 하고, 상호작용 가능한 `ListItem`은 눌림·포커스·선택 상태에서 Material Expressive 기본 shape로 morph한다. 앱 바, 터미널 캔버스처럼 화면 경계에 붙는 기반 surface는 직사각형을 유지한다.
 - 모든 일반 상호작용 대상은 최소 48 dp다. Extra key는 고정 높이 40 dp를 사용하며, 툴바 핸들 영역은 24 dp로 압축한다. 세션 탭은 밀도를 위해 시각적 높이 40 dp를 사용하며 앱 바의 위아래 여백 안으로 확장되는 터치 영역을 사용한다.
@@ -223,7 +223,7 @@ Rootless 펭귄 얼굴은 하단 모서리와 눈 사이 연결부를 완만하�
 설정 홈과 하위 설정 화면의 공통 큰 앱 바는 펼쳐진 상태와 스크롤로 접힌 상태 모두
 투명 컨테이너를 사용한다. 스크롤 시 별도의 배경색을 덧씌우지 않으며 기존 접힘 동작을 유지한다.
 
-터미널 모양의 텍스트 설정에는 글꼴 크기와 기본 글꼴만 표시한다. 한글/CJK 등 2셀 글자는 항상 자연스러운 비율로 셀 중앙에 배치하고, 단일 셀 글자는 셀 폭 정렬을 유지한다. 별도의 자연스러운 넓은 글자·고정 문자 폭 설정이나 검색 항목은 제공하지 않으며, 이전 저장값은 렌더링 동작에 반영하지 않는다.
+터미널 모양의 텍스트 설정에는 글꼴 크기만 표시한다. 한글/CJK 등 2셀 글자는 항상 자연스러운 비율로 셀 중앙에 배치하고, 단일 셀 글자는 셀 폭 정렬을 유지한다. 별도의 자연스러운 넓은 글자·고정 문자 폭 설정이나 검색 항목은 제공하지 않으며, 이전 저장값은 렌더링 동작에 반영하지 않는다.
 
 사용자 글꼴의 일반·이탤릭 선택은 같은 설정 그룹의 상단 `SecondaryTabRow`로 표시한다. 탭과 글꼴 추가·목록·빈 상태는 같은 `surfaceContainerLow` 배경과 그룹 외곽 곡률을 사용하고, 항목 사이에는 공통 2dp 여백을 유지한다. 선택 표시선은 탭 바로 아래의 글꼴 목록과 연결되며, 탭을 바꾸면 추가 동작과 우선순위 목록도 해당 스타일로 바뀐다.
 

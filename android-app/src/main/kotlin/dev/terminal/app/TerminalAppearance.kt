@@ -1,7 +1,6 @@
 package dev.terminal.app
 
 import android.content.SharedPreferences
-import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.fonts.Font
@@ -47,9 +46,8 @@ object TerminalAppearance {
         }
     }
 
-    private data class FontSettings(val fallback: String, val custom: List<CustomTerminalFont>)
     // Main-thread-only, per-view cache: it must not retain an Activity after destruction.
-    private val appliedFonts = WeakHashMap<com.termux.view.TerminalView, FontSettings>()
+    private val appliedFonts = WeakHashMap<com.termux.view.TerminalView, List<CustomTerminalFont>>()
 
     fun paddingDp(preferences: SharedPreferences): Int =
         preferences.getInt(KEY_PADDING, DEFAULT_PADDING_DP).coerceIn(PADDING_RANGE)
@@ -66,7 +64,7 @@ object TerminalAppearance {
                 TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, terminalView.resources.displayMetrics)
             },
         )
-        val fonts = FontSettings(builtInSystemFallback(preferences), customTerminalFonts(preferences))
+        val fonts = customTerminalFonts(preferences)
         if (appliedFonts[terminalView] != fonts) {
             terminalView.setTypefaceFamily(fontFamily(preferences, terminalView))
             appliedFonts[terminalView] = fonts
@@ -112,7 +110,7 @@ object TerminalAppearance {
 
     /**
      * Use custom fonts in list order according to their actual cmap coverage. The first usable
-     * custom face also supplies the terminal cell metrics, and the selected built-in face is the
+     * custom face also supplies the terminal cell metrics, and bundled Google Sans Code is the
      * final fallback. Unavailable or malformed documents are skipped.
      */
     private fun fontFamily(
@@ -127,7 +125,7 @@ object TerminalAppearance {
                     if (ranges.isEmpty()) return@use null
                     val family = FontFamily.Builder(androidFont).build()
                     val typeface = Typeface.CustomFallbackBuilder(family)
-                        .setSystemFallback(builtInSystemFallback(preferences))
+                        .setSystemFallback("monospace")
                         .build()
                     font.style to TerminalFontFamily.FontFace(typeface, ranges)
                 }
@@ -136,26 +134,11 @@ object TerminalAppearance {
         return TerminalFontFamily(
             customFaces.filter { it.first == CustomTerminalFontStyle.REGULAR }.map { it.second },
             customFaces.filter { it.first == CustomTerminalFontStyle.ITALIC }.map { it.second },
-            builtInTypeface(preferences, terminalView.context),
+            BundledFonts.googleSansCode(terminalView.context),
         )
     }
 
-    private fun builtInTypeface(preferences: SharedPreferences, context: Context): Typeface =
-        if (builtInSystemFallback(preferences) == "sans-serif-monospace") {
-            Typeface.create("sans-serif-monospace", Typeface.NORMAL)
-        } else {
-            BundledFonts.googleSansCode(context)
-        }
-
-    private fun builtInSystemFallback(preferences: SharedPreferences): String =
-        if (preferences.getString(KEY_FONT_FAMILY, "MONOSPACE") == "SANS_MONOSPACE") {
-            "sans-serif-monospace"
-        } else {
-            "monospace"
-        }
-
     private const val KEY_FONT_SIZE = "font-size-sp"
-    private const val KEY_FONT_FAMILY = "font-family"
 }
 
 internal fun fontSizeSpToPx(fontSizeSp: Int, convertToPixels: (Float) -> Float): Int =

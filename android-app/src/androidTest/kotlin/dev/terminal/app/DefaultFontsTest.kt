@@ -166,7 +166,7 @@ class DefaultFontsTest {
                 assertSame(BundledFonts.googleSansCode(context), typeface())
                 preferences.edit().putString("font-family", "SANS_MONOSPACE").commit()
                 TerminalAppearance.apply(preferences, view)
-                assertEquals(Typeface.create("sans-serif-monospace", Typeface.NORMAL), typeface())
+                assertSame(BundledFonts.googleSansCode(context), typeface())
             }
         } finally {
             preferences.edit().clear().commit()

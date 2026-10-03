@@ -13,14 +13,14 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class SettingsGroupUiTest {
-    @Test fun settingsRowsHaveSmallGapsAndSmallerInnerCorners() {
+    @Test fun textSettingsSingleRowKeepsRoundedGroupCorners() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val intent = Intent(context, SettingsDetailActivity::class.java)
             .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, SettingsDetailActivity.APPEARANCE)
             .putExtra(SettingsDetailActivity.EXTRA_SECTION_INDEX, 2)
         ActivityScenario.launch<SettingsDetailActivity>(intent).use {
-            val labels = listOf(R.string.font_size, R.string.font_family)
+            val labels = listOf(R.string.font_size)
             fun row(label: Int): AccessibilityNodeInfo? {
                 fun walk(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
                     if (node == null) return null
@@ -41,11 +41,7 @@ class SettingsGroupUiTest {
             instrumentation.waitForIdleSync()
             val bounds = labels.map { label -> Rect().also { row(label)!!.getBoundsInScreen(it) } }
             val density = context.resources.displayMetrics.density
-            bounds.zipWithNext().forEach { (before, after) ->
-                assertEquals("Rows have a 2dp gap", 2 * density, (after.top - before.bottom).toFloat(), 1f)
-            }
             val first = bounds.first()
-            val middle = bounds[1]
             val last = bounds.last()
             val inset = (2 * density).toInt()
             // Accessibility bounds are available before the Activity entry animation finishes.
@@ -53,13 +49,11 @@ class SettingsGroupUiTest {
             val screenshot = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
             try {
                 val surface = screenshot.getPixel(first.right - inset, first.centerY())
-                val gap = screenshot.getPixel(first.centerX(), (first.bottom + middle.top) / 2)
-                assertNotEquals("Gap exposes the page background", surface, gap)
-                assertEquals("Group's top corners remain large", gap,
+                val background = screenshot.getPixel(first.left - inset, first.centerY())
+                assertNotEquals("Row surface differs from the page background", surface, background)
+                assertEquals("Group's top corners remain large", background,
                     screenshot.getPixel(first.left + inset, first.top + inset))
-                assertEquals("Inner corners are small", surface,
-                    screenshot.getPixel(middle.left + inset, middle.top + inset))
-                assertEquals("Group's bottom corners remain large", gap,
+                assertEquals("Group's bottom corners remain large", background,
                     screenshot.getPixel(last.left + inset, last.bottom - inset))
             } finally { screenshot.recycle() }
         }
