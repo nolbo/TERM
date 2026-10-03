@@ -5,6 +5,7 @@ import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
@@ -33,9 +34,9 @@ import kotlin.math.roundToInt
 @Composable
 internal fun ReorderableSessionTabs(sessions: List<SessionUi>, activeSessionId: String?, active: Boolean,
     onReorder: (List<String>) -> Unit, modifier: Modifier,
+    scroll: ScrollState = rememberScrollState(),
     content: @Composable (SessionUi, Modifier, Boolean, Boolean) -> Unit) {
     val ids = sessions.map { it.id }
-    val scroll = rememberScrollState()
     val density = LocalDensity.current
     val haptics = LocalTerminalHaptics.current
     val step = 52.dp

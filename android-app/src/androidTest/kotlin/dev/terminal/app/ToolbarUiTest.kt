@@ -56,6 +56,17 @@ class ToolbarUiTest {
         error("Missing $message; " + dump())
     }
     private fun text(value: String) = waitForNode("text: $value") { it.text?.toString() == value }
+    private fun tabText(value: String) = waitForNode("tab text: $value") { node ->
+        if (node.text?.toString() != value) false else {
+            var parent = node.parent
+            var clickable = false
+            while (parent != null) {
+                if (parent.isClickable || parent.isSelected) { clickable = true; break }
+                parent = parent.parent
+            }
+            clickable
+        }
+    }
     private fun description(value: String) = waitForNode("description: $value") { it.contentDescription?.toString() == value }
     private fun dump(): String {
         val values = mutableListOf<String>()
@@ -181,8 +192,8 @@ class ToolbarUiTest {
             } }
             settle()
             assertNull(find { it.text?.toString() == label(R.string.toolbar_sessions) })
-            val first = bounds(text("First shell"))
-            val second = bounds(text("Second shell"))
+            val first = bounds(tabText("First shell"))
+            val second = bounds(tabText("Second shell"))
             assertTrue("Tabs form a vertical list", second.top > first.bottom)
             assertEquals(first.left, second.left)
             assertTrue(bounds(description(label(R.string.new_session))).bottom <= first.top)
@@ -199,7 +210,7 @@ class ToolbarUiTest {
                 context.getString(R.string.rename_session_description, "Second shell") })
             click(description(context.getString(R.string.rename_session_description, "First shell")))
             assertEquals("first", renamed)
-            click(text("Second shell"))
+            click(tabText("Second shell"))
             assertEquals("second", selected.value)
             assertNull(find { it.contentDescription?.toString() ==
                 context.getString(R.string.rename_session_description, "First shell") })
@@ -230,8 +241,8 @@ class ToolbarUiTest {
                 } }
             } }
             settle()
-            val first = bounds(text("Shell 0"))
-            val third = bounds(text("Shell 2"))
+            val first = bounds(tabText("Shell 0"))
+            val third = bounds(tabText("Shell 2"))
             drag(first.exactCenterX(), first.exactCenterY(), 0f,
                 third.exactCenterY() - first.exactCenterY(), longPress = true)
             assertEquals(listOf("tab-1", "tab-2", "tab-0"), tabs.value.take(3).map { it.id })
@@ -239,13 +250,13 @@ class ToolbarUiTest {
             assertEquals("tab-0", selected)
             assertEquals(0, renamed)
             val afterMove = tabs.value
-            val second = bounds(text("Shell 1"))
+            val second = bounds(tabText("Shell 1"))
             drag(second.exactCenterX(), second.exactCenterY(), 0f,
                 third.exactCenterY() - first.exactCenterY(), cancel = true, longPress = true)
             assertEquals(afterMove, tabs.value)
             assertEquals(1, commits)
             // Holding near the bottom reveals tabs beyond the initially visible rows.
-            val start = bounds(text("Shell 1"))
+            val start = bounds(tabText("Shell 1"))
             val density = context.resources.displayMetrics.density
             drag(start.exactCenterX(), start.exactCenterY(), 0f,
                 330 * density - start.exactCenterY(), longPress = true, holdAtEnd = 800)
@@ -278,8 +289,8 @@ class ToolbarUiTest {
             }
             val resting = row()
             val restingEdges = paintedEdges(resting.centerY())
-            val source = bounds(text("Shell 0"))
-            val target = bounds(text("Shell 2"))
+            val source = bounds(tabText("Shell 0"))
+            val target = bounds(tabText("Shell 2"))
             drag(source.exactCenterX(), source.exactCenterY(), 0f,
                 target.exactCenterY() - source.exactCenterY(), cancel = true, longPress = true) {
                 instrumentation.waitForIdleSync()
@@ -300,33 +311,41 @@ class ToolbarUiTest {
     @Test fun sessionListKeepsManualScrollWhenInteractionOrActiveTabChanges() {
         val selected = mutableStateOf("tab-0")
         val active = mutableStateOf(true)
+        val showTabs = mutableStateOf(true)
         val sessions = (0..14).map { SessionUi("tab-$it", "NATIVE", "Shell $it", "RUNNING") }
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 DroidTheme { TerminalHapticFeedbackProvider {
                     Box(Modifier.fillMaxWidth().height(350.dp)) {
                         ToolbarSessionsTool(sessions, selected.value, active.value, emptySet(), emptyList(),
-                            {}, {}, false, { selected.value = it }, {}, {}, {}, {}, {})
+                            {}, {}, false, { selected.value = it }, {}, {}, {}, {}, {}, showTabs = showTabs.value)
                     }
                 } }
             } }
             settle()
-            val markerBefore = bounds(text("Shell 4"))
+            val markerBefore = bounds(tabText("Shell 4"))
             val density = context.resources.displayMetrics.density
             drag(markerBefore.exactCenterX(), markerBefore.exactCenterY(), 0f, -156 * density)
-            val scrolled = bounds(text("Shell 4"))
+            val scrolled = bounds(tabText("Shell 4"))
             assertTrue("Manual scroll moves away from the active tab", scrolled.top < markerBefore.top)
             scenario.onActivity { active.value = false }
             settle()
             scenario.onActivity { active.value = true }
             settle()
-            assertEquals("Becoming interactive must preserve the position", scrolled, bounds(text("Shell 4")))
+            assertEquals("Becoming interactive must preserve the position", scrolled, bounds(tabText("Shell 4")))
             scenario.onActivity { selected.value = "tab-7" }
             settle()
-            assertEquals("Changing the active tab must preserve the position", scrolled, bounds(text("Shell 4")))
-            click(text("Shell 4"))
+            assertEquals("Changing the active tab must preserve the position", scrolled, bounds(tabText("Shell 4")))
+            scenario.onActivity { showTabs.value = false }
+            settle()
+            assertNull(find { it.isScrollable })
+            text("Shell 7")
+            scenario.onActivity { showTabs.value = true }
+            settle()
+            assertEquals("Collapsing the list must preserve the position", scrolled, bounds(tabText("Shell 4")))
+            click(tabText("Shell 4"))
             assertEquals("tab-4", selected.value)
-            assertEquals("Selecting a visible tab must preserve the position", scrolled, bounds(text("Shell 4")))
+            assertEquals("Selecting a visible tab must preserve the position", scrolled, bounds(tabText("Shell 4")))
         }
     }
 
@@ -457,6 +476,73 @@ class ToolbarUiTest {
             if (previous == null) editor.remove(KEY_SKIP_SESSION_CLOSE_CONFIRMATION)
             else editor.putBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, previous)
             editor.commit()
+        }
+    }
+
+    @Test fun defaultSessionToolShowsCurrentTitlesAndActionsAndExpandsToTabs() {
+        val mode = mutableStateOf(ToolbarSheetMode.Default)
+        val selected = mutableStateOf("second")
+        val sessions = mutableStateOf(listOf(
+            SessionUi("first", "NATIVE", "First shell", "RUNNING"),
+            SessionUi("second", "NATIVE", "Pinned work", "RUNNING",
+                hasExplicitTabTitle = true, subtitle = "Original shell"),
+        ))
+        var newClicks = 0
+        var settingsClicks = 0
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Column(Modifier.fillMaxSize()) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(ToolbarConfig(tools = listOf(SESSIONS_TOOL)), mode.value,
+                            { mode.value = it }, 400.dp, TerminalChromeColors(Color.Black)) { _, active ->
+                            ToolbarSessionsTool(sessions.value, selected.value, active, emptySet(), emptyList(),
+                                {}, {}, false, { selected.value = it }, {}, {}, { newClicks++ }, {},
+                                { settingsClicks++ }, showTabs = mode.value == ToolbarSheetMode.Expanded)
+                        }
+                    }
+                } }
+            } }
+            settle()
+            val defaultHandle = bounds(handle())
+            val title = bounds(text("Pinned work"))
+            val subtitle = bounds(text("Original shell"))
+            val newButton = bounds(description(label(R.string.new_session)))
+            val settingsButton = bounds(description(label(R.string.settings)))
+            val density = context.resources.displayMetrics.density
+            assertTrue("Current titles use the header's left side", maxOf(title.right, subtitle.right) <= newButton.left)
+            assertTrue("Automatic title appears below the custom title", subtitle.top >= title.bottom)
+            assertEquals(newButton.centerY(), settingsButton.centerY())
+            assertEquals("The header fills the existing default viewport", 46f * density,
+                (newButton.exactCenterY() - defaultHandle.bottom), 1f)
+            assertNull(find { it.text?.toString() == "First shell" })
+            assertNull(find { it.isScrollable })
+            assertNull(find { it.contentDescription?.toString() ==
+                context.getString(R.string.terminate_session_description, "Pinned work") })
+            click(description(label(R.string.new_session)))
+            click(description(label(R.string.settings)))
+            assertEquals(1, newClicks)
+            assertEquals(1, settingsClicks)
+            scenario.onActivity { sessions.value = sessions.value.map {
+                if (it.id == "second") it.copy(subtitle = "Updated automatic title") else it
+            } }
+            text("Updated automatic title")
+            assertNull(find { it.text?.toString() == "Original shell" })
+            action(label(R.string.toolbar_expand))
+            tabText("First shell")
+            tabText("Pinned work")
+            click(tabText("First shell"))
+            assertEquals("first", selected.value)
+            action(label(R.string.toolbar_default))
+            assertEquals(defaultHandle, bounds(handle()))
+            text("First shell")
+            assertNull(find { it.text?.toString() == "Pinned work" })
+            assertNull(find { it.text?.toString() == "Updated automatic title" })
+            assertNull(find { it.isScrollable })
+            scenario.onActivity { sessions.value = sessions.value.map {
+                if (it.id == "first") it.copy(title = "") else it
+            } }
+            text(label(R.string.shell_default_title))
         }
     }
 

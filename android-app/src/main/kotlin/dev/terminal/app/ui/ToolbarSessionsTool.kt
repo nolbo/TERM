@@ -7,6 +7,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
@@ -44,13 +45,30 @@ internal fun ToolbarSessionsTool(
     onSettings: () -> Unit,
     colors: TerminalChromeColors = LocalToolbarColors.current,
     onReorder: (List<String>) -> Unit = {},
+    showTabs: Boolean = true,
 ) {
     val haptics = LocalTerminalHaptics.current
+    // Keep the user's list position when the header-only state hides the tabs.
+    val tabScroll = rememberScrollState()
+    val currentSession = sessions.firstOrNull { it.id == activeSessionId }
     LaunchedEffect(active) { if (!active && newSessionMenuExpanded) onDismissNewSession() }
     Column(Modifier.fillMaxSize()) {
-        Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp),
+        val headerHeight = if (showTabs) Modifier.height(48.dp) else Modifier.weight(1f)
+        Row(Modifier.fillMaxWidth().then(headerHeight).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Spacer(Modifier.weight(1f))
+            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
+                currentSession?.let { session ->
+                    Text(session.title.ifBlank { stringResource(R.string.shell_default_title) },
+                        maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelMedium, color = colors.foreground)
+                    session.subtitle?.let { subtitle ->
+                        Text(subtitle.ifBlank { stringResource(R.string.shell_default_title) },
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 14.sp),
+                            color = colors.foreground.copy(alpha = 0.75f))
+                    }
+                }
+            }
             Box {
                 IconButton(onClick = onNew, enabled = active, shapes = IconButtonDefaults.shapes()) {
                     Icon(painterResource(R.drawable.ic_material_symbol_add_24), stringResource(R.string.new_session), tint = colors.appBarIcon)
@@ -93,8 +111,8 @@ internal fun ToolbarSessionsTool(
                 Icon(painterResource(R.drawable.ic_material_symbol_settings_24), stringResource(R.string.settings), tint = colors.appBarIcon)
             }
         }
-        ReorderableSessionTabs(sessions, activeSessionId, active, onReorder,
-            Modifier.weight(1f).fillMaxWidth()) { session, itemModifier, dragging, lifted ->
+        if (showTabs) ReorderableSessionTabs(sessions, activeSessionId, active, onReorder,
+            Modifier.weight(1f).fillMaxWidth(), scroll = tabScroll) { session, itemModifier, dragging, lifted ->
             val selected = session.id == activeSessionId
             val tabInteractionSource = remember(session.id) { MutableInteractionSource() }
             val tabPressed by tabInteractionSource.collectIsPressedAsState()
@@ -182,4 +200,3 @@ internal fun ToolbarSessionsTool(
         }
     }
 }
-
