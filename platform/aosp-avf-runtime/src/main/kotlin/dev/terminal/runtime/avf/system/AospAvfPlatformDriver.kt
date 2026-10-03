@@ -82,6 +82,9 @@ class AospAvfPlatformDriver(
             // A previous host/boot timeout may have left this persistent VM running.
             // Reconnect to it without restarting Linux or replacing its writable disks.
             if (vm.status == VirtualMachine.STATUS_STOPPED) {
+                // getOrCreate ignores the supplied config for an existing VM. Refresh
+                // stopped instances so boot parameters also reach installed guests.
+                requireAvfPlatformApi { vm.setConfig(buildConfig(config)) }
                 startedHere = true
                 vm.run()
             }
@@ -182,6 +185,7 @@ class AospAvfPlatformDriver(
             .addParam("rootfstype=ext4")
             .addParam("ro")
             .addParam("console=hvc0")
+            .addParam("systemd.hostname=localhost")
             .useNetwork(config.enableNetwork)
             .useAutoMemoryBalloon(true)
             // The guest fstab is part of the signed image contract: vda=system, vdb=home, vdc=config.

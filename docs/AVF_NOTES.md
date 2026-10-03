@@ -65,11 +65,9 @@ The first disk mapping is fixed and part of the signed image ABI:
 vda=system.img (RO), vdb=home.img (RW), vdc=config.img (RO)
 ```
 
-The automated producer uses Google's direct-kernel ARM64 Debian image as the base. It preserves the original kernel and restores its matching modules from the paired module-only initrd, since the rootfs has no installed kernel package. It installs the three TERM services and CLI, generates a boot initrd, and mounts the read-only vda filesystem as an overlay lower layer with persistent upper/work directories on vdb. Thus home files and root filesystem/package changes survive reboot without modifying the distributed system image. The AOSP driver explicitly passes `root=/dev/vda rootfstype=ext4 ro console=hvc0`. The config disk is mounted read-only at `/etc/droid-config`. See `IMAGE_RELEASE.md` for the producer and its two-boot QEMU gate.
+The automated producer uses Google's direct-kernel ARM64 Debian image as the base. It preserves the original kernel and restores its matching modules from the paired module-only initrd, since the rootfs has no installed kernel package. It installs the three TERM services and CLI, generates a boot initrd, and mounts the read-only vda filesystem as an overlay lower layer with persistent upper/work directories on vdb. Thus home files and root filesystem/package changes survive reboot without modifying the distributed system image. The AOSP driver explicitly passes `root=/dev/vda rootfstype=ext4 ro console=hvc0 systemd.hostname=localhost`. The config disk is mounted read-only at `/etc/droid-config`. See `IMAGE_RELEASE.md` for the producer and its two-boot QEMU gate.
 
-AVF `getOrCreate` retains an existing VM configuration. Image upgrade/reset is
-therefore deliberately deferred to an explicit migration design; the runtime
-does not replace an image under an existing VM instance.
+AVF `getOrCreate` retains an existing VM configuration. The driver calls `setConfig` only on stopped instances before starting them, so existing installations also receive the short `localhost` guest hostname on their next boot. AOSP checks configuration compatibility; incompatible identity changes fail without deleting or recreating the VM. Running guests are reconnected without changing their configuration. Persistent VM names, including `droid-default` and independent storage IDs, remain unchanged. Image upgrade/reset is deliberately deferred to an explicit migration design; the runtime does not replace an image under an existing VM instance.
 
 Legacy storage adoption assigns a registry UUID without moving the image or replacing
 `droid-default`. It waits until the service can reach that VM's PTY owner and prove no
