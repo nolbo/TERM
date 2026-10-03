@@ -81,6 +81,8 @@ public final class TerminalView extends View {
     private float mScrollOffset;
     private int mScrollbackTopInset;
     private boolean mTerminalGridBottomAligned;
+    /** Height committed with the emulator geometry, excluding transient toolbar/IME frames. */
+    private int mTerminalGridHeight;
     private boolean mSmoothScrollingEnabled;
     private int mScrollGeneration;
 
@@ -1410,14 +1412,23 @@ public final class TerminalView extends View {
 
     public int getTerminalContentTopInset() {
         if (!mTerminalGridBottomAligned || mRenderer == null) return mScrollbackTopInset;
-        return TerminalViewport.bottomAlignedTopInset(getHeight(), mScrollbackTopInset,
+        // Keep the origin stable while the resize scheduler retains the old row count. Using
+        // each animated height here makes the remainder jump by a line at every row boundary.
+        int gridHeight = mTerminalGridHeight > 0 ? mTerminalGridHeight : getHeight();
+        return TerminalViewport.bottomAlignedTopInset(gridHeight, mScrollbackTopInset,
             mRenderer.mFontLineSpacingAndAscent, mRenderer.mFontLineSpacing);
     }
 
     private void applySize() {
         int viewWidth = getWidth();
         int viewHeight = getHeight();
-        if (viewWidth == 0 || viewHeight == 0 || mTermSession == null) return;
+        if (viewWidth == 0 || viewHeight == 0 || mRenderer == null) return;
+        if (mTerminalGridHeight != viewHeight) {
+            mTerminalGridHeight = viewHeight;
+            // Even a resize within the same row count changes the final bottom alignment.
+            invalidate();
+        }
+        if (mTermSession == null) return;
 
         // Set to 80 and 24 if you want to enable vttest.
         int newColumns = Math.max(4, (int) (viewWidth / mRenderer.mFontWidth));
