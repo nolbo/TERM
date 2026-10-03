@@ -1,0 +1,6 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <!-- Device supplies the implementation; unsupported devices may still install the APK. -->
+        <uses-library android:name="android.system.virtualmachine" android:required="false" />
+    </application>
+</manifest>

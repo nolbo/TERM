@@ -90,9 +90,7 @@ checked, Android-permission-checked, and optionally confirmed by the user.
 Capability grants are persisted per VM and are independent of Android runtime
 permissions.
 
-The current `PlatformProbeAvfDriver` only checks whether the device advertises
-AVF and whether signature permissions were actually granted. It does not try to
-bypass the platform requirement with hidden API reflection.
+The APK packages the direct AOSP AVF driver, but its compile-only platform API declarations must never appear as runtime classes in the APK. The optional device-provided shared library supplies the implementation. Driver creation is gated by Android 15+, AVF support, and both actual custom VM permission grants; the device must separately authorize the hidden custom-image API under its platform policy. Packaging does not grant permissions, install an implementation, or use reflection or hidden-API exemptions. Native remains the default owner, so absent platform classes cannot break permissionless service startup. `PlatformProbeAvfDriver` remains a public-SDK-safe diagnostic implementation for integrations without a provider.
 
 ## Executable policy
 

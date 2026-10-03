@@ -172,9 +172,7 @@ results and remaining device restrictions are in
 
 ## AVF Debian
 
-AVF needs device support, privileged permissions and the product-only AOSP
-system-SDK driver. It uses a separate image/root filesystem and guest session
-daemon. See `AVF_NOTES.md`.
+The APK includes the AOSP AVF execution driver. AVF still needs a supported Android 15+ device, both system permissions, and a compatible device-provided custom-image API authorized by the platform. The API declarations are compile-only, and Native remains the default owner. AVF uses a separate image/root filesystem and guest session daemon. See `AVF_NOTES.md`.
 
 ## Rootless USB
 

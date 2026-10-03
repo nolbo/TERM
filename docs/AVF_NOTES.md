@@ -6,17 +6,11 @@ The custom Linux VM path needs `MANAGE_VIRTUAL_MACHINE` and
 `USE_CUSTOM_VIRTUAL_MACHINE`. These are privileged/signature permissions on the
 relevant Android releases. Declaring them in a normal APK does not grant them.
 
-## Current spike
+## Packaged driver and platform boundary
 
-`PlatformProbeAvfDriver` reports one of these explicit outcomes:
+Ordinary APK builds include `AospAvfPlatformDriver` through `:aosp-avf-runtime`. `TerminalApplication` supplies the runtime provider while retaining Native as the default owner. Selecting AVF creates a separate backend only after checking Android 15+, the AVF feature, and both actual permission grants. The optional `android.system.virtualmachine` shared library is supplied by the device; compile-only API declarations are never APK runtime classes.
 
-1. AVF feature missing;
-2. device supports AVF but this app lacks privileged deployment access; or
-3. privileged access is present but the AOSP system-SDK driver has not yet been
-   linked into this public-SDK variant.
-
-This prevents a false claim that the application can boot a Debian VM on a
-stock Play Store installation.
+Custom-image configuration methods are hidden in AOSP and absent even from ordinary System SDK stubs. A compatible platform implementation and authorization to call those methods remain necessary in addition to the two permissions. Packaging the driver does not grant permissions or bypass API policy. Unsupported devices receive an explicit AVF error and continue using Native/Rootless. See `platform/aosp-avf-runtime/README.md` for ABI pinning, an exact OEM framework-jar override, and APK/device validation.
 
 ## Debian image contract
 
@@ -56,9 +50,7 @@ vsock access.
 
 ## Privileged AOSP deployment driver
 
-`platform/aosp-avf-runtime` contains `AospAvfPlatformDriver`, deliberately
-outside the normal Gradle build. It is compiled only by a platform/OEM product
-variant with the matching AOSP system SDK. It creates/reuses a named VM with a
+`platform/aosp-avf-runtime` contains `AospAvfPlatformDriver`, compiled and packaged by Gradle against compile-only platform ABI declarations (or an OEM-supplied full framework jar). It creates/reuses a named VM with a
 custom image configuration, waits for the AVF ready callback after `run()`, and
 then retries port 40500 until `droid-sessiond` accepts a vsock connection.
 Later AVF errors and stop callbacks are fed back into `AvfBackend`, so the UI
@@ -82,11 +74,11 @@ active sessions. The persisted runtime-to-UUID association resolves the adopted 
 back to `vm/default`, `shared-vms/default` and `droid-default`; the AOSP deletion driver
 verifies the original instance is stopped before deleting it. A disconnected/unavailable
 VM remains protected. This path still requires validation on the matching privileged
-AOSP product; the public-SDK build does not exercise VirtualMachineManager.
+AOSP product; APK compilation and unsupported-device tests do not establish a successful VirtualMachineManager boot.
 
 ## Next validation sequence
 
-1. Build the driver against the target AOSP system SDK.
+1. Build the packaged driver, optionally using the target AOSP full framework jar, and verify API compatibility.
 2. Provision one known-good ARM64 Debian image and immutable config image.
 3. Create/start the VM from `VmRuntimeService`.
 4. Establish a vsock connection to `droid-sessiond`.

@@ -559,7 +559,9 @@ class SettingsDetailActivity : TerminalActivity() {
         item {
             SettingsSection(R.string.section_status) {
                 InfoSetting(R.string.avf_image_current_build, when {
-                    !SessionProfiles(this@SettingsDetailActivity).hasAvfPrivileges() ||
+                    android.os.Build.VERSION.SDK_INT < 35 ||
+                        !packageManager.hasSystemFeature("android.software.virtualization_framework") ||
+                        !SessionProfiles(this@SettingsDetailActivity).hasAvfPrivileges() ||
                         applicationContext !is dev.terminal.runtime.lifecycle.RuntimeBackendProvider ->
                         R.string.avf_image_product_required
                     dev.terminal.image.BundledDebianImageCatalog.find(

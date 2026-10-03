@@ -117,6 +117,15 @@ android {
 }
 
 dependencies {
+    implementation project(':aosp-avf-runtime')
+    // OEMs may compile against the exact full implementation ABI from their target AOSP build.
+    if (providers.gradleProperty('avfFrameworkJar').isPresent()) {
+        def frameworkJar = rootProject.file(providers.gradleProperty('avfFrameworkJar').get())
+        if (!frameworkJar.isFile()) throw new GradleException('avfFrameworkJar must name an existing AOSP framework-virtualization.jar')
+        compileOnly files(frameworkJar)
+    } else {
+        compileOnly project(':aosp-avf-api')
+    }
     implementation 'androidx.work:work-runtime-ktx:2.10.1'
     implementation project(':android-runtime')
     implementation project(':image')

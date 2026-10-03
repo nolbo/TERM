@@ -1,0 +1,11 @@
+plugins { id 'com.android.library' }
+
+android {
+    namespace 'dev.terminal.avf.compileapi'
+    compileSdk project.properties.compileSdkVersion.toInteger()
+    defaultConfig { minSdk project.properties.minSdkVersion.toInteger() }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}

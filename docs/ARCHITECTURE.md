@@ -366,12 +366,7 @@ permissions available and would hide the deployment requirement.
 
 ## Trade-offs and migration impact
 
-The public build presents an AVF availability failure on normal devices. This
-is intentional and truthful. A product build selects the separately compiled
-system-SDK driver by declaring `AospRuntimeApplication`, which implements the
-runtime module's `RuntimeBackendProvider` in both the UI and `:vmhost`
-processes. The public runtime module never links against that class or AVF
-System APIs. No UI, session, or protocol redesign is required for that change.
+Ordinary APK builds package `:aosp-avf-runtime` and its AOSP driver. The platform ABI declarations in `:aosp-avf-api` are compile-only and must never be packaged. `TerminalApplication` implements `RuntimeBackendProvider` in both the UI and `:vmhost` processes, preserving Native as the default owner and creating independent AVF owners only for explicit AVF storage selections. The runtime-neutral module has no direct platform API dependency. `android.system.virtualmachine` is an optional device-provided shared library; Android 15+, AVF feature support, both actual permission grants, and a compatible authorized custom-image API remain required. The custom-image ABI is hidden in AOSP and is not made accessible by these declarations or the manifest. OEMs may compile against their exact full framework jar. No reflection or API-policy bypass is used; unsupported devices retain Native/Rootless operation. This replaces the former product-only `AospRuntimeApplication` integration without changing session or protocol ownership. Under the Native default owner, legacy and adopted-default AVF profiles also create a separate AVF backend; `SessionStorage.avfInstanceId` retains `droid-default` and the fixed `vm/default` image path. Legacy adoption recognizes that backend and never replaces it with the Native primary owner.
 
 `droid-sessiond` now owns guest PTY master descriptors through its
 `SessionRegistry` and exposes them through its host-CID-only vsock listener.

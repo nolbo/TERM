@@ -1,0 +1,25 @@
+plugins { id 'com.android.library' }
+
+android {
+    namespace 'dev.terminal.avf.system'
+    compileSdk project.properties.compileSdkVersion.toInteger()
+    defaultConfig { minSdk project.properties.minSdkVersion.toInteger() }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // OEMs may compile against the exact full implementation ABI from their target AOSP build.
+    if (providers.gradleProperty('avfFrameworkJar').isPresent()) {
+        def frameworkJar = rootProject.file(providers.gradleProperty('avfFrameworkJar').get())
+        if (!frameworkJar.isFile()) throw new GradleException('avfFrameworkJar must name an existing AOSP framework-virtualization.jar')
+        compileOnly files(frameworkJar)
+    } else {
+        compileOnly project(':aosp-avf-api')
+    }
+    implementation project(':android-runtime')
+    implementation project(':image')
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+}

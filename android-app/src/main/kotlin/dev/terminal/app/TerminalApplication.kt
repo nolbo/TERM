@@ -4,7 +4,14 @@ import android.app.Application
 import java.io.PrintWriter
 import java.io.StringWriter
 
-class TerminalApplication : Application(), androidx.work.Configuration.Provider {
+class TerminalApplication : Application(), androidx.work.Configuration.Provider,
+    dev.terminal.runtime.lifecycle.RuntimeBackendProvider {
+    override fun createDefaultRuntimeBackend(context: android.content.Context): dev.terminal.runtime.api.RuntimeBackend =
+        dev.terminal.runtime.native.NativeBackend(context.applicationContext, java.io.File(context.filesDir, "native-runtime"))
+
+    override fun createRuntimeBackend(context: android.content.Context): dev.terminal.runtime.api.RuntimeBackend =
+        dev.terminal.runtime.avf.system.AospAvfRuntime.createBackend(context)
+
     override val workManagerConfiguration: androidx.work.Configuration
         get() = androidx.work.Configuration.Builder().setDefaultProcessName(packageName).build()
     internal val appUpdates by lazy { dev.terminal.app.update.AppUpdateController(this) }

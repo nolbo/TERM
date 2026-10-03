@@ -32,15 +32,17 @@ import kotlinx.coroutines.withTimeout
 /**
  * AVF custom-image driver for a platform-signed AOSP product build.
  *
- * This source deliberately is not part of the public-SDK Gradle modules: it references
- * `android.system.virtualmachine` System APIs and must be compiled with the exact system SDK
- * supplied by the target AOSP build. UI code sees only [AvfPlatformDriver].
+ * Compiled against compile-only AOSP API declarations and packaged in the APK.
+ * The device must provide the matching implementation and authorize the custom-image APIs.
+ * UI code sees only [AvfPlatformDriver].
  */
 class AospAvfPlatformDriver(
     context: Context,
 ) : AvfPlatformDriver {
     private val appContext = context.applicationContext
-    private val manager = appContext.getSystemService(VirtualMachineManager::class.java)
+    private val manager = checkNotNull(appContext.getSystemService(VirtualMachineManager::class.java)) {
+        "AVF VirtualMachineManager is unavailable on this device"
+    }
     private val mutex = Mutex()
 
     private var prepared: RuntimeConfig? = null
@@ -129,16 +131,18 @@ class AospAvfPlatformDriver(
     private suspend fun connectGuestPort(port: Long): Result<GuestConnection> = mutex.withLock {
         runCatching {
             val activeMachine = checkNotNull(machine) { "VM is not running" }
-            withTimeout(GUEST_CONNECT_TIMEOUT_MS) {
-                while (true) {
-                    runCatching {
-                        return@withTimeout ParcelFileDescriptorFrameTransport(
+            withTimeout<GuestConnection>(GUEST_CONNECT_TIMEOUT_MS) {
+                var connection: GuestConnection? = null
+                while (connection == null) {
+                    connection = runCatching {
+                        ParcelFileDescriptorFrameTransport(
                             descriptor = activeMachine.connectVsock(port),
                             guestCid = GUEST_CID_UNAVAILABLE,
                         )
-                    }
-                    delay(GUEST_CONNECT_RETRY_MS)
+                    }.getOrNull()
+                    if (connection == null) delay(GUEST_CONNECT_RETRY_MS)
                 }
+                connection
             }
         }
     }

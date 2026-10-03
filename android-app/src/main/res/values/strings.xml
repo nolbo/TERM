@@ -201,7 +201,7 @@
     <string name="debian_image_support">자동 설치 제공 여부와 오프라인 이미지 설치를 확인합니다.</string>
     <string name="avf_image_settings_description">AVF Debian 이미지의 자동 설치 안내와 오프라인 설치를 관리합니다.</string>
     <string name="avf_image_current_build">현재 빌드</string>
-    <string name="avf_image_product_required">이 빌드에서는 AVF를 사용할 수 없습니다. 지원 기기와 특권 제품 빌드가 필요합니다.</string>
+    <string name="avf_image_product_required">AVF 실행 드라이버는 포함되어 있습니다. 사용하려면 지원 기기와 두 AVF 시스템 권한이 필요합니다.</string>
     <string name="avf_image_catalog_missing">이 제품 빌드에 자동 설치 이미지가 등록되지 않았습니다. 제품 이미지 배포가 필요합니다.</string>
     <string name="avf_image_catalog_ready">승인된 AVF Debian 자동 설치 이미지가 포함되어 있습니다.</string>
     <string name="avf_image_automatic">자동 설치</string>

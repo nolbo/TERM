@@ -231,7 +231,7 @@
     <string name="license_runtime_logos">Distribution logo notices</string>
     <string name="avf_image_settings_description">Manage AVF Debian automatic setup and optional offline installation.</string>
     <string name="avf_image_current_build">Current build</string>
-    <string name="avf_image_product_required">AVF is unavailable in this build. A supported device and privileged product build are required.</string>
+    <string name="avf_image_product_required">The AVF driver is included. A supported device and both AVF system permissions are required to use it.</string>
     <string name="avf_image_catalog_missing">This product build has no approved automatic installation image. The product image must be published first.</string>
     <string name="avf_image_catalog_ready">An approved AVF Debian image is configured for automatic installation.</string>
     <string name="avf_image_automatic">Automatic installation</string>

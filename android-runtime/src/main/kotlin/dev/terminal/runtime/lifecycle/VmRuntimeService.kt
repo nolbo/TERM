@@ -966,7 +966,8 @@ class VmRuntimeService : Service() {
                         if (localController?.list()?.getOrThrow().orEmpty().any { it.state != dev.terminal.protocol.SessionStatus.EXITED }) continue
                         // An unattached persistent VM may still be running after host restart.
                         // Only its reachable PTY owner can prove that changing registration is safe.
-                        if (runtime == SessionRuntime.AVF && (backend !is dev.terminal.runtime.avf.AvfBackend || client?.isRegistered(runtime) != true)) continue
+                        if (runtime == SessionRuntime.AVF &&
+                            ((localOwner ?: backend) !is dev.terminal.runtime.avf.AvfBackend || client?.isRegistered(runtime) != true)) continue
                         val adopt = { storageRegistry.transaction { migrateLegacy(runtime, defaults).storageId } }
                         if (client != null) {
                             if (!client.adoptLegacyStorageIfIdle(runtime, adopt)) continue
@@ -978,7 +979,8 @@ class VmRuntimeService : Service() {
                     val id = defaultStorageId(runtime)
                     if (id != "legacy" && storageRegistry.transaction { dev.terminal.runtime.session.StorageRegistry.Key(runtime, id) in keys() }) {
                         rootlessBackends[runtime]?.let { storageBackends[runtime to id] = it }
-                        if (runtime == SessionRuntime.AVF && client?.isRegistered(runtime, id) == true) storageBackends[runtime to id] = backend
+                        if (runtime == SessionRuntime.AVF && backend is dev.terminal.runtime.avf.AvfBackend &&
+                            client?.isRegistered(runtime, id) == true) storageBackends[runtime to id] = backend
                     }
                 } catch (failure: Exception) {
                     if (failure is kotlinx.coroutines.CancellationException) throw failure
@@ -990,8 +992,11 @@ class VmRuntimeService : Service() {
 
     private suspend fun ensureStorageController(spec: dev.terminal.runtime.session.SessionLaunchSpec,
         registry: UnifiedSessionRegistry): Boolean {
-        if (spec.storageId == "legacy" && spec.runtime != SessionRuntime.NATIVE) return ensureRuntimeController(spec.runtime, registry)
-        if (spec.runtime == SessionRuntime.AVF && spec.storageId == defaultStorageId(SessionRuntime.AVF)) {
+        // When Native is the default owner, even legacy/default AVF storage needs its own AVF provider.
+        if (spec.storageId == "legacy" && spec.runtime != SessionRuntime.NATIVE &&
+            (spec.runtime != SessionRuntime.AVF || backend !is NativeBackend)) return ensureRuntimeController(spec.runtime, registry)
+        if (spec.runtime == SessionRuntime.AVF && backend !is NativeBackend &&
+            spec.storageId == defaultStorageId(SessionRuntime.AVF)) {
             return preparationLocks.withStorage(spec.runtime, spec.storageId) {
                 storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(spec.runtime, spec.storageId)) }
                 startPrimaryBackend()
@@ -1046,7 +1051,9 @@ class VmRuntimeService : Service() {
             val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
             if (key !in startedStorageBackends) {
                 owner.prepare(RuntimeConfig(
-                    instanceId = spec.storageId, imageDirectory = root.path,
+                    instanceId = if (spec.runtime == SessionRuntime.AVF)
+                        dev.terminal.runtime.session.SessionStorage.avfInstanceId(filesDir, spec.storageId) else spec.storageId,
+                    imageDirectory = root.path,
                     memoryMib = preferences.getInt(KEY_AVF_MEMORY, 2048).coerceIn(512, 32768),
                     cpuCount = preferences.getInt(KEY_AVF_CPU, 2).coerceIn(1, 16),
                     protectedVm = preferences.getBoolean(KEY_AVF_PROTECTED, false),
