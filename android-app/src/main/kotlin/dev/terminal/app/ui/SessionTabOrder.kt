@@ -9,7 +9,7 @@ internal fun parseSessionTabOrder(value: String?): List<String> = runCatching {
     (0 until array.length()).map { array.getString(it) }.distinct()
 }.getOrDefault(emptyList())
 
-/** Only live runtime sessions are displayed; new sessions follow the saved tabs. */
+/** Runtime sessions and service-owned launch requests follow the saved tab order. */
 internal fun orderSessionTabs(sessions: List<SessionUi>, order: List<String>): List<SessionUi> {
     val live = sessions.associateBy { it.id }
     val ids = order.filter { it in live }.distinct()

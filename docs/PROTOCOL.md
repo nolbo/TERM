@@ -20,6 +20,22 @@ back to this launch snapshot. It grants no runtime capability.
 No guest protocol change is needed: launch arguments continue through the existing
 `DROID_SESSION_ARGV` envelope, removed before constructing the child environment.
 
+The appended app-private Binder method
+`createSessionFromSpecWithRequestId(launchSpecJson, requestId, rows, cols)` uses
+the same bounded launch JSON and a separate canonical UUID for AVF requests.
+An accepted request appears in service session-list projections with ID
+`avf-launch:<requestId>`, `pendingLaunch: true`, `launchRequestId`, profile
+metadata, and state `PREPARING` or `LAUNCH_FAILED`. `launchError` is null while
+preparing and contains the failure text otherwise. These rows cannot be attached,
+resized, renamed, or written to, and are not live PTY descriptors. Successful
+session rows carry the same `launchRequestId`; the pending row disappears in that
+publication. `terminateSession` on a failed request ID dismisses its metadata
+only; starting requests cannot be closed through the UI. Listener registration
+replays outstanding service requests, and request-only publications increment
+the service revision without querying a controller or starting a VM.
+The original Binder method remains supported and allocates an AVF request UUID
+in the service. No guest frame, profile version, or VM permission changes.
+
 ## Task notification signals
 
 The app-private Binder setting `setSessionTaskNotifications(enabled)` persists an
@@ -182,7 +198,8 @@ state; failure reports `ROOTLESS_REMOVE:<runtimeType>` through `onOperationError
 progress to that selection; setup errors use `ROOTLESS_SETUP:<runtimeType>`.
 For independent profile storage, the progress callback's first argument is
 `<runtimeType>:<storageId>`; legacy storage retains the runtime-only value.
-Session creation errors use `세션 생성:<runtimeType>:<storageId>`. The UI matches
+Session creation errors use `세션 생성:<runtimeType>:<storageId>`; correlated AVF
+errors may append `:<requestId>`. The UI matches
 storage as well as runtime so concurrent preparation cannot overwrite another
 profile's progress or complete its pending installation. Preparation/removal
 locks are scoped to runtime and storage; shared-tree migration retains an

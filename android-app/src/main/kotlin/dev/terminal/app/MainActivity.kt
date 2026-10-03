@@ -104,6 +104,10 @@ import java.util.UUID
 /** Compose console projection. Runtime and shell ownership stay in :vmhost. */
 class MainActivity : TerminalActivity() {
     private var sessions by mutableStateOf(emptyList<SessionUi>())
+    private var runtimeSessionRows = emptyList<SessionUi>()
+    private var unconfirmedAvfLaunches = emptyList<SessionUi>()
+    private val submittedAvfLaunches = mutableSetOf<String>()
+    private val avfFocusHandoffs = mutableSetOf<String>()
     private var sessionTabOrder = emptyList<String>()
     private var profiles by mutableStateOf(emptyList<dev.terminal.runtime.session.SessionProfile>())
     private var rootlessLaunchSpec: dev.terminal.runtime.session.SessionLaunchSpec? = null
@@ -230,6 +234,7 @@ class MainActivity : TerminalActivity() {
 
         override fun onSessionFocusRequested(sessionId: String) = runOnUiThread {
             if (generation == bindingGeneration) {
+                if (avfFocusHandoffs.remove(sessionId) && activeSessionId != sessionId) return@runOnUiThread
                 if (ignoreInitialRuntimeFocus) ignoreInitialRuntimeFocus = false
                 else attach(sessionId)
             }
@@ -320,6 +325,7 @@ class MainActivity : TerminalActivity() {
                 updateRuntimeChoices(connected.runtimeStatusJson)
                 renderRuntimeState(connected.state, connected.detail)
                 connected.startRuntime()
+                submitPendingAvfLaunches()
             }.onFailure { handleRuntimeDisconnect() }
         }
 
@@ -334,6 +340,13 @@ class MainActivity : TerminalActivity() {
         selectedLaunchSpec?.let { outState.putString("pending-profile-launch", it.toJson().toString()) }
         rootlessLaunchSpec?.let { outState.putString("pending-rootless-profile-launch", it.toJson().toString()) }
         notificationSessionId?.let { outState.putString("notification-target", it) }
+        outState.putString("unconfirmed-avf-launches", org.json.JSONArray().apply {
+            unconfirmedAvfLaunches.forEach { launch ->
+                put(org.json.JSONObject().put("requestId", launch.launchRequestId).put("spec", launch.launchSpec?.toJson())
+                    .put("error", launch.launchError ?: org.json.JSONObject.NULL))
+            }
+        }.toString())
+        outState.putStringArrayList("submitted-avf-launches", ArrayList(submittedAvfLaunches))
         super.onSaveInstanceState(outState)
     }
 
@@ -374,6 +387,18 @@ class MainActivity : TerminalActivity() {
         rootlessLaunchSpec = savedInstanceState?.getString("pending-rootless-profile-launch")?.let {
             dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it)
         }
+        unconfirmedAvfLaunches = runCatching {
+            val requests = org.json.JSONArray(savedInstanceState?.getString("unconfirmed-avf-launches") ?: "[]")
+            (0 until requests.length()).map { index ->
+                val request = requests.getJSONObject(index)
+                val spec = dev.terminal.runtime.session.SessionLaunchSpec.fromJson(request.getJSONObject("spec").toString())
+                val error = request.takeIf { !it.isNull("error") }?.getString("error")
+                dev.terminal.app.ui.avfLaunchTab(request.getString("requestId"), spec)
+                    .let { if (error == null) it else it.copy(state = "LAUNCH_FAILED", launchError = error) }
+            }
+        }.getOrDefault(emptyList())
+        submittedAvfLaunches += savedInstanceState?.getStringArrayList("submitted-avf-launches").orEmpty()
+        sessions = orderSessionTabs(unconfirmedAvfLaunches, sessionTabOrder)
         runtimeMessage = getString(R.string.runtime_connecting_prompt)
         rootlessStatus = getString(R.string.rootless_setup_required)
         rootlessDetail = getString(R.string.rootless_setup_initial)
@@ -527,6 +552,11 @@ class MainActivity : TerminalActivity() {
                             TerminalEmptyState(runtimeMessage, ::showNewSessionSheet,
                                 onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) })
                         }
+                    } else if (sessions.firstOrNull { it.id == activeSessionId }?.pendingLaunch == true) {
+                        val loadingSession = sessions.first { it.id == activeSessionId }
+                        dev.terminal.app.ui.AvfSessionLaunchPane(loadingSession,
+                            Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(topInsets),
+                            onDismiss = { terminate(loadingSession.id) })
                     } else {
                         AndroidView(
                             factory = { context ->
@@ -592,9 +622,12 @@ class MainActivity : TerminalActivity() {
                                         terminatingSessionIds = terminatingSessionIds, profiles = profiles,
                                         onSelectProfile = ::selectProfile, onAddProfile = ::addProfile,
                                         newSessionMenuExpanded = newSessionMenuVisible,
-                                        onSelect = { attach(it); requestTerminalKeyboard() },
+                                        onSelect = { id ->
+                                            attach(id)
+                                            if (sessions.none { it.id == id && it.pendingLaunch }) requestTerminalKeyboard()
+                                        },
                                         onRename = { pendingRename = it }, onTerminate = {
-                                            if (terminalPreferences().getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false)) {
+                                            if (it.pendingLaunch || terminalPreferences().getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false)) {
                                                 terminate(it.id)
                                             } else {
                                                 pendingTermination = it
@@ -606,7 +639,10 @@ class MainActivity : TerminalActivity() {
                                         onReorder = ::reorderSessionTabs,
                                     )
                                     MEMORY_TOOL -> ToolbarMemoryTool(active, visibleSessions, toolbarMemoryInterval,
-                                        onSelectSession = { id -> attach(id); requestTerminalKeyboard() }, sections = toolbarMemorySections) {
+                                        onSelectSession = { id ->
+                                            attach(id)
+                                            if (sessions.none { it.id == id && it.pendingLaunch }) requestTerminalKeyboard()
+                                        }, sections = toolbarMemorySections) {
                                         runtime?.sessionMemoryJson?.let { raw ->
                                             org.json.JSONObject(raw).apply {
                                                 if (toolbarMemorySections.app) put("appMemory", combineAppMemory(
@@ -626,7 +662,8 @@ class MainActivity : TerminalActivity() {
                                         })
                                     HOTKEY_TOOL -> ToolbarHotkeys(
                                         layout = hotkeyLayout, control = controlPressed, alt = altPressed, shift = shiftPressed,
-                                        colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors, enabled = toolbarInputActive && interactive,
+                                        colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,
+                                        enabled = toolbarInputActive && interactive && selected?.pendingLaunch != true,
                                         onKey = { key ->
                                             if (activeSessionId == toolbarSessionId) sendToolbarKey(key)
                                         },
@@ -720,6 +757,7 @@ class MainActivity : TerminalActivity() {
     }
 
     private fun sendToolbarKey(key: TerminalToolbarKey) {
+        if (sessions.any { it.id == activeSessionId && it.pendingLaunch }) return
         if (!toolbarInputActive || !toolbarConfig.enabled || HOTKEY_TOOL !in toolbarConfig.tools ||
             toolbarSheetMode == ToolbarSheetMode.Hidden) return
         when (key) {
@@ -763,7 +801,20 @@ class MainActivity : TerminalActivity() {
     private fun renderSessions(revision: Long, json: String) {
         if (revision < lastSessionRevision) return
         lastSessionRevision = revision
-        val updated = orderSessionTabs(parseSessions(json), sessionTabOrder)
+        runtimeSessionRows = parseSessions(json)
+        val acknowledged = runtimeSessionRows.mapNotNull { it.launchRequestId }.toSet()
+        unconfirmedAvfLaunches = unconfirmedAvfLaunches.filter { it.launchRequestId !in acknowledged }
+        submittedAvfLaunches.retainAll(unconfirmedAvfLaunches.mapNotNull { it.launchRequestId }.toSet())
+        renderSessionProjection()
+    }
+
+    private fun renderSessionProjection() {
+        val combined = runtimeSessionRows + unconfirmedAvfLaunches
+        val replacements = dev.terminal.app.ui.avfLaunchTabReplacements(combined)
+        avfFocusHandoffs += sessions.filter { it.pendingLaunch }.mapNotNull { replacements[it.id] }
+        sessionTabOrder = sessionTabOrder.map { replacements[it] ?: it }
+        activeSessionId = replacements[activeSessionId] ?: activeSessionId
+        val updated = orderSessionTabs(combined, sessionTabOrder)
         sessionTabOrder = updated.map { it.id }
         val tabUpdate = reconcileSessionTabs(sessions, activeSessionId, terminatingSessionIds, updated)
         val removedSessionIds = tabUpdate.removedSessionIds
@@ -773,7 +824,7 @@ class MainActivity : TerminalActivity() {
             if (updated.any { it.id == requested }) {
                 activeSessionId = requested
                 notificationSessionId = null
-            } else if (revision > 0) {
+            } else if (lastSessionRevision > 0) {
                 notificationSessionId = null
                 feedbackMessage = getString(R.string.session_task_session_missing)
             }
@@ -814,10 +865,16 @@ class MainActivity : TerminalActivity() {
     }
 
     private fun attach(id: String) {
-        if (id !in sessions.map { it.id }) return
+        val selected = sessions.firstOrNull { it.id == id } ?: return
         paletteTransition.capture(terminalView)
         activeSessionId = id
         getSharedPreferences("terminal-ui-state", MODE_PRIVATE).edit().putString("active-session", id).apply()
+        if (selected.pendingLaunch) {
+            runtimeAttachment.reset()
+            displayedSessionId = null
+            releaseTerminalFocus()
+            return
+        }
         val session = terminalStore.getOrCreate(id, terminalPreferences().getInt(SettingsDetailActivity.KEY_SCROLLBACK, 10_000),
             palette = sessionPalette(id).asProperties())
         updateApplicationTerminalTitle(id, session.title)
@@ -975,6 +1032,14 @@ class MainActivity : TerminalActivity() {
 
     private fun terminate(id: String) {
         if (id in terminatingSessionIds || sessions.none { it.id == id }) return
+        val pending = sessions.firstOrNull { it.id == id && it.pendingLaunch }
+        if (pending != null && pending.launchError == null) return
+        if (unconfirmedAvfLaunches.any { it.id == id }) {
+            unconfirmedAvfLaunches.first { it.id == id }.launchRequestId?.let(submittedAvfLaunches::remove)
+            unconfirmedAvfLaunches = unconfirmedAvfLaunches.filterNot { it.id == id }
+            renderSessionProjection()
+            return
+        }
         val service = runtime
         if (service == null) {
             feedbackMessage = getString(R.string.runtime_connecting_prompt)
@@ -1074,14 +1139,27 @@ class MainActivity : TerminalActivity() {
     private fun builtInLaunchSpec(runtimeType: String) =
         SessionProfiles(this).builtIns().first { it.runtime.wireName == runtimeType }.resolve()
 
-    private fun createSession(spec: dev.terminal.runtime.session.SessionLaunchSpec) = safeRuntimeCall { service ->
+    private fun createSession(spec: dev.terminal.runtime.session.SessionLaunchSpec) {
         if (spec.runtime == dev.terminal.runtime.session.SessionRuntime.AVF) {
             avfLaunchFailure = null
-            val starting = getString(R.string.avf_session_starting)
-            runtimeMessage = starting
-            feedbackMessage = starting
+            val requestId = UUID.randomUUID().toString()
+            val launch = dev.terminal.app.ui.avfLaunchTab(requestId, spec)
+            unconfirmedAvfLaunches = unconfirmedAvfLaunches + launch
+            activeSessionId = launch.id
+            renderSessionProjection()
+            submitPendingAvfLaunches()
+        } else {
+            safeRuntimeCall { service -> service.createSessionFromSpec(spec.toJson().toString(), 24, 80) }
         }
-        service.createSessionFromSpec(spec.toJson().toString(), 24, 80)
+    }
+
+    private fun submitPendingAvfLaunches() = safeRuntimeCall { service ->
+        unconfirmedAvfLaunches.filter { it.launchError == null && it.launchRequestId !in submittedAvfLaunches }
+            .forEach { launch ->
+                val requestId = checkNotNull(launch.launchRequestId)
+                submittedAvfLaunches += requestId
+                service.createSessionFromSpecWithRequestId(checkNotNull(launch.launchSpec).toJson().toString(), requestId, 24, 80)
+            }
     }
 
     private fun syncModifierState() {
@@ -1153,6 +1231,13 @@ class MainActivity : TerminalActivity() {
     }
 
     private fun handleRuntimeDisconnect() {
+        if (unconfirmedAvfLaunches.isNotEmpty()) {
+            unconfirmedAvfLaunches = unconfirmedAvfLaunches.map {
+                if (it.launchRequestId in submittedAvfLaunches)
+                    it.copy(state = "LAUNCH_FAILED", launchError = getString(R.string.runtime_disconnected)) else it
+            }
+            renderSessionProjection()
+        }
         if (rootlessRunning || rootlessInstallInFlight) {
             rootlessRunning = false
             rootlessInstallInFlight = false

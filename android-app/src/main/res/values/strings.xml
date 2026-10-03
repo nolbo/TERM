@@ -45,6 +45,9 @@
     <string name="runtime_rootless_setup">자동 설치</string>
     <string name="runtime_rootless_description">PRoot/glibc · 배포판별 패키지 관리자 · 추가 권한 없음</string>
     <string name="runtime_avf_title">AVF Debian</string>
+    <string name="avf_session_loading">AVF 세션을 준비하고 있습니다</string>
+    <string name="avf_session_preparing_state">시작 중</string>
+    <string name="avf_session_failed_state">시작 실패</string>
     <string name="runtime_avf_setup">자동 설치 · 지원 제품</string>
     <string name="runtime_avf_description">실제 Linux 커널 · 지원 기기와 특권 제품 설정 필요</string>
     <string name="start_terminal">터미널 시작</string>

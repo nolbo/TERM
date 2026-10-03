@@ -185,7 +185,7 @@ internal fun ToolbarSessionsTool(
                             onRename(session)
                         },
                         shape = CircleShape,
-                        enabled = tabsActive && !dragging,
+                        enabled = tabsActive && !dragging && !session.pendingLaunch,
                     ) {
                         Icon(painterResource(R.drawable.ic_toolbar_edit), renameLabel)
                     }
@@ -195,7 +195,8 @@ internal fun ToolbarSessionsTool(
                             onTerminate(session)
                         },
                         shape = CircleShape,
-                        enabled = tabsActive && !dragging && session.id !in terminatingSessionIds,
+                        enabled = tabsActive && !dragging && session.id !in terminatingSessionIds &&
+                            (!session.pendingLaunch || session.launchError != null),
                     ) {
                         Icon(painterResource(R.drawable.ic_material_symbol_close_24), stringResource(R.string.terminate_session_description, sessionTitle))
                     }

@@ -16,6 +16,9 @@ internal fun parseSessions(json: String): List<SessionUi> = runCatching {
             runtime = item.optString("runtime", "NATIVE"),
             title = item.optString("title"),
             state = item.optString("state", "UNKNOWN"),
+            pendingLaunch = item.optBoolean("pendingLaunch"),
+            launchRequestId = item.optString("launchRequestId").takeIf { it.isNotBlank() },
+            launchError = item.takeIf { !it.isNull("launchError") }?.optString("launchError")?.takeIf { it.isNotBlank() },
             hasExplicitTabTitle = item.optBoolean("explicitTitle", false),
             initialTitle = item.optString("initialTitle", item.optString("title")),
             // The wire default -1 means "not exited" for live sessions, but
@@ -25,6 +28,16 @@ internal fun parseSessions(json: String): List<SessionUi> = runCatching {
         )
     }
 }.getOrDefault(emptyList())
+
+internal fun avfLaunchTab(requestId: String, spec: dev.terminal.runtime.session.SessionLaunchSpec) = SessionUi(
+    id = "avf-launch:$requestId", runtime = "AVF", title = spec.profileName, state = "PREPARING",
+    profileId = spec.profileId, launchSpec = spec, pendingLaunch = true, launchRequestId = requestId,
+)
+
+/** Request identities also resolve a selected loading tab restored after Activity recreation. */
+internal fun avfLaunchTabReplacements(updated: List<SessionUi>): Map<String, String> = updated
+    .filter { !it.pendingLaunch && it.launchRequestId != null }
+    .associate { "avf-launch:${it.launchRequestId}" to it.id }
 
 internal data class SessionTabUpdate(
     val activeSessionId: String?,

@@ -358,6 +358,9 @@ data class SessionUi(
     val subtitle: String? = null,
     val profileId: String? = null,
     val launchSpec: dev.terminal.runtime.session.SessionLaunchSpec? = null,
+    val pendingLaunch: Boolean = false,
+    val launchRequestId: String? = null,
+    val launchError: String? = null,
 )
 
 data class RuntimeChoiceUi(
@@ -736,6 +739,8 @@ internal fun sessionStateLabel(state: String): String = stringResource(
         "CREATED" -> R.string.session_state_created
         "RUNNING" -> R.string.session_state_running
         "EXITED" -> R.string.session_state_exited
+        "PREPARING" -> R.string.avf_session_preparing_state
+        "LAUNCH_FAILED" -> R.string.avf_session_failed_state
         else -> R.string.session_state_unknown
     },
 )

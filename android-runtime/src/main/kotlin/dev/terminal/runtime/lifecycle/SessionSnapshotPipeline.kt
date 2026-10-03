@@ -19,6 +19,11 @@ internal class SessionSnapshotPipeline(
         refreshLocked(client)
     }
 
+    /** Publishes service-owned launch state without querying or starting a runtime. */
+    suspend fun republish(): SessionSnapshot = mutex.withLock {
+        commit(current?.sessions.orEmpty(), force = true)
+    }
+
     suspend fun <T> mutateAndRefresh(
         client: SessionController,
         mutation: suspend () -> Result<T>,

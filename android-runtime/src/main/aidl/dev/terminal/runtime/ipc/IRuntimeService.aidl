@@ -54,4 +54,5 @@ interface IRuntimeService {
     String getSessionMemoryJson();
     String renameStorage(String runtimeType, String storageId, String name);
     String measureStorageUsageJson(String runtimeType, String storageId);
+    void createSessionFromSpecWithRequestId(String launchSpecJson, String requestId, int rows, int cols);
 }

@@ -15,6 +15,26 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionSnapshotPipelineTest {
+    @Test fun launchStatePublicationPreservesSessionsWithoutListingTheControllerAgain() = runBlocking {
+        val controller = DelayedListController().also { it.releaseFirstList.complete(Unit) }
+        val published = mutableListOf<SessionSnapshot>()
+        val pipeline = SessionSnapshotPipeline(published::add)
+        val empty = pipeline.republish()
+        assertTrue(empty.sessions.isEmpty())
+        assertEquals(0, controller.listCalls)
+        pipeline.refresh(controller).getOrThrow()
+        val renamed = pipeline.rename("native-a", "Build logs").getOrThrow()
+
+        val pendingLaunch = pipeline.republish()
+
+        assertEquals(1, controller.listCalls)
+        assertEquals(renamed.revision + 1, pendingLaunch.revision)
+        assertEquals(renamed.sessions, pendingLaunch.sessions)
+        assertEquals(renamed.explicitTitleIds, pendingLaunch.explicitTitleIds)
+        assertEquals(renamed.initialTitles, pendingLaunch.initialTitles)
+        assertEquals(pendingLaunch, published.last())
+    }
+
     @Test fun creationAndProfileTitlesAreFallbacksUntilAnExplicitRename() = runBlocking {
         val controller = DelayedListController().also { it.releaseFirstList.complete(Unit) }
         val pipeline = SessionSnapshotPipeline {}
@@ -82,12 +102,15 @@ class SessionSnapshotPipelineTest {
         val firstListStarted = CompletableDeferred<Unit>()
         val releaseFirstList = CompletableDeferred<Unit>()
         private var firstList = true
+        var listCalls = 0
+            private set
         private val sessions = linkedMapOf(
             "native-a" to descriptor("native-a", 1),
             "native-b" to descriptor("native-b", 2),
         )
 
         override suspend fun list(): Result<List<SessionDescriptor>> {
+            listCalls++
             val snapshot = sessions.values.toList()
             if (firstList) {
                 firstList = false

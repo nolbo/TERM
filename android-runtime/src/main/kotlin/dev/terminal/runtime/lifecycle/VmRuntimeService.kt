@@ -116,6 +116,7 @@ class VmRuntimeService : Service() {
     private lateinit var portForwarder: LocalhostPortForwarder
     @Volatile private var publishedSessions = PublishedSessions(0L, "[]", 0)
     private val sessionSnapshots = SessionSnapshotPipeline(::publishSessionSnapshot)
+    private val pendingAvfLaunches = PendingAvfSessionLaunches()
     private val hostBackgroundOperationCount = AtomicInteger(0)
     @Volatile private var latestState: RuntimeState = RuntimeState.Stopped
 
@@ -334,7 +335,7 @@ class VmRuntimeService : Service() {
 
         override fun getRuntimeStatusJson(): String = runtimeStatusJson()
 
-        override fun getSessionsJson(): String = publishedSessions.json
+        override fun getSessionsJson(): String = pendingAvfLaunches.project(publishedSessions.json)
 
         override fun getForwardedPortsJson(): String = JSONArray().apply {
             portRegistry.ports.value.forEach { port ->
@@ -368,6 +369,9 @@ class VmRuntimeService : Service() {
         override fun createSessionFromSpec(launchSpecJson: String, rows: Int, cols: Int) =
             createResolvedSession(launchSpecJson, rows, cols)
 
+        override fun createSessionFromSpecWithRequestId(launchSpecJson: String, requestId: String, rows: Int, cols: Int) =
+            createResolvedSession(launchSpecJson, rows, cols, requestId)
+
         override fun createSession(runtimeType: String, shell: String, cwd: String, rows: Int, cols: Int) {
             val selected = SessionRuntime.fromWireName(runtimeType)
             if (selected == null) {
@@ -381,57 +385,91 @@ class VmRuntimeService : Service() {
             createResolvedSession(profile.resolve().toJson().toString(), rows, cols)
         }
 
-        private fun createResolvedSession(encoded: String, rows: Int, cols: Int) {
+        private fun createResolvedSession(encoded: String, rows: Int, cols: Int, requestId: String? = null) {
             val parsed = runCatching { dev.terminal.runtime.session.SessionLaunchSpec.fromJson(encoded) }
-            launchRuntimeOperation(trackAsWork = true, errorOperation = "세션 생성:${parsed.getOrNull()?.runtime?.wireName ?: "UNKNOWN"}:${parsed.getOrNull()?.storageId ?: "legacy"}") {
-                val client = ensureSessionRegistry()
-                    ?: throw IllegalStateException("세션 런타임에 연결할 수 없습니다")
-                migrateLegacyStorages(client)
-                storageMigrationMutex.withLock {
-                    val spec = storageRegistry.transaction {
-                        val resolved = resolveProfile(parsed.getOrThrow().toProfile()).resolve()
-                        validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(resolved.runtime, resolved.storageId))
-                        resolved
-                    }
-                    val requestedRuntime = spec.runtime
-                    Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
-                    if (!ensureStorageController(spec, client)) {
-                        notifyOperationError("세션 생성:${requestedRuntime.wireName}:${spec.storageId}", runtimeUnavailableReason(requestedRuntime))
-                        return@launchRuntimeOperation
-                    }
-                    val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
-                    val kittyId = nextKittyId()
-                    val grantKitty = preferences.getBoolean(KEY_KITTY_REMOTE, false)
-                    val result = sessionSnapshots.mutateAndRefresh(client) {
-                        client.create(
-                            spec,
-                            runtimeEnvironment = buildMap {
-                                if ("TERM" !in spec.environment) put("TERM", preferences.getString(KEY_NATIVE_TERM, "xterm-256color").orEmpty())
-                                if (preferences.getBoolean(KEY_KITTY_GRAPHICS, false) || grantKitty) {
-                                    put("KITTY_WINDOW_ID", kittyId.toString())
-                                }
-                            },
-                            rows = rows.toUShortDimension(),
-                            cols = cols.toUShortDimension(),
-                        ).onSuccess {
-                            kittyIdentities[it.id] = kittyId
-                            if (grantKitty && preferences.getBoolean(KEY_KITTY_REMOTE, false)) kittyGrants.add(it.id)
+            val launch = parsed.getOrNull()?.takeIf { it.runtime == SessionRuntime.AVF }?.let {
+                PendingAvfSessionLaunches.Launch(requestId ?: java.util.UUID.randomUUID().toString(), it)
+            }
+            if (launch != null && !pendingAvfLaunches.begin(launch)) return
+            val operation = "세션 생성:${parsed.getOrNull()?.runtime?.wireName ?: "UNKNOWN"}:${parsed.getOrNull()?.storageId ?: "legacy"}" +
+                (launch?.let { ":${it.requestId}" } ?: "")
+            launchRuntimeOperation(trackAsWork = true, errorOperation = operation) {
+                try {
+                    if (launch != null) sessionSnapshots.republish()
+                    val client = ensureSessionRegistry()
+                        ?: throw IllegalStateException("세션 런타임에 연결할 수 없습니다")
+                    migrateLegacyStorages(client)
+                    storageMigrationMutex.withLock {
+                        val spec = storageRegistry.transaction {
+                            val resolved = resolveProfile(parsed.getOrThrow().toProfile()).resolve()
+                            validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(resolved.runtime, resolved.storageId))
+                            resolved
                         }
-                    }
-                    result.operation
-                        .onSuccess { created ->
-                            // Publish the new session before requesting focus so the UI
-                            // can attach its renderer and move keyboard input to it.
-                            if (result.snapshot?.isSuccess == true) {
-                                focusedSession = created.id
-                                broadcast { it.onSessionFocusRequested(created.id) }
+                        val requestedRuntime = spec.runtime
+                        Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
+                        if (!ensureStorageController(spec, client)) {
+                            if (launch != null) {
+                                pendingAvfLaunches.fail(launch, runtimeUnavailableReason(requestedRuntime))
+                                sessionSnapshots.republish()
+                            }
+                            notifyOperationError("세션 생성:${requestedRuntime.wireName}:${spec.storageId}", runtimeUnavailableReason(requestedRuntime))
+                            return@launchRuntimeOperation
+                        }
+                        val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
+                        val kittyId = nextKittyId()
+                        val grantKitty = preferences.getBoolean(KEY_KITTY_REMOTE, false)
+                        val result = sessionSnapshots.mutateAndRefresh(client) {
+                            client.create(
+                                spec,
+                                runtimeEnvironment = buildMap {
+                                    if ("TERM" !in spec.environment) put("TERM", preferences.getString(KEY_NATIVE_TERM, "xterm-256color").orEmpty())
+                                    if (preferences.getBoolean(KEY_KITTY_GRAPHICS, false) || grantKitty) {
+                                        put("KITTY_WINDOW_ID", kittyId.toString())
+                                    }
+                                },
+                                rows = rows.toUShortDimension(),
+                                cols = cols.toUShortDimension(),
+                            ).onSuccess {
+                                if (launch != null) {
+                                    getSharedPreferences("session-launch-requests", MODE_PRIVATE).edit()
+                                        .putString(it.id, launch.requestId).apply()
+                                    pendingAvfLaunches.complete(launch.requestId)
+                                }
+                                kittyIdentities[it.id] = kittyId
+                                if (grantKitty && preferences.getBoolean(KEY_KITTY_REMOTE, false)) kittyGrants.add(it.id)
                             }
                         }
-                        .onFailure {
-                            Log.e(TAG, "session.create failed runtime=${requestedRuntime.wireName} cause=${it.javaClass.simpleName}: ${it.userMessage()}")
-                            notifyOperationError("세션 생성:${requestedRuntime.wireName}:${spec.storageId}", it.userMessage())
+                        result.operation
+                            .onSuccess { created ->
+                                // Publish the new session before requesting focus so the UI
+                                // can attach its renderer and move keyboard input to it.
+                                if (result.snapshot?.isSuccess == true) {
+                                    focusedSession = created.id
+                                    broadcast { it.onSessionFocusRequested(created.id) }
+                                }
+                            }
+                            .onFailure {
+                                if (launch != null) {
+                                    pendingAvfLaunches.fail(launch, it.userMessage())
+                                    sessionSnapshots.republish()
+                                }
+                                Log.e(TAG, "session.create failed runtime=${requestedRuntime.wireName} cause=${it.javaClass.simpleName}: ${it.userMessage()}")
+                                notifyOperationError(if (launch != null) operation else "세션 생성:${requestedRuntime.wireName}:${spec.storageId}", it.userMessage())
+                            }
+                        result.snapshot?.onFailure {
+                            if (launch != null) {
+                                pendingAvfLaunches.fail(launch, it.userMessage())
+                                sessionSnapshots.republish()
+                            }
+                            notifyOperationError(if (launch != null) operation else "세션 목록 새로고침", it.userMessage())
                         }
-                    result.snapshot?.onFailure { notifyOperationError("세션 목록 새로고침", it.userMessage()) }
+                    }
+                } catch (failure: Throwable) {
+                    if (launch != null) runCatching {
+                        pendingAvfLaunches.fail(launch, failure.userMessage())
+                        sessionSnapshots.republish()
+                    }
+                    throw failure
                 }
             }
         }
@@ -570,6 +608,10 @@ class VmRuntimeService : Service() {
         }
 
         override fun terminateSession(sessionId: String) = launchRuntimeOperation {
+            if (pendingAvfLaunches.dismiss(sessionId)) {
+                sessionSnapshots.republish()
+                return@launchRuntimeOperation
+            }
             val client = sessionClient
             if (client == null) {
                 notifySessionTerminationFailed(sessionId, "세션 런타임에 연결되어 있지 않습니다")
@@ -583,6 +625,7 @@ class VmRuntimeService : Service() {
                 .onSuccess {
                     taskNotifications.forget(sessionId)
                     getSharedPreferences("session-launches", MODE_PRIVATE).edit().remove(sessionId).apply()
+                    getSharedPreferences("session-launch-requests", MODE_PRIVATE).edit().remove(sessionId).apply()
                     kittyGrants.remove(sessionId)
                     kittyIdentities.remove(sessionId)
                     kittyTitles.remove(sessionId)
@@ -701,7 +744,7 @@ class VmRuntimeService : Service() {
             }
             runCatching {
                 listener.onRuntimeStateChanged(latestState.wireName, latestState.detail())
-                listener.onSessionsChanged(snapshot.revision, snapshot.json)
+                listener.onSessionsChanged(snapshot.revision, pendingAvfLaunches.project(snapshot.json))
                 focusedSession?.let { listener.onSessionFocusRequested(it) }
             }
         }
@@ -1326,13 +1369,16 @@ class VmRuntimeService : Service() {
         } else verification.reason
     }
 
-    private fun List<SessionDescriptor>.toJson(explicitTitleIds: Set<String> = emptySet(), initialTitles: Map<String, String> = emptyMap()): String = JSONArray().apply {
+    private fun List<SessionDescriptor>.toJson(explicitTitleIds: Set<String> = emptySet(), initialTitles: Map<String, String> = emptyMap()): String = pendingAvfLaunches.project(JSONArray().apply {
         forEach { session -> put(JSONObject().apply {
             put("id", session.id)
             getSharedPreferences("session-launches", MODE_PRIVATE).getString(session.id, null)?.let {
                 val spec = JSONObject(it)
                 put("profileId", spec.getString("profileId"))
                 put("launchSpec", spec)
+            }
+            getSharedPreferences("session-launch-requests", MODE_PRIVATE).getString(session.id, null)?.let {
+                put("launchRequestId", it)
             }
             put("runtime", (sessionClient as? UnifiedSessionRegistry)?.runtimeOf(session.id)?.wireName
                 ?: SessionRuntime.fromSessionId(session.id)?.wireName
@@ -1350,7 +1396,7 @@ class VmRuntimeService : Service() {
                 put("exitCode", session.exitCode)
             }
         }) }
-    }.toString()
+    }.toString())
 
     private fun runtimeStatusJson(): String = JSONObject().apply {
         put(SessionRuntime.NATIVE.wireName, JSONObject().apply {

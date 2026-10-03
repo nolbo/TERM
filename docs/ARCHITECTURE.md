@@ -75,6 +75,17 @@ The runtime service or guest session daemon is authoritative for live sessions.
 Cached UI state is never authoritative. If the runtime or PTY owner actually
 dies, report session loss honestly; do not fake restoration.
 
+AVF creation immediately selects a loading tab identified by a request UUID.
+Before Binder connects, the UI keeps only the unsent request and its immutable
+profile snapshot; it submits once after connection. Once accepted, `:vmhost`
+owns the preparation request and republishes it for returning screens. These
+records are separate from live session descriptors and never own a PTY,
+renderer, terminal input, running-session count, or VM. A successful session
+carries the same request UUID so its loading tab retains its position and
+selection; completion must not change a different tab the user selected.
+Failures remain in the tab until dismissed. Dismissing a failed request removes
+only that request record, without terminating a VM or another session.
+
 Runtime-specific process ownership stays behind Native, Rootless, and AVF
 backend interfaces. UI code must not depend directly on PRoot, AVF, crosvm,
 vsock, or package-manager implementation details.

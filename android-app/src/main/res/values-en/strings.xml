@@ -23,6 +23,9 @@
     <string name="terminal_padding">Terminal padding</string>
     <string name="terminal_padding_support">0–32 dp on each side; 4 dp by default. Applied when you return to the terminal.</string>
     <string name="app_name">TERM</string>
+    <string name="avf_session_loading">Preparing your AVF session</string>
+    <string name="avf_session_preparing_state">Starting</string>
+    <string name="avf_session_failed_state">Startup failed</string>
     <string name="runtime_disconnected">The runtime service disconnected.</string>
     <string name="back">Back</string><string name="close">Close</string><string name="cancel">Cancel</string><string name="retry">Retry</string><string name="save">Save</string><string name="install">Install</string><string name="check_again">Check again</string><string name="confirm">Confirm</string>
     <string name="setup_title">Initial setup</string><string name="setup_headline">A Linux terminal ready to use</string>
