@@ -10,6 +10,8 @@ The dependent APK job receives the factory metadata, verifies its source commit 
 
 Filesystem parsing and guest configuration run in a libguestfs appliance inside an unprivileged container with no network or writable source checkout. The producer installs its dependencies in the container; it does not install host system packages. Production requires Docker, an ARM64 host (or configured ARM64 emulation), and at least 24 GiB of free space on the output filesystem plus sufficient Docker storage. The workflow runs two QEMU boots and checks that the overlay root starts, the guest binaries execute, the config disk mounts read-only, and a file written on the first boot survives the second. This is an image boot gate, not privileged AVF/device/vsock validation.
 
+The appliance uses the direct backend with `LIBGUESTFS_BACKEND_SETTINGS=force_tcg`, so hosted ARM64 runners do not require KVM. Without this setting, libguestfs can detect host KVM support while the container has no KVM device and select an unusable host GIC configuration. Debug/trace output is enabled to report appliance failures. Guest build failures terminate the factory immediately.
+
 For local product development, the same pipeline is one command:
 
 ```sh

@@ -23,5 +23,6 @@ COPY image/scripts/droid-overlay /payload/droid-overlay
 COPY image/scripts/image-selftest /payload/image-selftest
 COPY image/scripts/smoke-avf-image.py /usr/local/bin/smoke-avf-image.py
 COPY image/scripts/assemble-avf-image.sh /usr/local/bin/assemble-avf-image
-ENV LIBGUESTFS_BACKEND=direct LIBGUESTFS_DEBUG=1 LIBGUESTFS_TRACE=1
+# Hosted ARM64 runners do not expose KVM. Avoid an unusable host GIC fallback.
+ENV LIBGUESTFS_BACKEND=direct LIBGUESTFS_BACKEND_SETTINGS=force_tcg LIBGUESTFS_DEBUG=1 LIBGUESTFS_TRACE=1
 ENTRYPOINT ["bash", "/usr/local/bin/assemble-avf-image"]
