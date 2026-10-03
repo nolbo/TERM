@@ -1,6 +1,6 @@
 <resources>
     <string name="follow_tui_background">Follow fullscreen TUI background</string>
-    <string name="follow_tui_background_support">Match the app bar, toolbar, and system bar icons to the main background of fullscreen terminal apps such as Neovim. Restore the previous colors on exit.</string>
+    <string name="follow_tui_background_support">Match the Sessions tool, toolbar, and system bar icons to the main background of fullscreen terminal apps such as Neovim. Restore the previous colors on exit.</string>
     <string name="terminal_open_links">Open web links</string>
     <string name="terminal_open_links_support">Open an http/https address from the terminal in a browser with one tap.</string>
     <string name="terminal_link_no_browser">No app is available to open this web link.</string>
@@ -150,14 +150,15 @@
     <string name="profile_icon_delete_message">Remove this icon from the selection list? Removal takes effect immediately. Existing profiles and running sessions keep their image. Import the same image again to restore it to the list.</string>
     <string name="profile_icon_delete_error">Could not delete the icon. Try again.</string>
     <string name="toolbar_settings">Toolbar settings</string>
-    <string name="toolbar_settings_summary">Enable the toolbar, choose tools, and arrange their order</string>
-    <string name="toolbar_enabled">Use toolbar</string>
-    <string name="toolbar_enabled_summary">Drag the handle to adjust height. Swipe horizontally to switch tools.</string>
+    <string name="toolbar_settings_summary">Enable additional tools, choose tools, and arrange their order</string>
+    <string name="toolbar_sessions">Sessions</string>
+    <string name="toolbar_enabled">Use additional tools</string>
+    <string name="toolbar_enabled_summary">The Sessions tool is always available. Swipe left or right to switch additional tools.</string>
     <string name="toolbar_tools">Tools</string>
     <string name="toolbar_empty">No tools added. Add tools by editing Toolbar settings.</string>
     <string name="toolbar_edit">Edit</string>
     <string name="toolbar_done">Done</string>
-    <string name="toolbar_edit_summary">Changes apply immediately. Drag handles to reorder, or use the buttons to add and remove tools.</string>
+    <string name="toolbar_edit_summary">Changes apply immediately. Drag handles to reorder, or use the buttons to add and remove tools. The Sessions tool cannot be removed.</string>
     <string name="toolbar_handle">Toolbar drag handle</string>
     <string name="toolbar_hidden">Hidden</string>
     <string name="toolbar_default">Default</string>

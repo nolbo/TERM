@@ -14,15 +14,19 @@ import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
 import dev.terminal.app.ui.DroidTheme
 import dev.terminal.app.ui.TerminalHapticFeedbackProvider
-import dev.terminal.app.ui.TerminalChrome
+import dev.terminal.app.ui.TerminalToolbar
+import dev.terminal.app.ui.TerminalChromeColors
+import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.dp
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Real layout + gesture regression: hidden chrome must release its height. */
+/** Real layout + gesture regression: hiding the toolbar releases its content height. */
 @RunWith(AndroidJUnit4::class)
 class AppBarResizeTest {
-    @Test fun doubleTapReleasesAndRestoresAppBarHeight() {
+    @Test fun doubleTapReleasesAndRestoresToolbarHeight() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val visible = mutableStateOf(true)
         lateinit var terminal: TerminalView
@@ -34,20 +38,10 @@ class AppBarResizeTest {
             scenario.onActivity { activity ->
                 backend = RemoteTerminalBackend(write = {}, resize = { _, _ -> })
                 val session = TerminalSession("", "", emptyArray(), emptyArray(), 100, TerminalCallbacks {}, backend)
-                barHeight = (48 * activity.resources.displayMetrics.density).toInt()
+                barHeight = (104 * activity.resources.displayMetrics.density).toInt()
                 activity.setContent {
                     DroidTheme { TerminalHapticFeedbackProvider {
                         Column(Modifier.fillMaxSize().windowInsetsPadding(WindowInsets.statusBars)) {
-                            TerminalChrome(
-                                sessions = emptyList(), activeSessionId = null,
-                                appBarContentVisible = visible.value,
-                                terminalBackgroundColor = androidx.compose.ui.graphics.Color.Black,
-                                topInsets = WindowInsets(0, 0, 0, 0),
-                                terminatingSessionIds = emptySet(), profiles = emptyList(),
-                                newSessionMenuExpanded = false, onSelect = {}, onRename = {},
-                                onTerminate = {}, onNew = {}, onDismissNewSession = {},
-                                onSelectProfile = {}, onAddProfile = {}, onSettings = {},
-                            )
                             AndroidView(factory = { context ->
                                 TerminalView(context, null).apply {
                                     terminal = this
@@ -58,6 +52,11 @@ class AppBarResizeTest {
                                     attachSession(session)
                                 }
                             }, modifier = Modifier.weight(1f).fillMaxWidth())
+                            TerminalToolbar(ToolbarConfig().visibleConfig(),
+                                if (visible.value) ToolbarSheetMode.Default else ToolbarSheetMode.Hidden,
+                                { visible.value = it != ToolbarSheetMode.Hidden }, 400.dp,
+                                TerminalChromeColors(Color.Black)) { _, _ -> Text("Session tool") }
+
                         }
                     } }
                 }
@@ -84,7 +83,7 @@ class AppBarResizeTest {
                 scenario.onActivity {
                     assertFalse(visible.value)
                     assertEquals(initialHeight + barHeight, terminal.height)
-                    assertEquals(initialTop - barHeight, top())
+                    assertEquals(initialTop, top())
                     assertTrue("System status bar inset remains", top() > 0)
                     doubleTap()
                 }

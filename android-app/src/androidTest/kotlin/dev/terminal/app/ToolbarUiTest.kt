@@ -134,6 +134,69 @@ class ToolbarUiTest {
         settle()
     }
 
+    @Test fun sessionToolHasTopActionsVerticalTabsAndKeepsMandatoryNavigation() {
+        val selected = mutableStateOf("first")
+        var renamed: String? = null
+        var terminated: String? = null
+        var newClicks = 0
+        var settingsClicks = 0
+        val sessions = listOf(SessionUi("first", "NATIVE", "First shell", "RUNNING"),
+            SessionUi("second", "ROOTLESS", "Second shell", "RUNNING"))
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Box(Modifier.fillMaxSize()) {
+                        ToolbarSessionsTool(sessions, selected.value, true, emptySet(), emptyList(),
+                            {}, {}, false, { selected.value = it }, { renamed = it.id },
+                            { terminated = it.id }, { newClicks++ }, {}, { settingsClicks++ },
+                            TerminalChromeColors(Color.Black))
+                    }
+                } }
+            } }
+            settle()
+            val first = bounds(text("First shell"))
+            val second = bounds(text("Second shell"))
+            assertTrue("Tabs form a vertical list", second.top > first.bottom)
+            assertEquals(first.left, second.left)
+            assertTrue(bounds(description(label(R.string.new_session))).bottom <= first.top)
+            assertTrue(bounds(description(label(R.string.settings))).bottom <= first.top)
+            click(description(label(R.string.new_session)))
+            click(description(label(R.string.settings)))
+            assertEquals(1, newClicks)
+            assertEquals(1, settingsClicks)
+            click(text("Second shell"))
+            assertEquals("second", selected.value)
+            click(description(context.getString(R.string.terminate_session_description, "Second shell")))
+            assertEquals("second", terminated)
+            val rename = waitForNode("Rename action") { it.actionList.any { action ->
+                action.label?.toString() == context.getString(R.string.rename_session_description, "Second shell")
+            } }
+            assertTrue(rename.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
+            settle()
+            assertEquals("second", renamed)
+        }
+    }
+
+    @Test fun settingsCannotRemoveSessionTool() {
+        val prefs = context.getSharedPreferences("toolbar-mandatory-test", 0)
+        prefs.edit().clear().commit()
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity -> activity.setContent {
+                    DroidTheme { TerminalHapticFeedbackProvider { ToolbarSettings(prefs, {}) {} } }
+                } }
+                settle()
+                text(label(R.string.toolbar_sessions))
+                click(description(label(R.string.toolbar_edit)))
+                description(context.getString(R.string.toolbar_move, label(R.string.toolbar_sessions)))
+                assertNull(find { it.contentDescription?.toString() ==
+                    context.getString(R.string.toolbar_remove, label(R.string.toolbar_sessions)) })
+                click(description(context.getString(R.string.toolbar_remove, label(R.string.settings_hotkeys_title))))
+                assertEquals(listOf(SESSIONS_TOOL), readToolbarConfig(prefs).tools)
+            }
+        } finally { prefs.edit().clear().commit() }
+    }
+
     @Test fun sheetDragPagingHiddenHandleAndDisabledState() {
         val mode = mutableStateOf(ToolbarSheetMode.Default)
         val config = mutableStateOf(ToolbarConfig(tools = listOf("first", "second")))

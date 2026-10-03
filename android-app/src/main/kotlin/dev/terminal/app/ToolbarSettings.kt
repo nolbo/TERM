@@ -194,7 +194,8 @@ private fun ToolbarReorderList(config: ToolbarConfig, editing: Boolean, tools: L
                 modifier = Modifier.offset { IntOffset(0, (if (lifted) dragTop else position.value).roundToInt()) }
                     .zIndex(if (lifted) 1f else 0f).semantics { traversalIndex = index.toFloat() }) {
                 Box {
-                    ListItem(onClick = { if (!editing) onOpen(tool.settings) },
+                    ListItem(onClick = { if (!editing) tool.settings?.let(onOpen) },
+                        enabled = editing || tool.settings != null,
                         modifier = Modifier.fillMaxWidth().height(rowHeight).graphicsLayer {
                             scaleX = scale; scaleY = scale; shadowElevation = elevation.toPx()
                             shape = rowShape
@@ -244,11 +245,11 @@ private fun ToolbarReorderList(config: ToolbarConfig, editing: Boolean, tools: L
                             val trailingWidth by animateDpAsState(if (editing) 48.dp else 24.dp,
                                 MaterialTheme.motionScheme.defaultSpatialSpec(), label = "toolbarActionWidth")
                             Box(Modifier.width(trailingWidth).height(48.dp), contentAlignment = Alignment.Center) {
-                                Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null,
+                                if (tool.settings != null) Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null,
                                     Modifier.graphicsLayer { alpha = 1f - editAlpha })
-                                if (editing || editAlpha > 0.01f) IconButton(onClick = {
+                                if (tool.removable && (editing || editAlpha > 0.01f)) IconButton(onClick = {
                                     cancel()
-                                    onUpdate(if (added) config.copy(tools = config.tools - id) else config.addTool(id))
+                                    onUpdate(if (added) config.removeTool(id) else config.addTool(id))
                                 }, modifier = Modifier.graphicsLayer { alpha = editAlpha }, enabled = editing && dragging == null) {
                                     Icon(painterResource(if (added) R.drawable.ic_toolbar_remove else R.drawable.ic_material_symbol_add_24),
                                         stringResource(if (added) R.string.toolbar_remove else R.string.toolbar_add, name))

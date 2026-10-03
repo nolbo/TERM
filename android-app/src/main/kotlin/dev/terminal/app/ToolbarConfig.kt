@@ -5,19 +5,21 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal const val KEY_TOOLBAR = "terminal-toolbar-v1"
+internal const val SESSIONS_TOOL = "sessions"
 internal const val HOTKEY_TOOL = "hotkeys"
 internal const val MEMORY_TOOL = "memory"
 internal const val COMMANDS_TOOL = "commands"
 
 /** Stable IDs are shared by persistence, settings destinations and pager content. */
-internal data class ToolbarTool(val id: String, val title: Int, val settings: String)
+internal data class ToolbarTool(val id: String, val title: Int, val settings: String?, val removable: Boolean = true)
 internal val toolbarTools = listOf(
+    ToolbarTool(SESSIONS_TOOL, R.string.toolbar_sessions, null, removable = false),
     ToolbarTool(HOTKEY_TOOL, R.string.settings_hotkeys_title, "hotkeys"),
     ToolbarTool(MEMORY_TOOL, R.string.toolbar_memory, "toolbar-memory"),
     ToolbarTool(COMMANDS_TOOL, R.string.toolbar_commands, "toolbar-commands"),
 )
 
-internal data class ToolbarConfig(val enabled: Boolean = true, val tools: List<String> = listOf(HOTKEY_TOOL))
+internal data class ToolbarConfig(val enabled: Boolean = true, val tools: List<String> = listOf(SESSIONS_TOOL, HOTKEY_TOOL))
 
 internal fun parseToolbarConfig(value: String?, legacyEnabled: Boolean = true,
     available: Set<String> = toolbarTools.map { it.id }.toSet()): ToolbarConfig = runCatching {
@@ -26,7 +28,9 @@ internal fun parseToolbarConfig(value: String?, legacyEnabled: Boolean = true,
     require(json.getInt("version") == 1)
     val array = json.getJSONArray("tools")
     ToolbarConfig(json.getBoolean("enabled"), (0 until array.length()).map { array.getString(it) }
-        .filter { it in available }.distinct())
+        .filter { it in available }.distinct().let { tools ->
+            if (SESSIONS_TOOL in available && SESSIONS_TOOL !in tools) listOf(SESSIONS_TOOL) + tools else tools
+        })
 }.getOrElse { ToolbarConfig(enabled = legacyEnabled) }
 
 internal fun readToolbarConfig(preferences: SharedPreferences) =
@@ -37,6 +41,14 @@ internal fun serializeToolbarConfig(config: ToolbarConfig): String = JSONObject(
 
 internal fun ToolbarConfig.addTool(id: String): ToolbarConfig =
     if (id in tools) this else copy(tools = tools + id)
+
+internal fun ToolbarConfig.removeTool(id: String): ToolbarConfig =
+    if (toolbarTools.any { it.id == id && !it.removable }) this else copy(tools = tools - id)
+
+/** Navigation remains reachable when optional tools are disabled. */
+internal fun ToolbarConfig.visibleConfig(): ToolbarConfig = copy(enabled = true,
+    tools = if (!enabled) listOf(SESSIONS_TOOL)
+        else if (SESSIONS_TOOL in tools) tools else listOf(SESSIONS_TOOL) + tools)
 
 internal fun ToolbarConfig.moveTool(from: Int, to: Int): ToolbarConfig =
     if (from !in tools.indices || to !in tools.indices) this

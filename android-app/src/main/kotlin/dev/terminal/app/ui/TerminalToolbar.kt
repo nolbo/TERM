@@ -70,7 +70,8 @@ internal fun TerminalToolbar(
     val motion = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val hidden = 24.dp
     val expanded = maxHeight.coerceAtLeast(96.dp)
-    val normal = (hidden + ToolbarHotkeyViewportHeight).coerceAtMost(expanded)
+    val viewport = if (tools.getOrNull(pager.currentPage) == SESSIONS_TOOL) 104.dp else ToolbarHotkeyViewportHeight
+    val normal = (hidden + viewport).coerceAtMost(expanded)
     val anchors = remember(density, expanded, normal) {
         with(density) { DraggableAnchors {
             ToolbarSheetMode.Hidden at -hidden.toPx()
