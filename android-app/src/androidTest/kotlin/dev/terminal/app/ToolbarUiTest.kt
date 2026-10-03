@@ -90,17 +90,22 @@ class ToolbarUiTest {
     private fun assertNoHandleHover(node: AccessibilityNodeInfo) {
         val rect = bounds(node)
         val density = context.resources.displayMetrics.density
-        // The mouse cursor stays to the right of the sampled region.
-        val mouseX = rect.exactCenterX() + 14 * density
-        val sample = Rect(
-            maxOf(rect.left, (rect.exactCenterX() - 16 * density).toInt()), rect.top,
-            (mouseX - 8 * density).toInt(), rect.bottom,
-        )
+        // Include the whole hit area and the space where a delayed hover tooltip can appear.
+        val sample = Rect(rect.left, maxOf(0, rect.top - (80 * density).toInt()), rect.right, rect.bottom)
+        var mouseX = rect.exactCenterX() + 14 * density
+        var mouseY = rect.exactCenterY()
         fun pixels(): IntArray {
             val bitmap = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
-            return IntArray(sample.width() * sample.height()).also {
-                bitmap.getPixels(it, 0, sample.width(), sample.left, sample.top, sample.width(), sample.height())
+            return IntArray(sample.width() * sample.height()).also { pixels ->
+                bitmap.getPixels(pixels, 0, sample.width(), sample.left, sample.top, sample.width(), sample.height())
                 bitmap.recycle()
+                // Ignore only the pointer sprite, which is unrelated to the handle indication.
+                for (y in sample.top until sample.bottom) for (x in sample.left until sample.right) {
+                    if (x >= mouseX - 4 * density && x <= mouseX + 28 * density &&
+                        y >= mouseY - 4 * density && y <= mouseY + 36 * density) {
+                        pixels[(y - sample.top) * sample.width() + x - sample.left] = 0
+                    }
+                }
             }
         }
         fun hover(action: Int, y: Float) {
@@ -111,17 +116,26 @@ class ToolbarUiTest {
                 0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_MOUSE, 0)
             try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
         }
-        for (y in listOf(rect.exactCenterY(), rect.top + 2 * density)) {
+        for ((x, y) in listOf(
+            rect.exactCenterX() + 14 * density to rect.exactCenterY(),
+            rect.left + 2 * density to rect.top + 2 * density,
+            rect.right - 2 * density to rect.exactCenterY(),
+        )) {
+            mouseX = x
+            mouseY = y
             val before = pixels()
             hover(MotionEvent.ACTION_HOVER_ENTER, y)
             try {
                 hover(MotionEvent.ACTION_HOVER_MOVE, y)
-                SystemClock.sleep(250)
-                instrumentation.waitForIdleSync()
-                assertArrayEquals("Hover must not change the handle or its hit area", before, pixels())
+                for (delay in listOf(80L, 270L, 750L)) {
+                    SystemClock.sleep(delay)
+                    instrumentation.waitForIdleSync()
+                    assertArrayEquals("Hover must not change the handle, hit area, or show a tooltip", before, pixels())
+                }
             } finally { hover(MotionEvent.ACTION_HOVER_EXIT, y) }
             SystemClock.sleep(400)
         }
+
     }
     private fun action(label: String) {
         val node = handle()
@@ -400,6 +414,19 @@ class ToolbarUiTest {
             drag(rect.exactCenterX(), rect.exactCenterY(), 0f, endY - rect.exactCenterY())
             assertFalse("Hover must preserve drag dismissal: handle=$rect screen=$screen", visible.value)
             assertNull(find { node -> node.isClickable && node.actionList.any { it.id == AccessibilityNodeInfo.AccessibilityAction.ACTION_DISMISS.id } })
+            scenario.onActivity { visible.value = true }
+            settle()
+            click(description(label(R.string.session_sheet_handle)))
+            assertFalse("The replacement handle must still dismiss on tap", visible.value)
+            scenario.onActivity { visible.value = true }
+            settle()
+            val accessibleHandle = waitForNode("accessible modal sheet handle") { node ->
+                node.isClickable && node.actionList.any { it.id == AccessibilityNodeInfo.AccessibilityAction.ACTION_DISMISS.id }
+            }
+            assertTrue("Dismiss action failed: ${accessibleHandle.actionList}; " + dump(), accessibleHandle
+                .performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_DISMISS.id))
+            settle()
+            assertFalse("The replacement handle must retain accessible dismissal", visible.value)
         }
     }
 

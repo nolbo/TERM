@@ -6,7 +6,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.PagerState
@@ -105,7 +104,7 @@ internal fun TerminalToolbar(
                 Box(Modifier.fillMaxWidth().height(hidden)
                     .anchoredDraggable(state, Orientation.Vertical,
                         flingBehavior = AnchoredDraggableDefaults.flingBehavior(state, animationSpec = motion))
-                    .clickable(interactionSource = remember { MutableInteractionSource() },
+                    .clickable(interactionSource = remember { HandleInteractionSource() },
                         indication = ripple(enableHoverIndication = false)) {
                         settle(when (state.settledValue) {
                             ToolbarSheetMode.Hidden -> ToolbarSheetMode.Default

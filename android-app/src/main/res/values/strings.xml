@@ -397,6 +397,7 @@
     <string name="toolbar_done">완료</string>
     <string name="toolbar_edit_summary">변경은 바로 적용됩니다. 핸들을 드래그해 순서를 바꾸거나 버튼으로 도구를 추가·제거하세요. 세션 툴은 제거할 수 없습니다.</string>
     <string name="toolbar_handle">툴바 드래그 핸들</string>
+    <string name="session_sheet_handle">세션 시트 드래그 핸들</string>
     <string name="toolbar_hidden">숨김</string>
     <string name="toolbar_default">기본</string>
     <string name="toolbar_expanded">확장</string>
