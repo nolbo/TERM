@@ -213,7 +213,9 @@ class VmRuntimeService : Service() {
                         .sortedWith(compareBy({ it.runtime.ordinal }, { it.storageId })).map { key ->
                             val linked = profiles.filter { it.runtime == key.runtime && it.storageId == key.storageId }
                             val active = sessions.filter { sessionKeys[it.id] == key }
-                            key.json().put("bytes", storageRegistry.cachedSize(key) ?: JSONObject.NULL)
+                            val usage = storageRegistry.cachedUsage(key)
+                            key.json().put("bytes", usage?.bytes ?: JSONObject.NULL)
+                                .put("incomplete", usage?.incomplete ?: false)
                                 .put("migratedLegacy", key.storageId == migratedLegacyId(key.runtime))
                                 .put("name", name(key) ?: JSONObject.NULL)
                                 .put("profiles", JSONArray(linked.map { JSONObject().put("id", it.id).put("name", it.name) }))
@@ -232,13 +234,21 @@ class VmRuntimeService : Service() {
                 ""
             }.exceptionOrNull()?.userMessage().orEmpty()
         }
-        override fun measureStorage(runtimeType: String, storageId: String): Long {
+        override fun measureStorage(runtimeType: String, storageId: String): Long =
+            JSONObject(measureStorageUsageJson(runtimeType, storageId)).getLong("bytes")
+        override fun measureStorageUsageJson(runtimeType: String, storageId: String): String {
             enforceHostToolUi()
             val key = dev.terminal.runtime.session.StorageRegistry.Key(requireNotNull(SessionRuntime.fromWireName(runtimeType)), storageId)
             return kotlinx.coroutines.runBlocking(Dispatchers.IO) {
                 preparationLocks.withStorage(key.runtime, key.storageId) {
                     storageRegistry.transaction { check(key in keys() || key.storageId == "legacy") { "Storage not found" } }
-                    storageRegistry.measure(key)
+                    try {
+                        storageRegistry.measureUsage(key).json().toString()
+                    } catch (failure: java.io.IOException) {
+                        // Binder only marshals supported runtime exceptions; a checked NIO
+                        // exception can otherwise leave an empty reply (zero for a long RPC).
+                        throw IllegalStateException("Storage size unavailable", failure)
+                    }
                 }
             }
         }

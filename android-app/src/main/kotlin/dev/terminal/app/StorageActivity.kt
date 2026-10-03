@@ -45,7 +45,7 @@ private val storageSizeUnit = Regex("(?<![\\p{L}])[kmgtpe]?b(?![\\p{L}])", Regex
 
 internal data class StorageItem(val runtime: String, val id: String, val bytes: Long?,
     val profiles: List<Pair<String, String>>, val sessions: List<Pair<String, String>>, val name: String? = null,
-    val migratedLegacy: Boolean = false) {
+    val migratedLegacy: Boolean = false, val incomplete: Boolean = false) {
     val key get() = "$runtime:$id"
     val used get() = profiles.isNotEmpty() || sessions.isNotEmpty()
     val canDelete get() = !used && id != "legacy"
@@ -57,7 +57,8 @@ internal data class StorageItem(val runtime: String, val id: String, val bytes: 
                 }
                 StorageItem(row.getString("runtime"), row.getString("storageId"),
                     if (row.isNull("bytes")) null else row.getLong("bytes"), names("profiles", "name"), names("sessions", "title"),
-                    row.optString("name").takeIf { !row.isNull("name") && it.isNotBlank() }, row.optBoolean("migratedLegacy"))
+                    row.optString("name").takeIf { !row.isNull("name") && it.isNotBlank() }, row.optBoolean("migratedLegacy"),
+                    row.optBoolean("incomplete"))
             } }
         }
     }
@@ -249,22 +250,22 @@ abstract class StorageScreenActivity : TerminalActivity() {
         }
     }
     @Composable private fun storageSize(row: StorageItem, service: IRuntimeService?, measurement: Semaphore): String {
-        var bytes by remember(row.key) { mutableStateOf(row.bytes) }
-        var failed by remember(row.key) { mutableStateOf(false) }
+        var state by remember(row.key) { mutableStateOf(StorageSizeState(row.bytes?.let { StorageRegistry.Usage(it, row.incomplete) })) }
         LaunchedEffect(row.key, service) {
             val owner = service ?: return@LaunchedEffect
             while (true) {
-                runStorageOperation { measurement.withPermit { withContext(Dispatchers.IO) { owner.measureStorage(row.runtime, row.id) } } }
-                    .onSuccess { bytes = it; failed = false }.onFailure { failed = true }
+                val result = runStorageOperation { measurement.withPermit { withContext(Dispatchers.IO) {
+                    StorageRegistry.Usage.parse(owner.measureStorageUsageJson(row.runtime, row.id))
+                } } }
+                state = state.updated(result)
                 delay(60_000)
             }
         }
-        return bytes?.let { value ->
-            Formatter.formatShortFileSize(this, value).replace(storageSizeUnit) { unit ->
-                unit.value.uppercase(Locale.ROOT)
-            }
+        val usage = state.usage ?: return stringResource(if (state.failed) R.string.storage_size_unknown else R.string.storage_size_calculating)
+        val formatted = Formatter.formatShortFileSize(this, usage.bytes).replace(storageSizeUnit) { unit ->
+            unit.value.uppercase(Locale.ROOT)
         }
-            ?: stringResource(if (failed) R.string.storage_size_unknown else R.string.storage_size_calculating)
+        return if (usage.incomplete) stringResource(R.string.storage_size_partial, formatted) else formatted
     }
     @Composable private fun StorageRow(row: StorageItem, service: IRuntimeService?, measurement: Semaphore, click: () -> Unit) {
         val size = storageSize(row, service, measurement)

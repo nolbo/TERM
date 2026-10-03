@@ -89,6 +89,16 @@ FD to the trusted probe or isideload worker. Each private `M` request receives o
 stream FD. No descriptor is returned on the guest socket. Old USB operations
 remain compatible. See [IPHONE_TOOLING.md](IPHONE_TOOLING.md).
 
+## Android storage size measurements
+
+The app-local `IRuntimeService.measureStorageUsageJson(runtimeType, storageId)` returns
+`{"bytes": <long>, "incomplete": <boolean>}`. `incomplete` marks a lower bound after
+skipping access-denied descendants. Missing roots return zero; inaccessible roots and
+other I/O failures raise a Binder-supported `IllegalStateException` rather than an
+empty reply or default zero. The existing `measureStorage` returns the same
+byte count for compatibility. Cached storage-list rows carry the same `incomplete`
+flag alongside nullable `bytes`. Size reads never follow symbolic links or alter modes.
+
 ## Android runtime choice status
 
 The app-local `IRuntimeService.runtimeStatusJson` is separate from the guest wire

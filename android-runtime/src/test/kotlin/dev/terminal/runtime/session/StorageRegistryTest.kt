@@ -182,6 +182,61 @@ class StorageRegistryTest {
         assertFalse(root.exists())
         assertEquals("untouched", sentinel.readText())
     }
+    @Test fun zeroBeforeInstallationDoesNotHideNewRootfsFiles() {
+        val registry = StorageRegistry(temporary.newFolder())
+        val key = StorageRegistry.Key(SessionRuntime.ROOTLESS, UUID.randomUUID().toString())
+        assertEquals(StorageRegistry.Usage(0), registry.measureUsage(key))
+        assertNull(registry.cachedUsage(key))
+        val file = File(registry.root(key), "rootfs/usr/bin/shell").apply {
+            parentFile!!.mkdirs(); writeText("installed shell")
+        }
+        assertEquals(StorageRegistry.Usage(file.length()), registry.measureUsage(key))
+    }
+    @Test fun deniedRootlessDescendantReportsReadableBytesWithoutChangingPermissions() {
+        val registry = StorageRegistry(temporary.newFolder())
+        val key = StorageRegistry.Key(SessionRuntime.ROOTLESS, UUID.randomUUID().toString())
+        val root = registry.root(key).apply { mkdirs() }
+        File(root, "rootfs/usr/bin/shell").apply { parentFile!!.mkdirs(); writeText("shell") }
+        val denied = File(root, "rootfs/workspace").apply { mkdirs() }
+        File(denied, "hidden").writeText("must not be counted or modified")
+        val original = Files.getPosixFilePermissions(denied.toPath())
+        try {
+            Files.setPosixFilePermissions(denied.toPath(), emptySet())
+            assertFalse("Run permission tests as an unprivileged user", denied.canRead())
+            val usage = registry.measureUsage(key)
+            assertEquals(StorageRegistry.Usage(5, incomplete = true), usage)
+            assertEquals(usage, registry.cachedUsage(key))
+            assertEquals(usage, StorageRegistry.Usage.parse(usage.json().toString()))
+            assertEquals(emptySet<java.nio.file.attribute.PosixFilePermission>(), Files.getPosixFilePermissions(denied.toPath()))
+        } finally {
+            Files.setPosixFilePermissions(denied.toPath(), original)
+        }
+    }
+    @Test fun inaccessibleStorageRootFailsInsteadOfReturningZero() {
+        val registry = StorageRegistry(temporary.newFolder())
+        val key = StorageRegistry.Key(SessionRuntime.ROOTLESS, UUID.randomUUID().toString())
+        val root = registry.root(key).apply { mkdirs() }
+        val original = Files.getPosixFilePermissions(root.toPath())
+        try {
+            Files.setPosixFilePermissions(root.toPath(), emptySet())
+            assertTrue(runCatching { registry.measureUsage(key) }.exceptionOrNull() is java.nio.file.AccessDeniedException)
+            assertNull(registry.cachedUsage(key))
+        } finally {
+            Files.setPosixFilePermissions(root.toPath(), original)
+        }
+    }
+    @Test fun emptyDeniedDirectoryStillMarksMeasurementIncomplete() {
+        val registry = StorageRegistry(temporary.newFolder())
+        val key = StorageRegistry.Key(SessionRuntime.ROOTLESS, UUID.randomUUID().toString())
+        val denied = File(registry.root(key), "rootfs/workspace").apply { mkdirs() }
+        val original = Files.getPosixFilePermissions(denied.toPath())
+        try {
+            Files.setPosixFilePermissions(denied.toPath(), emptySet())
+            assertEquals(StorageRegistry.Usage(0, incomplete = true), registry.measureUsage(key))
+        } finally {
+            Files.setPosixFilePermissions(denied.toPath(), original)
+        }
+    }
     @Test fun deleteAndProfileSaveShareOneTransactionAcrossRegistryInstances() {
         val files = temporary.newFolder()
         val first = StorageRegistry(files)

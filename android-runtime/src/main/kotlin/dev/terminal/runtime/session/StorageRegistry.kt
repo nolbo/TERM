@@ -21,7 +21,13 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
     }
     private val manifest = File(files, "storage-registry.json")
     private val lockFile = File(files, "storage-registry.lock")
-    private data class Size(val bytes: Long, val measuredAt: Long)
+    data class Usage(val bytes: Long, val incomplete: Boolean = false) {
+        fun json(): JSONObject = JSONObject().put("bytes", bytes).put("incomplete", incomplete)
+        companion object {
+            fun parse(encoded: String): Usage = JSONObject(encoded).let { Usage(it.getLong("bytes"), it.getBoolean("incomplete")) }
+        }
+    }
+    private data class Size(val usage: Usage, val measuredAt: Long)
     private val sizes = ConcurrentHashMap<Key, Size>()
 
     // File locks exclude other processes; this monitor also excludes overlapping JVM locks.
@@ -166,14 +172,19 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
         }
     }
     fun root(key: Key): File = SessionStorage.root(files, key.runtime, key.storageId)
-    fun cachedSize(key: Key): Long? = sizes[key]?.takeIf { System.currentTimeMillis() - it.measuredAt < 60_000 }?.bytes
+    fun cachedUsage(key: Key): Usage? = sizes[key]?.takeIf { System.currentTimeMillis() - it.measuredAt < 60_000 }?.usage
+    fun cachedSize(key: Key): Long? = cachedUsage(key)?.bytes
     /** Lazy approximate logical bytes; never follows symlinks outside a storage root. */
-    fun measure(key: Key): Long {
-        cachedSize(key)?.let { return it }
-        var bytes = treeSize(root(key).toPath())
-        if (key.runtime == SessionRuntime.AVF) bytes += treeSize(File(files, "shared-vms/${SessionStorage.avfInstanceId(files, key.storageId)}").toPath())
-        sizes[key] = Size(bytes, System.currentTimeMillis())
-        return bytes
+    fun measure(key: Key): Long = measureUsage(key).bytes
+    fun measureUsage(key: Key): Usage {
+        cachedUsage(key)?.let { return it }
+        val primary = treeSize(root(key).toPath())
+        val shared = if (key.runtime == SessionRuntime.AVF)
+            treeSize(File(files, "shared-vms/${SessionStorage.avfInstanceId(files, key.storageId)}").toPath()) else Usage(0)
+        val usage = Usage(primary.bytes + shared.bytes, primary.incomplete || shared.incomplete)
+        // A not-yet-installed environment must be measured again as soon as files appear.
+        if (usage.bytes > 0) sizes[key] = Size(usage, System.currentTimeMillis()) else sizes.remove(key)
+        return usage
     }
     companion object {
         const val MAX_NAME_LENGTH = 120
@@ -200,19 +211,39 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
         private fun decodeKeys(array: JSONArray) = List(array.length()) { index -> array.getJSONObject(index).let {
             Key(requireNotNull(SessionRuntime.fromWireName(it.getString("runtime"))), it.getString("storageId"))
         } }.toSet()
-        private fun treeSize(path: java.nio.file.Path): Long {
-            if (!Files.exists(path, NOFOLLOW_LINKS)) return 0
+        private fun treeSize(path: java.nio.file.Path): Usage {
+            // exists() also returns false when access is denied. Only absence means zero.
+            val attributes = try {
+                Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes::class.java, NOFOLLOW_LINKS)
+            } catch (_: java.nio.file.NoSuchFileException) {
+                return Usage(0)
+            }
+            // Require readable, searchable storage roots before reporting any byte count.
+            if (attributes.isDirectory && (!Files.isReadable(path) || !Files.isExecutable(path)))
+                throw java.nio.file.AccessDeniedException(path.toString())
             var size = 0L
+            var incomplete = false
             Files.walkFileTree(path, object : java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
+                override fun preVisitDirectory(dir: java.nio.file.Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
+                    if (!Files.isReadable(dir) || !Files.isExecutable(dir)) {
+                        if (dir == path) throw java.nio.file.AccessDeniedException(dir.toString())
+                        incomplete = true
+                        return java.nio.file.FileVisitResult.SKIP_SUBTREE
+                    }
+                    return java.nio.file.FileVisitResult.CONTINUE
+                }
                 override fun visitFile(file: java.nio.file.Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
                     size += attrs.size(); return java.nio.file.FileVisitResult.CONTINUE
                 }
                 override fun visitFileFailed(file: java.nio.file.Path, failure: java.io.IOException): java.nio.file.FileVisitResult {
-                    if (failure !is java.nio.file.NoSuchFileException) throw failure
+                    if (failure is java.nio.file.AccessDeniedException && file != path) {
+                        // PRoot bind placeholders and guest-only directories may have mode 000.
+                        incomplete = true
+                    } else if (failure !is java.nio.file.NoSuchFileException) throw failure
                     return java.nio.file.FileVisitResult.CONTINUE // A running environment may remove temporary files.
                 }
             })
-            return size
+            return Usage(size, incomplete)
         }
         private fun deleteTree(path: java.nio.file.Path) {
             if (!Files.exists(path, NOFOLLOW_LINKS)) return

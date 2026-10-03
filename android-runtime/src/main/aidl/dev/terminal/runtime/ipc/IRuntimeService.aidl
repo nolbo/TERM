@@ -53,4 +53,5 @@ interface IRuntimeService {
     void setSessionTaskNotifications(boolean enabled);
     String getSessionMemoryJson();
     String renameStorage(String runtimeType, String storageId, String name);
+    String measureStorageUsageJson(String runtimeType, String storageId);
 }

@@ -248,6 +248,10 @@ Storage changes affect future launches only. There is no automatic storage garba
 `SessionStorage` remains the path resolver. `StorageRegistry` enumerates persisted
 and on-disk environments, measures approximate logical size lazily with a one-minute
 cache, and removes only explicitly selected orphans through `VmRuntimeService`.
+Zero-byte measurements are not cached so the next measurement sees newly installed files.
+Size walks skip access-denied descendants without changing guest permissions and report
+the readable bytes as an explicitly partial lower bound. Access failure at the storage
+root or other I/O errors fail the measurement; the UI clears any previous value.
 Used storage has a profile reference or an active session. The Settings detail
 view shows both references; profile editing can retain storage, allocate a fresh
 independent identity without copying data, or connect compatible existing storage.

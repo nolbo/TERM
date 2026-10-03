@@ -29,6 +29,7 @@
     <string name="storage_counts">약 %1$s · 프로필 %2$d개 · 활성 세션 %3$d개</string>
     <string name="storage_size_calculating">용량 계산 중</string>
     <string name="storage_size_unknown">용량 확인 불가</string>
+    <string name="storage_size_partial">최소 %1$s (일부 확인)</string>
     <string name="storage_missing">저장소가 더 이상 존재하지 않습니다.</string>
     <string name="storage_delete">저장소 삭제</string>
     <string name="storage_delete_hint">삭제하면 이 실행 환경의 데이터가 영구적으로 제거됩니다.</string>

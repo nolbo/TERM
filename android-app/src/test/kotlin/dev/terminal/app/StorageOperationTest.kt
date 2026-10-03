@@ -9,6 +9,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import org.junit.Assert.*
 import org.junit.Test
+import dev.terminal.runtime.session.StorageRegistry
 
 class StorageOperationTest {
     @Test fun cancellationOfInFlightStorageReadDoesNotUpdateErrorOrEntries() = runBlocking {
@@ -43,5 +44,22 @@ class StorageOperationTest {
 
     @Test fun successfulStorageOperationReturnsValue() = runBlocking {
         assertEquals(42L, runStorageOperation { 42L }.getOrThrow())
+    }
+
+    @Test fun measurementFailureClearsOldZeroAndSuccessfulRetryRestoresPartialSize() {
+        var state = StorageSizeState(StorageRegistry.Usage(0))
+        state = state.updated(Result.failure(java.io.IOException("Storage unavailable")))
+        assertNull(state.usage)
+        assertTrue(state.failed)
+        state = state.updated(Result.success(StorageRegistry.Usage(4096, incomplete = true)))
+        assertEquals(4096L, state.usage!!.bytes)
+        assertTrue(state.usage!!.incomplete)
+        assertFalse(state.failed)
+    }
+
+    @Test fun measurementFailureAlsoClearsPreviouslyNonzeroSize() {
+        val state = StorageSizeState(StorageRegistry.Usage(4096)).updated(Result.failure(java.io.IOException("Storage unavailable")))
+        assertNull(state.usage)
+        assertTrue(state.failed)
     }
 }
