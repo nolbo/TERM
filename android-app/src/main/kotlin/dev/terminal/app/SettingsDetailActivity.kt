@@ -466,21 +466,21 @@ class SettingsDetailActivity : TerminalActivity() {
         item {
             var selectedStyle by rememberSaveable { mutableStateOf(CustomTerminalFontStyle.REGULAR) }
             val visibleFonts = customFonts.withIndex().filter { it.value.style == selectedStyle }
-            SettingsSection(
-                R.string.section_custom_fonts,
-                footer = {
-                    if (visibleFonts.isEmpty()) InfoSetting(R.string.no_custom_fonts, R.string.no_custom_fonts_support)
-                },
-            ) {
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth().padding(16.dp)) {
-                    CustomTerminalFontStyle.entries.forEachIndexed { index, style ->
-                        SegmentedButton(
+            SettingsSection(R.string.section_custom_fonts) {
+                SecondaryTabRow(
+                    selectedTabIndex = CustomTerminalFontStyle.entries.indexOf(selectedStyle),
+                    modifier = Modifier.fillMaxWidth().settingsItemSurface(),
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                    divider = {},
+                ) {
+                    CustomTerminalFontStyle.entries.forEach { style ->
+                        Tab(
                             selected = selectedStyle == style,
                             onClick = { selectedStyle = style },
-                            shape = SegmentedButtonDefaults.itemShape(index, CustomTerminalFontStyle.entries.size),
-                        ) {
-                            Text(stringResource(if (style == CustomTerminalFontStyle.ITALIC) R.string.custom_font_style_italic else R.string.custom_font_style_regular))
-                        }
+                            text = {
+                                Text(stringResource(if (style == CustomTerminalFontStyle.ITALIC) R.string.custom_font_style_italic else R.string.custom_font_style_regular))
+                            },
+                        )
                     }
                 }
                 ActionSetting(
@@ -499,6 +499,8 @@ class SettingsDetailActivity : TerminalActivity() {
                             onRemove = { removeCustomFont(font) },
                         )
                     }
+                } else {
+                    InfoSetting(R.string.no_custom_fonts, R.string.no_custom_fonts_support)
                 }
             }
         }
