@@ -318,7 +318,8 @@ class ToolbarUiTest {
                 DroidTheme { TerminalHapticFeedbackProvider {
                     Box(Modifier.fillMaxWidth().height(350.dp)) {
                         ToolbarSessionsTool(sessions, selected.value, active.value, emptySet(), emptyList(),
-                            {}, {}, false, { selected.value = it }, {}, {}, {}, {}, {}, showTabs = showTabs.value)
+                            {}, {}, false, { selected.value = it }, {}, {}, {}, {}, {},
+                            expansionProgress = if (showTabs.value) 1f else 0f)
                     }
                 } }
             } }
@@ -498,7 +499,7 @@ class ToolbarUiTest {
                             { mode.value = it }, 400.dp, TerminalChromeColors(Color.Black)) { _, active ->
                             ToolbarSessionsTool(sessions.value, selected.value, active, emptySet(), emptyList(),
                                 {}, {}, false, { selected.value = it }, {}, {}, { newClicks++ }, {},
-                                { settingsClicks++ }, showTabs = mode.value == ToolbarSheetMode.Expanded)
+                                { settingsClicks++ })
                         }
                     }
                 } }
@@ -543,6 +544,76 @@ class ToolbarUiTest {
                 if (it.id == "first") it.copy(title = "") else it
             } }
             text(label(R.string.shell_default_title))
+        }
+    }
+
+    @Test fun sessionHeaderAndTabsMoveDuringSheetMotionInsteadOfAfterItSettles() {
+        val mode = mutableStateOf(ToolbarSheetMode.Default)
+        val samples = mutableListOf<Float>()
+        var progress = 0f
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Column(Modifier.fillMaxSize()) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(ToolbarConfig(tools = listOf(SESSIONS_TOOL)), mode.value,
+                            { mode.value = it }, 400.dp, TerminalChromeColors(Color.Black)) { _, active ->
+                            val expansion = LocalToolbarExpansionProgress.current
+                            SideEffect { progress = expansion; samples += expansion }
+                            ToolbarSessionsTool(listOf(SessionUi("first", "NATIVE", "Motion shell", "RUNNING")),
+                                "first", active, emptySet(), emptyList(), {}, {}, false, {}, {}, {}, {}, {}, {})
+                        }
+                    }
+                } }
+            } }
+            settle()
+            val density = context.resources.displayMetrics.density
+            val initialHandle = bounds(handle())
+            val initialButton = bounds(description(label(R.string.new_session)))
+            assertEquals(46f * density, initialButton.exactCenterY() - initialHandle.bottom, 1f)
+            fun terminateEnabled(): Boolean {
+                var node: AccessibilityNodeInfo? = description(
+                    context.getString(R.string.terminate_session_description, "Motion shell"))
+                // Icon text nodes retain enabled=true; disabled semantics belong to their button.
+                while (node != null) {
+                    if (!node.isEnabled) return false
+                    node = node.parent
+                }
+                return true
+            }
+            var middleProgress = 0f
+            var middleMode = ToolbarSheetMode.Hidden
+            var middleDistance = 0f
+            var middleActionEnabled = true
+            // Hold between anchors: the settled mode remains Default while the header moves
+            // and the list is already being revealed underneath it.
+            drag(initialHandle.exactCenterX(), initialHandle.exactCenterY(), 0f, -280f,
+                duringDrag = {
+                    scenario.onActivity {
+                        middleMode = mode.value
+                        middleProgress = progress
+                    }
+                    middleDistance = bounds(description(label(R.string.new_session))).exactCenterY() - bounds(handle()).bottom
+                    middleActionEnabled = terminateEnabled()
+                })
+            assertEquals(ToolbarSheetMode.Default, middleMode)
+            assertTrue("The content must follow the finger before settling", middleProgress > 0f && middleProgress < 1f)
+            assertTrue("Header must occupy an intermediate position", middleDistance > 24 * density && middleDistance < 46 * density)
+            assertFalse("Partially revealed tabs must not accept actions", middleActionEnabled)
+            action(label(R.string.toolbar_expand))
+            val expandedHandle = bounds(handle())
+            val expandedButton = bounds(description(label(R.string.new_session)))
+            assertEquals(24f * density, expandedButton.exactCenterY() - expandedHandle.bottom, 1f)
+            assertTrue(terminateEnabled())
+            scenario.onActivity { samples.clear() }
+            action(label(R.string.toolbar_default))
+            scenario.onActivity {
+                assertTrue("Collapse must also present intermediate frames", samples.any { it > 0f && it < 1f })
+                assertEquals(0f, progress, 0f)
+            }
+            assertEquals(initialHandle, bounds(handle()))
+            assertEquals(initialButton, bounds(description(label(R.string.new_session))))
+            assertNull(find { it.isScrollable })
         }
     }
 

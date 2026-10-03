@@ -16,6 +16,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -45,16 +46,19 @@ internal fun ToolbarSessionsTool(
     onSettings: () -> Unit,
     colors: TerminalChromeColors = LocalToolbarColors.current,
     onReorder: (List<String>) -> Unit = {},
-    showTabs: Boolean = true,
+    expansionProgress: Float = LocalToolbarExpansionProgress.current,
 ) {
     val haptics = LocalTerminalHaptics.current
     // Keep the user's list position when the header-only state hides the tabs.
     val tabScroll = rememberScrollState()
     val currentSession = sessions.firstOrNull { it.id == activeSessionId }
+    val progress = expansionProgress.coerceIn(0f, 1f)
+    val tabsActive = active && progress == 1f
     LaunchedEffect(active) { if (!active && newSessionMenuExpanded) onDismissNewSession() }
     Column(Modifier.fillMaxSize()) {
-        val headerHeight = if (showTabs) Modifier.height(48.dp) else Modifier.weight(1f)
-        Row(Modifier.fillMaxWidth().then(headerHeight).padding(horizontal = 8.dp),
+        // Use the sheet's spatial motion directly; a second animation would lag behind dragging.
+        val headerHeight = ToolbarHotkeyViewportHeight + (48.dp - ToolbarHotkeyViewportHeight) * progress
+        Row(Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
                 currentSession?.let { session ->
@@ -111,8 +115,8 @@ internal fun ToolbarSessionsTool(
                 Icon(painterResource(R.drawable.ic_material_symbol_settings_24), stringResource(R.string.settings), tint = colors.appBarIcon)
             }
         }
-        if (showTabs) ReorderableSessionTabs(sessions, activeSessionId, active, onReorder,
-            Modifier.weight(1f).fillMaxWidth(), scroll = tabScroll) { session, itemModifier, dragging, lifted ->
+        if (progress > 0f) ReorderableSessionTabs(sessions, activeSessionId, tabsActive, onReorder,
+            Modifier.weight(1f).fillMaxWidth().graphicsLayer { alpha = progress }, scroll = tabScroll) { session, itemModifier, dragging, lifted ->
             val selected = session.id == activeSessionId
             val tabInteractionSource = remember(session.id) { MutableInteractionSource() }
             val tabPressed by tabInteractionSource.collectIsPressedAsState()
@@ -128,7 +132,7 @@ internal fun ToolbarSessionsTool(
             val renameLabel = stringResource(R.string.rename_session_description, sessionTitle)
             Tab(
                 selected = selected,
-                enabled = active && !dragging,
+                enabled = tabsActive && !dragging,
                 onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                     onSelect(session.id)
@@ -181,7 +185,7 @@ internal fun ToolbarSessionsTool(
                             onRename(session)
                         },
                         shape = CircleShape,
-                        enabled = active && !dragging,
+                        enabled = tabsActive && !dragging,
                     ) {
                         Icon(painterResource(R.drawable.ic_toolbar_edit), renameLabel)
                     }
@@ -191,7 +195,7 @@ internal fun ToolbarSessionsTool(
                             onTerminate(session)
                         },
                         shape = CircleShape,
-                        enabled = active && !dragging && session.id !in terminatingSessionIds,
+                        enabled = tabsActive && !dragging && session.id !in terminatingSessionIds,
                     ) {
                         Icon(painterResource(R.drawable.ic_material_symbol_close_24), stringResource(R.string.terminate_session_description, sessionTitle))
                     }

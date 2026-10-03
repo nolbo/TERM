@@ -38,6 +38,8 @@ import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 
 internal val LocalToolbarColors = staticCompositionLocalOf { TerminalChromeColors(Color.Black) }
+/** Share the sheet's animated geometry so tools also follow an interrupted animation or drag. */
+internal val LocalToolbarExpansionProgress = staticCompositionLocalOf { 1f }
 internal val ToolbarHotkeyViewportHeight = (HOTKEY_HEIGHT_DP * 2 + 4 + 8).dp
 
 /** Persistent, non-modal bottom sheet with a handle-only hidden anchor. No runtime ownership. */
@@ -84,7 +86,13 @@ internal fun TerminalToolbar(
     LaunchedEffect(state) {
         snapshotFlow { state.settledValue }.distinctUntilChanged().collect { onChange(it) }
     }
-    val height = with(density) { (-state.requireOffset()).toDp().coerceIn(hidden, expanded) }
+    val offset = state.requireOffset()
+    val height = with(density) { (-offset).toDp().coerceIn(hidden, expanded) }
+    val expansionProgress = with(density) {
+        // Calculate against the same pixel anchors, keeping the settled endpoint exactly 1f.
+        if (expanded > normal) ((-offset - normal.toPx()) / (expanded.toPx() - normal.toPx())).coerceIn(0f, 1f)
+        else 0f
+    }
     val modeLabel = stringResource(when (state.settledValue) {
         ToolbarSheetMode.Hidden -> R.string.toolbar_hidden
         ToolbarSheetMode.Default -> R.string.toolbar_default
@@ -129,7 +137,10 @@ internal fun TerminalToolbar(
                             Text(stringResource(R.string.toolbar_empty), style = MaterialTheme.typography.bodyMedium)
                         }
                     } else {
-                        CompositionLocalProvider(LocalToolbarColors provides colors) {
+                        CompositionLocalProvider(
+                            LocalToolbarColors provides colors,
+                            LocalToolbarExpansionProgress provides expansionProgress,
+                        ) {
                             ToolbarPages(config.tools, pager, state.settledValue != ToolbarSheetMode.Hidden,
                                 content = content)
                         }

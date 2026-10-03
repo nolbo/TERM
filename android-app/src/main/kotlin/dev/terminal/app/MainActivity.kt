@@ -583,7 +583,6 @@ class MainActivity : TerminalActivity() {
                                         onDismissNewSession = { newSessionMenuVisible = false },
                                         onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
                                         onReorder = ::reorderSessionTabs,
-                                        showTabs = toolbarSheetMode == ToolbarSheetMode.Expanded,
                                     )
                                     MEMORY_TOOL -> ToolbarMemoryTool(active, visibleSessions, toolbarMemoryInterval,
                                         onSelectSession = { id -> attach(id); requestTerminalKeyboard() }, sections = toolbarMemorySections) {
