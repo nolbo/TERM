@@ -503,7 +503,8 @@ class MainActivity : TerminalActivity() {
                 Column(Modifier.fillMaxSize()) {
                     if (activeSessionId == null) {
                         Box(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(topInsets)) {
-                            TerminalEmptyState(runtimeMessage, ::showNewSessionSheet)
+                            TerminalEmptyState(runtimeMessage, ::showNewSessionSheet,
+                                onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) })
                         }
                     } else {
                         AndroidView(

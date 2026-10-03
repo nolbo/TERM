@@ -642,28 +642,43 @@ fun RenameSessionDialog(
 fun TerminalEmptyState(
     runtimeMessage: String,
     onNewSession: () -> Unit,
+    onSettings: () -> Unit,
 ) {
-    Column(
-        modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
-    ) {
-        Text(stringResource(R.string.empty_terminal_title), style = MaterialTheme.typography.headlineSmall)
-        Spacer(Modifier.height(8.dp))
-        Text(
-            stringResource(R.string.empty_terminal_message),
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium,
-        )
-        if (runtimeMessage.isNotBlank()) {
+    val haptics = LocalTerminalHaptics.current
+    Box(Modifier.fillMaxSize()) {
+        Column(
+            modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Text(stringResource(R.string.empty_terminal_title), style = MaterialTheme.typography.headlineSmall)
             Spacer(Modifier.height(8.dp))
-            Text(runtimeMessage, color = TerminalStatusBlue, style = MaterialTheme.typography.bodySmall)
+            Text(
+                stringResource(R.string.empty_terminal_message),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            if (runtimeMessage.isNotBlank()) {
+                Spacer(Modifier.height(8.dp))
+                Text(runtimeMessage, color = TerminalStatusBlue, style = MaterialTheme.typography.bodySmall)
+            }
+            Spacer(Modifier.height(20.dp))
+            Button(onClick = onNewSession, shapes = ButtonDefaults.shapes(), modifier = Modifier.heightIn(min = 48.dp)) {
+                Icon(painterResource(R.drawable.ic_material_symbol_add_24), contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text(stringResource(R.string.new_session))
+            }
         }
-        Spacer(Modifier.height(20.dp))
-        Button(onClick = onNewSession, shapes = ButtonDefaults.shapes(), modifier = Modifier.heightIn(min = 48.dp)) {
-            Icon(painterResource(R.drawable.ic_material_symbol_add_24), contentDescription = null)
-            Spacer(Modifier.width(8.dp))
-            Text(stringResource(R.string.new_session))
+        IconButton(
+            onClick = {
+                haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                onSettings()
+            },
+            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
+            shapes = IconButtonDefaults.shapes(),
+        ) {
+            Icon(painterResource(R.drawable.ic_material_symbol_settings_24),
+                stringResource(R.string.settings), tint = MaterialTheme.colorScheme.onBackground)
         }
     }
 }
