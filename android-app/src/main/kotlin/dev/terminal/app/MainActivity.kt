@@ -533,68 +533,70 @@ class MainActivity : TerminalActivity() {
                                 .padding(terminalPaddingDp.dp),
                         )
                     }
-                    val toolbarSessionId = activeSessionId
-                    TerminalToolbar(
-                        config = toolbarConfig.visibleConfig(),
-                        mode = toolbarSheetMode,
-                        onModeChange = { toolbarSheetMode = it },
-                        maxHeight = toolbarMaxHeight,
-                        colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,
-                    ) { tool, interactive ->
-                        androidx.compose.runtime.key(toolbarSessionId, tool) {
-                            val active = toolbarInputActive && interactive
-                            val selected = visibleSessions.firstOrNull { it.id == toolbarSessionId }
-                            val canSend = active && selected?.state == "RUNNING"
-                            val sendText: (String, Boolean) -> Unit = { text, execute ->
-                                if (activeSessionId == toolbarSessionId && toolbarInputActive &&
-                                    toolbarConfig.enabled && tool in toolbarConfig.tools &&
-                                    toolbarSheetMode != ToolbarSheetMode.Hidden && text.length <= MAX_TOOLBAR_TEXT &&
-                                    selected?.state == "RUNNING") {
-                                    terminalView?.pasteText(text)
-                                    if (execute) {
-                                        terminalInputCallbacks.consumeLatchedModifiers()
-                                        terminalView?.inputCodePoint(13, false, false)
-                                    }
-                                }
-                            }
-                            when (tool) {
-                                SESSIONS_TOOL -> ToolbarSessionsTool(
-                                    sessions = visibleSessions, activeSessionId = activeSessionId, active = active,
-                                    terminatingSessionIds = terminatingSessionIds, profiles = profiles,
-                                    onSelectProfile = ::selectProfile, onAddProfile = ::addProfile,
-                                    newSessionMenuExpanded = newSessionMenuVisible,
-                                    onSelect = { attach(it); requestTerminalKeyboard() },
-                                    onRename = { pendingRename = it }, onTerminate = { pendingTermination = it },
-                                    onNew = ::showNewSessionMenu,
-                                    onDismissNewSession = { newSessionMenuVisible = false },
-                                    onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
-                                )
-                                MEMORY_TOOL -> ToolbarMemoryTool(active, visibleSessions, toolbarMemoryInterval,
-                                    onSelectSession = { id -> attach(id); requestTerminalKeyboard() }, sections = toolbarMemorySections) {
-                                    runtime?.sessionMemoryJson?.let { raw ->
-                                        org.json.JSONObject(raw).apply {
-                                            if (toolbarMemorySections.app) put("appMemory", combineAppMemory(
-                                                dev.terminal.runtime.session.currentAppProcessMemory(),
-                                                optJSONObject("runtimeAppMemory")) ?: org.json.JSONObject.NULL)
-                                        }.toString()
-                                    }
-                                }
-                                COMMANDS_TOOL -> ToolbarCommandsTool(toolbarCommands, canSend, selected?.title.orEmpty(),
-                                    onSend = sendText, onSave = { command ->
-                                        val preferences = terminalPreferences()
-                                        toolbarCommands = readToolbarCommands(preferences).map {
-                                            if (it.id == command.id) command else it
+                    if (visibleSessions.isNotEmpty()) {
+                        val toolbarSessionId = activeSessionId
+                        TerminalToolbar(
+                            config = toolbarConfig.visibleConfig(),
+                            mode = toolbarSheetMode,
+                            onModeChange = { toolbarSheetMode = it },
+                            maxHeight = toolbarMaxHeight,
+                            colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,
+                        ) { tool, interactive ->
+                            androidx.compose.runtime.key(toolbarSessionId, tool) {
+                                val active = toolbarInputActive && interactive
+                                val selected = visibleSessions.firstOrNull { it.id == toolbarSessionId }
+                                val canSend = active && selected?.state == "RUNNING"
+                                val sendText: (String, Boolean) -> Unit = { text, execute ->
+                                    if (activeSessionId == toolbarSessionId && toolbarInputActive &&
+                                        toolbarConfig.enabled && tool in toolbarConfig.tools &&
+                                        toolbarSheetMode != ToolbarSheetMode.Hidden && text.length <= MAX_TOOLBAR_TEXT &&
+                                        selected?.state == "RUNNING") {
+                                        terminalView?.pasteText(text)
+                                        if (execute) {
+                                            terminalInputCallbacks.consumeLatchedModifiers()
+                                            terminalView?.inputCodePoint(13, false, false)
                                         }
-                                        preferences.edit().putString(KEY_TOOLBAR_COMMANDS,
-                                            serializeToolbarCommands(toolbarCommands)).apply()
-                                    })
-                                HOTKEY_TOOL -> ToolbarHotkeys(
-                                    layout = hotkeyLayout, control = controlPressed, alt = altPressed, shift = shiftPressed,
-                                    colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors, enabled = toolbarInputActive && interactive,
-                                    onKey = { key ->
-                                        if (activeSessionId == toolbarSessionId) sendToolbarKey(key)
-                                    },
-                                )
+                                    }
+                                }
+                                when (tool) {
+                                    SESSIONS_TOOL -> ToolbarSessionsTool(
+                                        sessions = visibleSessions, activeSessionId = activeSessionId, active = active,
+                                        terminatingSessionIds = terminatingSessionIds, profiles = profiles,
+                                        onSelectProfile = ::selectProfile, onAddProfile = ::addProfile,
+                                        newSessionMenuExpanded = newSessionMenuVisible,
+                                        onSelect = { attach(it); requestTerminalKeyboard() },
+                                        onRename = { pendingRename = it }, onTerminate = { pendingTermination = it },
+                                        onNew = ::showNewSessionMenu,
+                                        onDismissNewSession = { newSessionMenuVisible = false },
+                                        onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
+                                    )
+                                    MEMORY_TOOL -> ToolbarMemoryTool(active, visibleSessions, toolbarMemoryInterval,
+                                        onSelectSession = { id -> attach(id); requestTerminalKeyboard() }, sections = toolbarMemorySections) {
+                                        runtime?.sessionMemoryJson?.let { raw ->
+                                            org.json.JSONObject(raw).apply {
+                                                if (toolbarMemorySections.app) put("appMemory", combineAppMemory(
+                                                    dev.terminal.runtime.session.currentAppProcessMemory(),
+                                                    optJSONObject("runtimeAppMemory")) ?: org.json.JSONObject.NULL)
+                                            }.toString()
+                                        }
+                                    }
+                                    COMMANDS_TOOL -> ToolbarCommandsTool(toolbarCommands, canSend, selected?.title.orEmpty(),
+                                        onSend = sendText, onSave = { command ->
+                                            val preferences = terminalPreferences()
+                                            toolbarCommands = readToolbarCommands(preferences).map {
+                                                if (it.id == command.id) command else it
+                                            }
+                                            preferences.edit().putString(KEY_TOOLBAR_COMMANDS,
+                                                serializeToolbarCommands(toolbarCommands)).apply()
+                                        })
+                                    HOTKEY_TOOL -> ToolbarHotkeys(
+                                        layout = hotkeyLayout, control = controlPressed, alt = altPressed, shift = shiftPressed,
+                                        colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors, enabled = toolbarInputActive && interactive,
+                                        onKey = { key ->
+                                            if (activeSessionId == toolbarSessionId) sendToolbarKey(key)
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
