@@ -154,6 +154,7 @@ class ToolbarUiTest {
                 } }
             } }
             settle()
+            assertNull(find { it.text?.toString() == label(R.string.toolbar_sessions) })
             val first = bounds(text("First shell"))
             val second = bounds(text("Second shell"))
             assertTrue("Tabs form a vertical list", second.top > first.bottom)
@@ -164,8 +165,21 @@ class ToolbarUiTest {
             click(description(label(R.string.settings)))
             assertEquals(1, newClicks)
             assertEquals(1, settingsClicks)
+            description(context.getString(R.string.terminate_session_description, "First shell"))
+            click(description(context.getString(R.string.terminate_session_description, "Second shell")))
+            assertEquals("second", terminated)
+            assertEquals("first", selected.value)
+            assertNull(find { it.contentDescription?.toString() ==
+                context.getString(R.string.rename_session_description, "Second shell") })
+            click(description(context.getString(R.string.rename_session_description, "First shell")))
+            assertEquals("first", renamed)
             click(text("Second shell"))
             assertEquals("second", selected.value)
+            assertNull(find { it.contentDescription?.toString() ==
+                context.getString(R.string.rename_session_description, "First shell") })
+            click(description(context.getString(R.string.rename_session_description, "Second shell")))
+            assertEquals("second", renamed)
+            renamed = null
             click(description(context.getString(R.string.terminate_session_description, "Second shell")))
             assertEquals("second", terminated)
             val rename = waitForNode("Rename action") { it.actionList.any { action ->

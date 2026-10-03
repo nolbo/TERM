@@ -61,8 +61,7 @@ internal fun ToolbarSessionsTool(
     Column(Modifier.fillMaxSize()) {
         Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 8.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Text(stringResource(R.string.toolbar_sessions), Modifier.weight(1f),
-                style = MaterialTheme.typography.labelLarge)
+            Spacer(Modifier.weight(1f))
             Box {
                 IconButton(onClick = onNew, enabled = active, shapes = IconButtonDefaults.shapes()) {
                     Icon(painterResource(R.drawable.ic_material_symbol_add_24), stringResource(R.string.new_session), tint = colors.appBarIcon)
@@ -154,7 +153,7 @@ internal fun ToolbarSessionsTool(
                                 Modifier
                                     .weight(1f)
                                     .heightIn(min = 40.dp)
-                                    .padding(start = 12.dp, end = if (selected) 0.dp else 12.dp)
+                                    .padding(start = 12.dp)
                                     .pointerInput(session.id, session.title, active) {
                                         if (!active) return@pointerInput
                                         awaitEachGesture {
@@ -208,6 +207,16 @@ internal fun ToolbarSessionsTool(
                                 }
                             }
                             if (selected) IconButton(
+                                onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                    onRename(session)
+                                },
+                                shape = CircleShape,
+                                enabled = active,
+                            ) {
+                                Icon(painterResource(R.drawable.ic_toolbar_edit), renameLabel)
+                            }
+                            IconButton(
                                 onClick = {
                                     haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                                     onTerminate(session)
