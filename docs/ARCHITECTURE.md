@@ -107,6 +107,8 @@ cannot grant signature permissions. Keep AVF-specific APIs behind the AVF
 backend and preserve Native/Rootless operation when AVF is unsupported or not
 authorized.
 
+AVF image production is automated on the product side (see `IMAGE_RELEASE.md`); end users select a session rather than construct images. The signed build embeds a generated catalog pinning an immutable HTTPS manifest. WorkManager installs the image in the main app process, requested through its multiprocess API from `:vmhost`; the runtime waits and continues the pending startup after installation. The producer's RO system image is the lower layer of a root overlay whose persistent writable state is on the home disk. Initial installation verifies every artifact, records the manifest hash, and subsequent starts verify immutable artifacts while retaining legitimate writable guest state. Existing images are never replaced by automatic setup.
+
 Runtime selection is explicit. A failure in one selected runtime MUST NOT
 silently redirect the command or session to another runtime.
 

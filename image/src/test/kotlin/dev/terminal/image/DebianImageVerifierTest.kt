@@ -85,6 +85,37 @@ class DebianImageVerifierTest {
         }
     }
 
+    @Test
+    fun writableDiskChangesAreAcceptedOnlyAfterVerifiedInstallation() {
+        val root = Files.createTempDirectory("debian-persistence-test")
+        try {
+            val source = Files.createDirectory(root.resolve("source"))
+            writeVerifiedImage(source)
+            val installed = root.resolve("installed")
+            assertTrue(DebianImageInstaller.install(source, installed) is ImageInstallResult.Installed)
+            Files.writeString(installed.resolve("home.img"), "guest writes after first boot")
+            assertTrue(DebianImageVerifier.verifyInstalled(installed) is ImageVerification.Ready)
+            assertTrue(DebianImageVerifier.verify(installed) is ImageVerification.Invalid)
+            Files.delete(installed.resolve(".installed-manifest-sha256"))
+            assertTrue(DebianImageVerifier.verifyInstalled(installed) is ImageVerification.Invalid)
+            Files.writeString(source.resolve("home.img"), "unverified disk")
+            assertTrue(DebianImageVerifier.verifyInstalled(source) is ImageVerification.Invalid)
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test
+    fun installedImageStillRejectsChangedImmutableArtifacts() {
+        val root = Files.createTempDirectory("debian-immutable-test")
+        try {
+            val source = Files.createDirectory(root.resolve("source"))
+            writeVerifiedImage(source)
+            val installed = root.resolve("installed")
+            assertTrue(DebianImageInstaller.install(source, installed) is ImageInstallResult.Installed)
+            Files.writeString(installed.resolve("system.img"), "tampered")
+            assertTrue(DebianImageVerifier.verifyInstalled(installed) is ImageVerification.Invalid)
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     private fun writeVerifiedImage(root: Path) {
         Files.writeString(root.resolve("system.img"), "system")
         Files.writeString(root.resolve("vmlinuz"), "kernel")

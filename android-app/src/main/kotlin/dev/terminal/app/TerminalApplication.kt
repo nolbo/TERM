@@ -4,7 +4,9 @@ import android.app.Application
 import java.io.PrintWriter
 import java.io.StringWriter
 
-class TerminalApplication : Application() {
+class TerminalApplication : Application(), androidx.work.Configuration.Provider {
+    override val workManagerConfiguration: androidx.work.Configuration
+        get() = androidx.work.Configuration.Builder().setDefaultProcessName(packageName).build()
     internal val appUpdates by lazy { dev.terminal.app.update.AppUpdateController(this) }
     internal val terminalSessions by lazy { TerminalSessionStore(this) }
 

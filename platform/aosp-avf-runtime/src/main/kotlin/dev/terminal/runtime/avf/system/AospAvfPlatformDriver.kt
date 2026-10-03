@@ -57,7 +57,7 @@ class AospAvfPlatformDriver(
             }
             require(config.memoryMib >= MIN_MEMORY_MIB) { "VM memory must be at least $MIN_MEMORY_MIB MiB" }
             require(config.cpuCount >= 1) { "VM CPU count must be positive" }
-            when (val verification = DebianImageVerifier.verify(Paths.get(config.imageDirectory))) {
+            when (val verification = DebianImageVerifier.verifyInstalled(Paths.get(config.imageDirectory))) {
                 is ImageVerification.Ready -> Unit
                 is ImageVerification.Invalid -> error(verification.reason)
             }
@@ -149,6 +149,10 @@ class AospAvfPlatformDriver(
             .setName(vmName(config))
             .setKernelPath(image.kernelImage.toString())
             .setInitrdPath(image.initrdImage.toString())
+            .addParam("root=/dev/vda")
+            .addParam("rootfstype=ext4")
+            .addParam("ro")
+            .addParam("console=hvc0")
             .useNetwork(config.enableNetwork)
             .useAutoMemoryBalloon(true)
             // The guest fstab is part of the signed image contract: vda=system, vdb=home, vdc=config.

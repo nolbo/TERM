@@ -13,6 +13,7 @@ install -m 0755 "$bin/droid" "$root/usr/local/bin/droid"
 
 for service in droid-sessiond droid-agent droid-port-agent; do
   install -m 0644 "$bin/$service.service" "$root/etc/systemd/system/$service.service"
+  sed -i 's@/usr/local/lib/droid-terminal/@/usr/local/lib/droid/@g' "$root/etc/systemd/system/$service.service"
   mkdir -p "$root/etc/systemd/system/multi-user.target.wants"
   ln -sf "/etc/systemd/system/$service.service" "$root/etc/systemd/system/multi-user.target.wants/$service.service"
 done

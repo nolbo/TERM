@@ -1,0 +1,15 @@
+#!/bin/sh
+set -eu
+case "${1:-}" in prereqs) exit 0;; esac
+. /scripts/functions
+. /scripts/local
+modprobe overlay
+local_device_setup /dev/vdb 'TERM persistent state' ext4
+mkdir -p /droid-state /droid-lower
+mount -t ext4 -o rw /dev/vdb /droid-state
+mkdir -p /droid-state/upper /droid-state/work
+mount -o move "${rootmnt:?}" /droid-lower
+mount -t overlay -o lowerdir=/droid-lower,upperdir=/droid-state/upper,workdir=/droid-state/work overlay "$rootmnt"
+mkdir -p "$rootmnt/.droid/lower" "$rootmnt/.droid/state"
+mount -o move /droid-lower "$rootmnt/.droid/lower"
+mount -o move /droid-state "$rootmnt/.droid/state"

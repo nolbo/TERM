@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+# Executed as PID 1 by the producer's QEMU smoke test, never normal AVF boot.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+mount -t proc proc /proc
+mount -t sysfs sysfs /sys
+mount -t devtmpfs devtmpfs /dev || true
+grep -q ' / overlay ' /proc/mounts
+grep ' /.droid/lower ext4 ' /proc/mounts | grep -q 'ro,'
+mount -t ext4 -o ro,nodev,nosuid,noexec /dev/vdc /etc/droid-config
+grep -q '^stateDevice=/dev/vdb$' /etc/droid-config/runtime.properties
+test -x /usr/local/lib/droid/droid-sessiond
+test -x /usr/local/lib/droid/droid-agent
+test -x /usr/local/lib/droid/droid-port-agent
+test -x /usr/local/bin/droid
+id droid
+/usr/local/lib/droid/droid-sessiond --self-check
+mkdir -p /var/lib/droid-image-test
+if [ -e /var/lib/droid-image-test/persistent ]; then
+  test "$(cat /var/lib/droid-image-test/persistent)" = survives-reboot
+  echo TERM_AVF_PERSISTENCE_OK
+else
+  printf 'survives-reboot\n' > /var/lib/droid-image-test/persistent
+  echo TERM_AVF_FIRST_BOOT_OK
+fi
+sync
+poweroff -f

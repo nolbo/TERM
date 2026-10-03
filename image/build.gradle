@@ -16,3 +16,33 @@ kotlin {
 dependencies {
     testImplementation 'junit:junit:4.13.2'
 }
+
+// Generated only by the image producer, then included in the APK's signature.
+// A missing product catalog retains the permissionless public build.
+def avfCatalog = providers.gradleProperty('avfImageCatalog')
+tasks.named('processResources') {
+    // Always overwrite the resource, including product -> public incremental builds.
+    def catalogFile = avfCatalog.isPresent() ? rootProject.file(avfCatalog.get()) : file('catalog-empty.properties')
+    inputs.property('approvedCatalogPresent', avfCatalog.isPresent())
+    from(catalogFile) {
+        into 'dev/terminal/image'
+        rename { 'approved-debian.properties' }
+    }
+    if (avfCatalog.isPresent()) {
+        inputs.file(catalogFile)
+        doFirst {
+            if (!catalogFile.isFile()) throw new GradleException('AVF image catalog file is missing')
+            def approved = new Properties()
+            catalogFile.withInputStream { approved.load(it) }
+            def uri = new URI(approved.getProperty('manifestUri', ''))
+            def limit = approved.getProperty('maxArtifactBytes', '0').toLong()
+            if (approved.getProperty('id') != 'debian-arm64-current' || uri.scheme != 'https' ||
+                    !uri.host || uri.userInfo || uri.query || uri.fragment || !uri.path.endsWith('/manifest.properties') ||
+                    !(approved.getProperty('manifestSha256', '') ==~ /[0-9a-f]{64}/) ||
+                    limit < 1 || limit > 32L * 1024 * 1024 * 1024 ||
+                    !(approved.getProperty('compression', 'none') in ['none', 'gzip'])) {
+                throw new GradleException('Invalid approved AVF image catalog')
+            }
+        }
+    }
+}

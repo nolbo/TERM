@@ -1,0 +1,88 @@
+name: Build approved AVF Debian image
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_id:
+        description: Immutable image release ID
+        required: true
+      publish:
+        description: Publish assets to a GitHub release (requires committed Korean patch notes)
+        type: boolean
+        default: false
+      source_sha256:
+        description: Optional reviewed SHA-256 of Google's upstream archive
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    if: github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - name: Validate release inputs and shared dev history
+        env:
+          AVF_RELEASE_ID: ${{ inputs.release_id }}
+          AVF_PUBLISH: ${{ inputs.publish }}
+        run: |
+          python3 - <<'PY'
+          import os, re
+          release = os.environ['AVF_RELEASE_ID']
+          if not re.fullmatch(r'[a-z0-9][a-z0-9._-]{0,63}', release):
+              raise SystemExit('Invalid AVF release ID')
+          PY
+          git fetch --no-tags origin dev
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/dev
+          if [ "$AVF_PUBLISH" = true ]; then
+            test -s "docs/release-notes/$AVF_RELEASE_ID.md"
+          fi
+      - name: Build image, guest services, disks and pinned catalog
+        env:
+          AVF_RELEASE_ID: ${{ inputs.release_id }}
+          AVF_SOURCE_SHA256: ${{ inputs.source_sha256 }}
+        run: |
+          python3 -m unittest discover -s tests/image -p 'test_*.py'
+          avf_arguments=()
+          if [ -n "$AVF_SOURCE_SHA256" ]; then
+            avf_arguments+=(--source-sha256 "$AVF_SOURCE_SHA256")
+          fi
+          python3 image/scripts/build-avf-image.py \
+            --release-id "$AVF_RELEASE_ID" \
+            --base-uri "https://github.com/$GITHUB_REPOSITORY/releases/download/$AVF_RELEASE_ID/" \
+            --output image/build/approved "${avf_arguments[@]}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: avf-debian-${{ inputs.release_id }}
+          compression-level: 0
+          if-no-files-found: error
+          path: |
+            image/build/approved/*.gz
+            image/build/approved/*.properties
+            image/build/approved/provenance.json
+            image/build/approved/SHA256SUMS
+      - name: Publish immutable image assets
+        if: inputs.publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AVF_RELEASE_ID: ${{ inputs.release_id }}
+        run: |
+          # Refuse replacement of published image assets or a mutable latest tag.
+          python3 - <<'PY'
+          import os
+          if 'latest' in os.environ['AVF_RELEASE_ID'] or 'current' in os.environ['AVF_RELEASE_ID']:
+              raise SystemExit('Publication requires an immutable release ID')
+          PY
+          gh release create "$AVF_RELEASE_ID" --target "$GITHUB_SHA" \
+            --title "AVF Debian $AVF_RELEASE_ID" \
+            --notes-file "docs/release-notes/$AVF_RELEASE_ID.md" \
+            image/build/approved/*.gz image/build/approved/*.properties \
+            image/build/approved/provenance.json image/build/approved/SHA256SUMS

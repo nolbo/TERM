@@ -49,11 +49,30 @@ object DebianImageVerifier {
     private const val EXPECTED_ARCHITECTURE = "arm64"
     private val SHA256 = Regex("[0-9a-f]{64}")
 
-    fun verify(root: Path): ImageVerification {
+    private const val INSTALL_RECEIPT = ".installed-manifest-sha256"
+
+    /** A writable VM disk changes after first boot; immutable artifacts remain pinned. */
+    fun verifyInstalled(root: Path): ImageVerification {
+        val receipt = root.resolve(INSTALL_RECEIPT)
+        val manifest = root.resolve(DebianImageLayout.MANIFEST_FILE)
+        val hasReceipt = runCatching {
+            Files.isRegularFile(receipt, java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+                Files.size(receipt) <= 65 && String(Files.readAllBytes(receipt), Charsets.US_ASCII).trim() == sha256(manifest)
+        }.getOrDefault(false)
+        return verify(root, verifyHome = !hasReceipt)
+    }
+
+    internal fun recordInstallation(root: Path) {
+        Files.write(root.resolve(INSTALL_RECEIPT), (sha256(root.resolve(DebianImageLayout.MANIFEST_FILE)) + "\n").toByteArray(Charsets.US_ASCII))
+    }
+
+    fun verify(root: Path): ImageVerification = verify(root, verifyHome = true)
+
+    private fun verify(root: Path, verifyHome: Boolean): ImageVerification {
         val layout = DebianImageLayout(root)
         if (!Files.isDirectory(root)) return ImageVerification.Invalid("Debian image directory is missing")
         val required = listOf(layout.manifest, layout.kernelImage, layout.initrdImage, layout.systemImage, layout.homeImage, layout.configImage)
-        if (required.any { !layout.isContained(it) || !Files.isRegularFile(it) }) {
+        if (required.any { !layout.isContained(it) || !Files.isRegularFile(it, java.nio.file.LinkOption.NOFOLLOW_LINKS) }) {
             return ImageVerification.Invalid("Debian image is incomplete")
         }
         if (required.drop(1).any { runCatching { Files.size(it) <= 0 }.getOrDefault(true) }) {
@@ -73,6 +92,7 @@ object DebianImageVerifier {
             layout.configImage to manifest.configSha256,
         )
         for ((file, expected) in hashes) {
+            if (file == layout.homeImage && !verifyHome) continue
             if (!SHA256.matches(expected) || sha256(file) != expected) {
                 return ImageVerification.Invalid("Checksum verification failed for ${file.fileName}")
             }

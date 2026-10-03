@@ -45,11 +45,11 @@
     <string name="runtime_rootless_setup">자동 설치</string>
     <string name="runtime_rootless_description">PRoot/glibc · 배포판별 패키지 관리자 · 추가 권한 없음</string>
     <string name="runtime_avf_title">AVF Debian</string>
-    <string name="runtime_avf_setup">선택 사항</string>
+    <string name="runtime_avf_setup">자동 설치 · 지원 제품</string>
     <string name="runtime_avf_description">실제 Linux 커널 · 지원 기기와 특권 제품 설정 필요</string>
     <string name="start_terminal">터미널 시작</string>
     <string name="select_avf_image">AVF Debian 이미지 선택</string>
-    <string name="avf_image_note">로컬 이미지 선택은 AVF 전용입니다. Rootless Debian은 별도 rootfs를 자동으로 준비합니다.</string>
+    <string name="avf_image_note">지원 제품에서는 첫 AVF 세션을 만들면 이미지를 자동으로 설치합니다. 로컬 이미지 선택은 오프라인 설치용입니다.</string>
     <string name="new_session">새 세션</string>
     <string name="select_runtime">실행 환경 선택</string>
     <string name="empty_terminal_title">열린 세션이 없습니다</string>

@@ -18,7 +18,6 @@ import dev.terminal.bridge.CapabilityGrant
 import dev.terminal.bridge.SharedPreferencesCapabilityGrantStore
 import dev.terminal.image.ImageVerification
 import dev.terminal.runtime.image.RuntimeSetupCoordinator
-import dev.terminal.runtime.image.SetupState
 import dev.terminal.runtime.R
 import dev.terminal.runtime.api.RuntimeConfig
 import dev.terminal.runtime.api.RuntimeState
@@ -816,7 +815,7 @@ class VmRuntimeService : Service() {
         val storageId = defaultStorageId(SessionRuntime.AVF)
         if (storageRegistry.transaction { isDeleted(dev.terminal.runtime.session.StorageRegistry.Key(SessionRuntime.AVF, storageId)) }) return@withLock
         storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(SessionRuntime.AVF, storageId)) }
-        if (RuntimeSetupCoordinator(applicationContext).ensureImage(imageRoot, DEFAULT_DEBIAN_RELEASE_ID, storageId) is SetupState.Downloading) return@withLock
+        RuntimeSetupCoordinator(applicationContext).ensureImage(imageRoot, DEFAULT_DEBIAN_RELEASE_ID, storageId)
         val sharedDirectory = sharedDirectories.provision(DEFAULT_VM_INSTANCE_ID).getOrThrow()
         val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
         val config = RuntimeConfig(
@@ -1039,12 +1038,10 @@ class VmRuntimeService : Service() {
             }
             if (spec.runtime == SessionRuntime.AVF && key !in startedStorageBackends) {
                 check(BundledDebianImageCatalog.find(DEFAULT_DEBIAN_RELEASE_ID) != null ||
-                    DebianImageVerifier.verify(root.toPath()) is ImageVerification.Ready) {
+                    DebianImageVerifier.verifyInstalled(root.toPath()) is ImageVerification.Ready) {
                     "이 제품 빌드에는 프로필 전용 AVF 이미지 설치 카탈로그가 없습니다."
                 }
-                check(RuntimeSetupCoordinator(applicationContext).ensureImage(root.toPath(), DEFAULT_DEBIAN_RELEASE_ID, spec.storageId) is SetupState.Ready) {
-                    "프로필 전용 AVF 이미지 설치가 필요합니다. 설치 완료 후 다시 시작하세요."
-                }
+                RuntimeSetupCoordinator(applicationContext).ensureImage(root.toPath(), DEFAULT_DEBIAN_RELEASE_ID, spec.storageId)
             }
             val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
             if (key !in startedStorageBackends) {
@@ -1314,11 +1311,11 @@ class VmRuntimeService : Service() {
     private fun imageStatus(): String = if (backend is NativeBackend) {
         "Native 사용자 공간 준비됨. AVF Debian은 권한 있는 제품 빌드에서 사용할 수 있습니다."
     } else when (
-        val verification = DebianImageVerifier.verify(Paths.get(filesDir.absolutePath, "vm", "default"))
+        val verification = DebianImageVerifier.verifyInstalled(Paths.get(filesDir.absolutePath, "vm", "default"))
     ) {
         is ImageVerification.Ready -> "Debian ARM64 image verified"
         is ImageVerification.Invalid -> if (BundledDebianImageCatalog.find(DEFAULT_DEBIAN_RELEASE_ID) == null) {
-            "$verification. 승인된 자동 설치 카탈로그가 이 빌드에 포함되지 않았습니다. 로컬 검증 이미지를 선택하거나 OEM 제품 카탈로그를 사용하세요."
+            "$verification. 이 제품 빌드에 AVF 자동 설치 이미지가 등록되지 않았습니다."
         } else verification.reason
     }
 

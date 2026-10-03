@@ -18,9 +18,14 @@ sealed interface ImageInstallResult {
  * versioned-image design rather than silently deleting user data.
  */
 object DebianImageInstaller {
+    /** Adopt previously fully verified installs without resetting their writable state. */
+    fun verifyForStartup(root: Path): ImageVerification = DebianImageVerifier.verifyInstalled(root).also {
+        if (it is ImageVerification.Ready) DebianImageVerifier.recordInstallation(root)
+    }
+
     fun install(stagingDirectory: Path, destination: Path): ImageInstallResult {
         if (Files.exists(destination)) {
-            return ImageInstallResult.AlreadyInstalled(DebianImageVerifier.verify(destination))
+            return ImageInstallResult.AlreadyInstalled(DebianImageVerifier.verifyInstalled(destination))
         }
         val parent = destination.parent ?: return ImageInstallResult.Failed("Image destination has no parent directory")
         if (!Files.isDirectory(parent)) return ImageInstallResult.Failed("Image destination parent is missing")
@@ -41,6 +46,7 @@ object DebianImageInstaller {
             when (val verification = DebianImageVerifier.verify(temporary)) {
                 is ImageVerification.Invalid -> ImageInstallResult.Failed(verification.reason)
                 is ImageVerification.Ready -> {
+                    DebianImageVerifier.recordInstallation(temporary)
                     moveIntoPlace(temporary, destination)
                     ImageInstallResult.Installed(destination)
                 }
