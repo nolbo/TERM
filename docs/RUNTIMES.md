@@ -13,6 +13,14 @@ The [Direct Linux experiment](DIRECT_LINUX_EXPERIMENT.md) was retired on 2026-09
 The zero-special-permission product is Native plus Rootless Debian. AVF is an
 optional enhanced runtime and is never an automatic fallback.
 
+Native and Rootless session RSS measurements capture the root PID and start ticks
+before starting the process reaper. In non-debuggable builds, a forked child can
+be hidden by `/proc` access policy until it executes its shell or PRoot binary;
+identity capture retries for up to about one second during session creation.
+The runtime does not enable debugging or change process dumpability. Permanent
+access restrictions, exited sessions and AVF remain unavailable; RSS still
+counts shared pages per process and can omit detached daemons.
+
 ## Native
 
 Native PTYs are owned by `VmRuntimeService` in `:vmhost`. The current bootstrap

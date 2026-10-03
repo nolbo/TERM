@@ -4,6 +4,40 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SessionMemoryTest {
+    @Test fun capturesIdentityAfterTemporaryPreExecProcRestriction() {
+        val expected = ProcessMemoryIdentity(42, 12345)
+        var reads = 0
+        var pauses = 0
+        val identity = awaitProcessMemoryIdentity(42, readIdentity = { pid ->
+            assertEquals(expected.pid, pid)
+            if (++reads < 3) null else expected
+        }, pause = { pauses++ })
+        assertEquals(expected, identity)
+        assertEquals(3, reads)
+        assertEquals(2, pauses)
+    }
+
+    @Test fun readableIdentityDoesNotDelaySessionStartup() {
+        val expected = ProcessMemoryIdentity(42, 12345)
+        var reads = 0
+        assertEquals(expected, awaitProcessMemoryIdentity(42, readIdentity = {
+            reads++
+            expected
+        }, pause = { fail("Readable process must not wait") }))
+        assertEquals(1, reads)
+    }
+
+    @Test fun permanentProcRestrictionRemainsUnavailableWithBoundedRetries() {
+        var reads = 0
+        var pauses = 0
+        assertNull(awaitProcessMemoryIdentity(42, readIdentity = {
+            reads++
+            null
+        }, pause = { pauses++ }))
+        assertEquals(100, reads)
+        assertEquals(99, pauses)
+    }
+
     @Test fun parsesNamesContainingSpacesAndClosingParentheses() {
         val fields = MutableList(22) { "0" }.apply {
             this[0] = "S"; this[1] = "7"; this[3] = "42"; this[19] = "12345"; this[21] = "16"

@@ -44,7 +44,7 @@ class RootlessSessionController(
     }
 
     private class Entry(@Volatile var descriptor: SessionDescriptor, val process: PtyProcess) {
-        val memoryIdentity = dev.terminal.runtime.session.processMemoryIdentity(process.processId)
+        val memoryIdentity = dev.terminal.runtime.session.awaitProcessMemoryIdentity(process.processId)
         val outputMutex = Mutex()
         val inputMutex = Mutex()
         private val transcript = TerminalReplayBuffer(MAX_TRANSCRIPT_BYTES)

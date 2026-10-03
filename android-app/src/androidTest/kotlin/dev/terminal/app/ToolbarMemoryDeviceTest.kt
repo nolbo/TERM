@@ -55,6 +55,16 @@ class ToolbarMemoryDeviceTest {
             await { owned !in ids(service.sessionsJson) }
             assertFalse(JSONObject(service.sessionMemoryJson).getJSONObject("sessions").has(owned))
             owned = null
+            // Each new fork must capture its identity, including non-debuggable builds.
+            repeat(20) {
+                service.createSession("NATIVE", "/system/bin/sh", "/", 24, 80)
+                await { owned = (ids(service.sessionsJson) - previous).singleOrNull(); owned != null }
+                assertTrue("New session RSS must be available",
+                    JSONObject(service.sessionMemoryJson).getJSONObject("sessions").optLong(requireNotNull(owned), 0) > 0)
+                service.terminateSession(owned)
+                await { owned !in ids(service.sessionsJson) }
+                owned = null
+            }
         } finally {
             owned?.let { service.terminateSession(it) }
             context.unbindService(connection)
