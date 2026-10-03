@@ -21,6 +21,7 @@ import androidx.core.content.FileProvider
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.ReleaseNotesMarkdown
 import dev.terminal.app.ui.TerminalActivity
+import dev.terminal.app.ui.TerminalStatusBlue
 import dev.terminal.app.update.AppUpdateState
 import dev.terminal.app.update.UpdateChannel
 import java.util.Locale
@@ -38,59 +39,95 @@ class AppUpdatesActivity : TerminalActivity() {
             var installConfirmation by rememberSaveable { mutableStateOf(false) }
             LaunchedEffect(updates.channel) { installConfirmation = false }
             SettingsPageScaffold(stringResource(R.string.app_updates), { finish() }) { padding ->
+                val manifest = when (state) {
+                    is AppUpdateState.Available -> state.manifest
+                    is AppUpdateState.Downloading -> state.manifest
+                    is AppUpdateState.Ready -> state.manifest
+                    else -> null
+                }
                 Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Text(stringResource(R.string.update_description), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(stringResource(R.string.update_channel_label), style = MaterialTheme.typography.labelLarge)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        UpdateChannel.entries.forEach { channel ->
-                            FilterChip(selected = updates.channel == channel, enabled = updates.releaseUpdatesSupported && !updates.busy,
-                                onClick = { updates.selectChannel(channel) },
-                                label = { Text(stringResource(if (channel == UpdateChannel.MAIN) R.string.update_channel_main else R.string.update_channel_dev)) })
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(stringResource(R.string.update_channel_label), style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(horizontal = 4.dp))
+                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            UpdateChannel.entries.forEach { channel ->
+                                FilterChip(selected = updates.channel == channel, enabled = updates.releaseUpdatesSupported && !updates.busy,
+                                    onClick = { updates.selectChannel(channel) },
+                                    label = { Text(stringResource(if (channel == UpdateChannel.MAIN) R.string.update_channel_main else R.string.update_channel_dev)) })
+                            }
                         }
+                        if (updates.channel == UpdateChannel.DEV) Text(stringResource(R.string.update_dev_warning),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 4.dp))
                     }
-                    if (updates.channel == UpdateChannel.DEV) Text(stringResource(R.string.update_dev_warning),
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Card(shape = MaterialTheme.shapes.extraLarge, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
-                        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text(stringResource(R.string.update_installed_version, BuildConfig.VERSION_NAME), style = MaterialTheme.typography.titleMedium)
+                        Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                            Text(stringResource(when (state) {
+                                AppUpdateState.Idle -> if (updates.releaseUpdatesSupported) R.string.update_idle_title else R.string.update_debug_title
+                                AppUpdateState.Checking -> R.string.update_checking_title
+                                AppUpdateState.NoRelease -> R.string.update_no_release_title
+                                AppUpdateState.Current -> R.string.update_current_title
+                                is AppUpdateState.Available -> R.string.update_available_title
+                                is AppUpdateState.Downloading -> R.string.update_downloading_title
+                                is AppUpdateState.Ready -> R.string.update_ready_title
+                                is AppUpdateState.Failed -> R.string.update_failed_title
+                            }), style = MaterialTheme.typography.titleLarge,
+                                color = if (state is AppUpdateState.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
                             Text(when (state) {
                                 AppUpdateState.Idle -> stringResource(if (updates.releaseUpdatesSupported) R.string.update_idle else R.string.update_debug_manual)
                                 AppUpdateState.Checking -> stringResource(R.string.update_checking)
                                 AppUpdateState.NoRelease -> stringResource(R.string.update_no_release)
                                 AppUpdateState.Current -> stringResource(R.string.update_current)
-                                is AppUpdateState.Available -> stringResource(R.string.update_available, state.manifest.versionName)
+                                is AppUpdateState.Available -> stringResource(R.string.update_available_description)
                                 is AppUpdateState.Downloading -> stringResource(R.string.update_downloading)
-                                is AppUpdateState.Ready -> stringResource(R.string.update_ready, state.manifest.versionName)
+                                is AppUpdateState.Ready -> stringResource(R.string.update_ready_description)
                                 is AppUpdateState.Failed -> stringResource(state.message)
-                            }, color = if (state is AppUpdateState.Failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
+                            }, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(if (manifest != null) stringResource(R.string.update_available, manifest.versionName)
+                                else stringResource(R.string.update_installed_version, BuildConfig.VERSION_NAME),
+                                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             when (state) {
-                                AppUpdateState.Checking -> LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                                AppUpdateState.Checking -> LinearWavyProgressIndicator(Modifier.fillMaxWidth(), color = TerminalStatusBlue)
                                 is AppUpdateState.Downloading -> {
-                                    LinearWavyProgressIndicator(progress = { state.completed.toFloat() / state.manifest.size }, modifier = Modifier.fillMaxWidth())
-                                    Text(String.format(Locale.getDefault(), "%.1f / %.1f MiB", state.completed / 1048576.0, state.manifest.size / 1048576.0))
+                                    val progress = (state.completed.toFloat() / state.manifest.size).coerceIn(0f, 1f)
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text(String.format(Locale.getDefault(), "%.0f%%", progress * 100),
+                                            style = MaterialTheme.typography.bodyMedium, color = TerminalStatusBlue)
+                                        Text(String.format(Locale.getDefault(), "%.1f / %.1f MiB", state.completed / 1048576.0, state.manifest.size / 1048576.0),
+                                            style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    LinearWavyProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = TerminalStatusBlue)
                                 }
-                                is AppUpdateState.Available -> Button(onClick = updates::download, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.update_download)) }
-                                is AppUpdateState.Ready -> Button(onClick = { installConfirmation = true }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.install)) }
-                                else -> Unit
+                                is AppUpdateState.Available -> Button(onClick = updates::download, modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = TerminalStatusBlue, contentColor = MaterialTheme.colorScheme.onPrimary),
+                                    shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.update_download)) }
+                                is AppUpdateState.Ready -> Button(onClick = { installConfirmation = true }, modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = TerminalStatusBlue, contentColor = MaterialTheme.colorScheme.onPrimary),
+                                    shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.install)) }
+                                else -> Button(onClick = updates::check, modifier = Modifier.fillMaxWidth(), enabled = updates.releaseUpdatesSupported,
+                                    shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.update_check)) }
                             }
-                            if (state !is AppUpdateState.Checking && state !is AppUpdateState.Downloading) {
+                            if (state is AppUpdateState.Available || state is AppUpdateState.Ready) {
                                 TextButton(onClick = updates::check, enabled = updates.releaseUpdatesSupported,
                                     shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.update_check)) }
                             }
                         }
                     }
-                    val manifest = when (state) {
-                        is AppUpdateState.Available -> state.manifest
-                        is AppUpdateState.Downloading -> state.manifest
-                        is AppUpdateState.Ready -> state.manifest
+                    val hint = when (state) {
+                        is AppUpdateState.Available -> R.string.update_download_before_install
+                        is AppUpdateState.Downloading -> R.string.update_download_lifetime
+                        is AppUpdateState.Ready -> R.string.update_save_work
                         else -> null
                     }
+                    if (hint != null) Text(stringResource(hint), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 20.dp))
                     if (manifest != null) {
+                        Text(stringResource(R.string.update_release_notes), style = MaterialTheme.typography.labelLarge,
+                            modifier = Modifier.padding(horizontal = 4.dp))
                         Card(shape = MaterialTheme.shapes.extraLarge,
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                             Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                Text(stringResource(R.string.update_release_notes), style = MaterialTheme.typography.titleMedium)
                                 val notes = manifest.releaseNotes
                                 if (notes != null) ReleaseNotesMarkdown(notes)
                                 else Text(stringResource(R.string.update_release_notes_unavailable),
@@ -98,7 +135,6 @@ class AppUpdatesActivity : TerminalActivity() {
                             }
                         }
                     }
-                    Text(stringResource(R.string.update_download_lifetime), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             if (installConfirmation && state is AppUpdateState.Ready) AlertDialog(
