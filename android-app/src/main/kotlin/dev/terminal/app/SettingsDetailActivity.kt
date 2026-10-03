@@ -321,6 +321,7 @@ class SettingsDetailActivity : TerminalActivity() {
                 LANGUAGE -> R.string.settings_language_title
                 APPEARANCE -> R.string.settings_appearance_title
                 AVF -> R.string.settings_avf_title
+                AVF_IMAGE -> R.string.debian_image
                 ROOTLESS -> R.string.runtime_rootless_title
                 TERMINAL -> R.string.settings_terminal_title
                 else -> R.string.settings_native_title
@@ -331,6 +332,7 @@ class SettingsDetailActivity : TerminalActivity() {
                 LANGUAGE -> R.string.settings_language_description
                 APPEARANCE -> R.string.settings_appearance_description
                 AVF -> R.string.settings_avf_description
+                AVF_IMAGE -> R.string.avf_image_settings_description
                 ROOTLESS -> R.string.settings_rootless_description
                 TERMINAL -> R.string.settings_terminal_description
                 else -> R.string.settings_native_description
@@ -393,6 +395,7 @@ class SettingsDetailActivity : TerminalActivity() {
                     LANGUAGE -> languageItems()
                     APPEARANCE -> appearanceItems()
                     AVF -> avfItems()
+                    AVF_IMAGE -> avfImageItems()
                     ROOTLESS -> rootlessItems()
                     TERMINAL -> terminalItems()
                     else -> nativeItems()
@@ -541,9 +544,38 @@ class SettingsDetailActivity : TerminalActivity() {
                 }
                 ActionSetting(R.string.debian_image, R.string.debian_image_support) {
                     startActivity(
-                        Intent(this@SettingsDetailActivity, SetupActivity::class.java)
-                            .putExtra(SetupActivity.EXTRA_SHOW_SETUP, true),
+                        Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
+                            .putExtra(EXTRA_CATEGORY, AVF_IMAGE),
                     )
+                }
+                ActionSetting(R.string.diagnostics_title, R.string.diagnostics_support) {
+                    startActivity(Intent(this@SettingsDetailActivity, DiagnosticsActivity::class.java))
+                }
+            }
+        }
+    }
+
+    private fun androidx.compose.foundation.lazy.LazyListScope.avfImageItems() {
+        item {
+            SettingsSection(R.string.section_status) {
+                InfoSetting(R.string.avf_image_current_build, when {
+                    !SessionProfiles(this@SettingsDetailActivity).hasAvfPrivileges() ||
+                        applicationContext !is dev.terminal.runtime.lifecycle.RuntimeBackendProvider ->
+                        R.string.avf_image_product_required
+                    dev.terminal.image.BundledDebianImageCatalog.find(
+                        dev.terminal.image.BundledDebianImageCatalog.DEFAULT_RELEASE_ID) == null ->
+                        R.string.avf_image_catalog_missing
+                    else -> R.string.avf_image_catalog_ready
+                })
+                InfoSetting(R.string.avf_image_automatic, R.string.avf_image_automatic_support)
+            }
+        }
+        item {
+            SettingsSection(R.string.section_execution) {
+                ActionSetting(R.string.select_avf_image, R.string.avf_image_offline_support) {
+                    startActivity(Intent(this@SettingsDetailActivity, MainActivity::class.java)
+                        .putExtra(MainActivity.EXTRA_OPEN_IMAGE_PICKER, true)
+                        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
                 }
                 ActionSetting(R.string.diagnostics_title, R.string.diagnostics_support) {
                     startActivity(Intent(this@SettingsDetailActivity, DiagnosticsActivity::class.java))
@@ -1060,6 +1092,7 @@ class SettingsDetailActivity : TerminalActivity() {
         const val LANGUAGE = "language"
         const val APPEARANCE = "appearance"
         const val AVF = "avf"
+        const val AVF_IMAGE = "avf-image"
         const val NATIVE = "native"
         const val TERMINAL = "terminal"
         const val ROOTLESS = "rootless"

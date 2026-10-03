@@ -1108,7 +1108,11 @@ class MainActivity : TerminalActivity() {
             // Never create a replacement if the PTY owner has already lost this session.
             intent.removeExtra(dev.terminal.runtime.notifications.SessionNotificationSettings.EXTRA_SESSION_ID)
         }
-        if (intent.getBooleanExtra(EXTRA_OPEN_IMAGE_PICKER, false)) imagePicker.launch(null)
+        if (intent.getBooleanExtra(EXTRA_OPEN_IMAGE_PICKER, false)) {
+            // Navigation actions are one-shot; rotation must not reopen the picker.
+            intent.removeExtra(EXTRA_OPEN_IMAGE_PICKER)
+            imagePicker.launch(null)
+        }
     }
 
     private fun safeRuntimeCall(action: (IRuntimeService) -> Unit) {
