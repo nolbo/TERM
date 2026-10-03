@@ -3,6 +3,9 @@
 package dev.terminal.app
 
 import android.os.Bundle
+import android.content.Context
+import android.content.SharedPreferences
+import android.graphics.Typeface
 import androidx.activity.compose.BackHandler
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
@@ -22,6 +25,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -30,6 +34,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
@@ -50,6 +55,7 @@ class PaletteEditorActivity : TerminalActivity() {
             ?: TerminalAppearance.paletteColors(preferences)
         val original = listOf(initial.foreground, initial.background, initial.cursor) + initial.ansi
         compose {
+            val previewFont = remember { FontFamily(palettePreviewTypeface(preferences, this)) }
             var draft by rememberSaveable { mutableStateOf(original.joinToString(",")) }
             val colors = draft.split(',')
             var selected by rememberSaveable { mutableIntStateOf(-1) }
@@ -69,7 +75,7 @@ class PaletteEditorActivity : TerminalActivity() {
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 style = MaterialTheme.typography.bodyLarge)
                         }
-                        item { PalettePreview(colors) }
+                        item { PalettePreview(colors, previewFont) }
                         item { PaletteGroup(R.string.palette_main_colors, colors, 0..2) { selected = it } }
                         item { PaletteGroup(R.string.palette_standard_colors, colors, 3..10) { selected = it } }
                         item { PaletteGroup(R.string.palette_bright_colors, colors, 11..18) { selected = it } }
@@ -117,7 +123,7 @@ class PaletteEditorActivity : TerminalActivity() {
 }
 
 @Composable
-private fun PalettePreview(colors: List<String>) {
+private fun PalettePreview(colors: List<String>, fontFamily: FontFamily) {
     Column(
         Modifier.fillMaxWidth().background(hexColor(colors[1]), RoundedCornerShape(28.dp)).padding(20.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -133,9 +139,18 @@ private fun PalettePreview(colors: List<String>) {
                 Box(Modifier.weight(1f).height(12.dp).background(hexColor(hex), CircleShape))
             }
         }
-        Text("$ echo TERM", color = hexColor(colors[0]), style = MaterialTheme.typography.bodyMedium)
+        Text(PALETTE_PREVIEW_COMMAND, color = hexColor(colors[0]), style = MaterialTheme.typography.bodyMedium,
+            fontFamily = fontFamily)
         Box(Modifier.size(width = 12.dp, height = 18.dp).background(hexColor(colors[2])))
     }
+}
+
+private const val PALETTE_PREVIEW_COMMAND = "$ echo TERM"
+
+internal fun palettePreviewTypeface(preferences: SharedPreferences, context: Context): Typeface {
+    val text = PALETTE_PREVIEW_COMMAND.toCharArray()
+    return TerminalAppearance.fontFamily(preferences, context)
+        .getTypefaceForText(text, 0, text.size, false, false)
 }
 
 @Composable

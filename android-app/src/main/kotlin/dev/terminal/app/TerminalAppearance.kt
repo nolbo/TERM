@@ -1,6 +1,7 @@
 package dev.terminal.app
 
 import android.content.SharedPreferences
+import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.fonts.Font
@@ -66,7 +67,7 @@ object TerminalAppearance {
         )
         val fonts = customTerminalFonts(preferences)
         if (appliedFonts[terminalView] != fonts) {
-            terminalView.setTypefaceFamily(fontFamily(preferences, terminalView))
+            terminalView.setTypefaceFamily(fontFamily(preferences, terminalView.context))
             appliedFonts[terminalView] = fonts
         }
         terminalView.setForceFixedWidth(true)
@@ -113,13 +114,13 @@ object TerminalAppearance {
      * custom face also supplies the terminal cell metrics, and bundled Google Sans Code is the
      * final fallback. Unavailable or malformed documents are skipped.
      */
-    private fun fontFamily(
+    internal fun fontFamily(
         preferences: SharedPreferences,
-        terminalView: com.termux.view.TerminalView,
+        context: Context,
     ): TerminalFontFamily {
         val customFaces = customTerminalFonts(preferences).mapNotNull { font ->
             runCatching {
-                terminalView.context.contentResolver.openFileDescriptor(Uri.parse(font.uri), "r")?.use { descriptor ->
+                context.contentResolver.openFileDescriptor(Uri.parse(font.uri), "r")?.use { descriptor ->
                     val androidFont = Font.Builder(descriptor).build()
                     val ranges = OpenTypeCmap.codePointRanges(androidFont.buffer, androidFont.ttcIndex)
                     if (ranges.isEmpty()) return@use null
@@ -134,7 +135,7 @@ object TerminalAppearance {
         return TerminalFontFamily(
             customFaces.filter { it.first == CustomTerminalFontStyle.REGULAR }.map { it.second },
             customFaces.filter { it.first == CustomTerminalFontStyle.ITALIC }.map { it.second },
-            BundledFonts.googleSansCode(terminalView.context),
+            BundledFonts.googleSansCode(context),
         )
     }
 
