@@ -30,4 +30,4 @@ export TERMINAL_SIGNING_KEY_PASSWORD=${TERMINAL_SIGNING_KEY_PASSWORD:-"$TERMINAL
 export TERMINAL_SIGNING_KEY_ALIAS=${TERMINAL_SIGNING_KEY_ALIAS:-terminal}
 trap 'unset TERMINAL_SIGNING_STORE_PASSWORD TERMINAL_SIGNING_KEY_PASSWORD' EXIT
 
-./gradlew :android-app:assembleRelease --console=plain
+./gradlew :android-app:assembleRelease --console=plain "$@"

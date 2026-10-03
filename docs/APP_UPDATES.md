@@ -101,6 +101,36 @@ included in artifacts. Missing publication credentials fail that job. Until
 the publisher is configured and these changes reach the respective branch, no
 new channel release is published. Repository creation alone does not publish an APK.
 
+### Publication time and cache policy
+
+Channel pushes check that signing/publication secrets and Korean channel notes
+exist before downloading toolchains or compiling. This checks presence only;
+the signing and publication steps still validate the credentials when used.
+The existing `android.yml` workflow and shared run-number sequence are preserved.
+
+`gradle/actions/setup-gradle@v4` restores Gradle dependencies and local build-cache
+entries; the debug verification and signed release commands enable `--build-cache`.
+Rust registry/git dependencies and the four separate Android/host Cargo target
+directories are restored with OS, host architecture, Rust 1.89.0, NDK version and
+recipe/source keys. Compatible previous target caches can seed incremental
+compilation after source changes; Cargo still runs with `--locked`. Only main/dev
+pushes can save caches; Rust caches are saved after verification and artifact
+preparation succeed. PRs and other refs only restore them. Cargo cache paths exclude
+signing material, APKs, update manifests and native distribution archives, and the
+temporary release keystore remains outside Gradle's cached user home.
+Rootless input hashes and both APK payload checks continue to run on every build.
+
+APK/source artifacts use `compression-level: 0` to avoid recompressing ZIP/gzip
+payloads. Canonical verification, app tests, the USB safety gate and release lint
+remain publication prerequisites. The USB gate remains sequential because it
+executes Gradle and reads shared test-result files. Publication stays serialized
+and retains immutable assets and the forward-only latest-code comparison.
+
+The first run must populate caches; cache eviction or changed toolchains can also
+cause a cold build. Compare step durations on subsequent channel runs to measure
+the actual improvement. Local validation cannot establish GitHub runner timings.
+For a local signed build with caching, use `bash tools/build-release.sh --build-cache`.
+
 ## App behavior and boundaries
 
 **Settings → App updates → Update channel → Check for updates** retrieves

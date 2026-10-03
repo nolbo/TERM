@@ -18,6 +18,7 @@ jobs:
           fetch-depth: 0
       - name: Select update revision and version
         run: |
+          echo "TERMINAL_NDK_VERSION=$(sed -n 's/^ndkVersion=//p' gradle.properties)" >> "$GITHUB_ENV"
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main +refs/heads/dev:refs/remotes/origin/dev
           if [ "$GITHUB_EVENT_NAME" = push ] && { [ "$GITHUB_REF" = refs/heads/main ] || [ "$GITHUB_REF" = refs/heads/dev ]; }; then
             terminal_update_channel=${GITHUB_REF#refs/heads/}
@@ -27,6 +28,19 @@ jobs:
             # epoch exceeds legacy commit-count versions without relying on clocks.
             echo "TERMINAL_UPDATE_VERSION_CODE=$((1000000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
           fi
+      - name: Check channel publication inputs before building
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        env:
+          TERMINAL_SIGNING_KEYSTORE_BASE64: ${{ secrets.TERMINAL_SIGNING_KEYSTORE_BASE64 }}
+          TERMINAL_SIGNING_STORE_PASSWORD: ${{ secrets.TERMINAL_SIGNING_STORE_PASSWORD }}
+          TERMINAL_UPDATES_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
+        run: |
+          set +x
+          if [ -z "$TERMINAL_SIGNING_KEYSTORE_BASE64" ] || [ -z "$TERMINAL_SIGNING_STORE_PASSWORD" ] || [ -z "$TERMINAL_UPDATES_TOKEN" ]; then
+            echo 'Configure the signing and TERM publication secrets before building a channel update.'
+            exit 1
+          fi
+          test -s "docs/release-notes/${GITHUB_REF_NAME}-latest.md"
       - name: Use Maven AAPT2 on the CI host
         # The checked-in override is for the local ARM64/QEMU host only.
         run: sed -i '/^android.aapt2FromMavenOverride=/d' gradle.properties
@@ -34,6 +48,25 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
+      - name: Restore Gradle dependencies and build cache
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # PRs can restore trusted caches but only channel pushes save them.
+          cache-read-only: ${{ github.event_name != 'push' || (github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev') }}
+      - name: Restore Rust dependencies and compilation cache
+        id: rust-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            android-runtime/build/iphone-tools/target
+            android-runtime/build/sidestore-native/target
+            android-runtime/build/device-safety-connector/target
+            android-runtime/build/device-safety-rust/target
+          key: ${{ runner.os }}-${{ runner.arch }}-rust-1.89.0-ndk-${{ env.TERMINAL_NDK_VERSION }}-${{ hashFiles('tools/iphone/connector/**', 'tools/iphone/android-clang.sh', 'tools/sidestore/**') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-rust-1.89.0-ndk-${{ env.TERMINAL_NDK_VERSION }}-
       - name: Install pinned Android Rust toolchain
         run: rustup toolchain install 1.89.0 --profile minimal --target aarch64-linux-android
       - name: Prepare verified accelerated Rootless runtime
@@ -44,7 +77,7 @@ jobs:
           echo "TERMINAL_REQUIRE_ROOTLESS_ACCELERATION=true" >> "$GITHUB_ENV"
       - name: Build and test
         run: |
-          ./gradlew :android-app:assembleDebug :android-app:testDebugUnitTest :android-runtime:testDebugUnitTest :image:test --console=plain
+          ./gradlew :android-app:assembleDebug :android-app:testDebugUnitTest :android-runtime:testDebugUnitTest :image:test --build-cache --console=plain
           python3 tools/rootless/prepare-release-runtime.py --verify-apk android-app/build/outputs/apk/debug/android-app-debug.apk
           python3 -m unittest discover -s tests/updates -p 'test_*.py'
       - name: USB host safety regression gate (not physical validation)
@@ -61,6 +94,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: droid-terminal-debug
+          # APKs and source tarballs are already compressed.
+          compression-level: 0
           path: |
             android-app/build/outputs/apk/debug/android-app-debug.apk
             android-runtime/build/distributions/iphone-worker-source.tar.gz
@@ -90,7 +125,7 @@ jobs:
           trap 'rm -f "$TERMINAL_SIGNING_STORE_FILE"' EXIT
           printf '%s' "$TERMINAL_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$TERMINAL_SIGNING_STORE_FILE"
           unset TERMINAL_SIGNING_KEYSTORE_BASE64
-          bash tools/build-release.sh
+          bash tools/build-release.sh --build-cache
           python3 tools/rootless/prepare-release-runtime.py --verify-apk android-app/build/outputs/apk/release/android-app-release.apk
           mkdir -p android-app/build/update
           python3 tools/updates/create-manifest.py \
@@ -109,7 +144,20 @@ jobs:
         with:
           name: terminal-${{ github.ref_name }}-update
           if-no-files-found: error
+          compression-level: 0
           path: android-app/build/update/
+      - name: Save trusted Rust compilation cache
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            android-runtime/build/iphone-tools/target
+            android-runtime/build/sidestore-native/target
+            android-runtime/build/device-safety-connector/target
+            android-runtime/build/device-safety-rust/target
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
 
   publish-update:
     needs: build-and-unit-test
