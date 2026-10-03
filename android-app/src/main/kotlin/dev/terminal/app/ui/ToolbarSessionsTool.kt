@@ -94,7 +94,7 @@ internal fun ToolbarSessionsTool(
             }
         }
         ReorderableSessionTabs(sessions, activeSessionId, active, onReorder,
-            Modifier.weight(1f).fillMaxWidth()) { session, itemModifier, dragging ->
+            Modifier.weight(1f).fillMaxWidth()) { session, itemModifier, dragging, lifted ->
             val selected = session.id == activeSessionId
             val tabInteractionSource = remember(session.id) { MutableInteractionSource() }
             val tabPressed by tabInteractionSource.collectIsPressedAsState()
@@ -115,12 +115,13 @@ internal fun ToolbarSessionsTool(
                     haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                     onSelect(session.id)
                 },
-                modifier = itemModifier
+                modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 4.dp)
                     .height(48.dp)
+                    .then(itemModifier)
                     .clip(tabShape)
-                    .background(if (selected) colors.container else Color.Transparent)
+                    .background(if (selected || lifted) colors.container else Color.Transparent)
                     .semantics {
                         stateDescription = stateLabel
                     },

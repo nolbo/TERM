@@ -230,6 +230,49 @@ class ToolbarUiTest {
         }
     }
 
+    @Test fun liftedSessionTabScalesItsCapsuleWithoutClippingEitherSide() {
+        val sessions = (0..3).map { SessionUi("tab-$it", "NATIVE", "Shell $it", "RUNNING") }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Box(Modifier.fillMaxWidth().height(350.dp)) {
+                        ToolbarSessionsTool(sessions, "tab-0", true, emptySet(), emptyList(),
+                            {}, {}, false, {}, {}, {}, {}, {}, {}, TerminalChromeColors(Color.Black))
+                    }
+                } }
+            } }
+            settle()
+            fun row() = bounds(waitForNode("Selected tab") { it.isSelected })
+            fun paintedEdges(y: Int): Pair<Int, Int> {
+                val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+                try {
+                    val container = TerminalChromeColors(Color.Black).container.toArgb()
+                    val pixels = (0 until screenshot.width).filter { screenshot.getPixel(it, y) == container }
+                    assertTrue("Selected capsule must be visible", pixels.isNotEmpty())
+                    return pixels.first() to pixels.last()
+                } finally { screenshot.recycle() }
+            }
+            val resting = row()
+            val restingEdges = paintedEdges(resting.centerY())
+            val source = bounds(text("Shell 0"))
+            val target = bounds(text("Shell 2"))
+            drag(source.exactCenterX(), source.exactCenterY(), 0f,
+                target.exactCenterY() - source.exactCenterY(), cancel = true, longPress = true) {
+                instrumentation.waitForIdleSync()
+                val lifted = row()
+                val middle = paintedEdges(lifted.centerY())
+                val expectedWidth = (restingEdges.second - restingEdges.first + 1) * 1.02
+                assertEquals("Scale the visible capsule, including its left and right edges",
+                    expectedWidth, (middle.second - middle.first + 1).toDouble(), 2.0)
+                val density = context.resources.displayMetrics.density
+                val top = paintedEdges(lifted.top + (3 * density).toInt())
+                assertTrue("Both corners remain rounded", top.first > middle.first && top.second < middle.second)
+                assertTrue("Neither side is cropped", kotlin.math.abs(
+                    (top.first - middle.first) - (middle.second - top.second)) <= 2)
+            }
+        }
+    }
+
     @Test fun settingsCannotRemoveSessionTool() {
         val prefs = context.getSharedPreferences("toolbar-mandatory-test", 0)
         prefs.edit().clear().commit()

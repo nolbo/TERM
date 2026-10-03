@@ -1,7 +1,6 @@
 package dev.terminal.app.ui
 
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.*
@@ -13,7 +12,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -35,12 +33,11 @@ import kotlin.math.roundToInt
 @Composable
 internal fun ReorderableSessionTabs(sessions: List<SessionUi>, activeSessionId: String?, active: Boolean,
     onReorder: (List<String>) -> Unit, modifier: Modifier,
-    content: @Composable (SessionUi, Modifier, Boolean) -> Unit) {
+    content: @Composable (SessionUi, Modifier, Boolean, Boolean) -> Unit) {
     val ids = sessions.map { it.id }
     val scroll = rememberScrollState()
     val density = LocalDensity.current
     val haptics = LocalTerminalHaptics.current
-    val colors = LocalToolbarColors.current
     val step = 52.dp
     val stepPx = with(density) { step.toPx() }
     val rowPx = with(density) { 48.dp.toPx() }
@@ -146,8 +143,9 @@ internal fun ReorderableSessionTabs(sessions: List<SessionUi>, activeSessionId: 
                             scaleY = if (lifted) 1.02f else 1f
                             shadowElevation = if (lifted) 3.dp.toPx() else 0f
                             shape = RoundedCornerShape(20.dp)
-                            clip = true
-                        }.background(if (lifted) colors.container else Color.Transparent)
+                            // The tab owns clipping; scaling must not clip a second, wider capsule.
+                            clip = false
+                        }
                         .semantics {
                             traversalIndex = index.toFloat()
                             customActions = if (!active || dragging != null) emptyList() else buildList {
@@ -159,7 +157,7 @@ internal fun ReorderableSessionTabs(sessions: List<SessionUi>, activeSessionId: 
                                 })
                             }
                         }
-                    content(session, item, dragging != null)
+                    content(session, item, dragging != null, lifted)
                 } }
             }
         }
