@@ -57,6 +57,8 @@ import org.json.JSONObject
             },
             icon = if (state == "ERROR" || status?.optBoolean("installed") == true)
                 R.drawable.ic_material_symbol_refresh_24 else R.drawable.ic_material_symbol_download_24,
+            supporting = if (status?.optBoolean("installed") == true)
+                R.string.rootless_complete_environment_support else null,
             enabled = enabled && status?.optBoolean("canInstall") == true, onClick = onInstall)
         EnvironmentActionSetting(R.string.environment_distribution_remove, R.drawable.ic_material_symbol_delete_24,
             enabled = enabled && status?.optBoolean("canRemove") == true,

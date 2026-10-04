@@ -371,6 +371,7 @@
     <string name="rootless_removing">설치된 이미지를 제거하고 있습니다.</string>
     <string name="rootless_environment_required">기본 실행환경 보완 필요</string>
     <string name="rootless_complete_environment">실행환경 보완</string>
+    <string name="rootless_complete_environment_support">배포판의 기본 패키지를 설치하고 필수 설정을 적용한 뒤 정상 동작을 확인합니다.</string>
     <string name="rootless_stage_percent">현재 단계 %1$d%%</string>
     <string name="rootless_elapsed">경과 %1$d분 %2$d초</string>
     <string name="rootless_last_progress">최근 진행 보고: %1$d초 전</string>

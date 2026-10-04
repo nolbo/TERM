@@ -571,6 +571,8 @@ TERM=xterm-sixel codex
 
 ### Userspace Linux 기본 실행환경 보완
 
+**실행환경 보완**은 설치된 배포판의 기본 패키지를 설치하고 필수 설정을 적용한 뒤 정상 동작을 확인하는 작업입니다.
+
 Debian은 표준 우선순위 패키지, Ubuntu는 공식 Server 기본 메타패키지,
 Arch Linux ARM은 `base`를 따릅니다. 세 배포판에 동일한 개발 도구 묶음을
 강제로 설치하지 않습니다. 최초 준비에는 인터넷과 Debian/Arch 2 GiB,
