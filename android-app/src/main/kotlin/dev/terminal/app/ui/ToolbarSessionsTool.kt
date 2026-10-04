@@ -163,16 +163,16 @@ private fun SessionToolSummary(sessions: List<SessionUi>, colors: TerminalChrome
     Column(modifier) {
         Text(stringResource(R.string.toolbar_session_count, sessions.size),
             maxLines = 1, overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.labelMedium, color = colors.foreground)
+            style = MaterialTheme.typography.titleMedium, color = colors.foreground)
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
             var first = true
             sessionSummaryStates.forEach { state ->
                 counts[state]?.let { count ->
-                    if (!first) Text(" · ", style = MaterialTheme.typography.labelSmall,
+                    if (!first) Text(" · ", style = MaterialTheme.typography.bodyMedium,
                         color = colors.foreground.copy(alpha = 0.75f))
                     Text(stringResource(R.string.toolbar_session_state_count, sessionStateLabel(state), count),
                         maxLines = 1,
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 14.sp),
+                        style = MaterialTheme.typography.bodyMedium,
                         color = colors.foreground.copy(alpha = 0.75f))
                     first = false
                 }
