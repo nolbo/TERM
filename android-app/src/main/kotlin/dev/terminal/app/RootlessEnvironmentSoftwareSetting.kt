@@ -6,6 +6,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.RootlessProgressIndicator
 import dev.terminal.app.ui.parseRootlessProgress
 import dev.terminal.app.ui.settingsItemSurface
@@ -17,7 +18,7 @@ import org.json.JSONObject
     onInstall: () -> Unit, onRemove: () -> Unit) {
     val busy = status?.optBoolean("busy") == true
     val state = status?.optString("state").orEmpty()
-    ProfileSection(R.string.environment_distribution_installation) {
+    EnvironmentSection(R.string.environment_distribution_installation) {
         ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors(),
             supportingContent = { Text(stringResource(when {
                 status == null -> R.string.rootless_checking
@@ -37,22 +38,28 @@ import org.json.JSONObject
             }
             val progress = parseRootlessProgress(status)
             if (progress != null && (busy || state == "ERROR")) {
-                Text(progress.label, style = MaterialTheme.typography.titleSmall)
-                RootlessProgressIndicator(progress, busy)
-            } else if (busy) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                Column(Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(progress.label, style = MaterialTheme.typography.titleSmall)
+                    RootlessProgressIndicator(progress, busy)
+                }
+            } else if (busy) {
+                Column(Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp)) {
+                    LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                }
+            }
         }
-        Button(onClick = onInstall, enabled = enabled && status?.optBoolean("canInstall") == true,
-            modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-            Text(stringResource(when {
+        EnvironmentActionSetting(
+            title = when {
                 state == "ERROR" -> R.string.retry
                 status?.optBoolean("installed") == true -> R.string.rootless_complete_environment
                 else -> R.string.environment_distribution_install
-            }))
-        }
-        OutlinedButton(onClick = onRemove, enabled = enabled && status?.optBoolean("canRemove") == true,
-            modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-            Text(stringResource(R.string.environment_distribution_remove))
-        }
-        Text(stringResource(R.string.environment_software_protected), style = MaterialTheme.typography.bodySmall)
+            },
+            icon = if (state == "ERROR" || status?.optBoolean("installed") == true)
+                R.drawable.ic_material_symbol_refresh_24 else R.drawable.ic_material_symbol_download_24,
+            enabled = enabled && status?.optBoolean("canInstall") == true, onClick = onInstall)
+        EnvironmentActionSetting(R.string.environment_distribution_remove, R.drawable.ic_material_symbol_delete_24,
+            enabled = enabled && status?.optBoolean("canRemove") == true,
+            supporting = R.string.environment_software_protected, destructive = true, onClick = onRemove)
     }
 }

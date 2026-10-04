@@ -434,9 +434,6 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                 enabled = enabled && canDelete, onClick = onDelete, destructive = true)
         }
     }
-    @Composable private fun EnvironmentSection(title: Int, content: @Composable ColumnScope.() -> Unit) {
-        Column(Modifier.fillMaxWidth().padding(top = 20.dp)) { ProfileSection(title, content) }
-    }
     @Composable private fun EnvironmentGroupCard(first: Boolean, last: Boolean, content: @Composable ColumnScope.() -> Unit) {
         val corners = MaterialTheme.shapes.extraLarge
         Card(Modifier.fillMaxWidth().padding(bottom = if (last) 0.dp else SettingsItemSpacing), shape = corners.copy(

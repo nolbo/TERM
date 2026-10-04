@@ -40,7 +40,7 @@ internal fun hasAvfEnvironmentImage(context: Context, storageId: String): Boolea
     LaunchedEffect(storageId, snapshot, revision) {
         installed = withContext(Dispatchers.IO) { hasAvfEnvironmentImage(context, storageId) }
     }
-    ProfileSection(R.string.debian_image) {
+    EnvironmentSection(R.string.debian_image) {
         ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors(),
             supportingContent = { Text(stringResource(when (installed) {
                 true -> R.string.avf_image_installed
@@ -52,19 +52,18 @@ internal fun hasAvfEnvironmentImage(context: Context, storageId: String): Boolea
         if (progress != null) AvfImageInstallCard(progress)
         if (installed == false && progress?.active != true) {
             val available = BundledDebianImageCatalog.find(BundledDebianImageCatalog.DEFAULT_RELEASE_ID) != null
-            Button(onClick = onInstall, enabled = savedStorage && available && !requesting,
-                modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                Text(stringResource(R.string.avf_image_install))
-            }
-            if (!savedStorage) Text(stringResource(R.string.avf_image_save_first), style = MaterialTheme.typography.bodySmall)
-            else if (!available) Text(stringResource(R.string.avf_image_catalog_missing), style = MaterialTheme.typography.bodySmall)
+            EnvironmentActionSetting(R.string.avf_image_install, R.drawable.ic_material_symbol_download_24,
+                enabled = savedStorage && available && !requesting,
+                supporting = when {
+                    !savedStorage -> R.string.avf_image_save_first
+                    !available -> R.string.avf_image_catalog_missing
+                    else -> null
+                }, onClick = onInstall)
         }
         if (installed == true || hasData) {
-            OutlinedButton(onClick = onRemove, enabled = canRemove && !requesting && progress?.active != true,
-                modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                Text(stringResource(R.string.environment_debian_remove))
-            }
-            Text(stringResource(R.string.environment_software_protected), style = MaterialTheme.typography.bodySmall)
+            EnvironmentActionSetting(R.string.environment_debian_remove, R.drawable.ic_material_symbol_delete_24,
+                enabled = canRemove && !requesting && progress?.active != true,
+                supporting = R.string.environment_software_protected, destructive = true, onClick = onRemove)
         }
     }
 }

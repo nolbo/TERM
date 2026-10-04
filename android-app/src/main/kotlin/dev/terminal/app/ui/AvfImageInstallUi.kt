@@ -32,7 +32,11 @@ private fun phaseTitle(phase: AvfImageInstallPhase) = when (phase) {
 /** The dialog and settings render the same persisted snapshot, without owning its work. */
 @Composable
 internal fun AvfImageInstallCard(snapshot: AvfImageInstallSnapshot, modifier: Modifier = Modifier) {
-    Card(modifier.fillMaxWidth(), shape = MaterialTheme.shapes.extraLarge) {
+    Card(modifier.fillMaxWidth(),
+        shape = if (LocalSettingsGroup.current) SettingsItemShape else MaterialTheme.shapes.extraLarge,
+        colors = if (LocalSettingsGroup.current)
+            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+        else CardDefaults.cardColors()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.avf_install_title), style = MaterialTheme.typography.titleMedium)
             val stateTitle = when (snapshot.state) {
