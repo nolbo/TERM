@@ -32,11 +32,5 @@
     <string name="userspace_abi">ABI</string>
     <string name="userspace_storage_links">Storage link strategy</string>
     <string name="userspace_environment_automatic">Selected automatically per environment</string>
-    <string name="userspace_limit_root">Does not provide real root privileges. PRoot emulates the root identity.</string>
-    <string name="userspace_limit_namespaces">Does not provide Linux namespaces.</string>
-    <string name="userspace_limit_cgroups">Does not provide cgroups.</string>
-    <string name="userspace_limit_mounts">Does not provide kernel mounts.</string>
-    <string name="userspace_limit_systemd">Does not provide a full systemd boot.</string>
-    <string name="userspace_limit_overhead">Syscall and filesystem translation adds performance overhead.</string>
-    <string name="userspace_limit_kernel">Features requiring a real Linux kernel may need AVF.</string>
+    <string name="userspace_limitations_note">PRoot does not provide real root privileges, Linux namespaces, cgroups, kernel mounts or a full systemd boot. Syscall and filesystem translation adds performance overhead. Features requiring a real Linux kernel may need AVF.</string>
 </resources>

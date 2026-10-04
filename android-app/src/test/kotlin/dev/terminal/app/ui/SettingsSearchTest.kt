@@ -46,9 +46,9 @@ class SettingsSearchTest {
         assertEquals(SettingsSearchTarget("rootless-dns"), target(R.string.userspace_dns))
         assertEquals(SettingsSearchTarget("rootless", 2), target(R.string.userspace_proot))
         assertEquals(SettingsSearchTarget("rootless-info"), target(R.string.userspace_runtime_info))
-        assertEquals(SettingsSearchTarget("rootless-limitations"), target(R.string.rootless_limitations))
+        assertFalse(settingsSearchEntries.any { it.title == R.string.rootless_limitations || it.target.screen == "rootless-limitations" })
         assertEquals(listOf(R.string.settings_userspace_title, R.string.userspace_information),
-            settingsSearchEntries.single { it.title == R.string.rootless_limitations }.path)
+            settingsSearchEntries.single { it.title == R.string.userspace_runtime_info }.path)
         assertEquals(SettingsSearchTarget("diagnostics", 1), target(R.string.diagnostics_title))
         assertEquals(SettingsSearchTarget("diagnostics", 2), target(R.string.crash_reports_title))
         assertEquals(SettingsSearchTarget("avf", 2), target(R.string.forwarded_ports_title))

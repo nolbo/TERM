@@ -103,7 +103,6 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("rootless", R.string.userspace_architecture, path = userspace + R.string.userspace_runtime, section = 2)
     entry("rootless", R.string.userspace_acceleration, path = userspace + R.string.userspace_runtime, section = 2)
     entry("rootless-info", R.string.userspace_runtime_info, R.string.userspace_runtime_info_support, userspace + R.string.userspace_information)
-    entry("rootless-limitations", R.string.rootless_limitations, R.string.rootless_limitations_support, userspace + R.string.userspace_information)
     entry("toolbar", R.string.toolbar_enabled, R.string.toolbar_enabled_summary, terminal + R.string.toolbar_settings)
     entry("hotkeys", R.string.hotkey_columns, null, hotkeys)
     entry("hotkeys", R.string.hotkey_font_size, null, hotkeys)

@@ -83,7 +83,6 @@ class UserspaceLinuxSettingsActivity : RuntimeInformationActivity() {
     companion object {
         const val DNS = "rootless-dns"
         const val INFO = "rootless-info"
-        const val LIMITATIONS = "rootless-limitations"
-        fun owns(screen: String) = screen in setOf(SettingsDetailActivity.ROOTLESS, DNS, INFO, LIMITATIONS)
+        fun owns(screen: String) = screen in setOf(SettingsDetailActivity.ROOTLESS, DNS, INFO)
     }
 }

@@ -29,7 +29,6 @@ internal fun UserspaceLinuxSettingsScreen(screen: String, policy: RootlessDnsPol
     val title = when (screen) {
         UserspaceLinuxSettingsActivity.DNS -> R.string.userspace_dns
         UserspaceLinuxSettingsActivity.INFO -> R.string.userspace_runtime_info
-        UserspaceLinuxSettingsActivity.LIMITATIONS -> R.string.rootless_limitations
         else -> R.string.settings_userspace_title
     }
     val unknown = stringResource(if (unavailable) R.string.userspace_info_unavailable else R.string.userspace_checking)
@@ -48,7 +47,6 @@ internal fun UserspaceLinuxSettingsScreen(screen: String, policy: RootlessDnsPol
                 Guidance(when (screen) {
                     UserspaceLinuxSettingsActivity.DNS -> R.string.userspace_dns_support
                     UserspaceLinuxSettingsActivity.INFO -> R.string.userspace_runtime_info_support
-                    UserspaceLinuxSettingsActivity.LIMITATIONS -> R.string.rootless_limitations_support
                     else -> R.string.settings_rootless_description
                 })
             }
@@ -70,13 +68,6 @@ internal fun UserspaceLinuxSettingsScreen(screen: String, policy: RootlessDnsPol
                         EngineValue(R.string.userspace_storage_links, stringResource(R.string.userspace_environment_automatic))
                     }
                 }
-                UserspaceLinuxSettingsActivity.LIMITATIONS -> {
-                    listOf(R.string.userspace_limit_root, R.string.userspace_limit_namespaces, R.string.userspace_limit_cgroups,
-                        R.string.userspace_limit_mounts, R.string.userspace_limit_systemd,
-                        R.string.userspace_limit_overhead, R.string.userspace_limit_kernel).forEach { text ->
-                        item { Guidance(text) }
-                    }
-                }
                 else -> {
                     item {
                         EngineSection(R.string.userspace_network) {
@@ -95,8 +86,11 @@ internal fun UserspaceLinuxSettingsScreen(screen: String, policy: RootlessDnsPol
                     item {
                         EngineSection(R.string.userspace_information) {
                             EngineLink(R.string.userspace_runtime_info) { onOpen(UserspaceLinuxSettingsActivity.INFO) }
-                            EngineLink(R.string.rootless_limitations) { onOpen(UserspaceLinuxSettingsActivity.LIMITATIONS) }
                         }
+                    }
+                    item {
+                        Text(stringResource(R.string.userspace_limitations_note), Modifier.padding(horizontal = 16.dp),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
                     }
                 }
             }

@@ -114,18 +114,11 @@ class UserspaceLinuxSettingsTest {
         }
     }
 
-    @Test fun informationIsReadOnlyAndLimitationsListEveryRequiredBoundary() {
+    @Test fun runtimeInformationIsReadOnly() {
         launch(UserspaceLinuxSettingsActivity.INFO).use {
             waitFor { it.text?.toString() == context.getString(R.string.userspace_loader) }
             assertNotNull(find { it.text?.toString() == context.getString(R.string.userspace_faststat) })
             assertNull(find { it.className == "android.widget.Switch" || it.isEditable })
-        }
-        launch(UserspaceLinuxSettingsActivity.LIMITATIONS).use {
-            for (label in listOf(R.string.userspace_limit_root, R.string.userspace_limit_namespaces,
-                R.string.userspace_limit_cgroups, R.string.userspace_limit_mounts, R.string.userspace_limit_systemd,
-                R.string.userspace_limit_overhead, R.string.userspace_limit_kernel)) {
-                waitFor { it.text?.toString() == context.getString(label) }
-            }
         }
     }
 }

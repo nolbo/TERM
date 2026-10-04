@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="settings_userspace_title">사용자 공간 Linux</string>
+    <string name="settings_userspace_title">Userspace Linux</string>
     <string name="userspace_network">네트워크</string>
     <string name="userspace_runtime">런타임</string>
     <string name="userspace_information">정보 및 진단</string>
@@ -32,11 +32,5 @@
     <string name="userspace_abi">ABI</string>
     <string name="userspace_storage_links">스토리지 링크 방식</string>
     <string name="userspace_environment_automatic">환경별 자동 결정</string>
-    <string name="userspace_limit_root">실제 root 권한을 제공하지 않습니다. root 표시는 PRoot가 에뮬레이션합니다.</string>
-    <string name="userspace_limit_namespaces">Linux namespace를 제공하지 않습니다.</string>
-    <string name="userspace_limit_cgroups">cgroup을 제공하지 않습니다.</string>
-    <string name="userspace_limit_mounts">kernel mount를 제공하지 않습니다.</string>
-    <string name="userspace_limit_systemd">완전한 systemd boot를 제공하지 않습니다.</string>
-    <string name="userspace_limit_overhead">syscall 및 filesystem translation으로 성능 오버헤드가 발생합니다.</string>
-    <string name="userspace_limit_kernel">실제 Linux kernel이 필요한 기능은 AVF가 필요할 수 있습니다.</string>
+    <string name="userspace_limitations_note">PRoot는 실제 root 권한, Linux namespace, cgroup, kernel mount 또는 완전한 systemd boot를 제공하지 않습니다. syscall·filesystem translation에 따른 성능 오버헤드가 있으며, 실제 Linux kernel이 필요한 기능은 AVF가 필요할 수 있습니다.</string>
 </resources>

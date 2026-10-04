@@ -96,7 +96,7 @@ Ubuntu 24.04 LTS and Arch Linux ARM have separate `files/rootless/ubuntu` and
 `files/rootless/archlinux` roots, homes, temporary files and download caches.
 Debian/Ubuntu validate apt; Arch validates pacman. Only `/workspace` is shared
 by default. The new-session menu explicitly selects each distribution; Environment settings
-show each instance's installation and runtime state; Userspace Linux settings contain only global DNS policy, engine status, runtime information and limitations. Existing Debian storage
+show each instance's installation and runtime state; Userspace Linux settings contain only global DNS policy, engine status and runtime information, with limitations shown as a small note below the settings. Existing Debian storage
 and `ROOTLESS` session identities are preserved. See
 [ROOTLESS_DISTRIBUTIONS.md](ROOTLESS_DISTRIBUTIONS.md) for the pinned catalog and
 validation policy.
