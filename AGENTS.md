@@ -404,6 +404,12 @@ For a diagnosis or review directive, do not implement changes unless the
 directive also authorizes a fix. For an implementation directive, do not return
 only a plan.
 
+Before designing or changing UI, Codex MUST read `docs/DESIGN.md` and the relevant
+parts of `docs/DESIGN_SYSTEM.md`. Reuse the existing screen structure, shared
+components, and layout rules. When adding settings, follow DESIGN.md's category
+and section placement, row type, save/cancel behavior, and search-index guidance.
+Keep the relevant design documentation consistent with task-owned UI changes.
+
 ## 10. Git and worktree safety
 
 The worktree may contain user or previous-session changes.
@@ -468,6 +474,7 @@ Read only the documents relevant to the task:
 | image publication | docs/IMAGE_RELEASE.md |
 | app version promotion criteria | docs/VERSIONING.md |
 | per-release patch notes | `docs/release-notes/` (one `<release-id>.md` per release) |
+| UI composition and settings extension guidelines | docs/DESIGN.md |
 | UI tokens and interaction rules | docs/DESIGN_SYSTEM.md |
 | Korean user behavior | docs/USER_GUIDE.ko.md |
 | long-form AVF design history | docs/avf-terminal-integration-design.md |
