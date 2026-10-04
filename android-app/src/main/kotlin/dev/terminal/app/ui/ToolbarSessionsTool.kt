@@ -16,14 +16,18 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.terminal.app.R
@@ -53,6 +57,7 @@ internal fun ToolbarSessionsTool(
     // Keep each list's position when switching between the default and expanded headers.
     val tabScroll = rememberScrollState()
     val headerTabScroll = rememberScrollState()
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val progress = expansionProgress.coerceIn(0f, 1f)
     val tabsActive = active && progress == 1f
     LaunchedEffect(active) { if (!active && newSessionMenuExpanded) onDismissNewSession() }
@@ -63,22 +68,28 @@ internal fun ToolbarSessionsTool(
             verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                 if (progress < 1f && sessions.isNotEmpty()) {
-                    PrimaryScrollableTabRow(
-                        selectedTabIndex = sessions.indexOfFirst { it.id == activeSessionId }.coerceAtLeast(0),
-                        scrollState = headerTabScroll,
-                        modifier = Modifier.fillMaxWidth().height(48.dp).graphicsLayer { alpha = 1f - progress },
-                        containerColor = colors.background,
-                        contentColor = colors.accent,
-                        edgePadding = 6.dp,
-                        indicator = {},
-                        divider = {},
-                    ) {
-                        sessions.forEach { session ->
-                            Box(Modifier.widthIn(max = 220.dp).height(48.dp)) {
-                                SessionToolTab(session, session.id == activeSessionId, active && progress == 0f,
-                                    terminatingSessionIds, onSelect, onRename, onTerminate, colors)
+                    Box(Modifier.fillMaxWidth().height(48.dp).clipToBounds().graphicsLayer { alpha = 1f - progress }) {
+                        PrimaryScrollableTabRow(
+                            selectedTabIndex = sessions.indexOfFirst { it.id == activeSessionId }.coerceAtLeast(0),
+                            scrollState = headerTabScroll,
+                            modifier = Modifier.fillMaxSize(),
+                            containerColor = colors.background,
+                            contentColor = colors.accent,
+                            edgePadding = 6.dp,
+                            indicator = {},
+                            divider = {},
+                        ) {
+                            sessions.forEach { session ->
+                                Box(Modifier.widthIn(max = 220.dp).height(48.dp)) {
+                                    SessionToolTab(session, session.id == activeSessionId, active && progress == 0f,
+                                        terminatingSessionIds, onSelect, onRename, onTerminate, colors)
+                                }
                             }
                         }
+                        ScrollEdgeFade(headerTabScroll.canScrollForward,
+                            Brush.horizontalGradient(if (rtl) listOf(colors.background, colors.background.copy(alpha = 0f))
+                                else listOf(colors.background.copy(alpha = 0f), colors.background)),
+                            Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(20.dp))
                     }
                 }
                 if (progress > 0f) {
