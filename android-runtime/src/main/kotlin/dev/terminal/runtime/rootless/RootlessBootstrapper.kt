@@ -264,7 +264,7 @@ internal fun configureRootlessRootfs(rootfs: Path, distribution: RootlessDistrib
     val etc = rootfs.resolve("etc")
     Files.createDirectories(etc)
     listOf(
-        "resolv.conf" to "nameserver 1.1.1.1\nnameserver 8.8.8.8\n",
+        "resolv.conf" to "# DNS is supplied by the TERM Userspace Linux engine.\n",
         "hosts" to "127.0.0.1 localhost\n::1 localhost\n",
     ).forEach { (name, content) ->
         val target = etc.resolve(name)

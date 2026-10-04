@@ -38,6 +38,7 @@ class RootlessDebianBackend(
     private val layout = RootlessDebianLayout(storageRoot ?: File(appContext.filesDir, "rootless/${distribution.directory}"), distribution,
         workspaceRoot = storageRoot?.let { File(it, "workspace") })
     private val bootstrapper = RootlessBootstrapper(appContext, layout, progressReporter)
+    private val dns = RootlessDnsStore(appContext)
     private val prepareMutex = Mutex()
     private var controller: RootlessSessionController? = null
     private var proot: File? = null
@@ -72,7 +73,8 @@ class RootlessDebianBackend(
             if (RootlessEnvironmentProfile.validate(layout).isFailure) {
                 controller?.close()
                 controller = null
-                RootlessEnvironmentSetup(appContext, layout, requireNotNull(proot), requireNotNull(loader), progressReporter).prepare()
+                RootlessEnvironmentSetup(appContext, layout, requireNotNull(proot), requireNotNull(loader), progressReporter,
+                    resolverFile = dns.resolverFile(layout)).prepare()
             } else configureRootlessLoginHome(layout)
             state.value = if (controller == null) RuntimeState.Stopped else RuntimeState.Ready
             progressReporter.report(RootlessPhase.READY, "${distribution.displayName} 기본 구성과 셸 실행을 확인했습니다")
@@ -133,7 +135,7 @@ class RootlessDebianBackend(
         val executable = proot ?: error("${distribution.displayName} must be prepared before start")
         val loaderExecutable = loader ?: error("${distribution.displayName} loader must be prepared before start")
         controller = RootlessSessionController(layout, executable, loaderExecutable, usbBroker = usbBroker,
-            cacheDirectory = appContext.cacheDir, sharedStorage = {
+            cacheDirectory = appContext.cacheDir, resolverFile = { dns.resolverFile(layout) }, sharedStorage = {
             // Query at session creation, including after returning from system settings.
             // This UID-wide OS grant is also the Native shell's access boundary.
             if (Environment.isExternalStorageManager()) Environment.getExternalStorageDirectory() else null

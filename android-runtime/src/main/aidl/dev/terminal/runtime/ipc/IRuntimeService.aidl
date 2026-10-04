@@ -61,4 +61,6 @@ interface IRuntimeService {
     String deleteEnvironment(String environmentId);
     String operateEnvironment(String environmentId, String operation);
     String getEnvironmentSoftwareJson(String environmentId);
+    String getUserspaceLinuxSettingsJson();
+    String setUserspaceLinuxDns(String mode, String servers);
 }

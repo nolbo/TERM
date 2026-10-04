@@ -37,6 +37,7 @@ class RootlessSessionController(
     private val sharedStorage: () -> File? = { null },
     private val usbBroker: dev.terminal.runtime.usb.UsbBroker? = null,
     private val cacheDirectory: File = layout.tmp,
+    private val resolverFile: () -> File? = { null },
 ) : SessionController, dev.terminal.runtime.session.SessionMemorySource {
     init {
         require(proot.isFile && proot.canExecute()) { "Packaged PRoot is not executable" }
@@ -77,6 +78,7 @@ class RootlessSessionController(
 
     override suspend fun create(shell: String, cwd: String, env: Map<String, String>, rows: UShort, cols: UShort): Result<SessionDescriptor> = runCatching {
         layout.validateInstalledRootfs().getOrThrow()
+        val resolver = resolverFile()
         val cache = cache()
         if (cache != null) {
             val ready = runInterruptible(Dispatchers.IO) {
@@ -105,7 +107,7 @@ class RootlessSessionController(
             usbBroker?.clientFile, usbEnvironment,
             accelerationLibrary = if (dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION)
                 File(proot.parentFile, "libproot-faststat.so") else null,
-            nssBindings = cache?.bindings.orEmpty()) } catch (error: Exception) { usbBroker?.unregister(id); throw error }
+            nssBindings = cache?.bindings.orEmpty(), resolverFile = resolver) } catch (error: Exception) { usbBroker?.unregister(id); throw error }
         val (process, descriptor) = try { synchronized(this) {
             check(!cacheClosed) { "Rootless controller closed" }
             val process = PtyProcess.start(
@@ -235,6 +237,7 @@ internal fun buildRootlessLaunchSpec(
     usbEnvironment: Map<String, String> = emptyMap(),
     accelerationLibrary: File? = null,
     nssBindings: List<String> = emptyList(),
+    resolverFile: File? = null,
 ): RootlessLaunchSpec {
     check(!RootlessNativeMigration.pending(layout.root.parentFile.toPath())) {
         "중단된 가속 형식 이전이 있습니다. 설정에서 해당 배포판의 이전을 다시 실행해 복구하세요"
@@ -257,6 +260,7 @@ internal fun buildRootlessLaunchSpec(
         addAll(listOf("-b", "${File(layout.tmp, "graphics-shm").absolutePath}:/dev/shm"))
         addAll(listOf("-b", "${layout.home.absolutePath}:/root"))
         addAll(listOf("-b", "${layout.workspace.absolutePath}:/workspace"))
+        resolverFile?.let { addAll(listOf("-b", "${it.absolutePath}:/etc/resolv.conf")) }
         sharedStorage?.let { addAll(listOf("-b", "${it.absolutePath}:/sdcard")) }
         usbClientFile?.let { addAll(listOf("-b", "${it.absolutePath}:/usr/local/bin/terminal-usb")) }
         acceleration?.let { addAll(listOf("-b", it.binding)) }

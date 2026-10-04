@@ -32,11 +32,15 @@ class RootlessSettingsUiTest {
         ActivityScenario.launch<SettingsDetailActivity>(Intent(context, SettingsDetailActivity::class.java)
             .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, SettingsDetailActivity.ROOTLESS)).use {
             val deadline = SystemClock.elapsedRealtime() + 10_000
-            while (context.getString(R.string.environment_engine_status) !in labels()) {
+            while (context.getString(R.string.userspace_proot) !in labels()) {
                 check(SystemClock.elapsedRealtime() < deadline) { "Rootless engine settings did not appear" }
                 SystemClock.sleep(100)
             }
             val text = labels()
+            assertTrue(context.getString(R.string.userspace_dns) in text)
+            assertTrue(context.getString(R.string.userspace_architecture) in text)
+            assertTrue(context.getString(R.string.userspace_acceleration) in text)
+            assertTrue(context.getString(R.string.userspace_runtime_info) in text)
             assertTrue(context.getString(R.string.rootless_limitations) in text)
             assertFalse(context.getString(R.string.storage_title) in text)
             assertFalse(context.getString(R.string.rootless_installed_distributions) in text)

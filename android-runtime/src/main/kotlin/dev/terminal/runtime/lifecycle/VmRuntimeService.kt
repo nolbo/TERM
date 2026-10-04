@@ -703,6 +703,21 @@ class VmRuntimeService : Service() {
                 .apply()
         }
 
+        override fun getUserspaceLinuxSettingsJson(): String {
+            enforceHostToolUi()
+            val policy = dev.terminal.runtime.rootless.RootlessDnsStore(applicationContext).policy()
+            return JSONObject().put("dnsMode", policy.mode).put("dnsServers", policy.servers.joinToString("\n"))
+                .put("engine", dev.terminal.runtime.rootless.RootlessEngineInfo.inspect(applicationContext).toJson()).toString()
+        }
+
+        override fun setUserspaceLinuxDns(mode: String, servers: String): String {
+            enforceHostToolUi()
+            return runCatching {
+                dev.terminal.runtime.rootless.RootlessDnsStore(applicationContext)
+                    .save(dev.terminal.runtime.rootless.RootlessDnsPolicy.parse(mode, servers))
+            }.exceptionOrNull()?.userMessage().orEmpty()
+        }
+
         override fun setKittyGraphicsCompatibility(enabled: Boolean) {
             getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE).edit()
                 .putBoolean(KEY_KITTY_GRAPHICS, enabled).apply()

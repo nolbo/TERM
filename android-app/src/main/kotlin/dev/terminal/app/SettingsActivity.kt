@@ -34,7 +34,8 @@ class SettingsActivity : TerminalActivity() {
             "diagnostics" -> DiagnosticsActivity::class.java
             "usb" -> UsbDevicesActivity::class.java
             "palette" -> PaletteEditorActivity::class.java
-            else -> SettingsDetailActivity::class.java
+            else -> if (UserspaceLinuxSettingsActivity.owns(target.screen)) UserspaceLinuxSettingsActivity::class.java
+                else SettingsDetailActivity::class.java
         }
         startActivity(Intent(this, activity)
             .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, target.screen)

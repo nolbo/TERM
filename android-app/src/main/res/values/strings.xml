@@ -108,7 +108,7 @@
     <string name="settings_search_no_results">일치하는 설정이 없습니다.</string>
     <string name="settings_appearance_title">터미널 모양</string>
     <string name="settings_appearance_summary">글꼴, 팔레트와 배경</string>
-    <string name="settings_rootless_summary">지원 상태와 제약 사항</string>
+    <string name="settings_rootless_summary">DNS 전역 정책, 실행 엔진 상태와 진단</string>
     <string name="settings_avf_title">AVF Linux</string>
     <string name="settings_avf_summary">메모리, CPU와 실행 정책</string>
     <string name="settings_native_title">Native 셸</string>
@@ -119,7 +119,7 @@
     <string name="settings_terminal_description">여러 실행환경에서 함께 사용하는 설정입니다. 항목마다 적용 범위와 시점이 다릅니다.</string>
     <string name="settings_appearance_description">콘솔로 돌아가면 저장된 글꼴과 팔레트가 적용됩니다.</string>
     <string name="settings_avf_description">AVF 실행 엔진의 전역 정책입니다. VM 리소스는 다음 시작에 적용되며, 이미지와 개별 VM은 실행환경에서 관리합니다.</string>
-    <string name="settings_rootless_description">Userspace Linux 실행 엔진의 전역 설정입니다. Debian, Ubuntu, Arch instance의 설치와 데이터는 실행환경에서 관리합니다.</string>
+    <string name="settings_rootless_description">PRoot 기반 Userspace Linux 실행 엔진의 전역 정책과 상태를 관리합니다. 개별 Debian·Ubuntu·Arch 환경의 설치와 데이터는 실행환경에서 관리합니다.</string>
     <string name="settings_native_description">새 Android Native 세션에 적용할 기본 셸입니다. Userspace Linux와 AVF의 셸에는 적용되지 않습니다.</string>
     <string name="section_text">글자</string>
     <string name="section_palette">팔레트</string>
@@ -282,7 +282,7 @@
     <string name="shared_workspace">공유 작업공간</string>
     <string name="shared_workspace_support">Userspace Linux 배포판들은 /workspace 작업 파일을 공유하고 홈과 패키지는 별도로 보관합니다. rootfs는 AVF와 공유하지 않습니다.</string>
     <string name="rootless_limitations">제약 사항</string>
-    <string name="rootless_limitations_support">PRoot는 실제 root, systemd, namespace/cgroup, 커널 mount를 제공하지 않으며 syscall과 파일 I/O 오버헤드가 있습니다.</string>
+    <string name="rootless_limitations_support">PRoot 기반 Userspace Linux의 기술적 제약 사항입니다.</string>
     <string name="unit_sp">sp</string>
     <string name="unit_mib">MiB</string>
     <string name="unit_count">개</string>

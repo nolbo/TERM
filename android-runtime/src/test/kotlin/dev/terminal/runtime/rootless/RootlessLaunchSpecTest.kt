@@ -9,6 +9,17 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class RootlessLaunchSpecTest {
+    @Test fun globalDnsBindAppliesToEveryDistributionWithoutChangingItsRootfs() {
+        val resolver = temporary.newFile("resolver").apply { writeText("nameserver 192.0.2.53\n") }
+        RootlessDistribution.entries.forEach { distribution ->
+            val layout = RootlessDebianLayout(File(temporary.root, distribution.directory), distribution)
+            val spec = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"), "/bin/sh", "/root",
+                emptyMap(), resolverFile = resolver)
+            assertTrue(spec.arguments.toList().windowed(2).contains(listOf("-b", "${resolver.path}:/etc/resolv.conf")))
+            assertFalse(File(layout.rootfs, "etc/resolv.conf").exists())
+        }
+    }
+
     @Test fun stdioBufferingIsExplicitAndGuestOnly() {
         val library = temporary.newFile("stdio-profile.so")
         val ordinary = RootlessAccelerationProfile(library, stdioBuffering = false, workloadAcceleration = false)

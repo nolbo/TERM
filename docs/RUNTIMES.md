@@ -96,10 +96,14 @@ Ubuntu 24.04 LTS and Arch Linux ARM have separate `files/rootless/ubuntu` and
 `files/rootless/archlinux` roots, homes, temporary files and download caches.
 Debian/Ubuntu validate apt; Arch validates pacman. Only `/workspace` is shared
 by default. The new-session menu explicitly selects each distribution; Environment settings
-show each instance's installation and runtime state; Rootless settings contain only global engine support and diagnostics. Existing Debian storage
+show each instance's installation and runtime state; Userspace Linux settings contain only global DNS policy, engine status, runtime information and limitations. Existing Debian storage
 and `ROOTLESS` session identities are preserved. See
 [ROOTLESS_DISTRIBUTIONS.md](ROOTLESS_DISTRIBUTIONS.md) for the pinned catalog and
 validation policy.
+
+Userspace Linux DNS defaults to **Use Android network settings**. The engine reads `ConnectivityManager` active-network DNS servers at each new session or installation/repair invocation and binds a generated resolver file over `/etc/resolv.conf`. Custom policy accepts one to three numeric IPv4/IPv6 addresses and applies to every Debian, Ubuntu and Arch Environment, including existing owners creating new sessions. Saving uses service-owned preferences through Binder; Environment rootfs and home are preserved. There is no hardcoded public-DNS fallback when Android supplies no servers. Running applications may cache resolver settings; start a new session to apply a policy reliably. Reading the server list does not route glibc requests through Android Private DNS encryption or reproduce all Android resolver behavior. Network changes are read on the next launch, not watched by a new background worker.
+
+Runtime information reports only the installed engine: actual `proot --version` output when available, allow-listed/executable loader readiness, APK-selected acceleration and faststat, supported ARM64 ABI, and automatic per-Environment link selection. Missing information is shown as unknown, not an inferred version or enabled state. None of these engine internals is user-configurable.
 
 The current PRoot payload and automatic distribution catalog target ARM64. Other
 ABIs fail clearly instead of silently redirecting a command to AVF.
@@ -191,7 +195,7 @@ limited information queries and unpairing. It does not expose unchanged Linux
 ## Shared state
 
 The workspace is shared between suitable runtimes. Optionally, users can open
-**내부저장소 접근 설정** in either Native or Rootless settings and enable Android's
+**내부저장소 접근 설정** in the common terminal settings and enable Android's
 all-files access. The OS grant is off by default and shared by both local
 runtimes; AVF gets no new bind. Native uses `/sdcard` (normally
 `/storage/emulated/0`). New Rootless sessions bind the host-selected primary

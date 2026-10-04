@@ -64,6 +64,7 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/app_update_paths" />
         </provider>
         <activity android:name=".SettingsDetailActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".UserspaceLinuxSettingsActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".PaletteEditorActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".CrashReportActivity" android:exported="false" />
         <activity android:name=".DiagnosticsActivity" android:exported="false" />

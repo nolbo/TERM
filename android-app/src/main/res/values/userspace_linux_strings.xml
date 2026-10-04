@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_userspace_title">사용자 공간 Linux</string>
+    <string name="userspace_network">네트워크</string>
+    <string name="userspace_runtime">런타임</string>
+    <string name="userspace_information">정보 및 진단</string>
+    <string name="userspace_dns">DNS</string>
+    <string name="userspace_dns_android">Android 네트워크 설정 사용</string>
+    <string name="userspace_dns_custom">사용자 지정</string>
+    <string name="userspace_dns_servers">DNS 서버</string>
+    <string name="userspace_dns_support">모든 Userspace Linux 실행환경의 새 세션과 설치·보완 작업에 적용합니다. Android 모드는 시작 시 현재 네트워크의 DNS 서버 목록을 사용하며 Android 비공개 DNS의 암호화 기능은 적용되지 않습니다.</string>
+    <string name="userspace_dns_input_help">IPv4 또는 IPv6 주소를 한 줄에 하나씩, 최대 3개 입력하세요.</string>
+    <string name="userspace_dns_invalid">올바른 IPv4 또는 IPv6 주소를 1~3개 입력하세요.</string>
+    <string name="userspace_dns_save_failed">DNS 정책을 저장하지 못했습니다. 다시 시도하세요.</string>
+    <string name="userspace_proot">PRoot</string>
+    <string name="userspace_architecture">아키텍처</string>
+    <string name="userspace_acceleration">가속</string>
+    <string name="userspace_available">사용 가능</string>
+    <string name="userspace_unavailable">사용할 수 없음</string>
+    <string name="userspace_unsupported">지원되지 않음</string>
+    <string name="userspace_arm64">ARM64</string>
+    <string name="userspace_active">활성</string>
+    <string name="userspace_inactive">비활성</string>
+    <string name="userspace_normal">정상</string>
+    <string name="userspace_checking">확인 중</string>
+    <string name="userspace_info_unavailable">확인할 수 없음</string>
+    <string name="userspace_runtime_info">런타임 정보</string>
+    <string name="userspace_runtime_info_support">설치된 APK의 PRoot 실행 엔진 구성을 표시합니다. 내부 동작은 TERM이 자동으로 관리하며 실행환경별 구성은 해당 실행환경에서 확인합니다.</string>
+    <string name="userspace_loader">Loader</string>
+    <string name="userspace_acceleration_profile">가속 프로필</string>
+    <string name="userspace_faststat">Faststat</string>
+    <string name="userspace_abi">ABI</string>
+    <string name="userspace_storage_links">스토리지 링크 방식</string>
+    <string name="userspace_environment_automatic">환경별 자동 결정</string>
+    <string name="userspace_limit_root">실제 root 권한을 제공하지 않습니다. root 표시는 PRoot가 에뮬레이션합니다.</string>
+    <string name="userspace_limit_namespaces">Linux namespace를 제공하지 않습니다.</string>
+    <string name="userspace_limit_cgroups">cgroup을 제공하지 않습니다.</string>
+    <string name="userspace_limit_mounts">kernel mount를 제공하지 않습니다.</string>
+    <string name="userspace_limit_systemd">완전한 systemd boot를 제공하지 않습니다.</string>
+    <string name="userspace_limit_overhead">syscall 및 filesystem translation으로 성능 오버헤드가 발생합니다.</string>
+    <string name="userspace_limit_kernel">실제 Linux kernel이 필요한 기능은 AVF가 필요할 수 있습니다.</string>
+</resources>

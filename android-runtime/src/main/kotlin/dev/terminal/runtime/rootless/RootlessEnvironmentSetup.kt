@@ -31,6 +31,7 @@ internal class RootlessEnvironmentSetup(
     private val tcgetsDirect: Boolean = false,
     private val idEntry: Boolean = false,
     private val sharedStat: Boolean = false,
+    private val resolverFile: File? = null,
 ) {
     suspend fun prepare() {
         // An older successful marker must not survive a failed repair of missing defaults.
@@ -59,7 +60,7 @@ internal class RootlessEnvironmentSetup(
                 mutationEntryAcceleration = mutationEntryAcceleration,
                 fstatEntryAcceleration = fstatEntryAcceleration, openNotifyThread = openNotifyThread,
                 fastfdLibrary = fastfdLibrary, fastOpen = fastOpen, fastCreate = fastCreate, fastUnlink = fastUnlink,
-                tcgetsDirect = tcgetsDirect, idEntry = idEntry, sharedStat = sharedStat,
+                tcgetsDirect = tcgetsDirect, idEntry = idEntry, sharedStat = sharedStat, resolverFile = resolverFile,
                 accelerationLibrary = if (dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION &&
                     fastfdLibrary == null && !openNotifyThread) File(proot.parentFile, "libproot-faststat.so") else null)
             check(result.exitCode == 0) { "종료 코드 ${result.exitCode}\n${result.errorContext.ifBlank { result.output.takeLast(2000) }}" }
@@ -92,6 +93,7 @@ internal suspend fun runRootlessSetupCommand(
     idEntry: Boolean = false,
     sharedStat: Boolean = false,
     accelerationLibrary: File? = null,
+    resolverFile: File? = null,
 ): RootlessCommandResult = withContext(Dispatchers.IO) {
     File(layout.tmp, "graphics-shm").mkdirs()
     require(accelerationLibrary == null || (fastfdLibrary == null && !openNotifyThread)) {
@@ -112,7 +114,7 @@ internal suspend fun runRootlessSetupCommand(
     val spec = buildRootlessLaunchSpec(layout, proot, loader, "/bin/sh", "/", mapOf(
         SessionCommand.KEY to SessionCommand.encode(argv), "TERM" to "dumb", "LC_ALL" to "C.UTF-8",
         "DEBIAN_FRONTEND" to "noninteractive", "NEEDRESTART_MODE" to "a",
-    ) + experimentEnvironment, accelerationLibrary = accelerationLibrary)
+    ) + experimentEnvironment, accelerationLibrary = accelerationLibrary, resolverFile = resolverFile)
     // Maintenance commands are finite: keyring hooks may leave gpg-agent detached.
     // Reap only this invocation's tracees once its command exits. Interactive PTYs
     // keep their independent lifetime and do not use this option.

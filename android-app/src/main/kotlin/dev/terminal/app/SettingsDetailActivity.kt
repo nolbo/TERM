@@ -117,6 +117,12 @@ class SettingsDetailActivity : TerminalActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        if (UserspaceLinuxSettingsActivity.owns(category)) {
+            startActivity(Intent(this, UserspaceLinuxSettingsActivity::class.java)
+                .putExtra(EXTRA_CATEGORY, category).putExtra(EXTRA_SECTION_INDEX, intent.getIntExtra(EXTRA_SECTION_INDEX, 0)))
+            finish()
+            return
+        }
         // Old task entries can still point to the removed tool's settings screen.
         if (category == "toolbar-clipboard") intent.putExtra(EXTRA_CATEGORY, TOOLBAR)
         if (category == AVF && !SessionProfiles(this).hasAvfPrivileges()) {
@@ -169,6 +175,7 @@ class SettingsDetailActivity : TerminalActivity() {
 
     override fun onStart() {
         super.onStart()
+        if (isFinishing) return
         if (category == AVF && !SessionProfiles(this).hasAvfPrivileges()) {
             finish()
             return
@@ -234,7 +241,6 @@ class SettingsDetailActivity : TerminalActivity() {
                 APPEARANCE -> R.string.settings_appearance_title
                 AVF -> R.string.settings_avf_title
                 AVF_IMAGE -> R.string.debian_image
-                ROOTLESS -> R.string.runtime_rootless_title
                 TERMINAL -> R.string.settings_terminal_title
                 else -> R.string.settings_native_title
             },
@@ -245,7 +251,6 @@ class SettingsDetailActivity : TerminalActivity() {
                 APPEARANCE -> R.string.settings_appearance_description
                 AVF -> R.string.settings_avf_description
                 AVF_IMAGE -> R.string.avf_image_settings_description
-                ROOTLESS -> R.string.settings_rootless_description
                 TERMINAL -> R.string.settings_terminal_description
                 else -> R.string.settings_native_description
             },
@@ -271,7 +276,6 @@ class SettingsDetailActivity : TerminalActivity() {
                     APPEARANCE -> appearanceItems()
                     AVF -> avfItems()
                     AVF_IMAGE -> avfImageItems()
-                    ROOTLESS -> rootlessItems()
                     TERMINAL -> terminalItems()
                     else -> nativeItems()
                 }
@@ -573,18 +577,6 @@ class SettingsDetailActivity : TerminalActivity() {
         }
     }
 
-    private fun androidx.compose.foundation.lazy.LazyListScope.rootlessItems() {
-        item {
-            SettingsSection(R.string.section_status) {
-                ReadOnlySetting(R.string.environment_engine_status,
-                    if ("arm64-v8a" in android.os.Build.SUPPORTED_ABIS) R.string.rootless_engine_supported else R.string.rootless_engine_unsupported)
-            }
-        }
-        item {
-            InfoSetting(R.string.rootless_limitations, R.string.rootless_limitations_support)
-        }
-    }
-
     private fun androidx.compose.foundation.lazy.LazyListScope.sharedStorageItems() {
         item {
             SettingsSection(
@@ -780,16 +772,6 @@ class SettingsDetailActivity : TerminalActivity() {
             shapes = terminalListItemShapes(),
             colors = preferenceListItemColors(),
             modifier = Modifier.fillMaxWidth(),
-        ) { Text(stringResource(title)) }
-    }
-
-    @Composable
-    private fun ReadOnlySetting(@StringRes title: Int, @StringRes supporting: Int) {
-        ListItem(
-            supportingContent = { Text(stringResource(supporting)) },
-            verticalAlignment = Alignment.CenterVertically,
-            colors = preferenceListItemColors(),
-            modifier = Modifier.fillMaxWidth().settingsItemSurface(),
         ) { Text(stringResource(title)) }
     }
 

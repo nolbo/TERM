@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_userspace_title">Userspace Linux</string>
+    <string name="userspace_network">Network</string>
+    <string name="userspace_runtime">Runtime</string>
+    <string name="userspace_information">Information and diagnostics</string>
+    <string name="userspace_dns">DNS</string>
+    <string name="userspace_dns_android">Use Android network settings</string>
+    <string name="userspace_dns_custom">Custom</string>
+    <string name="userspace_dns_servers">DNS servers</string>
+    <string name="userspace_dns_support">Applies to new sessions and installation or repair in all Userspace Linux environments. Android mode reads the current network DNS servers at launch; Android Private DNS encryption does not apply.</string>
+    <string name="userspace_dns_input_help">Enter up to 3 IPv4 or IPv6 addresses, one per line.</string>
+    <string name="userspace_dns_invalid">Enter 1 to 3 valid IPv4 or IPv6 addresses.</string>
+    <string name="userspace_dns_save_failed">Could not save the DNS policy. Try again.</string>
+    <string name="userspace_proot">PRoot</string>
+    <string name="userspace_architecture">Architecture</string>
+    <string name="userspace_acceleration">Acceleration</string>
+    <string name="userspace_available">Available</string>
+    <string name="userspace_unavailable">Unavailable</string>
+    <string name="userspace_unsupported">Unsupported</string>
+    <string name="userspace_arm64">ARM64</string>
+    <string name="userspace_active">Active</string>
+    <string name="userspace_inactive">Inactive</string>
+    <string name="userspace_normal">Ready</string>
+    <string name="userspace_checking">Checking</string>
+    <string name="userspace_info_unavailable">Unable to verify</string>
+    <string name="userspace_runtime_info">Runtime information</string>
+    <string name="userspace_runtime_info_support">Shows the PRoot engine configuration in the installed APK. TERM manages engine internals automatically. View environment-specific configuration in that Environment.</string>
+    <string name="userspace_loader">Loader</string>
+    <string name="userspace_acceleration_profile">Acceleration profile</string>
+    <string name="userspace_faststat">Faststat</string>
+    <string name="userspace_abi">ABI</string>
+    <string name="userspace_storage_links">Storage link strategy</string>
+    <string name="userspace_environment_automatic">Selected automatically per environment</string>
+    <string name="userspace_limit_root">Does not provide real root privileges. PRoot emulates the root identity.</string>
+    <string name="userspace_limit_namespaces">Does not provide Linux namespaces.</string>
+    <string name="userspace_limit_cgroups">Does not provide cgroups.</string>
+    <string name="userspace_limit_mounts">Does not provide kernel mounts.</string>
+    <string name="userspace_limit_systemd">Does not provide a full systemd boot.</string>
+    <string name="userspace_limit_overhead">Syscall and filesystem translation adds performance overhead.</string>
+    <string name="userspace_limit_kernel">Features requiring a real Linux kernel may need AVF.</string>
+</resources>
