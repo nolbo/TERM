@@ -42,6 +42,12 @@ its SHA-256 hash, and an artifact-size limit. The image factory produces the cat
 
 The runtime process requests work through WorkManager's multiprocess API, which runs the installer in the configured main application process. Installation uses a data-sync foreground notification. The pending session waits for completion and continues automatically; failure/cancellation reports an error. Existing images are never overwritten, including invalid installations. Both the public and AOSP application classes provide the same main-process WorkManager configuration.
 
+## Fixed TAP networking on some products
+
+At the pinned AOSP ABI revision, [VirtualizationService ignores the requested TAP suffix and uses `fixed`](https://android.googlesource.com/platform/packages/modules/Virtualization/+/175a51b30123fa6b02b541f1969665708f7ec2c3/android/virtualizationservice/src/aidl.rs#526); its TODO requires a bridge before using per-VM names. The custom-image Java API exposes only the network enable boolean, without an app-controlled TAP name. A denial involving `avf_tap_fixed`, `TUNSETIFF` and `EACCES` when a second independently stored VM starts is consistent with this platform restriction, rather than a profile/storage identity collision. The driver adds an explanation and keeps the original failure as its cause. Other permissions, image and VM errors remain unchanged.
+
+Concurrent internet-connected VMs on such a product require platform TAP/bridge and tethering support. Existing VMs and requested network settings remain unchanged when creation fails. The current driver cannot supply distinct TAP names through the custom-image API; an APK-side VM rename or additional VM permission grant does not change the fixed-suffix service implementation. Vsock session access remains separate from the TAP device, but an offline workaround does not satisfy the requirement that both VMs have internet. Profiles sharing one storage use the same VM and do not request another TAP just to create another PTY. Successful multi-VM networking still requires validation on the target product; an unsupported emulator cannot establish it.
+
 ## Host vsock binding
 
 The AOSP `VirtualMachine` system API exposes `connectVsock(port)` as a

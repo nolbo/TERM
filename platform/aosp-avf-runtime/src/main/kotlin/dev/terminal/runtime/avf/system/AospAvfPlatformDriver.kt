@@ -114,7 +114,9 @@ class AospAvfPlatformDriver(
                 if (stopped && machine === vm) machine = null
             }
             if (failure is CancellationException) throw failure
-            Result.failure(failure)
+            val reported = describeAvfNetworkFailure(failure)
+            if (reported !== failure) Log.w(TAG, "vm.network fixed TAP denied", failure)
+            Result.failure(reported)
         }
     }
 
