@@ -5,10 +5,42 @@ import java.nio.file.Path
 import java.net.URI
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class DebianImageVerifierTest {
+    @Test fun installationPresenceRequiresCompleteRegularFiles() {
+        val root = Files.createTempDirectory("debian-presence-test")
+        try {
+            assertFalse(DebianImageVerifier.hasInstalledImage(root))
+            writeVerifiedImage(root)
+            assertTrue(DebianImageVerifier.hasInstalledImage(root))
+            Files.delete(root.resolve("home.img"))
+            assertFalse(DebianImageVerifier.hasInstalledImage(root))
+            Files.write(root.resolve("home.img"), byteArrayOf())
+            assertFalse(DebianImageVerifier.hasInstalledImage(root))
+            Files.delete(root.resolve("home.img"))
+            Files.createSymbolicLink(root.resolve("home.img"), root.resolve("system.img"))
+            assertFalse(DebianImageVerifier.hasInstalledImage(root))
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun installationPresenceDoesNotAuthorizeBootOrDependOnWritableDiskHashes() {
+        val root = Files.createTempDirectory("debian-presence-test")
+        try {
+            writeVerifiedImage(root)
+            Files.writeString(root.resolve("home.img"), "guest data")
+            assertTrue(DebianImageVerifier.hasInstalledImage(root))
+            assertTrue(DebianImageVerifier.verifyInstalled(root) is ImageVerification.Invalid)
+            Files.writeString(root.resolve("system.img"), "tampered")
+            assertTrue(DebianImageVerifier.hasInstalledImage(root))
+            assertTrue(DebianImageVerifier.verifyInstalled(root) is ImageVerification.Invalid)
+            Files.writeString(root.resolve("manifest.properties"), "formatVersion=999")
+            assertFalse(DebianImageVerifier.hasInstalledImage(root))
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     @Test fun hashesEveryByteAcrossMultipleReadBuffers() {
         val artifact = Files.createTempFile("debian-hash-test", ".img")
         try {

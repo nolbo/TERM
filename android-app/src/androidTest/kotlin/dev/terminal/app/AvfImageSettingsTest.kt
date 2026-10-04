@@ -60,10 +60,12 @@ class AvfImageSettingsTest {
         val intent = Intent(context, SettingsDetailActivity::class.java)
             .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, SettingsDetailActivity.AVF_IMAGE)
         ActivityScenario.launch<SettingsDetailActivity>(intent).use { scenario ->
-            waitUntil { find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_image_automatic_support)) != null }
+            waitUntil { find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_image_profile_support)) != null }
             assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.setup_headline)))
+            assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_image_installation_status)))
+            assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_image_current_build)))
             scenario.recreate()
-            waitUntil { find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_image_current_build)) != null }
+            waitUntil { find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_image_profile_support)) != null }
             click(label(R.string.select_avf_image))
             waitUntil { instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString()?.endsWith(".documentsui") == true }
             assertEquals(setupBefore, context.getSharedPreferences("setup-state", Context.MODE_PRIVATE).all)

@@ -16,7 +16,7 @@ class RuntimeSetupCoordinatorTest {
     @Test fun existingOfflineImageIsVerifiedOnlyAtPreparationAndRetainsGuestWrites() = runBlocking {
         withImageDirectory { root ->
             writeImage(root)
-            setup.ensureImage(root, "not-in-catalog")
+            setup.awaitInstalledImage(root)
             val receipt = root.resolve(".installed-manifest-sha256")
             assertFalse("Provisioning must not verify/adopt the image", Files.exists(receipt))
 
@@ -35,7 +35,7 @@ class RuntimeSetupCoordinatorTest {
                 assertTrue(DebianImageInstaller.verifyForStartup(root) is ImageVerification.Ready)
                 Files.writeString(root.resolve(name), "tampered")
 
-                setup.ensureImage(root, "not-in-catalog")
+                setup.awaitInstalledImage(root)
                 val verification = DebianImageInstaller.verifyForStartup(root)
                 assertTrue(verification is ImageVerification.Invalid)
                 assertEquals("Checksum verification failed for $name", (verification as ImageVerification.Invalid).reason)
@@ -49,7 +49,7 @@ class RuntimeSetupCoordinatorTest {
             val regularFile = Files.writeString(parent.resolve("file"), "user data")
             val brokenLink = Files.createSymbolicLink(parent.resolve("link"), parent.resolve("missing"))
             for (root in listOf(regularFile, brokenLink)) {
-                setup.ensureImage(root, "not-in-catalog")
+                setup.awaitInstalledImage(root)
                 assertTrue(DebianImageInstaller.verifyForStartup(root) is ImageVerification.Invalid)
             }
             assertEquals("user data", Files.readString(regularFile))
@@ -57,10 +57,10 @@ class RuntimeSetupCoordinatorTest {
         }
     }
 
-    @Test fun missingImageStillRequiresAnApprovedCatalog() = runBlocking {
+    @Test fun explicitInstallationRejectsAnUnapprovedCatalogBeforeEnqueueing() = runBlocking {
         withImageDirectory { parent ->
             val root = parent.resolve("missing")
-            val failure = runCatching { setup.ensureImage(root, "not-in-catalog") }.exceptionOrNull()
+            val failure = runCatching { setup.requestImageInstallation("legacy", "not-in-catalog") }.exceptionOrNull()
             assertTrue(failure is IllegalStateException)
             assertTrue(failure!!.message.orEmpty().contains("등록되지 않았습니다"))
             assertFalse(Files.exists(root))

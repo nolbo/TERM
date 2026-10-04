@@ -858,7 +858,7 @@ class VmRuntimeService : Service() {
         val storageId = defaultStorageId(SessionRuntime.AVF)
         if (storageRegistry.transaction { isDeleted(dev.terminal.runtime.session.StorageRegistry.Key(SessionRuntime.AVF, storageId)) }) return@withLock
         storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(SessionRuntime.AVF, storageId)) }
-        RuntimeSetupCoordinator(applicationContext).ensureImage(imageRoot, DEFAULT_DEBIAN_RELEASE_ID, storageId)
+        RuntimeSetupCoordinator(applicationContext).awaitInstalledImage(imageRoot, storageId)
         val sharedDirectory = sharedDirectories.provision(DEFAULT_VM_INSTANCE_ID).getOrThrow()
         val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
         val config = RuntimeConfig(
@@ -1085,11 +1085,7 @@ class VmRuntimeService : Service() {
                 }
             }
             if (spec.runtime == SessionRuntime.AVF && key !in startedStorageBackends) {
-                check(BundledDebianImageCatalog.find(DEFAULT_DEBIAN_RELEASE_ID) != null ||
-                    java.nio.file.Files.exists(root.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-                    "이 제품 빌드에는 프로필 전용 AVF 이미지 설치 카탈로그가 없습니다."
-                }
-                RuntimeSetupCoordinator(applicationContext).ensureImage(root.toPath(), DEFAULT_DEBIAN_RELEASE_ID, spec.storageId)
+                RuntimeSetupCoordinator(applicationContext).awaitInstalledImage(root.toPath(), spec.storageId)
             }
             val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
             if (key !in startedStorageBackends) {

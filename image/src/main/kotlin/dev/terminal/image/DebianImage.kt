@@ -52,6 +52,20 @@ object DebianImageVerifier {
 
     private const val INSTALL_RECEIPT = ".installed-manifest-sha256"
 
+    /** Installation presence for UI only; boot still requires [verifyInstalled]. No disk is hashed. */
+    fun hasInstalledImage(root: Path): Boolean = runCatching {
+        val layout = DebianImageLayout(root)
+        val files = listOf(layout.manifest, layout.kernelImage, layout.initrdImage,
+            layout.systemImage, layout.homeImage, layout.configImage)
+        if (!Files.isDirectory(root, java.nio.file.LinkOption.NOFOLLOW_LINKS) || files.any {
+                !Files.isRegularFile(it, java.nio.file.LinkOption.NOFOLLOW_LINKS) || Files.size(it) <= 0
+            } || Files.size(layout.manifest) > 64 * 1024) return@runCatching false
+        val manifest = parse(layout.manifest)
+        manifest.formatVersion == EXPECTED_FORMAT_VERSION && manifest.distribution == EXPECTED_DISTRIBUTION &&
+            manifest.architecture == EXPECTED_ARCHITECTURE && listOf(manifest.kernelSha256, manifest.initrdSha256,
+                manifest.systemSha256, manifest.homeSha256, manifest.configSha256).all(SHA256::matches)
+    }.getOrDefault(false)
+
     /** A writable VM disk changes after first boot; immutable artifacts remain pinned. */
     fun verifyInstalled(root: Path): ImageVerification {
         val receipt = root.resolve(INSTALL_RECEIPT)

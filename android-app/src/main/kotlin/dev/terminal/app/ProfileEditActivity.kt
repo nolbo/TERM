@@ -37,14 +37,18 @@ import dev.terminal.runtime.session.StorageRegistry
 
 class ProfileEditActivity : TerminalActivity() {
     private var hasAvfPrivileges by mutableStateOf(false)
+    private var imageRevision by mutableStateOf(0)
+    private var imageInstallations by mutableStateOf(emptyList<dev.terminal.runtime.image.AvfImageInstallSnapshot>())
 
     override fun onResume() {
         super.onResume()
         hasAvfPrivileges = SessionProfiles(this).hasAvfPrivileges()
+        imageRevision++
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        dev.terminal.runtime.image.AvfImageInstallMonitor(this).observe(this) { imageInstallations = it }
         val store = SessionProfiles(this)
         hasAvfPrivileges = store.hasAvfPrivileges()
         val requestedId = intent.getStringExtra("profileId")
@@ -71,6 +75,8 @@ class ProfileEditActivity : TerminalActivity() {
             var storageNames by remember { mutableStateOf(emptyMap<StorageRegistry.Key, String?>()) }
             val scope = rememberCoroutineScope()
             var saving by remember { mutableStateOf(false) }
+            var installing by remember { mutableStateOf(false) }
+            var confirmImageInstall by rememberSaveable { mutableStateOf(intent.getBooleanExtra(EXTRA_CONFIRM_IMAGE_INSTALL, false)) }
             LaunchedEffect(Unit) {
                 runCatching { withContext(Dispatchers.IO) {
                     val registry = StorageRegistry(filesDir) {
@@ -107,11 +113,19 @@ class ProfileEditActivity : TerminalActivity() {
             val saveProfile: () -> Unit = {
                 saving = true
                 scope.launch {
-                    runCatching { withContext(Dispatchers.IO) {
-                        store.save(SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
-                            parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon, palette?.split(',')),
-                            newStorageName = if (storageChoice == "fresh") freshStorageName else null)
-                    } }.onSuccess { finish() }.onFailure { error = it.message }
+                    val fresh = storageChoice == "fresh"
+                    runCatching {
+                        val profile = SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
+                            parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon, palette?.split(','))
+                        withContext(Dispatchers.IO) { store.save(profile, newStorageName = if (fresh) freshStorageName else null) }
+                        profile
+                    }.onSuccess { profile ->
+                        if (fresh && profile.runtime == SessionRuntime.AVF) {
+                            startActivity(Intent(this@ProfileEditActivity, ProfileEditActivity::class.java)
+                                .putExtra("profileId", profile.id).putExtra(EXTRA_CONFIRM_IMAGE_INSTALL, true))
+                        }
+                        finish()
+                    }.onFailure { error = it.message }
                     saving = false
                 }
             }
@@ -205,6 +219,11 @@ class ProfileEditActivity : TerminalActivity() {
                     }
                     Text(stringResource(R.string.profile_storage_hint), modifier = Modifier.padding(horizontal = 16.dp),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (runtime == SessionRuntime.AVF.wireName && storageId.isNotEmpty()) {
+                        AvfProfileImageSetting(storageId, imageInstallations.firstOrNull { it.storageId == storageId },
+                            imageRevision, savedStorage = editing && initial.runtime == SessionRuntime.AVF && initial.storageId == storageId,
+                            requesting = installing, onInstall = { confirmImageInstall = true })
+                    }
                     ProfileSection(R.string.profile_launch) {
                         ProfileField(R.string.profile_shell, shell) { shell = it; dirty = true }
                         ProfileField(R.string.profile_arguments, arguments, false, R.string.profile_arguments_hint) { arguments = it; dirty = true }
@@ -226,6 +245,22 @@ class ProfileEditActivity : TerminalActivity() {
                     }
                 }
             }
+            if (confirmImageInstall) AlertDialog(onDismissRequest = { if (!installing) confirmImageInstall = false },
+                title = { Text(stringResource(R.string.avf_image_install_confirm_title)) },
+                text = { Text(stringResource(R.string.avf_image_install_confirm_message, initial.name)) },
+                confirmButton = { TextButton(enabled = !installing, onClick = {
+                    installing = true
+                    scope.launch {
+                        runCatching { withContext(Dispatchers.IO) {
+                            dev.terminal.runtime.image.RuntimeSetupCoordinator(applicationContext)
+                                .requestImageInstallation(initial.storageId)
+                        } }.onSuccess { confirmImageInstall = false; imageRevision++ }.onFailure { error = it.message; confirmImageInstall = false }
+                        installing = false
+                    }
+                }) { Text(stringResource(R.string.avf_image_install)) } },
+                dismissButton = { TextButton(enabled = !installing, onClick = { confirmImageInstall = false }) {
+                    Text(stringResource(R.string.avf_image_install_later))
+                } })
             if (deleting) AlertDialog(onDismissRequest = { deleting = false },
                 title = { Text(stringResource(R.string.profile_delete)) },
                 text = { Text(stringResource(R.string.profile_delete_message, source?.name.orEmpty())) },
@@ -241,6 +276,8 @@ class ProfileEditActivity : TerminalActivity() {
                 dismissButton = { TextButton(onClick = { discard = false }) { Text(stringResource(android.R.string.cancel)) } })
         }
     }
+
+    companion object { const val EXTRA_CONFIRM_IMAGE_INSTALL = "confirm_avf_image_install" }
 }
 
 @Composable private fun ProfileActions(

@@ -19,15 +19,29 @@ import dev.terminal.app.ui.runtimeTitleResource
 import dev.terminal.app.ui.terminalSettingsListItemColors
 import dev.terminal.app.ui.terminalListItemShapes
 import dev.terminal.runtime.session.SessionProfile
+import dev.terminal.runtime.session.SessionRuntime
+import dev.terminal.runtime.image.AvfImageInstallSnapshot
+import dev.terminal.runtime.image.AvfImageInstallMonitor
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class ProfilesActivity : TerminalActivity() {
     private var revision by mutableStateOf(0)
+    private var imageInstallations by mutableStateOf(emptyList<AvfImageInstallSnapshot>())
     override fun onResume() { super.onResume(); revision++ }
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        AvfImageInstallMonitor(this).observe(this) { imageInstallations = it }
         val store = SessionProfiles(this)
         compose {
             val profiles = remember(revision) { store.all() }
+            var installedImages by remember { mutableStateOf(emptyMap<String, Boolean>()) }
+            LaunchedEffect(profiles, revision, imageInstallations) {
+                installedImages = withContext(Dispatchers.IO) {
+                    profiles.filter { it.runtime == SessionRuntime.AVF }.map { it.storageId }.distinct()
+                        .associateWith { hasAvfProfileImage(this@ProfilesActivity, it) }
+                }
+            }
             SettingsPageScaffold(stringResource(R.string.profiles), { finish() }) { padding ->
                 Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
                     Text(stringResource(R.string.profiles_summary), modifier = Modifier.padding(horizontal = 4.dp),
@@ -45,7 +59,15 @@ class ProfilesActivity : TerminalActivity() {
                         profiles.forEach { profile ->
                             ListItem(onClick = { edit(profile) },
                                 leadingContent = { dev.terminal.app.ui.ProfileIcon(profile.icon, profile.runtime.wireName) },
-                                supportingContent = { Text(stringResource(runtimeTitleResource(profile.runtime.wireName)) + " · " + profile.shell) },
+                                supportingContent = {
+                                    val detail = stringResource(runtimeTitleResource(profile.runtime.wireName)) + " · " + profile.shell
+                                    Text(detail + if (profile.runtime == SessionRuntime.AVF) "\n" + stringResource(R.string.avf_profile_image_status,
+                                        stringResource(when (installedImages[profile.storageId]) {
+                                            true -> R.string.avf_image_installed
+                                            false -> R.string.avf_image_not_installed
+                                            null -> R.string.avf_image_checking
+                                        })) else "")
+                                },
                                 trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
                                 verticalAlignment = Alignment.CenterVertically,
                                 shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(),

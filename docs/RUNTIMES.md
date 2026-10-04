@@ -174,6 +174,8 @@ results and remaining device restrictions are in
 
 The APK includes the AOSP AVF execution driver. AVF still needs a supported Android 15+ device, both system permissions, and a compatible device-provided custom-image API authorized by the platform. The API declarations are compile-only, and Native remains the default owner. AVF uses a separate image/root filesystem and guest session daemon. See `AVF_NOTES.md`.
 
+Saving an AVF profile with newly allocated storage asks whether to install Debian. Installation is an explicitly approved background job and does not start a VM. The settings of all profiles sharing that storage display installation status and current progress. A session may wait for an approved job, but a missing image without one requires installation through profile settings; opening a session never implicitly downloads an image.
+
 ## Rootless USB
 
 New Rootless sessions expose optional `terminal-usb` (Python 3 required).
