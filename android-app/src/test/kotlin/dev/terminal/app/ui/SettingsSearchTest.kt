@@ -44,6 +44,8 @@ class SettingsSearchTest {
         assertEquals(SettingsSearchTarget("profiles"), target(R.string.profile_directory))
         assertEquals(SettingsSearchTarget("environments"), target(R.string.storage_title))
         assertEquals(SettingsSearchTarget("rootless", 2), target(R.string.rootless_limitations))
+        assertEquals(listOf(R.string.runtime_rootless_title),
+            settingsSearchEntries.single { it.title == R.string.rootless_limitations }.path)
         assertEquals(SettingsSearchTarget("diagnostics", 1), target(R.string.diagnostics_title))
         assertEquals(SettingsSearchTarget("diagnostics", 2), target(R.string.crash_reports_title))
         assertEquals(SettingsSearchTarget("avf", 2), target(R.string.forwarded_ports_title))

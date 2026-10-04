@@ -13,7 +13,7 @@ import org.junit.runner.RunWith
 /** Global engine settings must not offer destructive operations on distribution instances. */
 @RunWith(AndroidJUnit4::class)
 class RootlessSettingsUiTest {
-    @Test fun rootlessSettingsShowEngineSupportAndEnvironmentManagementWithoutInstanceActions() {
+    @Test fun rootlessSettingsShowEngineSupportAndLimitationsWithoutEnvironmentActions() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         fun labels(): Set<String> {
@@ -37,7 +37,8 @@ class RootlessSettingsUiTest {
                 SystemClock.sleep(100)
             }
             val text = labels()
-            assertTrue(context.getString(R.string.storage_title) in text)
+            assertTrue(context.getString(R.string.rootless_limitations) in text)
+            assertFalse(context.getString(R.string.storage_title) in text)
             assertFalse(context.getString(R.string.rootless_installed_distributions) in text)
             assertFalse(context.getString(R.string.rootless_uninstalled_distributions) in text)
             assertFalse(context.getString(R.string.rootless_remove) in text)
