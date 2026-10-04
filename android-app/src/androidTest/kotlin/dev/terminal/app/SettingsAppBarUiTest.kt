@@ -124,7 +124,9 @@ class SettingsAppBarUiTest {
                 DroidTheme { TerminalHapticFeedbackProvider {
                     DiagnosticsAndReportsScreen(
                         onBack = {},
-                        text = "Selectable diagnostic output\n".repeat(100),
+                        diagnostics = RuntimeDiagnostics("READY", "Long diagnostic detail\n".repeat(100),
+                            "Fixture image", "BATTERY_OPTIMIZED", 1),
+                        diagnosticsUnavailable = false,
                         reports = emptyList(),
                         reportsLoading = false,
                         reportsError = null,

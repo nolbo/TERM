@@ -13,9 +13,18 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 
+internal data class RuntimeDiagnostics(
+    val state: String,
+    val detail: String,
+    val imageStatus: String,
+    val wakePolicy: String,
+    val sessionCount: Int,
+)
+
 /** The sole settings destination for runtime diagnostics and saved crash reports. */
 class DiagnosticsActivity : RuntimeInformationActivity() {
-    private var diagnosticText by mutableStateOf("")
+    private var diagnostics by mutableStateOf<RuntimeDiagnostics?>(null)
+    private var diagnosticsUnavailable by mutableStateOf(false)
     private var reports by mutableStateOf<List<CrashReport>>(emptyList())
     private var reportsLoading by mutableStateOf(true)
     private var reportsError by mutableStateOf<String?>(null)
@@ -23,9 +32,8 @@ class DiagnosticsActivity : RuntimeInformationActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        diagnosticText = getString(R.string.diagnostics_connecting)
         compose { DiagnosticsAndReportsScreen(
-            { finish() }, diagnosticText, reports, reportsLoading, reportsError,
+            { finish() }, diagnostics, diagnosticsUnavailable, reports, reportsLoading, reportsError,
             { render(); loadReports() },
             { report -> startActivity(CrashReportActivity.intent(this, report.id)) },
             intent.getIntExtra(SettingsDetailActivity.EXTRA_SECTION_INDEX, 0),
@@ -60,18 +68,15 @@ class DiagnosticsActivity : RuntimeInformationActivity() {
     private fun render() {
         val service = runtime
         if (service == null) {
-            diagnosticText = getString(R.string.diagnostics_connecting)
+            diagnostics = null
+            diagnosticsUnavailable = false
             return
         }
-        diagnosticText = runCatching { buildString {
-            appendLine(getString(R.string.diagnostics_runtime_state, service.state))
-            appendLine(getString(R.string.diagnostics_detail, service.detail))
-            appendLine(getString(R.string.diagnostics_image, service.imageStatus))
-            appendLine(getString(R.string.diagnostics_wake_policy, service.wakePolicy))
-            appendLine()
-            appendLine(getString(R.string.diagnostics_session_count, JSONArray(service.sessionsJson).length()))
-            appendLine()
-            append(getString(R.string.diagnostics_hint))
-        } }.getOrElse { getString(R.string.runtime_information_unavailable) }
+        val result = runCatching {
+            RuntimeDiagnostics(service.state, service.detail, service.imageStatus, service.wakePolicy,
+                JSONArray(service.sessionsJson).length())
+        }
+        diagnostics = result.getOrNull()
+        diagnosticsUnavailable = result.isFailure
     }
 }

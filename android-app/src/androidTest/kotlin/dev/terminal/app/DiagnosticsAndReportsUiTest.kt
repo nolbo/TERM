@@ -57,8 +57,13 @@ class DiagnosticsAndReportsUiTest {
                     context.getString(R.string.settings_diagnostics_title))
             }))
             click(waitFor { !it.isEditable && it.text?.toString() == context.getString(R.string.settings_diagnostics_title) })
-            val diagnostic = waitFor { it.text?.toString()?.startsWith(context.getString(R.string.diagnostics_runtime_state, "")) == true }
-            assertFalse(diagnostic.text.toString().contains(context.getString(R.string.diagnostics_ports)))
+            listOf(R.string.diagnostics_state_title, R.string.diagnostics_detail_title,
+                R.string.diagnostics_image_title, R.string.wake_policy, R.string.diagnostics_sessions_title).forEach { title ->
+                val row = waitFor(scroll = true) { it.text?.toString() == context.getString(title) }
+                assertFalse("Diagnostic information has no click action", row.isClickable)
+            }
+            assertNull(find { it.text?.toString() in setOf(context.getString(R.string.diagnostics_ports),
+                context.getString(R.string.forwarded_ports_title)) })
             waitFor(scroll = true) { it.text?.toString() == context.getString(R.string.crash_reports_title) }
         }
     }

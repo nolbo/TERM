@@ -20,7 +20,7 @@
 | USB 디바이스 | 대기 중인 접근 요청을 우선하며, 기기·허용된 접근·이동식 저장장치·호스트 도구·도움말 및 진단을 섹션으로 구분한다. 긴 기기 정보와 도움말은 펼침 행으로 제공한다. | [UsbSettingsScreen.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/UsbSettingsScreen.kt) |
 | 앱 업데이트 | 최상단 채널 선택, 업데이트 상태 카드와 주요 버튼 또는 진행률, 릴리즈노트 카드 순서다. | [AppUpdatesActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/AppUpdatesActivity.kt) |
 | 앱 정보·라이선스 | 앱 메타데이터는 읽기 전용 행으로, 라이선스는 디렉터리 목록과 선택 가능한 원문으로 표시한다. | [AppInfoActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/AppInfoActivity.kt) |
-| 진단 및 리포트 | 공통 진단 정보·새로고침과 최신순 크래시 목록을 구분한다. 리포트는 상세에서 읽고 복사하며 닫아도 보관한다. | [DiagnosticsActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/DiagnosticsActivity.kt), [CrashReportActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/CrashReportActivity.kt) |
+| 진단 및 리포트 | 진단 정보는 제목·값의 읽기 전용 설정 행으로 표시하고 새로고침과 최신순 크래시 목록을 구분한다. 리포트는 상세에서 읽고 복사하며 닫아도 보관한다. | [DiagnosticsActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/DiagnosticsActivity.kt), [CrashReportActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/CrashReportActivity.kt) |
 | 초기 설정·크래시 | 초기 설정은 실행 방식별 안내 카드와 시작 동작을 구분한다. 크래시 본문은 복사할 수 있는 고정폭 텍스트를 사용한다. | [ComposeUi.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/ComposeUi.kt)의 `SetupScreen`, `CrashScreen` |
 
 설정 홈의 그룹 순서는 **실행환경·프로필 → 언어·터미널 설정 → Userspace Linux·AVF Linux·Native 셸 → 진단 및 리포트·앱 업데이트·앱 정보**다. AVF Linux 카테고리는 AVF 권한이 있는 경우에만 노출한다. 관련 설정을 추가할 때는 먼저 기존 카테고리와 섹션에 배치한다. 독립적인 사용자 목적과 여러 하위 설정이 있어 별도 진입이 필요한 경우에만 새 상위 카테고리를 만든다.
@@ -40,7 +40,7 @@
 | 요소 | 적용 규칙 |
 | --- | --- |
 | 화면 배경 | `MaterialTheme.colorScheme.background`를 사용한다. 설정 그룹의 표면은 `surfaceContainerLow`다. |
-| 텍스트 | 일반 UI는 Google Sans와 번들 Pretendard 대체 글꼴을 사용하며 Material type scale을 유지한다. 터미널·명령 본문·진단 payload는 Google Sans Code를 사용하고 터미널의 사용자 글꼴 설정을 존중한다. |
+| 텍스트 | 일반 UI는 Google Sans와 번들 Pretendard 대체 글꼴을 사용하며 Material type scale을 유지한다. 터미널·명령 본문·전달 포트·크래시 원문은 Google Sans Code를 사용하고 터미널의 사용자 글꼴 설정을 존중한다. |
 | 텍스트 계층 | 화면 설명은 `bodyLarge`와 `onSurfaceVariant`, 섹션 제목은 `labelLarge`와 `primary`다. 설정 행은 Material `ListItem`의 제목·설명 계층을 사용하고 현재 값은 주로 `labelLarge`로 표시한다. |
 | 색상 역할 | 일반 강조는 중립 테마 토큰을 사용한다. 파란색 semantic token은 활성·가용·준비·진행 상태에 사용하고, 오류·삭제 경고는 `error` 계열을 사용한다. 상태는 텍스트로도 설명한다. 민트 계열 장식색을 추가하지 않는다. |
 | 곡률 | 독립 카드와 일반 행의 기본 모양은 `extraLarge`인 28dp다. 설정 그룹의 바깥 모서리는 28dp, 그룹 내부 행은 4dp 모서리와 2dp 간격을 사용한다. |

@@ -68,6 +68,7 @@ import dev.terminal.app.R
 import dev.terminal.app.CrashReport
 import dev.terminal.app.CrashReportStore
 import dev.terminal.app.ProfileSection
+import dev.terminal.app.RuntimeDiagnostics
 import kotlinx.coroutines.launch
 
 internal val TerminalDarkColors = darkColorScheme(
@@ -852,7 +853,8 @@ private fun SettingsOverviewRow(destination: LocalizedSettingsEntry, onOpen: (Se
 @Composable
 internal fun DiagnosticsAndReportsScreen(
     onBack: () -> Unit,
-    text: String,
+    diagnostics: RuntimeDiagnostics?,
+    diagnosticsUnavailable: Boolean,
     reports: List<CrashReport>,
     reportsLoading: Boolean,
     reportsError: String?,
@@ -874,11 +876,22 @@ internal fun DiagnosticsAndReportsScreen(
                 }
             }
             item {
-                ProfileSection(R.string.diagnostics_title) {
-                    SelectionContainer {
-                        Text(text, Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp),
-                            fontFamily = LocalTerminalMonospaceFontFamily.current)
+                Column {
+                    ProfileSection(R.string.diagnostics_title) {
+                        if (diagnostics == null) {
+                            InformationMessage(stringResource(if (diagnosticsUnavailable)
+                                R.string.runtime_information_unavailable else R.string.diagnostics_connecting))
+                        } else {
+                            DiagnosticInformationRow(R.string.diagnostics_state_title, diagnosticStateText(diagnostics.state))
+                            DiagnosticInformationRow(R.string.diagnostics_detail_title, diagnostics.detail)
+                            DiagnosticInformationRow(R.string.diagnostics_image_title, diagnostics.imageStatus)
+                            DiagnosticInformationRow(R.string.wake_policy, diagnosticWakePolicyText(diagnostics.wakePolicy))
+                            DiagnosticInformationRow(R.string.diagnostics_sessions_title,
+                                stringResource(R.string.diagnostics_sessions_value, diagnostics.sessionCount))
+                        }
                     }
+                    Text(stringResource(R.string.diagnostics_hint), Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             item {
@@ -911,6 +924,40 @@ internal fun DiagnosticsAndReportsScreen(
             }
         }
     }
+}
+
+@Composable
+private fun DiagnosticInformationRow(title: Int, value: String) {
+    ListItem(
+        supportingContent = { SelectionContainer {
+            Text(value.ifBlank { stringResource(R.string.diagnostics_value_empty) })
+        } },
+        verticalAlignment = Alignment.CenterVertically,
+        colors = terminalSettingsListItemColors(),
+        modifier = Modifier.fillMaxWidth().settingsItemSurface(),
+    ) { Text(stringResource(title)) }
+}
+
+@Composable
+private fun diagnosticStateText(state: String): String = when (state) {
+    "STOPPED" -> stringResource(R.string.environment_stopped)
+    "PREPARING" -> stringResource(R.string.diagnostics_state_preparing)
+    "BOOTING" -> stringResource(R.string.diagnostics_state_booting)
+    "READY" -> stringResource(R.string.diagnostics_state_ready)
+    "ACTIVE" -> stringResource(R.string.environment_active)
+    "IDLE" -> stringResource(R.string.diagnostics_state_idle)
+    "SUSPENDED" -> stringResource(R.string.environment_suspended)
+    "STOPPING" -> stringResource(R.string.diagnostics_state_stopping)
+    "FAILED" -> stringResource(R.string.diagnostics_state_failed)
+    else -> state
+}
+
+@Composable
+private fun diagnosticWakePolicyText(policy: String): String = when (policy) {
+    "BATTERY_OPTIMIZED" -> stringResource(R.string.wake_battery_optimized)
+    "KEEP_ACTIVE_WORK_RUNNING" -> stringResource(R.string.wake_keep_work)
+    "ALWAYS_AWAKE" -> stringResource(R.string.wake_always)
+    else -> policy
 }
 
 @Composable
