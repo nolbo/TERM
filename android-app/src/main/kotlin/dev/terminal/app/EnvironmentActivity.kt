@@ -43,13 +43,14 @@ import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
+import org.json.JSONObject
 import java.util.Locale
 
 private val storageSizeUnit = Regex("(?<![\\p{L}])[kmgtpe]?b(?![\\p{L}])", RegexOption.IGNORE_CASE)
 
 internal data class EnvironmentItem(val environment: Environment, val bytes: Long?,
     val profiles: List<Pair<String, String>>, val sessions: List<Pair<String, String>>,
-    val runtimeState: String, val canDelete: Boolean, val incomplete: Boolean = false) {
+    val runtimeState: String, val canDelete: Boolean, val incomplete: Boolean = false, val migratedLegacy: Boolean = false) {
     val runtime get() = environment.sessionRuntime.wireName
     val id get() = environment.id.value
     val storageId get() = environment.storage.id
@@ -65,7 +66,7 @@ internal data class EnvironmentItem(val environment: Environment, val bytes: Lon
                     List(entries.length()) { i -> entries.getJSONObject(i).let { it.getString("id") to it.getString(title) } }
                 }
                 EnvironmentItem(Environment.fromJson(row), if (row.isNull("bytes")) null else row.getLong("bytes"),
-                    names("profiles", "name"), names("sessions", "title"), row.getString("runtimeState"), row.getBoolean("canDelete"), row.optBoolean("incomplete"))
+                    names("profiles", "name"), names("sessions", "title"), row.getString("runtimeState"), row.getBoolean("canDelete"), row.optBoolean("incomplete"), row.optBoolean("migratedLegacy"))
             } }
         }
     }
@@ -128,6 +129,10 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
             var editingName by rememberSaveable { mutableStateOf(false) }
             var nameDraft by rememberSaveable { mutableStateOf("") }
             var operating by remember { mutableStateOf<Pair<EnvironmentItem, String>?>(null) }
+            var software by remember { mutableStateOf<JSONObject?>(null) }
+            var removeSoftwareTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+            var installRootlessTargetId by rememberSaveable { mutableStateOf<String?>(null) }
+            var removeHome by rememberSaveable { mutableStateOf(false) }
             var imageInstallTargetId by rememberSaveable { mutableStateOf<String?>(null) }
             val imageInstallTarget = entries?.firstOrNull { it.id == imageInstallTargetId }
             var requestImageConfirmation by rememberSaveable { mutableStateOf(intent.getBooleanExtra(ProfileEditActivity.EXTRA_CONFIRM_IMAGE_INSTALL, false)) }
@@ -183,6 +188,17 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                 operating = null
             }
             val detail = entries?.firstOrNull { it.key == selectedKey }
+            LaunchedEffect(runtime, detail?.id, revision) {
+                software = null
+                val service = runtime ?: return@LaunchedEffect
+                val row = detail?.takeUnless { it.environment.runtime == EnvironmentRuntime.NATIVE } ?: return@LaunchedEffect
+                while (true) {
+                    runStorageOperation { withContext(Dispatchers.IO) { JSONObject(service.getEnvironmentSoftwareJson(row.id)) } }
+                        .onSuccess { software = it }.onFailure { software = null }
+                    delay(1000)
+                }
+            }
+            val softwareBusy = software?.optBoolean("busy") == true
             LaunchedEffect(detail?.id, requestImageConfirmation) {
                 if (requestImageConfirmation && detail != null) {
                     imageInstallTargetId = detail.id
@@ -194,7 +210,7 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                 floatingActionButton = {
                     detail?.let { row ->
                         EnvironmentActions(
-                            enabled = runtime != null && renaming == null && deleting == null && operating == null,
+                            enabled = runtime != null && renaming == null && deleting == null && operating == null && !softwareBusy,
                             canStart = row.canStart, canStop = row.canStop,
                             onStart = { operating = row to "START" }, onStop = { operating = row to "STOP" },
                             canDelete = row.canDelete,
@@ -239,7 +255,7 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                             EnvironmentInfoRow(R.string.profile_runtime, environmentDescription(detail.environment))
                             EnvironmentInfoRow(R.string.environment_runtime_state, environmentState(detail.runtimeState))
                             EnvironmentInfoRow(R.string.storage_id, detail.id)
-                            EnvironmentInfoRow(R.string.storage_size, environmentSize(detail, runtime, measurement))
+                            EnvironmentInfoRow(R.string.storage_size, environmentSize(detail, runtime, measurement, revision))
                             EnvironmentInfoRow(R.string.storage_profile_count, stringResource(R.string.storage_count_value, detail.profiles.size))
                             EnvironmentInfoRow(R.string.storage_session_count, stringResource(R.string.storage_count_value, detail.sessions.size))
                             detail.environment.runtimeMetadata.vmInstanceId?.let { instance ->
@@ -269,10 +285,20 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                                 }
                             }
                         }
+                        if (detail.environment.runtime == EnvironmentRuntime.ROOTLESS) item(key = "rootless-software") {
+                            RootlessEnvironmentSoftwareSetting(software, runtime != null && operating == null && deleting == null,
+                                onInstall = { installRootlessTargetId = detail.id },
+                                onRemove = { removeHome = false; removeSoftwareTargetId = detail.id })
+                        }
                         if (detail.environment.runtime == EnvironmentRuntime.AVF) item(key = "avf-image") {
-                            AvfEnvironmentImageSetting(detail.storageId, imageInstallations.firstOrNull { it.storageId == detail.storageId },
+                            AvfEnvironmentImageSetting(detail.storageId, imageInstallations.firstOrNull {
+                                it.storageId == detail.storageId || detail.migratedLegacy && it.storageId == "legacy"
+                            },
                                 revision, savedStorage = true, requesting = imageInstallTarget != null,
-                                onInstall = { imageInstallTargetId = detail.id })
+                                onInstall = { imageInstallTargetId = detail.id },
+                                canRemove = software?.optBoolean("canRemove") == true && operating == null && deleting == null,
+                                hasData = software?.optBoolean("hasData") == true,
+                                onRemove = { removeHome = false; removeSoftwareTargetId = detail.id })
                         }
                     } else if (selectedKey == null && entries != null) {
                         listOf(true, false).forEach { used ->
@@ -320,6 +346,37 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                     installingImage = row
                 }) { Text(stringResource(R.string.avf_image_install)) } },
                 dismissButton = { TextButton(onClick = { imageInstallTargetId = null }) { Text(stringResource(R.string.avf_image_install_later)) } }) }
+            entries?.firstOrNull { it.id == installRootlessTargetId }?.let { row ->
+                AlertDialog(onDismissRequest = { installRootlessTargetId = null },
+                    title = { Text(stringResource(R.string.environment_distribution_install)) },
+                    text = { Column {
+                        Text(row.name)
+                        Text(stringResource(R.string.rootless_install_note), style = MaterialTheme.typography.bodySmall)
+                    } },
+                    confirmButton = { TextButton(onClick = { installRootlessTargetId = null; operating = row to "INSTALL" }) {
+                        Text(stringResource(R.string.environment_distribution_install))
+                    } },
+                    dismissButton = { TextButton(onClick = { installRootlessTargetId = null }) { Text(stringResource(R.string.cancel)) } })
+            }
+            entries?.firstOrNull { it.id == removeSoftwareTargetId }?.let { row ->
+                val rootless = row.environment.runtime == EnvironmentRuntime.ROOTLESS
+                val label = if (rootless) R.string.environment_distribution_remove else R.string.environment_debian_remove
+                AlertDialog(onDismissRequest = { removeSoftwareTargetId = null },
+                    title = { Text(stringResource(label)) },
+                    text = { Column {
+                        Text(row.name)
+                        Text(stringResource(if (rootless) R.string.environment_distribution_remove_message else R.string.environment_debian_remove_message))
+                        if (rootless) Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(checked = removeHome, onCheckedChange = { removeHome = it })
+                            Text(stringResource(R.string.rootless_remove_home))
+                        }
+                    } },
+                    confirmButton = { TextButton(onClick = {
+                        removeSoftwareTargetId = null
+                        operating = row to if (rootless && removeHome) "REMOVE_SOFTWARE_AND_HOME" else "REMOVE_SOFTWARE"
+                    }, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(stringResource(label)) } },
+                    dismissButton = { TextButton(onClick = { removeSoftwareTargetId = null }) { Text(stringResource(R.string.cancel)) } })
+            }
             confirm?.let { row -> AlertDialog(onDismissRequest = { confirm = null },
                 title = { Text(stringResource(R.string.storage_delete)) },
                 text = { Text(stringResource(R.string.storage_delete_confirm, row.name ?: row.id)) },
@@ -328,9 +385,9 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                 dismissButton = { TextButton(onClick = { confirm = null }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } }) }
         }
     }
-    @Composable private fun environmentSize(row: EnvironmentItem, service: IRuntimeService?, measurement: Semaphore): String {
+    @Composable private fun environmentSize(row: EnvironmentItem, service: IRuntimeService?, measurement: Semaphore, revision: Int = 0): String {
         var state by remember(row.key) { mutableStateOf(StorageSizeState(row.bytes?.let { StorageRegistry.Usage(it, row.incomplete) })) }
-        LaunchedEffect(row.key, service) {
+        LaunchedEffect(row.key, service, revision) {
             val owner = service ?: return@LaunchedEffect
             while (true) {
                 val result = runStorageOperation { measurement.withPermit { withContext(Dispatchers.IO) {

@@ -158,6 +158,21 @@ class EnvironmentRegistry(val storage: StorageRegistry) {
             return environment
         }
         /** The service has excluded creation and proved the actual runtime owner idle. */
+        fun removeSoftware(id: EnvironmentId, removeHome: Boolean = false,
+            activeEnvironmentIds: Set<EnvironmentId> = emptySet(), runtimeKnown: Boolean = true,
+            beforeRemove: (Environment) -> Unit = {}) {
+            check(runtimeKnown) { "Cannot verify environment runtime state" }
+            check(id !in activeEnvironmentIds) { "Environment has active sessions" }
+            val environment = requireEnvironment(id)
+            check(environment.runtime != EnvironmentRuntime.NATIVE) { "Native has no removable distribution image" }
+            check(all().none { it.id != id && it.storageKey == environment.storageKey }) { "Storage is owned by another environment" }
+            persistence.validateConnection(environment.storageKey)
+            beforeRemove(environment) // Must verify/stop the actual owner before touching files.
+            persistence.removeSoftware(environment.storageKey, removeHome)
+            // Environment identity, storage handle and connected profiles remain available for reinstall.
+        }
+
+        /** The service has excluded creation and proved the actual runtime owner idle. */
         fun delete(id: EnvironmentId) {
             val environment = requireDeletable(id)
             persistence.delete(environment.storageKey) {

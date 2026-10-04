@@ -13,6 +13,109 @@ class EnvironmentRegistryTest {
     private fun profile(id: String = UUID.randomUUID().toString(), runtime: SessionRuntime = SessionRuntime.ROOTLESS,
         storage: String = UUID.randomUUID().toString()) = SessionProfile(id, "Development", runtime, "/bin/bash", storageId = storage)
 
+    @Test fun removingDistributionPreservesEnvironmentProfilesHomeAndOtherInstances() {
+        val files = temporary.newFolder()
+        val registry = EnvironmentRegistry(files)
+        val environment = Environment.create(SessionRuntime.ROOTLESS, "Debian development")
+        val sibling = Environment.create(SessionRuntime.ROOTLESS, "Other Debian")
+        registry.transaction { save(profile(), environment); save(profile(id = "sibling"), sibling) }
+        val root = registry.storage.root(environment.storageKey)
+        fun file(root: File, path: String) = File(root, path).apply { parentFile!!.mkdirs(); writeText(path) }
+        val packageFile = file(root, "rootfs/var/lib/dpkg/status")
+        val home = file(root, "home/keep")
+        val workspace = file(root, "workspace/keep")
+        val siblingFile = file(registry.storage.root(sibling.storageKey), "rootfs/keep")
+        val outside = file(temporary.newFolder(), "keep")
+        Files.createSymbolicLink(File(root, "rootfs/outside").toPath(), outside.parentFile.toPath())
+        val before = registry.transaction { profiles() }
+        val beforeBytes = registry.storage.measure(environment.storageKey)
+        registry.transaction { removeSoftware(environment.id) }
+        assertFalse(packageFile.exists())
+        assertTrue(home.exists()); assertTrue(workspace.exists()); assertTrue(siblingFile.exists()); assertTrue(outside.exists())
+        assertEquals(before, EnvironmentRegistry(files).transaction { profiles() })
+        assertEquals(environment, registry.transaction { requireEnvironment(environment.id) })
+        assertFalse(registry.storage.transaction { isDeleted(environment.storageKey) })
+        assertTrue(registry.storage.measure(environment.storageKey) < beforeBytes)
+        file(root, "rootfs/reinstalled")
+        registry.transaction { removeSoftware(environment.id, removeHome = true) }
+        assertFalse(home.exists()); assertTrue(workspace.exists()); assertTrue(siblingFile.exists())
+    }
+
+    @Test fun softwareRemovalRejectsActiveUnknownNativeAndUnsafeParents() {
+        val files = temporary.newFolder()
+        val registry = EnvironmentRegistry(files)
+        val environment = Environment.create(SessionRuntime.ROOTLESS_ARCH, "Arch")
+        val native = Environment.create(SessionRuntime.NATIVE, "Native")
+        registry.transaction { save(profile(), environment); save(profile(id = "native"), native) }
+        val root = registry.storage.root(environment.storageKey)
+        val outside = temporary.newFolder()
+        val sentinel = File(outside, "rootfs/keep").apply { parentFile!!.mkdirs(); writeText("keep") }
+        root.parentFile.mkdirs()
+        Files.createSymbolicLink(root.toPath(), outside.toPath())
+        var verified = false
+        registry.transaction {
+            assertTrue(runCatching { removeSoftware(environment.id, activeEnvironmentIds = setOf(environment.id)) { verified = true } }.isFailure)
+            assertTrue(runCatching { removeSoftware(environment.id, runtimeKnown = false) { verified = true } }.isFailure)
+            assertTrue(runCatching { removeSoftware(native.id) { verified = true } }.isFailure)
+            assertFalse(verified)
+            assertTrue(runCatching { removeSoftware(environment.id) }.isFailure)
+        }
+        assertEquals("keep", sentinel.readText())
+    }
+
+    @Test fun avfRemovalRequiresSuccessfulVmVerificationAndKeepsIdentityAndSharedFiles() {
+        val files = temporary.newFolder()
+        val registry = EnvironmentRegistry(files)
+        val environment = Environment.create(SessionRuntime.AVF, "Debian VM")
+        registry.transaction { save(profile(), environment) }
+        val disk = File(registry.storage.root(environment.storageKey), "home.img").apply { parentFile!!.mkdirs(); writeText("vm data") }
+        val shared = File(files, "shared-vms/${environment.storage.id}/keep").apply { parentFile!!.mkdirs(); writeText("host data") }
+        registry.transaction {
+            assertTrue(runCatching { removeSoftware(environment.id) { error("VM unreachable") } }.isFailure)
+            assertTrue(disk.exists())
+        }
+        assertEquals(0L, registry.storage.transaction { imageGeneration(environment.storageKey) })
+        registry.transaction {
+            removeSoftware(environment.id) { assertEquals(environment.runtimeMetadata.vmInstanceId, it.runtimeMetadata.vmInstanceId) }
+            assertEquals(environment, requireEnvironment(environment.id))
+            assertEquals(environment.id, profiles().single().environmentId)
+        }
+        assertFalse(disk.exists()); assertTrue(shared.exists())
+        assertFalse(registry.storage.transaction { isDeleted(environment.storageKey) })
+    }
+
+    @Test fun avfRemovalInvalidatesStaleActivationAcrossRestartAndLegacyAdoption() {
+        val files = temporary.newFolder()
+        val oldKey = StorageRegistry.Key(SessionRuntime.AVF, "legacy")
+        StorageRegistry(files).transaction { save(profile(runtime = SessionRuntime.AVF, storage = "legacy")) }
+        val registry = EnvironmentRegistry(files)
+        val sibling = Environment.create(SessionRuntime.AVF, "Other VM")
+        val environment = registry.transaction {
+            migrateLegacy(SessionRuntime.AVF)
+            val adopted = requireEnvironment(requireNotNull(profiles().single().environmentId))
+            save(profile(id = "sibling"), sibling)
+            adopted
+        }
+        val disk = File(registry.storage.root(environment.storageKey), "home.img").apply { parentFile!!.mkdirs(); writeText("old VM") }
+        val siblingDisk = File(registry.storage.root(sibling.storageKey), "home.img").apply { parentFile!!.mkdirs(); writeText("other VM") }
+        registry.storage.transaction { validateImageGeneration(oldKey, 0); validateImageGeneration(environment.storageKey, 0) }
+        registry.transaction { removeSoftware(environment.id) }
+        assertFalse(disk.exists())
+        StorageRegistry(files).transaction {
+            assertEquals(1L, imageGeneration(environment.storageKey))
+            assertEquals(1L, imageGeneration(oldKey))
+            assertEquals(0L, imageGeneration(sibling.storageKey))
+            assertTrue(runCatching { validateImageGeneration(oldKey, 0); disk.parentFile.mkdirs(); disk.writeText("stale worker") }.isFailure)
+            assertTrue(runCatching { validateImageGeneration(environment.storageKey, 0) }.isFailure)
+            assertFalse(disk.exists())
+            validateImageGeneration(environment.storageKey, 1)
+            disk.parentFile.mkdirs(); disk.writeText("approved reinstall")
+        }
+        assertEquals("approved reinstall", disk.readText())
+        assertEquals("other VM", siblingDisk.readText())
+        assertEquals(environment, EnvironmentRegistry(files).transaction { requireEnvironment(environment.id) })
+    }
+
     @Test fun sharedProfilesMigrateToOneEnvironmentAndRestartIsIdempotent() {
         val files = temporary.newFolder()
         val first = profile()

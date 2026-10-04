@@ -20,20 +20,40 @@ class RuntimeSetupCoordinator(private val context: Context) {
         check(BundledDebianImageCatalog.find(releaseId) != null) {
             "이 제품 빌드에 AVF 설치 이미지가 등록되지 않았습니다."
         }
+        val imageRoot = dev.terminal.runtime.session.SessionStorage.root(context.filesDir,
+            dev.terminal.runtime.session.SessionRuntime.AVF, storageId).toPath()
         dev.terminal.runtime.session.StorageRegistry(context.filesDir) {
             context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE).all.mapValues { it.value as String }
         }.transaction {
             validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId))
+            if (!dev.terminal.image.DebianImageVerifier.hasInstalledImage(imageRoot)) {
+                check(!Files.exists(imageRoot, LinkOption.NOFOLLOW_LINKS)) {
+                    "이미지 저장공간에 기존 파일이 있어 자동으로 교체할 수 없습니다."
+                }
+                // Enqueue and removal use the same process-shared lock; no late request can
+                // recreate an image between the remover's final work check and file deletion.
+                kotlinx.coroutines.runBlocking {
+                    val manager = RemoteWorkManager.getInstance(context)
+                    if (manager.getWorkInfos(WorkQuery.fromUniqueWorkNames(installationWorkNames(storageId)))
+                            .awaitImageOperation().any { !it.state.isFinished }) return@runBlocking
+                    manager.enqueueUniqueWork(DebianImageDownloadWorker.workName(storageId),
+                        androidx.work.ExistingWorkPolicy.KEEP, listOf(DebianImageDownloadWorker.request(releaseId, storageId,
+                            imageGeneration(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId)))))
+                        .awaitImageOperation()
+                }
+            }
         }
-        val imageRoot = dev.terminal.runtime.session.SessionStorage.root(context.filesDir,
-            dev.terminal.runtime.session.SessionRuntime.AVF, storageId).toPath()
-        if (dev.terminal.image.DebianImageVerifier.hasInstalledImage(imageRoot)) return
-        check(!Files.exists(imageRoot, LinkOption.NOFOLLOW_LINKS)) {
-            "이미지 저장공간에 기존 파일이 있어 자동으로 교체할 수 없습니다."
-        }
-        RemoteWorkManager.getInstance(context).enqueueUniqueWork(DebianImageDownloadWorker.workName(storageId),
-            androidx.work.ExistingWorkPolicy.KEEP, listOf(DebianImageDownloadWorker.request(releaseId, storageId)))
-            .awaitImageOperation()
+    }
+
+    suspend fun isInstallationActive(storageId: String): Boolean = RemoteWorkManager.getInstance(context)
+        .getWorkInfos(WorkQuery.fromUniqueWorkNames(installationWorkNames(storageId)))
+        .awaitImageOperation().any { !it.state.isFinished }
+
+    /** Metadata adoption never renames an already-enqueued legacy installation. */
+    internal fun installationWorkNames(storageId: String): List<String> = buildList {
+        add(DebianImageDownloadWorker.workName(storageId))
+        if (dev.terminal.runtime.session.SessionStorage.isMigratedLegacy(context.filesDir,
+                dev.terminal.runtime.session.SessionRuntime.AVF, storageId)) add(DebianImageDownloadWorker.workName("legacy"))
     }
 
     /** Wait only for an installation already requested by the user; never enqueue from session startup. */
@@ -42,9 +62,9 @@ class RuntimeSetupCoordinator(private val context: Context) {
         // performs the authoritative checksum check instead of reading the image twice.
         if (Files.exists(imageRoot, LinkOption.NOFOLLOW_LINKS)) return
         val manager = RemoteWorkManager.getInstance(context)
-        val workName = DebianImageDownloadWorker.workName(storageId)
+        val workNames = installationWorkNames(storageId)
         while (true) {
-            val history = manager.getWorkInfos(WorkQuery.fromUniqueWorkNames(listOf(workName))).awaitImageOperation()
+            val history = manager.getWorkInfos(WorkQuery.fromUniqueWorkNames(workNames)).awaitImageOperation()
             val work = history.firstOrNull { !it.state.isFinished } ?: history.maxByOrNull { info ->
                 info.tags.firstOrNull { it.startsWith(AvfImageInstallMonitor.REQUESTED_TAG) }
                     ?.removePrefix(AvfImageInstallMonitor.REQUESTED_TAG)?.toLongOrNull() ?: 0L

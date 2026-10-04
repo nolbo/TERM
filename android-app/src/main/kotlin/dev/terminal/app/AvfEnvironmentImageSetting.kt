@@ -31,6 +31,9 @@ internal fun hasAvfEnvironmentImage(context: Context, storageId: String): Boolea
     savedStorage: Boolean,
     requesting: Boolean,
     onInstall: () -> Unit,
+    canRemove: Boolean = false,
+    hasData: Boolean = false,
+    onRemove: () -> Unit = {},
 ) {
     val context = LocalContext.current
     var installed by remember(storageId) { mutableStateOf<Boolean?>(null) }
@@ -55,6 +58,13 @@ internal fun hasAvfEnvironmentImage(context: Context, storageId: String): Boolea
             }
             if (!savedStorage) Text(stringResource(R.string.avf_image_save_first), style = MaterialTheme.typography.bodySmall)
             else if (!available) Text(stringResource(R.string.avf_image_catalog_missing), style = MaterialTheme.typography.bodySmall)
+        }
+        if (installed == true || hasData) {
+            OutlinedButton(onClick = onRemove, enabled = canRemove && !requesting && progress?.active != true,
+                modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+                Text(stringResource(R.string.environment_debian_remove))
+            }
+            Text(stringResource(R.string.environment_software_protected), style = MaterialTheme.typography.bodySmall)
         }
     }
 }

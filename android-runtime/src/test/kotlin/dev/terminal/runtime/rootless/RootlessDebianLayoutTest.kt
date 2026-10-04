@@ -1,12 +1,22 @@
 package dev.terminal.runtime.rootless
 
 import java.io.File
-import org.junit.Assert.assertTrue
+import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class RootlessDebianLayoutTest {
+    @Test fun independentEnvironmentsUseIndependentDownloadCachesAndLegacyKeepsItsCache() {
+        val cache = File("/tmp/cache")
+        val first = RootlessDebianLayout(File("/tmp/profile-storage/ROOTLESS/${java.util.UUID.randomUUID()}"))
+        val second = RootlessDebianLayout(File("/tmp/profile-storage/ROOTLESS/${java.util.UUID.randomUUID()}"))
+        assertNotEquals(first.downloadDirectory(cache), second.downloadDirectory(cache))
+        assertEquals(File(cache, "rootless-downloads/environments/debian/${first.root.name}"), first.downloadDirectory(cache))
+        val legacy = RootlessDebianLayout(File("/tmp/rootless/debian")).downloadDirectory(cache)
+        assertEquals(File(cache, "rootless-downloads/debian"), legacy)
+        assertFalse(first.downloadDirectory(cache).path.startsWith(legacy.path + File.separator))
+    }
     @get:Rule val temporary = TemporaryFolder()
 
     @Test fun requiresShellAndAptBeforeMarkingRootfsUsable() {

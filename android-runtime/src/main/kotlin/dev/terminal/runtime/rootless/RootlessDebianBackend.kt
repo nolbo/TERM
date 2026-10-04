@@ -168,7 +168,10 @@ class RootlessDebianBackend(
         executableLoader.resolvePackagedExecutable("proot").isSuccess &&
         executableLoader.resolvePackagedExecutable("proot-loader").isSuccess
 
-    fun hasInstalledImage(): Boolean = layout.rootfs.isDirectory
+    fun hasInstalledImage(): Boolean = java.nio.file.Files.isDirectory(layout.rootfs.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)
+    fun hasSoftwareData(): Boolean = java.nio.file.Files.exists(layout.rootfs.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS) ||
+        java.nio.file.Files.isDirectory(layout.root.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+        layout.root.listFiles()?.any { it.name.startsWith(".rootfs-install-") } == true
 
     fun status(): RootlessStatus = if (progressTracker.latest?.let {
         it.update.phase == RootlessPhase.WAITING && it.finishedAtElapsedMs == null
@@ -211,6 +214,13 @@ class RootlessDebianLayout(val root: File, val distribution: RootlessDistributio
     val home = File(root, "home")
     val tmp = File(root, "tmp")
     val workspace = workspaceRoot ?: File(requireNotNull(root.parentFile?.parentFile) { "Rootless root must have an application parent" }, "workspace")
+
+    /** UUID environments cannot overwrite another instance's download/staging cache. */
+    internal fun downloadDirectory(cache: File): File {
+        val independent = root.name != "legacy" && runCatching { dev.terminal.runtime.session.SessionStorage.validate(root.name) }.isSuccess
+        return File(cache, if (independent) "rootless-downloads/environments/${distribution.directory}/${root.name}"
+            else "rootless-downloads/${distribution.directory}")
+    }
 
     fun createHostDirectories() {
         listOf(root, home, tmp, workspace).forEach { require(it.mkdirs() || it.isDirectory) { "Cannot create ${it.path}" } }

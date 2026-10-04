@@ -42,6 +42,7 @@ class DebianImageDownloadWorker(
         val releaseId = inputData.getString(KEY_RELEASE_ID) ?: return@withContext failure("Missing release ID")
         val release = BundledDebianImageCatalog.find(releaseId) ?: return@withContext failure("Unknown approved Debian release")
         val storageId = inputData.getString(KEY_STORAGE_ID) ?: "legacy"
+        val generation = inputData.getLong(KEY_IMAGE_GENERATION, 0L)
         val target = runCatching {
             dev.terminal.runtime.session.SessionStorage.root(applicationContext.filesDir,
                 dev.terminal.runtime.session.SessionRuntime.AVF, storageId).toPath()
@@ -50,6 +51,9 @@ class DebianImageDownloadWorker(
             .resolve("image-downloads")
             .resolve("${release.id}-${UUID.randomUUID()}")
         return@withContext try {
+            dev.terminal.runtime.session.StorageRegistry(applicationContext.filesDir).transaction {
+                validateImageGeneration(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId), generation)
+            }
             setForeground(foregroundInfo())
             report(AvfImageInstallPhase.PREPARING)
             if (Files.exists(target)) {
@@ -77,7 +81,7 @@ class DebianImageDownloadWorker(
                     val installed = dev.terminal.runtime.session.StorageRegistry(applicationContext.filesDir) {
                         applicationContext.getSharedPreferences("session-profiles", Context.MODE_PRIVATE).all.mapValues { it.value as String }
                     }.transaction {
-                        validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId))
+                        validateImageGeneration(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId), generation)
                         report(AvfImageInstallPhase.INSTALL)
                         DebianImageInstaller.install(stagingRoot, target)
                     }
@@ -165,6 +169,7 @@ class DebianImageDownloadWorker(
     companion object {
         private const val KEY_RELEASE_ID = "release_id"
         private const val KEY_STORAGE_ID = "storage_id"
+        private const val KEY_IMAGE_GENERATION = "image_generation"
         private const val KEY_STATUS = "status"
         internal const val KEY_ERROR = "error"
         private const val MAX_RETRIES = 3
@@ -176,12 +181,13 @@ class DebianImageDownloadWorker(
             return if (storageId == "legacy") UNIQUE_WORK_NAME else "$UNIQUE_WORK_NAME-$storageId"
         }
 
-        internal fun request(releaseId: String, storageId: String): androidx.work.OneTimeWorkRequest {
+        internal fun request(releaseId: String, storageId: String, generation: Long = 0L): androidx.work.OneTimeWorkRequest {
             dev.terminal.runtime.session.SessionStorage.validate(storageId)
             return OneTimeWorkRequestBuilder<DebianImageDownloadWorker>()
                 .addTag("${AvfImageInstallMonitor.STORAGE_TAG}$storageId")
                 .addTag("${AvfImageInstallMonitor.REQUESTED_TAG}${System.currentTimeMillis()}")
-                .setInputData(Data.Builder().putString(KEY_RELEASE_ID, releaseId).putString(KEY_STORAGE_ID, storageId).build())
+                .setInputData(Data.Builder().putString(KEY_RELEASE_ID, releaseId).putString(KEY_STORAGE_ID, storageId)
+                    .putLong(KEY_IMAGE_GENERATION, generation).build())
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
         }

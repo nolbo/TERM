@@ -230,6 +230,37 @@ class VmRuntimeService : Service() {
             enforceHostToolUi()
             return kotlinx.coroutines.runBlocking(Dispatchers.IO) { environmentsJson() }
         }
+        override fun getEnvironmentSoftwareJson(environmentId: String): String {
+            enforceHostToolUi()
+            return kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                val environment = environmentRegistry.transaction(storageDefaults()) { requireEnvironment(EnvironmentId(environmentId)) }
+                val sessions = (sessionClient as? UnifiedSessionRegistry)?.verifiedSessions(environment)
+                val idle = sessions?.getOrNull()?.none { it.state != dev.terminal.protocol.SessionStatus.EXITED } ?: (sessions == null)
+                val busy = preparationLocks.isLocked(environment.sessionRuntime, environment.storage.id)
+                when (environment.runtime) {
+                    dev.terminal.runtime.session.EnvironmentRuntime.ROOTLESS -> {
+                        val owner = rootlessEnvironmentBackend(environment)
+                        val ownerIdle = runCatching { verifyRootlessOwnerIdle(owner) }.isSuccess
+                        rootlessStatusJson(owner, RootlessDistribution.entries.first { it.runtime == environment.sessionRuntime }).apply {
+                            put("canInstall", idle && ownerIdle && !busy && getBoolean("installable"))
+                            put("canRemove", idle && ownerIdle && !busy && getBoolean("hasData"))
+                            put("busy", busy)
+                        }
+                    }
+                    dev.terminal.runtime.session.EnvironmentRuntime.AVF -> {
+                        val installing = RuntimeSetupCoordinator(applicationContext).isInstallationActive(environment.storage.id)
+                        val root = dev.terminal.runtime.session.SessionStorage.root(filesDir, environment.sessionRuntime, environment.storage.id).toPath()
+                        val state = environmentRuntimeState(environment, sessionClient as? UnifiedSessionRegistry)
+                        val hasData = java.nio.file.Files.exists(root, java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                        JSONObject().put("installed", dev.terminal.image.DebianImageVerifier.hasInstalledImage(root))
+                            .put("hasData", hasData).put("busy", busy || installing)
+                            .put("canRemove", idle && !busy && !installing && hasData && environment.storage.id != "legacy" &&
+                                (state != null || environmentBackends[environment.id] == null && hasAvfPrivileges()))
+                    }
+                    else -> JSONObject()
+                }.put("environmentId", environment.id.value).toString()
+            }
+        }
         override fun measureEnvironmentUsageJson(environmentId: String): String {
             enforceHostToolUi()
             val environment = environmentRegistry.transaction(storageDefaults()) { requireEnvironment(EnvironmentId(environmentId)) }
@@ -277,6 +308,9 @@ class VmRuntimeService : Service() {
                                 explicitlyStartedEnvironments.remove(environment.id)
                             }
                         }
+                        "INSTALL", "REPAIR" -> installRootlessEnvironment(environment, client)
+                        "REMOVE_SOFTWARE", "REMOVE_SOFTWARE_AND_HOME" -> removeEnvironmentSoftware(environment, client,
+                            removeHome = operation == "REMOVE_SOFTWARE_AND_HOME")
                         else -> error("Unsupported environment operation")
                     }
                     refreshSessions(client)
@@ -1018,6 +1052,86 @@ class VmRuntimeService : Service() {
         }).toString()
     }
 
+    private fun hasAvfPrivileges() = checkSelfPermission("android.permission.MANAGE_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+        checkSelfPermission("android.permission.USE_CUSTOM_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    private fun newRootlessEnvironmentBackend(environment: Environment): RootlessDebianBackend =
+        RootlessDebianBackend(applicationContext,
+            distribution = RootlessDistribution.entries.first { it.runtime == environment.sessionRuntime },
+            usbBroker = usbBroker,
+            storageRoot = dev.terminal.runtime.session.SessionStorage.root(filesDir, environment.sessionRuntime, environment.storage.id)) { phase, detail ->
+            broadcast { it.onRootlessProgress("${environment.sessionRuntime.wireName}:${environment.storage.id}", phase.displayName, detail) }
+        }
+
+    private fun rootlessEnvironmentBackend(environment: Environment): RootlessDebianBackend {
+        check(environment.runtime == dev.terminal.runtime.session.EnvironmentRuntime.ROOTLESS)
+        return environmentBackends.getOrPut(environment.id) { newRootlessEnvironmentBackend(environment) } as RootlessDebianBackend
+    }
+
+    private fun clearEnvironmentStart(id: EnvironmentId) {
+        startedEnvironmentBackends.remove(id)
+        explicitlyStartedEnvironments.remove(id)
+    }
+
+    private suspend fun verifyRootlessOwnerIdle(owner: RootlessDebianBackend) {
+        val controller = owner.sessionController() ?: return
+        check(controller.connectionState.value != dev.terminal.protocol.SessionConnectionState.DISCONNECTED) { "Cannot verify environment sessions" }
+        check(controller.list().getOrThrow().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) { "Environment has active sessions" }
+    }
+
+    /** Preparation has no session/foreground lease after completion; launch starts the prepared owner. */
+    private suspend fun installRootlessEnvironment(environment: Environment, client: UnifiedSessionRegistry) {
+        check(environment.runtime == dev.terminal.runtime.session.EnvironmentRuntime.ROOTLESS) { "Only Rootless distributions use this installation operation" }
+        preparationLocks.withStorage(environment.sessionRuntime, environment.storage.id) {
+            environmentRegistry.transaction(storageDefaults()) { requireEnvironment(environment.id) }
+            val owner = rootlessEnvironmentBackend(environment)
+            client.deleteStorageIfIdle(environment.sessionRuntime, environment.storage.id) { release ->
+                verifyRootlessOwnerIdle(owner)
+                owner.stop(StopMode.GRACEFUL).getOrThrow()
+                release()
+                clearEnvironmentStart(environment.id)
+                owner.prepare().getOrThrow()
+            }
+        }
+    }
+
+    private suspend fun removeEnvironmentSoftware(environment: Environment, client: UnifiedSessionRegistry, removeHome: Boolean) {
+        check(environment.runtime != dev.terminal.runtime.session.EnvironmentRuntime.NATIVE) { "Native has no removable distribution image" }
+        check(!removeHome || environment.runtime == dev.terminal.runtime.session.EnvironmentRuntime.ROOTLESS)
+        preparationLocks.withAll {
+            client.deleteStorageIfIdle(environment.sessionRuntime, environment.storage.id) { release ->
+                environmentRegistry.transaction(storageDefaults()) {
+                    removeSoftware(environment.id, removeHome) { current ->
+                        kotlinx.coroutines.runBlocking {
+                            val owner = environmentBackends[current.id]
+                            if (current.sessionRuntime == SessionRuntime.AVF) {
+                                check(!RuntimeSetupCoordinator(applicationContext).isInstallationActive(current.storage.id)) { "이미지 설치 중에는 Debian을 제거할 수 없습니다." }
+                                check(current.storage.id != "legacy") { "Legacy VM identity must be adopted before removing Debian" }
+                                if (owner != null) {
+                                    val state = environmentRuntimeState(current, client)
+                                    check(state != null && (state is RuntimeState.Stopped || client.isRegistered(current.sessionRuntime, current.storage.id))) { "Cannot verify environment runtime state" }
+                                    owner.stop(StopMode.GRACEFUL).getOrThrow()
+                                }
+                                val avf = owner ?: (applicationContext as? RuntimeBackendProvider)?.createRuntimeBackend(applicationContext)
+                                check(avf is dev.terminal.runtime.avf.AvfBackend) { "AVF removal requires a privileged runtime provider" }
+                                // The platform queries the persisted VM by identity and rejects running/unreachable instances.
+                                // This also permits removing never-booted or verified-stopped images after host restart.
+                                avf.deleteStorage(current.storage.id).getOrThrow()
+                            } else {
+                                (owner as? RootlessDebianBackend)?.let { rootless ->
+                                    verifyRootlessOwnerIdle(rootless)
+                                    rootless.stop(StopMode.GRACEFUL).getOrThrow()
+                                }
+                            }
+                            release()
+                            clearEnvironmentStart(current.id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private suspend fun removeEnvironment(id: EnvironmentId) {
         val client = ensureSessionRegistry()
         val environment = environmentRegistry.transaction(storageDefaults()) { requireEnvironment(id) }
@@ -1153,11 +1267,7 @@ class VmRuntimeService : Service() {
                         }, usbBroker::unregister)
                     }
                     SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH ->
-                        RootlessDebianBackend(applicationContext,
-                            distribution = RootlessDistribution.entries.first { it.runtime == spec.runtime },
-                            usbBroker = usbBroker, storageRoot = root) { phase, detail ->
-                            broadcast { it.onRootlessProgress("${spec.runtime.wireName}:${spec.storageId}", phase.displayName, detail) }
-                        }
+                        newRootlessEnvironmentBackend(executionEnvironment)
                     SessionRuntime.AVF -> {
                         require(checkSelfPermission("android.permission.MANAGE_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED &&
                             checkSelfPermission("android.permission.USE_CUSTOM_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -1495,46 +1605,50 @@ class VmRuntimeService : Service() {
         }) }
     }.toString())
 
+    private fun rootlessStatusJson(rootlessBackend: RootlessDebianBackend, distribution: RootlessDistribution): JSONObject {
+        val rootless = rootlessBackend.status()
+        val progress = rootlessBackend.installProgress()
+        return JSONObject().apply {
+            put("hasData", rootlessBackend.hasSoftwareData())
+            put("available", rootless is RootlessStatus.Ready)
+            put("canMigrateToNative", rootlessBackend.canMigrateToNative())
+            put("installed", rootlessBackend.hasInstalledImage())
+            put("installable", rootlessBackend.canInstall())
+            put("state", when (rootless) {
+                RootlessStatus.Checking -> "CHECKING"
+                RootlessStatus.Ready -> "READY"
+                is RootlessStatus.Error -> "ERROR"
+                is RootlessStatus.SetupRequired -> "SETUP_REQUIRED"
+                is RootlessStatus.EnvironmentRequired -> "ENVIRONMENT_REQUIRED"
+            })
+            put("detail", when (rootless) {
+                RootlessStatus.Checking -> progress?.update?.detail ?: "${distribution.displayName} 상태를 확인하고 있습니다"
+                RootlessStatus.Ready -> "${distribution.displayName} 기본 구성과 셸 실행 확인 완료"
+                is RootlessStatus.Error -> rootless.reason
+                is RootlessStatus.SetupRequired -> rootless.reason
+                is RootlessStatus.EnvironmentRequired -> rootless.reason
+            })
+            if (progress != null) put("progress", JSONObject().apply {
+                put("phase", progress.update.phase.name)
+                put("label", progress.update.phase.displayName)
+                put("detail", progress.update.detail)
+                put("fraction", progress.update.fraction)
+                put("completedBytes", progress.update.completedBytes)
+                put("totalBytes", progress.update.totalBytes)
+                put("startedAtElapsedMs", progress.startedAtElapsedMs)
+                put("updatedAtElapsedMs", progress.updatedAtElapsedMs)
+                put("finishedAtElapsedMs", progress.finishedAtElapsedMs)
+            })
+        }
+    }
+
     private fun runtimeStatusJson(): String = JSONObject().apply {
         put(SessionRuntime.NATIVE.wireName, JSONObject().apply {
             put("available", backend is NativeBackend)
             put("detail", if (backend is NativeBackend) "즉시 사용 가능" else "이 제품 변형은 Native 컨트롤러를 제공하지 않습니다")
         })
         RootlessDistribution.entries.forEach { distribution ->
-            val rootlessBackend = rootlessBackends.getValue(distribution.runtime)
-            val rootless = rootlessBackend.status()
-            val progress = rootlessBackend.installProgress()
-            put(distribution.runtime.wireName, JSONObject().apply {
-                put("available", rootless is RootlessStatus.Ready)
-                put("canMigrateToNative", rootlessBackends.getValue(distribution.runtime).canMigrateToNative())
-                put("installed", rootlessBackends.getValue(distribution.runtime).hasInstalledImage())
-                put("installable", rootlessBackends.getValue(distribution.runtime).canInstall())
-                put("state", when (rootless) {
-                    RootlessStatus.Checking -> "CHECKING"
-                    RootlessStatus.Ready -> "READY"
-                    is RootlessStatus.Error -> "ERROR"
-                    is RootlessStatus.SetupRequired -> "SETUP_REQUIRED"
-                    is RootlessStatus.EnvironmentRequired -> "ENVIRONMENT_REQUIRED"
-                })
-                put("detail", when (rootless) {
-                    RootlessStatus.Checking -> progress?.update?.detail ?: "${distribution.displayName} 상태를 확인하고 있습니다"
-                    RootlessStatus.Ready -> "${distribution.displayName} 기본 구성과 셸 실행 확인 완료"
-                    is RootlessStatus.Error -> rootless.reason
-                    is RootlessStatus.SetupRequired -> rootless.reason
-                    is RootlessStatus.EnvironmentRequired -> rootless.reason
-                })
-                if (progress != null) put("progress", JSONObject().apply {
-                    put("phase", progress.update.phase.name)
-                    put("label", progress.update.phase.displayName)
-                    put("detail", progress.update.detail)
-                    put("fraction", progress.update.fraction)
-                    put("completedBytes", progress.update.completedBytes)
-                    put("totalBytes", progress.update.totalBytes)
-                    put("startedAtElapsedMs", progress.startedAtElapsedMs)
-                    put("updatedAtElapsedMs", progress.updatedAtElapsedMs)
-                    put("finishedAtElapsedMs", progress.finishedAtElapsedMs)
-                })
-            })
+            put(distribution.runtime.wireName, rootlessStatusJson(rootlessBackends.getValue(distribution.runtime), distribution))
         }
         val avf = avfRuntimeAvailability(backend, environmentBackends.values.filterIsInstance<dev.terminal.runtime.avf.AvfBackend>())
         put(SessionRuntime.AVF.wireName, JSONObject().apply {

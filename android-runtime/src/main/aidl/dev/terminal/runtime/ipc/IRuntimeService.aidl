@@ -60,4 +60,5 @@ interface IRuntimeService {
     String renameEnvironment(String environmentId, String name);
     String deleteEnvironment(String environmentId);
     String operateEnvironment(String environmentId, String operation);
+    String getEnvironmentSoftwareJson(String environmentId);
 }

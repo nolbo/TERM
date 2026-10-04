@@ -13,6 +13,25 @@ import org.junit.Test
 class RuntimeSetupCoordinatorTest {
     private val setup = RuntimeSetupCoordinator(ContextWrapper(null))
 
+    @Test fun adoptedLegacyVmKeepsItsPendingInstallWorkWhileFreshVmsRemainIndependent() = runBlocking {
+        withImageDirectory { files ->
+            val context = object : ContextWrapper(null) { override fun getFilesDir() = files.toFile() }
+            val coordinator = RuntimeSetupCoordinator(context)
+            val runtime = dev.terminal.runtime.session.SessionRuntime.AVF
+            dev.terminal.runtime.session.StorageRegistry(files.toFile()).transaction {
+                save(dev.terminal.runtime.session.SessionProfile("legacy", "Debian", runtime, "/bin/bash", storageId = "legacy"))
+            }
+            assertEquals(listOf("debian-image-download"), coordinator.installationWorkNames("legacy"))
+            val registry = dev.terminal.runtime.session.EnvironmentRegistry(files.toFile())
+            val adopted = registry.transaction { migrateLegacy(runtime) }
+            assertEquals(listOf("debian-image-download-${adopted.storageId}", "debian-image-download"),
+                coordinator.installationWorkNames(adopted.storageId))
+            val fresh = dev.terminal.runtime.session.Environment.create(runtime, "Other Debian")
+            assertEquals(listOf("debian-image-download-${fresh.storage.id}"), coordinator.installationWorkNames(fresh.storage.id))
+            assertEquals("default", dev.terminal.runtime.session.SessionStorage.avfInstanceId(files.toFile(), adopted.storageId))
+        }
+    }
+
     @Test fun existingOfflineImageIsVerifiedOnlyAtPreparationAndRetainsGuestWrites() = runBlocking {
         withImageDirectory { root ->
             writeImage(root)

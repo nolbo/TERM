@@ -175,6 +175,35 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
             check(profiles(defaults).none { it.runtime == key.runtime && it.storageId == key.storageId }) { "Storage is referenced by a profile" }
             check(key in keys()) { "Storage not found" }
         }
+        /** Persisted activation token; old worker requests default to generation zero. */
+        fun imageGeneration(key: Key): Long = state.optJSONObject("avfImageGenerations")
+            ?.optLong(canonicalKey(key).storageId, 0L)?.also { check(it >= 0) } ?: 0L
+        fun validateImageGeneration(key: Key, generation: Long) {
+            validateConnection(key)
+            check(generation == imageGeneration(key)) { "Image installation was superseded by removal" }
+        }
+
+        /** Caller has excluded session creation and verified the controller is idle. */
+        fun removeSoftware(key: Key, removeHome: Boolean = false) {
+            validateConnection(key)
+            check(key.runtime != SessionRuntime.NATIVE) { "Native has no removable distribution image" }
+            val directory = root(key).toPath()
+            if (key.runtime == SessionRuntime.AVF) {
+                // Even a cancelled worker can still be waiting to commit. Invalidate its
+                // activation token before deletion, including when filesystem removal fails.
+                val next = Math.incrementExact(imageGeneration(key))
+                val generations = state.optJSONObject("avfImageGenerations") ?: JSONObject().also { state.put("avfImageGenerations", it) }
+                generations.put(canonicalKey(key).storageId, next)
+                persist()
+                deleteTree(directory)
+            } else {
+                check(directory.toFile().canonicalFile.toPath() == directory.toAbsolutePath().normalize()) { "Unsafe environment root" }
+                dev.terminal.runtime.rootless.removeRootlessImage(directory.resolve("rootfs"),
+                    home = directory.resolve("home"), removeHome = removeHome)
+            }
+            sizes.remove(canonicalKey(key))
+        }
+
         /** Caller has excluded session creation and verified the controller is idle. */
         fun delete(key: Key, updateMetadata: () -> Unit = {}) {
             check(key.storageId != "legacy")

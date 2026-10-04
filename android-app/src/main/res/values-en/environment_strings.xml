@@ -19,4 +19,12 @@
     <string name="rootless_engine_unsupported">The PRoot engine does not support this device architecture.</string>
     <string name="avf_engine_privileges">Custom Debian ARM64 VMs require AVF support and MANAGE_VIRTUAL_MACHINE and USE_CUSTOM_VIRTUAL_MACHINE permissions.</string>
     <string name="environment_avf_guest">AVF · Debian ARM64</string>
+    <string name="environment_distribution_installation">Distribution management</string>
+    <string name="environment_software_status">Installation status</string>
+    <string name="environment_distribution_install">Install distribution</string>
+    <string name="environment_distribution_remove">Remove distribution</string>
+    <string name="environment_debian_remove">Remove Debian</string>
+    <string name="environment_distribution_remove_message">Delete this environment’s distribution image and the packages and files inside it. Home data and the working directory are preserved by default. The environment and its profiles remain available for reinstalling later. Deleted data cannot be recovered.</string>
+    <string name="environment_debian_remove_message">Delete this environment’s Debian image, including the VM’s home, installed packages, and configuration. The environment, its profiles, and shared-folder files remain available for reinstalling Debian later. Deleted data cannot be recovered.</string>
+    <string name="environment_software_protected">Removal is blocked while sessions or installation/management tasks are active, or runtime safety cannot be verified.</string>
 </resources>

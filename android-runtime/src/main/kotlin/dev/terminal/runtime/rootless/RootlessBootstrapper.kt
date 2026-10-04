@@ -89,7 +89,7 @@ class RootlessBootstrapper(
                 check(!RootlessNativeMigration.pending(layout.root.parentFile.toPath())) { "중단된 가속 형식 이전을 먼저 복구하세요" }
                 removeRootlessImage(
                     layout.rootfs.toPath(),
-                    context.cacheDir.toPath().resolve("rootless-downloads/${distribution.directory}"),
+                    layout.downloadDirectory(context.cacheDir).toPath(),
                     layout.home.toPath(),
                     removeHome,
                 )
@@ -99,7 +99,7 @@ class RootlessBootstrapper(
 
     private fun install(): Result<Unit> = runCatching {
         val rootfs = layout.rootfs.toPath()
-        val downloadDirectory = context.cacheDir.toPath().resolve("rootless-downloads/${distribution.directory}")
+        val downloadDirectory = layout.downloadDirectory(context.cacheDir).toPath()
         Files.createDirectories(downloadDirectory)
         phase(RootlessPhase.STORAGE, "ARM64 지원과 설치 여유 공간을 확인하고 있습니다.") {
             require(ANDROID_ARM64 in android.os.Build.SUPPORTED_ABIS) {
@@ -211,13 +211,13 @@ class RootlessBootstrapper(
 }
 
 /** Deletes image data and, only when explicitly requested, that distribution's separate home. */
-internal fun removeRootlessImage(rootfs: Path, downloadDirectory: Path, home: Path? = null, removeHome: Boolean = false) {
+internal fun removeRootlessImage(rootfs: Path, downloadDirectory: Path? = null, home: Path? = null, removeHome: Boolean = false) {
     if (removeHome) {
         requireNotNull(home) { "A distribution home is required when removing home data" }
         require(home.normalize().parent == rootfs.normalize().parent) { "Home must belong to the removed distribution" }
     }
     deleteRootlessTreeIfPresent(rootfs)
-    deleteRootlessTreeIfPresent(downloadDirectory)
+    downloadDirectory?.let(::deleteRootlessTreeIfPresent)
     if (Files.isDirectory(rootfs.parent, NOFOLLOW_LINKS)) {
         Files.list(rootfs.parent).use { files ->
             files.filter { it.fileName.toString().startsWith(".rootfs-install-") }
