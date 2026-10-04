@@ -51,6 +51,7 @@ class AvfProfileLaunchTest {
             arrayOf(IRuntimeService::class.java)) { _, method, args ->
             if (method.name == "createSessionFromSpecWithRequestId") {
                 requested += SessionLaunchSpec.fromJson(args!![0] as String)
+                assertEquals("AVF profiles must start in droid's home", "/home/droid", requested.last().workingDirectory)
                 requestIds += args[1] as String
                 val activity = checkNotNull(creatingActivity)
                 val tabId = "avf-launch:${requestIds.last()}"
@@ -133,7 +134,7 @@ class AvfProfileLaunchTest {
             awaitService(scenario)
             scenario.onActivity { activity ->
                 selectProfile.invoke(activity, SessionProfile("avf-error", "AVF", SessionRuntime.AVF,
-                    "/bin/bash", emptyList(), "/home/user"))
+                    "/bin/bash", emptyList(), "/home/droid"))
             }
             val title = context.getString(R.string.avf_session_start_failed)
             awaitText(title)

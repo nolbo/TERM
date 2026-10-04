@@ -283,7 +283,7 @@ atomically with that profile; existing storage selection never renames the envir
 Fresh storage defaults to `Storage for <creator profile name>`; the same transaction
 reserves an available numeric suffix across all named environments, including orphans.
 Profile overrides and tombstones migrate from `session-profiles` preferences into
-an atomic app-private manifest on the first mutation. A process-shared file lock
+an atomic app-private manifest on the first access. A process-shared file lock
 serializes profile writes and the final deletion reference check; defaults still
 resolve from runtime preferences. Saved storage identities remain enumerated when
 their last reference disappears, even if never launched. Deleted IDs are tombstoned
@@ -291,6 +291,10 @@ to reject stale editor saves and launch requests. Session/controller locks rejec
 active or unknown session state and exclude creation during deletion. Pending legacy
 storage cannot be deleted; adopted UUID storage uses the ordinary reference/session guards.
 Size and deletion walks never follow symbolic links.
+AVF profiles default to the `droid` account's `/home/droid`. A one-time manifest
+upgrade changes saved AVF `/home/user` defaults to that home while preserving
+custom directories, storage identities, tombstones, guest files and immutable
+live launch snapshots. Later explicit `/home/user` choices remain valid.
 AVF deletion also releases the stopped platform instance through its privileged
 driver; unsupported providers fail closed. Image workers check the same manifest
 under lock before installation so a pending download cannot recreate deleted storage.

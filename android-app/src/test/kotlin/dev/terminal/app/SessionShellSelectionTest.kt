@@ -9,7 +9,7 @@ class SessionShellSelectionTest {
         listOf("ROOTLESS", "ROOTLESS_UBUNTU", "ROOTLESS_ARCH").forEach {
             assertEquals("/root", sessionInitialDirectory(it))
         }
-        assertEquals("/home/user", sessionInitialDirectory("AVF"))
+        assertEquals("/home/droid", sessionInitialDirectory("AVF"))
     }
 
     @Test fun rootlessUsesInteractiveBashForTerminalKeyEditing() {

@@ -40,6 +40,25 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
         } }
     }
     inner class Transaction internal constructor(private val state: JSONObject) {
+        init { migrateAvfHomeDirectory() }
+
+        /** Only saved defaults are upgraded; live launch snapshots and guest files stay untouched. */
+        private fun migrateAvfHomeDirectory() {
+            if (state.optBoolean("avfHomeDirectoryMigrated", false)) return
+            val saved = state.getJSONObject("profiles")
+            saved.keys().asSequence().forEach { id ->
+                val encoded = saved.getString(id)
+                if (encoded.isNotEmpty()) {
+                    val profile = SessionLaunchSpec.fromJson(encoded).toProfile()
+                    if (profile.runtime == SessionRuntime.AVF && profile.workingDirectory == "/home/user")
+                        saved.put(id, profile.copy(workingDirectory = SessionProfile.AVF_HOME_DIRECTORY).resolve().toJson().toString())
+                }
+            }
+            // Persist even an empty upgrade so a later explicit /home/user choice is respected.
+            state.put("avfHomeDirectoryMigrated", true)
+            persist()
+        }
+
         fun migratedLegacyId(runtime: SessionRuntime): String? = state.optJSONObject("legacyStorageIds")
             ?.optString(runtime.wireName)?.takeIf { it.isNotEmpty() }?.also { SessionStorage.validate(it); check(it != "legacy") }
         fun canonicalKey(key: Key): Key = if (key.storageId == "legacy")

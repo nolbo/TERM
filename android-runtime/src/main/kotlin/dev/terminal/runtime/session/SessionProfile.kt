@@ -22,6 +22,7 @@ data class SessionProfile(
     val builtIn: Boolean get() = id == builtInId(runtime)
     fun resolve(): SessionLaunchSpec = SessionLaunchSpec(this)
     companion object {
+        const val AVF_HOME_DIRECTORY = "/home/droid"
         fun builtInId(runtime: SessionRuntime) = "builtin:${runtime.wireName}"
     }
 }

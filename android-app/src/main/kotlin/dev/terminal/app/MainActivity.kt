@@ -1301,7 +1301,6 @@ class MainActivity : TerminalActivity() {
     companion object {
         const val EXTRA_OPEN_IMAGE_PICKER = "open_image_picker"
         const val EXTRA_START_RUNTIME = "start_runtime"
-        private const val DEFAULT_GUEST_HOME = "/home/user"
         private const val DEFAULT_NATIVE_SHELL = "/system/bin/sh"
     }
 }
@@ -1315,6 +1314,6 @@ internal fun sessionInitialDirectory(runtimeType: String): String = when (runtim
     // An unspecified Native cwd is resolved to its app-private home by the runtime.
     "NATIVE" -> ""
     "ROOTLESS", "ROOTLESS_UBUNTU", "ROOTLESS_ARCH" -> "/root"
-    "AVF" -> "/home/user"
+    "AVF" -> dev.terminal.runtime.session.SessionProfile.AVF_HOME_DIRECTORY
     else -> "/"
 }
