@@ -4,6 +4,7 @@ package dev.terminal.app.ui
 
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -79,10 +80,15 @@ internal fun ToolbarSessionsTool(
                             indicator = {},
                             divider = {},
                         ) {
-                            sessions.forEach { session ->
+                            sessions.forEachIndexed { index, session ->
+                                val selected = session.id == activeSessionId
                                 Box(Modifier.widthIn(max = 220.dp).height(48.dp)) {
-                                    SessionToolTab(session, session.id == activeSessionId, active && progress == 0f,
-                                        terminatingSessionIds, onSelect, onRename, onTerminate, colors)
+                                    SessionToolTab(session, selected, active && progress == 0f,
+                                        terminatingSessionIds, onSelect, onRename, onTerminate, colors, horizontal = true)
+                                    if (index > 0 && !selected && sessions[index - 1].id != activeSessionId) {
+                                        VerticalDivider(Modifier.align(Alignment.CenterStart).height(24.dp),
+                                            thickness = 1.dp, color = colors.divider)
+                                    }
                                 }
                             }
                         }
@@ -187,6 +193,7 @@ private fun SessionToolTab(
     colors: TerminalChromeColors,
     itemModifier: Modifier = Modifier,
     lifted: Boolean = false,
+    horizontal: Boolean = false,
 ) {
     val haptics = LocalTerminalHaptics.current
     val tabInteractionSource = remember(session.id) { MutableInteractionSource() }
@@ -199,13 +206,29 @@ private fun SessionToolTab(
     )
     val sessionTitle = session.title.ifBlank { stringResource(R.string.shell_default_title) }
     val stateLabel = sessionStateLabel(session.state)
+    val renameLabel = stringResource(R.string.rename_session_description, sessionTitle)
+    val selectSession = {
+        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+        onSelect(session.id)
+    }
+    // The body owns both gestures so releasing a long press cannot also select the tab.
+    // Share the tab's pressed state and ripple; keep the close button outside this target.
+    val bodyGestures = if (horizontal) Modifier.combinedClickable(
+        interactionSource = tabInteractionSource,
+        indication = null,
+        enabled = enabled,
+        hapticFeedbackEnabled = false,
+        onLongClickLabel = renameLabel,
+        onLongClick = if (session.pendingLaunch) null else ({
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+            onRename(session)
+        }),
+        onClick = selectSession,
+    ) else Modifier
     Tab(
         selected = selected,
         enabled = enabled,
-        onClick = {
-            haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-            onSelect(session.id)
-        },
+        onClick = selectSession,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).height(48.dp)
             .then(itemModifier).clip(RoundedCornerShape(cornerRadius))
             .background(if (selected || lifted) colors.container else Color.Transparent)
@@ -215,7 +238,8 @@ private fun SessionToolTab(
         interactionSource = tabInteractionSource,
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f).heightIn(min = 40.dp).padding(start = 12.dp),
+            Row(Modifier.weight(1f).heightIn(min = if (horizontal) 48.dp else 40.dp)
+                .then(bodyGestures).padding(start = 12.dp, end = if (horizontal && !selected) 12.dp else 0.dp),
                 verticalAlignment = Alignment.CenterVertically) {
                 ProfileIcon(session.launchSpec?.icon ?: "auto", session.runtime,
                     contentDescription = stringResource(runtimeTitleResource(session.runtime)),
@@ -232,7 +256,7 @@ private fun SessionToolTab(
                     }
                 }
             }
-            if (selected) IconButton(
+            if (selected && !horizontal) IconButton(
                 onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                     onRename(session)
@@ -240,9 +264,9 @@ private fun SessionToolTab(
                 shape = CircleShape,
                 enabled = enabled && !session.pendingLaunch,
             ) {
-                Icon(painterResource(R.drawable.ic_toolbar_edit), stringResource(R.string.rename_session_description, sessionTitle))
+                Icon(painterResource(R.drawable.ic_toolbar_edit), renameLabel)
             }
-            IconButton(
+            if (!horizontal || selected) IconButton(
                 onClick = {
                     haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
                     onTerminate(session)

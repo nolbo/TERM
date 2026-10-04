@@ -57,7 +57,7 @@ class ToolbarUiTest {
     }
     private fun text(value: String) = waitForNode("text: $value") { it.text?.toString() == value }
     private fun tabText(value: String) = waitForNode("tab text: $value") { node ->
-        if (node.text?.toString() != value) false else {
+        if (node.text?.toString()?.lineSequence()?.any { it == value } != true) false else {
             var parent = node.parent
             var clickable = false
             while (parent != null) {
@@ -508,19 +508,21 @@ class ToolbarUiTest {
             } }
             settle()
             val defaultHandle = bounds(handle())
-            val title = bounds(text("Pinned work"))
-            val subtitle = bounds(text("Original shell"))
+            val title = bounds(tabText("Pinned work"))
+            val subtitle = bounds(tabText("Original shell"))
             val newButton = bounds(description(label(R.string.new_session)))
             val settingsButton = bounds(description(label(R.string.settings)))
             val density = context.resources.displayMetrics.density
             assertTrue("Horizontal tabs use the header's left side", maxOf(title.right, subtitle.right) <= newButton.left)
-            assertTrue("Automatic title appears below the custom title", subtitle.top >= title.bottom)
             assertEquals(newButton.centerY(), settingsButton.centerY())
             assertEquals("The header fills the existing default viewport", 46f * density,
                 (newButton.exactCenterY() - defaultHandle.bottom), 1f)
-            click(description(context.getString(R.string.rename_session_description, "Pinned work")))
+            assertNull(find { it.contentDescription?.toString() ==
+                context.getString(R.string.rename_session_description, "Pinned work") })
+            drag(title.exactCenterX(), title.exactCenterY(), 0f, 0f, longPress = true)
+            assertEquals("Long press edits the selected tab", "second", renamed)
+            assertEquals("Long press must not switch tabs", "second", selected.value)
             click(description(context.getString(R.string.terminate_session_description, "Pinned work")))
-            assertEquals("second", renamed)
             assertEquals("second", terminated)
             click(description(label(R.string.new_session)))
             click(description(label(R.string.settings)))
@@ -529,12 +531,17 @@ class ToolbarUiTest {
             scenario.onActivity { sessions.value = sessions.value.map {
                 if (it.id == "second") it.copy(subtitle = "Updated automatic title") else it
             } }
-            text("Updated automatic title")
+            tabText("Updated automatic title")
             assertNull(find { it.text?.toString() == "Original shell" })
             val tab = bounds(tabText("Pinned work"))
             drag(tab.exactCenterX(), tab.exactCenterY(), 180 * density, 0f)
             val firstTab = bounds(tabText("First shell"))
-            assertEquals("Default tabs share one horizontal row", title.centerY(), firstTab.centerY())
+            assertEquals("Default tabs share the action row", newButton.centerY(), firstTab.centerY())
+            assertNull(find { it.contentDescription?.toString() ==
+                context.getString(R.string.terminate_session_description, "First shell") })
+            drag(firstTab.exactCenterX(), firstTab.exactCenterY(), 0f, 0f, longPress = true)
+            assertEquals("Long press also edits an inactive tab", "first", renamed)
+            assertEquals("Editing an inactive tab must not select it", "second", selected.value)
             click(tabText("First shell"))
             assertEquals("Default tabs can switch sessions", "first", selected.value)
             action(label(R.string.toolbar_expand))
@@ -547,12 +554,59 @@ class ToolbarUiTest {
             action(label(R.string.toolbar_default))
             assertEquals(defaultHandle, bounds(handle()))
             tabText("Pinned work")
-            text("Updated automatic title")
+            tabText("Updated automatic title")
             assertNull(find { it.text?.toString() == context.getString(R.string.toolbar_session_count, 2) })
             scenario.onActivity { sessions.value = sessions.value.map {
                 if (it.id == "second") it.copy(title = "") else it
             } }
-            text(label(R.string.shell_default_title))
+            tabText(label(R.string.shell_default_title))
+        }
+    }
+
+    @Test fun defaultSessionTabsSeparateOnlyAdjacentInactiveTabs() {
+        val selected = mutableStateOf("third")
+        val sessions = listOf(
+            SessionUi("first", "NATIVE", "A", "RUNNING"),
+            SessionUi("second", "NATIVE", "B", "RUNNING"),
+            SessionUi("third", "NATIVE", "C", "RUNNING"),
+        )
+        val colors = TerminalChromeColors(Color.Black)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Box(Modifier.fillMaxWidth().height(92.dp)) {
+                        ToolbarSessionsTool(sessions, selected.value, true, emptySet(), emptyList(),
+                            {}, {}, false, { selected.value = it }, {}, {}, {}, {}, {}, colors,
+                            expansionProgress = 0f)
+                    }
+                } }
+            } }
+            settle()
+            fun hasDivider(): Boolean {
+                val button = bounds(description(label(R.string.new_session)))
+                val density = context.resources.displayMetrics.density
+                val halfHeight = (10 * density).toInt()
+                val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+                return try {
+                    (0 until button.left).any { x ->
+                        (button.centerY() - halfHeight..button.centerY() + halfHeight).all { y ->
+                            screenshot.getPixel(x, y) == colors.divider.toArgb()
+                        }
+                    }
+                } finally { screenshot.recycle() }
+            }
+            assertTrue("A and B are adjacent inactive tabs", hasDivider())
+            assertNull(find { it.contentDescription?.toString() == context.getString(R.string.terminate_session_description, "A") })
+            assertNull(find { it.contentDescription?.toString() == context.getString(R.string.terminate_session_description, "B") })
+            description(context.getString(R.string.terminate_session_description, "C"))
+            click(tabText("B"))
+            assertEquals("second", selected.value)
+            assertFalse("No divider belongs on either side of the selected middle tab", hasDivider())
+            assertNull(find { it.contentDescription?.toString() == context.getString(R.string.terminate_session_description, "C") })
+            description(context.getString(R.string.terminate_session_description, "B"))
+            scenario.onActivity { selected.value = "first" }
+            settle()
+            assertTrue("B and C now share an inactive boundary", hasDivider())
         }
     }
 
