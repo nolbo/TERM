@@ -12,6 +12,8 @@ class SettingsSearchTest {
             unprivileged.filter { it.path.isEmpty() }.map { it.target.screen })
         assertEquals(settingsSearchEntries, visibleSettingsSearchEntries(true))
         assertTrue(visibleSettingsSearchEntries(true).any { it.target.screen == "avf" && it.path.isNotEmpty() })
+        assertTrue(unprivileged.any { it.title == R.string.wake_policy })
+        assertTrue(unprivileged.any { it.title == R.string.battery_optimization })
     }
 
     @Test fun matchesTitlesDescriptionsAndAncestorPaths() {
@@ -31,6 +33,9 @@ class SettingsSearchTest {
         assertEquals(SettingsSearchTarget("terminal", 2), target(R.string.follow_tui_background))
         assertEquals(SettingsSearchTarget("terminal", 4), target(R.string.scrollback))
         assertEquals(SettingsSearchTarget("terminal", 6), target(R.string.shared_storage_access))
+        assertEquals(SettingsSearchTarget("terminal", 7), target(R.string.wake_policy))
+        assertEquals(SettingsSearchTarget("terminal", 7), target(R.string.battery_optimization))
+        assertEquals(SettingsSearchTarget("terminal", 8), target(R.string.android_permissions))
         assertEquals(SettingsSearchTarget("hotkeys"), target(R.string.hotkey_columns))
         assertEquals(SettingsSearchTarget("toolbar-sessions"), target(R.string.session_skip_close_confirmation))
         assertEquals(SettingsSearchTarget("palette"), target(R.string.palette_cursor))

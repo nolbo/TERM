@@ -9,6 +9,8 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <!-- Optional, user-approved Doze exemption for persistent SSH and terminal work. -->
+    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <!-- Optional, user-controlled direct shared-storage access for local shells. -->
     <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 

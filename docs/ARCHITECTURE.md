@@ -423,9 +423,11 @@ not a request to create a shell or stop the runtime.
 `SharedDirectoryManager` owns a per-VM host path only; it does not expose the
 rest of app-private storage. `PortForwardRegistry` accepts only validated port
 reports from a future guest port-agent, and `RuntimeWakeController` uses a
-time-bounded partial wake lock only when a configured policy reports meaningful
-guest work. Neither component treats a foreground service as an execution
+time-bounded, renewable partial wake lock according to the persisted policy and
+service-owned sessions/work. Neither component treats a foreground service as an execution
 guarantee.
+
+The default wake policy is `ALWAYS_AWAKE` while live sessions or host/guest work retain the service. Quiet SSH connections, idle prompts and detached shell jobs therefore remain protected without shell activity signals or an inactivity lease. Each acquisition remains bounded and renewable; the last session/work exit, runtime failure or stop releases it. Upgrade migrates the previously implicit battery-saving default while preserving explicit user choices. The common terminal settings expose both wake policy and an optional Android battery-optimization exemption. Only the OS-approved exemption permits network and partial wake locks in Doze; the app cannot silently grant it or promise survival against force-stop, memory pressure or manufacturer restrictions.
 
 Wake policy is persisted host-side. `KEEP_ACTIVE_WORK_RUNNING` follows runtime
 work rather than UI attachment: live OSC 133 command boundaries (including

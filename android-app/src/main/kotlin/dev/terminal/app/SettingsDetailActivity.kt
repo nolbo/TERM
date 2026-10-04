@@ -10,6 +10,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Environment
 import android.os.IBinder
+import android.os.PowerManager
 import android.provider.Settings
 import android.widget.Toast
 import androidx.annotation.StringRes
@@ -61,6 +62,7 @@ import dev.terminal.app.ui.validatedShellDraft
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.ipc.IRuntimeStateListener
 import dev.terminal.runtime.lifecycle.VmRuntimeService
+import dev.terminal.runtime.power.WakePolicyStore
 import java.io.File
 
 class SettingsDetailActivity : TerminalActivity() {
@@ -81,6 +83,7 @@ class SettingsDetailActivity : TerminalActivity() {
     private var customFonts by mutableStateOf(emptyList<CustomTerminalFont>())
     private var pendingCustomFontStyle = CustomTerminalFontStyle.REGULAR
     private var sharedStorageEnabled by mutableStateOf(false)
+    private var batteryOptimizationsIgnored by mutableStateOf(false)
     private var paletteSelection by mutableStateOf("DROID_DARK")
 
     private val customFontPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -178,7 +181,18 @@ class SettingsDetailActivity : TerminalActivity() {
         super.onResume()
         // Never cache a separate boolean: Native processes share the app's OS grant.
         sharedStorageEnabled = Environment.isExternalStorageManager()
+        batteryOptimizationsIgnored = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
         paletteSelection = terminalPreferences.getString(KEY_PALETTE, "DROID_DARK") ?: "DROID_DARK"
+    }
+
+    private fun openBatteryOptimizationSettings() {
+        val request = if (batteryOptimizationsIgnored) Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        else Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.fromParts("package", packageName, null))
+        runCatching { startActivity(request) }.recoverCatching {
+            startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+        }.onFailure {
+            Toast.makeText(this, R.string.battery_optimization_settings_unavailable, Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun openSharedStorageSettings() {
@@ -536,15 +550,9 @@ class SettingsDetailActivity : TerminalActivity() {
         }
         item {
             SettingsSection(R.string.section_execution) {
-                ChoiceSetting(
-                    R.string.wake_policy,
-                    R.string.wake_policy_support,
-                    listOf(Choice(R.string.wake_battery_optimized, DEFAULT_WAKE_POLICY), Choice(R.string.wake_keep_work, "KEEP_ACTIVE_WORK_RUNNING"), Choice(R.string.wake_always, "ALWAYS_AWAKE")),
-                    wakePolicy,
-                ) {
-                    wakePolicy = it
-                    runtimePreferences.edit().putString(KEY_WAKE_POLICY, it).apply()
-                    runCatching { runtime?.setWakePolicy(it) }
+                ActionSetting(R.string.wake_policy, R.string.wake_policy_support) {
+                    startActivity(Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
+                        .putExtra(EXTRA_CATEGORY, TERMINAL).putExtra(EXTRA_SECTION_INDEX, 7))
                 }
                 ActionSetting(R.string.debian_image, R.string.debian_image_support) {
                     startActivity(
@@ -716,6 +724,25 @@ class SettingsDetailActivity : TerminalActivity() {
             }
         }
         sharedStorageItems()
+        item {
+            SettingsSection(R.string.section_background_execution) {
+                ChoiceSetting(
+                    R.string.wake_policy,
+                    R.string.wake_policy_support,
+                    listOf(Choice(R.string.wake_always, "ALWAYS_AWAKE"), Choice(R.string.wake_keep_work, "KEEP_ACTIVE_WORK_RUNNING"), Choice(R.string.wake_battery_optimized, "BATTERY_OPTIMIZED")),
+                    wakePolicy,
+                ) {
+                    wakePolicy = it
+                    runtimePreferences.edit().putString(KEY_WAKE_POLICY, it).apply()
+                    runCatching { runtime?.setWakePolicy(it) }
+                }
+                ActionSetting(
+                    R.string.battery_optimization,
+                    if (batteryOptimizationsIgnored) R.string.battery_optimization_allowed else R.string.battery_optimization_required,
+                    action = ::openBatteryOptimizationSettings,
+                )
+            }
+        }
         item {
             SettingsSection(R.string.android_permissions) {
                 ActionSetting(R.string.android_permissions, R.string.android_permissions_support) {
@@ -1126,7 +1153,7 @@ class SettingsDetailActivity : TerminalActivity() {
         const val KEY_NATIVE_LOGIN = "native-login-shell"
         private const val DEFAULT_NATIVE_SHELL = "/system/bin/sh"
         private const val DEFAULT_TERMINAL_TYPE = "xterm-256color"
-        private const val DEFAULT_WAKE_POLICY = "BATTERY_OPTIMIZED"
+        private val DEFAULT_WAKE_POLICY = WakePolicyStore.DEFAULT_POLICY.name
         private const val ROOTLESS_SETUP_OPERATION = "ROOTLESS_SETUP"
     }
 }
