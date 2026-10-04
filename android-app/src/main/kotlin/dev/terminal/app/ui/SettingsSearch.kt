@@ -94,7 +94,7 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("avf", R.string.guest_network, R.string.guest_network_support, listOf(R.string.settings_avf_title) + R.string.section_resources, section = 1)
     entry("environments", R.string.debian_image, R.string.avf_image_profile_support, listOf(R.string.storage_title))
     entry("avf", R.string.diagnostics_title, R.string.diagnostics_support, listOf(R.string.settings_avf_title) + R.string.section_execution, section = 2)
-    entry("rootless", R.string.rootless_limitations, R.string.rootless_limitations_support, listOf(R.string.runtime_rootless_title) + R.string.section_environment, section = 1)
+    entry("rootless", R.string.rootless_limitations, R.string.rootless_limitations_support, listOf(R.string.runtime_rootless_title) + R.string.section_environment, section = 2)
     entry("toolbar", R.string.toolbar_enabled, R.string.toolbar_enabled_summary, terminal + R.string.toolbar_settings)
     entry("hotkeys", R.string.hotkey_columns, null, hotkeys)
     entry("hotkeys", R.string.hotkey_font_size, null, hotkeys)

@@ -43,7 +43,7 @@ class SettingsSearchTest {
         assertEquals(SettingsSearchTarget("usb"), target(R.string.usb_section_storage))
         assertEquals(SettingsSearchTarget("profiles"), target(R.string.profile_directory))
         assertEquals(SettingsSearchTarget("environments"), target(R.string.storage_title))
-        assertEquals(SettingsSearchTarget("rootless", 1), target(R.string.rootless_limitations))
+        assertEquals(SettingsSearchTarget("rootless", 2), target(R.string.rootless_limitations))
     }
 
     @Test fun homeIncludesEnvironmentsAndResultKeysAreUnique() {

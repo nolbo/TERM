@@ -411,7 +411,7 @@ class SettingsDetailActivity : TerminalActivity() {
                     startActivity(Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
                         .putExtra(EXTRA_CATEGORY, TERMINAL).putExtra(EXTRA_SECTION_INDEX, 7))
                 }
-                InfoSetting(R.string.environment_engine_status, R.string.avf_engine_privileges)
+                ReadOnlySetting(R.string.environment_engine_status, R.string.avf_engine_privileges)
                 ActionSetting(R.string.storage_title, R.string.environment_instances_support) {
                     startActivity(Intent(this@SettingsDetailActivity, EnvironmentActivity::class.java))
                 }
@@ -586,8 +586,8 @@ class SettingsDetailActivity : TerminalActivity() {
 
     private fun androidx.compose.foundation.lazy.LazyListScope.rootlessItems() {
         item {
-            SettingsSection(R.string.section_status, hasOptions = false) {
-                InfoSetting(R.string.environment_engine_status,
+            SettingsSection(R.string.section_status) {
+                ReadOnlySetting(R.string.environment_engine_status,
                     if ("arm64-v8a" in android.os.Build.SUPPORTED_ABIS) R.string.rootless_engine_supported else R.string.rootless_engine_unsupported)
                 ActionSetting(R.string.storage_title, R.string.environment_instances_support) {
                     startActivity(Intent(this@SettingsDetailActivity, EnvironmentActivity::class.java))
@@ -595,8 +595,10 @@ class SettingsDetailActivity : TerminalActivity() {
             }
         }
         item {
-            SettingsSection(R.string.section_environment, hasOptions = false) {
-                InfoSetting(R.string.rootless_limitations, R.string.rootless_limitations_support)
+            SettingsSection(
+                R.string.section_environment,
+                footer = { InfoSetting(R.string.rootless_limitations, R.string.rootless_limitations_support) },
+            ) {
                 ActionSetting(R.string.diagnostics_title, R.string.diagnostics_support) {
                     startActivity(Intent(this@SettingsDetailActivity, DiagnosticsActivity::class.java))
                 }
@@ -799,6 +801,16 @@ class SettingsDetailActivity : TerminalActivity() {
             shapes = terminalListItemShapes(),
             colors = preferenceListItemColors(),
             modifier = Modifier.fillMaxWidth(),
+        ) { Text(stringResource(title)) }
+    }
+
+    @Composable
+    private fun ReadOnlySetting(@StringRes title: Int, @StringRes supporting: Int) {
+        ListItem(
+            supportingContent = { Text(stringResource(supporting)) },
+            verticalAlignment = Alignment.CenterVertically,
+            colors = preferenceListItemColors(),
+            modifier = Modifier.fillMaxWidth().settingsItemSurface(),
         ) { Text(stringResource(title)) }
     }
 
