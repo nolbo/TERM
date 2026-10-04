@@ -265,7 +265,6 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                                 EnvironmentInfoRow(R.string.environment_vm_identity, "droid-$instance")
                                 EnvironmentInfoRow(R.string.environment_disks, "system.img · home.img · config.img")
                             }
-                            EnvironmentInfoRow(R.string.storage_deletion, stringResource(if (detail.canDelete) R.string.storage_delete_hint else R.string.environment_delete_protected))
                         } }
                         item(key = "profiles") {
                             EnvironmentSection(R.string.storage_profiles) {
