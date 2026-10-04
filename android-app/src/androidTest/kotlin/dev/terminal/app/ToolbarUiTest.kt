@@ -339,8 +339,7 @@ class ToolbarUiTest {
             assertEquals("Changing the active tab must preserve the position", scrolled, bounds(tabText("Shell 4")))
             scenario.onActivity { showTabs.value = false }
             settle()
-            assertNull(find { it.isScrollable })
-            text("Shell 7")
+            tabText("Shell 7")
             scenario.onActivity { showTabs.value = true }
             settle()
             assertEquals("Collapsing the list must preserve the position", scrolled, bounds(tabText("Shell 4")))
@@ -480,7 +479,7 @@ class ToolbarUiTest {
         }
     }
 
-    @Test fun defaultSessionToolShowsCurrentTitlesAndActionsAndExpandsToTabs() {
+    @Test fun defaultSessionToolShowsHorizontalTabsAndExpandsToSessionCounts() {
         val mode = mutableStateOf(ToolbarSheetMode.Default)
         val selected = mutableStateOf("second")
         val sessions = mutableStateOf(listOf(
@@ -490,6 +489,8 @@ class ToolbarUiTest {
         ))
         var newClicks = 0
         var settingsClicks = 0
+        var renamed: String? = null
+        var terminated: String? = null
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 DroidTheme { TerminalHapticFeedbackProvider {
@@ -498,7 +499,8 @@ class ToolbarUiTest {
                         TerminalToolbar(ToolbarConfig(tools = listOf(SESSIONS_TOOL)), mode.value,
                             { mode.value = it }, 400.dp, TerminalChromeColors(Color.Black)) { _, active ->
                             ToolbarSessionsTool(sessions.value, selected.value, active, emptySet(), emptyList(),
-                                {}, {}, false, { selected.value = it }, {}, {}, { newClicks++ }, {},
+                                {}, {}, false, { selected.value = it }, { renamed = it.id },
+                                { terminated = it.id }, { newClicks++ }, {},
                                 { settingsClicks++ })
                         }
                     }
@@ -511,15 +513,15 @@ class ToolbarUiTest {
             val newButton = bounds(description(label(R.string.new_session)))
             val settingsButton = bounds(description(label(R.string.settings)))
             val density = context.resources.displayMetrics.density
-            assertTrue("Current titles use the header's left side", maxOf(title.right, subtitle.right) <= newButton.left)
+            assertTrue("Horizontal tabs use the header's left side", maxOf(title.right, subtitle.right) <= newButton.left)
             assertTrue("Automatic title appears below the custom title", subtitle.top >= title.bottom)
             assertEquals(newButton.centerY(), settingsButton.centerY())
             assertEquals("The header fills the existing default viewport", 46f * density,
                 (newButton.exactCenterY() - defaultHandle.bottom), 1f)
-            assertNull(find { it.text?.toString() == "First shell" })
-            assertNull(find { it.isScrollable })
-            assertNull(find { it.contentDescription?.toString() ==
-                context.getString(R.string.terminate_session_description, "Pinned work") })
+            click(description(context.getString(R.string.rename_session_description, "Pinned work")))
+            click(description(context.getString(R.string.terminate_session_description, "Pinned work")))
+            assertEquals("second", renamed)
+            assertEquals("second", terminated)
             click(description(label(R.string.new_session)))
             click(description(label(R.string.settings)))
             assertEquals(1, newClicks)
@@ -529,21 +531,77 @@ class ToolbarUiTest {
             } }
             text("Updated automatic title")
             assertNull(find { it.text?.toString() == "Original shell" })
+            val tab = bounds(tabText("Pinned work"))
+            drag(tab.exactCenterX(), tab.exactCenterY(), 180 * density, 0f)
+            val firstTab = bounds(tabText("First shell"))
+            assertEquals("Default tabs share one horizontal row", title.centerY(), firstTab.centerY())
+            click(tabText("First shell"))
+            assertEquals("Default tabs can switch sessions", "first", selected.value)
             action(label(R.string.toolbar_expand))
+            text(context.getString(R.string.toolbar_session_count, 2))
+            text(context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_running), 2))
             tabText("First shell")
             tabText("Pinned work")
-            click(tabText("First shell"))
-            assertEquals("first", selected.value)
+            click(tabText("Pinned work"))
+            assertEquals("second", selected.value)
             action(label(R.string.toolbar_default))
             assertEquals(defaultHandle, bounds(handle()))
-            text("First shell")
-            assertNull(find { it.text?.toString() == "Pinned work" })
-            assertNull(find { it.text?.toString() == "Updated automatic title" })
-            assertNull(find { it.isScrollable })
+            tabText("Pinned work")
+            text("Updated automatic title")
+            assertNull(find { it.text?.toString() == context.getString(R.string.toolbar_session_count, 2) })
             scenario.onActivity { sessions.value = sessions.value.map {
-                if (it.id == "first") it.copy(title = "") else it
+                if (it.id == "second") it.copy(title = "") else it
             } }
             text(label(R.string.shell_default_title))
+        }
+    }
+
+    @Test fun expandedSessionHeaderCountsEachStateAndUpdatesWithTheSessionList() {
+        val selected = mutableStateOf("first")
+        val sessions = mutableStateOf(listOf(
+            SessionUi("first", "NATIVE", "First shell", "RUNNING"),
+            SessionUi("second", "ROOTLESS", "Second shell", "RUNNING"),
+            SessionUi("third", "NATIVE", "Exited shell", "EXITED"),
+        ))
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Box(Modifier.fillMaxWidth().height(400.dp)) {
+                        ToolbarSessionsTool(sessions.value, selected.value, true, emptySet(), emptyList(),
+                            {}, {}, false, { selected.value = it }, {}, {}, {}, {}, {})
+                    }
+                } }
+            } }
+            settle()
+            text(context.getString(R.string.toolbar_session_count, 3))
+            text(context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_running), 2))
+            text(context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_exited), 1))
+            click(tabText("Exited shell"))
+            assertEquals("third", selected.value)
+            text(context.getString(R.string.toolbar_session_count, 3))
+            text(context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_running), 2))
+            for ((state, resource) in listOf(
+                "PREPARING" to R.string.avf_session_preparing_state,
+                "CREATED" to R.string.session_state_created,
+                "EXITED" to R.string.session_state_exited,
+                "LAUNCH_FAILED" to R.string.avf_session_failed_state,
+                "FUTURE_STATE" to R.string.session_state_unknown,
+            )) {
+                scenario.onActivity {
+                    sessions.value = listOf(
+                        SessionUi("first", "NATIVE", "First shell", state),
+                        SessionUi("second", "NATIVE", "Second shell", if (state == "FUTURE_STATE") "OTHER_STATE" else state),
+                    )
+                }
+                text(context.getString(R.string.toolbar_session_count, 2))
+                text(context.getString(R.string.toolbar_session_state_count, label(resource), 2))
+                assertNull(find { it.text?.toString() ==
+                    context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_running), 2) })
+            }
+            scenario.onActivity { sessions.value = emptyList() }
+            text(context.getString(R.string.toolbar_session_count, 0))
+            assertNull(find { it.text?.toString() ==
+                context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_unknown), 2) })
         }
     }
 
@@ -613,7 +671,7 @@ class ToolbarUiTest {
             }
             assertEquals(initialHandle, bounds(handle()))
             assertEquals(initialButton, bounds(description(label(R.string.new_session))))
-            assertNull(find { it.isScrollable })
+            tabText("Motion shell")
         }
     }
 
