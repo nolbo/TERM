@@ -72,12 +72,15 @@ internal data class EnvironmentItem(val environment: Environment, val bytes: Lon
     }
 }
 
-@Composable internal fun environmentDescription(environment: Environment): String {
-    val runtime = stringResource(when (environment.runtime) {
+@Composable private fun environmentRuntimeTitle(runtime: EnvironmentRuntime): String =
+    stringResource(when (runtime) {
         EnvironmentRuntime.NATIVE -> R.string.runtime_native_title
         EnvironmentRuntime.ROOTLESS -> R.string.runtime_rootless_title
         EnvironmentRuntime.AVF -> R.string.environment_runtime_avf
     })
+
+@Composable internal fun environmentDescription(environment: Environment): String {
+    val runtime = environmentRuntimeTitle(environment.runtime)
     val distribution = environment.distribution?.let { stringResource(when (it) {
         EnvironmentDistribution.DEBIAN -> R.string.runtime_debian_title
         EnvironmentDistribution.UBUNTU -> R.string.runtime_ubuntu_title
@@ -405,14 +408,13 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
     }
     @Composable private fun EnvironmentRow(row: EnvironmentItem, service: IRuntimeService?, measurement: Semaphore, click: () -> Unit) {
         val size = environmentSize(row, service, measurement)
-        val runtimeTitle = environmentDescription(row.environment)
+        val runtimeTitle = environmentRuntimeTitle(row.environment.runtime)
         val colors = terminalSettingsListItemColors()
-        ListItem(onClick = click, supportingContent = { Column {
-                Text(runtimeTitle)
-                Text(stringResource(R.string.storage_counts, size, row.profiles.size, row.sessions.size))
-                Text(environmentState(row.runtimeState))
-            } },
-            trailingContent = { EnvironmentChevron() }, verticalAlignment = Alignment.CenterVertically,
+        ListItem(onClick = click, supportingContent = { Text(runtimeTitle) },
+            trailingContent = { Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(size, style = MaterialTheme.typography.labelLarge)
+                EnvironmentChevron()
+            } }, verticalAlignment = Alignment.CenterVertically,
             shapes = terminalListItemShapes(), modifier = Modifier.fillMaxWidth(), colors = colors) { Text(row.name ?: runtimeTitle) }
     }
     @Composable private fun EnvironmentInfoRow(label: Int, value: String) {

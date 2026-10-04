@@ -16,7 +16,7 @@
 | 설정 홈 | 큰 제목 아래 검색 필드와 카테고리 그룹을 배치한다. 검색 중에는 일치하는 카테고리·하위 항목을 목록으로 표시한다. | [ComposeUi.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/ComposeUi.kt)의 `SettingsOverview` |
 | 상세 설정 | 큰 제목, 화면 설명, 섹션 제목, 관련 설정 행의 그룹 순서다. 긴 내용은 세로로 스크롤한다. | [SettingsDetailActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/SettingsDetailActivity.kt) |
 | 프로필 | 관리 화면은 프로필 추가와 기존 프로필 목록을 구분한다. 편집 화면은 이름·아이콘, 팔레트, 실행환경, 셸·시작 설정, 환경 변수 등의 섹션으로 구성한다. | [ProfilesActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/ProfilesActivity.kt), [ProfileEditActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/ProfileEditActivity.kt) |
-| 실행환경 | 사용 중인 실행환경과 연결된 프로필이 없는 실행환경을 구분한다. 상세에는 실행환경 정보·연결된 프로필·세션·배포판 또는 이미지 관리가 있고, 화면 하단에는 실행환경 작업 툴바가 있다. | [EnvironmentActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/EnvironmentActivity.kt) |
+| 실행환경 | 사용 중인 실행환경과 연결된 프로필이 없는 실행환경을 구분하고, 목록 행에는 이름·런타임·용량만 표시한다. 상세에는 실행환경 정보·연결된 프로필·세션·배포판 또는 이미지 관리가 있고, 화면 하단에는 실행환경 작업 툴바가 있다. | [EnvironmentActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/EnvironmentActivity.kt) |
 | USB 디바이스 | 대기 중인 접근 요청을 우선하며, 기기·허용된 접근·이동식 저장장치·호스트 도구·도움말 및 진단을 섹션으로 구분한다. 긴 기기 정보와 도움말은 펼침 행으로 제공한다. | [UsbSettingsScreen.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/UsbSettingsScreen.kt) |
 | 앱 업데이트 | 최상단 채널 선택, 업데이트 상태 카드와 주요 버튼 또는 진행률, 릴리즈노트 카드 순서다. | [AppUpdatesActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/AppUpdatesActivity.kt) |
 | 앱 정보·라이선스 | 앱 메타데이터는 읽기 전용 행으로, 라이선스는 디렉터리 목록과 선택 가능한 원문으로 표시한다. | [AppInfoActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/AppInfoActivity.kt) |
