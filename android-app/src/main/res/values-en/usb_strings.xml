@@ -1,7 +1,7 @@
 <resources>
     <string name="usb_title">USB devices</string>
-    <string name="usb_summary">Manage Native iPhone and Rootless USB access</string>
-    <string name="usb_help">Native and Rootless support terminal-usb list, iphone and tooling commands. Rootless also provides serial, adb, mtp and raw (Python 3 required). Approve requests here, then rerun the command. Enter tool account/2FA only in Host tool inputs. For mounted storage, choose a folder below.</string>
+    <string name="usb_summary">Manage Native iPhone and Userspace Linux USB access</string>
+    <string name="usb_help">Native and Userspace Linux support terminal-usb list, iphone and tooling commands. Userspace Linux also provides serial, adb, mtp and raw (Python 3 required). Approve requests here, then rerun the command. Enter tool account/2FA only in Host tool inputs. For mounted storage, choose a folder below.</string>
     <string name="usb_connecting">Connecting to USB service…</string>
     <string name="usb_unsupported">This Android device does not support USB Host.</string>
     <string name="usb_no_devices">No USB devices are connected.</string>
@@ -19,7 +19,7 @@
     <string name="usb_iphone_list">iPhone AFC · list the displayed directory</string>
     <string name="usb_iphone_get">iPhone AFC · download the displayed file (up to 64 MiB)</string>
     <string name="usb_iphone_put">iPhone AFC · upload new files to TerminalImports (up to 64 MiB)</string>
-    <string name="usb_iphone_confirmation">Allow only the selected iPhone operation. Interface -1 means device-level access; the USB configuration may change. Pairing requires unlocking and trusting this app on the iPhone. Unpairing removes this app’s pairing. Android manages credentials without sending them to Rootless. Session exit, unplugging or revocation cancels access. Other iPhone operations require separate approval.</string>
+    <string name="usb_iphone_confirmation">Allow only the selected iPhone operation. Interface -1 means device-level access; the USB configuration may change. Pairing requires unlocking and trusting this app on the iPhone. Unpairing removes this app’s pairing. Android manages credentials without sending them to Userspace Linux. Session exit, unplugging or revocation cancels access. Other iPhone operations require separate approval.</string>
     <string name="usb_request_label">%1$s\nSession: %2$s\nUSB %3$s · interface %4$d\n%5$s</string>
     <string name="usb_confirmation">Programs in this session can read data and send commands through the selected USB interfaces. Commands may change data or settings on the connected device. Access lasts until session exit, disconnection or revocation. Raw access does not restrict command semantics.</string>
     <string name="usb_add_storage">Choose removable storage folder</string>

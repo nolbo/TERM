@@ -1,15 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="storage_title">Environments</string>
-    <string name="storage_settings">Environment settings</string>
-    <string name="profile_storage_existing">Use existing environment</string>
-    <string name="profile_storage_name">Environment name</string>
+    <string name="storage_title">Execution Environment</string>
+    <string name="storage_settings">Execution Environment settings</string>
+    <string name="profile_storage_existing">Use existing execution environment</string>
+    <string name="profile_storage_name">Execution Environment name</string>
     <string name="profile_storage_name_hint">Leave blank to name it automatically from the profile.</string>
-    <string name="profile_storage_empty">No compatible existing environment is available.</string>
-    <string name="storage_name">Environment name</string>
+    <string name="profile_storage_empty">No compatible existing execution environment is available.</string>
+    <string name="storage_name">Execution Environment name</string>
     <string name="storage_rename">Rename</string>
-    <string name="storage_information">Environment information</string>
-    <string name="storage_id">Environment ID</string>
+    <string name="storage_information">Execution Environment information</string>
+    <string name="storage_id">Execution Environment ID</string>
     <string name="storage_size">Storage</string>
     <string name="storage_runtime_size">%1$s · %2$s</string>
     <string name="storage_profile_count">Connected profile count</string>
@@ -17,12 +17,12 @@
     <string name="storage_count_value">%1$d</string>
     <string name="storage_deletion">Deletion availability</string>
     <string name="storage_name_hint">Renaming preserves profile, session, and data identities.</string>
-    <string name="storage_summary">Environments retain files, packages, and runtime state. Multiple profiles and sessions can use the same environment.</string>
-    <string name="storage_loading">Loading environments…</string>
-    <string name="storage_unavailable">Environment information is unavailable.</string>
-    <string name="storage_used">Environments in use</string>
-    <string name="storage_unused">Environments without profiles</string>
-    <string name="storage_existing">Existing environment %1$s · %2$s</string>
+    <string name="storage_summary">Execution Environments retain files, packages, and runtime state. Multiple profiles and sessions can use the same execution environment.</string>
+    <string name="storage_loading">Loading execution environments…</string>
+    <string name="storage_unavailable">Execution Environment information is unavailable.</string>
+    <string name="storage_used">Execution Environments in use</string>
+    <string name="storage_unused">Execution Environments without profiles</string>
+    <string name="storage_existing">Existing execution environment %1$s · %2$s</string>
     <string name="storage_profiles">Connected profiles</string>
     <string name="storage_sessions">Running sessions</string>
     <string name="storage_none">None</string>
@@ -30,10 +30,10 @@
     <string name="storage_size_calculating">Calculating size</string>
     <string name="storage_size_unknown">Size unavailable</string>
     <string name="storage_size_partial">At least %1$s (partial)</string>
-    <string name="storage_missing">This environment no longer exists.</string>
-    <string name="storage_delete">Delete environment</string>
-    <string name="storage_delete_hint">Deleting storage permanently removes this environment’s data.</string>
-    <string name="storage_delete_confirm">Permanently delete environment %1$s and all its data? This cannot be undone.</string>
-    <string name="storage_legacy_protected">Complete legacy adoption before deleting the environment.</string>
+    <string name="storage_missing">This execution environment no longer exists.</string>
+    <string name="storage_delete">Delete execution environment</string>
+    <string name="storage_delete_hint">Deleting storage permanently removes this execution environment’s data.</string>
+    <string name="storage_delete_confirm">Permanently delete execution environment %1$s and all its data? This cannot be undone.</string>
+    <string name="storage_legacy_protected">Complete legacy adoption before deleting the execution environment.</string>
     <string name="storage_in_use_protected">Storage with connected profiles or active sessions cannot be deleted.</string>
 </resources>

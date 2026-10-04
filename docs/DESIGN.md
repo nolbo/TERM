@@ -15,18 +15,20 @@
 | 터미널 | 상단 앱 바 없이 터미널 캔버스와 하단의 높이 조절 툴바를 배치한다. 툴바의 세션 툴에 새 세션·설정 진입을 둔다. | [MainActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/MainActivity.kt), [TerminalToolbar.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/TerminalToolbar.kt) |
 | 설정 홈 | 큰 제목 아래 검색 필드와 카테고리 그룹을 배치한다. 검색 중에는 일치하는 카테고리·하위 항목을 목록으로 표시한다. | [ComposeUi.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/ComposeUi.kt)의 `SettingsOverview` |
 | 상세 설정 | 큰 제목, 화면 설명, 섹션 제목, 관련 설정 행의 그룹 순서다. 긴 내용은 세로로 스크롤한다. | [SettingsDetailActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/SettingsDetailActivity.kt) |
-| 프로필 | 관리 화면은 프로필 추가와 기존 프로필 목록을 구분한다. 편집 화면은 이름·아이콘, 팔레트, 환경, 셸·시작 설정, 환경 변수 등의 섹션으로 구성한다. | [ProfilesActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/ProfilesActivity.kt), [ProfileEditActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/ProfileEditActivity.kt) |
-| 환경 | 사용 중인 환경과 연결된 프로필이 없는 환경을 구분한다. 상세에는 환경 정보·연결된 프로필·세션·배포판 또는 이미지 관리가 있고, 화면 하단에는 환경 작업 툴바가 있다. | [EnvironmentActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/EnvironmentActivity.kt) |
+| 프로필 | 관리 화면은 프로필 추가와 기존 프로필 목록을 구분한다. 편집 화면은 이름·아이콘, 팔레트, 실행환경, 셸·시작 설정, 환경 변수 등의 섹션으로 구성한다. | [ProfilesActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/ProfilesActivity.kt), [ProfileEditActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/ProfileEditActivity.kt) |
+| 실행환경 | 사용 중인 실행환경과 연결된 프로필이 없는 실행환경을 구분한다. 상세에는 실행환경 정보·연결된 프로필·세션·배포판 또는 이미지 관리가 있고, 화면 하단에는 실행환경 작업 툴바가 있다. | [EnvironmentActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/EnvironmentActivity.kt) |
 | USB 디바이스 | 대기 중인 접근 요청을 우선하며, 기기·허용된 접근·이동식 저장장치·호스트 도구·도움말 및 진단을 섹션으로 구분한다. 긴 기기 정보와 도움말은 펼침 행으로 제공한다. | [UsbSettingsScreen.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/UsbSettingsScreen.kt) |
 | 앱 업데이트 | 최상단 채널 선택, 업데이트 상태 카드와 주요 버튼 또는 진행률, 릴리즈노트 카드 순서다. | [AppUpdatesActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/AppUpdatesActivity.kt) |
 | 앱 정보·라이선스 | 앱 메타데이터는 읽기 전용 행으로, 라이선스는 디렉터리 목록과 선택 가능한 원문으로 표시한다. | [AppInfoActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/AppInfoActivity.kt) |
 | 초기 설정·진단·크래시 | 초기 설정은 실행 방식별 안내 카드와 시작 동작을 구분한다. 진단과 크래시 본문은 복사할 수 있는 고정폭 텍스트를 사용한다. | [ComposeUi.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/ComposeUi.kt)의 `SetupScreen`, `DiagnosticsScreen`, `CrashScreen` |
 
-설정 홈의 그룹 순서는 **환경·프로필 → 언어·터미널 설정 → Rootless Linux·AVF Linux·Native 셸 → 앱 업데이트·앱 정보**다. AVF Linux 카테고리는 AVF 권한이 있는 경우에만 노출한다. 관련 설정을 추가할 때는 먼저 기존 카테고리와 섹션에 배치한다. 독립적인 사용자 목적과 여러 하위 설정이 있어 별도 진입이 필요한 경우에만 새 상위 카테고리를 만든다.
+설정 홈의 그룹 순서는 **실행환경·프로필 → 언어·터미널 설정 → Userspace Linux·AVF Linux·Native 셸 → 앱 업데이트·앱 정보**다. AVF Linux 카테고리는 AVF 권한이 있는 경우에만 노출한다. 관련 설정을 추가할 때는 먼저 기존 카테고리와 섹션에 배치한다. 독립적인 사용자 목적과 여러 하위 설정이 있어 별도 진입이 필요한 경우에만 새 상위 카테고리를 만든다.
 
 터미널 설정은 현재 **USB 디바이스, 사용자 설정, 셸, 터미널 기록, 햅틱 피드백, 공유 내부저장소, 백그라운드 실행, Android 권한**으로 나뉜다. 사용자 설정에서 툴바 설정과 터미널 모양으로 이동하며, 터미널 모양은 여백·텍스트·사용자 글꼴·컬러 팔레트를 구분한다. 관련성이 높은 옵션을 같은 섹션에 두고 기존 진입 경로를 유지한다.
 
-프로필의 실행 설정, 개별 환경의 데이터·설치·실행 상태, 실행 엔진의 전역 정책을 구분한다. 개별 배포판·VM의 설치·제거·시작·중지는 환경 상세에 둔다. Rootless Linux·AVF Linux 설정에는 엔진 지원·정책·진단과 환경 관리 진입을 둔다. 저장소 내부 식별자와 파일 구조를 새 최상위 사용자 개념으로 노출하지 않는다.
+프로필의 실행 설정, 개별 실행환경의 데이터·설치·실행 상태, 실행 엔진의 전역 정책을 구분한다. 개별 배포판·VM의 설치·제거·시작·중지는 실행환경 상세에 둔다. Userspace Linux·AVF Linux 설정에는 엔진 지원·정책·진단과 실행환경 관리 진입을 둔다. 저장소 내부 식별자와 파일 구조를 새 최상위 사용자 개념으로 노출하지 않는다.
+
+사용자 화면에서는 PRoot 기반 Linux를 **Userspace Linux**, 파일·패키지·런타임 상태를 보관하는 단위를 **실행환경(Execution Environment)**으로 표시한다.
 
 ## 3. 공통 시각 규칙
 
@@ -39,7 +41,7 @@
 | 텍스트 계층 | 화면 설명은 `bodyLarge`와 `onSurfaceVariant`, 섹션 제목은 `labelLarge`와 `primary`다. 설정 행은 Material `ListItem`의 제목·설명 계층을 사용하고 현재 값은 주로 `labelLarge`로 표시한다. |
 | 색상 역할 | 일반 강조는 중립 테마 토큰을 사용한다. 파란색 semantic token은 활성·가용·준비·진행 상태에 사용하고, 오류·삭제 경고는 `error` 계열을 사용한다. 상태는 텍스트로도 설명한다. 민트 계열 장식색을 추가하지 않는다. |
 | 곡률 | 독립 카드와 일반 행의 기본 모양은 `extraLarge`인 28dp다. 설정 그룹의 바깥 모서리는 28dp, 그룹 내부 행은 4dp 모서리와 2dp 간격을 사용한다. |
-| 아이콘 | 앱 동작 아이콘은 기본 비채움 스타일의 24dp Material Symbols Rounded를 사용한다. 기존 실행 환경·프로필 아이콘은 공통 렌더러를 재사용한다. |
+| 아이콘 | 앱 동작 아이콘은 기본 비채움 스타일의 24dp Material Symbols Rounded를 사용한다. 기존 실행환경·프로필 아이콘은 공통 렌더러를 재사용한다. |
 | 터치 영역 | 일반 동작은 최소 48dp다. 화면 밀도를 높이려고 버튼의 터치 영역을 축소하지 않는다. 터미널의 extra key 높이 40dp와 툴바 핸들 24dp는 기존 전용 배치의 예외다. |
 | 비활성 상태 | 활성 행과 같은 표면색을 유지하고 제목·설명·아이콘 등 전경만 `onSurface`의 38% 불투명도로 낮춘다. 행 전체에 alpha를 적용하지 않는다. |
 
@@ -66,7 +68,7 @@ scaffold가 전달한 padding과 시스템 inset을 적용한다. 상태 표시�
 | 화면 설명 | 콘텐츠 시작에서 추가 가로 4dp |
 | 그룹 내부 행 사이 | 배경이 비치는 2dp 간격 |
 | 설정 홈 카테고리 행 | 최소 높이 72dp, 40dp 원형 아이콘 표면 안에 24dp 아이콘 |
-| 환경 상세의 진행 내용 | 그룹 행 표면 안쪽 16dp |
+| 실행환경 상세의 진행 내용 | 그룹 행 표면 안쪽 16dp |
 
 새 일반 설정 화면은 이 기본값을 따른다. 현재 USB 화면의 섹션 간격 24dp, 툴바 설정의 16dp 간격, 업데이트 화면의 16dp 콘텐츠 여백·20dp 카드 안쪽 여백은 각 화면의 기존 구성이다. 해당 화면에 항목을 추가할 때는 주변 구현을 따르며, 기본값을 적용하기 위해 요청 범위 밖의 화면을 일괄 수정하지 않는다.
 
@@ -76,13 +78,13 @@ scaffold가 전달한 padding과 시스템 inset을 적용한다. 상태 표시�
 
 `SettingsGroup`은 바깥 클리핑과 2dp 간격을 제공한다. 행에는 `terminalListItemShapes()`와 `terminalSettingsListItemColors()`를 적용한다. 읽기 전용 행·진행 내용·사용자 글꼴 탭처럼 클릭형 `ListItem`이 아닌 내용에는 `settingsItemSurface()`를 적용해 같은 표면을 유지한다. 한 행만 있으면 그룹 클리핑으로 네 바깥 모서리가 모두 크게 보인다. 그룹 전체를 다시 색칠해 2dp 간격을 없애거나 구분선을 추가하지 않는다.
 
-환경 목록처럼 행마다 지연 로딩이 필요한 경우에는 전체 그룹을 하나의 lazy item으로 만들지 않는다. `EnvironmentGroupCard`처럼 첫 행의 위쪽과 마지막 행의 아래쪽에 28dp 모서리를 적용하고, 나머지 모서리는 4dp로 유지해 같은 그룹 형태를 만든다. 툴바 순서 편집처럼 행이 그룹 밖으로 움직이는 경우에는 기존 드래그 구현의 행별 곡률과 그림자 처리를 유지한다.
+실행환경 목록처럼 행마다 지연 로딩이 필요한 경우에는 전체 그룹을 하나의 lazy item으로 만들지 않는다. `EnvironmentGroupCard`처럼 첫 행의 위쪽과 마지막 행의 아래쪽에 28dp 모서리를 적용하고, 나머지 모서리는 4dp로 유지해 같은 그룹 형태를 만든다. 툴바 순서 편집처럼 행이 그룹 밖으로 움직이는 경우에는 기존 드래그 구현의 행별 곡률과 그림자 처리를 유지한다.
 
-단순 사용 설명과 제한 안내는 카드 밖의 배경 없는 보조 텍스트로 둔다. 특정 옵션에 필요한 짧은 설명은 그 행의 supporting content에 넣는다. 실행 가능한 설정과 상태 확인 동작은 그룹 안에 둔다. Rootless Linux와 AVF Linux의 엔진 지원 상태는 공통 읽기 전용 `ListItem`으로 표시하고, 환경 관리·진단 이동 행은 해당 섹션의 `SettingsGroup`에 둔다. Rootless의 제한 안내는 환경 섹션의 그룹 아래 보조 텍스트로 표시한다.
+단순 사용 설명과 제한 안내는 카드 밖의 배경 없는 보조 텍스트로 둔다. 특정 옵션에 필요한 짧은 설명은 그 행의 supporting content에 넣는다. 실행 가능한 설정과 상태 확인 동작은 그룹 안에 둔다. Userspace Linux와 AVF Linux의 엔진 지원 상태는 공통 읽기 전용 `ListItem`으로 표시하고, 실행환경 관리·진단 이동 행은 해당 섹션의 `SettingsGroup`에 둔다. Userspace Linux의 제한 안내는 실행환경 섹션의 그룹 아래 보조 텍스트로 표시한다.
 
 ## 5. 설정 항목 유형과 조작 규칙
 
-설정 행의 제목·설명은 시작 방향에 정렬한다. 앞쪽 아이콘과 뒤쪽 값·아이콘·컨트롤은 설명이 여러 줄이어도 행 전체에서 수직 중앙에 둔다. 모든 상세 행에 설정 홈의 원형 아이콘 배경을 반복하지 않는다. 앞쪽 아이콘은 실행 환경이나 동작을 구분하는 데 도움이 될 때만 사용한다.
+설정 행의 제목·설명은 시작 방향에 정렬한다. 앞쪽 아이콘과 뒤쪽 값·아이콘·컨트롤은 설명이 여러 줄이어도 행 전체에서 수직 중앙에 둔다. 모든 상세 행에 설정 홈의 원형 아이콘 배경을 반복하지 않는다. 앞쪽 아이콘은 실행환경이나 동작을 구분하는 데 도움이 될 때만 사용한다.
 
 | 유형 | 행의 표시 | 조작과 저장 |
 | --- | --- | --- |
@@ -91,7 +93,7 @@ scaffold가 전달한 padding과 시스템 inset을 적용한다. 상태 표시�
 | 숫자 | 현재 값과 단위 | `IntegerSetting` 패턴의 입력 대화상자를 사용한다. 단위·범위를 안내하고 전체 입력이 유효할 때만 저장과 IME 완료를 허용한다. |
 | 경로·짧은 텍스트 | 현재 값 또는 설명 영역의 값 | `TextSetting`·`ProfileField` 패턴으로 입력 대화상자를 연다. 값 수정 행에는 탐색 화살표를 붙이지 않는다. 긴 값은 설명 영역이나 대화상자에서 읽을 수 있게 한다. |
 | 하위 화면·시스템 설정 이동 | 제목·설명과 끝쪽 `>` | `ActionSetting` 등 기존 탐색 행을 사용한다. 설정 홈의 1차 카테고리는 화살표를 생략하는 예외다. |
-| 설치·재시도·제거 등 작업 | 명확한 동작 이름, 필요한 설명과 동작 아이콘 | 환경의 `EnvironmentActionSetting`처럼 전체 너비의 작업 행을 사용한다. 진행 중 중복 실행을 막고 삭제·제거는 영향 설명과 확인을 제공한다. |
+| 설치·재시도·제거 등 작업 | 명확한 동작 이름, 필요한 설명과 동작 아이콘 | 실행환경의 `EnvironmentActionSetting`처럼 전체 너비의 작업 행을 사용한다. 진행 중 중복 실행을 막고 삭제·제거는 영향 설명과 확인을 제공한다. |
 | 읽기 전용 정보 | 제목과 상태·값 | 클릭 의미를 추가하지 않고 공통 표면을 유지한다. 앱 버전·리비전처럼 복사가 필요한 값은 선택 가능하게 하고 긴 값은 줄바꿈한다. |
 | 단순 안내 | 카드 밖 보조 텍스트 | 클릭·탐색 화살표·옵션 사이 구분선을 부여하지 않는다. |
 | 펼침 정보 | 제목과 아래 방향 꺾쇠 | `SettingsExpansionContent`·`SettingsExpansionIcon`을 재사용한다. 펼침·접힘 상태를 접근성으로 알린다. |
@@ -106,17 +108,17 @@ scaffold가 전달한 padding과 시스템 inset을 적용한다. 상태 표시�
 
 프로필·팔레트·단축키처럼 전체 저장이 있는 편집기는 대화상자의 **저장**도 화면 초안만 변경한다. 전체 **저장** 전에는 영속화하지 않고, 변경 후 나갈 때는 폐기를 확인한다. 툴바 도구 추가·제거·순서 변경은 현재 구현처럼 즉시 저장하며 제거가 도구 내부 설정을 지우지 않게 한다. 같은 화면 안에서 새 옵션만 다른 저장 방식을 사용하지 않는다.
 
-기존 프로필 편집과 환경 상세의 주요 동작은 하단 중앙의 `HorizontalFloatingToolbar`와 공통 `FloatingToolbarAction`을 따른다. Material 기본 표면·높이·패딩·그림자와 원형 아이콘 버튼을 유지하고, 접근성 설명과 툴팁으로 동작 이름을 제공한다. 새 프로필·복제본 생성은 마지막 설정 뒤 전체 너비의 저장 텍스트 버튼을 사용한다. 저장·복제·삭제에는 각각 저장·복사·휴지통 아이콘을 사용하며 삭제는 `error` 색과 확인 절차를 따른다.
+기존 프로필 편집과 실행환경 상세의 주요 동작은 하단 중앙의 `HorizontalFloatingToolbar`와 공통 `FloatingToolbarAction`을 따른다. Material 기본 표면·높이·패딩·그림자와 원형 아이콘 버튼을 유지하고, 접근성 설명과 툴팁으로 동작 이름을 제공한다. 새 프로필·복제본 생성은 마지막 설정 뒤 전체 너비의 저장 텍스트 버튼을 사용한다. 저장·복제·삭제에는 각각 저장·복사·휴지통 아이콘을 사용하며 삭제는 `error` 색과 확인 절차를 따른다.
 
-설치·다운로드 상태는 해당 환경의 그룹 안에서 현재 상태와 진행을 읽을 수 있게 한다. 상태·작업·진행 행은 같은 2dp 간격과 표면을 사용하며 진행 확인을 모달에만 한정하지 않는다. 측정한 전체량이 있는 현재 단계에는 determinate wavy progress, 전체량을 모르면 indeterminate 표시를 사용한다. 현재 단계 진행률을 전체 설치 완료율로 표현하거나 남은 시간을 추정하지 않는다. 완료·실패·취소 후에는 진행 애니메이션과 경과 시간 증가를 멈춘다.
+설치·다운로드 상태는 해당 실행환경의 그룹 안에서 현재 상태와 진행을 읽을 수 있게 한다. 상태·작업·진행 행은 같은 2dp 간격과 표면을 사용하며 진행 확인을 모달에만 한정하지 않는다. 측정한 전체량이 있는 현재 단계에는 determinate wavy progress, 전체량을 모르면 indeterminate 표시를 사용한다. 현재 단계 진행률을 전체 설치 완료율로 표현하거나 남은 시간을 추정하지 않는다. 완료·실패·취소 후에는 진행 애니메이션과 경과 시간 증가를 멈춘다.
 
-AVF 세션 시작은 선택된 새 탭의 본문 중앙에 `LoadingIndicator`만 표시하는 기존 준비 화면을 따른다. 설치 진행의 상세 정보는 환경 상세나 기존 진행 화면에 둔다. 오류는 오류 설명과 가능한 재시도·닫기 동작을 제공한다. 화면 닫기·뒤로가기·재생성은 런타임 작업이나 세션 종료가 아니다. UI는 실제 상태를 관찰하고 명시적인 사용자 동작을 전달한다.
+AVF 세션 시작은 선택된 새 탭의 본문 중앙에 `LoadingIndicator`만 표시하는 기존 준비 화면을 따른다. 설치 진행의 상세 정보는 실행환경 상세나 기존 진행 화면에 둔다. 오류는 오류 설명과 가능한 재시도·닫기 동작을 제공한다. 화면 닫기·뒤로가기·재생성은 런타임 작업이나 세션 종료가 아니다. UI는 실제 상태를 관찰하고 명시적인 사용자 동작을 전달한다.
 
 펼침 높이와 꺾쇠 회전은 테마의 spatial spec, 투명도는 effects spec을 사용한다. 시스템 애니메이션 배율을 따르고 전환 도중 다시 누르면 현재 위치에서 이어서 전환한다. 새 화면에 임의의 장식 모션이나 독립적인 전환 규칙을 추가하지 않는다.
 
 ## 7. 새 설정을 추가하는 절차
 
-1. **설정의 범위를 결정한다.** 앱 공통·터미널 표시/입력·프로필 실행 설정·개별 환경 작업·엔진 전역 정책 중 어디에 속하는지 확인한다. 사용자가 효과를 예상할 수 있는 기존 카테고리와 섹션에 배치한다.
+1. **설정의 범위를 결정한다.** 앱 공통·터미널 표시/입력·프로필 실행 설정·개별 실행환경 작업·엔진 전역 정책 중 어디에 속하는지 확인한다. 사용자가 효과를 예상할 수 있는 기존 카테고리와 섹션에 배치한다.
 2. **가장 가까운 기존 행을 기준으로 삼는다.** 같은 화면의 `SettingsSection`·`ProfileSection`·`EnvironmentSection`과 위 유형 표의 컴포넌트를 재사용한다. 새 옵션 하나 때문에 별도 카드 체계나 범용 설정 프레임워크를 도입하지 않는다.
 3. **제목·설명·기본값·적용 시점을 정한다.** 제목은 짧은 기능명, 설명은 사용자에게 생기는 효과와 필요한 조건으로 작성한다. 변경이 새 세션에만 적용되거나 권한·설치가 필요하면 해당 행에서 안내한다. 일반 안내는 ‘~합니다 / ~하세요’ 문체를 유지한다.
 4. **주변 배치와 상태를 맞춘다.** 관련 옵션을 인접하게 두고 종속 옵션은 기준 옵션 뒤에 둔다. 삭제 등 영향이 큰 작업은 일반 선택과 구분하고 확인을 제공한다. 기존 그룹의 표면·2dp 간격·모서리·수직 정렬·비활성 규칙을 유지한다.
@@ -167,6 +169,6 @@ UI 변경의 검증 범위와 빌드 명령은 [AGENTS.md](../AGENTS.md)를 따�
 | 숫자·경로·스위치·상세 섹션 | [SettingsDetailActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/SettingsDetailActivity.kt) |
 | 검색 항목과 섹션 목적지 | [SettingsSearch.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/SettingsSearch.kt) |
 | 펼침 콘텐츠와 아이콘 모션 | [SettingsExpansion.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/SettingsExpansion.kt) |
-| 환경 상세 섹션과 작업 행 | [EnvironmentActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/EnvironmentActivity.kt)의 `EnvironmentSection` 사용과 공통 `EnvironmentActionSetting` 패턴 |
+| 실행환경 상세 섹션과 작업 행 | [EnvironmentActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/EnvironmentActivity.kt)의 `EnvironmentSection` 사용과 공통 `EnvironmentActionSetting` 패턴 |
 | 하단 편집 툴바 동작 | [FloatingToolbarAction.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/FloatingToolbarAction.kt) |
 | 터미널 배경에 맞춘 대비 | [TerminalChromeColors.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/TerminalChromeColors.kt) |
