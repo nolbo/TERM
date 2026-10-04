@@ -5,7 +5,7 @@
     <string name="update_dev_warning">Development releases include the latest origin/dev changes and may be unstable. Save terminal work before installing.</string>
     <string name="update_channel_older">This channel’s published version is older than the installed app. Wait for a newer release. Uninstalling to downgrade can lose app data.</string>
     <string name="app_updates">App updates</string>
-    <string name="update_settings_summary">Check, download, and install new versions</string>
+    <string name="update_settings_summary">Check and install updates</string>
     <string name="update_description">Check for a new app version and download it. Installation proceeds in Android’s confirmation screen.</string>
     <string name="update_installed_version">Installed version · %1$s</string>
     <string name="update_idle">Check whether a new version is available.</string>

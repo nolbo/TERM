@@ -5,7 +5,7 @@
     <string name="update_dev_warning">개발 릴리스는 origin/dev의 최신 변경을 포함하며 기능이 불안정할 수 있습니다. 설치 전에 터미널 작업을 저장하세요.</string>
     <string name="update_channel_older">선택한 채널의 배포 버전이 설치된 앱보다 이전입니다. 더 새로운 버전이 배포되면 업데이트할 수 있습니다. 앱을 삭제해 이전 버전을 설치하면 데이터가 손실될 수 있습니다.</string>
     <string name="app_updates">앱 업데이트</string>
-    <string name="update_settings_summary">새 버전 확인, 다운로드와 설치</string>
+    <string name="update_settings_summary">새 버전 확인과 설치</string>
     <string name="update_description">새 앱 버전이 있는지 확인하고 내려받을 수 있습니다. 설치는 Android의 확인 화면에서 진행합니다.</string>
     <string name="update_installed_version">설치된 버전 · %1$s</string>
     <string name="update_idle">새 버전이 있는지 확인할 수 있습니다.</string>
