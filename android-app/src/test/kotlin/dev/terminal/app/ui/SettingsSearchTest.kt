@@ -8,12 +8,13 @@ class SettingsSearchTest {
     @Test fun avfCategoriesAndNestedSearchResultsRequirePrivileges() {
         val unprivileged = visibleSettingsSearchEntries(false)
         assertFalse(unprivileged.any { it.target.screen == "avf" })
-        assertEquals(listOf("storage", "profiles", "language", "terminal", "rootless", "native", "updates", "about"),
+        assertEquals(listOf("environments", "profiles", "language", "terminal", "rootless", "native", "updates", "about"),
             unprivileged.filter { it.path.isEmpty() }.map { it.target.screen })
         assertEquals(settingsSearchEntries, visibleSettingsSearchEntries(true))
         assertTrue(visibleSettingsSearchEntries(true).any { it.target.screen == "avf" && it.path.isNotEmpty() })
         assertTrue(unprivileged.any { it.title == R.string.wake_policy })
         assertTrue(unprivileged.any { it.title == R.string.battery_optimization })
+        assertTrue(unprivileged.any { it.title == R.string.debian_image && it.target.screen == "environments" })
     }
 
     @Test fun matchesTitlesDescriptionsAndAncestorPaths() {
@@ -41,11 +42,12 @@ class SettingsSearchTest {
         assertEquals(SettingsSearchTarget("palette"), target(R.string.palette_cursor))
         assertEquals(SettingsSearchTarget("usb"), target(R.string.usb_section_storage))
         assertEquals(SettingsSearchTarget("profiles"), target(R.string.profile_directory))
-        assertEquals(SettingsSearchTarget("storage"), target(R.string.storage_title))
+        assertEquals(SettingsSearchTarget("environments"), target(R.string.storage_title))
+        assertEquals(SettingsSearchTarget("rootless", 1), target(R.string.rootless_limitations))
     }
 
-    @Test fun homeIncludesStorageAndResultKeysAreUnique() {
-        assertEquals(listOf("storage", "profiles", "language", "terminal", "rootless", "avf", "native", "updates", "about"),
+    @Test fun homeIncludesEnvironmentsAndResultKeysAreUnique() {
+        assertEquals(listOf("environments", "profiles", "language", "terminal", "rootless", "avf", "native", "updates", "about"),
             settingsSearchEntries.filter { it.path.isEmpty() }.map { it.target.screen })
         val keys = settingsSearchEntries.map { it.target.screen to it.title }
         assertEquals(keys.size, keys.toSet().size)

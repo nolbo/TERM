@@ -20,11 +20,11 @@ import dev.terminal.runtime.session.SessionStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal fun hasAvfProfileImage(context: Context, storageId: String): Boolean =
+internal fun hasAvfEnvironmentImage(context: Context, storageId: String): Boolean =
     DebianImageVerifier.hasInstalledImage(SessionStorage.root(context.filesDir, SessionRuntime.AVF, storageId).toPath())
 
-/** Displays this storage's files and persisted install progress, independently of VM readiness. */
-@Composable internal fun AvfProfileImageSetting(
+/** Displays this environment's files and persisted install progress, independently of VM readiness. */
+@Composable internal fun AvfEnvironmentImageSetting(
     storageId: String,
     snapshot: AvfImageInstallSnapshot?,
     revision: Int,
@@ -35,7 +35,7 @@ internal fun hasAvfProfileImage(context: Context, storageId: String): Boolean =
     val context = LocalContext.current
     var installed by remember(storageId) { mutableStateOf<Boolean?>(null) }
     LaunchedEffect(storageId, snapshot, revision) {
-        installed = withContext(Dispatchers.IO) { hasAvfProfileImage(context, storageId) }
+        installed = withContext(Dispatchers.IO) { hasAvfEnvironmentImage(context, storageId) }
     }
     ProfileSection(R.string.debian_image) {
         ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors(),

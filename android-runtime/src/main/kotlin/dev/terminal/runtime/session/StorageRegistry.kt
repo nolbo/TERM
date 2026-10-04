@@ -39,7 +39,9 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
             Transaction(state).block()
         } }
     }
-    inner class Transaction internal constructor(private val state: JSONObject) {
+    inner class Transaction internal constructor(internal val state: JSONObject) {
+        // One snapshot per locked transaction; mutations update it before persisting.
+        private val deletedKeys = decodeKeys(state.getJSONArray("deleted")).toMutableSet()
         init { migrateAvfHomeDirectory() }
 
         /** Only saved defaults are upgraded; live launch snapshots and guest files stay untouched. */
@@ -63,7 +65,7 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
             ?.optString(runtime.wireName)?.takeIf { it.isNotEmpty() }?.also { SessionStorage.validate(it); check(it != "legacy") }
         fun canonicalKey(key: Key): Key = if (key.storageId == "legacy")
             migratedLegacyId(key.runtime)?.let { Key(key.runtime, it) } ?: key else key
-        fun isDeleted(key: Key): Boolean = canonicalKey(key) in decodeKeys(state.getJSONArray("deleted"))
+        fun isDeleted(key: Key): Boolean = canonicalKey(key) in deletedKeys
         fun resolveProfile(profile: SessionProfile): SessionProfile =
             profile.copy(storageId = canonicalKey(Key(profile.runtime, profile.storageId)).storageId)
 
@@ -102,7 +104,7 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
         fun name(key: Key): String? = state.optJSONObject("storageNames")?.optString("${key.runtime.wireName}:${key.storageId}")?.takeIf { it.isNotBlank() }
         fun rename(key: Key, value: String, defaults: List<SessionProfile> = emptyList()) {
             check(key in keys() + profiles(defaults).map { Key(it.runtime, it.storageId) }) { "Storage not found" }
-            check(key !in decodeKeys(state.getJSONArray("deleted"))) { "Storage has been deleted" }
+            check(key !in deletedKeys) { "Storage has been deleted" }
             putName(key, value)
             state.put("storages", JSONArray((keys() + key).map { it.json() }))
             persist()
@@ -136,7 +138,7 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
                     if (runCatching { SessionStorage.validate(child.name) }.isSuccess && child.name != "legacy") add(Key(runtime, child.name))
                 }
             }
-        }.filterTo(mutableSetOf()) { it !in decodeKeys(state.getJSONArray("deleted")) }
+        }.filterTo(mutableSetOf()) { it !in deletedKeys }
         fun validateConnection(key: Key) {
             val resolved = canonicalKey(key)
             check(!isDeleted(resolved)) { "Storage has been deleted; choose a new environment" }
@@ -174,17 +176,19 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
             check(key in keys()) { "Storage not found" }
         }
         /** Caller has excluded session creation and verified the controller is idle. */
-        fun delete(key: Key) {
+        fun delete(key: Key, updateMetadata: () -> Unit = {}) {
             check(key.storageId != "legacy")
             deleteTree(root(key).toPath())
             if (key.runtime == SessionRuntime.AVF) deleteTree(File(files, "shared-vms/${SessionStorage.avfInstanceId(files, key.storageId)}").toPath())
             state.put("storages", JSONArray(keys().filter { it != key }.map { it.json() }))
-            state.put("deleted", JSONArray((decodeKeys(state.getJSONArray("deleted")) + key).map { it.json() }))
+            deletedKeys.add(key)
+            state.put("deleted", JSONArray(deletedKeys.map { it.json() }))
             state.optJSONObject("storageNames")?.remove("${key.runtime.wireName}:${key.storageId}")
             sizes.remove(key)
+            updateMetadata()
             persist()
         }
-        private fun persist() {
+        internal fun persist() {
             val temporary = File(files, "storage-registry.json.tmp")
             java.io.FileOutputStream(temporary).use { out -> out.write(state.toString().toByteArray()); out.fd.sync() }
             Files.move(temporary.toPath(), manifest.toPath(), StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE)

@@ -18,6 +18,57 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class UnifiedSessionRegistryTest {
+    @Test fun environmentEditAndRenamePreserveExistingSessionAndFutureLaunchUsesNewOwner() = runBlocking {
+        val metadata = EnvironmentRegistry(kotlin.io.path.createTempDirectory("session-environments").toFile())
+        val first = Environment.create(SessionRuntime.NATIVE, "First")
+        val second = Environment.create(SessionRuntime.NATIVE, "Second")
+        var profile = metadata.transaction { save(SessionProfile("profile", "Profile", SessionRuntime.NATIVE, "/bin/sh"), first) }
+        val launches = mutableMapOf<String, SessionLaunchSpec>()
+        val registry = UnifiedSessionRegistry(recordLaunch = { id, spec -> launches[id] = spec })
+        val ownerA = FakeController("native-a")
+        val ownerB = FakeController("native-b")
+        registry.register(first, ownerA)
+        registry.register(second, ownerB)
+        try {
+            registry.create(metadata.transaction { resolve(profile) }, 24u, 80u).getOrThrow()
+            profile = metadata.transaction { save(profile.copy(environmentId = null), second) }
+            metadata.transaction { rename(first.id, "Renamed") }
+            registry.create(metadata.transaction { resolve(profile) }, 24u, 80u).getOrThrow()
+            assertEquals(first.id, registry.environmentOf("native-a"))
+            assertEquals(second.id, registry.environmentOf("native-b"))
+            assertEquals("First", launches.getValue("native-a").executionEnvironment?.name)
+            registry.detach("native-a").getOrThrow()
+            registry.write("native-a", byteArrayOf(1)).getOrThrow()
+            assertEquals(1, ownerA.writeCount)
+            assertTrue(runCatching { registry.deleteStorageIfIdle(first.sessionRuntime, first.storage.id) {} }.isFailure)
+            assertFalse(ownerA.closed)
+        } finally { registry.close() }
+    }
+
+    @Test fun restoredEnvironmentSnapshotAndLegacyCheckpointOwnershipSurviveReconnect() = runBlocking {
+        val environment = Environment.create(SessionRuntime.AVF, "AVF Debian")
+        val profile = SessionProfile("avf-profile", "AVF", SessionRuntime.AVF, "/bin/bash", environmentId = environment.id)
+        val spec = profile.resolve(environment)
+        val saved = mapOf("avf-restored" to spec.toJson().toString())
+        val registry = UnifiedSessionRegistry(restoreLaunch = { saved[it]?.let(SessionLaunchSpec::fromJson) })
+        val owner = FakeController("avf-restored")
+        registry.register(environment, owner)
+        registry.list().getOrThrow()
+        assertEquals(environment.id, registry.environmentOf("avf-restored"))
+        assertEquals(spec, registry.launchOf("avf-restored"))
+        registry.terminalStates.create("avf-restored", 80, 24)
+        registry.configureTerminal("avf-restored", 24, 80, 8, 16, java.util.Properties())
+        owner.disconnect()
+        assertTrue(registry.verifiedSessions(environment).isFailure)
+        assertTrue(runCatching { registry.deleteStorageIfIdle(environment.sessionRuntime, environment.storage.id) {} }.isFailure)
+        registry.register(environment.copy(name = "Renamed"), FakeController("avf-restored"))
+        registry.list().getOrThrow()
+        assertEquals(spec, registry.launchOf("avf-restored"))
+        assertEquals(environment.id, registry.environmentOf("avf-restored"))
+        assertTrue(registry.terminalStates.sameDimensions("avf-restored", 80, 24))
+        registry.close()
+    }
+
     @Test fun legacyAdoptionDefersActiveOrUnverifiableOwnerAndPreservesLiveSnapshot() = runBlocking {
         val launches = mutableMapOf<String, SessionLaunchSpec>()
         val registry = UnifiedSessionRegistry(recordLaunch = { id, spec -> launches[id] = spec })

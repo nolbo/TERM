@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="environment_runtime_avf">AVF</string>
+    <string name="environment_runtime_state">런타임 상태</string>
+    <string name="environment_stopped">중지됨</string>
+    <string name="environment_active">세션 실행 중</string>
+    <string name="environment_ready">실행 환경 준비됨</string>
+    <string name="environment_suspended">일시 중지됨</string>
+    <string name="environment_preparing">런타임 작업 중</string>
+    <string name="environment_unknown">상태 확인 불가</string>
+    <string name="environment_start">환경 시작</string>
+    <string name="environment_stop">환경 중지</string>
+    <string name="environment_vm_identity">VM ID</string>
+    <string name="environment_disks">영속 디스크</string>
+    <string name="environment_delete_protected">연결된 프로필·활성 세션을 먼저 제거하세요. 런타임 상태를 확인할 수 없거나 이전 데이터 연결이 진행 중이면 삭제할 수 없습니다.</string>
+    <string name="environment_engine_status">실행 엔진 지원 상태</string>
+    <string name="environment_instances_support">환경의 이름, 저장 공간, 설치 및 실행 상태를 관리합니다.</string>
+    <string name="rootless_engine_supported">ARM64 PRoot 실행 엔진 · 추가 Android 권한 없음</string>
+    <string name="rootless_engine_unsupported">이 기기의 아키텍처에서는 PRoot 실행 엔진을 지원하지 않습니다.</string>
+    <string name="avf_engine_privileges">맞춤 Debian ARM64 VM에는 AVF 지원과 MANAGE_VIRTUAL_MACHINE 및 USE_CUSTOM_VIRTUAL_MACHINE 권한이 필요합니다.</string>
+    <string name="environment_avf_guest">AVF · Debian ARM64</string>
+</resources>

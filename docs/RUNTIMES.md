@@ -95,8 +95,8 @@ and [emulated acceleration and validation](ROOTLESS_EMULATED_ACCELERATION.md).
 Ubuntu 24.04 LTS and Arch Linux ARM have separate `files/rootless/ubuntu` and
 `files/rootless/archlinux` roots, homes, temporary files and download caches.
 Debian/Ubuntu validate apt; Arch validates pacman. Only `/workspace` is shared
-by default. The new-session menu explicitly selects each distribution; settings
-show installation states and independent actions for all three distributions together. Existing Debian storage
+by default. The new-session menu explicitly selects each distribution; Environment settings
+show each instance's installation and runtime state; Rootless settings contain only global engine support and diagnostics. Existing Debian storage
 and `ROOTLESS` session identities are preserved. See
 [ROOTLESS_DISTRIBUTIONS.md](ROOTLESS_DISTRIBUTIONS.md) for the pinned catalog and
 validation policy.
@@ -174,7 +174,7 @@ results and remaining device restrictions are in
 
 The APK includes the AOSP AVF execution driver. AVF still needs a supported Android 15+ device, both system permissions, and a compatible device-provided custom-image API authorized by the platform. The API declarations are compile-only, and Native remains the default owner. AVF uses a separate image/root filesystem and guest session daemon. See `AVF_NOTES.md`.
 
-Saving an AVF profile with newly allocated storage asks whether to install Debian. Installation is an explicitly approved background job and does not start a VM. The settings of all profiles sharing that storage display installation status and current progress. A session may wait for an approved job, but a missing image without one requires installation through profile settings; opening a session never implicitly downloads an image.
+Saving an AVF profile with a new Environment opens that environment's image installation choice. Installation is an explicitly approved background job and does not start a VM. Environment details display image status and progress shared by all its profiles. A session may wait for an approved job, but a missing image without one requires installation through environment settings; opening a session never implicitly downloads an image. AVF environments retain a VM identity plus persistent system/home/config images; global AVF settings control engine policy only.
 
 ## Rootless USB
 
@@ -229,3 +229,7 @@ UI terminal mirrors remain subscribed for five seconds after the terminal Activi
 Failed guest/session, bridge and port-agent links back off through 2, 4, 8, 15, 30, 60 and 120 seconds, capped at 120 seconds. Success, explicit work and new session creation reset backoff; pending delays respond to explicit work. No session or pending/guest work means no reconnect loop. Connected event-driven port/task observers remain event-driven.
 
 USB and host-tool UI polling stops with Activity visibility/service unbinding and uses ten-second intervals when no approvals or active operations need updates. Their current AIDL contract has no state-change callback, so bounded polling is retained. Memory polling runs only while its tool and Activity are visible and slows to at least fifteen seconds for unchanged snapshots. These UI polling policies never own or suspend the underlying operations.
+
+## Persistent environments
+
+Environment UUIDs identify persistent execution contexts independently of profiles and sessions. The service reuses one backend per Environment; profiles select how to enter it and sessions retain immutable v2 Environment snapshots. Storage paths and the Rootless legacy shared workspace stay unchanged. See `ARCHITECTURE.md` for identity migration and conservative lifecycle/deletion rules. Native/Rootless PTYs survive UI detach but cannot survive runtime-owner death; reconnecting UI or registry instances must not fabricate lost processes.

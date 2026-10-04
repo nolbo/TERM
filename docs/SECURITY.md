@@ -251,3 +251,9 @@ Existing text/history and graphics quotas still bound retained state; raw PTY
 output is never retained without limit to achieve restoration. The debug-only
 process-death probe requires the platform DUMP permission and is absent from
 release APKs.
+
+## Environment persistence and deletion
+
+Environment UUIDs and their runtime/distribution identity are host-selected metadata, not paths or a new Android UID isolation boundary. Profiles reference Environment IDs; launch snapshots include immutable runtime metadata. The service validates snapshots against Environment identity, including the AVF VM identity, without consulting a mutable profile. Fresh AVF environments cannot select the legacy/default VM identity.
+
+Environment metadata shares the existing process-shared storage lock and atomic manifest. Delete operations recheck profile references, actual session owners and runtime reachability under the preparation/controller locks before removing the runtime and its persistence. Unknown/disconnected AVF owners fail closed. Storage and Environment tombstones are committed together; legacy adoption preserves data locations and inodes. Size/delete walks retain their no-symlink-follow policy, and image workers still check storage tombstones under the same lock.

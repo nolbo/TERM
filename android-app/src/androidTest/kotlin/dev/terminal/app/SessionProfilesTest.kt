@@ -76,8 +76,8 @@ class SessionProfilesTest {
                 }
                 click(R.string.profile_storage_name); typeName(storageName); click(R.string.save)
                 await { find { it.isEditable } == null }
-                val registry = dev.terminal.runtime.session.StorageRegistry(context.filesDir)
-                assertFalse(registry.transaction { keys().any { this.name(it) == storageName } })
+                val registry = dev.terminal.runtime.session.EnvironmentRegistry(context.filesDir)
+                assertFalse(registry.transaction { all().any { it.name == storageName } })
                 activity.recreate()
                 await { find { it.text?.toString() == storageName } != null }
                 await {
@@ -98,7 +98,7 @@ class SessionProfilesTest {
                 val saved = store.all().single { it.name == name }
                 assertEquals("auto", saved.icon)
                 assertNotEquals("legacy", saved.storageId)
-                assertEquals(storageName, registry.transaction { this.name(dev.terminal.runtime.session.StorageRegistry.Key(saved.runtime, saved.storageId)) })
+                assertEquals(storageName, registry.transaction { requireEnvironment(requireNotNull(saved.environmentId)).name })
             }
         } finally { store.all().filter { it.name == name }.forEach { store.delete(it.id) } }
     }
@@ -121,16 +121,9 @@ class SessionProfilesTest {
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
             return walk(automation.rootInActiveWindow)
         }
-        fun click(text: String) {
-            await {
-                var node = find { it.hasLabel(text) }
-                while (node != null && !node.isClickable) node = node.parent
-                node?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) == true
-            }
-        }
         fun scrollStorageList() {
             val bounds = android.graphics.Rect()
-            requireNotNull(find { it.isScrollable }).getBoundsInScreen(bounds)
+            (find { it.isScrollable } ?: return).getBoundsInScreen(bounds)
             val x = bounds.exactCenterX()
             val start = bounds.top + bounds.height() * 0.75f
             val end = bounds.top + bounds.height() * 0.5f
@@ -151,10 +144,26 @@ class SessionProfilesTest {
             touch(android.view.MotionEvent.ACTION_MOVE, end)
             touch(android.view.MotionEvent.ACTION_UP, end)
         }
+        fun click(text: String) {
+            await {
+                var node = find {
+                    var clickable: android.view.accessibility.AccessibilityNodeInfo? = it
+                    while (clickable != null && !clickable.isClickable) clickable = clickable.parent
+                    it.isVisibleToUser && it.hasLabel(text) && clickable != null
+                }
+                while (node != null && !node.isClickable) node = node.parent
+                if (node == null) { scrollStorageList(); false }
+                else node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+            }
+        }
         try {
             store.save(profile); store.save(target, newStorageName = storageName)
             ActivityScenario.launch<ProfileEditActivity>(Intent(context, ProfileEditActivity::class.java)
                 .putExtra("profileId", profile.id)).use {
+                click(context.getString(R.string.profile_storage))
+                click(context.getString(R.string.profile_storage_new))
+                click(context.getString(R.string.save))
+                await { find { it.hasLabel(context.getString(R.string.cancel)) } == null }
                 click(context.getString(R.string.profile_runtime))
                 click(context.getString(R.string.runtime_rootless_title))
                 click(context.getString(R.string.cancel))
@@ -169,9 +178,12 @@ class SessionProfilesTest {
                 click(context.getString(R.string.runtime_ubuntu_title))
                 click(context.getString(R.string.save))
                 await { find { it.text?.toString() == context.getString(R.string.cancel) } == null }
-                // Only storage belonging to the selected distribution can be connected.
+                click(context.getString(R.string.profile_storage))
+                click(context.getString(R.string.profile_storage_existing))
+                click(context.getString(R.string.save))
+                // Only environments with the selected runtime/distribution can be connected.
                 await {
-                    var storage = find { it.text?.toString() == target.storageId }
+                    var storage = find { it.isVisibleToUser && it.text?.toString() == storageName }
                     while (storage != null && !storage.isClickable) storage = storage.parent
                     if (storage?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) == true) true
                     else { scrollStorageList(); false }
@@ -257,7 +269,11 @@ class SessionProfilesTest {
             return walk(automation.rootInActiveWindow)
         }
         fun click(text: String) {
-            var node = find { it.hasLabel(text) } ?: error("Missing: $text")
+            var node = find {
+                    var clickable: android.view.accessibility.AccessibilityNodeInfo? = it
+                    while (clickable != null && !clickable.isClickable) clickable = clickable.parent
+                    it.hasLabel(text) && clickable != null
+                } ?: error("Missing: $text")
             while (!node.isClickable) node = node.parent ?: error("Not clickable: $text")
             assertTrue(node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
         }
@@ -307,8 +323,8 @@ class SessionProfilesTest {
 
     @Test fun defaultProfilesCanBeEditedDeletedAndStayDeletedAfterReopening() {
         val store = SessionProfiles(context)
-        val builtIns = store.builtIns()
-        assertEquals(5, builtIns.size)
+        val builtIns = store.all().filter { it.builtIn }
+        assertEquals(if (store.hasAvfPrivileges()) 5 else 4, builtIns.size)
         val previous = profileOverrides()
         try {
             builtIns.filter { it.runtime != dev.terminal.runtime.session.SessionRuntime.AVF || store.hasAvfPrivileges() }.forEach { original ->
@@ -323,7 +339,8 @@ class SessionProfilesTest {
             assertTrue(SessionProfiles(context).all().none { it.id in builtIns.map { it.id } })
             val copy = store.duplicate(store.builtIns().first()).copy(name = "After deletion")
             store.save(copy)
-            assertEquals(copy, SessionProfiles(context).find(copy.id))
+            assertEquals(copy.name, SessionProfiles(context).find(copy.id)?.name)
+            assertNotNull(SessionProfiles(context).find(copy.id)?.environmentId)
             store.delete(copy.id)
         } finally {
             restoreProfileOverrides(previous)

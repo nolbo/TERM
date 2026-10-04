@@ -39,7 +39,7 @@ class ProfilesActivity : TerminalActivity() {
             LaunchedEffect(profiles, revision, imageInstallations) {
                 installedImages = withContext(Dispatchers.IO) {
                     profiles.filter { it.runtime == SessionRuntime.AVF }.map { it.storageId }.distinct()
-                        .associateWith { hasAvfProfileImage(this@ProfilesActivity, it) }
+                        .associateWith { hasAvfEnvironmentImage(this@ProfilesActivity, it) }
                 }
             }
             SettingsPageScaffold(stringResource(R.string.profiles), { finish() }) { padding ->

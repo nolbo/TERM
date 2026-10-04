@@ -31,6 +31,7 @@ class UnifiedSessionRegistry(
     private val onDisconnected: (SessionRuntime, String) -> Unit = { _, _ -> },
     private val onInput: (String, ByteArray) -> Unit = { _, _ -> },
     private val recordLaunch: (String, SessionLaunchSpec) -> Unit = { _, _ -> },
+    private val restoreLaunch: (String) -> SessionLaunchSpec? = { null },
     private val remoteCommand: (suspend (String, String) -> ByteArray?)? = null,
     val terminalStates: RuntimeTerminalState = RuntimeTerminalState(),
     private val initialPalette: (SessionLaunchSpec) -> java.util.Properties = { spec ->
@@ -56,6 +57,8 @@ class UnifiedSessionRegistry(
 
     private val registrations = ConcurrentHashMap<StorageKey, Registration>()
     private val owners = ConcurrentHashMap<String, StorageKey>()
+    private val environments = ConcurrentHashMap<StorageKey, Environment>()
+    private val launches = ConcurrentHashMap<String, SessionLaunchSpec>()
     private val lastKnownSessions = ConcurrentHashMap<StorageKey, List<SessionDescriptor>>()
     private val listMutex = Mutex()
     private val mutationLocks = dev.terminal.runtime.lifecycle.StoragePreparationLocks()
@@ -64,6 +67,11 @@ class UnifiedSessionRegistry(
 
     override val events: SharedFlow<SessionEvent> = mutableEvents.asSharedFlow()
     override val connectionState: StateFlow<SessionConnectionState> = mutableConnection.asStateFlow()
+
+    fun register(environment: Environment, controller: SessionController) {
+        environments[StorageKey(environment.sessionRuntime, environment.storage.id)] = environment
+        register(environment.sessionRuntime, controller, environment.storage.id)
+    }
 
     fun register(runtime: SessionRuntime, controller: SessionController, storageId: String = "legacy") {
         val key = StorageKey(runtime, storageId)
@@ -139,6 +147,7 @@ class UnifiedSessionRegistry(
             val next = StorageKey(runtime, adopt())
             check(next != old && !registrations.containsKey(next)) { "Invalid migration target" }
             if (registration != null) {
+                environments.remove(old)?.let { environments[next] = it.copy(storage = EnvironmentStorage(next.storageId)) }
                 registrations.remove(old)
                 registration.jobs.forEach(Job::cancel)
                 register(runtime, registration.controller, next.storageId)
@@ -157,6 +166,7 @@ class UnifiedSessionRegistry(
             }
             val key = StorageKey(runtime, storageId)
             registrations.remove(key)?.jobs?.forEach(Job::cancel)
+            environments.remove(key)
             owners.entries.removeAll { it.value == key }
             lastKnownSessions.remove(key)
         }
@@ -171,6 +181,7 @@ class UnifiedSessionRegistry(
                 "이 배포판의 모든 세션을 종료한 뒤 제거 또는 환경 보완을 실행하세요."
             }
             registrations.remove(key)?.jobs?.forEach(Job::cancel)
+            environments.remove(key)
             owners.entries.removeAll { it.value == key }
             lastKnownSessions.remove(key)
         }
@@ -183,6 +194,7 @@ class UnifiedSessionRegistry(
         mutationLocks.withStorage(runtime, storageId) {
             val key = StorageKey(runtime, storageId)
             val registration = registrations[key]
+            check(registration?.controller?.connectionState?.value != SessionConnectionState.DISCONNECTED) { "Cannot verify environment sessions" }
             check(registration?.controller?.list()?.getOrThrow().orEmpty().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) { "Storage has active sessions" }
             val release: suspend () -> Unit = {
                 val removedIds = owners.filterValues { it == key }.keys.toList()
@@ -192,6 +204,8 @@ class UnifiedSessionRegistry(
                     entry.controller.close()
                 }
                 owners.entries.removeAll { it.value == key }
+                removedIds.forEach(launches::remove)
+                environments.remove(key)
                 lastKnownSessions.remove(key)
                 Unit
             }
@@ -204,7 +218,7 @@ class UnifiedSessionRegistry(
         createResolved(StorageKey(spec.runtime, spec.storageId), spec.shell, spec.workingDirectory,
             dev.terminal.runtime.notifications.shellActivityEnvironment(spec.shell,
                 spec.environment + runtimeEnvironment) + (SessionCommand.KEY to SessionCommand.encode(spec.arguments())),
-            rows, cols, initialPalette(spec)).onSuccess { recordLaunch(it.id, spec) }
+            rows, cols, initialPalette(spec)).onSuccess { launches[it.id] = spec; recordLaunch(it.id, spec) }
 
     /** Compatibility entry point: direct runtime requests still resolve a built-in profile. */
     suspend fun create(runtime: SessionRuntime, shell: String, cwd: String,
@@ -218,7 +232,9 @@ class UnifiedSessionRegistry(
             argv?.first() ?: shell, argv?.drop(1) ?: if (runtime != SessionRuntime.AVF && env["DROID_LOGIN_SHELL"] != "false") listOf("-l") else emptyList(),
             cwd, env.filterKeys { !it.startsWith("DROID_") && !it.startsWith("TERMINAL_USB_") && it != "KITTY_WINDOW_ID" },
             storageId = storageId)
-        create(profile.resolve(), rows, cols, env.filterKeys { it != SessionCommand.KEY }).getOrThrow()
+        val executionEnvironment = environments[StorageKey(runtime, storageId)]
+        create(if (executionEnvironment == null) profile.resolve() else profile.resolve(executionEnvironment), rows, cols,
+            env.filterKeys { it != SessionCommand.KEY }).getOrThrow()
     }
 
     private suspend fun createResolved(
@@ -266,7 +282,10 @@ class UnifiedSessionRegistry(
                     onSuccess = { current ->
                         val currentIds = current.mapTo(mutableSetOf()) { it.id }
                         owners.entries.removeAll { (sessionId, owner) -> owner == key && sessionId !in currentIds }
-                        current.forEach { owners[it.id] = key }
+                        current.forEach {
+                            owners[it.id] = key
+                            if (!launches.containsKey(it.id)) restoreLaunch(it.id)?.let { spec -> launches[it.id] = spec }
+                        }
                         current.also { lastKnownSessions[key] = it }
                     },
                     // A transport/list failure is not evidence that the PTY owner
@@ -305,6 +324,7 @@ class UnifiedSessionRegistry(
         ).onSuccess {
             lastKnownSessions.computeIfPresent(key) { _, sessions -> sessions.filterNot { it.id == sessionId } }
             owners.remove(sessionId, key)
+            launches.remove(sessionId)
             controlStreams.remove(sessionId)
             keyboardFlags.remove(sessionId)
             terminalStates.mutex.withLock { terminalStates.remove(sessionId) }
@@ -313,6 +333,14 @@ class UnifiedSessionRegistry(
 
     fun runtimeOf(sessionId: String): SessionRuntime? = owners[sessionId]?.runtime ?: SessionRuntime.fromSessionId(sessionId)
     fun storageOf(sessionId: String): String? = ownerKey(sessionId)?.storageId
+    fun environmentOf(sessionId: String): EnvironmentId? = launches[sessionId]?.environmentId ?: ownerKey(sessionId)?.let { environments[it]?.id }
+    fun launchOf(sessionId: String): SessionLaunchSpec? = launches[sessionId]
+    suspend fun verifiedSessions(environment: Environment): Result<List<SessionDescriptor>> {
+        val registration = registrations[StorageKey(environment.sessionRuntime, environment.storage.id)] ?: return Result.success(emptyList())
+        if (registration.controller.connectionState.value == SessionConnectionState.DISCONNECTED)
+            return Result.failure(IllegalStateException("Cannot verify environment sessions"))
+        return registration.controller.list()
+    }
     private fun ownerKey(sessionId: String): StorageKey? = owners[sessionId]
         ?: SessionRuntime.fromSessionId(sessionId)?.let { StorageKey(it) }
 
@@ -327,6 +355,8 @@ class UnifiedSessionRegistry(
         terminalStates.clear()
         registrations.clear()
         owners.clear()
+        environments.clear()
+        launches.clear()
         lastKnownSessions.clear()
         mutableConnection.value = SessionConnectionState.DISCONNECTED
         scope.cancel()

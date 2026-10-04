@@ -33,27 +33,31 @@ import org.json.JSONArray
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import dev.terminal.runtime.session.StorageRegistry
+import dev.terminal.runtime.session.Environment
+import dev.terminal.runtime.session.EnvironmentId
+import dev.terminal.runtime.session.EnvironmentRegistry
 
 class ProfileEditActivity : TerminalActivity() {
     private var hasAvfPrivileges by mutableStateOf(false)
-    private var imageRevision by mutableStateOf(0)
-    private var imageInstallations by mutableStateOf(emptyList<dev.terminal.runtime.image.AvfImageInstallSnapshot>())
-
+    private var environmentRevision by mutableIntStateOf(0)
     override fun onResume() {
         super.onResume()
         hasAvfPrivileges = SessionProfiles(this).hasAvfPrivileges()
-        imageRevision++
+        environmentRevision++
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        dev.terminal.runtime.image.AvfImageInstallMonitor(this).observe(this) { imageInstallations = it }
         val store = SessionProfiles(this)
         hasAvfPrivileges = store.hasAvfPrivileges()
         val requestedId = intent.getStringExtra("profileId")
         val source = requestedId?.let(store::find)
         if (requestedId != null && source == null) { finish(); return }
+        if (intent.getBooleanExtra(EXTRA_CONFIRM_IMAGE_INSTALL, false) && source?.environmentId != null) {
+            startActivity(EnvironmentDetailActivity.intent(this, requireNotNull(source.environmentId).value).putExtra(EXTRA_CONFIRM_IMAGE_INSTALL, true))
+            finish()
+            return
+        }
         val initial = if (source == null) store.duplicate(store.builtIns().first()).copy(name = "")
             else if (intent.getBooleanExtra("duplicate", false)) store.duplicate(source) else source
         compose {
@@ -69,22 +73,15 @@ class ProfileEditActivity : TerminalActivity() {
             var storageId by rememberSaveable { mutableStateOf(initial.storageId) }
             var storageChoice by rememberSaveable { mutableStateOf(if (source != null && initial.id == source.id) "keep" else "fresh") }
             var freshStorageId by rememberSaveable { mutableStateOf(if (storageChoice == "fresh") initial.storageId else java.util.UUID.randomUUID().toString()) }
+            var freshEnvironmentId by rememberSaveable { mutableStateOf(java.util.UUID.randomUUID().toString()) }
+            var selectedEnvironmentId by rememberSaveable { mutableStateOf(initial.environmentId?.value.orEmpty()) }
             var freshStorageName by rememberSaveable { mutableStateOf("") }
-            var existingStorageId by rememberSaveable { mutableStateOf("") }
-            var storageKeys by remember { mutableStateOf(emptyList<StorageRegistry.Key>()) }
-            var storageNames by remember { mutableStateOf(emptyMap<StorageRegistry.Key, String?>()) }
+            var environments by remember { mutableStateOf(emptyList<Environment>()) }
             val scope = rememberCoroutineScope()
             var saving by remember { mutableStateOf(false) }
-            var installing by remember { mutableStateOf(false) }
-            var confirmImageInstall by rememberSaveable { mutableStateOf(intent.getBooleanExtra(EXTRA_CONFIRM_IMAGE_INSTALL, false)) }
-            LaunchedEffect(Unit) {
-                runCatching { withContext(Dispatchers.IO) {
-                    val registry = StorageRegistry(filesDir) {
-                        getSharedPreferences("session-profiles", MODE_PRIVATE).all.mapValues { it.value as String }
-                    }
-                    val profileKeys = store.all().map { StorageRegistry.Key(it.runtime, it.storageId) }
-                    registry.transaction { (keys() + profileKeys).associateWith { this.name(it) } }
-                } }.onSuccess { storageKeys = it.keys.toList(); storageNames = it }.onFailure { error = it.message }
+            LaunchedEffect(environmentRevision) {
+                runCatching { withContext(Dispatchers.IO) { store.environments() } }
+                    .onSuccess { environments = it }.onFailure { error = it.message }
             }
             var icon by rememberSaveable { mutableStateOf(initial.icon) }
             var palette by rememberSaveable { mutableStateOf(initial.palette?.joinToString(",")) }
@@ -99,7 +96,8 @@ class ProfileEditActivity : TerminalActivity() {
                     freshStorageId = java.util.UUID.randomUUID().toString()
                     storageId = freshStorageId
                     storageChoice = "fresh"
-                    existingStorageId = ""
+                    selectedEnvironmentId = ""
+                    freshEnvironmentId = java.util.UUID.randomUUID().toString()
                 }
                 val old = store.builtIns().first { it.runtime.wireName == runtime }
                 val new = store.builtIns().first { it.runtime == option }
@@ -116,13 +114,17 @@ class ProfileEditActivity : TerminalActivity() {
                     val fresh = storageChoice == "fresh"
                     runCatching {
                         val profile = SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
-                            parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon, palette?.split(','))
-                        withContext(Dispatchers.IO) { store.save(profile, newStorageName = if (fresh) freshStorageName else null) }
-                        profile
+                            parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon, palette?.split(','),
+                            if (fresh) null else selectedEnvironmentId.takeIf(String::isNotEmpty)?.let(::EnvironmentId))
+                        withContext(Dispatchers.IO) {
+                            if (fresh) store.save(profile, Environment.create(profile.runtime,
+                                freshStorageName.ifBlank { EnvironmentRegistry.defaultName(name) }, freshStorageId, EnvironmentId(freshEnvironmentId)))
+                            else { store.save(profile); requireNotNull(store.find(profile.id)) }
+                        }
                     }.onSuccess { profile ->
                         if (fresh && profile.runtime == SessionRuntime.AVF) {
-                            startActivity(Intent(this@ProfileEditActivity, ProfileEditActivity::class.java)
-                                .putExtra("profileId", profile.id).putExtra(EXTRA_CONFIRM_IMAGE_INSTALL, true))
+                            startActivity(EnvironmentDetailActivity.intent(this@ProfileEditActivity, requireNotNull(profile.environmentId).value)
+                                .putExtra(EXTRA_CONFIRM_IMAGE_INSTALL, true))
                         }
                         finish()
                     }.onFailure { error = it.message }
@@ -152,20 +154,6 @@ class ProfileEditActivity : TerminalActivity() {
                     ProfileSection(R.string.profile_identity) {
                         ProfileField(R.string.profile_name, name) { name = it; dirty = true }
                         dev.terminal.app.ui.ProfileIconSetting(icon, runtime) { icon = it; dirty = true }
-                        SettingsChoiceRow(stringResource(R.string.profile_runtime), null,
-                            listOf(SessionRuntime.NATIVE, SessionRuntime.ROOTLESS, SessionRuntime.AVF)
-                                .filter { it != SessionRuntime.AVF || hasAvfPrivileges }.map {
-                                SettingsChoice(stringResource(if (it == SessionRuntime.ROOTLESS) R.string.runtime_rootless_title
-                                    else runtimeTitleResource(it.wireName)), it.wireName)
-                            }, if (rootless) SessionRuntime.ROOTLESS.wireName else runtime,
-                            selectedLabel = stringResource(runtimeTitleResource(runtime))) {
-                            selectRuntime(if (it == SessionRuntime.ROOTLESS.wireName && rootless) SessionRuntime.valueOf(runtime)
-                                else SessionRuntime.valueOf(it))
-                        }
-                        if (rootless) SettingsChoiceRow(stringResource(R.string.profile_distribution), null,
-                            listOf(SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH).map {
-                                SettingsChoice(stringResource(runtimeTitleResource(it.wireName)), it.wireName)
-                            }, runtime) { selectRuntime(SessionRuntime.valueOf(it)) }
                     }
                     ProfileSection(R.string.profile_palette) {
                         ProfilePaletteSetting(palette?.split(','), otherProfiles) {
@@ -173,57 +161,70 @@ class ProfileEditActivity : TerminalActivity() {
                         }
                     }
                     ProfileSection(R.string.profile_storage) {
-                        val targets = storageKeys.filter { it.runtime.wireName == runtime }
-                            .filterNot { editing && runtime == initial.runtime.wireName && it.storageId == initial.storageId }
-                            .sortedWith(compareBy({ storageNames[it].orEmpty() }, { it.storageId }))
-                        if (!editing) SettingsChoiceRow(stringResource(R.string.profile_storage), null,
-                            listOf(SettingsChoice(stringResource(R.string.profile_storage_new), "fresh"),
-                                SettingsChoice(stringResource(R.string.profile_storage_existing), "existing")),
-                            if (storageChoice == "fresh") "fresh" else "existing") { selected ->
-                            storageChoice = if (selected == "fresh" || existingStorageId.isEmpty()) selected else "existing:$existingStorageId"
-                            storageId = if (selected == "fresh") freshStorageId else existingStorageId
+                        val current = environments.firstOrNull { it.id.value == initial.environmentId?.value }
+                        val targets = environments.filter { it.sessionRuntime.wireName == runtime }
+                            .filterNot { editing && it.id == current?.id }
+                            .filter { it.sessionRuntime != SessionRuntime.AVF || hasAvfPrivileges }
+                            .sortedBy { it.name }
+                        val choices = buildList {
+                            if (editing && current?.sessionRuntime?.wireName == runtime)
+                                add(SettingsChoice(stringResource(R.string.profile_storage_current), "keep"))
+                            add(SettingsChoice(stringResource(R.string.profile_storage_new), "fresh"))
+                            add(SettingsChoice(stringResource(R.string.profile_storage_existing), "existing"))
+                        }
+                        SettingsChoiceRow(stringResource(R.string.profile_storage), null, choices, storageChoice) { selected ->
+                            storageChoice = selected
+                            when (selected) {
+                                "keep" -> { selectedEnvironmentId = current?.id?.value.orEmpty(); storageId = current?.storage?.id.orEmpty() }
+                                "fresh" -> { selectedEnvironmentId = ""; storageId = freshStorageId }
+                                else -> { selectedEnvironmentId = ""; storageId = "" }
+                            }
                             dirty = true
                         }
-                        if (editing || storageChoice != "fresh") Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(SettingsItemSpacing)) {
-                            if (editing && runtime == initial.runtime.wireName) {
-                                val current = StorageRegistry.Key(initial.runtime, initial.storageId)
-                                ProfileStorageRow(storageNames[current] ?: stringResource(runtimeTitleResource(runtime)),
-                                    stringResource(R.string.profile_storage_current) + " · " + initial.storageId,
-                                    storageChoice == "keep") {
-                                    storageId = initial.storageId; storageChoice = "keep"; dirty = true
-                                }
-                            }
-                            targets.forEach { key ->
-                                ProfileStorageRow(storageNames[key] ?: stringResource(runtimeTitleResource(runtime)),
-                                    key.storageId, storageChoice == "existing:${key.storageId}") {
-                                    existingStorageId = key.storageId; storageId = key.storageId
-                                    storageChoice = "existing:${key.storageId}"; dirty = true
-                                }
-                            }
-                            if (targets.isEmpty() && (!editing || runtime != initial.runtime.wireName)) ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors()) {
-                                Text(stringResource(R.string.profile_storage_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (editing) ProfileStorageRow(stringResource(R.string.profile_storage_new), null, storageChoice == "fresh") {
-                                storageId = freshStorageId; storageChoice = "fresh"; dirty = true
-                            }
-                        }
                         if (storageChoice == "fresh") {
-                            val suggestedName = if (name.isBlank()) "" else StorageRegistry.defaultName(name, storageNames.values.filterNotNull())
+                            SettingsChoiceRow(stringResource(R.string.profile_runtime), null,
+                                listOf(SessionRuntime.NATIVE, SessionRuntime.ROOTLESS, SessionRuntime.AVF)
+                                    .filter { it != SessionRuntime.AVF || hasAvfPrivileges }.map {
+                                    SettingsChoice(stringResource(if (it == SessionRuntime.ROOTLESS) R.string.runtime_rootless_title
+                                        else runtimeTitleResource(it.wireName)), it.wireName)
+                                }, if (rootless) SessionRuntime.ROOTLESS.wireName else runtime,
+                                selectedLabel = stringResource(runtimeTitleResource(runtime))) {
+                                selectRuntime(if (it == SessionRuntime.ROOTLESS.wireName && rootless) SessionRuntime.valueOf(runtime)
+                                    else SessionRuntime.valueOf(it))
+                            }
+                            if (rootless) SettingsChoiceRow(stringResource(R.string.profile_distribution), null,
+                                listOf(SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH).map {
+                                    SettingsChoice(stringResource(runtimeTitleResource(it.wireName)), it.wireName)
+                                }, runtime) { selectRuntime(SessionRuntime.valueOf(it)) }
+                            val suggestedName = if (name.isBlank()) "" else EnvironmentRegistry.defaultName(name, environments.map { it.name })
                             ProfileField(R.string.profile_storage_name, freshStorageName.ifBlank { suggestedName },
                                 hint = R.string.profile_storage_name_hint) {
-                                val value = it.filterNot { char -> char.isISOControl() }.take(StorageRegistry.MAX_NAME_LENGTH)
+                                val value = it.filterNot { char -> char.isISOControl() }.take(dev.terminal.runtime.session.StorageRegistry.MAX_NAME_LENGTH)
                                 freshStorageName = if (value.trim() == suggestedName) "" else value
                                 dirty = true
                             }
+                            if (runtime == SessionRuntime.AVF.wireName) ListItem(modifier = Modifier.settingsItemSurface(),
+                                colors = terminalSettingsListItemColors()) {
+                                Text(stringResource(R.string.environment_avf_guest))
+                            }
+                        } else if (storageChoice == "existing") Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(SettingsItemSpacing)) {
+                            targets.forEach { target ->
+                                ProfileEnvironmentRow(target.name, environmentDescription(target), selectedEnvironmentId == target.id.value) {
+                                    selectedEnvironmentId = target.id.value; storageId = target.storage.id; dirty = true
+                                }
+                            }
+                            if (targets.isEmpty()) ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors()) {
+                                Text(stringResource(R.string.profile_storage_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        environments.firstOrNull { it.id.value == selectedEnvironmentId }?.let { selected ->
+                            ListItem(onClick = { startActivity(EnvironmentDetailActivity.intent(this@ProfileEditActivity, selected.id.value)) },
+                                supportingContent = { Text(environmentDescription(selected)) }, shapes = terminalListItemShapes(),
+                                colors = terminalSettingsListItemColors()) { Text(selected.name) }
                         }
                     }
                     Text(stringResource(R.string.profile_storage_hint), modifier = Modifier.padding(horizontal = 16.dp),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (runtime == SessionRuntime.AVF.wireName && storageId.isNotEmpty()) {
-                        AvfProfileImageSetting(storageId, imageInstallations.firstOrNull { it.storageId == storageId },
-                            imageRevision, savedStorage = editing && initial.runtime == SessionRuntime.AVF && initial.storageId == storageId,
-                            requesting = installing, onInstall = { confirmImageInstall = true })
-                    }
                     ProfileSection(R.string.profile_launch) {
                         ProfileField(R.string.profile_shell, shell) { shell = it; dirty = true }
                         ProfileField(R.string.profile_arguments, arguments, false, R.string.profile_arguments_hint) { arguments = it; dirty = true }
@@ -245,22 +246,6 @@ class ProfileEditActivity : TerminalActivity() {
                     }
                 }
             }
-            if (confirmImageInstall) AlertDialog(onDismissRequest = { if (!installing) confirmImageInstall = false },
-                title = { Text(stringResource(R.string.avf_image_install_confirm_title)) },
-                text = { Text(stringResource(R.string.avf_image_install_confirm_message, initial.name)) },
-                confirmButton = { TextButton(enabled = !installing, onClick = {
-                    installing = true
-                    scope.launch {
-                        runCatching { withContext(Dispatchers.IO) {
-                            dev.terminal.runtime.image.RuntimeSetupCoordinator(applicationContext)
-                                .requestImageInstallation(initial.storageId)
-                        } }.onSuccess { confirmImageInstall = false; imageRevision++ }.onFailure { error = it.message; confirmImageInstall = false }
-                        installing = false
-                    }
-                }) { Text(stringResource(R.string.avf_image_install)) } },
-                dismissButton = { TextButton(enabled = !installing, onClick = { confirmImageInstall = false }) {
-                    Text(stringResource(R.string.avf_image_install_later))
-                } })
             if (deleting) AlertDialog(onDismissRequest = { deleting = false },
                 title = { Text(stringResource(R.string.profile_delete)) },
                 text = { Text(stringResource(R.string.profile_delete_message, source?.name.orEmpty())) },
@@ -298,7 +283,7 @@ class ProfileEditActivity : TerminalActivity() {
     }
 }
 
-@Composable private fun ProfileStorageRow(title: String, supporting: String?, selected: Boolean, onClick: () -> Unit) {
+@Composable private fun ProfileEnvironmentRow(title: String, supporting: String?, selected: Boolean, onClick: () -> Unit) {
     ListItem(onClick = onClick, supportingContent = supporting?.let { { Text(it, style = MaterialTheme.typography.bodySmall) } },
         trailingContent = { RadioButton(selected = selected, onClick = null) },
         verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes(),

@@ -162,7 +162,12 @@ class StorageRegistryTest {
         val key = StorageRegistry.Key(saved.runtime, saved.storageId)
         assertTrue(runCatching { registry.transaction { requireOrphan(key, emptyList()) } }.isFailure)
         assertTrue(runCatching { registry.transaction { requireOrphan(StorageRegistry.Key(SessionRuntime.NATIVE, "legacy"), emptyList()) } }.isFailure)
-        registry.transaction { deleteProfile(saved.id, false); requireOrphan(key, emptyList()); delete(key) }
+        registry.transaction {
+            deleteProfile(saved.id, false); requireOrphan(key, emptyList()); delete(key)
+            assertTrue(isDeleted(key))
+            assertFalse(key in keys())
+            assertTrue(runCatching { save(saved) }.isFailure)
+        }
         assertFalse(key in registry.transaction { keys() })
     }
     @Test fun enumeratesOrphansAndNeverTraversesSymlinksForSizeOrDeletion() {

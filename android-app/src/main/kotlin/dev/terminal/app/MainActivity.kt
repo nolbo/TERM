@@ -125,11 +125,11 @@ class MainActivity : TerminalActivity() {
             if (profile.runtime == pending.runtime && profile.storageId == pending.storageId) {
                 rootlessVisible = true
             } else {
-                createSession(profile.resolve())
+                createSession(SessionProfiles(this).resolve(profile))
             }
             return
         }
-        selectedLaunchSpec = profile.resolve()
+        selectedLaunchSpec = SessionProfiles(this).resolve(profile)
         if (profile.storageId != "legacy" && profile.runtime.wireName in rootlessRuntimeIds) {
             newSessionMenuVisible = false
             newSessionSheetVisible = false
@@ -142,7 +142,7 @@ class MainActivity : TerminalActivity() {
         if (profile.storageId != "legacy") {
             newSessionMenuVisible = false
             newSessionSheetVisible = false
-            createSession(profile.resolve())
+            createSession(SessionProfiles(this).resolve(profile))
             return
         }
         selectRuntime(runtimeChoices.first { it.id == profile.runtime.wireName })
@@ -1137,7 +1137,8 @@ class MainActivity : TerminalActivity() {
     }
 
     private fun builtInLaunchSpec(runtimeType: String) =
-        SessionProfiles(this).builtIns().first { it.runtime.wireName == runtimeType }.resolve()
+        SessionProfiles(this).let { store -> store.resolve(store.all().firstOrNull { it.id == dev.terminal.runtime.session.SessionProfile.builtInId(requireNotNull(dev.terminal.runtime.session.SessionRuntime.fromWireName(runtimeType))) }
+            ?: store.builtIns().first { it.runtime.wireName == runtimeType }) }
 
     private fun createSession(spec: dev.terminal.runtime.session.SessionLaunchSpec) {
         if (spec.runtime == dev.terminal.runtime.session.SessionRuntime.AVF) {

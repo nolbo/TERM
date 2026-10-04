@@ -5,8 +5,9 @@ import org.json.JSONObject
 
 /** Storage identities are host-selected identifiers, never caller-supplied paths. */
 object SessionStorage {
+    private val uuidPattern = Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
     fun validate(id: String) {
-        require(id == "legacy" || id.matches(Regex("[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))) {
+        require(id == "legacy" || id.matches(uuidPattern)) {
             "Invalid storage ID"
         }
     }

@@ -114,11 +114,11 @@ class AvfProfileImageTest {
         }
     }
 
-    private fun resumedEditor(): ProfileEditActivity? {
-        var activity: ProfileEditActivity? = null
+    private fun resumedEditor(): EnvironmentDetailActivity? {
+        var activity: EnvironmentDetailActivity? = null
         instrumentation.runOnMainSync {
             activity = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
-                .filterIsInstance<ProfileEditActivity>().singleOrNull()
+                .filterIsInstance<EnvironmentDetailActivity>().singleOrNull()
         }
         return activity
     }
@@ -135,12 +135,11 @@ class AvfProfileImageTest {
 
     private fun cleanup(prefix: String) {
         store.all().filter { it.name.startsWith(prefix) }.forEach { store.delete(it.id) }
-        val registry = StorageRegistry(context.filesDir)
-        registry.transaction {
-            keys().filter { name(it)?.startsWith("Storage for $prefix") == true }.forEach { key ->
-                manager.cancelUniqueWork(workName(key.storageId)).result.get(5, TimeUnit.SECONDS)
-                requireOrphan(key, store.builtIns())
-                delete(key)
+        val environments = dev.terminal.runtime.session.EnvironmentRegistry(context.filesDir)
+        environments.transaction {
+            all().filter { it.name.startsWith(prefix) }.forEach { environment ->
+                manager.cancelUniqueWork(workName(environment.storage.id)).result.get(5, TimeUnit.SECONDS)
+                delete(environment.id) // fixtures never start a runtime
             }
         }
     }
@@ -169,7 +168,7 @@ class AvfProfileImageTest {
                 val error = assertThrows(IllegalStateException::class.java) {
                     runBlocking { withTimeout(5_000) { RuntimeSetupCoordinator(context).awaitInstalledImage(root.toPath(), saved.storageId) } }
                 }
-                assertTrue(error.message!!.contains("프로필 설정"))
+                assertTrue(error.message!!.contains("환경 설정"))
                 assertTrue("Session startup must not enqueue an unapproved installation", work(saved.storageId).isEmpty())
                 val editor = requireNotNull(resumedEditor())
                 instrumentation.runOnMainSync { editor.recreate() }
@@ -209,8 +208,8 @@ class AvfProfileImageTest {
         val root = SessionStorage.root(context.filesDir, SessionRuntime.AVF, first.storageId).toPath()
         store.save(first); store.save(second); store.save(other)
         val requestId = delayedInstall(first.storageId)
-        fun open(id: String) = ActivityScenario.launch<ProfileEditActivity>(Intent(context, ProfileEditActivity::class.java)
-            .putExtra("profileId", id))
+        fun open(id: String) = ActivityScenario.launch<EnvironmentDetailActivity>(EnvironmentDetailActivity.intent(context,
+            requireNotNull(store.find(id)?.environmentId).value))
         try {
             open(first.id).use { scenario ->
                 scrollTo(R.string.avf_install_waiting)

@@ -61,21 +61,21 @@ class StorageManagerTest {
         try {
             service.startRuntime()
             await { service.state == "READY" }
-            val migrated = StorageItem.parse(service.storageJson).single { row -> row.profiles.any { it.first == old.id } }
-            assertNotEquals("legacy", migrated.id)
-            assertEquals(migrated.id, store.find(old.id)!!.storageId)
+            val migrated = EnvironmentItem.parse(service.environmentsJson).single { row -> row.profiles.any { it.first == old.id } }
+            assertNotEquals("legacy", migrated.storageId)
+            assertEquals(migrated.storageId, store.find(old.id)!!.storageId)
             assertEquals(marker, sentinel.readText())
-            assertEquals(SessionStorage.legacyRoot(context.filesDir, old.runtime), SessionStorage.root(context.filesDir, old.runtime, migrated.id))
+            assertEquals(SessionStorage.legacyRoot(context.filesDir, old.runtime), SessionStorage.root(context.filesDir, old.runtime, migrated.storageId))
             // An old cached launch request resolves to the adopted identity before Session creation.
             service.createSessionFromSpec(old.resolve().toJson().toString(), 24, 80)
             await { sessions().any { it.optString("profileId") == old.id } }
             val oldSession = sessions().single { it.optString("profileId") == old.id }
             val id = oldSession.getString("id").also { sessionIds += it }
-            assertEquals(migrated.id, oldSession.getJSONObject("launchSpec").getString("storageId"))
+            assertEquals(migrated.storageId, oldSession.getJSONObject("launchSpec").getString("storageId"))
             service.attachTerminal(id, listener, 24, 80, 10, 20, "{}")
             service.writeSessionInput(id, "cat \"\$HOME/$fileName\"\n".toByteArray())
             await { output.contains(marker) }
-            assertTrue(service.deleteStorage(old.runtime.wireName, migrated.id).isNotEmpty())
+            assertTrue(service.deleteStorage(old.runtime.wireName, migrated.storageId).isNotEmpty())
             assertEquals(marker, sentinel.readText())
             service.createSessionFromSpec(fresh.resolve().toJson().toString(), 24, 80)
             await { sessions().any { it.optString("profileId") == fresh.id } }
@@ -127,10 +127,10 @@ class StorageManagerTest {
                 await { find { it.text?.toString() == context.getString(R.string.cancel) } == null }
                 assertNull(find { it.text?.toString() == context.getString(R.string.profile_storage_name) })
                 await {
-                    if (find { it.text?.toString() == target.storageId } != null) true
+                    if (find { it.text?.toString() == storageName } != null) true
                     else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
                 }
-                clickContaining(target.storageId)
+                clickContaining(storageName)
                 assertTrue(store.all().none { it.name == profileName })
                 await {
                     if (find { it.text?.toString() == context.getString(R.string.profile_save) } != null) true
@@ -140,7 +140,8 @@ class StorageManagerTest {
                 await { store.all().any { it.name == profileName } }
                 assertEquals(target.storageId, store.all().single { it.name == profileName }.storageId)
                 assertEquals(before, registry.transaction { keys() })
-                assertEquals(storageName, registry.transaction { name(dev.terminal.runtime.session.StorageRegistry.Key(target.runtime, target.storageId)) })
+                val selectedEnvironment = requireNotNull(store.find(target.id)?.environmentId)
+                assertEquals(storageName, dev.terminal.runtime.session.EnvironmentRegistry(context.filesDir).transaction { requireEnvironment(selectedEnvironment).name })
             }
         } finally {
             store.all().filter { it.name == profileName }.forEach { store.delete(it.id) }
@@ -162,7 +163,7 @@ class StorageManagerTest {
         val service = requireNotNull(queue.poll(15, TimeUnit.SECONDS))
         val sessionIds = mutableListOf<String>()
         fun sessions() = JSONArray(service.sessionsJson).let { a -> List(a.length()) { a.getJSONObject(it) } }
-        fun storage(id: String) = StorageItem.parse(service.storageJson).firstOrNull { it.runtime == original.runtime.wireName && it.id == id }
+        fun storage(id: String) = EnvironmentItem.parse(service.environmentsJson).firstOrNull { it.runtime == original.runtime.wireName && it.storageId == id }
         try {
             service.startRuntime()
             await { service.state == "READY" }
@@ -209,36 +210,35 @@ class StorageManagerTest {
     }
     @Test fun storageDetailShowsReferencesAndBlocksDeletionUntilProfileIsRemoved() {
         val store = SessionProfiles(context)
-        val profile = store.duplicate(store.builtIns().first()).copy(name = "Storage UI fixture")
+        val profile = store.duplicate(store.builtIns().first()).copy(name = "Storage UI fixture ${UUID.randomUUID()}")
         store.save(profile)
         val registry = dev.terminal.runtime.session.StorageRegistry(context.filesDir)
-        val key = dev.terminal.runtime.session.StorageRegistry.Key(profile.runtime, profile.storageId)
-        val defaultName = requireNotNull(registry.transaction { name(key) })
+        val environmentRegistry = dev.terminal.runtime.session.EnvironmentRegistry(context.filesDir)
+        val environmentId = requireNotNull(store.find(profile.id)?.environmentId)
+        fun environmentName() = environmentRegistry.transaction { requireEnvironment(environmentId).name }
+        val defaultName = environmentName()
         val capacityFixture = File(SessionStorage.root(context.filesDir, profile.runtime, profile.storageId), "capacity-format-fixture").apply {
             requireNotNull(parentFile).mkdirs()
             writeBytes(ByteArray(2048))
         }
         try {
-            ActivityScenario.launch(StorageActivity::class.java).use { scenario ->
-                val runtimeTitle = context.getString(dev.terminal.app.ui.runtimeTitleResource(profile.runtime.wireName))
-                await {
-                    if (find { it.text?.toString() == defaultName } != null) true
-                    else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
-                }
+            ActivityScenario.launch(EnvironmentActivity::class.java).use { scenario ->
+                scrollToText(defaultName)
                 assertNull(find { it.text?.toString()?.contains(profile.storageId) == true })
-                await { find { it.text?.toString()?.let { text -> text.startsWith("$runtimeTitle · ") && text.endsWith("KB") } == true } != null }
+                await { find { it.text?.toString()?.contains("KB") == true } != null }
                 assertNull(find { it.text?.toString()?.contains("kB") == true })
                 clickContaining(defaultName)
-                await { resumedActivity() is StorageDetailActivity }
-                val openedId = requireNotNull(resumedActivity()?.intent?.getStringExtra("storageId"))
-                assertEquals("The named row opens its own storage", profile.storageId, openedId)
+                await { resumedActivity() is EnvironmentDetailActivity }
+                val openedId = requireNotNull(resumedActivity()?.intent?.getStringExtra("environmentId"))
+                assertEquals("The named row opens its own environment", environmentId.value, openedId)
                 await { find { it.text?.toString() == openedId } != null }
                 await { find { it.text?.toString()?.endsWith("KB") == true } != null }
                 assertNull(find { it.text?.toString()?.contains("kB") == true })
                 InstrumentationRegistry.getInstrumentation().sendKeyDownUpSync(android.view.KeyEvent.KEYCODE_BACK)
-                await { resumedActivity() is StorageActivity && find { it.text?.toString() == defaultName } != null }
-                scenario.onActivity { it.startActivity(StorageDetailActivity.intent(context, profile.runtime.wireName, profile.storageId)) }
-                await { resumedActivity() is StorageDetailActivity && find { it.text?.toString() == profile.storageId } != null }
+                await { resumedActivity() is EnvironmentActivity }
+                scrollToText(defaultName, forward = false)
+                scenario.onActivity { it.startActivity(EnvironmentDetailActivity.intent(context, environmentId.value)) }
+                await { resumedActivity() is EnvironmentDetailActivity && find { it.text?.toString() == environmentId.value } != null }
                 val nameRow = requireNotNull(find { it.text?.toString() == context.getString(R.string.storage_name) })
                 assertFalse("Storage name is a read-only settings row", nameRow.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
                 val renameLabel = context.getString(R.string.storage_rename)
@@ -246,7 +246,12 @@ class StorageManagerTest {
                 fun buttonBounds(label: String) = android.graphics.Rect().also {
                     clickableAncestor(requireNotNull(find { it.hasLabel(label) })).getBoundsInScreen(it)
                 }
-                val toolbarBounds = buttonBounds(renameLabel).apply { union(buttonBounds(deleteLabel)) }
+                val toolbarBounds = buttonBounds(renameLabel).apply {
+                    union(buttonBounds(deleteLabel))
+                    listOf(R.string.environment_start, R.string.environment_stop).forEach { label ->
+                        if (find { it.hasLabel(context.getString(label)) } != null) union(buttonBounds(context.getString(label)))
+                    }
+                }
                 val screen = android.graphics.Rect().also {
                     InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow.getBoundsInScreen(it)
                 }
@@ -258,7 +263,7 @@ class StorageManagerTest {
                 }
                 assertTrue("Last profile stays clear of the floating toolbar", profileBounds.bottom <= toolbarBounds.top)
                 assertNull(find { it.text?.toString() == context.getString(R.string.storage_sessions) })
-                assertTrue(defaultName.startsWith("Storage for ${profile.name}"))
+                assertTrue(defaultName.startsWith(profile.name))
                 fun editName(value: String, save: Boolean) {
                     clickContaining(renameLabel)
                     await { find { it.isEditable } != null }
@@ -269,36 +274,36 @@ class StorageManagerTest {
                     await { find { it.isEditable } == null }
                 }
                 editName("Discarded name", false)
-                assertEquals(defaultName, registry.transaction { name(key) })
-                editName("Storage UI name", true)
-                await { registry.transaction { name(key) } == "Storage UI name" }
-                scrollToText("Storage UI name", forward = false)
+                assertEquals(defaultName, environmentName())
+                editName("Environment UI name", true)
+                await { environmentName() == "Environment UI name" }
+                scrollToText("Environment UI name", forward = false)
                 assertNull(find { it.text?.toString()?.contains("The coroutine scope left the composition") == true })
-                val detail = requireNotNull(resumedActivity() as? StorageDetailActivity)
+                val detail = requireNotNull(resumedActivity() as? EnvironmentDetailActivity)
                 InstrumentationRegistry.getInstrumentation().runOnMainSync { detail.recreate() }
-                await { resumedActivity() is StorageDetailActivity && resumedActivity() !== detail && find { it.text?.toString() == "Storage UI name" } != null }
-                editName("", true)
-                await { registry.transaction { name(key) } == null }
+                await { resumedActivity() is EnvironmentDetailActivity && resumedActivity() !== detail && find { it.text?.toString() == "Environment UI name" } != null }
+                editName("", false)
+                assertEquals("Environment UI name", environmentName())
                 assertNotNull(find { it.hasLabel(deleteLabel) })
                 assertFalse(clickableAncestor(requireNotNull(find { it.hasLabel(deleteLabel) })).isEnabled)
                 store.delete(profile.id)
                 await { clickableAncestor(requireNotNull(find { it.hasLabel(deleteLabel) })).isEnabled }
                 clickContaining(deleteLabel)
-                await { find { it.text?.toString() == context.getString(R.string.storage_delete_confirm, profile.storageId) } != null }
+                await { find { it.text?.toString() == context.getString(R.string.storage_delete_confirm, "Environment UI name") } != null }
                 clickContaining(context.getString(R.string.cancel))
                 assertTrue(dev.terminal.runtime.session.StorageRegistry(context.filesDir).transaction {
                     keys().any { it.storageId == profile.storageId }
                 })
                 clickContaining(deleteLabel)
-                await { find { it.text?.toString() == context.getString(R.string.storage_delete_confirm, profile.storageId) } != null }
+                await { find { it.text?.toString() == context.getString(R.string.storage_delete_confirm, "Environment UI name") } != null }
                 clickContaining(deleteLabel)
                 await { dev.terminal.runtime.session.StorageRegistry(context.filesDir).transaction {
                     keys().none { it.storageId == profile.storageId }
                 } }
-                await { resumedActivity() is StorageActivity }
+                await { resumedActivity() is EnvironmentActivity }
             }
         } finally {
-            (resumedActivity() as? StorageDetailActivity)?.let { detail ->
+            (resumedActivity() as? EnvironmentDetailActivity)?.let { detail ->
                 InstrumentationRegistry.getInstrumentation().runOnMainSync { detail.finish() }
             }
             store.delete(profile.id)
@@ -333,9 +338,23 @@ class StorageManagerTest {
             val bounds = android.graphics.Rect().also { node?.getBoundsInScreen(it) }
             if (node != null && bounds.bottom <= bottomLimit) true
             else {
-                find { it.isScrollable }?.performAction(if (forward)
-                    android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
-                    else android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD)
+                val list = find { it.isScrollable }
+                if (list != null) {
+                    val area = android.graphics.Rect().also(list::getBoundsInScreen)
+                    val start = area.top + area.height() * if (forward) 0.75f else 0.35f
+                    val end = area.top + area.height() * if (forward) 0.35f else 0.75f
+                    val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+                    val down = SystemClock.uptimeMillis()
+                    fun touch(action: Int, y: Float) {
+                        android.view.MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, area.exactCenterX(), y, 0).also { event ->
+                            event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+                            assertTrue(automation.injectInputEvent(event, true)); event.recycle()
+                        }
+                    }
+                    touch(android.view.MotionEvent.ACTION_DOWN, start)
+                    repeat(10) { step -> SystemClock.sleep(25); touch(android.view.MotionEvent.ACTION_MOVE, start + (end - start) * (step + 1) / 10) }
+                    touch(android.view.MotionEvent.ACTION_UP, end)
+                }
                 false
             }
         }

@@ -51,13 +51,13 @@ class RuntimeSetupCoordinator(private val context: Context) {
             }
             when (work?.state) {
                 WorkInfo.State.SUCCEEDED -> {
-                    check(Files.exists(imageRoot, LinkOption.NOFOLLOW_LINKS)) { "AVF 프로필 설정에서 Debian 이미지를 설치하세요." }
+                    check(Files.exists(imageRoot, LinkOption.NOFOLLOW_LINKS)) { "AVF 환경 설정에서 Debian 이미지를 설치하세요." }
                     return
                 }
                 WorkInfo.State.FAILED -> error(work.outputData.getString(DebianImageDownloadWorker.KEY_ERROR)
                     ?: "AVF 이미지 자동 설치 실패")
                 WorkInfo.State.CANCELLED -> error("AVF 이미지 설치가 취소되었습니다.")
-                null -> error("AVF 프로필 설정에서 Debian 이미지를 설치하세요.")
+                null -> error("AVF 환경 설정에서 Debian 이미지를 설치하세요.")
                 else -> delay(1_000)
             }
         }

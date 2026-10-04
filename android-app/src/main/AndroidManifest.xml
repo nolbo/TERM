@@ -37,6 +37,8 @@
             android:exported="false">
             <meta-data android:name="autoStoreLocales" android:value="true" />
         </service>
+        <activity android:name=".EnvironmentActivity" android:exported="false" />
+        <activity android:name=".EnvironmentDetailActivity" android:exported="false" />
         <activity android:name=".StorageActivity" android:exported="false" />
         <activity android:name=".StorageDetailActivity" android:exported="false" />
         <activity android:name=".ProfilesActivity" android:exported="false" />

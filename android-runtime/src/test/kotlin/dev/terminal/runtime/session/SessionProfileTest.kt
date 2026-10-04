@@ -4,6 +4,10 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SessionProfileTest {
+    @Test fun builtInIdentityDoesNotChangeWhenItsEnvironmentRuntimeChanges() {
+        val profile = SessionProfile(SessionProfile.builtInId(SessionRuntime.NATIVE), "Native", SessionRuntime.ROOTLESS, "/bin/bash")
+        assertTrue(profile.builtIn)
+    }
     @Test fun iconDefaultsSnapshotsAndCopiesRemainIndependent() {
         val original = profile().copy(icon = "keyboard")
         val snapshot = original.resolve()

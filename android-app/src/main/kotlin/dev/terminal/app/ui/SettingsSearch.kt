@@ -36,7 +36,7 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
               section: Int = 0, icon: Int = R.drawable.ic_material_symbol_settings_24) {
         add(SettingsSearchEntry(title, summary, path, SettingsSearchTarget(screen, section), icon))
     }
-    entry("storage", R.string.storage_title, R.string.storage_summary, icon = R.drawable.ic_material_symbol_storage_24)
+    entry("environments", R.string.storage_title, R.string.storage_summary, icon = R.drawable.ic_material_symbol_storage_24)
     entry("profiles", R.string.profiles, R.string.profiles_summary, icon = R.drawable.ic_material_symbol_add_24)
     entry("language", R.string.settings_language_title, R.string.settings_language_summary, icon = R.drawable.ic_material_symbol_text_format_24)
     entry("terminal", R.string.settings_terminal_title, R.string.settings_terminal_summary, icon = R.drawable.ic_material_symbol_settings_24)
@@ -92,10 +92,9 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("avf", R.string.virtual_cpu, R.string.virtual_cpu_support, listOf(R.string.settings_avf_title) + R.string.section_resources, section = 1)
     entry("avf", R.string.protected_vm, R.string.protected_vm_support, listOf(R.string.settings_avf_title) + R.string.section_resources, section = 1)
     entry("avf", R.string.guest_network, R.string.guest_network_support, listOf(R.string.settings_avf_title) + R.string.section_resources, section = 1)
-    entry("avf", R.string.debian_image, R.string.debian_image_support, listOf(R.string.settings_avf_title) + R.string.section_execution, section = 2)
+    entry("environments", R.string.debian_image, R.string.avf_image_profile_support, listOf(R.string.storage_title))
     entry("avf", R.string.diagnostics_title, R.string.diagnostics_support, listOf(R.string.settings_avf_title) + R.string.section_execution, section = 2)
-    entry("rootless", R.string.shared_workspace, R.string.shared_workspace_support, listOf(R.string.runtime_rootless_title) + R.string.section_environment, section = 2)
-    entry("rootless", R.string.rootless_limitations, R.string.rootless_limitations_support, listOf(R.string.runtime_rootless_title) + R.string.section_environment, section = 2)
+    entry("rootless", R.string.rootless_limitations, R.string.rootless_limitations_support, listOf(R.string.runtime_rootless_title) + R.string.section_environment, section = 1)
     entry("toolbar", R.string.toolbar_enabled, R.string.toolbar_enabled_summary, terminal + R.string.toolbar_settings)
     entry("hotkeys", R.string.hotkey_columns, null, hotkeys)
     entry("hotkeys", R.string.hotkey_font_size, null, hotkeys)
@@ -131,7 +130,5 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("profiles", R.string.profile_environment, path = listOf(R.string.profiles, R.string.profile_settings))
     entry("updates", R.string.update_channel_label, path = listOf(R.string.app_updates))
     entry("updates", R.string.update_check, path = listOf(R.string.app_updates))
-    listOf(R.string.runtime_debian_title, R.string.runtime_ubuntu_title, R.string.runtime_arch_title).forEach {
-        entry("rootless", it, path = listOf(R.string.runtime_rootless_title, R.string.section_status), section = 1)
-    }
+
 }

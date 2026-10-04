@@ -3,6 +3,9 @@ package dev.terminal.app
 import android.content.Context
 import dev.terminal.runtime.session.SessionProfile
 import dev.terminal.runtime.session.SessionRuntime
+import dev.terminal.runtime.session.Environment
+import dev.terminal.runtime.session.EnvironmentRegistry
+import dev.terminal.runtime.session.SessionLaunchSpec
 import java.io.File
 import java.util.UUID
 
@@ -12,13 +15,13 @@ class SessionProfiles(context: Context) {
     fun hasAvfPrivileges(): Boolean =
         app.checkSelfPermission("android.permission.MANAGE_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED &&
             app.checkSelfPermission("android.permission.USE_CUSTOM_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED
-    private val registry = dev.terminal.runtime.session.StorageRegistry(app.filesDir) {
+    private val registry = EnvironmentRegistry(app.filesDir) {
         app.getSharedPreferences("session-profiles", Context.MODE_PRIVATE).all.mapValues { it.value as String }
     }
     private val runtimePreferences = context.getSharedPreferences(SettingsDetailActivity.RUNTIME_PREFERENCES, Context.MODE_PRIVATE)
     fun all(): List<SessionProfile> {
         val defaults = builtIns()
-        return registry.transaction { profiles(defaults) }.filter {
+        return registry.transaction(defaults) { profiles() }.filter {
             it.id != SessionProfile.builtInId(SessionRuntime.AVF) || hasAvfPrivileges()
         }
     }
@@ -40,11 +43,20 @@ class SessionProfiles(context: Context) {
         }
     }
     fun duplicate(profile: SessionProfile) = profile.copy(id = UUID.randomUUID().toString(), name = "${profile.name} copy",
-        storageId = UUID.randomUUID().toString())
+        storageId = UUID.randomUUID().toString(), environmentId = null)
+    fun environments(): List<Environment> = registry.transaction(builtIns()) { all() }
+    fun resolve(profile: SessionProfile): SessionLaunchSpec = registry.transaction(builtIns()) { resolveLaunch(profile.resolve()) }
+    fun save(profile: SessionProfile, newEnvironment: Environment): SessionProfile =
+        registry.transaction(builtIns()) { save(profile, newEnvironment) }
     fun save(profile: SessionProfile, newStorageName: String? = null) {
-        registry.transaction { save(profile, newStorageName) }
+        registry.transaction(builtIns()) {
+            val fresh = profile.environmentId == null && profile.storageId != "legacy" &&
+                all().none { it.sessionRuntime == profile.runtime && it.storage.id == profile.storageId }
+            save(profile, if (fresh) Environment.create(profile.runtime,
+                newStorageName?.takeIf(String::isNotBlank) ?: EnvironmentRegistry.defaultName(profile.name), profile.storageId) else null)
+        }
     }
     fun delete(id: String) {
-        registry.transaction { deleteProfile(id, builtIns().any { it.id == id }) }
+        registry.transaction(builtIns()) { deleteProfile(id, builtIns().any { it.id == id }) }
     }
 }

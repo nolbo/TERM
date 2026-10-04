@@ -55,4 +55,9 @@ interface IRuntimeService {
     String renameStorage(String runtimeType, String storageId, String name);
     String measureStorageUsageJson(String runtimeType, String storageId);
     void createSessionFromSpecWithRequestId(String launchSpecJson, String requestId, int rows, int cols);
+    String getEnvironmentsJson();
+    String measureEnvironmentUsageJson(String environmentId);
+    String renameEnvironment(String environmentId, String name);
+    String deleteEnvironment(String environmentId);
+    String operateEnvironment(String environmentId, String operation);
 }

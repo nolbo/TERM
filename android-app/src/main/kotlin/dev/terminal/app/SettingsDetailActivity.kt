@@ -40,19 +40,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
-import dev.terminal.app.ui.RootlessSettingsState
-import dev.terminal.app.ui.RootlessSettingsStatus
-import dev.terminal.app.ui.RuntimeEnvironmentIcon
-import dev.terminal.app.ui.RootlessProgressIndicator
 import dev.terminal.app.ui.FloatingToolbarAction
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.ui.TerminalHapticDensity
 import dev.terminal.app.ui.TerminalHapticPreferences
-import dev.terminal.app.ui.TerminalStatusBlue
 import dev.terminal.app.ui.runtimeTitleResource
-import dev.terminal.app.ui.rootlessRuntimeIds
-import dev.terminal.app.ui.parseRootlessSettingsState
 import dev.terminal.app.ui.SettingsGroup
 import dev.terminal.app.ui.settingsItemSurface
 import dev.terminal.app.ui.terminalSettingsListItemColors
@@ -76,8 +69,6 @@ class SettingsDetailActivity : TerminalActivity() {
     private var bound = false
     private var bindingRequested = false
     private var activityStarted = false
-    private val rootlessStates = mutableStateMapOf<String, RootlessSettingsState>()
-    private var pendingRootlessRemoval by mutableStateOf<String?>(null)
     private var wakePolicy by mutableStateOf(DEFAULT_WAKE_POLICY)
     private var customFonts by mutableStateOf(emptyList<CustomTerminalFont>())
     private var pendingCustomFontStyle = CustomTerminalFontStyle.REGULAR
@@ -95,36 +86,14 @@ class SettingsDetailActivity : TerminalActivity() {
     }
 
     private val listener = object : IRuntimeStateListener.Stub() {
-        override fun onRuntimeStateChanged(state: String, detail: String) = runOnUiThread { refreshServiceState() }
+        override fun onRuntimeStateChanged(state: String, detail: String) = Unit
         override fun onSessionFocusRequested(sessionId: String) = Unit
         override fun onSessionsChanged(revision: Long, sessionsJson: String) = Unit
         override fun onTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) = Unit
         override fun onSessionExited(sessionId: String, exitCode: Int) = Unit
         override fun onSessionTerminationFailed(sessionId: String, message: String) = Unit
-        override fun onRootlessProgress(runtimeType: String, phase: String, detail: String) = runOnUiThread {
-            if (runtimeType !in rootlessRuntimeIds) return@runOnUiThread
-            refreshServiceState(runtimeType)
-        }
-        override fun onOperationError(operation: String, message: String) = runOnUiThread {
-            if (operation.startsWith("ROOTLESS_MIGRATE:")) {
-                val runtimeType = operation.substringAfter(':')
-                refreshServiceState(runtimeType)
-                rootlessStates[runtimeType]?.let {
-                    rootlessStates[runtimeType] = it.copy(status = RootlessSettingsStatus.ERROR, detail = message)
-                }
-                return@runOnUiThread
-            }
-            if (operation.startsWith("ROOTLESS_REMOVE:")) {
-                refreshServiceState(operation.substringAfter(':'))
-                Toast.makeText(this@SettingsDetailActivity, message, Toast.LENGTH_LONG).show()
-                return@runOnUiThread
-            }
-            val runtimeType = operation.removePrefix("$ROOTLESS_SETUP_OPERATION:")
-            if (operation.startsWith("$ROOTLESS_SETUP_OPERATION:") && runtimeType in rootlessRuntimeIds) {
-                refreshServiceState(runtimeType)
-                rootlessStates[runtimeType] = rootlessStates.getValue(runtimeType).copy(status = RootlessSettingsStatus.ERROR, detail = message)
-            }
-        }
+        override fun onRootlessProgress(runtimeType: String, phase: String, detail: String) = Unit
+        override fun onOperationError(operation: String, message: String) = Unit
     }
 
     private val connection = object : ServiceConnection {
@@ -138,13 +107,11 @@ class SettingsDetailActivity : TerminalActivity() {
             bound = true
             runCatching { runtime?.registerListener(listener) }
             syncRuntimeSettings()
-            refreshServiceState()
         }
 
         override fun onServiceDisconnected(name: ComponentName) {
             runtime = null
             bound = false
-            setRootlessStates(RootlessSettingsStatus.ERROR, getString(R.string.runtime_disconnected))
         }
     }
 
@@ -156,7 +123,6 @@ class SettingsDetailActivity : TerminalActivity() {
             finish()
             return
         }
-        setRootlessStates(RootlessSettingsStatus.CHECKING, getString(R.string.rootless_status_connecting))
         wakePolicy = runtimePreferences.getString(KEY_WAKE_POLICY, DEFAULT_WAKE_POLICY) ?: DEFAULT_WAKE_POLICY
         customFonts = customTerminalFonts(terminalPreferences)
         compose {
@@ -211,9 +177,6 @@ class SettingsDetailActivity : TerminalActivity() {
         bindingRequested = runCatching {
             bindService(Intent(this, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE)
         }.getOrDefault(false)
-        if (!bindingRequested) {
-            setRootlessStates(RootlessSettingsStatus.ERROR, getString(R.string.runtime_disconnected))
-        }
     }
 
     override fun onStop() {
@@ -226,71 +189,6 @@ class SettingsDetailActivity : TerminalActivity() {
         bound = false
         runtime = null
         super.onStop()
-    }
-
-    private fun setRootlessStates(status: RootlessSettingsStatus, detail: String) {
-        rootlessRuntimeIds.forEach { setRootlessState(it, status, detail) }
-    }
-
-    private fun setRootlessState(runtimeType: String, status: RootlessSettingsStatus, detail: String) {
-        // Keep the last known image presence while checking, removing, or reporting a connection error.
-        val previous = rootlessStates[runtimeType] ?: RootlessSettingsState(status, detail)
-        rootlessStates[runtimeType] = previous.copy(status = status, detail = detail, progress = null)
-    }
-
-    private fun refreshServiceState(runtimeType: String? = null) {
-        val targets = runtimeType?.let(::listOf) ?: rootlessRuntimeIds.toList()
-        val service = runtime
-        if (service == null) {
-            targets.forEach {
-                setRootlessState(it, RootlessSettingsStatus.CHECKING, getString(R.string.rootless_status_connecting))
-            }
-            return
-        }
-        runCatching {
-            val snapshot = service.runtimeStatusJson
-            targets.forEach { rootlessStates[it] = parseRootlessSettingsState(snapshot, it) }
-        }.onFailure { error ->
-            targets.forEach { setRootlessState(it, RootlessSettingsStatus.ERROR, error.message.orEmpty()) }
-        }
-    }
-
-    private fun handleRootlessAction(runtimeType: String) {
-        when (rootlessStates[runtimeType]?.status) {
-            RootlessSettingsStatus.SETUP_REQUIRED, RootlessSettingsStatus.ENVIRONMENT_REQUIRED, RootlessSettingsStatus.ERROR -> prepareRootless(runtimeType)
-            RootlessSettingsStatus.READY -> pendingRootlessRemoval = runtimeType
-            else -> refreshServiceState(runtimeType)
-        }
-    }
-
-    private fun removeRootless(runtimeType: String, removeHome: Boolean) {
-        val service = runtime ?: return
-        setRootlessState(runtimeType, RootlessSettingsStatus.CHECKING, getString(R.string.rootless_removing))
-        runCatching { service.removeRootless(runtimeType, removeHome) }.onFailure {
-            refreshServiceState(runtimeType)
-            Toast.makeText(this, it.message.orEmpty(), Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private fun migrateRootless(runtimeType: String) {
-        val service = runtime ?: return
-        rootlessStates[runtimeType] = rootlessStates.getValue(runtimeType).copy(
-            status = RootlessSettingsStatus.CHECKING, detail = getString(R.string.rootless_migrate_running))
-        runCatching { service.migrateRootlessToNative(runtimeType) }.onFailure {
-            rootlessStates[runtimeType] = rootlessStates.getValue(runtimeType).copy(
-                status = RootlessSettingsStatus.ERROR, detail = it.message.orEmpty())
-        }
-    }
-
-    private fun prepareRootless(runtimeType: String) {
-        val service = runtime ?: run {
-            setRootlessState(runtimeType, RootlessSettingsStatus.ERROR, getString(R.string.runtime_disconnected))
-            return
-        }
-        setRootlessState(runtimeType, RootlessSettingsStatus.CHECKING, getString(R.string.rootless_install_detail))
-        runCatching { service.prepareRootless(runtimeType) }.onFailure {
-            setRootlessState(runtimeType, RootlessSettingsStatus.ERROR, it.message.orEmpty())
-        }
     }
 
     private fun saveRuntimeInt(key: String, value: Int) {
@@ -352,43 +250,6 @@ class SettingsDetailActivity : TerminalActivity() {
                 else -> R.string.settings_native_description
             },
         )
-        pendingRootlessRemoval?.let { runtimeType ->
-            var removeHome by remember { mutableStateOf(false) }
-            AlertDialog(
-                onDismissRequest = { pendingRootlessRemoval = null },
-                title = { Text(stringResource(R.string.rootless_remove_title, stringResource(runtimeTitleResource(runtimeType)))) },
-                text = {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(stringResource(R.string.rootless_remove_description))
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().toggleable(
-                                value = removeHome,
-                                role = Role.Checkbox,
-                                onValueChange = { removeHome = it },
-                            ),
-                        ) {
-                            Checkbox(checked = removeHome, onCheckedChange = null)
-                            Spacer(Modifier.width(8.dp))
-                            Text(stringResource(R.string.rootless_remove_home))
-                        }
-                        if (removeHome) Text(
-                            stringResource(R.string.rootless_remove_home_warning),
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                },
-                confirmButton = {
-                    TextButton(onClick = { pendingRootlessRemoval = null; removeRootless(runtimeType, removeHome) }, shapes = ButtonDefaults.shapes()) {
-                        Text(stringResource(R.string.rootless_remove), color = MaterialTheme.colorScheme.error)
-                    }
-                },
-                dismissButton = {
-                    TextButton(onClick = { pendingRootlessRemoval = null }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) }
-                },
-            )
-        }
         SettingsPageScaffold(title, { finish() }) { padding ->
             LazyColumn(
                 Modifier.fillMaxSize().padding(padding),
@@ -550,11 +411,9 @@ class SettingsDetailActivity : TerminalActivity() {
                     startActivity(Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
                         .putExtra(EXTRA_CATEGORY, TERMINAL).putExtra(EXTRA_SECTION_INDEX, 7))
                 }
-                ActionSetting(R.string.debian_image, R.string.debian_image_support) {
-                    startActivity(
-                        Intent(this@SettingsDetailActivity, SettingsDetailActivity::class.java)
-                            .putExtra(EXTRA_CATEGORY, AVF_IMAGE),
-                    )
+                InfoSetting(R.string.environment_engine_status, R.string.avf_engine_privileges)
+                ActionSetting(R.string.storage_title, R.string.environment_instances_support) {
+                    startActivity(Intent(this@SettingsDetailActivity, EnvironmentActivity::class.java))
                 }
                 ActionSetting(R.string.diagnostics_title, R.string.diagnostics_support) {
                     startActivity(Intent(this@SettingsDetailActivity, DiagnosticsActivity::class.java))
@@ -565,18 +424,9 @@ class SettingsDetailActivity : TerminalActivity() {
 
     private fun androidx.compose.foundation.lazy.LazyListScope.avfImageItems() {
         item {
-            SettingsSection(R.string.profiles) {
-                ActionSetting(R.string.profiles, R.string.avf_image_profile_support) {
-                    startActivity(Intent(this@SettingsDetailActivity, ProfilesActivity::class.java))
-                }
-            }
-        }
-        item {
-            SettingsSection(R.string.section_execution) {
-                ActionSetting(R.string.select_avf_image, R.string.avf_image_offline_support) {
-                    startActivity(Intent(this@SettingsDetailActivity, MainActivity::class.java)
-                        .putExtra(MainActivity.EXTRA_OPEN_IMAGE_PICKER, true)
-                        .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+            SettingsSection(R.string.storage_title) {
+                ActionSetting(R.string.storage_title, R.string.avf_image_profile_support) {
+                    startActivity(Intent(this@SettingsDetailActivity, EnvironmentActivity::class.java))
                 }
                 ActionSetting(R.string.diagnostics_title, R.string.diagnostics_support) {
                     startActivity(Intent(this@SettingsDetailActivity, DiagnosticsActivity::class.java))
@@ -735,26 +585,21 @@ class SettingsDetailActivity : TerminalActivity() {
     }
 
     private fun androidx.compose.foundation.lazy.LazyListScope.rootlessItems() {
-        for (installed in listOf(true, false)) {
-            val distributions = rootlessRuntimeIds.filter { rootlessStates.getValue(it).installed == installed }
-            if (distributions.isNotEmpty()) {
-                item(key = "rootless-installed-$installed") {
-                    SettingsSection(if (installed) R.string.rootless_installed_distributions else R.string.rootless_uninstalled_distributions) {
-                        distributions.forEach { runtimeType ->
-                            key(runtimeType) {
-                                RootlessStatusSetting(runtimeType, rootlessStates.getValue(runtimeType)) {
-                                    handleRootlessAction(runtimeType)
-                                }
-                            }
-                        }
-                    }
+        item {
+            SettingsSection(R.string.section_status, hasOptions = false) {
+                InfoSetting(R.string.environment_engine_status,
+                    if ("arm64-v8a" in android.os.Build.SUPPORTED_ABIS) R.string.rootless_engine_supported else R.string.rootless_engine_unsupported)
+                ActionSetting(R.string.storage_title, R.string.environment_instances_support) {
+                    startActivity(Intent(this@SettingsDetailActivity, EnvironmentActivity::class.java))
                 }
             }
         }
         item {
             SettingsSection(R.string.section_environment, hasOptions = false) {
-                InfoSetting(R.string.shared_workspace, R.string.shared_workspace_support)
                 InfoSetting(R.string.rootless_limitations, R.string.rootless_limitations_support)
+                ActionSetting(R.string.diagnostics_title, R.string.diagnostics_support) {
+                    startActivity(Intent(this@SettingsDetailActivity, DiagnosticsActivity::class.java))
+                }
             }
         }
     }
@@ -1025,83 +870,6 @@ class SettingsDetailActivity : TerminalActivity() {
     @Composable
     private fun preferenceListItemColors() = terminalSettingsListItemColors()
 
-    @Composable
-    private fun RootlessStatusSetting(runtimeType: String, state: RootlessSettingsState, action: () -> Unit) {
-        val title = when (state.status) {
-            RootlessSettingsStatus.CHECKING -> R.string.rootless_checking
-            RootlessSettingsStatus.SETUP_REQUIRED -> R.string.rootless_setup_required
-            RootlessSettingsStatus.ENVIRONMENT_REQUIRED -> R.string.rootless_environment_required
-            RootlessSettingsStatus.READY -> R.string.rootless_ready
-            RootlessSettingsStatus.ERROR -> R.string.rootless_error
-        }
-        val actionLabel = when (state.status) {
-            RootlessSettingsStatus.CHECKING -> null
-            RootlessSettingsStatus.ENVIRONMENT_REQUIRED -> R.string.rootless_complete_environment
-            RootlessSettingsStatus.READY -> R.string.rootless_remove
-            RootlessSettingsStatus.SETUP_REQUIRED -> R.string.install
-            RootlessSettingsStatus.ERROR -> R.string.retry
-        }
-        val statusColor = if (state.status == RootlessSettingsStatus.ERROR) {
-            MaterialTheme.colorScheme.error
-        } else {
-            TerminalStatusBlue
-        }
-        ListItem(
-            supportingContent = {
-                Column {
-                    Text(if (state.status == RootlessSettingsStatus.CHECKING) state.progress?.label ?: stringResource(title) else stringResource(title), color = statusColor)
-                    Text(state.detail.ifBlank { stringResource(R.string.rootless_status_connecting) })
-                    if (state.canMigrateToNative) Text(stringResource(R.string.rootless_migrate_description))
-                    if (state.status == RootlessSettingsStatus.CHECKING) state.progress?.let {
-                        RootlessProgressIndicator(it, running = true, modifier = Modifier.padding(top = 8.dp))
-                    }
-                }
-            },
-            leadingContent = {
-                if (state.status == RootlessSettingsStatus.CHECKING && state.progress == null) {
-                    LoadingIndicator(Modifier.size(24.dp), color = TerminalStatusBlue)
-                } else {
-                    RuntimeEnvironmentIcon(runtimeType, state.status == RootlessSettingsStatus.ENVIRONMENT_REQUIRED)
-                }
-            },
-            trailingContent = {
-                Column(horizontalAlignment = Alignment.End) {
-                    if (state.canMigrateToNative && state.status != RootlessSettingsStatus.CHECKING) {
-                        TextButton(onClick = { migrateRootless(runtimeType) }, shapes = ButtonDefaults.shapes()) {
-                            Text(stringResource(R.string.rootless_migrate))
-                        }
-                    }
-                    actionLabel?.let { label ->
-                        if (label == R.string.install || label == R.string.rootless_remove) {
-                            FloatingToolbarAction(
-                                label = stringResource(label),
-                                icon = if (label == R.string.install) R.drawable.ic_material_symbol_download_24 else R.drawable.ic_material_symbol_delete_24,
-                                enabled = true,
-                                onClick = action,
-                                destructive = label == R.string.rootless_remove,
-                            )
-                        } else {
-                            TextButton(onClick = action, shapes = ButtonDefaults.shapes()) { Text(stringResource(label)) }
-                        }
-                    }
-                    if (state.installed && state.status != RootlessSettingsStatus.READY && state.status != RootlessSettingsStatus.CHECKING) {
-                        FloatingToolbarAction(
-                            label = stringResource(R.string.rootless_remove),
-                            icon = R.drawable.ic_material_symbol_delete_24,
-                            enabled = true,
-                            onClick = { pendingRootlessRemoval = runtimeType },
-                            destructive = true,
-                        )
-                    }
-                }
-            },
-            verticalAlignment = Alignment.CenterVertically,
-            shapes = terminalListItemShapes(),
-            colors = preferenceListItemColors(),
-            modifier = Modifier.fillMaxWidth(),
-        ) { Text(stringResource(runtimeTitleResource(runtimeType))) }
-    }
-
     private data class Choice(@param:StringRes val label: Int, val value: String)
 
     companion object {
@@ -1136,6 +904,5 @@ class SettingsDetailActivity : TerminalActivity() {
         private const val DEFAULT_NATIVE_SHELL = "/system/bin/sh"
         private const val DEFAULT_TERMINAL_TYPE = "xterm-256color"
         private val DEFAULT_WAKE_POLICY = WakePolicyStore.DEFAULT_POLICY.name
-        private const val ROOTLESS_SETUP_OPERATION = "ROOTLESS_SETUP"
     }
 }

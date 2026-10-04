@@ -85,7 +85,8 @@ class AvfProfileLaunchTest {
                     submit.invoke(activity)
                     submit.invoke(activity)
                     selectProfile.invoke(activity, independent)
-                    assertEquals(listOf(legacy.resolve(), independent.resolve()), requested)
+                    assertEquals(listOf(legacy.id, independent.id), requested.map { it.profileId })
+                    assertTrue(requested.all { it.executionEnvironment != null && it.environmentId != null })
                     @Suppress("UNCHECKED_CAST")
                     val unavailable = MainActivity::class.java.getDeclaredField("unavailableChoice\$delegate")
                         .apply { isAccessible = true }.get(activity) as MutableState<RuntimeChoiceUi?>

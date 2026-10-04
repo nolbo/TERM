@@ -4,12 +4,13 @@ import android.content.Context
 import android.content.Intent
 import dev.terminal.runtime.session.SessionRuntime
 import dev.terminal.runtime.session.StorageRegistry
+import dev.terminal.runtime.session.EnvironmentRegistry
 
-class StorageDetailActivity : StorageScreenActivity() {
+class StorageDetailActivity : EnvironmentScreenActivity() {
     override val titleResource: Int get() = R.string.storage_settings
-    override fun selectedStorage(): StorageRegistry.Key = StorageRegistry.Key(
+    override fun selectedEnvironment() = EnvironmentRegistry(filesDir).transaction(SessionProfiles(this@StorageDetailActivity).builtIns()) { forStorage(StorageRegistry.Key(
         requireNotNull(SessionRuntime.fromWireName(requireNotNull(intent.getStringExtra(EXTRA_RUNTIME)))),
-        requireNotNull(intent.getStringExtra(EXTRA_STORAGE_ID)))
+        requireNotNull(intent.getStringExtra(EXTRA_STORAGE_ID)))).id }
 
     companion object {
         private const val EXTRA_RUNTIME = "runtime"

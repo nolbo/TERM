@@ -77,7 +77,7 @@ class StorageSizeDeviceTest {
                     assertEquals(StorageRegistry.Usage(expected, incomplete = true), measure())
                     assertEquals(expected, service.measureStorage(runtime.wireName, profile.storageId))
                     assertEquals(emptySet<PosixFilePermission>(), Files.getPosixFilePermissions(denied.toPath()))
-                    val row = StorageItem.parse(service.storageJson).single { it.id == profile.storageId }
+                    val row = EnvironmentItem.parse(service.environmentsJson).single { it.storageId == profile.storageId }
                     assertEquals(expected, row.bytes)
                     assertTrue(row.incomplete)
                     val size = Formatter.formatShortFileSize(context, expected).uppercase(Locale.ROOT)

@@ -3,15 +3,19 @@
 ## Session profile launch requests
 
 The app-private Binder `createSessionFromSpec(launchSpecJson, rows, cols)` accepts
-version 1 JSON with `profileId`, `name`, `runtime` (existing wire runtime name),
+version 1 JSON (legacy) and version 2 JSON with `profileId`, `name`, `runtime` (existing wire runtime name),
 `shell`, `arguments` (string array), `cwd`, `environment` (string map), and
 `startupCommand`. Settings are copied and validated before dispatch; payloads are
-limited to 32 KiB, 64 environment entries and the existing 4096-byte/64-argument
+limited to 32 KiB for v1 without an Environment reference, or 34 KiB including Environment metadata/reference, and 64 environment entries and the existing 4096-byte/64-argument
 argv envelope. `DROID_*`, `TERMINAL_USB_*` and `KITTY_WINDOW_ID` are reserved.
 Rows/columns remain separate launch-time terminal state. The service snapshot
 includes `profileId` and `launchSpec` for each new session, even after its profile
 is edited or deleted. Missing metadata on legacy guest sessions does not imply
 session loss. The old runtime-based Binder call adapts to a built-in profile.
+Version 2 also carries `environmentId` and an immutable `executionEnvironment` object containing UUID/name, runtime kind, exact distribution/guest, storage identity, runtime-specific metadata and creation time. The top-level transitional runtime/storage fields must match that object. The service validates the Environment ID and canonical persistence handle against the registry and preserves the request snapshot instead of re-resolving through an edited profile. The small size allowance preserves otherwise-valid maximum-size v1 profiles during metadata-only migration and legacy storage adoption. Version 1 with only a transitional Environment reference remains readable by the updated host.
+
+Environment management adds host-only `getEnvironmentsJson`, `measureEnvironmentUsageJson`, `renameEnvironment`, `deleteEnvironment` and `operateEnvironment` Binder methods keyed by UUID. Current operation values are `START` and idle-only `STOP`; unsupported suspend/resume is rejected. Operations remain service-owned work across UI detach. Old Storage methods adapt to Environment identity; storage-only cleanup and old Rootless preparation/removal calls remain compatibility/diagnostic APIs, without general-user instance actions in global engine settings. The Environment list includes references, runtime state and conservative deletion availability; unknown runtime state never authorizes deletion.
+
 An optional `palette` array carries exactly 19 `#RRGGBB` strings (foreground,
 background, cursor, then ANSI 0–15); absent/null means global inheritance. Existing
 version 1 snapshots remain valid. The array is validated and defensively copied.
