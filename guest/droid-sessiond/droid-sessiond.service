@@ -8,7 +8,8 @@ ExecStart=/usr/local/lib/droid-terminal/droid-sessiond
 Restart=on-failure
 RestartSec=2
 User=droid
-NoNewPrivileges=yes
+# Interactive guest shells need setuid sudo for Debian package management.
+NoNewPrivileges=no
 PrivateTmp=yes
 
 [Install]

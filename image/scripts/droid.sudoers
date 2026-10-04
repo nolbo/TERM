@@ -1,0 +1,2 @@
+# The owner of this single-user VM may administer the guest without a shared password.
+droid ALL=(ALL:ALL) NOPASSWD: ALL

@@ -90,6 +90,8 @@ checked, Android-permission-checked, and optionally confirmed by the user.
 Capability grants are persisted per VM and are independent of Android runtime
 permissions.
 
+New AVF factory images treat each VM as a single-user development environment. Interactive shells start as non-root `droid`, with passwordless sudo authorizing administration of that guest, including its APT/dpkg database. The factory locks the account's password and installs `/etc/sudoers.d/90-term-droid` as root with mode 0440, validated by `visudo` and an actual non-interactive elevation check. `droid-sessiond` uses `NoNewPrivileges=no` so child shells can use sudo; it retains `PrivateTmp=yes`. This allows guest programs running as `droid` to obtain guest root and is not an isolation boundary between users or programs within one VM. All guest processes, including root, remain untrusted by Android and receive only the VM's separately checked capabilities. Existing installed images are not modified by this factory policy.
+
 The APK packages the direct AOSP AVF driver, but its compile-only platform API declarations must never appear as runtime classes in the APK. The optional device-provided shared library supplies the implementation. Driver creation is gated by Android 15+, AVF support, and both actual custom VM permission grants; the device must separately authorize the hidden custom-image API under its platform policy. Packaging does not grant permissions, install an implementation, or use reflection or hidden-API exemptions. Native remains the default owner, so absent platform classes cannot break permissionless service startup. `PlatformProbeAvfDriver` remains a public-SDK-safe diagnostic implementation for integrations without a provider.
 
 ## Executable policy

@@ -5,6 +5,8 @@ export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 mount -t proc proc /proc
 mount -t sysfs sysfs /sys
 mount -t devtmpfs devtmpfs /dev || true
+# Normal boot gets localhost from systemd.hostname; this PID 1 bypasses systemd.
+printf 'localhost\n' > /proc/sys/kernel/hostname
 grep -q ' / overlay ' /proc/mounts
 grep ' /.droid/lower ext4 ' /proc/mounts | grep -q 'ro,'
 mount -t ext4 -o ro,nodev,nosuid,noexec /dev/vdc /etc/droid-config
@@ -15,6 +17,7 @@ test -x /usr/local/lib/droid/droid-port-agent
 test -x /usr/local/bin/droid
 id droid
 /usr/local/lib/droid/droid-sessiond --self-check
+/usr/local/lib/droid/image-user-selftest
 mkdir -p /var/lib/droid-image-test
 if [ -e /var/lib/droid-image-test/persistent ]; then
   test "$(cat /var/lib/droid-image-test/persistent)" = survives-reboot

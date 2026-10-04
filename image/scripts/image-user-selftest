@@ -1,0 +1,45 @@
+#!/bin/sh
+set -eu
+# Factory-only, offline package test. All writes are in the disposable overlay.
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+test "$(id -u)" -eq 0
+umask 022
+install -d -m 0755 /var/lib/droid-image-test
+repository=$(mktemp -d /var/lib/droid-image-test/apt.XXXXXX)
+trap 'rm -rf "$repository"' EXIT
+chmod 0755 "$repository"
+mkdir -p "$repository/package/DEBIAN" "$repository/package/usr/bin" "$repository/empty"
+cat > "$repository/package/DEBIAN/control" <<'EOF'
+Package: term-avf-setup-probe
+Version: 1.0
+Architecture: all
+Maintainer: TERM image test <image-test@example.invalid>
+Description: Offline AVF package management probe
+EOF
+printf '#!/bin/sh\nprintf "TERM_AVF_APT_OK\\n"\n' > "$repository/package/usr/bin/term-avf-setup-probe"
+chmod 0755 "$repository/package/usr/bin/term-avf-setup-probe"
+dpkg-deb --build "$repository/package" "$repository/probe.deb" >/dev/null
+{
+  dpkg-deb --field "$repository/probe.deb"
+  printf 'Filename: ./probe.deb\nSize: %s\nSHA256: %s\n\n' \
+    "$(stat -c %s "$repository/probe.deb")" "$(sha256sum "$repository/probe.deb" | cut -d ' ' -f1)"
+} > "$repository/Packages"
+printf 'deb [trusted=yes] file:%s ./\n' "$repository" > "$repository/sources.list"
+runuser -u droid -- sh -eu -c '
+  test "$(id -u)" -ne 0
+  cd /home/droid
+  test -w .
+  root_uid=$(sudo -n id -u)
+  test "$root_uid" -eq 0
+  probe_repository=$1
+  apt_probe() {
+    sudo -n apt-get -qq -y -o "Dir::Etc::sourcelist=$probe_repository/sources.list" \
+      -o "Dir::Etc::sourceparts=$probe_repository/empty" -o Acquire::Languages=none "$@"
+  }
+  apt_probe update
+  apt_probe check
+  apt_probe install term-avf-setup-probe
+  test "$(term-avf-setup-probe)" = TERM_AVF_APT_OK
+  apt_probe purge term-avf-setup-probe
+' image-user-selftest "$repository"
+echo TERM_AVF_USER_SETUP_OK

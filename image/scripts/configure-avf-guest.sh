@@ -34,13 +34,10 @@ modprobe --set-version "$kernel" --show-depends overlay >/dev/null
 rm -rf "$ramdisk"
 bash /tmp/term-avf/install-droid-guest.sh / /tmp/term-avf/bin
 install -m 0755 /tmp/term-avf/image-selftest /usr/local/lib/droid/image-selftest
-if ! id droid >/dev/null 2>&1; then
-  useradd --create-home --home-dir /home/droid --shell /bin/bash droid
-fi
-test "$(getent passwd droid | cut -d: -f6)" = /home/droid
-mkdir -p /home/droid /workspace /etc/droid-config /.droid/lower /.droid/state
+install -m 0755 /tmp/term-avf/image-user-selftest /usr/local/lib/droid/image-user-selftest
+sh /tmp/term-avf/configure-avf-user.sh /tmp/term-avf/droid.sudoers
+mkdir -p /etc/droid-config /.droid/lower /.droid/state
 chmod 0700 /.droid
-chown droid:droid /home/droid /workspace
 mkdir -p /etc/systemd/system/droid-agent.service.d
 printf '[Service]\nGroup=droid\n' > /etc/systemd/system/droid-agent.service.d/access.conf
 # The root is an overlay with persistent upper/work directories on vdb.

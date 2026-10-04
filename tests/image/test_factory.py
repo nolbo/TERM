@@ -3,6 +3,7 @@ import hashlib
 import importlib.util
 import io
 from pathlib import Path
+import runpy
 import subprocess
 import tarfile
 import tempfile
@@ -100,6 +101,30 @@ class ImageFactoryTests(unittest.TestCase):
                 executable = next(line.split("=", 1)[1] for line in unit.read_text().splitlines() if line.startswith("ExecStart="))
                 self.assertTrue((root / executable.lstrip("/")).is_file())
                 self.assertTrue((root / f"etc/systemd/system/multi-user.target.wants/{name}.service").is_symlink())
+            session_unit = (root / "etc/systemd/system/droid-sessiond.service").read_text()
+            self.assertIn("User=droid\n", session_unit)
+            self.assertIn("NoNewPrivileges=no\n", session_unit)
+
+    def test_smoke_requires_user_setup_success_on_each_boot(self):
+        boots = [b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"]
+        for failed_boot in range(2):
+            results = [mock.Mock(returncode=0, stdout=marker +
+                       (b"\nTERM_AVF_USER_SETUP_OK" if index != failed_boot else b""))
+                       for index, marker in enumerate(boots)]
+            with self.subTest(failed_boot=failed_boot), mock.patch('subprocess.run', side_effect=results), \
+                    mock.patch('sys.stdout', new_callable=io.StringIO):
+                with self.assertRaisesRegex(SystemExit, "user setup/package"):
+                    runpy.run_path(str(REPO / "image/scripts/smoke-avf-image.py"))
+
+    def test_smoke_accepts_both_offline_boots_only_after_user_setup_succeeds(self):
+        results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_USER_SETUP_OK")
+                   for marker in [b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"]]
+        with mock.patch('subprocess.run', side_effect=results) as qemu, mock.patch('sys.stdout', new_callable=io.StringIO):
+            runpy.run_path(str(REPO / "image/scripts/smoke-avf-image.py"))
+        self.assertEqual(2, qemu.call_count)
+        for invocation in qemu.call_args_list:
+            command = invocation.args[0]
+            self.assertEqual("none", command[command.index("-nic") + 1])
 
 
 if __name__ == "__main__":

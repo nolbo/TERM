@@ -19,8 +19,11 @@ RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-ins
 COPY --from=guest /binaries /payload/bin
 COPY image/scripts/install-droid-guest.sh /payload/install-droid-guest.sh
 COPY image/scripts/configure-avf-guest.sh /payload/configure-avf-guest.sh
+COPY image/scripts/configure-avf-user.sh /payload/configure-avf-user.sh
+COPY image/scripts/droid.sudoers /payload/droid.sudoers
 COPY image/scripts/droid-overlay /payload/droid-overlay
 COPY image/scripts/image-selftest /payload/image-selftest
+COPY image/scripts/image-user-selftest /payload/image-user-selftest
 COPY image/scripts/smoke-avf-image.py /usr/local/bin/smoke-avf-image.py
 COPY image/scripts/assemble-avf-image.sh /usr/local/bin/assemble-avf-image
 # Hosted ARM64 runners do not expose KVM. Avoid an unusable host GIC fallback.

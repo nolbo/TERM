@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Two QEMU boots prove overlay root boot and persistence; this is not AVF device validation."""
+"""Two offline QEMU boots check overlay, sudo, APT and persistence, not AVF device integration."""
 from pathlib import Path
 import subprocess
 
@@ -15,7 +15,7 @@ for expected in ["TERM_AVF_FIRST_BOOT_OK", "TERM_AVF_PERSISTENCE_OK"]:
         command += ["-drive", f"if=none,id=disk{index},file={root / name},format=raw,readonly={'on' if readonly else 'off'}",
                     "-device", f"virtio-blk-pci,drive=disk{index}"]
     result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=600)
-    if result.returncode or expected.encode() not in result.stdout:
+    if result.returncode or expected.encode() not in result.stdout or b"TERM_AVF_USER_SETUP_OK" not in result.stdout:
         print(result.stdout.decode(errors="replace")[-12000:])
-        raise SystemExit("Generated AVF image failed boot/persistence smoke test")
+        raise SystemExit("Generated AVF image failed boot/user setup/package/persistence smoke test")
     print(expected, flush=True)
