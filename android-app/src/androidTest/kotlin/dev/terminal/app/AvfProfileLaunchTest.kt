@@ -94,7 +94,9 @@ class AvfProfileLaunchTest {
                     runtimeField.set(activity, original)
                 }
             }
-            awaitText(instrumentation.targetContext.getString(R.string.avf_session_loading))
+            val loadingDescription = instrumentation.targetContext.getString(R.string.avf_session_loading)
+            awaitText(loadingDescription, contentDescription = true)
+            assertNull("Loading must not draw a caption", find(automation.rootInActiveWindow, loadingDescription))
             if (InstrumentationRegistry.getArguments().getString("preview") == "true") SystemClock.sleep(30_000)
             scenario.onActivity { activity ->
                 val original = runtimeField.get(activity) as IRuntimeService
@@ -161,21 +163,22 @@ class AvfProfileLaunchTest {
             .apply { isAccessible = true }.invoke(activity, revision + 1, json)
     }
 
-    private fun awaitText(text: String) {
+    private fun awaitText(text: String, contentDescription: Boolean = false) {
         val deadline = SystemClock.elapsedRealtime() + 10_000
         while (SystemClock.elapsedRealtime() < deadline) {
             instrumentation.waitForIdleSync()
             automation.clearCache()
-            if (find(automation.rootInActiveWindow, text) != null) return
+            if (find(automation.rootInActiveWindow, text, contentDescription) != null) return
             SystemClock.sleep(50)
         }
         fail("Missing visible text: $text")
     }
 
-    private fun find(node: AccessibilityNodeInfo?, text: String): AccessibilityNodeInfo? {
+    private fun find(node: AccessibilityNodeInfo?, text: String, contentDescription: Boolean = false): AccessibilityNodeInfo? {
         if (node == null) return null
-        if (node.isVisibleToUser && node.text?.toString() == text) return node
-        for (index in 0 until node.childCount) find(node.getChild(index), text)?.let { return it }
+        val label = if (contentDescription) node.contentDescription else node.text
+        if (node.isVisibleToUser && label?.toString() == text) return node
+        for (index in 0 until node.childCount) find(node.getChild(index), text, contentDescription)?.let { return it }
         return null
     }
 }
