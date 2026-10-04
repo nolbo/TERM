@@ -20,15 +20,16 @@
 | USB 디바이스 | 대기 중인 접근 요청을 우선하며, 기기·허용된 접근·이동식 저장장치·호스트 도구·도움말 및 진단을 섹션으로 구분한다. 긴 기기 정보와 도움말은 펼침 행으로 제공한다. | [UsbSettingsScreen.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/UsbSettingsScreen.kt) |
 | 앱 업데이트 | 최상단 채널 선택, 업데이트 상태 카드와 주요 버튼 또는 진행률, 릴리즈노트 카드 순서다. | [AppUpdatesActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/AppUpdatesActivity.kt) |
 | 앱 정보·라이선스 | 앱 메타데이터는 읽기 전용 행으로, 라이선스는 디렉터리 목록과 선택 가능한 원문으로 표시한다. | [AppInfoActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/AppInfoActivity.kt) |
-| 초기 설정·진단·크래시 | 초기 설정은 실행 방식별 안내 카드와 시작 동작을 구분한다. 진단과 크래시 본문은 복사할 수 있는 고정폭 텍스트를 사용한다. | [ComposeUi.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/ComposeUi.kt)의 `SetupScreen`, `DiagnosticsScreen`, `CrashScreen` |
+| 진단 및 리포트 | 공통 진단 정보·새로고침과 최신순 크래시 목록을 구분한다. 리포트는 상세에서 읽고 복사하며 닫아도 보관한다. | [DiagnosticsActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/DiagnosticsActivity.kt), [CrashReportActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/CrashReportActivity.kt) |
+| 초기 설정·크래시 | 초기 설정은 실행 방식별 안내 카드와 시작 동작을 구분한다. 크래시 본문은 복사할 수 있는 고정폭 텍스트를 사용한다. | [ComposeUi.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/ComposeUi.kt)의 `SetupScreen`, `CrashScreen` |
 
-설정 홈의 그룹 순서는 **실행환경·프로필 → 언어·터미널 설정 → Userspace Linux·AVF Linux·Native 셸 → 앱 업데이트·앱 정보**다. AVF Linux 카테고리는 AVF 권한이 있는 경우에만 노출한다. 관련 설정을 추가할 때는 먼저 기존 카테고리와 섹션에 배치한다. 독립적인 사용자 목적과 여러 하위 설정이 있어 별도 진입이 필요한 경우에만 새 상위 카테고리를 만든다.
+설정 홈의 그룹 순서는 **실행환경·프로필 → 언어·터미널 설정 → Userspace Linux·AVF Linux·Native 셸 → 진단 및 리포트·앱 업데이트·앱 정보**다. AVF Linux 카테고리는 AVF 권한이 있는 경우에만 노출한다. 관련 설정을 추가할 때는 먼저 기존 카테고리와 섹션에 배치한다. 독립적인 사용자 목적과 여러 하위 설정이 있어 별도 진입이 필요한 경우에만 새 상위 카테고리를 만든다.
 
 설정 홈의 **실행환경**은 Material Symbols Rounded의 `deployed_code`, **프로필**은 `layers` 아이콘을 사용한다. 같은 카테고리가 검색 결과에 나타날 때도 이 아이콘을 사용하며, 40dp 원형 표면 안에 24dp 비채움 아이콘을 배치한다.
 
 터미널 설정은 현재 **USB 디바이스, 사용자 설정, 셸, 터미널 기록, 햅틱 피드백, 공유 내부저장소, 백그라운드 실행, Android 권한**으로 나뉜다. 사용자 설정에서 툴바 설정과 터미널 모양으로 이동하며, 터미널 모양은 여백·텍스트·사용자 글꼴·컬러 팔레트를 구분한다. 관련성이 높은 옵션을 같은 섹션에 두고 기존 진입 경로를 유지한다.
 
-프로필의 실행 설정, 개별 실행환경의 데이터·설치·실행 상태, 실행 엔진의 전역 정책을 구분한다. 개별 배포판·VM의 설치·제거·시작·중지는 실행환경 상세에 둔다. Userspace Linux·AVF Linux 설정에는 엔진 지원·정책·진단과 실행환경 관리 진입을 둔다. 저장소 내부 식별자와 파일 구조를 새 최상위 사용자 개념으로 노출하지 않는다.
+프로필의 실행 설정, 개별 실행환경의 데이터·설치·실행 상태, 실행 엔진의 전역 정책을 구분한다. 개별 배포판·VM의 설치·제거·시작·중지는 실행환경 상세에 둔다. Userspace Linux·AVF Linux 설정에는 엔진 지원·정책과 실행환경 관리 진입을 둔다. 전달 포트는 AVF Linux 설정에만 두고, 공통 진단과 크래시 리포트 목록은 설정 홈의 진단 및 리포트에서만 제공한다. 저장소 내부 식별자와 파일 구조를 새 최상위 사용자 개념으로 노출하지 않는다.
 
 사용자 화면에서는 PRoot 기반 Linux를 **Userspace Linux**, 파일·패키지·런타임 상태를 보관하는 단위를 **실행환경(Execution Environment)**으로 표시한다.
 
@@ -82,7 +83,7 @@ scaffold가 전달한 padding과 시스템 inset을 적용한다. 상태 표시�
 
 실행환경 목록처럼 행마다 지연 로딩이 필요한 경우에는 전체 그룹을 하나의 lazy item으로 만들지 않는다. `EnvironmentGroupCard`처럼 첫 행의 위쪽과 마지막 행의 아래쪽에 28dp 모서리를 적용하고, 나머지 모서리는 4dp로 유지해 같은 그룹 형태를 만든다. 툴바 순서 편집처럼 행이 그룹 밖으로 움직이는 경우에는 기존 드래그 구현의 행별 곡률과 그림자 처리를 유지한다.
 
-단순 사용 설명과 제한 안내는 카드 밖의 배경 없는 보조 텍스트로 둔다. 특정 옵션에 필요한 짧은 설명은 그 행의 supporting content에 넣는다. 실행 가능한 설정과 상태 확인 동작은 그룹 안에 둔다. Userspace Linux와 AVF Linux의 엔진 지원 상태는 공통 읽기 전용 `ListItem`으로 표시하고, 실행환경 관리·진단 이동 행은 해당 섹션의 `SettingsGroup`에 둔다. Userspace Linux의 제한 안내는 실행환경 섹션의 그룹 아래 보조 텍스트로 표시한다.
+단순 사용 설명과 제한 안내는 카드 밖의 배경 없는 보조 텍스트로 둔다. 특정 옵션에 필요한 짧은 설명은 그 행의 supporting content에 넣는다. 실행 가능한 설정과 상태 확인 동작은 그룹 안에 둔다. Userspace Linux와 AVF Linux의 엔진 지원 상태는 공통 읽기 전용 `ListItem`으로 표시하고, 실행환경 관리와 AVF 전달 포트 이동 행은 해당 섹션의 `SettingsGroup`에 둔다. Userspace Linux의 제한 안내는 실행환경 섹션에 카드 없이 보조 텍스트로 표시한다.
 
 ## 5. 설정 항목 유형과 조작 규칙
 

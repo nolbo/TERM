@@ -43,6 +43,7 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("rootless", R.string.runtime_rootless_title, R.string.settings_rootless_summary, icon = R.drawable.ic_runtime_rootless_group)
     entry("avf", R.string.settings_avf_title, R.string.settings_avf_summary, icon = R.drawable.ic_material_symbol_memory_24)
     entry("native", R.string.settings_native_title, R.string.settings_native_summary, icon = R.drawable.ic_runtime_native)
+    entry("diagnostics", R.string.settings_diagnostics_title, R.string.settings_diagnostics_summary, icon = R.drawable.ic_material_symbol_search_24)
     entry("updates", R.string.app_updates, R.string.update_settings_summary, icon = R.drawable.ic_material_symbol_download_24)
     entry("about", R.string.app_info, R.string.app_info_summary, icon = R.drawable.ic_app_info_24)
     listOf(R.string.app_version, R.string.app_package_name, R.string.app_build_type, R.string.app_build_number,
@@ -93,7 +94,9 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("avf", R.string.protected_vm, R.string.protected_vm_support, listOf(R.string.settings_avf_title) + R.string.section_resources, section = 1)
     entry("avf", R.string.guest_network, R.string.guest_network_support, listOf(R.string.settings_avf_title) + R.string.section_resources, section = 1)
     entry("environments", R.string.debian_image, R.string.avf_image_profile_support, listOf(R.string.storage_title))
-    entry("avf", R.string.diagnostics_title, R.string.diagnostics_support, listOf(R.string.settings_avf_title) + R.string.section_execution, section = 2)
+    entry("avf", R.string.forwarded_ports_title, R.string.forwarded_ports_support, listOf(R.string.settings_avf_title) + R.string.section_execution, section = 2)
+    entry("diagnostics", R.string.diagnostics_title, R.string.diagnostics_support, listOf(R.string.settings_diagnostics_title), section = 1)
+    entry("diagnostics", R.string.crash_reports_title, R.string.crash_reports_summary, listOf(R.string.settings_diagnostics_title), section = 2)
     entry("rootless", R.string.rootless_limitations, R.string.rootless_limitations_support, listOf(R.string.runtime_rootless_title) + R.string.section_environment, section = 2)
     entry("toolbar", R.string.toolbar_enabled, R.string.toolbar_enabled_summary, terminal + R.string.toolbar_settings)
     entry("hotkeys", R.string.hotkey_columns, null, hotkeys)

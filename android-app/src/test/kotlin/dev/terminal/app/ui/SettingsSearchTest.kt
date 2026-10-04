@@ -8,7 +8,7 @@ class SettingsSearchTest {
     @Test fun avfCategoriesAndNestedSearchResultsRequirePrivileges() {
         val unprivileged = visibleSettingsSearchEntries(false)
         assertFalse(unprivileged.any { it.target.screen == "avf" })
-        assertEquals(listOf("environments", "profiles", "language", "terminal", "rootless", "native", "updates", "about"),
+        assertEquals(listOf("environments", "profiles", "language", "terminal", "rootless", "native", "diagnostics", "updates", "about"),
             unprivileged.filter { it.path.isEmpty() }.map { it.target.screen })
         assertEquals(settingsSearchEntries, visibleSettingsSearchEntries(true))
         assertTrue(visibleSettingsSearchEntries(true).any { it.target.screen == "avf" && it.path.isNotEmpty() })
@@ -44,13 +44,23 @@ class SettingsSearchTest {
         assertEquals(SettingsSearchTarget("profiles"), target(R.string.profile_directory))
         assertEquals(SettingsSearchTarget("environments"), target(R.string.storage_title))
         assertEquals(SettingsSearchTarget("rootless", 2), target(R.string.rootless_limitations))
+        assertEquals(SettingsSearchTarget("diagnostics", 1), target(R.string.diagnostics_title))
+        assertEquals(SettingsSearchTarget("diagnostics", 2), target(R.string.crash_reports_title))
+        assertEquals(SettingsSearchTarget("avf", 2), target(R.string.forwarded_ports_title))
     }
 
     @Test fun homeIncludesEnvironmentsAndResultKeysAreUnique() {
-        assertEquals(listOf("environments", "profiles", "language", "terminal", "rootless", "avf", "native", "updates", "about"),
+        assertEquals(listOf("environments", "profiles", "language", "terminal", "rootless", "avf", "native", "diagnostics", "updates", "about"),
             settingsSearchEntries.filter { it.path.isEmpty() }.map { it.target.screen })
         val keys = settingsSearchEntries.map { it.target.screen to it.title }
         assertEquals(keys.size, keys.toSet().size)
         assertTrue(settingsSearchEntries.filter { it.path.isNotEmpty() }.all { it.target.sectionIndex >= 0 })
+    }
+
+    @Test fun diagnosticsAndPortsHaveOnlyTheirAssignedSettingsDestinations() {
+        assertTrue(settingsSearchEntries.filter { it.title in listOf(R.string.settings_diagnostics_title,
+            R.string.diagnostics_title, R.string.crash_reports_title) }.all { it.target.screen == "diagnostics" })
+        assertTrue(settingsSearchEntries.filter { it.title == R.string.forwarded_ports_title }.all { it.target.screen == "avf" })
+        assertFalse(visibleSettingsSearchEntries(false).any { it.title == R.string.forwarded_ports_title })
     }
 }

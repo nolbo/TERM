@@ -21,11 +21,18 @@ class TerminalApplication : Application(), androidx.work.Configuration.Provider,
         super.onCreate()
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
-            getSharedPreferences("crash-report", MODE_PRIVATE).edit()
-                .putString("report", "시간: ${java.util.Date()}\n스레드: ${thread.name}\n\n" + StringWriter().also { error.printStackTrace(PrintWriter(it)) })
-                // The process is about to die; apply() can lose the report
-                // before its asynchronous disk write has run.
-                .commit()
+            runCatching {
+                val capturedAt = System.currentTimeMillis()
+                val text = "시간: ${java.util.Date(capturedAt)}\n프로세스: ${Application.getProcessName()}\n스레드: ${thread.name}\n\n" +
+                    StringWriter().also { error.printStackTrace(PrintWriter(it)) }
+                val archived = runCatching { CrashReportStore.from(this).record(text, error.toString(), capturedAt) }.getOrNull()
+                val editor = getSharedPreferences(CrashReportStore.PREFERENCES, MODE_PRIVATE).edit()
+                    .putString(CrashReportStore.KEY_REPORT, archived?.text ?: text)
+                if (archived != null) editor.putString(CrashReportStore.KEY_REPORT_ID, archived.id)
+                else editor.remove(CrashReportStore.KEY_REPORT_ID)
+                // The dying process must commit before delegating to Android's crash handler.
+                editor.commit()
+            }
             previous?.uncaughtException(thread, error)
         }
     }

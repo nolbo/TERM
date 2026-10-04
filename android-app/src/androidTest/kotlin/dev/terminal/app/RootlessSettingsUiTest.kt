@@ -42,6 +42,8 @@ class RootlessSettingsUiTest {
             assertFalse(context.getString(R.string.rootless_uninstalled_distributions) in text)
             assertFalse(context.getString(R.string.rootless_remove) in text)
             assertFalse(context.getString(R.string.rootless_complete_environment) in text)
+            assertFalse(context.getString(R.string.diagnostics_title) in text)
+            assertFalse(context.getString(R.string.forwarded_ports_title) in text)
         }
     }
 }

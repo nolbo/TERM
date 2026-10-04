@@ -415,8 +415,8 @@ class SettingsDetailActivity : TerminalActivity() {
                 ActionSetting(R.string.storage_title, R.string.environment_instances_support) {
                     startActivity(Intent(this@SettingsDetailActivity, EnvironmentActivity::class.java))
                 }
-                ActionSetting(R.string.diagnostics_title, R.string.diagnostics_support) {
-                    startActivity(Intent(this@SettingsDetailActivity, DiagnosticsActivity::class.java))
+                ActionSetting(R.string.forwarded_ports_title, R.string.forwarded_ports_support) {
+                    startActivity(Intent(this@SettingsDetailActivity, ForwardedPortsActivity::class.java))
                 }
             }
         }
@@ -427,9 +427,6 @@ class SettingsDetailActivity : TerminalActivity() {
             SettingsSection(R.string.storage_title) {
                 ActionSetting(R.string.storage_title, R.string.avf_image_profile_support) {
                     startActivity(Intent(this@SettingsDetailActivity, EnvironmentActivity::class.java))
-                }
-                ActionSetting(R.string.diagnostics_title, R.string.diagnostics_support) {
-                    startActivity(Intent(this@SettingsDetailActivity, DiagnosticsActivity::class.java))
                 }
             }
         }
@@ -595,13 +592,8 @@ class SettingsDetailActivity : TerminalActivity() {
             }
         }
         item {
-            SettingsSection(
-                R.string.section_environment,
-                footer = { InfoSetting(R.string.rootless_limitations, R.string.rootless_limitations_support) },
-            ) {
-                ActionSetting(R.string.diagnostics_title, R.string.diagnostics_support) {
-                    startActivity(Intent(this@SettingsDetailActivity, DiagnosticsActivity::class.java))
-                }
+            SettingsSection(R.string.section_environment, hasOptions = false) {
+                InfoSetting(R.string.rootless_limitations, R.string.rootless_limitations_support)
             }
         }
     }

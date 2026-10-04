@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_diagnostics_title">Diagnostics and reports</string>
+    <string name="settings_diagnostics_summary">Runtime status and crash history</string>
+    <string name="settings_diagnostics_description">Check runtime status and open saved crash reports to read and copy them.</string>
+    <string name="crash_reports_title">Crash reports</string>
+    <string name="crash_reports_summary">View saved crash history.</string>
+    <string name="crash_reports_retention">Up to %1$d recent reports are kept. Closing a report preserves its history.</string>
+    <string name="crash_reports_empty">No saved crash reports.</string>
+    <string name="crash_reports_loading">Loading reports…</string>
+    <string name="crash_reports_unavailable">Could not load crash reports.</string>
+    <string name="runtime_information_unavailable">Runtime information is unavailable. Refresh to try again.</string>
+    <string name="forwarded_ports_title">Forwarded ports</string>
+    <string name="forwarded_ports_support">Local ports for AVF guest servers</string>
+    <string name="forwarded_ports_description">Connections between servers running in AVF Linux and local Android ports.</string>
+</resources>

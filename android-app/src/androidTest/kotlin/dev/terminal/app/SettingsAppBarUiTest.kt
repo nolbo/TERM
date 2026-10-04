@@ -26,7 +26,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.terminal.app.ui.DroidTheme
-import dev.terminal.app.ui.DiagnosticsScreen
+import dev.terminal.app.ui.DiagnosticsAndReportsScreen
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalHapticFeedbackProvider
 import org.junit.Assert.*
@@ -122,7 +122,16 @@ class SettingsAppBarUiTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 DroidTheme { TerminalHapticFeedbackProvider {
-                    DiagnosticsScreen({}, "Selectable diagnostic output\n".repeat(100)) { refreshes++ }
+                    DiagnosticsAndReportsScreen(
+                        onBack = {},
+                        text = "Selectable diagnostic output\n".repeat(100),
+                        reports = emptyList(),
+                        reportsLoading = false,
+                        reportsError = null,
+                        onRefresh = { refreshes++ },
+                        onOpenReport = {},
+                        sectionIndex = 0,
+                    )
                 } }
             } }
             await { find { it.text?.toString() == context.getString(R.string.refresh) } != null }
@@ -134,7 +143,7 @@ class SettingsAppBarUiTest {
             val initialBack = bounds(back())
             val screen = bounds(instrumentation.uiAutomation.rootInActiveWindow)
             touch(screen.exactCenterX(), screen.height() * 0.8f, screen.height() * 0.25f)
-            assertNull(find { it.text?.toString() == context.getString(R.string.diagnostics_title) })
+            assertNull(find { it.text?.toString() == context.getString(R.string.settings_diagnostics_title) })
             assertEquals(initialBack, bounds(back()))
             assertNull("Refresh scrolls with the content", find { it.text?.toString() == context.getString(R.string.refresh) })
         }

@@ -14,6 +14,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -64,6 +65,9 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import dev.terminal.app.R
+import dev.terminal.app.CrashReport
+import dev.terminal.app.CrashReportStore
+import dev.terminal.app.ProfileSection
 import kotlinx.coroutines.launch
 
 internal val TerminalDarkColors = darkColorScheme(
@@ -801,7 +805,7 @@ internal fun SettingsOverview(onBack: () -> Unit, onOpen: (SettingsSearchTarget)
                 }
             } else if (query.isBlank()) {
                 val groups = listOf(listOf("environments", "profiles"), listOf("language", "terminal"),
-                    listOf("rootless", "avf", "native"), listOf("updates", "about"))
+                    listOf("rootless", "avf", "native"), listOf("diagnostics", "updates", "about"))
                     .map { screens -> visibleRows.filter { it.entry.target.screen in screens } }
                     .filter { it.isNotEmpty() }
                 items(groups, key = { "group:${it.first().entry.target.screen}" }) { group ->
@@ -846,33 +850,117 @@ private fun SettingsOverviewRow(destination: LocalizedSettingsEntry, onOpen: (Se
 }
 
 @Composable
-fun DiagnosticsScreen(onBack: () -> Unit, text: String, onRefresh: () -> Unit) {
-    SettingsPageScaffold(stringResource(R.string.diagnostics_title), onBack) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(20.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            FilledTonalButton(onClick = onRefresh, modifier = Modifier.align(Alignment.End), shapes = ButtonDefaults.shapes()) {
-                Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), null, Modifier.size(ButtonDefaults.IconSize))
-                Spacer(Modifier.width(ButtonDefaults.IconSpacing))
-                Text(stringResource(R.string.refresh))
+internal fun DiagnosticsAndReportsScreen(
+    onBack: () -> Unit,
+    text: String,
+    reports: List<CrashReport>,
+    reportsLoading: Boolean,
+    reportsError: String?,
+    onRefresh: () -> Unit,
+    onOpenReport: (CrashReport) -> Unit,
+    sectionIndex: Int,
+) {
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = sectionIndex.coerceIn(0, 2))
+    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
+    SettingsPageScaffold(stringResource(R.string.settings_diagnostics_title), onBack) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), state = listState,
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            item {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(stringResource(R.string.settings_diagnostics_description), Modifier.padding(horizontal = 4.dp),
+                        style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    RefreshInformationButton(onRefresh, Modifier.align(Alignment.End))
+                }
             }
-            SelectionContainer { Text(text, fontFamily = LocalTerminalMonospaceFontFamily.current) }
+            item {
+                ProfileSection(R.string.diagnostics_title) {
+                    SelectionContainer {
+                        Text(text, Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp),
+                            fontFamily = LocalTerminalMonospaceFontFamily.current)
+                    }
+                }
+            }
+            item {
+                Column {
+                    ProfileSection(R.string.crash_reports_title) {
+                        when {
+                            reportsLoading -> InformationMessage(stringResource(R.string.crash_reports_loading))
+                            reportsError != null -> InformationMessage(reportsError)
+                            reports.isEmpty() -> InformationMessage(stringResource(R.string.crash_reports_empty))
+                            else -> reports.forEach { report ->
+                                val date = remember(report.createdAt, locale) {
+                                    java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM,
+                                        java.text.DateFormat.MEDIUM, locale).format(java.util.Date(report.createdAt))
+                                }
+                                ListItem(
+                                    onClick = { onOpenReport(report) },
+                                    supportingContent = { Text(date) },
+                                    trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
+                                    shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text(report.summary.ifBlank { stringResource(R.string.crash_report_title) }) }
+                            }
+                        }
+                    }
+                    Text(stringResource(R.string.crash_reports_retention, CrashReportStore.MAX_REPORTS),
+                        Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
         }
     }
 }
 
 @Composable
-fun CrashScreen(onBack: () -> Unit, report: String, onCopy: () -> Unit, onClose: () -> Unit) {
+internal fun RuntimeInformationScreen(title: String, description: String, onBack: () -> Unit, text: String, onRefresh: () -> Unit) {
+    SettingsPageScaffold(title, onBack) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            Text(description, Modifier.padding(horizontal = 4.dp),
+                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            RefreshInformationButton(onRefresh, Modifier.align(Alignment.End))
+            SettingsGroup {
+                SelectionContainer {
+                    Text(text, Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp),
+                        fontFamily = LocalTerminalMonospaceFontFamily.current)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun RefreshInformationButton(onRefresh: () -> Unit, modifier: Modifier) {
+    FilledTonalButton(onClick = onRefresh, modifier = modifier, shapes = ButtonDefaults.shapes()) {
+        Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), null, Modifier.size(ButtonDefaults.IconSize))
+        Spacer(Modifier.width(ButtonDefaults.IconSpacing))
+        Text(stringResource(R.string.refresh))
+    }
+}
+
+@Composable
+private fun InformationMessage(text: String) {
+    Text(text, Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp),
+        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+}
+
+@Composable
+fun CrashScreen(onBack: () -> Unit, report: String, onCopy: () -> Unit, onClose: () -> Unit, canCopy: Boolean = true) {
     val snackbarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val copiedMessage = stringResource(R.string.copy_complete)
     AppScaffold(stringResource(R.string.crash_report_title), onBack, snackbarHost) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(stringResource(R.string.crash_report_intro))
-            SelectionContainer { Text(report, Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()), fontFamily = LocalTerminalMonospaceFontFamily.current) }
+            SelectionContainer(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
+                Text(report, fontFamily = LocalTerminalMonospaceFontFamily.current)
+            }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onClose, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.close)) }
                 Spacer(Modifier.width(8.dp))
-                Button(onClick = { onCopy(); scope.launch { snackbarHost.showSnackbar(copiedMessage) } }, shapes = ButtonDefaults.shapes()) {
+                Button(onClick = { onCopy(); scope.launch { snackbarHost.showSnackbar(copiedMessage) } }, enabled = canCopy, shapes = ButtonDefaults.shapes()) {
                     Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), null)
                     Spacer(Modifier.width(8.dp))
                     Text(stringResource(R.string.copy_error))
