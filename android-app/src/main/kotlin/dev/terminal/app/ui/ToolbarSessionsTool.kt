@@ -169,11 +169,11 @@ private fun SessionToolSummary(sessions: List<SessionUi>, colors: TerminalChrome
             var first = true
             sessionSummaryStates.forEach { state ->
                 counts[state]?.let { count ->
-                    if (!first) Text(" · ", style = MaterialTheme.typography.bodyMedium,
+                    if (!first) Text(" · ", style = MaterialTheme.typography.bodySmall,
                         color = colors.foreground.copy(alpha = 0.75f))
                     Text(stringResource(R.string.toolbar_session_state_count, sessionStateLabel(state), count),
                         maxLines = 1,
-                        style = MaterialTheme.typography.bodyMedium,
+                        style = MaterialTheme.typography.bodySmall,
                         color = colors.foreground.copy(alpha = 0.75f))
                     first = false
                 }
