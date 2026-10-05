@@ -4,6 +4,7 @@ package dev.terminal.app.ui
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -37,6 +38,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -77,9 +79,15 @@ internal fun ToolbarSessionsTool(
     val sessionsActive = active && !profilePickerVisible
     val tabsActive = sessionsActive && progress == 1f
     BackHandler(enabled = active && profilePickerVisible, onBack = onDismissProfilePicker)
-    val effects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
-    AnimatedContent(targetState = profilePickerVisible, modifier = Modifier.fillMaxSize(),
-        transitionSpec = { (fadeIn(effects) togetherWith fadeOut(effects)).using(null) },
+    val effects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+    val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
+    AnimatedContent(targetState = profilePickerVisible, modifier = Modifier.fillMaxSize().clipToBounds(),
+        transitionSpec = {
+            val direction = if (targetState) AnimatedContentTransitionScope.SlideDirection.Start
+                else AnimatedContentTransitionScope.SlideDirection.End
+            ((slideIntoContainer(direction, spatial) + fadeIn(effects)) togetherWith
+                (slideOutOfContainer(direction, spatial) + fadeOut(effects))).using(null)
+        },
         label = "sessionsPage",
     ) { pickingProfile ->
         if (pickingProfile) {

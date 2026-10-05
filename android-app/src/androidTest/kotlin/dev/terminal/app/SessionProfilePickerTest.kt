@@ -10,8 +10,16 @@ import android.os.SystemClock
 import android.view.KeyEvent
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.view.ViewTreeObserver
+import android.view.inputmethod.InputMethodManager
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.runtime.MutableState
+import androidx.compose.ui.platform.ViewRootForTest
+import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -31,6 +39,96 @@ import org.junit.runner.RunWith
 class SessionProfilePickerTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
+
+    @Test fun defaultSheetExpansionAndBothBackPathsShowIntermediateMotion() = withSessions { service, first, _ ->
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            select(scenario, first)
+            scenario.onActivity { activity ->
+                activity.getSystemService(InputMethodManager::class.java)
+                    .hideSoftInputFromWindow(activity.window.decorView.windowToken, 0)
+            }
+            SystemClock.sleep(600)
+            val root = composeRoot(scenario)
+            val initial = pickerMotionFrame(scenario, root)
+            val before = sessions(service).map { it.getString("id") }.toSet()
+            val opening = capturePickerMotion(scenario, root) { click(R.string.new_session) }
+            await("expanded picker") { findLabel(R.string.back) != null &&
+                state<ToolbarSheetMode>(scenario, "toolbarSheetMode") == ToolbarSheetMode.Expanded }
+            val expanded = pickerMotionFrame(scenario, root)
+            val initialTop = requireNotNull(initial.handleTop)
+            val expandedTop = requireNotNull(expanded.handleTop)
+            val backLeft = requireNotNull(expanded.backLeft)
+            assertTrue("Opening the default toolbar must animate its height", opening.any {
+                it.handleTop != null && it.handleTop < initialTop - 2 && it.handleTop > expandedTop + 2
+            })
+            assertTrue("The profile page must slide into the sheet", opening.any {
+                it.backLeft != null && it.backLeft > backLeft + 2
+            })
+
+            val returning = capturePickerMotion(scenario, root) { click(R.string.back) }
+            await("sessions after animated header back") { findLabel(R.string.select_profile) == null && findLabel(R.string.new_session) != null }
+            assertTrue("Header back must slide the profile page out", returning.any {
+                it.backLeft != null && it.backLeft > backLeft + 2
+            })
+            assertEquals(expandedTop, pickerMotionFrame(scenario, root).handleTop)
+
+            capturePickerMotion(scenario, root) { click(R.string.new_session) }
+            await("picker reopened") { findLabel(R.string.back) != null }
+            val androidBack = capturePickerMotion(scenario, root) { instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK) }
+            await("sessions after animated Android back") { findLabel(R.string.select_profile) == null && findLabel(R.string.new_session) != null }
+            assertTrue("Android back must use the same page motion", androidBack.any {
+                it.backLeft != null && it.backLeft > backLeft + 2
+            })
+            assertEquals(first, state<String?>(scenario, "activeSessionId"))
+            assertEquals(before, sessions(service).map { it.getString("id") }.toSet())
+        }
+    }
+
+    private data class PickerMotionFrame(val handleTop: Float?, val backLeft: Float?)
+
+    private fun composeRoot(scenario: ActivityScenario<MainActivity>): ViewRootForTest {
+        fun find(view: View): ViewRootForTest? {
+            if (view is ViewRootForTest) return view
+            if (view is ViewGroup) for (i in 0 until view.childCount) find(view.getChildAt(i))?.let { return it }
+            return null
+        }
+        var root: ViewRootForTest? = null
+        scenario.onActivity { root = find(it.window.decorView) }
+        return requireNotNull(root)
+    }
+
+    private fun pickerMotionFrame(root: ViewRootForTest): PickerMotionFrame {
+        fun find(node: SemanticsNode, label: String): SemanticsNode? {
+            if (node.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(label) == true) return node
+            return node.children.firstNotNullOfOrNull { find(it, label) }
+        }
+        val semantics = root.semanticsOwner.rootSemanticsNode
+        return PickerMotionFrame(find(semantics, context.getString(R.string.toolbar_handle))?.boundsInWindow?.top,
+            find(semantics, context.getString(R.string.back))?.boundsInWindow?.left)
+    }
+
+    private fun pickerMotionFrame(scenario: ActivityScenario<MainActivity>, root: ViewRootForTest): PickerMotionFrame {
+        var frame: PickerMotionFrame? = null
+        scenario.onActivity { frame = pickerMotionFrame(root) }
+        return requireNotNull(frame)
+    }
+
+    private fun capturePickerMotion(scenario: ActivityScenario<MainActivity>, root: ViewRootForTest,
+        action: () -> Unit): List<PickerMotionFrame> {
+        val frames = mutableListOf<PickerMotionFrame>()
+        // Collect before the click; accessibility calls may return after the animation has finished.
+        val listener = ViewTreeObserver.OnPreDrawListener { frames += pickerMotionFrame(root); true }
+        scenario.onActivity { root.view.viewTreeObserver.addOnPreDrawListener(listener) }
+        try {
+            action()
+            SystemClock.sleep(1000)
+            var result = emptyList<PickerMotionFrame>()
+            scenario.onActivity { result = frames.toList() }
+            return result
+        } finally {
+            scenario.onActivity { root.view.viewTreeObserver.removeOnPreDrawListener(listener) }
+        }
+    }
 
     @Test fun touchScrollingAndDiagonalSwipesKeepTheProfilePickerOpen() = withSessions { service, first, _ ->
         val store = SessionProfiles(context)
@@ -121,6 +219,7 @@ class SessionProfilePickerTest {
                 select(scenario, first)
                 click(R.string.new_session)
                 await("profile picker") { findLabel(R.string.select_profile) != null }
+                SystemClock.sleep(600)
                 assertNull("The end of a long list starts outside the viewport", find { it.hasLabel(profiles.last().name) })
                 scrollTo(profiles.last().name)
                 val environmentName = store.environments().single { it.id == native.environmentId }.name
