@@ -40,6 +40,37 @@ class SessionProfilePickerTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
 
+    @Test fun newSessionPickerUsesTheSavedProfileOrder() = withSessions { _, first, _ ->
+        val store = SessionProfiles(context)
+        val preferences = context.getSharedPreferences(PROFILE_ORDER_PREFERENCES, Context.MODE_PRIVATE)
+        val previousOrder = preferences.getString(KEY_PROFILE_ORDER, null)
+        val original = store.all()
+        val template = original.firstOrNull { it.runtime == SessionRuntime.NATIVE }
+            ?: store.builtIns().first { it.runtime == SessionRuntime.NATIVE }
+        val profiles = List(2) { template.copy(id = UUID.randomUUID().toString(), name = "Picker order $it ${UUID.randomUUID()}") }
+        val reversed = profiles.reversed() + original
+        try {
+            profiles.forEach { store.save(it) }
+            store.reorder(reversed.map { it.id })
+            assertEquals(reversed.map { it.id }, store.all().map { it.id })
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                select(scenario, first)
+                click(R.string.new_session)
+                await("new session rows in the saved order after expansion") {
+                    val bounds = reversed.take(2).mapNotNull { profile ->
+                        find { node -> node.hasLabel(profile.name) }?.let { node -> Rect().also(node::getBoundsInScreen) }
+                    }
+                    bounds.size == 2 && bounds.all { it.height() > 0 && it.width() > 0 } && bounds[0].top < bounds[1].top
+                }
+            }
+        } finally {
+            profiles.forEach { store.delete(it.id) }
+            preferences.edit().apply {
+                if (previousOrder == null) remove(KEY_PROFILE_ORDER) else putString(KEY_PROFILE_ORDER, previousOrder)
+            }.commit()
+        }
+    }
+
     @Test fun defaultSheetExpansionAndBothBackPathsShowIntermediateMotion() = withSessions { service, first, _ ->
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             select(scenario, first)

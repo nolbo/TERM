@@ -42,6 +42,7 @@ class SettingsSearchTest {
         assertEquals(SettingsSearchTarget("palette"), target(R.string.palette_cursor))
         assertEquals(SettingsSearchTarget("usb"), target(R.string.usb_section_storage))
         assertEquals(SettingsSearchTarget("profiles"), target(R.string.profile_directory))
+        assertEquals(SettingsSearchTarget("profiles"), target(R.string.profile_list))
         assertEquals(SettingsSearchTarget("environments"), target(R.string.storage_title))
         assertEquals(SettingsSearchTarget("rootless-dns"), target(R.string.userspace_dns))
         assertEquals(SettingsSearchTarget("rootless", 2), target(R.string.userspace_proot))

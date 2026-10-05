@@ -126,6 +126,7 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("usb", R.string.usb_section_storage, null, terminal + R.string.usb_title, section = 0)
     entry("usb", R.string.usb_section_tools, null, terminal + R.string.usb_title, section = 0)
     entry("usb", R.string.usb_section_help, null, terminal + R.string.usb_title, section = 0)
+    entry("profiles", R.string.profile_list, R.string.profiles_edit_summary, path = listOf(R.string.profiles))
     entry("profiles", R.string.profile_name, path = listOf(R.string.profiles, R.string.profile_settings))
     entry("profiles", R.string.profile_icon, path = listOf(R.string.profiles, R.string.profile_settings))
     entry("profiles", R.string.profile_runtime, path = listOf(R.string.profiles, R.string.profile_settings))

@@ -100,6 +100,7 @@
     <string name="rootless_migrate_running">Recovering interrupted conversion</string>
     <string name="profiles">Profiles</string>
     <string name="profiles_summary">Manage settings for new terminal sessions.</string>
+    <string name="profiles_edit_summary">Drag the handles to reorder profiles. The order is saved immediately and also applies to the new session list.</string>
     <string name="profile_distribution">Linux distribution</string>
     <string name="profile_storage">Execution Environment</string>
     <string name="profile_storage_new">Create new execution environment</string>

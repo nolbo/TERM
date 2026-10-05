@@ -250,6 +250,11 @@ colors. Live UI mirrors resolve the current saved profile; deleted profiles fall
 back to their launch snapshot. Each emulator owns its palette defaults so OSC
 resets cannot pick up another session’s colors. Transition colors are render-only,
 with one Activity-owned animation clock for terminal and chrome.
+Profile display order is an app-private UI preference keyed by stable profile IDs,
+separate from Environment/Profile domain metadata. Management and both new-session
+pickers read the same order. Deleted IDs are ignored; after a custom order is
+saved, new profiles append. Reordering visible profiles retains the slots of
+privilege-hidden defaults.
 Profile icons use a stable `auto`, built-in key, or validated content-addressed image
 identity in both the profile and launch snapshot. Missing keys retain automatic
 runtime icons. The UI imports bounded PNG/WebP/JPEG streams into immutable normalized

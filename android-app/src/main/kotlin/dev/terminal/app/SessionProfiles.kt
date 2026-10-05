@@ -6,6 +6,7 @@ import dev.terminal.runtime.session.SessionRuntime
 import dev.terminal.runtime.session.Environment
 import dev.terminal.runtime.session.EnvironmentRegistry
 import dev.terminal.runtime.session.SessionLaunchSpec
+import org.json.JSONArray
 import java.io.File
 import java.util.UUID
 
@@ -19,11 +20,20 @@ class SessionProfiles(context: Context) {
         app.getSharedPreferences("session-profiles", Context.MODE_PRIVATE).all.mapValues { it.value as String }
     }
     private val runtimePreferences = context.getSharedPreferences(SettingsDetailActivity.RUNTIME_PREFERENCES, Context.MODE_PRIVATE)
+    private val orderPreferences = app.getSharedPreferences(PROFILE_ORDER_PREFERENCES, Context.MODE_PRIVATE)
+    private fun orderedProfiles(): List<SessionProfile> {
+        val profiles = registry.transaction(builtIns()) { profiles() }.associateBy { it.id }
+        return resolveProfileOrder(profiles.keys.toList(), parseProfileOrder(orderPreferences.getString(KEY_PROFILE_ORDER, null)))
+            .map(profiles::getValue)
+    }
     fun all(): List<SessionProfile> {
-        val defaults = builtIns()
-        return registry.transaction(defaults) { profiles() }.filter {
+        return orderedProfiles().filter {
             it.id != SessionProfile.builtInId(SessionRuntime.AVF) || hasAvfPrivileges()
         }
+    }
+    fun reorder(ids: List<String>) {
+        val order = reorderProfileIds(orderedProfiles().map { it.id }, ids)
+        orderPreferences.edit().putString(KEY_PROFILE_ORDER, JSONArray(order).toString()).apply()
     }
     fun find(id: String): SessionProfile? = all().firstOrNull { it.id == id }
     fun builtIns(): List<SessionProfile> {

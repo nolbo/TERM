@@ -15,7 +15,7 @@
 | 터미널 | 상단 앱 바 없이 터미널 캔버스와 하단의 높이 조절 툴바를 배치한다. 툴바의 세션 툴에 새 세션·설정 진입을 둔다. | [MainActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/MainActivity.kt), [TerminalToolbar.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/TerminalToolbar.kt) |
 | 설정 홈 | 큰 제목 아래 검색 필드와 카테고리 그룹을 배치한다. 검색 중에는 일치하는 카테고리·하위 항목을 목록으로 표시한다. | [ComposeUi.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/ComposeUi.kt)의 `SettingsOverview` |
 | 상세 설정 | 큰 제목, 화면 설명, 섹션 제목, 관련 설정 행의 그룹 순서다. 긴 내용은 세로로 스크롤한다. | [SettingsDetailActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/SettingsDetailActivity.kt) |
-| 프로필 | 관리 화면은 프로필 추가와 기존 프로필 목록을 구분한다. 편집 화면은 이름·아이콘, 팔레트, 실행환경, 셸·시작 설정, 환경 변수 등의 섹션으로 구성한다. | [ProfilesActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/ProfilesActivity.kt), [ProfileEditActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/ProfileEditActivity.kt) |
+| 프로필 | 관리 화면은 프로필 추가와 기존 프로필 목록을 구분한다. 툴바 설정과 같은 편집·완료 FAB로 순서 편집을 전환하며 드래그 핸들로 정렬한다. 편집 화면은 이름·아이콘, 팔레트, 실행환경, 셸·시작 설정, 환경 변수 등의 섹션으로 구성한다. | [ProfilesActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/ProfilesActivity.kt), [ProfileEditActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/ProfileEditActivity.kt) |
 | 실행환경 | 사용 중인 실행환경과 연결된 프로필이 없는 실행환경을 구분하고, 목록 행에는 이름·런타임·용량만 표시한다. 상세에는 실행환경 정보·연결된 프로필·세션·배포판 또는 이미지 관리가 있고, 화면 하단에는 실행환경 작업 툴바가 있다. | [EnvironmentActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/EnvironmentActivity.kt) |
 | USB 디바이스 | 대기 중인 접근 요청을 우선하며, 기기·허용된 접근·이동식 저장장치·호스트 도구·도움말 및 진단을 섹션으로 구분한다. 긴 기기 정보와 도움말은 펼침 행으로 제공한다. | [UsbSettingsScreen.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/UsbSettingsScreen.kt) |
 | 앱 업데이트 | 최상단 채널 선택, 업데이트 상태 카드와 주요 버튼 또는 진행률, 릴리즈노트 카드 순서다. | [AppUpdatesActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/AppUpdatesActivity.kt) |
@@ -124,6 +124,8 @@ AVF 전달 포트 상세는 연결 현황·새로고침 그룹과 연결별 설�
 일반 설정의 스위치는 즉시 저장하지만 숫자·경로·단일 선택은 저장값과 입력 초안을 분리한다. 대화상자를 열 때 현재 값을 초안에 복사하고, 취소·바깥 터치·뒤로가기는 기존 값을 유지한다. 입력 검증 실패는 필드와 안내에 표시하고 저장을 비활성화한다. 화면 재생성 시 초안과 대화상자 상태를 복원한다.
 
 프로필·팔레트·단축키처럼 전체 저장이 있는 편집기는 대화상자의 **저장**도 화면 초안만 변경한다. 전체 **저장** 전에는 영속화하지 않고, 변경 후 나갈 때는 폐기를 확인한다. 툴바 도구 추가·제거·순서 변경은 현재 구현처럼 즉시 저장하며 제거가 도구 내부 설정을 지우지 않게 한다. 같은 화면 안에서 새 옵션만 다른 저장 방식을 사용하지 않는다.
+
+프로필 관리 목록의 순서 편집은 툴바 설정과 같은 편집·완료 FAB를 사용한다. 편집 중에는 프로필 편집 화면으로 이동하지 않고 드래그 핸들과 접근성 위로·아래로 동작으로 정렬한다. 드롭 시 즉시 저장하며 드래그 취소는 원래 순서를 유지한다. 다중 행 높이를 보존하고 화면 가장자리에서 자동 스크롤하며 하단 FAB를 위한 콘텐츠 여백을 확보한다. 저장한 순서는 세션 툴과 빈 화면의 새 세션 목록에도 적용된다. 순서를 편집한 뒤 새로 만든 프로필은 목록 끝에 추가하며 삭제된 프로필은 제외한다.
 
 기존 프로필 편집과 실행환경 상세의 주요 동작은 하단 중앙의 `HorizontalFloatingToolbar`와 공통 `FloatingToolbarAction`을 따른다. Material 기본 표면·높이·패딩·그림자와 원형 아이콘 버튼을 유지하고, 접근성 설명과 툴팁으로 동작 이름을 제공한다. 새 프로필·복제본 생성은 마지막 설정 뒤 전체 너비의 저장 텍스트 버튼을 사용한다. 저장·복제·삭제에는 각각 저장·복사·휴지통 아이콘을 사용하며 삭제는 `error` 색과 확인 절차를 따른다.
 
