@@ -1552,6 +1552,8 @@ public final class TerminalEmulator implements java.io.Serializable {
 
     private void clearAlternateScreen() {
         mAltBuffer.blockSet(0, 0, mAltBuffer.mColumns, mAltBuffer.mScreenRows, ' ', getStyle());
+        // A new alternate-screen application must not inherit another application's erase hint.
+        mAltBuffer.setLastFullScreenClearStyle(null);
         for (int row = 0; row < mAltBuffer.mScreenRows; row++) mAltBuffer.clearLineWrap(row);
         mAltGraphics.reset();
     }
@@ -1882,10 +1884,13 @@ public final class TerminalEmulator implements java.io.Serializable {
                     case 0: // Erase from the active position to the end of the screen, inclusive (default).
                         blockClear(mCursorCol, mCursorRow, mColumns - mCursorCol);
                         blockClear(0, mCursorRow + 1, mColumns, mRows - (mCursorRow + 1));
+                        if (mCursorRow == 0 && mCursorCol == 0) mScreen.setLastFullScreenClearStyle(getStyle());
                         break;
                     case 1: // Erase from start of the screen to the active position, inclusive.
                         blockClear(0, 0, mColumns, mCursorRow);
                         blockClear(0, mCursorRow, mCursorCol + 1);
+                        if (mCursorRow == mRows - 1 && mCursorCol == mColumns - 1)
+                            mScreen.setLastFullScreenClearStyle(getStyle());
                         break;
                     case 2: // Erase all of the display - all lines are erased, changed to single-width, and the cursor does not
                         // move..
@@ -2477,6 +2482,8 @@ public final class TerminalEmulator implements java.io.Serializable {
     private void blockClear(int sx, int sy, int w, int h) {
         getGraphics().eraseText(sx, sy, w, h);
         mScreen.blockSet(sx, sy, w, h, ' ', getStyle());
+        if (sx == 0 && sy == 0 && w == mColumns && h == mRows)
+            mScreen.setLastFullScreenClearStyle(getStyle());
     }
 
     private long getStyle() {

@@ -57,6 +57,19 @@ public class TerminalCheckpointTest extends TerminalTestCase {
         emulator.append(bytes, bytes.length);
     }
 
+    public void testBackgroundDeclarationsAndWholeScreenEraseSurviveCheckpoint() throws Exception {
+        withTerminalSized(80, 24);
+        enterString("\033[?1049h\033[48;2;18;52;86m\033[2J\033]11;#000000\007");
+        TerminalEmulator mirror = restore(mTerminal, new MockTerminalOutput());
+        assertTrue(mirror.mColors.isBackgroundColorSet());
+        assertEquals(mTerminal.getScreen().getLastFullScreenClearStyle(),
+            mirror.getScreen().getLastFullScreenClearStyle());
+        append(mirror, "\033]111\007");
+        assertFalse(mirror.mColors.isBackgroundColorSet());
+        assertEquals(0xFF123456, TextStyle.decodeBackColor(mirror.getScreen().getLastFullScreenClearStyle()));
+        sameState(mTerminal, restore(mTerminal, new MockTerminalOutput()));
+    }
+
     public void testBothScreensHistorySavedCursorModesColorsAndBindings() throws Exception {
         withTerminalSized(30, 8);
         Properties palette = new Properties(); palette.setProperty("foreground", "#112233");

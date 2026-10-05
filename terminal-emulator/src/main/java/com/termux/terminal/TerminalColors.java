@@ -11,6 +11,8 @@ public final class TerminalColors implements java.io.Serializable {
 
     private java.util.Properties mDefaultProperties;
     private final int[] mDefaultColors = COLOR_SCHEME.mDefaultColors.clone();
+    /** An OSC background declaration, even when its RGB value equals the configured default. */
+    private boolean mBackgroundColorSet;
 
     /**
      * The current terminal colors, which are normally set from the color theme, but may be set dynamically with the OSC
@@ -26,12 +28,17 @@ public final class TerminalColors implements java.io.Serializable {
     /** Reset a particular indexed color with the default color from the color theme. */
     public void reset(int index) {
         mCurrentColors[index] = mDefaultColors[index];
+        if (index == TextStyle.COLOR_INDEX_BACKGROUND) mBackgroundColorSet = false;
     }
 
     /** Reset all indexed colors with the default color from the color theme. */
     public void reset() {
         System.arraycopy(mDefaultColors, 0, mCurrentColors, 0, TextStyle.NUM_INDEXED_COLORS);
+        mBackgroundColorSet = false;
     }
+
+    /** Queries and SGR cell colors do not declare a terminal-wide background. */
+    public boolean isBackgroundColorSet() { return mBackgroundColorSet; }
 
     /** Sets this session's palette only. OSC resets use these defaults, never another session's. */
     public boolean setDefaultColors(java.util.Properties properties) {
@@ -89,7 +96,10 @@ public final class TerminalColors implements java.io.Serializable {
     /** Try parse a color from a text parameter and into a specified index. */
     public void tryParseColor(int intoIndex, String textParameter) {
         int c = parse(textParameter);
-        if (c != 0) mCurrentColors[intoIndex] = c;
+        if (c != 0) {
+            mCurrentColors[intoIndex] = c;
+            if (intoIndex == TextStyle.COLOR_INDEX_BACKGROUND) mBackgroundColorSet = true;
+        }
     }
 
     /**

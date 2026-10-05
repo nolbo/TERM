@@ -24,9 +24,24 @@ public class SessionPaletteTest {
         first.reset(1);
         assertEquals(0xFF223344, first.mCurrentColors[1]);
         first.reset();
+        assertFalse(first.isBackgroundColorSet());
         assertEquals(0xFF123456, first.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND]);
         assertEquals(0xFFEFEFEF, second.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND]);
         assertTrue(first.setDefaultColors(light));
         assertEquals(0xFFEFEFEF, first.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND]);
+    }
+
+    @Test public void backgroundDeclarationSurvivesSamePaletteAndResetsWithNewDefaults() {
+        TerminalColors colors = new TerminalColors();
+        Properties palette = new Properties();
+        palette.setProperty("background", "#123456");
+        colors.setDefaultColors(palette);
+        colors.tryParseColor(TextStyle.COLOR_INDEX_BACKGROUND, "#123456");
+        assertTrue(colors.isBackgroundColorSet());
+        assertFalse(colors.setDefaultColors(palette));
+        assertTrue(colors.isBackgroundColorSet());
+        palette.setProperty("background", "#ABCDEF");
+        assertTrue(colors.setDefaultColors(palette));
+        assertFalse(colors.isBackgroundColorSet());
     }
 }

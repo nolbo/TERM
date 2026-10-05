@@ -3,10 +3,18 @@ package dev.terminal.app
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Typeface
+import android.graphics.drawable.ColorDrawable
+import androidx.compose.ui.graphics.toArgb
+import androidx.test.platform.app.InstrumentationRegistry
 import com.termux.view.TerminalRenderer
+import com.termux.view.TerminalView
 import com.termux.terminal.TerminalEmulator
+import com.termux.terminal.TerminalCheckpoint
 import com.termux.terminal.TerminalOutput
+import com.termux.terminal.TerminalSession
 import com.termux.terminal.TextStyle
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -38,13 +46,129 @@ class TerminalTuiBackgroundTest {
         assertEquals(original[TextStyle.COLOR_INDEX_BACKGROUND], terminalChromeBackground(emulator, true))
     }
 
-    @Test fun dominantBackgroundIgnoresStatusLinesAndUpdatesWithTheme() {
+    @Test fun declaredBackgroundIgnoresStatusLinesAndUpdatesWithTheme() {
         val emulator = emulator()
         emulator.output("\u001b[?1049h\u001b[48;2;18;52;86m\u001b[2J" +
             "\u001b[H\u001b[41m\u001b[2K\u001b[24;1H\u001b[42m\u001b[2K")
         assertEquals(0xFF123456.toInt(), terminalChromeBackground(emulator, true))
         emulator.output("\u001b[48;2;240;224;208m\u001b[2J")
         assertEquals(0xFFF0E0D0.toInt(), terminalChromeBackground(emulator, true))
+    }
+
+    private fun TerminalEmulator.fillRows(first: Int, last: Int, sgr: String) {
+        output("\u001b[${sgr}m")
+        for (row in first..last) output("\u001b[$row;1H\u001b[2K")
+    }
+
+    @Test fun largeFullWidthDiffKeepsDefaultBackgroundWithoutEraseHint() {
+        val emulator = emulator()
+        val fallback = emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND]
+        emulator.output("\u001b[?1049h")
+        emulator.fillRows(1, 22, "48;2;33;58;43")
+        assertEquals(fallback, terminalChromeBackground(emulator, true))
+    }
+
+    @Test fun wholeDisplayBackgroundSurvivesDiffCoveringEveryRow() {
+        val emulator = emulator()
+        emulator.output("\u001b[?1049h\u001b[48;2;18;52;86m\u001b[2J")
+        emulator.fillRows(1, 24, "48;2;33;58;43")
+        assertEquals(0xFF123456.toInt(), terminalChromeBackground(emulator, true))
+        emulator.output("\u001b[0m\u001b[H\u001b[J")
+        emulator.fillRows(1, 24, "48;2;33;58;43")
+        assertEquals(emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND],
+            terminalChromeBackground(emulator, true))
+    }
+
+    @Test fun oscDeclarationWinsEvenWhenEqualToDefaultsAndQueryDoesNotDeclare() {
+        val emulator = emulator()
+        emulator.output("\u001b[?1049h\u001b[48;2;18;52;86m\u001b[2J\u001b]11;?\u0007")
+        assertEquals(0xFF123456.toInt(), terminalChromeBackground(emulator, true))
+        // Black already is the default palette background; provenance still matters.
+        emulator.output("\u001b]11;#000000\u0007")
+        emulator.fillRows(1, 24, "48;2;33;58;43")
+        assertEquals(0xFF000000.toInt(), terminalChromeBackground(emulator, true))
+        emulator.output("\u001b]11;#ABCDEF\u0007")
+        assertEquals(0xFFABCDEF.toInt(), terminalChromeBackground(emulator, true))
+        emulator.output("\u001b[?5h")
+        assertEquals(emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_FOREGROUND],
+            terminalChromeBackground(emulator, true))
+        emulator.output("\u001b[?5l\u001b]111\u0007")
+        assertEquals(0xFF123456.toInt(), terminalChromeBackground(emulator, true))
+    }
+
+    @Test fun cellPaintedThemeRequiresAgreementAcrossRowsAndIncludesScreenEdges() {
+        val emulator = emulator()
+        emulator.output("\u001b[?1049h")
+        emulator.fillRows(1, 24, "48;2;18;52;86")
+        emulator.fillRows(1, 1, "41")
+        emulator.fillRows(24, 24, "42")
+        assertEquals(0xFF123456.toInt(), terminalChromeBackground(emulator, true))
+        // A default-colored gutter must be observed even on screens wider than the sample grid.
+        emulator.output("\u001b[12;1H\u001b[0m ")
+        assertEquals(emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND],
+            terminalChromeBackground(emulator, true))
+    }
+
+    @Test fun localizedMajorityWithoutBackgroundDeclarationUsesPalette() {
+        val emulator = emulator()
+        emulator.output("\u001b[?1049h")
+        emulator.fillRows(1, 24, "48;2;18;52;86")
+        emulator.fillRows(3, 22, "48;2;33;58;43")
+        assertEquals(emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND],
+            terminalChromeBackground(emulator, true))
+    }
+
+    @Test fun backgroundEvidenceSurvivesCheckpointAndResetsForNextApplication() {
+        val emulator = emulator()
+        emulator.output("\u001b[?1049h\u001b[48;2;18;52;86m\u001b[2J")
+        emulator.fillRows(1, 24, "42")
+        val bytes = ByteArrayOutputStream().also { TerminalCheckpoint.write(emulator, it) }.toByteArray()
+        val mirror = this.emulator()
+        mirror.restoreState(TerminalCheckpoint.read(ByteArrayInputStream(bytes)))
+        assertEquals(0xFF123456.toInt(), terminalChromeBackground(mirror, true))
+        mirror.output("\u001b[?1049l\u001b[0m\u001b[?1049h")
+        assertEquals(mirror.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND],
+            terminalChromeBackground(mirror, true))
+        // Another session has independent whole-display background evidence.
+        val second = this.emulator()
+        second.output("\u001b[?1049h\u001b[42m\u001b[2J")
+        assertEquals(second.mColors.mCurrentColors[2], terminalChromeBackground(second, true))
+        assertEquals(0xFF123456.toInt(), terminalChromeBackground(emulator, true))
+    }
+
+    @Test fun chromeAndViewBackgroundStayTogetherAndWaitForSynchronizedOutput() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.runOnMainSync {
+            val backend = RemoteTerminalBackend(write = {}, resize = { _, _ -> })
+            val session = TerminalSession("", "/", emptyArray(), emptyArray(), 1000,
+                TerminalCallbacks {}, backend)
+            val view = TerminalView(instrumentation.targetContext, null).apply { setTextSize(20) }
+            var background = 0
+            val transition = TerminalPaletteTransition(followTuiBackground = { true }) {
+                background = it.background.toArgb()
+            }
+            try {
+                session.updateSize(80, 24, 10, 20)
+                view.attachSession(session)
+                val emulator = requireNotNull(session.emulator)
+                emulator.output("\u001b[?1049h\u001b[48;2;18;52;86m\u001b[2J")
+                transition.show(view, animate = false)
+                emulator.fillRows(1, 24, "42")
+                transition.update(view)
+                assertEquals(0xFF123456.toInt(), background)
+                assertEquals(background, (view.background as ColorDrawable).color)
+                emulator.output("\u001b[?2026h\u001b]11;#ABCDEF\u0007")
+                transition.update(view)
+                assertEquals(0xFF123456.toInt(), background)
+                emulator.output("\u001b[?2026l")
+                transition.update(view)
+                assertEquals(0xFFABCDEF.toInt(), background)
+                assertEquals(background, (view.background as ColorDrawable).color)
+            } finally {
+                transition.cancel()
+                backend.close()
+            }
+        }
     }
 
     @Test fun indexedOscAndInverseColorsMatchRenderer() {
@@ -84,6 +208,14 @@ class TerminalTuiBackgroundTest {
             assertEquals(tuiColor, it.getPixel(0, 999))
             assertEquals(tuiColor, it.getPixel(2, top + spacing / 2))
             assertEquals(palette[TextStyle.COLOR_INDEX_BACKGROUND], it.getPixel(2, top + spacing + spacing / 2))
+            it.recycle()
+        }
+        emulator.fillRows(2, 23, "42")
+        renderer.setCanvasBackgroundOverride(terminalChromeBackground(emulator, true))
+        render().also {
+            assertEquals(tuiColor, it.getPixel(1499, 100))
+            assertEquals(tuiColor, it.getPixel(0, 999))
+            assertEquals(palette[2], it.getPixel(2, top + spacing + spacing / 2))
             it.recycle()
         }
         // Reverse video must not repaint the canvas fill after it has been overridden.

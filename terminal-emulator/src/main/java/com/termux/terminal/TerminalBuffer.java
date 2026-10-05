@@ -20,6 +20,12 @@ public final class TerminalBuffer implements java.io.Serializable {
     private int mActiveTranscriptRows = 0;
     /** The index in the circular buffer where the visible screen starts. */
     private int mScreenFirstRow = 0;
+    /** Style used by the application's last whole-display erase, separate from local line fills. */
+    private Long mLastFullScreenClearStyle;
+
+    public Long getLastFullScreenClearStyle() { return mLastFullScreenClearStyle; }
+
+    void setLastFullScreenClearStyle(Long style) { mLastFullScreenClearStyle = style; }
 
     /**
      * Create a transcript screen.
