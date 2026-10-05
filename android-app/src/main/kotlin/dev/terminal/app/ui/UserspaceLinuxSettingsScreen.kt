@@ -5,8 +5,9 @@ import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -16,6 +17,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.R
 import dev.terminal.app.UserspaceLinuxSettingsActivity
@@ -99,11 +105,12 @@ internal fun UserspaceLinuxSettingsScreen(screen: String, policy: RootlessDnsPol
 }
 
 @Composable
-private fun EngineSection(@StringRes title: Int, content: @Composable ColumnScope.() -> Unit) {
+private fun EngineSection(@StringRes title: Int, groupModifier: Modifier = Modifier,
+    content: @Composable ColumnScope.() -> Unit) {
     Column(Modifier.fillMaxWidth()) {
         Text(stringResource(title), Modifier.padding(start = 16.dp, bottom = 8.dp),
             color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-        SettingsGroup(content = content)
+        SettingsGroup(groupModifier, content = content)
     }
 }
 
@@ -133,27 +140,45 @@ private fun Guidance(@StringRes text: Int) {
 private fun DnsEditor(saved: RootlessDnsPolicy, saving: Boolean, saveFailed: Boolean,
     onCancel: () -> Unit, onSave: (RootlessDnsPolicy) -> Unit) {
     var mode by rememberSaveable { mutableStateOf(saved.mode) }
-    var servers by rememberSaveable { mutableStateOf(saved.servers.joinToString("\n")) }
-    val draft = runCatching { RootlessDnsPolicy.parse(mode, servers) }.getOrNull()
-    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Column(Modifier.selectableGroup()) {
+    var servers by rememberSaveable { mutableStateOf(saved.servers.toTypedArray()) }
+    var adding by rememberSaveable { mutableStateOf(false) }
+    var serverInput by rememberSaveable { mutableStateOf("") }
+    val draft = runCatching { RootlessDnsPolicy.parse(mode, servers.joinToString("\n")) }.getOrNull()
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+        EngineSection(R.string.userspace_dns_mode, Modifier.selectableGroup()) {
             listOf(RootlessDnsPolicy.ANDROID to R.string.userspace_dns_android,
                 RootlessDnsPolicy.CUSTOM to R.string.userspace_dns_custom).forEach { (value, label) ->
-                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(mode == value,
-                    enabled = !saving, role = Role.RadioButton, onClick = { mode = value }),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(mode == value, onClick = null, enabled = !saving)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(label))
-                }
+                ListItem(onClick = { mode = value }, enabled = !saving,
+                    trailingContent = { RadioButton(mode == value, onClick = null, enabled = !saving) },
+                    verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes(),
+                    colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth().semantics {
+                        role = Role.RadioButton
+                        selected = mode == value
+                    }) { Text(stringResource(label)) }
             }
         }
         if (mode == RootlessDnsPolicy.CUSTOM) {
-            OutlinedTextField(servers, { servers = it }, Modifier.fillMaxWidth(), enabled = !saving,
-                label = { Text(stringResource(R.string.userspace_dns_servers)) }, minLines = 3, maxLines = 5,
-                isError = draft == null && servers.isNotBlank(), supportingText = {
-                    Text(stringResource(if (draft == null && servers.isNotBlank()) R.string.userspace_dns_invalid else R.string.userspace_dns_input_help))
-                })
+            EngineSection(R.string.userspace_dns_servers) {
+                servers.forEach { server -> key(server) {
+                    ListItem(trailingContent = {
+                        FloatingToolbarAction(stringResource(R.string.userspace_dns_remove_server, server),
+                            R.drawable.ic_material_symbol_delete_24, enabled = !saving, destructive = true,
+                            onClick = { servers = servers.filter { it != server }.toTypedArray() })
+                    }, verticalAlignment = Alignment.CenterVertically, colors = terminalSettingsListItemColors(),
+                        modifier = Modifier.fillMaxWidth().settingsItemSurface()) {
+                        Text(server, fontFamily = LocalTerminalMonospaceFontFamily.current)
+                    }
+                } }
+                ListItem(onClick = { serverInput = ""; adding = true },
+                    enabled = !saving && servers.size < RootlessDnsPolicy.MAX_SERVERS,
+                    leadingContent = { Icon(painterResource(R.drawable.ic_material_symbol_add_24), null) },
+                    supportingContent = { Text(stringResource(if (servers.size >= RootlessDnsPolicy.MAX_SERVERS)
+                        R.string.userspace_dns_limit else R.string.userspace_dns_input_help)) },
+                    verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes(),
+                    colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth()) {
+                    Text(stringResource(R.string.userspace_dns_add_server))
+                }
+            }
         }
         if (saveFailed) Text(stringResource(R.string.userspace_dns_save_failed), color = MaterialTheme.colorScheme.error)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)) {
@@ -163,4 +188,40 @@ private fun DnsEditor(saved: RootlessDnsPolicy, saving: Boolean, saveFailed: Boo
             }
         }
     }
+    if (adding) DnsServerDialog(serverInput, { serverInput = it }, servers.toList(), saving,
+        onDismiss = { adding = false }, onAdd = { server ->
+            if (!saving && servers.size < RootlessDnsPolicy.MAX_SERVERS && server !in servers) servers += server
+            adding = false
+        })
+}
+
+@Composable
+private fun DnsServerDialog(input: String, onInput: (String) -> Unit, servers: List<String>, saving: Boolean,
+    onDismiss: () -> Unit, onAdd: (String) -> Unit) {
+    val address = input.trim()
+    val validAddress = runCatching { RootlessDnsPolicy.parse(RootlessDnsPolicy.CUSTOM, address).servers.single() }
+        .getOrNull()?.takeIf { it == address }
+    val duplicate = validAddress != null && validAddress in servers
+    val canAdd = validAddress != null && !duplicate && !saving && servers.size < RootlessDnsPolicy.MAX_SERVERS
+    val add = { if (canAdd) onAdd(checkNotNull(validAddress)) }
+    AlertDialog(onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.userspace_dns_add_server)) },
+        text = {
+            OutlinedTextField(input, onInput, Modifier.fillMaxWidth(), enabled = !saving, singleLine = true,
+                label = { Text(stringResource(R.string.userspace_dns_address)) },
+                isError = input.isNotBlank() && (validAddress == null || duplicate),
+                supportingText = { Text(stringResource(when {
+                    duplicate -> R.string.userspace_dns_duplicate
+                    input.isNotBlank() && validAddress == null -> R.string.userspace_dns_invalid
+                    else -> R.string.userspace_dns_address_help
+                })) },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Ascii, imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = { add() }))
+        },
+        confirmButton = { Button(onClick = add, enabled = canAdd, shapes = ButtonDefaults.shapes()) {
+            Text(stringResource(R.string.userspace_dns_add))
+        } },
+        dismissButton = { TextButton(onDismiss, shapes = ButtonDefaults.shapes()) {
+            Text(stringResource(R.string.cancel))
+        } })
 }
