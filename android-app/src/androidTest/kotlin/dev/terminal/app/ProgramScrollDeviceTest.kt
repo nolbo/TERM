@@ -90,7 +90,8 @@ class ProgramScrollDeviceTest {
                 append("\u001b[?1003h\u001b[?1006h")
                 assertEquals(0, view.topRow)
                 wheel(0f, 1f)
-                assertEquals(0, writes.size())
+                assertEquals(3, writes.toString("UTF-8").split("\u001b[<67;").size - 1)
+                writes.reset()
                 repeat(3) { wheel(0.125f) }
                 assertEquals(1, writes.toString("UTF-8").split("\u001b[<64;").size - 1)
                 writes.reset()

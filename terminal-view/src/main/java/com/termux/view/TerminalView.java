@@ -99,6 +99,10 @@ public final class TerminalView extends View {
     private java.util.function.BiConsumer<TerminalSession, ScrollPosition> mScrollPositionListener;
     private long mLastTranscriptScroll;
     private float mMouseWheelRemainder;
+    private float mMouseHorizontalWheelRemainder;
+    private enum ScrollAxis { UNDECIDED, HORIZONTAL, VERTICAL }
+    private ScrollAxis mTouchScrollAxis = ScrollAxis.UNDECIDED;
+    private float mHorizontalScrollRemainder;
     int[] mDefaultSelectors = new int[]{-1,-1,-1,-1};
 
     float mScaleFactor = 1.f;
@@ -188,6 +192,7 @@ public final class TerminalView extends View {
             @Override
             public boolean onUp(MotionEvent event) {
                 mScrollRemainder = 0.0f;
+                resetTouchScroll();
                 mScrolledRowsSinceHaptic = 0;
                 if (mEmulator != null && mEmulator.isMouseTrackingActive() && !event.isFromSource(InputDevice.SOURCE_MOUSE) && !isSelectingText() && !scrolledWithFinger) {
                     // Quick event processing when mouse tracking is active - do not wait for check of double tapping
@@ -230,6 +235,28 @@ public final class TerminalView extends View {
                     // A fresh drag must take control immediately instead of competing with a fling.
                     stopScrollAnimation();
                     scrolledWithFinger = true;
+                    if (!isSelectingText() && !e.isFromSource(InputDevice.SOURCE_MOUSE)) {
+                        // GestureDetector has already crossed touch slop. Pick an axis once,
+                        // including when mouse reporting is disabled, and keep it until release.
+                        if (mTouchScrollAxis == ScrollAxis.UNDECIDED) {
+                            mTouchScrollAxis = Math.abs(distanceX) > Math.abs(distanceY)
+                                ? ScrollAxis.HORIZONTAL : ScrollAxis.VERTICAL;
+                        }
+                        if (mTouchScrollAxis == ScrollAxis.HORIZONTAL) {
+                            if (mEmulator.isMouseTrackingActive()) {
+                                // Match vertical wheel sensitivity: one rendered line height per step.
+                                // Discard the old partial step on reversal so it cannot delay movement.
+                                if (distanceX * mHorizontalScrollRemainder < 0) mHorizontalScrollRemainder = 0;
+                                distanceX += mHorizontalScrollRemainder;
+                                int steps = (int) (distanceX / mRenderer.mFontLineSpacing);
+                                mHorizontalScrollRemainder = distanceX - steps * mRenderer.mFontLineSpacing;
+                                doHorizontalScroll(e, steps);
+                            } else {
+                                mHorizontalScrollRemainder = 0;
+                            }
+                            return true;
+                        }
+                    }
                     if (canSmoothScroll()) {
                         scrollPixels(distanceY);
                         return true;
@@ -253,7 +280,8 @@ public final class TerminalView extends View {
 
             @Override
             public boolean onFling(final MotionEvent e2, float velocityX, float velocityY) {
-                if (mEmulator == null) return true;
+                // Horizontal swipes report only their travelled distance, never a vertical fling.
+                if (mEmulator == null || mTouchScrollAxis == ScrollAxis.HORIZONTAL) return true;
                 // Do not start scrolling until last fling has been taken care of:
                 if (!mScroller.isFinished()) return true;
 
@@ -308,6 +336,10 @@ public final class TerminalView extends View {
             @Override
             public boolean onDown(float x, float y) {
                 stopScrollAnimation();
+                resetTouchScroll();
+                mScrollRemainder = 0;
+                mMouseStartDownTime = -1;
+                scrolledWithFinger = false;
                 // Why is true not returned here?
                 // https://developer.android.com/training/gestures/detector.html#detect-a-subset-of-supported-gestures
                 // Although setting this to true still does not solve the following errors when long pressing in terminal view text area
@@ -378,6 +410,9 @@ public final class TerminalView extends View {
         mScrollOffset = savedPosition == null || !mSmoothScrollingEnabled ? 0 : savedPosition.offset;
         mScrollRemainder = 0;
         mMouseWheelRemainder = 0;
+        mMouseHorizontalWheelRemainder = 0;
+        mMouseStartDownTime = -1;
+        resetTouchScroll();
         mLastTranscriptScroll = savedPosition == null ? 0 : savedPosition.transcriptScroll;
 
         mTermSession = session;
@@ -839,7 +874,9 @@ public final class TerminalView extends View {
         int[] columnAndRow = getColumnAndRow(e, false);
         int x = columnAndRow[0] + 1;
         int y = columnAndRow[1] + 1;
-        if (pressed && (button == TerminalEmulator.MOUSE_WHEELDOWN_BUTTON || button == TerminalEmulator.MOUSE_WHEELUP_BUTTON)) {
+        if (pressed && e.getActionMasked() != MotionEvent.ACTION_SCROLL
+                && (button == TerminalEmulator.MOUSE_WHEELDOWN_BUTTON || button == TerminalEmulator.MOUSE_WHEELUP_BUTTON
+                    || button == TerminalEmulator.MOUSE_WHEELLEFT_BUTTON || button == TerminalEmulator.MOUSE_WHEELRIGHT_BUTTON)) {
             if (mMouseStartDownTime == e.getDownTime()) {
                 x = mMouseScrollStartX;
                 y = mMouseScrollStartY;
@@ -850,6 +887,18 @@ public final class TerminalView extends View {
             }
         }
         mEmulator.sendMouseEvent(button, x, y, pressed);
+    }
+
+    /** Horizontal scrolling is exclusively application mouse input, with no key/scrollback fallback. */
+    private void doHorizontalScroll(MotionEvent event, int stepsRight) {
+        if (!mEmulator.isMouseTrackingActive() || isSelectingText()) return;
+        int button = stepsRight < 0 ? TerminalEmulator.MOUSE_WHEELLEFT_BUTTON : TerminalEmulator.MOUSE_WHEELRIGHT_BUTTON;
+        for (int i = 0; i < Math.abs(stepsRight); i++) sendMouseEventCode(event, button, true);
+    }
+
+    private void resetTouchScroll() {
+        mTouchScrollAxis = ScrollAxis.UNDECIDED;
+        mHorizontalScrollRemainder = 0;
     }
 
     /** Perform a scroll, either from dragging the screen or by scrolling a mouse wheel. */
@@ -935,7 +984,8 @@ public final class TerminalView extends View {
     /** Overriding {@link View#onGenericMotionEvent(MotionEvent)}. */
     @Override
     public boolean onGenericMotionEvent(MotionEvent event) {
-        if (mEmulator != null && event.isFromSource(InputDevice.SOURCE_MOUSE)) {
+        if (mEmulator != null && (event.isFromSource(InputDevice.SOURCE_MOUSE)
+                || event.isFromSource(InputDevice.SOURCE_TOUCHPAD))) {
             if (event.getAction() == MotionEvent.ACTION_SCROLL) {
                 // Preserve magnitude and fractional high-resolution wheel input. Horizontal-only
                 // events must not synthesize a downward scroll.
@@ -943,6 +993,17 @@ public final class TerminalView extends View {
                 int rows = (int) mMouseWheelRemainder;
                 mMouseWheelRemainder -= rows;
                 doScroll(event, rows);
+                if (mEmulator.isMouseTrackingActive() && !isSelectingText()) {
+                    // Android's positive HSCROLL moves the viewport right, as does a leftward drag.
+                    float stepsRight = event.getAxisValue(MotionEvent.AXIS_HSCROLL) * 3;
+                    if (stepsRight * mMouseHorizontalWheelRemainder < 0) mMouseHorizontalWheelRemainder = 0;
+                    mMouseHorizontalWheelRemainder += stepsRight;
+                    int steps = (int) mMouseHorizontalWheelRemainder;
+                    mMouseHorizontalWheelRemainder -= steps;
+                    doHorizontalScroll(event, steps);
+                } else {
+                    mMouseHorizontalWheelRemainder = 0;
+                }
                 return true;
             } else if (event.getAction() == MotionEvent.ACTION_HOVER_MOVE && mEmulator.isMouseMotionTrackingActive()) {
                 sendMouseEventCode(event, TerminalEmulator.MOUSE_MOVED, true);
@@ -958,6 +1019,11 @@ public final class TerminalView extends View {
     public boolean onTouchEvent(MotionEvent event) {
         if (mEmulator == null) return true;
         final int action = event.getAction();
+        if (event.getActionMasked() == MotionEvent.ACTION_CANCEL
+                || event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
+            resetTouchScroll();
+            mScrollRemainder = 0;
+        }
 
         if (isSelectingText()) {
             updateFloatingToolbarVisibility(event);

@@ -72,6 +72,14 @@ Explicit paste actions share `TerminalView.pasteText` / `pasteFromClipboard`,
 which delegate to `TerminalEmulator.paste`. Shell PS1, PS2 and PROMPT_COMMAND are
 not modified for paste. OSC 133 output and replay never schedule clipboard input.
 
+## Terminal horizontal mouse wheel
+
+Horizontal wheel input reuses `TerminalEmulator.sendMouseEvent`: xterm button codes 66 (left) and 67 (right), with press reports only. With DECSET 1006 enabled, the emitted sequences are `ESC [ < 66 ; column ; row M` and `ESC [ < 67 ; column ; row M`; without 1006, the existing legacy mouse encoding applies. DECSET 1000, 1002 or 1003 must enable tracking; 1006 alone does not enable input. See the [xterm mouse encoding](https://invisible-island.net/xterm/ctlseqs/ctlseqs.html#h2-Mouse-Tracking).
+
+The first single-finger drag callback after touch slop locks the dominant axis for that gesture. A leftward finger drag scrolls the application viewport right (67); a rightward drag scrolls it left (66). Horizontal distance accumulates one step per rendered line height, retains the fractional remainder, and clears that remainder on reversal or gesture end. Horizontal releases do not start vertical flings. Android mouse/trackpad `AXIS_HSCROLL` uses the same dispatch path, with positive values scrolling right and fractional values accumulated at three steps per unit, independently of vertical wheel input. Touch wheel reports retain the first reported cell during the gesture; physical wheel events use their current pointer cell.
+
+Without tracking, horizontal gestures produce neither keys nor vertical scrollback, including on the alternate screen. Vertical drags retain scrollback, smooth scrolling and vertical mouse/alternate-scroll behavior. Selection, long press, pinch and physical mouse button dragging keep their existing input routes.
+
 ## Shared registered iPhone tools
 
 Current service revision is 3. Snapshots may contain `changes` with only fixed
