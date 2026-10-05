@@ -87,20 +87,66 @@ class SessionProfilePickerTest {
             })
             capturePickerMotion(scenario, root) { click(R.string.new_session) }
             capturePickerMotion(scenario, root) {
-                val actionLabel = context.getString(R.string.toolbar_default)
-                val handle = requireNotNull(find { node -> node.actionList.any { it.label?.toString() == actionLabel } })
-                assertTrue(handle.performAction(handle.actionList.first { it.label?.toString() == actionLabel }.id))
+                reducePickerWithHandle(initialTop)
             }
             await("picker at default height") { state<ToolbarSheetMode>(scenario, "toolbarSheetMode") == ToolbarSheetMode.Default }
             assertTrue("A settled default sheet must give the list its actual smaller viewport",
                 requireNotNull(pickerMotionFrame(scenario, root).profileViewportHeight) < profileHeight)
             assertNotNull(findLabel(R.string.back))
+            assertDefaultBackMotion(scenario, root) { click(R.string.back) }
+
+            capturePickerMotion(scenario, root) { click(R.string.new_session) }
+            capturePickerMotion(scenario, root) {
+                reducePickerWithHandle(initialTop)
+            }
+            await("picker reduced again") { state<ToolbarSheetMode>(scenario, "toolbarSheetMode") == ToolbarSheetMode.Default }
+            assertDefaultBackMotion(scenario, root) { instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK) }
             assertEquals(first, state<String?>(scenario, "activeSessionId"))
             assertEquals(before, sessions(service).map { it.getString("id") }.toSet())
         }
     }
 
-    private data class PickerMotionFrame(val handleTop: Float?, val backLeft: Float?, val profileViewportHeight: Int?)
+    private fun assertDefaultBackMotion(scenario: ActivityScenario<MainActivity>, root: ViewRootForTest,
+        action: () -> Unit) {
+        val initial = pickerMotionFrame(scenario, root)
+        val returning = capturePickerMotion(scenario, root, action)
+        await("sessions after back from default picker") { findLabel(R.string.select_profile) == null && findLabel(R.string.new_session) != null }
+        val settled = pickerMotionFrame(scenario, root)
+        val backLeft = requireNotNull(initial.backLeft)
+        val newSessionLeft = requireNotNull(settled.newSessionLeft)
+        assertTrue("Back from the default picker must slide the profile page out", returning.any {
+            it.backLeft != null && it.backLeft > backLeft + 2
+        })
+        assertTrue("Back from the default picker must slide the session header in", returning.any {
+            it.newSessionLeft != null && it.newSessionLeft > 0 && it.newSessionLeft < newSessionLeft - 2
+        })
+        val width = root.view.width
+        assertTrue("Both pages must share a visible intermediate frame at the default height", returning.any {
+            it.backLeft != null && it.newSessionLeft != null &&
+                it.backLeft - backLeft in width * 0.1f..width * 0.8f &&
+                newSessionLeft - it.newSessionLeft in width * 0.1f..width * 0.8f
+        })
+        assertEquals(initial.handleTop, settled.handleTop)
+        assertEquals(ToolbarSheetMode.Default, state<ToolbarSheetMode>(scenario, "toolbarSheetMode"))
+    }
+
+    private fun reducePickerWithHandle(defaultTop: Float) {
+        val bounds = Rect().also { requireNotNull(findLabel(R.string.toolbar_handle)).getBoundsInScreen(it) }
+        val start = SystemClock.uptimeMillis()
+        for (step in 0..28) {
+            val fraction = step.coerceAtMost(20) / 20f
+            val action = when (step) { 0 -> MotionEvent.ACTION_DOWN; 28 -> MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
+            val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, bounds.exactCenterX(),
+                bounds.exactCenterY() + (defaultTop - bounds.top) * fraction, 0)
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+            SystemClock.sleep(16)
+        }
+        instrumentation.waitForIdleSync()
+    }
+
+    private data class PickerMotionFrame(val handleTop: Float?, val backLeft: Float?, val profileViewportHeight: Int?,
+        val newSessionLeft: Float?)
 
     private fun composeRoot(scenario: ActivityScenario<MainActivity>): ViewRootForTest {
         fun find(view: View): ViewRootForTest? {
@@ -114,10 +160,10 @@ class SessionProfilePickerTest {
     }
 
     private fun pickerMotionFrame(root: ViewRootForTest): PickerMotionFrame {
-        fun find(node: SemanticsNode, label: String): SemanticsNode? {
+        fun find(node: SemanticsNode, label: String, descriptionOnly: Boolean = false): SemanticsNode? {
             if (node.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(label) == true ||
-                node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == label } == true) return node
-            return node.children.firstNotNullOfOrNull { find(it, label) }
+                !descriptionOnly && node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == label } == true) return node
+            return node.children.firstNotNullOfOrNull { find(it, label, descriptionOnly) }
         }
         val semantics = root.semanticsOwner.rootSemanticsNode
         var profileList = find(semantics, context.getString(R.string.select_profile))
@@ -125,7 +171,8 @@ class SessionProfilePickerTest {
             profileList = profileList.parent
         }
         return PickerMotionFrame(find(semantics, context.getString(R.string.toolbar_handle))?.boundsInWindow?.top,
-            find(semantics, context.getString(R.string.back))?.boundsInWindow?.left, profileList?.size?.height)
+            find(semantics, context.getString(R.string.back))?.boundsInWindow?.left, profileList?.size?.height,
+            find(semantics, context.getString(R.string.new_session), descriptionOnly = true)?.boundsInWindow?.left)
     }
 
     private fun pickerMotionFrame(scenario: ActivityScenario<MainActivity>, root: ViewRootForTest): PickerMotionFrame {

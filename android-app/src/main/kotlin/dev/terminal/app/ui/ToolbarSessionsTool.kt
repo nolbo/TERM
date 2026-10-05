@@ -6,6 +6,9 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedContentTransitionScope
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateIntOffset
+import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -32,6 +35,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -42,6 +46,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import dev.terminal.app.R
 import dev.terminal.runtime.session.EnvironmentId
 import dev.terminal.runtime.session.SessionProfile
@@ -80,79 +85,94 @@ internal fun ToolbarSessionsTool(
     BackHandler(enabled = active && profilePickerVisible, onBack = onDismissProfilePicker)
     val effects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
     val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
-    AnimatedContent(targetState = profilePickerVisible, modifier = Modifier.fillMaxSize().clipToBounds(),
-        transitionSpec = {
-            val direction = if (targetState) AnimatedContentTransitionScope.SlideDirection.Start
-                else AnimatedContentTransitionScope.SlideDirection.End
-            ((slideIntoContainer(direction, spatial) + fadeIn(effects)) togetherWith
-                (slideOutOfContainer(direction, spatial) + fadeOut(effects))).using(null)
-        },
-        label = "sessionsPage",
-    ) { pickingProfile ->
-        if (pickingProfile) {
-            val expandedHeight = LocalToolbarExpandedContentHeight.current
-            // Reveal the final-sized list through the animated sheet instead of remeasuring it every frame.
-            val viewport = if (expandedHeight != null) Modifier.fillMaxWidth()
-                .wrapContentHeight(Alignment.Top, unbounded = true).height(expandedHeight)
-                else Modifier.fillMaxSize()
-            Column(viewport) {
-                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                        onDismissProfilePicker()
-                    }, enabled = active && profilePickerVisible, shapes = IconButtonDefaults.shapes()) {
-                        Icon(painterResource(R.drawable.ic_material_symbol_arrow_back_24),
-                            stringResource(R.string.back), tint = colors.appBarIcon)
+    val pageTransition = updateTransition(profilePickerVisible, label = "sessionsPage")
+    var pageWidth by remember { mutableIntStateOf(0) }
+    val sessionOffset = pageTransition.animateIntOffset(transitionSpec = { spatial }, label = "sessionPageOffset") {
+        IntOffset(if (it) -pageWidth else 0, 0)
+    }
+    val sessionAlpha = pageTransition.animateFloat(transitionSpec = { effects }, label = "sessionPageAlpha") {
+        if (it) 0f else 1f
+    }
+    val progressState = LocalToolbarExpansionProgress.current
+    val preparedProgress by remember(progressState) { derivedStateOf { if (progressState.value == 1f) 1f else 0f } }
+    val sessionPageVisible = !profilePickerVisible || pageTransition.currentState != pageTransition.targetState
+    Box(Modifier.fillMaxSize().clipToBounds().onSizeChanged { pageWidth = it.width }) {
+        pageTransition.AnimatedContent(modifier = Modifier.fillMaxSize().zIndex(1f),
+            transitionSpec = {
+                val direction = if (targetState) AnimatedContentTransitionScope.SlideDirection.Start
+                    else AnimatedContentTransitionScope.SlideDirection.End
+                ((slideIntoContainer(direction, spatial) + fadeIn(effects)) togetherWith
+                    (slideOutOfContainer(direction, spatial) + fadeOut(effects))).using(null)
+            },
+        ) { pickingProfile ->
+            if (pickingProfile) {
+                val expandedHeight = LocalToolbarExpandedContentHeight.current
+                // Reveal the final-sized list through the animated sheet instead of remeasuring it every frame.
+                val viewport = if (expandedHeight != null) Modifier.fillMaxWidth()
+                    .wrapContentHeight(Alignment.Top, unbounded = true).height(expandedHeight)
+                    else Modifier.fillMaxSize()
+                Column(viewport) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        IconButton(onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                            onDismissProfilePicker()
+                        }, enabled = active && profilePickerVisible, shapes = IconButtonDefaults.shapes()) {
+                            Icon(painterResource(R.drawable.ic_material_symbol_arrow_back_24),
+                                stringResource(R.string.back), tint = colors.appBarIcon)
+                        }
+                        Text(stringResource(R.string.new_session), style = MaterialTheme.typography.titleMedium,
+                            color = colors.foreground)
                     }
-                    Text(stringResource(R.string.new_session), style = MaterialTheme.typography.titleMedium,
-                        color = colors.foreground)
-                }
-                ToolbarScrollEdges(profileScroll.canScrollBackward, profileScroll.canScrollForward,
-                    Modifier.weight(1f).fillMaxWidth()) {
-                    LazyColumn(Modifier.fillMaxSize(), state = profileScroll,
-                        contentPadding = PaddingValues(bottom = 8.dp)) {
-                        item {
-                            Text(stringResource(R.string.select_profile),
-                                Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
-                                style = MaterialTheme.typography.labelLarge, color = colors.foreground)
-                        }
-                        items(profiles, key = { it.id }) { profile ->
-                            ListItem(onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                                onSelectProfile(profile)
-                            }, enabled = active && profilePickerVisible,
-                                leadingContent = {
-                                    Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-                                        ProfileIcon(profile.icon, profile.runtime.wireName, tint = colors.accent)
-                                    }
-                                }, supportingContent = {
-                                    ProfileSupportingContent(profile, profileEnvironmentNames, profileInstallationStatuses)
-                                }, verticalAlignment = Alignment.CenterVertically,
-                                shapes = terminalListItemShapes(),
-                                colors = ListItemDefaults.colors(containerColor = Color.Transparent,
-                                    contentColor = colors.foreground, supportingContentColor = colors.unselectedTabContent,
-                                    leadingContentColor = colors.accent),
-                                modifier = Modifier.fillMaxWidth(),
-                            ) { Text(profile.name) }
-                        }
-                        item {
-                            TextButton(onClick = {
-                                haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                                onAddProfile()
-                            }, enabled = active && profilePickerVisible, shapes = ButtonDefaults.shapes(),
-                                colors = ButtonDefaults.textButtonColors(contentColor = colors.foreground),
-                                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
-                                Icon(painterResource(R.drawable.ic_material_symbol_add_24), null)
-                                Spacer(Modifier.width(8.dp))
-                                Text(stringResource(R.string.create_profile))
+                    ToolbarScrollEdges(profileScroll.canScrollBackward, profileScroll.canScrollForward,
+                        Modifier.weight(1f).fillMaxWidth()) {
+                        LazyColumn(Modifier.fillMaxSize(), state = profileScroll,
+                            contentPadding = PaddingValues(bottom = 8.dp)) {
+                            item {
+                                Text(stringResource(R.string.select_profile),
+                                    Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
+                                    style = MaterialTheme.typography.labelLarge, color = colors.foreground)
+                            }
+                            items(profiles, key = { it.id }) { profile ->
+                                ListItem(onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                                    onSelectProfile(profile)
+                                }, enabled = active && profilePickerVisible,
+                                    leadingContent = {
+                                        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                                            ProfileIcon(profile.icon, profile.runtime.wireName, tint = colors.accent)
+                                        }
+                                    }, supportingContent = {
+                                        ProfileSupportingContent(profile, profileEnvironmentNames, profileInstallationStatuses)
+                                    }, verticalAlignment = Alignment.CenterVertically,
+                                    shapes = terminalListItemShapes(),
+                                    colors = ListItemDefaults.colors(containerColor = Color.Transparent,
+                                        contentColor = colors.foreground, supportingContentColor = colors.unselectedTabContent,
+                                        leadingContentColor = colors.accent),
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text(profile.name) }
+                            }
+                            item {
+                                TextButton(onClick = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                    onAddProfile()
+                                }, enabled = active && profilePickerVisible, shapes = ButtonDefaults.shapes(),
+                                    colors = ButtonDefaults.textButtonColors(contentColor = colors.foreground),
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)) {
+                                    Icon(painterResource(R.drawable.ic_material_symbol_add_24), null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(stringResource(R.string.create_profile))
+                                }
                             }
                         }
                     }
                 }
-            }
-        } else Column(Modifier.fillMaxSize()) {
-            val progress = (expansionProgress ?: LocalToolbarExpansionProgress.current.value).coerceIn(0f, 1f)
+            } else Spacer(Modifier.fillMaxSize())
+        }
+        // Keep the session page ready for Back, including its compact header after a handle drag.
+        // While covered, observe only the expanded/compact boundary instead of every height frame.
+        Column(Modifier.fillMaxSize().offset { sessionOffset.value }.graphicsLayer { alpha = sessionAlpha.value }) {
+            val progress = (expansionProgress ?: if (sessionPageVisible) progressState.value else preparedProgress).coerceIn(0f, 1f)
             val tabsActive = sessionsActive && progress == 1f
             // Use the sheet's spatial motion directly; a second animation would lag behind dragging.
             val headerHeight = ToolbarHotkeyViewportHeight + (48.dp - ToolbarHotkeyViewportHeight) * progress
