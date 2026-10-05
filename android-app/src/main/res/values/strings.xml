@@ -153,7 +153,7 @@
     <string name="remove_custom_font">%1$s 글꼴 제거</string>
     <string name="color_palette">색상 팔레트</string>
     <string name="follow_tui_background">전체 화면 TUI 배경색 따르기</string>
-    <string name="follow_tui_background_support">Neovim 등 전체 화면 터미널 앱의 주 배경색에 세션 툴, 툴바와 시스템 표시줄 아이콘을 맞춥니다. 종료하면 기존 색상으로 돌아옵니다.</string>
+    <string name="follow_tui_background_support">전체 화면 터미널 앱의 주 배경색에 세션 툴, 툴바와 시스템 표시줄 아이콘을 맞춥니다. 종료하면 기존 색상으로 돌아옵니다.</string>
     <string name="color_palette_support">전경, 배경, 커서와 ANSI 16색을 함께 변경합니다.</string>
     <string name="palette_neutral_dark">Neutral Dark</string>
     <string name="palette_solarized_dark">Solarized Dark</string>
