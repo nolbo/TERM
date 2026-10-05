@@ -17,6 +17,14 @@ test -x /usr/local/lib/droid/droid-port-agent
 test -x /usr/local/bin/droid
 id droid
 /usr/local/lib/droid/droid-sessiond --self-check
+test "$(readlink /etc/resolv.conf)" = /run/systemd/resolve/stub-resolv.conf
+grep -qx 'Driver=virtio_net' /etc/systemd/network/10-term-virtio.network
+grep -qx 'DHCP=yes' /etc/systemd/network/10-term-virtio.network
+for service in systemd-networkd systemd-resolved; do
+  test -x "/usr/lib/systemd/$service"
+  systemctl --root=/ is-enabled --quiet "$service.service"
+done
+echo TERM_AVF_NETWORK_CONFIG_OK
 /usr/local/lib/droid/image-user-selftest
 mkdir -p /var/lib/droid-image-test
 if [ -e /var/lib/droid-image-test/persistent ]; then

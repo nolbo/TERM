@@ -434,11 +434,42 @@ Userspace Linux 데이터를 모두 제거하려면 **설정 → 실행환경**�
 | `AVF 실행환경 설정에서 Debian 이미지를 설치하세요.` | 해당 AVF 실행환경 상세에서 **이미지 설치**를 선택합니다. 기본 AVF 저장공간은 필수 여섯 파일이 있는 로컬 이미지 디렉터리로 오프라인 설치할 수도 있습니다. |
 | `AVF custom VM access requires ...` | 일반 APK 제한입니다. OEM/플랫폼 서명 AOSP 배포와 AVF 시스템 드라이버가 필요합니다. |
 | 다른 AVF 실행환경을 열 때 `avf_tap_fixed`·`TUNSETIFF`·`EACCES` 오류 | 기기가 AVF 네트워크의 고정 TAP 인터페이스를 공유하는 경우 여러 VM의 동시 네트워크 연결이 제한될 수 있습니다. 앱은 원래 원인과 함께 이 제한을 안내하고 기존 VM과 네트워크 설정을 유지합니다. 두 VM 모두 인터넷이 필요하면 Android 플랫폼의 VM별 TAP·브리지 지원이 필요하며, 현재 AVF API에서 VM 이름을 바꾸거나 앱 권한을 추가하는 것으로 고정 TAP을 분리할 수 없습니다. 같은 실행환경의 추가 세션은 기존 VM을 재사용합니다. |
+| AVF에서 `apt update`가 `Temporary failure resolving 'deb.debian.org'`로 실패 | 게스트의 DHCP·DNS 설정과 Android의 VM 네트워크 연결을 확인합니다. 기존 이미지의 복구 방법은 아래 **AVF에서 APT가 DNS 오류로 실패할 때**를 참고하세요. 실패 뒤의 `All packages are up to date`는 저장소 갱신 성공을 뜻하지 않습니다. |
 | 세션 탭이 보이지 않음 | 런타임 상태를 확인한 뒤 **세션** 툴 상단의 **새 세션**을 누릅니다. |
 | 앱을 다시 열자 출력이 없음 | 같은 세션 탭을 다시 선택합니다. 진단 화면에서 VM이 실제로 중지됐는지 확인합니다. |
 | 백그라운드나 화면 꺼짐 뒤 SSH가 `broken pipe`로 끊김 | **터미널 설정 → 백그라운드 실행**에서 **런타임 실행 중 항상 유지**와 **배터리 최적화 제외**를 허용합니다. 제조사별 앱 배터리 설정에도 제한이 있다면 제한 없음을 선택합니다. 강제 종료·메모리 부족·통신망 변경이나 SSH 서버의 시간 제한까지 없애는 기능은 아닙니다. |
 | 포트가 표시되지 않음 | 게스트 프로세스가 실제로 리스닝 중인지 확인하고, `droid-port-agent` 서비스 상태를 확인합니다. |
 | Android 기능이 거부됨 | 콘솔의 Android 접근 권한과 Android 시스템 권한을 모두 확인합니다. |
+
+### AVF에서 APT가 DNS 오류로 실패할 때
+
+기존 `avf-debian-20261004` 이미지에는 빌드 환경의 DNS인 `169.254.169.254`가 남아 있을 수 있습니다. `ip -br address`에서 실제 NIC인 `enp0s8` 등이 `DOWN`이고 `ip route`에 기본 경로가 없다면 DHCP 설정도 필요합니다. 아래 명령은 AVF 터미널 안에서 실행하며, NIC 이름 대신 `virtio_net` 드라이버에 맞춰 주소·경로·DNS를 받도록 설정합니다.
+
+```sh
+sudo install -d -m 0755 /etc/systemd/network
+sudo tee /etc/systemd/network/10-term-virtio.network >/dev/null <<'EOF'
+[Match]
+Driver=virtio_net
+
+[Network]
+DHCP=yes
+
+[DHCPv4]
+UseDNS=yes
+UseHostname=no
+
+[DHCPv6]
+UseDNS=yes
+UseHostname=no
+EOF
+sudo ln -sfn /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
+sudo systemctl enable systemd-networkd.service systemd-resolved.service
+sudo systemctl restart systemd-networkd.service systemd-resolved.service
+```
+
+그다음 `ip -br address`, `ip route`, `resolvectl status`로 DHCP 주소·기본 경로·DNS가 생겼는지 확인하고 `getent hosts deb.debian.org`를 실행합니다. DHCP 협상이 끝나기 전에 확인하면 잠시 주소가 없을 수 있습니다. 이름 해석이 성공하면 `sudo apt-get -o APT::Update::Error-Mode=any update`로 저장소를 갱신합니다. 이 옵션은 일부 인덱스 다운로드가 실패해도 성공처럼 끝나는 것을 막습니다.
+
+설정 후에도 주소나 기본 경로가 없다면 **설정 → AVF Linux → 네트워크**가 켜져 있는지 확인하고, 필요한 설정은 다음 VM 시작에 적용합니다. 이미 IP 연결이 있다면 `resolvectl status`의 DHCP DNS와 Android의 VM 테더링·외부 연결을 확인해야 합니다. Vsock으로 터미널을 열 수 있다는 사실만으로 인터넷 연결을 보장하지는 않습니다. 새 이미지 생성 과정에는 위 설정이 포함되지만 APK 업데이트만으로 기존 이미지나 실행 중인 VM이 변경되지는 않습니다.
 
 ## 9. 보안 주의사항
 

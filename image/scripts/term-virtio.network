@@ -1,0 +1,13 @@
+[Match]
+Driver=virtio_net
+
+[Network]
+DHCP=yes
+
+[DHCPv4]
+UseDNS=yes
+UseHostname=no
+
+[DHCPv6]
+UseDNS=yes
+UseHostname=no

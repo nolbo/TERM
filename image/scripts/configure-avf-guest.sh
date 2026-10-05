@@ -36,6 +36,7 @@ bash /tmp/term-avf/install-droid-guest.sh / /tmp/term-avf/bin
 install -m 0755 /tmp/term-avf/image-selftest /usr/local/lib/droid/image-selftest
 install -m 0755 /tmp/term-avf/image-user-selftest /usr/local/lib/droid/image-user-selftest
 sh /tmp/term-avf/configure-avf-user.sh /tmp/term-avf/droid.sudoers
+sh /tmp/term-avf/configure-avf-network.sh / /tmp/term-avf/term-virtio.network
 mkdir -p /etc/droid-config /.droid/lower /.droid/state
 chmod 0700 /.droid
 mkdir -p /etc/systemd/system/droid-agent.service.d

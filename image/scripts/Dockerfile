@@ -20,6 +20,8 @@ COPY --from=guest /binaries /payload/bin
 COPY image/scripts/install-droid-guest.sh /payload/install-droid-guest.sh
 COPY image/scripts/configure-avf-guest.sh /payload/configure-avf-guest.sh
 COPY image/scripts/configure-avf-user.sh /payload/configure-avf-user.sh
+COPY image/scripts/configure-avf-network.sh /payload/configure-avf-network.sh
+COPY image/scripts/term-virtio.network /payload/term-virtio.network
 COPY image/scripts/droid.sudoers /payload/droid.sudoers
 COPY image/scripts/droid-overlay /payload/droid-overlay
 COPY image/scripts/image-selftest /payload/image-selftest

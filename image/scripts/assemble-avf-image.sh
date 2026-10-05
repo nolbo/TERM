@@ -20,7 +20,11 @@ EOF
 virt-customize --format raw -a /output/system.img --no-network \
   --run-command 'bash /tmp/term-avf/configure-avf-guest.sh' \
   --run-command 'rm -rf /tmp/term-avf'
-guestfish --ro --format=raw -a /output/system.img -m /dev/sda <<'EOF'
+# Seal the runtime link outside guest command customization so appliance
+# resolver handling cannot leave builder DNS in the distributed image.
+guestfish --rw --format=raw -a /output/system.img -m /dev/sda <<'EOF'
+rm-f /etc/resolv.conf
+ln-s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 download /boot/term-initrd.img /output/initrd.img
 EOF
 cp /input/vmlinuz /output/vmlinuz
