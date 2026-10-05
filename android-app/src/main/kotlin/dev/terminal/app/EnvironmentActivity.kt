@@ -425,7 +425,7 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
     @Composable private fun EnvironmentActions(enabled: Boolean, canDelete: Boolean, canStart: Boolean, canStop: Boolean,
         onStart: () -> Unit, onStop: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
         HorizontalFloatingToolbar(expanded = true) {
-            if (canStart) FloatingToolbarAction(stringResource(R.string.environment_start), R.drawable.ic_material_symbol_power_settings_new_24,
+            if (canStart) FloatingToolbarAction(stringResource(R.string.environment_start), R.drawable.ic_material_symbol_play_arrow_24,
                 enabled = enabled, onClick = onStart)
             if (canStop) FloatingToolbarAction(stringResource(R.string.environment_stop), R.drawable.ic_material_symbol_close_24,
                 enabled = enabled, onClick = onStop)
