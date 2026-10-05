@@ -64,4 +64,5 @@ interface IRuntimeService {
     String getUserspaceLinuxSettingsJson();
     String setUserspaceLinuxDns(String mode, String servers);
     boolean cancelRootlessInstallation(String runtimeType, String storageId);
+    void createSessionFromSpecWithInstallationConsent(String launchSpecJson, String requestId, int rows, int cols);
 }

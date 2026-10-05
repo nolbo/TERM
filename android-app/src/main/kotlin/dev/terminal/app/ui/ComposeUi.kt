@@ -434,7 +434,9 @@ private fun RuntimeChoiceIcon(choice: RuntimeChoiceUi) {
 @Composable
 fun NewSessionSheet(profiles: List<dev.terminal.runtime.session.SessionProfile>,
     onSelectProfile: (dev.terminal.runtime.session.SessionProfile) -> Unit,
-    onAddProfile: () -> Unit, onDismiss: () -> Unit) {
+    onAddProfile: () -> Unit, onDismiss: () -> Unit,
+    environmentNames: Map<dev.terminal.runtime.session.EnvironmentId, String> = emptyMap(),
+    installationStatuses: Map<dev.terminal.runtime.session.EnvironmentId, ProfileInstallationStatus> = emptyMap()) {
     val sheetState = rememberBottomSheetState(
         initialValue = SheetValue.Hidden,
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
@@ -459,7 +461,7 @@ fun NewSessionSheet(profiles: List<dev.terminal.runtime.session.SessionProfile>,
                     leadingContent = { Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
                         ProfileIcon(profile.icon, profile.runtime.wireName, tint = TerminalStatusBlue)
                     } },
-                    supportingContent = { Text(stringResource(runtimeTitleResource(profile.runtime.wireName))) },
+                    supportingContent = { ProfileSupportingContent(profile, environmentNames, installationStatuses) },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(profile.name) }

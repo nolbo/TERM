@@ -52,16 +52,17 @@ Userspace Linux installation can be explicitly cancelled from its environment de
 Each approved distribution uses its own `RootlessDebianBackend` instance (the
 existing class name is retained). Debian retains its independent rootfs at
 `files/rootless/debian/rootfs`, including `/bin/sh` and `apt`, before creating a
-session. On the first selection of each distribution, `RootlessBootstrapper` downloads the
-pinned ARM64 archive over HTTPS, verifies its SHA-256, safely extracts it
+session. Selecting an uninstalled Environment first asks whether to install;
+only approval permits `RootlessBootstrapper` to download the
+pinned ARM64 archive over HTTPS, verify its SHA-256, safely extract it
 into a staging directory while preserving executable modes, and atomically
-activates it. Service-owned environment preparation then installs the official
+activate it. Service-owned environment preparation then installs the official
 distribution defaults, restores missing startup/locale settings, and verifies
 packages and executable commands before readiness. Existing usable images are
 completed in place, with package failures retried without rootfs replacement.
 Stale downloads and staging trees are removed before a serialized
 retry. Interrupted or corrupt
-app-owned installs are replaced automatically on the next attempt; no file
+app-owned installs are replaced on the next explicitly approved installation; no file
 picker, ADB, root, or app-data reset is required. `RootlessSessionController`
 starts an APK-packaged, allow-listed PRoot and loader, binds only `/dev`,
 `/proc`, `/sys`, the rootless home and `/workspace` by default, and owns the

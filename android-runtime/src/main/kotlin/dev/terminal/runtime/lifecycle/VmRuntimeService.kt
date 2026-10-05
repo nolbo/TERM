@@ -427,6 +427,11 @@ class VmRuntimeService : Service() {
         override fun createSessionFromSpecWithRequestId(launchSpecJson: String, requestId: String, rows: Int, cols: Int) =
             createResolvedSession(launchSpecJson, rows, cols, requestId)
 
+        override fun createSessionFromSpecWithInstallationConsent(launchSpecJson: String, requestId: String, rows: Int, cols: Int) {
+            enforceHostToolUi()
+            createResolvedSession(launchSpecJson, rows, cols, requestId, installationApproved = true)
+        }
+
         override fun createSession(runtimeType: String, shell: String, cwd: String, rows: Int, cols: Int) {
             val selected = SessionRuntime.fromWireName(runtimeType)
             if (selected == null) {
@@ -440,7 +445,8 @@ class VmRuntimeService : Service() {
             createResolvedSession(profile.resolve().toJson().toString(), rows, cols)
         }
 
-        private fun createResolvedSession(encoded: String, rows: Int, cols: Int, requestId: String? = null) {
+        private fun createResolvedSession(encoded: String, rows: Int, cols: Int, requestId: String? = null,
+            installationApproved: Boolean = false) {
             val parsed = runCatching { dev.terminal.runtime.session.SessionLaunchSpec.fromJson(encoded) }
             val launch = parsed.getOrNull()?.takeIf { it.runtime == SessionRuntime.AVF }?.let {
                 PendingAvfSessionLaunches.Launch(requestId ?: java.util.UUID.randomUUID().toString(), it)
@@ -460,7 +466,7 @@ class VmRuntimeService : Service() {
                     ) { spec ->
                         val requestedRuntime = spec.runtime
                         Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
-                        if (!ensureEnvironmentControllerLocked(spec, client)) {
+                        if (!ensureEnvironmentControllerLocked(spec, client, installationApproved)) {
                             if (launch != null) {
                                 pendingAvfLaunches.fail(launch, runtimeUnavailableReason(requestedRuntime))
                                 sessionSnapshots.republish()
@@ -1286,7 +1292,22 @@ class VmRuntimeService : Service() {
 
     /** Caller holds the resolved storage lease through registration and session creation. */
     private suspend fun ensureEnvironmentControllerLocked(spec: dev.terminal.runtime.session.SessionLaunchSpec,
-        registry: UnifiedSessionRegistry): Boolean {
+        registry: UnifiedSessionRegistry, installationApproved: Boolean = false): Boolean {
+        val executionEnvironment = requireNotNull(spec.executionEnvironment)
+        if (spec.runtime in rootlessBackends && !installationApproved &&
+            !rootlessEnvironmentBackend(executionEnvironment).hasInstalledImage()) {
+            error("배포판이 설치되어 있지 않습니다. 프로필을 선택하고 설치를 승인하세요.")
+        }
+        if (spec.runtime == SessionRuntime.AVF && installationApproved) {
+            require(checkSelfPermission("android.permission.MANAGE_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                checkSelfPermission("android.permission.USE_CUSTOM_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                "AVF requires privileged custom VM access"
+            }
+            val imageRoot = dev.terminal.runtime.session.SessionStorage.root(filesDir, spec.runtime, spec.storageId).toPath()
+            if (!dev.terminal.image.DebianImageVerifier.hasInstalledImage(imageRoot)) {
+                RuntimeSetupCoordinator(applicationContext).requestImageInstallation(spec.storageId)
+            }
+        }
         // When Native is the default owner, even legacy/default AVF storage needs its own AVF provider.
         if (spec.storageId == "legacy" && spec.runtime != SessionRuntime.NATIVE &&
             (spec.runtime != SessionRuntime.AVF || backend !is NativeBackend)) return ensureRuntimeControllerLocked(spec.runtime, registry)
@@ -1299,7 +1320,6 @@ class VmRuntimeService : Service() {
         }
         storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(spec.runtime, spec.storageId)) }
         if (registry.isRegistered(spec.runtime, spec.storageId) && spec.storageId !in registry.disconnectedStorages(spec.runtime)) return true
-        val executionEnvironment = requireNotNull(spec.executionEnvironment)
         val key = executionEnvironment.id
         val root = dev.terminal.runtime.session.SessionStorage.root(filesDir, spec.runtime, spec.storageId)
         val owner = environmentBackends.getOrPut(key) {

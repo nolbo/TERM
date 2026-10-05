@@ -100,6 +100,13 @@ import dev.terminal.runtime.lifecycle.VmRuntimeService
 import java.io.File
 import java.nio.file.Files
 import java.util.UUID
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withContext
+import dev.terminal.app.ui.ProfileInstallationState
+import dev.terminal.app.ui.ProfileInstallationStatus
+import dev.terminal.app.ui.ProfileInstallationDialog
 
 /** Compose console projection. Runtime and shell ownership stay in :vmhost. */
 class MainActivity : TerminalActivity() {
@@ -107,10 +114,16 @@ class MainActivity : TerminalActivity() {
     private var runtimeSessionRows = emptyList<SessionUi>()
     private var unconfirmedAvfLaunches = emptyList<SessionUi>()
     private val submittedAvfLaunches = mutableSetOf<String>()
+    private val installationApprovedAvfLaunches = mutableSetOf<String>()
     private val avfFocusHandoffs = mutableSetOf<String>()
     private var sessionTabOrder = emptyList<String>()
     private var profiles by mutableStateOf(emptyList<dev.terminal.runtime.session.SessionProfile>())
     private var profileEnvironmentNames by mutableStateOf(emptyMap<dev.terminal.runtime.session.EnvironmentId, String>())
+    private var profileInstallationStatuses by mutableStateOf(emptyMap<dev.terminal.runtime.session.EnvironmentId, ProfileInstallationStatus>())
+    private var profileLaunchToCheck by mutableStateOf<dev.terminal.runtime.session.SessionLaunchSpec?>(null)
+    private var profileLaunchCheckRevision by mutableStateOf(0L)
+    private var profileInstallToConfirm by mutableStateOf<dev.terminal.runtime.session.SessionLaunchSpec?>(null)
+    private var profileInstallationToLaunch by mutableStateOf<dev.terminal.runtime.session.SessionLaunchSpec?>(null)
     private var rootlessLaunchSpec: dev.terminal.runtime.session.SessionLaunchSpec? = null
     private var selectedLaunchSpec: dev.terminal.runtime.session.SessionLaunchSpec? = null
     private fun addProfile() {
@@ -119,34 +132,42 @@ class MainActivity : TerminalActivity() {
         startActivity(Intent(this, ProfileEditActivity::class.java))
     }
     private fun selectProfile(profile: dev.terminal.runtime.session.SessionProfile) {
-        if (rootlessInstallInFlight) {
-            sessionProfilePickerVisible = false
-            newSessionSheetVisible = false
-            val pending = rootlessLaunchSpec ?: builtInLaunchSpec(rootlessInstallRuntime)
-            if (profile.runtime == pending.runtime && profile.storageId == pending.storageId) {
-                rootlessVisible = true
-            } else {
-                createSession(SessionProfiles(this).resolve(profile))
+        val spec = SessionProfiles(this).resolve(profile)
+        selectedLaunchSpec = spec
+        sessionProfilePickerVisible = false
+        newSessionSheetVisible = false
+        profileInstallToConfirm = null
+        profileLaunchToCheck = null
+        profileLaunchCheckRevision += 1
+        if (spec.runtime == dev.terminal.runtime.session.SessionRuntime.NATIVE) createSession(spec)
+        else if (rootlessInstallInFlight && rootlessLaunchSpec?.environmentId == spec.environmentId) rootlessVisible = true
+        else profileLaunchToCheck = spec
+    }
+
+    private fun launchCheckedProfile(spec: dev.terminal.runtime.session.SessionLaunchSpec, status: ProfileInstallationStatus) {
+        when (status.state) {
+            ProfileInstallationState.MISSING -> profileInstallToConfirm = spec
+            ProfileInstallationState.INSTALLED, ProfileInstallationState.INSTALLING -> {
+                if (spec.runtime.wireName in rootlessRuntimeIds && !status.available) {
+                    showRootlessProfilePreparation(spec, installationApproved = false)
+                } else createSession(spec)
             }
-            return
+            else -> feedbackMessage = getString(R.string.profile_installation_unknown)
         }
-        selectedLaunchSpec = SessionProfiles(this).resolve(profile)
-        if (profile.storageId != "legacy" && profile.runtime.wireName in rootlessRuntimeIds) {
-            sessionProfilePickerVisible = false
-            newSessionSheetVisible = false
-            rootlessInstallRuntime = profile.runtime.wireName
-            rootlessLaunchSpec = selectedLaunchSpec
-            rootlessVisible = true
-            beginRootlessInstall()
-            return
-        }
-        if (profile.storageId != "legacy") {
-            sessionProfilePickerVisible = false
-            newSessionSheetVisible = false
-            createSession(SessionProfiles(this).resolve(profile))
-            return
-        }
-        selectRuntime(runtimeChoices.first { it.id == profile.runtime.wireName })
+    }
+
+    private fun approveProfileInstallation() {
+        val spec = profileInstallToConfirm ?: return
+        profileInstallToConfirm = null
+        profileInstallationToLaunch = spec
+    }
+
+    private fun showRootlessProfilePreparation(spec: dev.terminal.runtime.session.SessionLaunchSpec, installationApproved: Boolean) {
+        if (rootlessLaunchSpec?.environmentId != spec.environmentId) rootlessInstallInFlight = false
+        rootlessLaunchSpec = spec
+        rootlessInstallRuntime = spec.runtime.wireName
+        rootlessVisible = true
+        beginRootlessInstall(installationApproved)
     }
     private var runtimeChoices by mutableStateOf(emptyList<RuntimeChoiceUi>())
     private var notificationSessionId: String? = null
@@ -356,6 +377,9 @@ class MainActivity : TerminalActivity() {
         activeSessionId?.let { outState.putString("active-session", it) }
         selectedLaunchSpec?.let { outState.putString("pending-profile-launch", it.toJson().toString()) }
         rootlessLaunchSpec?.let { outState.putString("pending-rootless-profile-launch", it.toJson().toString()) }
+        profileLaunchToCheck?.let { outState.putString("profile-installation-check", it.toJson().toString()) }
+        profileInstallToConfirm?.let { outState.putString("profile-installation-confirm", it.toJson().toString()) }
+        profileInstallationToLaunch?.let { outState.putString("profile-installation-approved", it.toJson().toString()) }
         notificationSessionId?.let { outState.putString("notification-target", it) }
         outState.putString("unconfirmed-avf-launches", org.json.JSONArray().apply {
             unconfirmedAvfLaunches.forEach { launch ->
@@ -364,6 +388,7 @@ class MainActivity : TerminalActivity() {
             }
         }.toString())
         outState.putStringArrayList("submitted-avf-launches", ArrayList(submittedAvfLaunches))
+        outState.putStringArrayList("installation-approved-avf-launches", ArrayList(installationApprovedAvfLaunches))
         super.onSaveInstanceState(outState)
     }
 
@@ -404,6 +429,15 @@ class MainActivity : TerminalActivity() {
         rootlessLaunchSpec = savedInstanceState?.getString("pending-rootless-profile-launch")?.let {
             dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it)
         }
+        profileLaunchToCheck = savedInstanceState?.getString("profile-installation-check")?.let {
+            dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it)
+        }
+        profileInstallToConfirm = savedInstanceState?.getString("profile-installation-confirm")?.let {
+            dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it)
+        }
+        profileInstallationToLaunch = savedInstanceState?.getString("profile-installation-approved")?.let {
+            dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it)
+        }
         unconfirmedAvfLaunches = runCatching {
             val requests = org.json.JSONArray(savedInstanceState?.getString("unconfirmed-avf-launches") ?: "[]")
             (0 until requests.length()).map { index ->
@@ -415,6 +449,7 @@ class MainActivity : TerminalActivity() {
             }
         }.getOrDefault(emptyList())
         submittedAvfLaunches += savedInstanceState?.getStringArrayList("submitted-avf-launches").orEmpty()
+        installationApprovedAvfLaunches += savedInstanceState?.getStringArrayList("installation-approved-avf-launches").orEmpty()
         sessions = orderSessionTabs(unconfirmedAvfLaunches, sessionTabOrder)
         runtimeMessage = getString(R.string.runtime_connecting_prompt)
         rootlessStatus = getString(R.string.rootless_setup_required)
@@ -554,6 +589,51 @@ class MainActivity : TerminalActivity() {
                 feedbackMessage = null
             }
         }
+        val profileMenuVisible = sessionProfilePickerVisible || newSessionSheetVisible
+        LaunchedEffect(profileMenuVisible, profiles) {
+            if (!profileMenuVisible) return@LaunchedEffect
+            val environmentIds = profiles.filter { it.runtime != dev.terminal.runtime.session.SessionRuntime.NATIVE }
+                .mapNotNull { it.environmentId }.distinct()
+            while (isActive) {
+                runtime?.takeIf { activityStarted }?.let { service ->
+                    val statuses = withContext(Dispatchers.IO) {
+                        environmentIds.associateWith { id ->
+                            runCatching { ProfileInstallationStatus.fromJson(service.getEnvironmentSoftwareJson(id.value)) }
+                                .getOrElse { ProfileInstallationStatus(ProfileInstallationState.UNKNOWN) }
+                        }
+                    }
+                    profileInstallationStatuses = statuses
+                }
+                delay(2_000)
+            }
+        }
+        LaunchedEffect(profileLaunchToCheck, profileLaunchCheckRevision) {
+            val spec = profileLaunchToCheck ?: return@LaunchedEffect
+            val revision = profileLaunchCheckRevision
+            while (runtime == null) {
+                if (activityStarted) bindRuntime()
+                delay(200)
+            }
+            val service = checkNotNull(runtime)
+            val status = withContext(Dispatchers.IO) {
+                runCatching { ProfileInstallationStatus.fromJson(service.getEnvironmentSoftwareJson(checkNotNull(spec.environmentId).value)) }
+                    .getOrElse { ProfileInstallationStatus(ProfileInstallationState.UNKNOWN) }
+            }
+            if (profileLaunchToCheck != spec || profileLaunchCheckRevision != revision) return@LaunchedEffect
+            profileLaunchToCheck = null
+            profileInstallationStatuses = profileInstallationStatuses + (checkNotNull(spec.environmentId) to status)
+            launchCheckedProfile(spec, status)
+        }
+        LaunchedEffect(profileInstallationToLaunch) {
+            val spec = profileInstallationToLaunch ?: return@LaunchedEffect
+            while (runtime == null) {
+                if (activityStarted) bindRuntime()
+                delay(200)
+            }
+            profileInstallationToLaunch = null
+            if (spec.runtime.wireName in rootlessRuntimeIds) showRootlessProfilePreparation(spec, installationApproved = true)
+            else createSession(spec, installationApproved = true)
+        }
         Scaffold(
             containerColor = screenBackgroundColor,
             snackbarHost = { SnackbarHost(snackbarHost) },
@@ -649,6 +729,7 @@ class MainActivity : TerminalActivity() {
                                             addProfile()
                                         },
                                         profileEnvironmentNames = profileEnvironmentNames,
+                                        profileInstallationStatuses = profileInstallationStatuses,
                                         profilePickerVisible = sessionProfilePickerVisible,
                                         onSelect = { id ->
                                             attach(id)
@@ -720,11 +801,16 @@ class MainActivity : TerminalActivity() {
                 onSelectProfile = ::selectProfile,
                 onAddProfile = ::addProfile,
                 onDismiss = { newSessionSheetVisible = false },
+                environmentNames = profileEnvironmentNames,
+                installationStatuses = profileInstallationStatuses,
             )
+        }
+        profileInstallToConfirm?.let { spec ->
+            ProfileInstallationDialog(spec, ::approveProfileInstallation, onDismiss = { profileInstallToConfirm = null })
         }
         if (rootlessVisible) {
             RootlessSetupDialog(rootlessInstallRuntime, rootlessStatus, rootlessDetail, rootlessRunning, rootlessError,
-                ::beginRootlessInstall, rootlessProgress,
+                { beginRootlessInstall(installationApproved = true) }, rootlessProgress,
                 onCancelInstall = if (rootlessCanCancel || rootlessCancelling) ::cancelRootlessInstall else null,
                 cancelling = rootlessCancelling, cancelled = rootlessStatus == getString(R.string.install_cancelled)) {
                 rootlessVisible = false
@@ -740,7 +826,7 @@ class MainActivity : TerminalActivity() {
                     rootlessVisible = true
                     rootlessStatus = getString(R.string.rootless_setup_required)
                     rootlessDetail = choice.detail.ifBlank { getString(R.string.rootless_setup_initial) }
-                    beginRootlessInstall()
+                    beginRootlessInstall(installationApproved = true)
                 },
                 onOpenSettings = {
                     unavailableChoice = null
@@ -1165,7 +1251,7 @@ class MainActivity : TerminalActivity() {
         )
     }
 
-    private fun beginRootlessInstall() {
+    private fun beginRootlessInstall(installationApproved: Boolean = false) {
         if (rootlessInstallInFlight) return
         rootlessInstallInFlight = true
         rootlessRunning = true
@@ -1176,7 +1262,7 @@ class MainActivity : TerminalActivity() {
         rootlessStatus = getString(R.string.rootless_installing, getString(runtimeTitleResource(rootlessInstallRuntime)))
         rootlessDetail = getString(R.string.rootless_install_detail)
         rootlessError = null
-        createSession(rootlessLaunchSpec ?: builtInLaunchSpec(rootlessInstallRuntime))
+        createSession(rootlessLaunchSpec ?: builtInLaunchSpec(rootlessInstallRuntime), installationApproved)
     }
 
     private fun cancelRootlessInstall() {
@@ -1191,17 +1277,21 @@ class MainActivity : TerminalActivity() {
         SessionProfiles(this).let { store -> store.resolve(store.all().firstOrNull { it.id == dev.terminal.runtime.session.SessionProfile.builtInId(requireNotNull(dev.terminal.runtime.session.SessionRuntime.fromWireName(runtimeType))) }
             ?: store.builtIns().first { it.runtime.wireName == runtimeType }) }
 
-    private fun createSession(spec: dev.terminal.runtime.session.SessionLaunchSpec) {
+    private fun createSession(spec: dev.terminal.runtime.session.SessionLaunchSpec, installationApproved: Boolean = false) {
         if (spec.runtime == dev.terminal.runtime.session.SessionRuntime.AVF) {
             avfLaunchFailure = null
             val requestId = UUID.randomUUID().toString()
+            if (installationApproved) installationApprovedAvfLaunches += requestId
             val launch = dev.terminal.app.ui.avfLaunchTab(requestId, spec)
             unconfirmedAvfLaunches = unconfirmedAvfLaunches + launch
             activeSessionId = launch.id
             renderSessionProjection()
             submitPendingAvfLaunches()
         } else {
-            safeRuntimeCall { service -> service.createSessionFromSpec(spec.toJson().toString(), 24, 80) }
+            safeRuntimeCall { service ->
+                if (installationApproved) service.createSessionFromSpecWithInstallationConsent(spec.toJson().toString(), UUID.randomUUID().toString(), 24, 80)
+                else service.createSessionFromSpec(spec.toJson().toString(), 24, 80)
+            }
         }
     }
 
@@ -1209,8 +1299,11 @@ class MainActivity : TerminalActivity() {
         unconfirmedAvfLaunches.filter { it.launchError == null && it.launchRequestId !in submittedAvfLaunches }
             .forEach { launch ->
                 val requestId = checkNotNull(launch.launchRequestId)
+                val encoded = checkNotNull(launch.launchSpec).toJson().toString()
+                if (requestId in installationApprovedAvfLaunches) service.createSessionFromSpecWithInstallationConsent(encoded, requestId, 24, 80)
+                else service.createSessionFromSpecWithRequestId(encoded, requestId, 24, 80)
                 submittedAvfLaunches += requestId
-                service.createSessionFromSpecWithRequestId(checkNotNull(launch.launchSpec).toJson().toString(), requestId, 24, 80)
+                installationApprovedAvfLaunches -= requestId
             }
     }
 

@@ -79,7 +79,9 @@ class RootlessDistributionsTest {
             await { service.state == "READY" }
             for ((runtime, distroId) in listOf("ROOTLESS_UBUNTU" to "ubuntu", "ROOTLESS_ARCH" to "archarm")) {
                 val previous = sessions(service.sessionsJson).keys
-                service.createSession(runtime, "/bin/bash", "/root", 24, 80)
+                val profile = SessionProfiles(context).builtIns().first { it.runtime.wireName == runtime }
+                service.createSessionFromSpecWithInstallationConsent(SessionProfiles(context).resolve(profile).toJson().toString(),
+                    java.util.UUID.randomUUID().toString(), 24, 80)
                 var id: String? = null
                 await(240_000) {
                     id = sessions(service.sessionsJson).entries.firstOrNull { it.key !in previous && it.value == runtime }?.key

@@ -90,6 +90,14 @@
     <string name="runtime_available">사용 가능</string>
     <string name="runtime_unavailable">사용할 수 없음</string>
     <string name="rootless_install_question">%1$s 기본 실행환경을 준비할까요?</string>
+    <string name="profile_installation_checking">설치 상태 확인 중</string>
+    <string name="profile_installation_installed">설치됨</string>
+    <string name="profile_installation_missing">미설치</string>
+    <string name="profile_installation_installing">설치 중</string>
+    <string name="profile_installation_unknown">설치 상태를 확인할 수 없습니다. 다시 시도해 주세요.</string>
+    <string name="profile_installation_title">설치 후 실행</string>
+    <string name="profile_installation_question">%1$s 실행환경에 %2$s이(가) 설치되어 있지 않습니다. 설치한 뒤 세션을 시작할까요?</string>
+    <string name="profile_avf_image">Debian 이미지</string>
     <string name="rootless_prepare">실행환경 준비</string>
     <string name="runtime_settings_question">%1$s 설정을 열까요?</string>
     <string name="open_settings">설정 열기</string>

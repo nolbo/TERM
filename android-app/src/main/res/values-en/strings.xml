@@ -1,4 +1,12 @@
 <resources>
+    <string name="profile_installation_checking">Checking installation</string>
+    <string name="profile_installation_installed">Installed</string>
+    <string name="profile_installation_missing">Not installed</string>
+    <string name="profile_installation_installing">Installing</string>
+    <string name="profile_installation_unknown">Unable to check installation. Please try again.</string>
+    <string name="profile_installation_title">Install and run</string>
+    <string name="profile_installation_question">%2$s is not installed in %1$s. Install it and start the session?</string>
+    <string name="profile_avf_image">Debian image</string>
     <string name="follow_tui_background">Follow fullscreen TUI background</string>
     <string name="follow_tui_background_support">Match the Sessions tool, toolbar, and system bar icons to the main background of fullscreen terminal apps. Restore the previous colors on exit.</string>
     <string name="terminal_open_links">Open web links</string>

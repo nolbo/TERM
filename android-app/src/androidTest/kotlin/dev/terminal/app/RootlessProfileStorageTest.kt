@@ -56,7 +56,7 @@ class RootlessProfileStorageTest {
             await { service.state == "READY" }
             for (profile in listOf(first, second, shared)) {
                 store.save(profile)
-                service.createSessionFromSpec(profile.resolve().toJson().toString(), 24, 80)
+                service.createSessionFromSpecWithInstallationConsent(profile.resolve().toJson().toString(), java.util.UUID.randomUUID().toString(), 24, 80)
                 await(600_000) { list().any { it.optString("profileId") == profile.id } }
                 sessions += list().first { it.optString("profileId") == profile.id }.getString("id")
             }

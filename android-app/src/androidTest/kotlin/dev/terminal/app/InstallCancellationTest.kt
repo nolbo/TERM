@@ -139,7 +139,7 @@ class InstallCancellationTest {
         }
     }
 
-    @Test fun distributionButtonStopsDownloadPreservesUserDataAndAllowsRetry() {
+    @Test fun approvedProfileLaunchStopsDownloadPreservesUserDataAndAllowsRetry() {
         assumeTrue("Opt-in network check", InstrumentationRegistry.getArguments().getString("installCancellation") == "true")
         val connected = CountDownLatch(1)
         lateinit var service: IRuntimeService
@@ -189,7 +189,12 @@ class InstallCancellationTest {
                     workspace.writeText("workspace")
                     fun status() = JSONObject(service.getEnvironmentSoftwareJson(environment.id.value))
                     try {
-                        val install = executor.submit<String> { service.operateEnvironment(environment.id.value, "INSTALL") }
+                        val install = executor.submit<String> {
+                            val store = SessionProfiles(context)
+                            service.createSessionFromSpecWithInstallationConsent(store.resolve(checkNotNull(store.find(profile.id))).toJson().toString(),
+                                UUID.randomUUID().toString(), 24, 80)
+                            ""
+                        }
                         await("Download did not start: $runtime") {
                             val current = status()
                             assertNotEquals("Download failed: $runtime ${current.optString("detail")}", "ERROR", current.optString("state"))

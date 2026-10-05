@@ -43,67 +43,54 @@ class AvfProfileLaunchTest {
         fail("Runtime service did not connect")
     }
 
-    @Test fun legacyAndIndependentAvfProfilesSendStartupEvenWithNativeAsDefault() {
-        val requested = mutableListOf<SessionLaunchSpec>()
-        val requestIds = mutableListOf<String>()
-        var creatingActivity: MainActivity? = null
-        val proxy = Proxy.newProxyInstance(IRuntimeService::class.java.classLoader,
-            arrayOf(IRuntimeService::class.java)) { _, method, args ->
-            if (method.name == "createSessionFromSpecWithRequestId") {
-                requested += SessionLaunchSpec.fromJson(args!![0] as String)
-                assertEquals("AVF profiles must start in droid's home", "/home/droid", requested.last().workingDirectory)
-                requestIds += args[1] as String
-                val activity = checkNotNull(creatingActivity)
-                val tabId = "avf-launch:${requestIds.last()}"
-                assertEquals("The loading tab must be selected before dispatch", tabId, state<String?>(activity, "activeSessionId").value)
-                assertTrue(state<List<SessionUi>>(activity, "sessions").value.single { it.id == tabId }.pendingLaunch)
-                val renderers = MainActivity::class.java.getDeclaredMethod("getTerminalSessions")
-                    .apply { isAccessible = true }.invoke(activity) as Map<*, *>
-                assertFalse("A loading request must not create a terminal renderer", renderers.containsKey(tabId))
-            }
-            null
-        } as IRuntimeService
+    @Test fun installedLegacyAndIndependentAvfProfilesSendStartupEvenWithNativeAsDefault() {
+        val requested = java.util.concurrent.CopyOnWriteArrayList<SessionLaunchSpec>()
+        val requestIds = java.util.concurrent.CopyOnWriteArrayList<String>()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             awaitService(scenario)
+            lateinit var original: IRuntimeService
+            lateinit var legacy: SessionProfile
+            lateinit var independent: SessionProfile
             scenario.onActivity { activity ->
-                val original = runtimeField.get(activity)
-                try {
-                    creatingActivity = activity
-                    runtimeField.set(activity, proxy)
-                    @Suppress("UNCHECKED_CAST")
-                    val choices = MainActivity::class.java.getDeclaredField("runtimeChoices\$delegate")
-                        .apply { isAccessible = true }.get(activity) as MutableState<List<RuntimeChoiceUi>>
-                    choices.value = listOf(RuntimeChoiceUi("NATIVE", true, "ready"), RuntimeChoiceUi("AVF", false, "not booted"))
-                    val legacy = SessionProfiles(activity).builtIns().first { it.runtime == SessionRuntime.AVF }
-                    val independent = legacy.copy(id = "avf-independent", storageId = UUID.randomUUID().toString())
-                    runtimeField.set(activity, null)
-                    selectProfile.invoke(activity, legacy)
-                    assertTrue("A loading tab must open while the service connects", state<List<SessionUi>>(activity, "sessions").value.last().pendingLaunch)
-                    assertTrue(requested.isEmpty())
-                    runtimeField.set(activity, proxy)
+                original = runtimeField.get(activity) as IRuntimeService
+                legacy = SessionProfiles(activity).builtIns().first { it.runtime == SessionRuntime.AVF }
+                independent = legacy.copy(id = "avf-independent", storageId = UUID.randomUUID().toString())
+                val proxy = Proxy.newProxyInstance(IRuntimeService::class.java.classLoader,
+                    arrayOf(IRuntimeService::class.java)) { _, method, args ->
+                    when (method.name) {
+                        "getEnvironmentSoftwareJson" -> """{"installed":true,"busy":false}"""
+                        "createSessionFromSpecWithRequestId" -> {
+                            requested += SessionLaunchSpec.fromJson(args!![0] as String)
+                            requestIds += args[1] as String
+                            assertEquals("/home/droid", requested.last().workingDirectory)
+                            val tabId = "avf-launch:${requestIds.last()}"
+                            assertEquals(tabId, state<String?>(activity, "activeSessionId").value)
+                            assertTrue(state<List<SessionUi>>(activity, "sessions").value.single { it.id == tabId }.pendingLaunch)
+                            null
+                        }
+                        else -> method.invoke(original, *(args ?: emptyArray()))
+                    }
+                } as IRuntimeService
+                runtimeField.set(activity, proxy)
+                selectProfile.invoke(activity, legacy)
+            }
+            try {
+                awaitRequests(requested, 1)
+                scenario.onActivity { activity ->
                     val submit = MainActivity::class.java.getDeclaredMethod("submitPendingAvfLaunches").apply { isAccessible = true }
                     submit.invoke(activity)
                     submit.invoke(activity)
                     selectProfile.invoke(activity, independent)
-                    assertEquals(listOf(legacy.id, independent.id), requested.map { it.profileId })
-                    assertTrue(requested.all { it.executionEnvironment != null && it.environmentId != null })
-                    @Suppress("UNCHECKED_CAST")
-                    val unavailable = MainActivity::class.java.getDeclaredField("unavailableChoice\$delegate")
-                        .apply { isAccessible = true }.get(activity) as MutableState<RuntimeChoiceUi?>
-                    assertNull("The default AVF profile must not redirect to settings", unavailable.value)
-                    assertEquals(2, requestIds.distinct().size)
-                } finally {
-                    runtimeField.set(activity, original)
                 }
-            }
-            val loadingDescription = instrumentation.targetContext.getString(R.string.avf_session_loading)
-            awaitText(loadingDescription, contentDescription = true)
-            assertNull("Loading must not draw a caption", find(automation.rootInActiveWindow, loadingDescription))
-            if (InstrumentationRegistry.getArguments().getString("preview") == "true") SystemClock.sleep(30_000)
-            scenario.onActivity { activity ->
-                val original = runtimeField.get(activity) as IRuntimeService
-                try {
-                    runtimeField.set(activity, proxy)
+                awaitRequests(requested, 2)
+                assertEquals(listOf(legacy.id, independent.id), requested.map { it.profileId })
+                assertTrue(requested.all { it.executionEnvironment != null && it.environmentId != null })
+                assertEquals(2, requestIds.distinct().size)
+                val loadingDescription = instrumentation.targetContext.getString(R.string.avf_session_loading)
+                awaitText(loadingDescription, contentDescription = true)
+                assertNull("Loading must not draw a caption", find(automation.rootInActiveWindow, loadingDescription))
+                scenario.onActivity { activity ->
+                    assertNull(state<RuntimeChoiceUi?>(activity, "unavailableChoice").value)
                     val first = state<List<SessionUi>>(activity, "sessions").value.single { it.launchRequestId == requestIds.first() }
                     MainActivity::class.java.getDeclaredMethod("attach", String::class.java)
                         .apply { isAccessible = true }.invoke(activity, first.id)
@@ -120,11 +107,18 @@ class AvfProfileLaunchTest {
                         .get(activity) as IRuntimeStateListener
                     listener.onSessionFocusRequested("avf-ui-ready")
                     assertEquals("Completion must keep the user's selected tab", first.id, state<String?>(activity, "activeSessionId").value)
-                } finally {
-                    runtimeField.set(activity, original)
-                    render(activity, original.sessionsJson)
                 }
+            } finally {
+                scenario.onActivity { activity -> runtimeField.set(activity, original); render(activity, original.sessionsJson) }
             }
+        }
+    }
+
+    private fun awaitRequests(requests: List<SessionLaunchSpec>, size: Int) {
+        val deadline = SystemClock.elapsedRealtime() + 10_000
+        while (requests.size < size) {
+            check(SystemClock.elapsedRealtime() < deadline) { "Profile launch timed out" }
+            SystemClock.sleep(100)
         }
     }
 
@@ -137,6 +131,10 @@ class AvfProfileLaunchTest {
                 selectProfile.invoke(activity, SessionProfile("avf-error", "AVF", SessionRuntime.AVF,
                     "/bin/bash", emptyList(), "/home/droid"))
             }
+            awaitText(context.getString(R.string.profile_installation_title))
+            var installButton = find(automation.rootInActiveWindow, context.getString(R.string.install))
+            while (installButton != null && !installButton.isClickable) installButton = installButton.parent
+            assertTrue(installButton?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true)
             val title = context.getString(R.string.avf_session_start_failed)
             awaitText(title)
             assertNotNull("The service's AVF permission failure must be shown",

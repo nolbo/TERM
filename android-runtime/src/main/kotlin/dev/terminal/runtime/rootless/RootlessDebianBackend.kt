@@ -188,7 +188,8 @@ class RootlessDebianBackend(
         executableLoader.resolvePackagedExecutable("proot").isSuccess &&
         executableLoader.resolvePackagedExecutable("proot-loader").isSuccess
 
-    fun hasInstalledImage(): Boolean = java.nio.file.Files.isDirectory(layout.rootfs.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS)
+    fun hasInstalledImage(): Boolean = java.nio.file.Files.isDirectory(layout.rootfs.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
+        layout.validateInstalledRootfs().isSuccess
     fun hasSoftwareData(): Boolean = java.nio.file.Files.exists(layout.rootfs.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS) ||
         java.nio.file.Files.isDirectory(layout.root.toPath(), java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
         layout.root.listFiles()?.any { it.name.startsWith(".rootfs-install-") } == true

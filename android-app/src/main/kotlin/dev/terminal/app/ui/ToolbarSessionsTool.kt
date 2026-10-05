@@ -68,6 +68,7 @@ internal fun ToolbarSessionsTool(
     onReorder: (List<String>) -> Unit = {},
     expansionProgress: Float? = null,
     profileEnvironmentNames: Map<EnvironmentId, String> = emptyMap(),
+    profileInstallationStatuses: Map<EnvironmentId, ProfileInstallationStatus> = emptyMap(),
     headerTabScroll: ScrollState = rememberScrollState(),
 ) {
     val haptics = LocalTerminalHaptics.current
@@ -117,13 +118,6 @@ internal fun ToolbarSessionsTool(
                                 style = MaterialTheme.typography.labelLarge, color = colors.foreground)
                         }
                         items(profiles, key = { it.id }) { profile ->
-                            val runtimeLabel = stringResource(when (profile.runtime) {
-                                SessionRuntime.NATIVE -> R.string.runtime_native_title
-                                SessionRuntime.AVF -> R.string.runtime_avf_title
-                                else -> R.string.runtime_rootless_title
-                            })
-                            val environmentName = profile.environmentId?.let { profileEnvironmentNames[it] }
-                                ?: stringResource(runtimeTitleResource(profile.runtime.wireName))
                             ListItem(onClick = {
                                 haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                                 onSelectProfile(profile)
@@ -133,7 +127,7 @@ internal fun ToolbarSessionsTool(
                                         ProfileIcon(profile.icon, profile.runtime.wireName, tint = colors.accent)
                                     }
                                 }, supportingContent = {
-                                    Text(if (environmentName == runtimeLabel) runtimeLabel else "$environmentName · $runtimeLabel")
+                                    ProfileSupportingContent(profile, profileEnvironmentNames, profileInstallationStatuses)
                                 }, verticalAlignment = Alignment.CenterVertically,
                                 shapes = terminalListItemShapes(),
                                 colors = ListItemDefaults.colors(containerColor = Color.Transparent,

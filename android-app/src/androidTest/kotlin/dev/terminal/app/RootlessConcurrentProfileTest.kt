@@ -32,29 +32,46 @@ class RootlessConcurrentProfileTest {
             .getDeclaredField(name + "\$delegate").apply { isAccessible = true }.get(activity) as MutableState<*>
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                scenario.onActivity {
-                    activity = it
-                    val pending = profiles.first()
-                    val pendingStorage = pending.storageId
-                    val otherStorage = profiles[2].storageId
-                    val requested = mutableListOf<SessionLaunchSpec>()
-                    val runtime = Proxy.newProxyInstance(IRuntimeService::class.java.classLoader,
-                        arrayOf(IRuntimeService::class.java)) { _, method, args ->
-                        if (method.name == "createSessionFromSpec") requested += SessionLaunchSpec.fromJson(args!![0] as String)
-                        null
-                    } as IRuntimeService
-                    fun field(name: String, value: Any) {
-                        MainActivity::class.java.getDeclaredField(name).apply { isAccessible = true }.set(activity, value)
+                val requested = java.util.concurrent.CopyOnWriteArrayList<SessionLaunchSpec>()
+                val runtimeField = MainActivity::class.java.getDeclaredField("runtime").apply { isAccessible = true }
+                var originalRuntime: Any? = null
+                val pending = profiles.first()
+                fun field(name: String, value: Any) {
+                    MainActivity::class.java.getDeclaredField(name).apply { isAccessible = true }.set(activity, value)
+                }
+                val select = MainActivity::class.java.getDeclaredMethod("selectProfile", SessionProfile::class.java)
+                    .apply { isAccessible = true }
+                try {
+                    val deadline = android.os.SystemClock.elapsedRealtime() + 10_000
+                    while (originalRuntime == null) {
+                        scenario.onActivity { originalRuntime = runtimeField.get(it) }
+                        check(android.os.SystemClock.elapsedRealtime() < deadline)
+                        android.os.SystemClock.sleep(100)
                     }
-                    val originalRuntime = MainActivity::class.java.getDeclaredField("runtime").apply { isAccessible = true }.get(activity)
-                    try {
+                    scenario.onActivity {
+                        activity = it
+                        val runtime = Proxy.newProxyInstance(IRuntimeService::class.java.classLoader,
+                            arrayOf(IRuntimeService::class.java)) { _, method, args ->
+                            when (method.name) {
+                                "getEnvironmentSoftwareJson" -> """{"installed":true,"available":true,"state":"READY"}"""
+                                "createSessionFromSpec" -> { requested += SessionLaunchSpec.fromJson(args!![0] as String); null }
+                                else -> method.invoke(originalRuntime, *(args ?: emptyArray()))
+                            }
+                        } as IRuntimeService
                         field("runtime", runtime)
                         field("rootlessLaunchSpec", store.resolve(pending))
                         field("rootlessInstallInFlight", true)
-                        val select = MainActivity::class.java.getDeclaredMethod("selectProfile", SessionProfile::class.java)
-                            .apply { isAccessible = true }
-                        val others = profiles.drop(1)
-                        others.forEach { select.invoke(activity, it) }
+                    }
+                    val others = profiles.drop(1)
+                    others.forEachIndexed { index, profile ->
+                        scenario.onActivity { select.invoke(it, profile) }
+                        val deadline = android.os.SystemClock.elapsedRealtime() + 10_000
+                        while (requested.size <= index) {
+                            check(android.os.SystemClock.elapsedRealtime() < deadline)
+                            android.os.SystemClock.sleep(100)
+                        }
+                    }
+                    scenario.onActivity {
                         assertEquals(others.map { it.id }, requested.map { it.profileId })
                         assertEquals(false, state("rootlessVisible").value)
                         select.invoke(activity, pending.copy(id = UUID.randomUUID().toString()))
@@ -63,12 +80,14 @@ class RootlessConcurrentProfileTest {
                         val generation = MainActivity::class.java.getDeclaredField("bindingGeneration").apply { isAccessible = true }.getLong(activity)
                         val listener = MainActivity::class.java.getDeclaredMethod("createRuntimeListener", Long::class.javaPrimitiveType)
                             .apply { isAccessible = true }.invoke(activity, generation) as IRuntimeStateListener
-                        listener.onRootlessProgress("ROOTLESS:$pendingStorage", "Extracting", "pending detail")
-                        listener.onRootlessProgress("ROOTLESS:$otherStorage", "Downloading", "other detail")
+                        listener.onRootlessProgress("ROOTLESS:${pending.storageId}", "Extracting", "pending detail")
+                        listener.onRootlessProgress("ROOTLESS:${profiles[2].storageId}", "Downloading", "other detail")
                         assertEquals("Extracting", state("rootlessStatus").value)
                         assertEquals("pending detail", state("rootlessDetail").value)
-                    } finally {
-                        MainActivity::class.java.getDeclaredField("runtime").apply { isAccessible = true }.set(activity, originalRuntime)
+                    }
+                } finally {
+                    scenario.onActivity {
+                        runtimeField.set(it, originalRuntime)
                         field("rootlessInstallInFlight", false)
                         @Suppress("UNCHECKED_CAST")
                         (state("rootlessVisible") as MutableState<Boolean>).value = false
