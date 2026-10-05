@@ -91,14 +91,31 @@ class RootlessBootstrapper(
         installMutex.withLock {
             runCatching {
                 check(!RootlessNativeMigration.pending(layout.root.parentFile.toPath())) { "중단된 가속 형식 이전을 먼저 복구하세요" }
+                validateRemovalPath(layout.root.toPath(), context.filesDir, "Unsafe environment root")
+                val downloads = layout.downloadDirectory(context.cacheDir).toPath()
+                validateRemovalPath(downloads.parent, context.cacheDir, "Unsafe download cache parent")
                 removeRootlessImage(
                     layout.rootfs.toPath(),
-                    layout.downloadDirectory(context.cacheDir).toPath(),
+                    downloads,
                     layout.home.toPath(),
                     removeHome,
                 )
             }
         }
+    }
+
+    private fun validateRemovalPath(path: Path, base: java.io.File, message: String) {
+        // Android's app data directory may itself use a platform alias such as /data/user/0.
+        // Resolve that trusted base while rejecting links below it into another environment.
+        val absolute = path.toAbsolutePath().normalize()
+        val basePath = base.toPath().toAbsolutePath().normalize()
+        val canonicalBase = base.canonicalFile.toPath()
+        val expected = when {
+            absolute.startsWith(basePath) -> canonicalBase.resolve(basePath.relativize(absolute))
+            absolute.startsWith(canonicalBase) -> absolute
+            else -> error(message)
+        }
+        check(path.toFile().canonicalFile.toPath() == expected) { message }
     }
 
     private fun install(): Result<Unit> = runCatching {

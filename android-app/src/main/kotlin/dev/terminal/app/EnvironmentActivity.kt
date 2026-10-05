@@ -392,7 +392,11 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
             }
             confirm?.let { row -> AlertDialog(onDismissRequest = { confirm = null },
                 title = { Text(stringResource(R.string.storage_delete)) },
-                text = { Text(stringResource(R.string.storage_delete_confirm, row.name ?: row.id)) },
+                text = { Text(stringResource(when (row.environment.runtime) {
+                    EnvironmentRuntime.ROOTLESS -> R.string.environment_delete_rootless_confirm
+                    EnvironmentRuntime.AVF -> R.string.environment_delete_avf_confirm
+                    EnvironmentRuntime.NATIVE -> R.string.storage_delete_confirm
+                }, row.name)) },
                 confirmButton = { TextButton(onClick = { confirm = null; deleting = row }, shapes = ButtonDefaults.shapes(),
                     colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) { Text(stringResource(R.string.storage_delete)) } },
                 dismissButton = { TextButton(onClick = { confirm = null }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } }) }

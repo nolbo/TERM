@@ -18,6 +18,32 @@ import org.junit.runner.RunWith
 /** Real pinned-image install/remove/reinstall in isolated test storage, never user distributions. */
 @RunWith(AndroidJUnit4::class)
 class RootlessImageRemovalTest {
+    @Test fun removalRejectsSymlinkedEnvironmentAndCacheParentsWithoutDeletingData() = runBlocking {
+        val target = InstrumentationRegistry.getInstrumentation().targetContext
+        val testRoot = Files.createTempDirectory(target.cacheDir.toPath(), "unsafe-image-removal-").toFile()
+        val isolated = object : ContextWrapper(target) {
+            override fun getApplicationContext(): Context = this
+            override fun getFilesDir(): File = File(testRoot, "files").apply { mkdirs() }
+            override fun getCacheDir(): File = File(testRoot, "cache").apply { mkdirs() }
+        }
+        val layout = RootlessDebianLayout(File(isolated.filesDir, "rootless/debian"))
+        val outside = File(testRoot, "outside/rootfs/keep").apply { parentFile!!.mkdirs(); writeText("retained") }
+        val backend = RootlessDebianBackend(isolated, distribution = RootlessDistribution.DEBIAN)
+        try {
+            layout.root.parentFile!!.mkdirs()
+            Files.createSymbolicLink(layout.root.toPath(), outside.parentFile!!.parentFile!!.toPath())
+            assertTrue(backend.remove(removeHome = true).isFailure)
+            assertEquals("retained", outside.readText())
+            Files.delete(layout.root.toPath())
+            val image = File(layout.rootfs, "keep").apply { parentFile!!.mkdirs(); writeText("image") }
+            val outsideCache = File(testRoot, "outside-cache/debian/keep").apply { parentFile!!.mkdirs(); writeText("cached") }
+            Files.createSymbolicLink(File(isolated.cacheDir, "rootless-downloads").toPath(), outsideCache.parentFile!!.parentFile!!.toPath())
+            assertTrue(backend.remove(removeHome = true).isFailure)
+            assertEquals("image", image.readText())
+            assertEquals("cached", outsideCache.readText())
+        } finally { testRoot.deleteRecursively() }
+    }
+
     @Test fun installedImageCanBeRemovedAndInstalledAgain() = runBlocking {
         val target = InstrumentationRegistry.getInstrumentation().targetContext
         val testRoot = Files.createTempDirectory(target.cacheDir.toPath(), "image-removal-test-").toFile()

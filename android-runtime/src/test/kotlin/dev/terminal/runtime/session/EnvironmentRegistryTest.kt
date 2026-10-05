@@ -2,6 +2,7 @@ package dev.terminal.runtime.session
 
 import java.io.File
 import java.nio.file.Files
+import java.nio.file.attribute.PosixFilePermissions
 import java.util.UUID
 import org.junit.Assert.*
 import org.junit.Rule
@@ -12,6 +13,72 @@ class EnvironmentRegistryTest {
     @get:Rule val temporary = TemporaryFolder()
     private fun profile(id: String = UUID.randomUUID().toString(), runtime: SessionRuntime = SessionRuntime.ROOTLESS,
         storage: String = UUID.randomUUID().toString()) = SessionProfile(id, "Development", runtime, "/bin/bash", storageId = storage)
+
+    @Test fun deletionRemovesDistributionsWithReadOnlyDirectoriesAndPreservesOtherData() {
+        for (runtime in listOf(SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH)) {
+            val files = temporary.newFolder()
+            val registry = EnvironmentRegistry(files)
+            val environment = Environment.create(runtime, "Delete distribution")
+            val sibling = Environment.create(runtime, "Keep distribution")
+            registry.transaction {
+                val saved = save(profile(), environment)
+                save(profile(), sibling)
+                deleteProfile(saved.id, false)
+            }
+            val root = registry.storage.root(environment.storageKey)
+            val image = File(root, "rootfs/readonly/package").apply { parentFile!!.mkdirs(); writeText("installed") }
+            File(root, "home/keep").apply { parentFile!!.mkdirs(); writeText("home") }
+            File(root, "workspace/keep").apply { parentFile!!.mkdirs(); writeText("workspace") }
+            val retained = listOf(File(registry.storage.root(sibling.storageKey), "rootfs/keep"), File(files, "workspace/keep"))
+                .map { it.apply { parentFile!!.mkdirs(); writeText("retained") } }
+            Files.createSymbolicLink(File(root, "rootfs/shared").toPath(), retained.last().parentFile.toPath())
+            Files.setPosixFilePermissions(image.parentFile.toPath(), PosixFilePermissions.fromString("r-xr-xr-x"))
+            var verified = false
+            registry.transaction { delete(environment.id) { current ->
+                assertEquals(environment, current)
+                assertTrue(image.exists())
+                verified = true
+            } }
+            assertTrue(verified)
+            assertFalse(root.exists())
+            retained.forEach { assertEquals("retained", it.readText()) }
+            registry.transaction { assertEquals(listOf(sibling), all()) }
+            registry.storage.transaction { assertTrue(isDeleted(environment.storageKey)) }
+        }
+    }
+
+    @Test fun avfDeletionVerifiesVmBeforeRemovingImageSharedFolderAndIdentity() {
+        val files = temporary.newFolder()
+        val registry = EnvironmentRegistry(files)
+        val environment = Environment.create(SessionRuntime.AVF, "Delete Debian")
+        val sibling = Environment.create(SessionRuntime.AVF, "Keep Debian")
+        registry.transaction {
+            val saved = save(profile(), environment)
+            save(profile(), sibling)
+            deleteProfile(saved.id, false)
+        }
+        val imageRoot = registry.storage.root(environment.storageKey)
+        val disk = File(imageRoot, "home.img").apply { parentFile!!.mkdirs(); writeText("guest data") }
+        val shared = File(files, "shared-vms/${environment.storage.id}/keep").apply { parentFile!!.mkdirs(); writeText("host data") }
+        val retained = File(registry.storage.root(sibling.storageKey), "home.img").apply { parentFile!!.mkdirs(); writeText("retained") }
+        registry.transaction {
+            assertTrue(runCatching { delete(environment.id) { error("VM unreachable") } }.isFailure)
+            assertEquals(environment, requireEnvironment(environment.id))
+        }
+        assertEquals("guest data", disk.readText())
+        assertTrue(shared.exists())
+        registry.storage.transaction { assertEquals(0L, imageGeneration(environment.storageKey)); assertFalse(isDeleted(environment.storageKey)) }
+        registry.transaction { delete(environment.id) { assertTrue(disk.exists()); assertTrue(shared.exists()) } }
+        assertFalse(imageRoot.exists())
+        assertFalse(shared.parentFile.exists())
+        assertEquals("retained", retained.readText())
+        registry.transaction { assertEquals(listOf(sibling), all()) }
+        registry.storage.transaction {
+            assertEquals(1L, imageGeneration(environment.storageKey))
+            assertTrue(isDeleted(environment.storageKey))
+            assertTrue(runCatching { validateImageGeneration(environment.storageKey, 0L) }.isFailure)
+        }
+    }
 
     @Test fun removingDistributionPreservesEnvironmentProfilesHomeAndOtherInstances() {
         val files = temporary.newFolder()

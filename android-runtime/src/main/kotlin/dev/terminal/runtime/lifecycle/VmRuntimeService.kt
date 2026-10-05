@@ -1076,10 +1076,14 @@ class VmRuntimeService : Service() {
             val linked = profiles.filter { it.environmentId == environment.id }
             val active = sessions.filter { client?.environmentOf(it.id) == environment.id }
             val state = environmentRuntimeState(environment, client)
+            val busy = preparationLocks.isLocked(environment.sessionRuntime, environment.storage.id) ||
+                (environment.sessionRuntime == SessionRuntime.AVF && RuntimeSetupCoordinator(applicationContext).isInstallationActive(environment.storage.id))
+            val removableState = state != null && state !is RuntimeState.Preparing && state !is RuntimeState.Booting && state !is RuntimeState.Stopping
             val usage = storageRegistry.cachedUsage(environment.storageKey)
             environment.toJson().put("environmentId", environment.id.value).put("sessionRuntime", environment.sessionRuntime.wireName)
                 .put("runtimeState", if (state == null) "UNKNOWN" else if (active.isNotEmpty()) "ACTIVE" else state.wireName)
-                .put("canDelete", linked.isEmpty() && active.isEmpty() && state != null && environment.storage.id != "legacy")
+                .put("canDelete", linked.isEmpty() && active.isEmpty() && !busy &&
+                    (removableState || canVerifyPersistedAvfRemoval(environment, client)) && environment.storage.id != "legacy")
                 .put("bytes", usage?.bytes ?: JSONObject.NULL).put("incomplete", usage?.incomplete ?: false)
                 .put("migratedLegacy", dev.terminal.runtime.session.SessionStorage.isMigratedLegacy(filesDir, environment.sessionRuntime, environment.storage.id))
                 .put("profiles", JSONArray(linked.map { JSONObject().put("id", it.id).put("name", it.name) }))
@@ -1089,6 +1093,10 @@ class VmRuntimeService : Service() {
 
     private fun hasAvfPrivileges() = checkSelfPermission("android.permission.MANAGE_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED &&
         checkSelfPermission("android.permission.USE_CUSTOM_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED
+
+    private fun canVerifyPersistedAvfRemoval(environment: Environment, client: UnifiedSessionRegistry?): Boolean =
+        environment.sessionRuntime == SessionRuntime.AVF && environmentBackends[environment.id] == null &&
+            client?.isRegistered(environment.sessionRuntime, environment.storage.id) != true && hasAvfPrivileges()
 
     private fun newRootlessEnvironmentBackend(environment: Environment): RootlessDebianBackend =
         RootlessDebianBackend(applicationContext,
@@ -1138,28 +1146,7 @@ class VmRuntimeService : Service() {
                 environmentRegistry.transaction(storageDefaults()) {
                     removeSoftware(environment.id, removeHome) { current ->
                         kotlinx.coroutines.runBlocking {
-                            val owner = environmentBackends[current.id]
-                            if (current.sessionRuntime == SessionRuntime.AVF) {
-                                check(!RuntimeSetupCoordinator(applicationContext).isInstallationActive(current.storage.id)) { "이미지 설치 중에는 Debian을 제거할 수 없습니다." }
-                                check(current.storage.id != "legacy") { "Legacy VM identity must be adopted before removing Debian" }
-                                if (owner != null) {
-                                    val state = environmentRuntimeState(current, client)
-                                    check(state != null && (state is RuntimeState.Stopped || client.isRegistered(current.sessionRuntime, current.storage.id))) { "Cannot verify environment runtime state" }
-                                    owner.stop(StopMode.GRACEFUL).getOrThrow()
-                                }
-                                val avf = owner ?: (applicationContext as? RuntimeBackendProvider)?.createRuntimeBackend(applicationContext)
-                                check(avf is dev.terminal.runtime.avf.AvfBackend) { "AVF removal requires a privileged runtime provider" }
-                                // The platform queries the persisted VM by identity and rejects running/unreachable instances.
-                                // This also permits removing never-booted or verified-stopped images after host restart.
-                                avf.deleteStorage(current.storage.id).getOrThrow()
-                            } else {
-                                (owner as? RootlessDebianBackend)?.let { rootless ->
-                                    verifyRootlessOwnerIdle(rootless)
-                                    rootless.stop(StopMode.GRACEFUL).getOrThrow()
-                                }
-                            }
-                            release()
-                            clearEnvironmentStart(current.id)
+                            removeEnvironmentSoftwareOwner(current, client, removeHome, release)
                         }
                     }
                 }
@@ -1167,37 +1154,64 @@ class VmRuntimeService : Service() {
         }
     }
 
+    /** Shared by software removal and full deletion; the manifest lock excludes late installs. */
+    private suspend fun removeEnvironmentSoftwareOwner(environment: Environment, client: UnifiedSessionRegistry?,
+        removeHome: Boolean, release: suspend () -> Unit) {
+        if (environment.sessionRuntime == SessionRuntime.AVF) {
+            check(!RuntimeSetupCoordinator(applicationContext).isInstallationActive(environment.storage.id)) { "이미지 설치 중에는 Debian을 제거할 수 없습니다." }
+            check(environment.storage.id != "legacy") { "Legacy VM identity must be adopted before removing Debian" }
+            val owner = environmentBackends[environment.id]
+            if (owner != null) {
+                val state = environmentRuntimeState(environment, client)
+                check(state != null && (state is RuntimeState.Stopped || client?.isRegistered(environment.sessionRuntime, environment.storage.id) == true)) { "Cannot verify environment runtime state" }
+                owner.stop(StopMode.GRACEFUL).getOrThrow()
+            }
+            val avf = owner ?: (applicationContext as? RuntimeBackendProvider)?.createRuntimeBackend(applicationContext)
+            check(avf is dev.terminal.runtime.avf.AvfBackend) { "AVF removal requires a privileged runtime provider" }
+            // The platform must prove the persisted VM stopped before either deletion path touches disks.
+            avf.deleteStorage(environment.storage.id).getOrThrow()
+            release()
+        } else {
+            val rootless = rootlessEnvironmentBackend(environment)
+            verifyRootlessOwnerIdle(rootless)
+            rootless.stop(StopMode.GRACEFUL).getOrThrow()
+            release()
+            rootless.remove(removeHome).getOrThrow()
+        }
+        clearEnvironmentStart(environment.id)
+    }
+
     private suspend fun removeEnvironment(id: EnvironmentId) {
         val client = ensureSessionRegistry()
         val environment = environmentRegistry.transaction(storageDefaults()) { requireEnvironment(id) }
         preparationLocks.withAll {
+            if (environment.sessionRuntime == SessionRuntime.AVF) {
+                check(!RuntimeSetupCoordinator(applicationContext).isInstallationActive(environment.storage.id)) { "이미지 설치 중에는 Debian을 제거할 수 없습니다." }
+            }
             val state = environmentRuntimeState(environment, client)
-            check(state != null && state !is RuntimeState.Preparing && state !is RuntimeState.Booting && state !is RuntimeState.Stopping) {
+            check(canVerifyPersistedAvfRemoval(environment, client) ||
+                state != null && state !is RuntimeState.Preparing && state !is RuntimeState.Booting && state !is RuntimeState.Stopping) {
                 "Cannot verify environment runtime state"
             }
             val remove: suspend (suspend () -> Unit) -> Unit = { release ->
                 environmentRegistry.transaction(storageDefaults()) {
                     // Hold the process-shared lock through the final reference check and removal.
-                    requireDeletable(id)
-                    kotlinx.coroutines.runBlocking {
-                        val owner = environmentBackends[id]
-                        val localController = when (owner) {
-                            is NativeBackend -> owner.sessionController()
-                            is RootlessDebianBackend -> owner.sessionController()
-                            else -> null
+                    delete(id) { current ->
+                        kotlinx.coroutines.runBlocking {
+                            if (current.runtime != dev.terminal.runtime.session.EnvironmentRuntime.NATIVE) {
+                                removeEnvironmentSoftwareOwner(current, client,
+                                    removeHome = current.runtime == dev.terminal.runtime.session.EnvironmentRuntime.ROOTLESS, release = release)
+                            } else {
+                                val owner = environmentBackends[id]
+                                val controller = (owner as? NativeBackend)?.sessionController()
+                                check(controller?.list()?.getOrThrow().orEmpty().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) { "Environment has active sessions" }
+                                owner?.stop(StopMode.GRACEFUL)?.getOrThrow()
+                                release()
+                                clearEnvironmentStart(id)
+                            }
                         }
-                        check(localController?.list()?.getOrThrow().orEmpty().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) { "Environment has active sessions" }
-                        owner?.stop(StopMode.GRACEFUL)?.getOrThrow()
-                        release()
-                        if (environment.sessionRuntime == SessionRuntime.AVF) {
-                            check(owner is dev.terminal.runtime.avf.AvfBackend) { "AVF environment requires a reachable privileged runtime owner" }
-                            owner.deleteStorage(environment.storage.id).getOrThrow()
-                        }
-                        environmentBackends.remove(id)
-                        startedEnvironmentBackends.remove(id)
-                        explicitlyStartedEnvironments.remove(id)
                     }
-                    delete(id)
+                    environmentBackends.remove(id)
                 }
             }
             if (client != null) client.deleteStorageIfIdle(environment.sessionRuntime, environment.storage.id, remove)

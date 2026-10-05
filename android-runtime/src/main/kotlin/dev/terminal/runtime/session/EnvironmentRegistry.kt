@@ -173,8 +173,12 @@ class EnvironmentRegistry(val storage: StorageRegistry) {
         }
 
         /** The service has excluded creation and proved the actual runtime owner idle. */
-        fun delete(id: EnvironmentId) {
+        fun delete(id: EnvironmentId, beforeRemove: (Environment) -> Unit = {}) {
             val environment = requireDeletable(id)
+            beforeRemove(environment)
+            if (environment.runtime != EnvironmentRuntime.NATIVE) {
+                persistence.removeSoftware(environment.storageKey, removeHome = environment.runtime == EnvironmentRuntime.ROOTLESS)
+            }
             persistence.delete(environment.storageKey) {
                 records.remove(id.value)
                 tombstone(id)
