@@ -24,5 +24,18 @@
     <string name="runtime_information_unavailable">런타임 정보를 확인할 수 없습니다. 새로고침하여 다시 확인하세요.</string>
     <string name="forwarded_ports_title">전달 포트</string>
     <string name="forwarded_ports_support">AVF 게스트 서버의 로컬 연결 포트</string>
-    <string name="forwarded_ports_description">AVF Linux에서 실행한 서버와 Android 로컬 포트의 연결 상태입니다.</string>
+    <string name="forwarded_ports_description">AVF Linux 서버의 TCP 포트와 연결된 Android 로컬 주소를 확인하고 복사합니다.</string>
+    <string name="forwarded_ports_connections">연결 현황</string>
+    <string name="forwarded_ports_active">활성 전달 포트</string>
+    <string name="forwarded_ports_count">%1$d개</string>
+    <string name="forwarded_ports_loading">전달 포트를 불러오는 중…</string>
+    <string name="forwarded_ports_unavailable">전달 포트를 확인할 수 없습니다.</string>
+    <string name="forwarded_ports_unavailable_hint">새로고침하여 다시 확인하세요.</string>
+    <string name="forwarded_ports_empty">활성 전달 포트 없음</string>
+    <string name="forwarded_ports_empty_hint">AVF Linux에서 TCP 서버를 실행하면 감지된 포트가 여기에 표시됩니다.</string>
+    <string name="forwarded_ports_tcp_port">TCP 포트 %1$d</string>
+    <string name="forwarded_ports_android_address">Android 로컬 주소</string>
+    <string name="forwarded_ports_guest_port">AVF Linux 포트</string>
+    <string name="forwarded_ports_copy_address">%1$s 주소 복사</string>
+    <string name="forwarded_ports_local_only">Android 로컬 주소로 접속할 수 있으며 외부 네트워크에는 공개되지 않습니다.</string>
 </resources>

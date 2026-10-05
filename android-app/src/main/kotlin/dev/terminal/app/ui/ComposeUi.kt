@@ -961,24 +961,6 @@ private fun diagnosticWakePolicyText(policy: String): String = when (policy) {
 }
 
 @Composable
-internal fun RuntimeInformationScreen(title: String, description: String, onBack: () -> Unit, text: String, onRefresh: () -> Unit) {
-    SettingsPageScaffold(title, onBack) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Text(description, Modifier.padding(horizontal = 4.dp),
-                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            RefreshInformationButton(onRefresh, Modifier.align(Alignment.End))
-            SettingsGroup {
-                SelectionContainer {
-                    Text(text, Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp),
-                        fontFamily = LocalTerminalMonospaceFontFamily.current)
-                }
-            }
-        }
-    }
-}
-
-@Composable
 private fun RefreshInformationButton(onRefresh: () -> Unit, modifier: Modifier) {
     FilledTonalButton(onClick = onRefresh, modifier = modifier, shapes = ButtonDefaults.shapes()) {
         Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), null, Modifier.size(ButtonDefaults.IconSize))

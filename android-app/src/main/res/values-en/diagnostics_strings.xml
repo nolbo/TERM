@@ -24,5 +24,18 @@
     <string name="runtime_information_unavailable">Runtime information is unavailable. Refresh to try again.</string>
     <string name="forwarded_ports_title">Forwarded ports</string>
     <string name="forwarded_ports_support">Local ports for AVF guest servers</string>
-    <string name="forwarded_ports_description">Connections between servers running in AVF Linux and local Android ports.</string>
+    <string name="forwarded_ports_description">View AVF Linux server TCP ports and copy their Android local addresses.</string>
+    <string name="forwarded_ports_connections">Connections</string>
+    <string name="forwarded_ports_active">Active forwarded ports</string>
+    <string name="forwarded_ports_count">%1$d</string>
+    <string name="forwarded_ports_loading">Loading forwarded ports…</string>
+    <string name="forwarded_ports_unavailable">Forwarded ports are unavailable.</string>
+    <string name="forwarded_ports_unavailable_hint">Refresh to try again.</string>
+    <string name="forwarded_ports_empty">No active forwarded ports</string>
+    <string name="forwarded_ports_empty_hint">Start a TCP server in AVF Linux to see its detected port here.</string>
+    <string name="forwarded_ports_tcp_port">TCP port %1$d</string>
+    <string name="forwarded_ports_android_address">Android local address</string>
+    <string name="forwarded_ports_guest_port">AVF Linux port</string>
+    <string name="forwarded_ports_copy_address">Copy address %1$s</string>
+    <string name="forwarded_ports_local_only">Connect using the Android local address. Ports are not exposed to external networks.</string>
 </resources>

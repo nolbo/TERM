@@ -42,7 +42,7 @@ Userspace Linux의 DNS 상세는 **Android 네트워크 설정 사용**을 기�
 | 요소 | 적용 규칙 |
 | --- | --- |
 | 화면 배경 | `MaterialTheme.colorScheme.background`를 사용한다. 설정 그룹의 표면은 `surfaceContainerLow`다. |
-| 텍스트 | 일반 UI는 Google Sans와 번들 Pretendard 대체 글꼴을 사용하며 Material type scale을 유지한다. 터미널·명령 본문·전달 포트·크래시 원문은 Google Sans Code를 사용하고 터미널의 사용자 글꼴 설정을 존중한다. |
+| 텍스트 | 일반 UI는 Google Sans와 번들 Pretendard 대체 글꼴을 사용하며 Material type scale을 유지한다. 터미널·명령 본문·전달 포트의 주소·크래시 원문은 Google Sans Code를 사용하고 터미널의 사용자 글꼴 설정을 존중한다. 전달 포트의 제목·설명·상태·포트 번호는 일반 UI 글꼴을 사용한다. |
 | 텍스트 계층 | 화면 설명은 `bodyLarge`와 `onSurfaceVariant`, 섹션 제목은 `labelLarge`와 `primary`다. 설정 행은 Material `ListItem`의 제목·설명 계층을 사용하고 현재 값은 주로 `labelLarge`로 표시한다. |
 | 색상 역할 | 일반 강조는 중립 테마 토큰을 사용한다. 파란색 semantic token은 활성·가용·준비·진행 상태에 사용하고, 오류·삭제 경고는 `error` 계열을 사용한다. 상태는 텍스트로도 설명한다. 민트 계열 장식색을 추가하지 않는다. |
 | 곡률 | 독립 카드와 일반 행의 기본 모양은 `extraLarge`인 28dp다. 설정 그룹의 바깥 모서리는 28dp, 그룹 내부 행은 4dp 모서리와 2dp 간격을 사용한다. |
@@ -86,6 +86,8 @@ scaffold가 전달한 padding과 시스템 inset을 적용한다. 상태 표시�
 실행환경 목록처럼 행마다 지연 로딩이 필요한 경우에는 전체 그룹을 하나의 lazy item으로 만들지 않는다. `EnvironmentGroupCard`처럼 첫 행의 위쪽과 마지막 행의 아래쪽에 28dp 모서리를 적용하고, 나머지 모서리는 4dp로 유지해 같은 그룹 형태를 만든다. 툴바 순서 편집처럼 행이 그룹 밖으로 움직이는 경우에는 기존 드래그 구현의 행별 곡률과 그림자 처리를 유지한다.
 
 단순 사용 설명과 제한 안내는 카드 밖의 배경 없는 보조 텍스트로 둔다. 특정 옵션에 필요한 짧은 설명은 그 행의 supporting content에 넣는다. 실행 가능한 설정과 상태 확인 동작은 그룹 안에 둔다. Userspace Linux의 엔진 지원 상태는 공통 읽기 전용 `ListItem`으로 표시하고, AVF 전달 포트 이동 행은 실행 섹션의 `SettingsGroup`에 둔다. Userspace Linux의 런타임 정보는 정보 및 진단 섹션의 탐색 행으로 별도 화면을 열고 확인된 엔진 구성만 읽기 전용 행으로 표시한다. 제약 사항은 별도 항목·제목·화면 없이 마지막 설정 그룹 아래 카드 밖의 `bodySmall` 보조 텍스트로 표시한다.
+
+AVF 전달 포트 상세는 연결 현황·새로고침 그룹과 연결별 설정 그룹으로 구성한다. 각 연결은 서비스명 또는 TCP 포트 제목, 복사 가능한 Android 로컬 주소, AVF Linux 포트 행으로 표시한다. 주소 복사는 툴팁과 접근성 설명을 가진 아이콘 버튼으로 제공하고, 로딩·빈 목록·조회 실패를 구분한다. 게스트가 자동 보고하는 포트를 조회하며 수동 추가·삭제 동작은 제공하지 않는다.
 
 ## 5. 설정 항목 유형과 조작 규칙
 
