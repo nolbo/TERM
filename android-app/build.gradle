@@ -71,6 +71,7 @@ android {
         versionName appVersionName
         buildConfigField 'String', 'UPDATE_REVISION', "\"${updateRevision}\""
         buildConfigField 'String', 'UPDATE_CHANNEL', "\"${updateChannel}\""
+        resValue 'color', 'app_icon_foreground', '#E3E4E8'
 
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
@@ -88,8 +89,13 @@ android {
         debug {
             applicationIdSuffix '.debug'
             versionNameSuffix '-debug'
+            resValue 'color', 'app_icon_foreground', updateChannel == 'main' ? '#00FFA1' : '#FF0062'
         }
         release {
+            // Signed dev updates and versions with a prerelease suffix are prereleases.
+            if (updateChannel == 'dev' || appBaseVersion.contains('-')) {
+                resValue 'color', 'app_icon_foreground', '#FF8400'
+            }
             signingConfig unsignedRelease ? null : signingConfigs.release
         }
     }
@@ -97,6 +103,7 @@ android {
     buildFeatures {
         compose true
         buildConfig true
+        resValues true
         aidl true
     }
 
