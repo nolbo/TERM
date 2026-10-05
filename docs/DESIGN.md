@@ -23,6 +23,8 @@
 | 진단 및 리포트 | 진단 정보는 제목·값의 읽기 전용 설정 행으로 표시하고 새로고침과 최신순 크래시 목록을 구분한다. 리포트는 상세에서 읽고 복사하며 닫아도 보관한다. | [DiagnosticsActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/DiagnosticsActivity.kt), [CrashReportActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/CrashReportActivity.kt) |
 | 초기 설정·크래시 | 초기 설정은 실행 방식별 안내 카드와 시작 동작을 구분한다. 크래시 본문은 복사할 수 있는 고정폭 텍스트를 사용한다. | [ComposeUi.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/ComposeUi.kt)의 `SetupScreen`, `CrashScreen` |
 
+세션 툴의 **새 세션**은 현재 비모달 BottomSheet를 펼치고 같은 시트 안에서 프로필 선택 페이지로 전환한다. 상단 뒤로가기와 Android 뒤로가기는 세션 페이지로 돌아간다. 프로필은 기존 아이콘·이름과 연결된 실행환경 이름·런타임을 표시하는 Material `ListItem`으로 제공하며 목록은 세로로 스크롤한다. 목록 끝의 **새 프로필 만들기**는 보조 텍스트 버튼으로 기존 편집 화면을 연다. 프로필 선택은 기존 세션 생성·선택 경로로 전달한 뒤 시트를 숨김 앵커로 닫는다. 세션이 없는 빈 화면의 프로필 선택 바텀시트는 기존 진입 경로를 유지한다.
+
 설정 홈의 그룹 순서는 **실행환경·프로필 → 언어·터미널 설정 → Userspace Linux·AVF Linux·Native 셸 → 진단 및 리포트·앱 업데이트·앱 정보**다. AVF Linux 카테고리는 AVF 권한이 있는 경우에만 노출한다. 관련 설정을 추가할 때는 먼저 기존 카테고리와 섹션에 배치한다. 독립적인 사용자 목적과 여러 하위 설정이 있어 별도 진입이 필요한 경우에만 새 상위 카테고리를 만든다.
 
 설정 홈의 **실행환경**은 Material Symbols Rounded의 `deployed_code`, **프로필**은 `layers` 아이콘을 사용한다. 같은 카테고리가 검색 결과에 나타날 때도 이 아이콘을 사용하며, 40dp 원형 표면 안에 24dp 비채움 아이콘을 배치한다.

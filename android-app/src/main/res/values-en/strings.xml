@@ -103,6 +103,8 @@
     <string name="profile_identity">Name and runtime</string>
     <string name="profile_launch">Shell and startup</string>
     <string name="add_profile">Add profile</string>
+    <string name="select_profile">Select profile</string>
+    <string name="create_profile">Create new profile</string>
     <string name="builtin_profile">Built-in · duplicate to customize</string>
     <string name="profile_edit">Edit</string>
     <string name="profile_duplicate">Duplicate</string>

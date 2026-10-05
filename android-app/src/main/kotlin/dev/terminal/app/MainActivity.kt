@@ -110,16 +110,17 @@ class MainActivity : TerminalActivity() {
     private val avfFocusHandoffs = mutableSetOf<String>()
     private var sessionTabOrder = emptyList<String>()
     private var profiles by mutableStateOf(emptyList<dev.terminal.runtime.session.SessionProfile>())
+    private var profileEnvironmentNames by mutableStateOf(emptyMap<dev.terminal.runtime.session.EnvironmentId, String>())
     private var rootlessLaunchSpec: dev.terminal.runtime.session.SessionLaunchSpec? = null
     private var selectedLaunchSpec: dev.terminal.runtime.session.SessionLaunchSpec? = null
     private fun addProfile() {
-        newSessionMenuVisible = false
+        sessionProfilePickerVisible = false
         newSessionSheetVisible = false
         startActivity(Intent(this, ProfileEditActivity::class.java))
     }
     private fun selectProfile(profile: dev.terminal.runtime.session.SessionProfile) {
         if (rootlessInstallInFlight) {
-            newSessionMenuVisible = false
+            sessionProfilePickerVisible = false
             newSessionSheetVisible = false
             val pending = rootlessLaunchSpec ?: builtInLaunchSpec(rootlessInstallRuntime)
             if (profile.runtime == pending.runtime && profile.storageId == pending.storageId) {
@@ -131,7 +132,7 @@ class MainActivity : TerminalActivity() {
         }
         selectedLaunchSpec = SessionProfiles(this).resolve(profile)
         if (profile.storageId != "legacy" && profile.runtime.wireName in rootlessRuntimeIds) {
-            newSessionMenuVisible = false
+            sessionProfilePickerVisible = false
             newSessionSheetVisible = false
             rootlessInstallRuntime = profile.runtime.wireName
             rootlessLaunchSpec = selectedLaunchSpec
@@ -140,7 +141,7 @@ class MainActivity : TerminalActivity() {
             return
         }
         if (profile.storageId != "legacy") {
-            newSessionMenuVisible = false
+            sessionProfilePickerVisible = false
             newSessionSheetVisible = false
             createSession(SessionProfiles(this).resolve(profile))
             return
@@ -153,7 +154,7 @@ class MainActivity : TerminalActivity() {
     private var ignoreInitialRuntimeFocus = false
     private var runtimeMessage by mutableStateOf("")
     private var feedbackMessage by mutableStateOf<String?>(null)
-    private var newSessionMenuVisible by mutableStateOf(false)
+    private var sessionProfilePickerVisible by mutableStateOf(false)
     private var newSessionSheetVisible by mutableStateOf(false)
     private var unavailableChoice by mutableStateOf<RuntimeChoiceUi?>(null)
     private var avfLaunchFailure by mutableStateOf<String?>(null)
@@ -464,7 +465,7 @@ class MainActivity : TerminalActivity() {
         toolbarCommands = readToolbarCommands(preferences)
         toolbarMemoryInterval = preferences.getInt("toolbar-memory-interval", 5)
         toolbarMemorySections = readMemoryToolSections(preferences)
-        profiles = SessionProfiles(this).all()
+        refreshProfiles()
         terminalPaddingDp = TerminalAppearance.paddingDp(preferences)
         terminalView?.let {
             paletteTransition.capture(it)
@@ -611,7 +612,10 @@ class MainActivity : TerminalActivity() {
                         TerminalToolbar(
                             config = toolbarConfig.visibleConfig(),
                             mode = toolbarSheetMode,
-                            onModeChange = { toolbarSheetMode = it },
+                            onModeChange = {
+                                toolbarSheetMode = it
+                                if (it == ToolbarSheetMode.Hidden) sessionProfilePickerVisible = false
+                            },
                             maxHeight = toolbarMaxHeight,
                             colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,
                         ) { tool, interactive ->
@@ -636,8 +640,15 @@ class MainActivity : TerminalActivity() {
                                     SESSIONS_TOOL -> ToolbarSessionsTool(
                                         sessions = visibleSessions, activeSessionId = activeSessionId, active = active,
                                         terminatingSessionIds = terminatingSessionIds, profiles = profiles,
-                                        onSelectProfile = ::selectProfile, onAddProfile = ::addProfile,
-                                        newSessionMenuExpanded = newSessionMenuVisible,
+                                        onSelectProfile = { profile ->
+                                            selectProfile(profile)
+                                            toolbarSheetMode = ToolbarSheetMode.Hidden
+                                        }, onAddProfile = {
+                                            toolbarSheetMode = ToolbarSheetMode.Hidden
+                                            addProfile()
+                                        },
+                                        profileEnvironmentNames = profileEnvironmentNames,
+                                        profilePickerVisible = sessionProfilePickerVisible,
                                         onSelect = { id ->
                                             attach(id)
                                             if (sessions.none { it.id == id && it.pendingLaunch }) requestTerminalKeyboard()
@@ -649,8 +660,8 @@ class MainActivity : TerminalActivity() {
                                                 pendingTermination = it
                                             }
                                         },
-                                        onNew = ::showNewSessionMenu,
-                                        onDismissNewSession = { newSessionMenuVisible = false },
+                                        onNew = ::showSessionProfilePicker,
+                                        onDismissProfilePicker = { sessionProfilePickerVisible = false },
                                         onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
                                         onReorder = ::reorderSessionTabs,
                                     )
@@ -1085,8 +1096,14 @@ class MainActivity : TerminalActivity() {
             .onFailure { handleRuntimeDisconnect() }
     }
 
+    private fun refreshProfiles() {
+        val store = SessionProfiles(this)
+        profiles = store.all()
+        profileEnvironmentNames = store.environments().associate { it.id to it.name }
+    }
+
     private fun refreshRuntimeChoicesForNewSession(): Boolean {
-        profiles = SessionProfiles(this).all()
+        refreshProfiles()
         val service = runtime
         if (service == null) {
             feedbackMessage = getString(R.string.runtime_connecting_prompt)
@@ -1097,20 +1114,24 @@ class MainActivity : TerminalActivity() {
         return true
     }
 
-    private fun showNewSessionMenu() {
+    private fun showSessionProfilePicker() {
         if (!refreshRuntimeChoicesForNewSession()) return
         newSessionSheetVisible = false
-        newSessionMenuVisible = true
+        sessionProfilePickerVisible = true
+        terminalView?.let { view ->
+            getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(view.windowToken, 0)
+        }
+        toolbarSheetMode = ToolbarSheetMode.Expanded
     }
 
     private fun showNewSessionSheet() {
         if (!refreshRuntimeChoicesForNewSession()) return
-        newSessionMenuVisible = false
+        sessionProfilePickerVisible = false
         newSessionSheetVisible = true
     }
 
     private fun selectRuntime(choice: RuntimeChoiceUi) {
-        newSessionMenuVisible = false
+        sessionProfilePickerVisible = false
         newSessionSheetVisible = false
         if (choice.id in rootlessRuntimeIds && choice.state == "CHECKING") {
             rootlessLaunchSpec = selectedLaunchSpec
