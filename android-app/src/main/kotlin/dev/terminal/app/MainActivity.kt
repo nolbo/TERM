@@ -618,6 +618,9 @@ class MainActivity : TerminalActivity() {
                             },
                             maxHeight = toolbarMaxHeight,
                             colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,
+                            pageNavigationEnabled = !sessionProfilePickerVisible,
+                            // Profile navigation changes the viewport once; handle gestures keep their motion.
+                            animateModeChanges = false,
                         ) { tool, interactive ->
                             // Session navigation keeps its scroll position across tab switches.
                             androidx.compose.runtime.key(if (tool == SESSIONS_TOOL) SESSIONS_TOOL else toolbarSessionId, tool) {

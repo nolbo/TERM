@@ -50,6 +50,8 @@ internal fun TerminalToolbar(
     onModeChange: (ToolbarSheetMode) -> Unit,
     maxHeight: Dp,
     colors: TerminalChromeColors,
+    pageNavigationEnabled: Boolean = true,
+    animateModeChanges: Boolean = true,
     // Pager content is registered by stable tool ID; new tools need no sheet/gesture changes.
     content: @Composable (String, Boolean) -> Unit,
 ) {
@@ -82,7 +84,10 @@ internal fun TerminalToolbar(
     val state = remember { AnchoredDraggableState(mode, anchors) }
     val onChange by rememberUpdatedState(onModeChange)
     SideEffect { state.updateAnchors(anchors, state.targetValue) }
-    LaunchedEffect(mode) { if (state.targetValue != mode) state.animateTo(mode, motion) }
+    LaunchedEffect(mode, animateModeChanges) {
+        if (!animateModeChanges) state.snapTo(mode)
+        else if (state.targetValue != mode) state.animateTo(mode, motion)
+    }
     LaunchedEffect(state) {
         snapshotFlow { state.settledValue }.distinctUntilChanged().collect { onChange(it) }
     }
@@ -142,7 +147,7 @@ internal fun TerminalToolbar(
                             LocalToolbarExpansionProgress provides expansionProgress,
                         ) {
                             ToolbarPages(config.tools, pager, state.settledValue != ToolbarSheetMode.Hidden,
-                                content = content)
+                                pageNavigationEnabled, content = content)
                         }
                     }
                 }
@@ -192,8 +197,9 @@ private fun ToolbarPageHandle(pager: PagerState, count: Int, visible: Boolean, c
 
 @Composable
 private fun ColumnScope.ToolbarPages(tools: List<String>, pager: PagerState, interactive: Boolean,
+    pageNavigationEnabled: Boolean,
     content: @Composable (String, Boolean) -> Unit) {
-    HorizontalPager(state = pager, userScrollEnabled = interactive,
+    HorizontalPager(state = pager, userScrollEnabled = interactive && pageNavigationEnabled,
         key = { tools[it] }, modifier = Modifier.weight(1f).fillMaxWidth()) { page ->
         content(tools[page], interactive && !pager.isScrollInProgress && page == pager.currentPage)
     }

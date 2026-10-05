@@ -4,9 +4,12 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.graphics.Rect
 import android.os.IBinder
 import android.os.SystemClock
 import android.view.KeyEvent
+import android.view.InputDevice
+import android.view.MotionEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.compose.runtime.MutableState
 import androidx.test.core.app.ActivityScenario
@@ -28,6 +31,55 @@ import org.junit.runner.RunWith
 class SessionProfilePickerTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
+
+    @Test fun touchScrollingAndDiagonalSwipesKeepTheProfilePickerOpen() = withSessions { service, first, _ ->
+        val store = SessionProfiles(context)
+        val native = store.all().first { it.runtime == SessionRuntime.NATIVE }
+        val token = UUID.randomUUID().toString()
+        val profiles = (0..15).map { index ->
+            native.copy(id = UUID.randomUUID().toString(), name = "Picker gesture $token $index")
+                .also { store.save(it) }
+        }
+        try {
+            val profileNames = store.all().mapTo(mutableSetOf()) { it.name }
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                select(scenario, first)
+                val before = sessions(service).map { it.getString("id") }.toSet()
+                graphicsInfo("reset")
+                click(R.string.new_session)
+                await("profile picker header") { findLabel(R.string.back) != null }
+                // Include the page fade in the same observation window on both implementations.
+                SystemClock.sleep(600)
+                android.util.Log.i("SessionProfilePickerTest", "pickerOpen " + graphicsInfo().lineSequence().map(String::trim).filter {
+                    it.startsWith("Total frames rendered:") || it.startsWith("Janky frames:") ||
+                        it.startsWith("50th percentile:") || it.startsWith("95th percentile:")
+                }.joinToString("; "))
+                assertEquals(ToolbarSheetMode.Expanded, state<ToolbarSheetMode>(scenario, "toolbarSheetMode"))
+                val list = Rect().also { requireNotNull(verticalList()).getBoundsInScreen(it) }
+                fun firstVisibleProfile() = find { node ->
+                    node.text?.toString()?.lineSequence()?.any { it in profileNames } == true
+                }?.text?.toString()
+                val firstProfile = firstVisibleProfile()
+                swipe(list, 0.5f, 0.8f, 0.5f, 0.2f)
+                assertTrue("Vertical touch scrolling must keep the picker open", state<Boolean>(scenario, "sessionProfilePickerVisible"))
+                assertNotNull("Picker header remains visible after scrolling", findLabel(R.string.back))
+                assertNotEquals("The profile list must actually scroll", firstProfile,
+                    firstVisibleProfile())
+                swipe(list, 0.85f, 0.65f, 0.15f, 0.4f)
+                assertTrue("A diagonal swipe must not navigate to another tool", state<Boolean>(scenario, "sessionProfilePickerVisible"))
+                assertNotNull(findLabel(R.string.back))
+                swipe(list, 0.15f, 0.4f, 0.85f, 0.65f)
+                assertTrue(state<Boolean>(scenario, "sessionProfilePickerVisible"))
+                assertEquals(first, state<String?>(scenario, "activeSessionId"))
+                assertEquals(before, sessions(service).map { it.getString("id") }.toSet())
+                click(R.string.back)
+                await("Sessions after picker back") { findLabel(R.string.new_session) != null }
+                swipe(list, 0.85f, 0.5f, 0.15f, 0.5f)
+                await("normal tool swiping is restored") { findLabel(R.string.new_session) == null }
+                assertEquals(ToolbarSheetMode.Expanded, state<ToolbarSheetMode>(scenario, "toolbarSheetMode"))
+            }
+        } finally { profiles.forEach { store.delete(it.id) } }
+    }
 
     @Test fun backNavigationStaysInTheSheetAndPreservesSessionActions() = withSessions { service, first, second ->
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -115,7 +167,7 @@ class SessionProfilePickerTest {
         val preferences = context.getSharedPreferences(SettingsDetailActivity.TERMINAL_PREFERENCES, Context.MODE_PRIVATE)
         val oldToolbar = preferences.getString(KEY_TOOLBAR, null)
         val oldSkipConfirmation = preferences.getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false)
-        preferences.edit().putString(KEY_TOOLBAR, serializeToolbarConfig(ToolbarConfig(tools = listOf(SESSIONS_TOOL))))
+        preferences.edit().putString(KEY_TOOLBAR, serializeToolbarConfig(ToolbarConfig(tools = listOf(SESSIONS_TOOL, HOTKEY_TOOL))))
             .putBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false).commit()
         val queue = LinkedBlockingQueue<IRuntimeService>()
         val connection = object : ServiceConnection {
@@ -188,9 +240,31 @@ class SessionProfilePickerTest {
     }
     private fun scrollTo(label: String) = await("scroll to $label") {
         if (find { it.hasLabel(label) } != null) true else {
-            find { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            verticalList()?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
             false
         }
+    }
+    private fun verticalList() = find { node -> node.isScrollable && node.actionList.any {
+        it.id == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_DOWN.id ||
+            it.id == AccessibilityNodeInfo.AccessibilityAction.ACTION_SCROLL_UP.id
+    } }
+    private fun graphicsInfo(argument: String = "") =
+        instrumentation.uiAutomation.executeShellCommand("dumpsys gfxinfo ${context.packageName} $argument").use { descriptor ->
+            android.os.ParcelFileDescriptor.AutoCloseInputStream(descriptor).bufferedReader().use { it.readText() }
+        }
+    private fun swipe(bounds: Rect, startX: Float, startY: Float, endX: Float, endY: Float) {
+        val start = SystemClock.uptimeMillis()
+        for (step in 0..20) {
+            val fraction = step / 20f
+            val action = when (step) { 0 -> MotionEvent.ACTION_DOWN; 20 -> MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
+            val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action,
+                bounds.left + bounds.width() * (startX + (endX - startX) * fraction),
+                bounds.top + bounds.height() * (startY + (endY - startY) * fraction), 0)
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+            SystemClock.sleep(16)
+        }
+        instrumentation.waitForIdleSync()
     }
     private fun sessions(service: IRuntimeService): List<JSONObject> = JSONArray(service.sessionsJson).let { array ->
         List(array.length()) { array.getJSONObject(it) }

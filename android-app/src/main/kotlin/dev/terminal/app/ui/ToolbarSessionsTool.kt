@@ -75,7 +75,6 @@ internal fun ToolbarSessionsTool(
     val progress = expansionProgress.coerceIn(0f, 1f)
     val sessionsActive = active && !profilePickerVisible
     val tabsActive = sessionsActive && progress == 1f
-    LaunchedEffect(active) { if (!active && profilePickerVisible) onDismissProfilePicker() }
     BackHandler(enabled = active && profilePickerVisible, onBack = onDismissProfilePicker)
     val effects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
     AnimatedContent(targetState = profilePickerVisible, modifier = Modifier.fillMaxSize(),
