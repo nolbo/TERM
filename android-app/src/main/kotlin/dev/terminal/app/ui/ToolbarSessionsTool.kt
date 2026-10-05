@@ -65,7 +65,8 @@ internal fun ToolbarSessionsTool(
     Column(Modifier.fillMaxSize()) {
         // Use the sheet's spatial motion directly; a second animation would lag behind dragging.
         val headerHeight = ToolbarHotkeyViewportHeight + (48.dp - ToolbarHotkeyViewportHeight) * progress
-        Row(Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = 8.dp),
+        val headerPadding = 4.dp + 4.dp * progress
+        Row(Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = headerPadding),
             verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                 if (progress < 1f && sessions.isNotEmpty()) {
@@ -76,7 +77,7 @@ internal fun ToolbarSessionsTool(
                             modifier = Modifier.fillMaxSize(),
                             containerColor = colors.background,
                             contentColor = colors.accent,
-                            edgePadding = 6.dp,
+                            edgePadding = 0.dp,
                             indicator = {},
                             divider = {},
                         ) {
