@@ -242,3 +242,5 @@ USB and host-tool UI polling stops with Activity visibility/service unbinding an
 ## Persistent environments
 
 Environment UUIDs identify persistent execution contexts independently of profiles and sessions. The service reuses one backend per Environment; profiles select how to enter it and sessions retain immutable v2 Environment snapshots. Storage paths and the Rootless legacy shared workspace stay unchanged. See `ARCHITECTURE.md` for identity migration and conservative lifecycle/deletion rules. Native/Rootless PTYs survive UI detach but cannot survive runtime-owner death; reconnecting UI or registry instances must not fabricate lost processes.
+
+Stopping an idle AVF environment affects only that VM and its connection. A vsock reset or invalid frame disconnects that client without terminating the shared runtime process, other AVF environments, or Native/Userspace Linux sessions, including Ubuntu. Pending requests fail promptly, and unrelated sessions retain their terminal state and input routing.

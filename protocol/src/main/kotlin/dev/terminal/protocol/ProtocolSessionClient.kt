@@ -4,6 +4,7 @@ import java.io.Closeable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -52,12 +53,18 @@ class ProtocolSessionClient(
     override val connectionState: StateFlow<SessionConnectionState> = mutableConnectionState.asStateFlow()
 
     private val receiveJob = scope.launch {
+        var disconnectReason: Throwable = ProtocolRequestException("Session transport disconnected")
         try {
             transport.incomingFrames().collect(::handleIncomingFrame)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            // A stopped VM may reset vsock instead of returning EOF. Contain
+            // transport/frame errors here: an uncaught launch exception would
+            // kill the shared Android runtime process and its other PTY owners.
+            disconnectReason = failure
         } finally {
-            mutableConnectionState.value = SessionConnectionState.DISCONNECTED
-            pending.values.forEach { it.cancel() }
-            pending.clear()
+            disconnect(disconnectReason)
         }
     }
 
@@ -99,10 +106,15 @@ class ProtocolSessionClient(
 
     override fun close() {
         receiveJob.cancel()
+        disconnect(ProtocolRequestException("Session client closed"))
+    }
+
+    private fun disconnect(reason: Throwable) {
         mutableConnectionState.value = SessionConnectionState.DISCONNECTED
-        pending.values.forEach { it.cancel() }
+        pending.values.forEach { it.completeExceptionally(reason) }
         pending.clear()
-        transport.close()
+        // Cleanup of a broken/closed descriptor must not escape to another owner.
+        runCatching { transport.close() }
     }
 
     private suspend fun request(request: SessionRequest): Result<SessionResponse> {
@@ -110,6 +122,9 @@ class ProtocolSessionClient(
         val waiting = CompletableDeferred<ProtocolFrame>()
         pending[requestId] = waiting
         try {
+            if (mutableConnectionState.value == SessionConnectionState.DISCONNECTED) {
+                return Result.failure(ProtocolRequestException("Session transport disconnected"))
+            }
             transport.send(
                 ProtocolFrame(
                     service = Service.SESSION,

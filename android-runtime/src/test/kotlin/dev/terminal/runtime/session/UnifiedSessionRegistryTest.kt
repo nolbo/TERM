@@ -1,10 +1,22 @@
 package dev.terminal.runtime.session
 
+import dev.terminal.protocol.FrameKind
+import dev.terminal.protocol.FrameTransport
+import dev.terminal.protocol.ProtocolFrame
+import dev.terminal.protocol.ProtocolSessionClient
+import dev.terminal.protocol.Service
 import dev.terminal.protocol.SessionConnectionState
 import dev.terminal.protocol.SessionController
 import dev.terminal.protocol.SessionDescriptor
 import dev.terminal.protocol.SessionEvent
 import dev.terminal.protocol.SessionStatus
+import dev.terminal.protocol.SessionResponse
+import dev.terminal.protocol.SessionResponseCodec
+import java.io.IOException
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -12,6 +24,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.async
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -339,6 +352,56 @@ class UnifiedSessionRegistryTest {
         registry.close()
     }
 
+    @Test fun stoppingAvfWithAReadFailurePreservesUbuntuAndSiblingEnvironmentSessions() = runBlocking {
+        val registry = UnifiedSessionRegistry()
+        val stopped = Environment.create(SessionRuntime.AVF, "AVF to stop")
+        val ubuntuEnvironment = Environment.create(SessionRuntime.ROOTLESS_UBUNTU, "Ubuntu")
+        val nativeEnvironment = Environment.create(SessionRuntime.NATIVE, "Native")
+        val avfEnvironment = Environment.create(SessionRuntime.AVF, "Other AVF")
+        val siblings = mapOf(
+            ubuntuEnvironment to FakeController("rootless-ubuntu-live"),
+            nativeEnvironment to FakeController("native-live"),
+            avfEnvironment to FakeController("avf-live"),
+        )
+        val transport = IdleAvfTransport()
+        val stoppedClient = ProtocolSessionClient(transport, scope = this)
+        try {
+            registry.register(stopped, stoppedClient)
+            siblings.forEach { (environment, owner) -> registry.register(environment, owner) }
+            val before = registry.list().getOrThrow()
+            registry.terminalStates.create("rootless-ubuntu-live", 80, 24)
+            registry.terminalStates.output("rootless-ubuntu-live", "UBUNTU KEPT".toByteArray())
+
+            registry.deleteStorageIfIdle(stopped.sessionRuntime, stopped.storage.id) { release ->
+                // Stopping a VM can reset vsock before the service releases its client.
+                transport.incoming.close(IOException("AVF vsock reset during stop"))
+                withTimeout(1_000) {
+                    stoppedClient.connectionState.first { it == SessionConnectionState.DISCONNECTED }
+                }
+                release()
+            }
+
+            assertFalse(registry.isRegistered(stopped.sessionRuntime, stopped.storage.id))
+            assertEquals(before, registry.list().getOrThrow())
+            before.forEach { registry.write(it.id, byteArrayOf(1)).getOrThrow() }
+            siblings.values.forEach { owner ->
+                assertFalse(owner.closed)
+                assertEquals(1, owner.writeCount)
+            }
+            var checkpointSeen = false
+            registry.terminalStates.subscribe("rootless-ubuntu-live", object : RuntimeTerminalState.Sink {
+                override fun checkpoint(emulator: com.termux.terminal.TerminalEmulator, viewport: RuntimeTerminalState.Viewport?) {
+                    checkpointSeen = true
+                    assertTrue(emulator.screen.transcriptText.contains("UBUNTU KEPT"))
+                }
+                override fun output(bytes: ByteArray) = Unit
+                override fun resized(columns: Int, rows: Int, cellWidth: Int, cellHeight: Int) = Unit
+                override fun exited(code: Int) = Unit
+            })
+            assertTrue(checkpointSeen)
+        } finally { registry.close() }
+    }
+
     @Test fun reconnectingAnAvfTransportPreservesSiblingOwnersAndTerminalCheckpoint() = runBlocking {
         val disconnected = java.util.concurrent.LinkedBlockingQueue<Pair<SessionRuntime, String>>()
         val native = FakeController("native-a")
@@ -475,6 +538,16 @@ class UnifiedSessionRegistryTest {
         assertEquals(listOf("native-sibling"), registry.list().getOrThrow().map { it.id })
         assertFalse(sibling.closed)
         registry.close()
+    }
+
+    private class IdleAvfTransport : FrameTransport {
+        val incoming = Channel<ProtocolFrame>(Channel.UNLIMITED)
+        override suspend fun send(frame: ProtocolFrame): Result<Unit> = runCatching {
+            incoming.send(ProtocolFrame(service = Service.SESSION, kind = FrameKind.RESPONSE, requestId = frame.requestId,
+                payload = SessionResponseCodec.encode(SessionResponse.Listed(emptyList()))))
+        }
+        override fun incomingFrames(): Flow<ProtocolFrame> = incoming.receiveAsFlow()
+        override fun close() { incoming.close() }
     }
 
     private class FakeController(

@@ -90,6 +90,8 @@ Runtime-specific process ownership stays behind Native, Rootless, and AVF
 backend interfaces. UI code must not depend directly on PRoot, AVF, crosvm,
 vsock, or package-manager implementation details.
 
+Stopping an idle Environment releases only that Environment's backend and session registration. AVF transport read, frame-validation and cleanup failures must remain local to that connection; they must not escape as uncaught coroutine failures that kill the shared `:vmhost` process and its Native/Rootless or other AVF owners. Disconnecting never fabricates session exits or clears sibling terminal checkpoints.
+
 ### Runtime semantics
 
 Direct Native is a first-class Android/Bionic environment for immediate shell

@@ -296,6 +296,8 @@ bytes, with kitty local media converted to direct transfers inside the guest);
 event `0x91` is process exit (`session ID`, exit code). Detaching or
 disconnecting removes only this output subscription—the guest PTY remains alive.
 
+The host session client contains transport read and frame-validation exceptions within its receive job. EOF, a failed read or explicit close publishes `DISCONNECTED`, fails pending requests and closes only that transport; new requests on a disconnected client fail without a send or request timeout. Cleanup failures cannot escape to the shared runtime owner. Coroutine cancellation still propagates, and disconnection emits no synthetic PTY exit or sibling-session removal. Guest wire frames and protocol version remain unchanged.
+
 Kitty media conversion does not change the session wire schema. File paths,
 shared-memory handles and guest descriptors never become host file operations;
 `droid-sessiond` reads bounded regular-file data in the guest and emits direct
