@@ -64,6 +64,12 @@ class SessionProfilePickerTest {
             assertTrue("The profile page must slide into the sheet", opening.any {
                 it.backLeft != null && it.backLeft > backLeft + 2
             })
+            val profileHeight = requireNotNull(expanded.profileViewportHeight)
+            val resizing = opening.filter { it.profileViewportHeight != null && it.handleTop != null &&
+                it.handleTop < initialTop - 2 && it.handleTop > expandedTop + 2 }
+            assertTrue("The profile list must be revealed during expansion", resizing.isNotEmpty())
+            assertTrue("Height frames must keep the profile list at its final measured size",
+                resizing.all { it.profileViewportHeight == profileHeight })
 
             val returning = capturePickerMotion(scenario, root) { click(R.string.back) }
             await("sessions after animated header back") { findLabel(R.string.select_profile) == null && findLabel(R.string.new_session) != null }
@@ -79,12 +85,22 @@ class SessionProfilePickerTest {
             assertTrue("Android back must use the same page motion", androidBack.any {
                 it.backLeft != null && it.backLeft > backLeft + 2
             })
+            capturePickerMotion(scenario, root) { click(R.string.new_session) }
+            capturePickerMotion(scenario, root) {
+                val actionLabel = context.getString(R.string.toolbar_default)
+                val handle = requireNotNull(find { node -> node.actionList.any { it.label?.toString() == actionLabel } })
+                assertTrue(handle.performAction(handle.actionList.first { it.label?.toString() == actionLabel }.id))
+            }
+            await("picker at default height") { state<ToolbarSheetMode>(scenario, "toolbarSheetMode") == ToolbarSheetMode.Default }
+            assertTrue("A settled default sheet must give the list its actual smaller viewport",
+                requireNotNull(pickerMotionFrame(scenario, root).profileViewportHeight) < profileHeight)
+            assertNotNull(findLabel(R.string.back))
             assertEquals(first, state<String?>(scenario, "activeSessionId"))
             assertEquals(before, sessions(service).map { it.getString("id") }.toSet())
         }
     }
 
-    private data class PickerMotionFrame(val handleTop: Float?, val backLeft: Float?)
+    private data class PickerMotionFrame(val handleTop: Float?, val backLeft: Float?, val profileViewportHeight: Int?)
 
     private fun composeRoot(scenario: ActivityScenario<MainActivity>): ViewRootForTest {
         fun find(view: View): ViewRootForTest? {
@@ -99,12 +115,17 @@ class SessionProfilePickerTest {
 
     private fun pickerMotionFrame(root: ViewRootForTest): PickerMotionFrame {
         fun find(node: SemanticsNode, label: String): SemanticsNode? {
-            if (node.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(label) == true) return node
+            if (node.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(label) == true ||
+                node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == label } == true) return node
             return node.children.firstNotNullOfOrNull { find(it, label) }
         }
         val semantics = root.semanticsOwner.rootSemanticsNode
+        var profileList = find(semantics, context.getString(R.string.select_profile))
+        while (profileList != null && profileList.config.getOrNull(SemanticsProperties.VerticalScrollAxisRange) == null) {
+            profileList = profileList.parent
+        }
         return PickerMotionFrame(find(semantics, context.getString(R.string.toolbar_handle))?.boundsInWindow?.top,
-            find(semantics, context.getString(R.string.back))?.boundsInWindow?.left)
+            find(semantics, context.getString(R.string.back))?.boundsInWindow?.left, profileList?.size?.height)
     }
 
     private fun pickerMotionFrame(scenario: ActivityScenario<MainActivity>, root: ViewRootForTest): PickerMotionFrame {

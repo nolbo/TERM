@@ -66,7 +66,7 @@ internal fun ToolbarSessionsTool(
     onSettings: () -> Unit,
     colors: TerminalChromeColors = LocalToolbarColors.current,
     onReorder: (List<String>) -> Unit = {},
-    expansionProgress: Float = LocalToolbarExpansionProgress.current,
+    expansionProgress: Float? = null,
     profileEnvironmentNames: Map<EnvironmentId, String> = emptyMap(),
     headerTabScroll: ScrollState = rememberScrollState(),
 ) {
@@ -75,9 +75,7 @@ internal fun ToolbarSessionsTool(
     val tabScroll = rememberScrollState()
     val profileScroll = rememberLazyListState()
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    val progress = expansionProgress.coerceIn(0f, 1f)
     val sessionsActive = active && !profilePickerVisible
-    val tabsActive = sessionsActive && progress == 1f
     BackHandler(enabled = active && profilePickerVisible, onBack = onDismissProfilePicker)
     val effects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
     val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<IntOffset>()
@@ -91,7 +89,12 @@ internal fun ToolbarSessionsTool(
         label = "sessionsPage",
     ) { pickingProfile ->
         if (pickingProfile) {
-            Column(Modifier.fillMaxSize()) {
+            val expandedHeight = LocalToolbarExpandedContentHeight.current
+            // Reveal the final-sized list through the animated sheet instead of remeasuring it every frame.
+            val viewport = if (expandedHeight != null) Modifier.fillMaxWidth()
+                .wrapContentHeight(Alignment.Top, unbounded = true).height(expandedHeight)
+                else Modifier.fillMaxSize()
+            Column(viewport) {
                 Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically) {
                     IconButton(onClick = {
@@ -155,6 +158,8 @@ internal fun ToolbarSessionsTool(
                 }
             }
         } else Column(Modifier.fillMaxSize()) {
+            val progress = (expansionProgress ?: LocalToolbarExpansionProgress.current.value).coerceIn(0f, 1f)
+            val tabsActive = sessionsActive && progress == 1f
             // Use the sheet's spatial motion directly; a second animation would lag behind dragging.
             val headerHeight = ToolbarHotkeyViewportHeight + (48.dp - ToolbarHotkeyViewportHeight) * progress
             val headerPadding = 4.dp + 4.dp * progress

@@ -19,6 +19,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.util.concurrent.LinkedBlockingQueue
+import java.util.UUID
 import java.util.concurrent.TimeUnit
 
 /** Installs two fresh catalog-pinned Debian filesystems; never modifies existing distro storage. */

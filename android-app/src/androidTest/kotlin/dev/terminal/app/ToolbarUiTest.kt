@@ -819,7 +819,7 @@ class ToolbarUiTest {
                         Spacer(Modifier.weight(1f))
                         TerminalToolbar(ToolbarConfig(tools = listOf(SESSIONS_TOOL)), mode.value,
                             { mode.value = it }, 400.dp, TerminalChromeColors(Color.Black)) { _, active ->
-                            val expansion = LocalToolbarExpansionProgress.current
+                            val expansion = LocalToolbarExpansionProgress.current.value
                             SideEffect { progress = expansion; samples += expansion }
                             ToolbarSessionsTool(listOf(SessionUi("first", "NATIVE", "Motion shell", "RUNNING")),
                                 "first", active, emptySet(), emptyList(), {}, {}, false, {}, {}, {}, {}, {}, {})
@@ -875,6 +875,43 @@ class ToolbarUiTest {
             assertEquals(initialHandle, bounds(handle()))
             assertEquals(initialButton, bounds(description(label(R.string.new_session))))
             tabText("Motion shell")
+        }
+    }
+
+    @Test fun animatedHeightDoesNotRecomposeToolsThatDoNotReadExpansion() {
+        val mode = mutableStateOf(ToolbarSheetMode.Default)
+        var compositions = 0
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Column(Modifier.fillMaxSize()) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(ToolbarConfig(tools = listOf(HOTKEY_TOOL)), mode.value,
+                            { mode.value = it }, 400.dp, TerminalChromeColors(Color.Black)) { _, _ ->
+                            SideEffect { compositions++ }
+                            Text("Stable tool content")
+                        }
+                    }
+                } }
+            } }
+            settle()
+            val initialHandle = bounds(handle())
+            var before = 0
+            scenario.onActivity { before = compositions; mode.value = ToolbarSheetMode.Expanded }
+            settle()
+            assertTrue("The sheet must expand", bounds(handle()).top < initialHandle.top)
+            scenario.onActivity {
+                assertTrue("Height frames must not repeatedly recompose unrelated content: ${compositions - before}",
+                    compositions - before <= 2)
+                before = compositions
+                mode.value = ToolbarSheetMode.Default
+            }
+            settle()
+            assertEquals(initialHandle, bounds(handle()))
+            scenario.onActivity {
+                assertTrue("Collapse must also avoid repeated content composition: ${compositions - before}",
+                    compositions - before <= 2)
+            }
         }
     }
 

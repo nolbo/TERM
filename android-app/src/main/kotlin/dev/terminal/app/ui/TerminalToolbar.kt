@@ -27,22 +27,26 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Velocity
 import dev.terminal.app.*
 import dev.terminal.app.R
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 
 internal val LocalToolbarColors = staticCompositionLocalOf { TerminalChromeColors(Color.Black) }
 /** Share the sheet's animated geometry so tools also follow an interrupted animation or drag. */
-internal val LocalToolbarExpansionProgress = staticCompositionLocalOf { 1f }
+internal val LocalToolbarExpansionProgress = compositionLocalOf<State<Float>> { mutableFloatStateOf(1f) }
+internal val LocalToolbarExpandedContentHeight = compositionLocalOf<Dp?> { null }
 internal val ToolbarHotkeyViewportHeight = (HOTKEY_HEIGHT_DP * 2 + 4 + 8).dp
 
 /** Persistent, non-modal bottom sheet with a handle-only hidden anchor. No runtime ownership. */
@@ -94,12 +98,20 @@ internal fun TerminalToolbar(
     LaunchedEffect(state) {
         snapshotFlow { state.settledValue }.distinctUntilChanged().collect { onChange(it) }
     }
-    val offset = state.requireOffset()
-    val height = with(density) { (-offset).toDp().coerceIn(hidden, expanded) }
-    val expansionProgress = with(density) {
-        // Calculate against the same pixel anchors, keeping the settled endpoint exactly 1f.
-        if (expanded > normal) ((-offset - normal.toPx()) / (expanded.toPx() - normal.toPx())).coerceIn(0f, 1f)
+    val hiddenPx = with(density) { hidden.toPx() }
+    val normalPx = with(density) { normal.toPx() }
+    val expandedPx = with(density) { expanded.toPx() }
+    val contentVisible by remember(state, hiddenPx) { derivedStateOf { -state.requireOffset() > hiddenPx } }
+    val expansionProgress = remember(state, normalPx, expandedPx) { derivedStateOf {
+        // Tools read this state themselves; changing height must not recompose the whole pager.
+        if (expandedPx > normalPx) ((-state.requireOffset() - normalPx) / (expandedPx - normalPx)).coerceIn(0f, 1f)
         else 0f
+    } }
+    val sheetHeight = Modifier.layout { measurable, constraints ->
+        // Read animated pixels during measurement, keeping composition out of each height frame.
+        val height = constraints.constrainHeight((-state.requireOffset()).coerceIn(hiddenPx, expandedPx).roundToInt())
+        val placeable = measurable.measure(constraints.copy(minHeight = height, maxHeight = height))
+        layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
     }
     val modeLabel = stringResource(when (state.settledValue) {
         ToolbarSheetMode.Hidden -> R.string.toolbar_hidden
@@ -114,7 +126,7 @@ internal fun TerminalToolbar(
     Column(Modifier.fillMaxWidth().background(colors.background).navigationBarsPadding()) {
         Surface(color = colors.background, contentColor = colors.foreground,
             shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-            modifier = Modifier.fillMaxWidth().height(height).clipToBounds()) {
+            modifier = Modifier.fillMaxWidth().then(sheetHeight).clipToBounds()) {
             Column {
                 Box(Modifier.fillMaxWidth().height(hidden)
                     .anchoredDraggable(state, Orientation.Vertical,
@@ -136,10 +148,10 @@ internal fun TerminalToolbar(
                         )
                     }, contentAlignment = Alignment.Center) {
                     ToolbarPageHandle(pager, tools.size,
-                        visible = tools.size > 1 && pager.isScrollInProgress && height > hidden,
+                        visible = tools.size > 1 && pager.isScrollInProgress && contentVisible,
                         colors = colors)
                 }
-                if (height > hidden) {
+                if (contentVisible) {
                     if (config.tools.isEmpty()) {
                         Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
                             Text(stringResource(R.string.toolbar_empty), style = MaterialTheme.typography.bodyMedium)
@@ -148,6 +160,8 @@ internal fun TerminalToolbar(
                         CompositionLocalProvider(
                             LocalToolbarColors provides colors,
                             LocalToolbarExpansionProgress provides expansionProgress,
+                            LocalToolbarExpandedContentHeight provides
+                                if (mode == ToolbarSheetMode.Expanded) (expanded - hidden) else null,
                         ) {
                             ToolbarPages(config.tools, pager, state.settledValue != ToolbarSheetMode.Hidden,
                                 pageNavigationEnabled, content = content)
