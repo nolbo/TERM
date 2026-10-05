@@ -132,6 +132,7 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
             var editingName by rememberSaveable { mutableStateOf(false) }
             var nameDraft by rememberSaveable { mutableStateOf("") }
             var operating by remember { mutableStateOf<Pair<EnvironmentItem, String>?>(null) }
+            var cancellingInstallation by remember { mutableStateOf<EnvironmentItem?>(null) }
             var software by remember { mutableStateOf<JSONObject?>(null) }
             var removeSoftwareTargetId by rememberSaveable { mutableStateOf<String?>(null) }
             var installRootlessTargetId by rememberSaveable { mutableStateOf<String?>(null) }
@@ -189,6 +190,14 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                     (runtime ?: error(getString(R.string.storage_unavailable))).operateEnvironment(row.id, operation)
                 } }.onSuccess { if (it.isNotEmpty()) error = it else revision++ }.onFailure { error = it.message }
                 operating = null
+            }
+            LaunchedEffect(cancellingInstallation) {
+                val row = cancellingInstallation ?: return@LaunchedEffect
+                runStorageOperation { withContext(Dispatchers.IO) {
+                    (runtime ?: error(getString(R.string.storage_unavailable)))
+                        .cancelRootlessInstallation(row.runtime, row.storageId)
+                } }.onSuccess { revision++ }.onFailure { error = it.message }
+                cancellingInstallation = null
             }
             val detail = entries?.firstOrNull { it.key == selectedKey }
             LaunchedEffect(runtime, detail?.id, revision) {
@@ -290,7 +299,9 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                         if (detail.environment.runtime == EnvironmentRuntime.ROOTLESS) item(key = "rootless-software") {
                             RootlessEnvironmentSoftwareSetting(software, runtime != null && operating == null && deleting == null,
                                 onInstall = { installRootlessTargetId = detail.id },
-                                onRemove = { removeHome = false; removeSoftwareTargetId = detail.id })
+                                onRemove = { removeHome = false; removeSoftwareTargetId = detail.id },
+                                onCancelInstall = { cancellingInstallation = detail },
+                                cancelling = cancellingInstallation?.id == detail.id)
                         }
                         if (detail.environment.runtime == EnvironmentRuntime.AVF) item(key = "avf-image") {
                             AvfEnvironmentImageSetting(detail.storageId, imageInstallations.firstOrNull {

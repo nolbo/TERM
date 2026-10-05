@@ -267,6 +267,10 @@
     <string name="avf_install_retrying">Waiting to retry installation</string>
     <string name="avf_install_failed">Image installation failed</string>
     <string name="avf_install_cancelled">Image installation cancelled</string>
+    <string name="avf_install_cancelled_note">You can request image installation again in the AVF execution environment details.</string>
+    <string name="install_cancel">Cancel installation</string>
+    <string name="install_cancelling">Cancelling installation…</string>
+    <string name="install_cancelled">Installation cancelled</string>
     <string name="avf_install_kernel">Boot image</string>
     <string name="avf_install_initrd">Initial boot image</string>
     <string name="avf_install_system">System image</string>

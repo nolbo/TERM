@@ -15,7 +15,7 @@ import org.json.JSONObject
 
 /** The status and actions belong to this environment, independently of terminal sessions. */
 @Composable internal fun RootlessEnvironmentSoftwareSetting(status: JSONObject?, enabled: Boolean,
-    onInstall: () -> Unit, onRemove: () -> Unit) {
+    onInstall: () -> Unit, onRemove: () -> Unit, onCancelInstall: () -> Unit = {}, cancelling: Boolean = false) {
     val busy = status?.optBoolean("busy") == true
     val state = status?.optString("state").orEmpty()
     EnvironmentSection(R.string.environment_distribution_installation) {
@@ -33,11 +33,12 @@ import org.json.JSONObject
                     "CHECKING" -> R.string.rootless_checking
                     "ENVIRONMENT_REQUIRED" -> R.string.rootless_environment_required
                     "ERROR" -> R.string.rootless_install_failed
+                    "CANCELLED" -> R.string.install_cancelled
                     else -> R.string.avf_image_not_installed
                 }))
             }
             val progress = parseRootlessProgress(status)
-            if (progress != null && (busy || state == "ERROR")) {
+            if (progress != null && (busy || state == "ERROR" || state == "CANCELLED")) {
                 Column(Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(progress.label, style = MaterialTheme.typography.titleSmall)
@@ -49,13 +50,19 @@ import org.json.JSONObject
                 }
             }
         }
+        if (status?.optBoolean("canCancel") == true || status?.optBoolean("cancelling") == true) {
+            EnvironmentActionSetting(if (cancelling || status.optBoolean("cancelling"))
+                R.string.install_cancelling else R.string.install_cancel,
+                R.drawable.ic_material_symbol_close_24,
+                enabled = !cancelling && !status.optBoolean("cancelling"), onClick = onCancelInstall)
+        }
         EnvironmentActionSetting(
             title = when {
-                state == "ERROR" -> R.string.retry
+                state == "ERROR" || state == "CANCELLED" -> R.string.retry
                 status?.optBoolean("installed") == true -> R.string.rootless_complete_environment
                 else -> R.string.environment_distribution_install
             },
-            icon = if (state == "ERROR" || status?.optBoolean("installed") == true)
+            icon = if (state == "ERROR" || state == "CANCELLED" || status?.optBoolean("installed") == true)
                 R.drawable.ic_material_symbol_refresh_24 else R.drawable.ic_material_symbol_download_24,
             supporting = if (status?.optBoolean("installed") == true)
                 R.string.rootless_complete_environment_support else null,

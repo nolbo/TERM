@@ -3,6 +3,7 @@ package dev.terminal.runtime.rootless
 import android.content.Context
 import android.os.StatFs
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
@@ -54,6 +55,7 @@ enum class RootlessPhase(val displayName: String) {
     VERIFY_COMMANDS("기본 명령 실행 검증"),
     VERIFY_LOCALE("로케일·홈·시간대 검증"),
     READY("Rootless 준비 완료"),
+    CANCELLED("설치 취소됨"),
 }
 
 class RootlessSetupException(
@@ -67,10 +69,12 @@ class RootlessBootstrapper(
     private val layout: RootlessDebianLayout,
     private val reporter: RootlessProgressReporter = RootlessProgressReporter.NONE,
     private val createHardLink: (Path, Path) -> Path = Files::createLink,
+    private val checkCancellation: () -> Unit = {},
 ) {
     private val installMutex = Mutex()
     private val distribution = layout.distribution
-    private val extractor = RootlessArchiveExtractor(distribution.archiveRoot, MAX_EXTRACTED_BYTES)
+    private val extractor = RootlessArchiveExtractor(distribution.archiveRoot, MAX_EXTRACTED_BYTES,
+        checkCancellation = checkCancellation)
 
     suspend fun installIfNeeded(): Result<Unit> = withContext(Dispatchers.IO) {
         installMutex.withLock {
@@ -156,9 +160,12 @@ class RootlessBootstrapper(
     }
 
     private inline fun <T> phase(phase: RootlessPhase, detail: String, block: () -> T): T {
+        checkCancellation()
         reporter.report(phase, detail)
         return try {
             block()
+        } catch (error: CancellationException) {
+            throw error
         } catch (error: RootlessSetupException) {
             throw error
         } catch (error: Throwable) {
@@ -175,6 +182,7 @@ class RootlessBootstrapper(
             readTimeout = READ_TIMEOUT_MS
         }
         try {
+            checkCancellation()
             require(connection.responseCode in 200..299) { "HTTP ${connection.responseCode}" }
             require(connection.url.protocol.equals("https", ignoreCase = true)) { "download redirected outside HTTPS" }
             require(connection.contentLengthLong < 0 || connection.contentLengthLong <= maximumArchiveBytes) {
@@ -186,6 +194,7 @@ class RootlessBootstrapper(
                     val buffer = ByteArray(BUFFER_SIZE)
                     var total = 0L
                     while (true) {
+                        checkCancellation()
                         val count = input.read(buffer)
                         if (count < 0) break
                         total += count

@@ -20,6 +20,25 @@ import org.junit.rules.TemporaryFolder
 class RootlessArchiveExtractorTest {
     @get:Rule val temporary = TemporaryFolder()
 
+    @Test fun cancellationInterruptsChecksumAndSingleLargeFileExtraction() {
+        val content = ByteArray(300_000) { (it * 37).toByte() }
+        val archive = fixture(file("$ROOT/large", content, 0b110_100_100))
+        val destination = temporary.newFolder("cancelled-rootfs").toPath()
+        val cancel = {
+            val file = destination.resolve("large")
+            if (Files.exists(file) && Files.size(file) >= 64 * 1024)
+                throw java.util.concurrent.CancellationException("cancelled")
+        }
+        val extractor = RootlessArchiveExtractor(ROOT, maxExtractedBytes = 1_000_000, checkCancellation = cancel)
+        org.junit.Assert.assertThrows(java.util.concurrent.CancellationException::class.java) {
+            extractor.extract(archive, destination)
+        }
+        assertTrue(Files.size(destination.resolve("large")) < content.size)
+        org.junit.Assert.assertThrows(java.util.concurrent.CancellationException::class.java) {
+            extractor.verifySha256(archive, "00".repeat(32))
+        }
+    }
+
     @Test fun verifiesChecksumAndPreservesModesSafeLinksAndForwardHardLinks() {
         val archive = fixture(
             directory(ROOT, 0b111_101_101),

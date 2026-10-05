@@ -63,4 +63,5 @@ interface IRuntimeService {
     String getEnvironmentSoftwareJson(String environmentId);
     String getUserspaceLinuxSettingsJson();
     String setUserspaceLinuxDns(String mode, String servers);
+    boolean cancelRootlessInstallation(String runtimeType, String storageId);
 }

@@ -133,6 +133,8 @@ Image-related pushes to `dev` prepare an image candidate and a debug APK embeddi
 Runtime selection is explicit. A failure in one selected runtime MUST NOT
 silently redirect the command or session to another runtime.
 
+Explicit installation cancellation targets the observed AVF WorkManager attempt or the selected Rootless backend's preparation job. Rootless preparation owns a separate child job, retains its lease through process and staging cleanup, and never cancels a live session or another environment. Downloads, hashing, extraction and AVF image copying check cancellation before promotion. Cancelled Rootless package preparation retains the activated rootfs and separate home/workspace; retry uses the existing package recovery path. Closing or recreating UI still only detaches observation.
+
 Rootless and AVF do not share a complete rootfs or dpkg database. Share only
 deliberate higher-level state such as workspace data, selected user files,
 appropriate dotfiles, and a logical package/environment manifest.

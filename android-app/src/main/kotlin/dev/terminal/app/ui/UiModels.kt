@@ -107,6 +107,7 @@ internal fun parseRuntimeChoices(json: String): List<RuntimeChoiceUi> {
             environmentRequired = runtime in rootlessRuntimeIds && entry?.optString("state") == "ENVIRONMENT_REQUIRED",
             state = entry?.optString("state").orEmpty(),
             progress = parseRootlessProgress(entry),
+            canCancelInstallation = entry?.optBoolean("canCancel") == true,
         )
     }
 }
@@ -134,7 +135,7 @@ internal fun runtimeSelectionAction(choice: RuntimeChoiceUi): RuntimeSelectionAc
     else -> RuntimeSelectionAction.SETTINGS
 }
 
-internal enum class RootlessSettingsStatus { CHECKING, SETUP_REQUIRED, ENVIRONMENT_REQUIRED, READY, ERROR }
+internal enum class RootlessSettingsStatus { CHECKING, SETUP_REQUIRED, ENVIRONMENT_REQUIRED, READY, ERROR, CANCELLED }
 
 internal data class RootlessSettingsState(
     val status: RootlessSettingsStatus,

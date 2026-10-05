@@ -17,6 +17,7 @@ internal class RootlessArchiveExtractor(
     private val archiveRoot: String,
     private val maxExtractedBytes: Long,
     private val maxEntries: Int = DEFAULT_MAX_ENTRIES,
+    private val checkCancellation: () -> Unit = {},
 ) {
     fun verifySha256(archive: Path, expected: String, progress: (Long, Long) -> Unit = { _, _ -> }) {
         val total = Files.size(archive)
@@ -25,6 +26,7 @@ internal class RootlessArchiveExtractor(
             val digest = MessageDigest.getInstance("SHA-256")
             val buffer = ByteArray(BUFFER_SIZE)
             while (true) {
+                checkCancellation()
                 val count = input.read(buffer)
                 if (count < 0) break
                 digest.update(buffer, 0, count)
@@ -45,6 +47,7 @@ internal class RootlessArchiveExtractor(
             XZCompressorInputStream(compressed).use { xz ->
                 TarArchiveInputStream(xz).use { tar ->
                     while (true) {
+                        checkCancellation()
                         val entry = tar.nextEntry ?: break
                         entryCount++
                         require(entryCount <= maxEntries) { "Rootless archive contains too many entries" }
@@ -94,7 +97,15 @@ internal class RootlessArchiveExtractor(
         ensureNoSymlinkAncestors(root, parent)
         Files.createDirectories(parent)
         BufferedOutputStream(Files.newOutputStream(target, CREATE_NEW)).use { output ->
-            val copied = tar.copyTo(output)
+            val buffer = ByteArray(BUFFER_SIZE)
+            var copied = 0L
+            while (true) {
+                checkCancellation()
+                val count = tar.read(buffer)
+                if (count < 0) break
+                output.write(buffer, 0, count)
+                copied += count
+            }
             require(copied == entry.size) { "Truncated Rootless archive entry" }
         }
         setPermissions(target, entry.mode)
@@ -118,6 +129,7 @@ internal class RootlessArchiveExtractor(
 
     private fun resolveHardLinks(root: Path, links: MutableList<PendingHardLink>) {
         while (links.isNotEmpty()) {
+            checkCancellation()
             var progress = false
             val iterator = links.iterator()
             while (iterator.hasNext()) {

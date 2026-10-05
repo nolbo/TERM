@@ -14,11 +14,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.R
 import dev.terminal.runtime.image.AvfImageInstallPhase
 import dev.terminal.runtime.image.AvfImageInstallSnapshot
 import dev.terminal.runtime.image.AvfImageInstallState
+import dev.terminal.runtime.image.RuntimeSetupCoordinator
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
 
 private fun phaseTitle(phase: AvfImageInstallPhase) = when (phase) {
     AvfImageInstallPhase.PREPARING -> R.string.avf_install_preparing
@@ -31,7 +35,12 @@ private fun phaseTitle(phase: AvfImageInstallPhase) = when (phase) {
 
 /** The dialog and settings render the same persisted snapshot, without owning its work. */
 @Composable
-internal fun AvfImageInstallCard(snapshot: AvfImageInstallSnapshot, modifier: Modifier = Modifier) {
+internal fun AvfImageInstallCard(snapshot: AvfImageInstallSnapshot, modifier: Modifier = Modifier,
+    onCancel: (suspend (String) -> Unit)? = null) {
+    val context = LocalContext.current.applicationContext
+    val scope = rememberCoroutineScope()
+    var cancelling by remember(snapshot.workId) { mutableStateOf(false) }
+    var cancelError by remember(snapshot.workId) { mutableStateOf<String?>(null) }
     Card(modifier.fillMaxWidth(),
         shape = if (LocalSettingsGroup.current) SettingsItemShape else MaterialTheme.shapes.extraLarge,
         colors = if (LocalSettingsGroup.current)
@@ -89,10 +98,31 @@ internal fun AvfImageInstallCard(snapshot: AvfImageInstallSnapshot, modifier: Mo
             snapshot.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             Text(stringResource(if (snapshot.active) R.string.avf_install_background_note
                 else if (snapshot.state == AvfImageInstallState.SUCCEEDED) R.string.avf_install_complete_note
+                else if (snapshot.state == AvfImageInstallState.CANCELLED) R.string.avf_install_cancelled_note
                 else R.string.avf_install_retry_note), style = MaterialTheme.typography.bodySmall)
             if (snapshot.phase == AvfImageInstallPhase.DOWNLOAD) {
                 Text(stringResource(R.string.avf_install_download_note), style = MaterialTheme.typography.bodySmall)
             }
+            if (snapshot.active) {
+                OutlinedButton(onClick = {
+                    cancelling = true
+                    cancelError = null
+                    scope.launch {
+                        try {
+                            if (onCancel != null) onCancel(snapshot.workId)
+                            else RuntimeSetupCoordinator(context).cancelImageInstallation(snapshot.workId)
+                        } catch (cancelled: CancellationException) {
+                            throw cancelled
+                        } catch (error: Exception) {
+                            cancelling = false
+                            cancelError = error.message
+                        }
+                    }
+                }, enabled = !cancelling, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+                    Text(stringResource(if (cancelling) R.string.install_cancelling else R.string.install_cancel))
+                }
+            }
+            cancelError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
         }
     }
 }

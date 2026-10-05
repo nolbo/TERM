@@ -17,6 +17,8 @@ import dev.terminal.runtime.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.pm.ServiceInfo
@@ -37,8 +39,10 @@ class DebianImageDownloadWorker(
     private var lastProgress = Data.EMPTY
     private var lastReportedAt = -1L
     private var notificationChannelCreated = false
+    private var workContext: kotlin.coroutines.CoroutineContext? = null
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
+        workContext = currentCoroutineContext()
         startedAt = android.os.SystemClock.elapsedRealtime()
         val releaseId = inputData.getString(KEY_RELEASE_ID) ?: return@withContext failure("Missing release ID")
         val release = BundledDebianImageCatalog.find(releaseId) ?: return@withContext failure("Unknown approved Debian release")
@@ -59,7 +63,7 @@ class DebianImageDownloadWorker(
             report(AvfImageInstallPhase.PREPARING)
             if (Files.exists(target)) {
                 report(AvfImageInstallPhase.VERIFY)
-                return@withContext if (DebianImageVerifier.verifyInstalled(target) is ImageVerification.Ready) {
+                return@withContext if (DebianImageVerifier.verifyInstalled(target, ::checkCancellation) is ImageVerification.Ready) {
                     success("already_installed")
                 } else failure("Existing AVF image is invalid; refusing replacement")
             }
@@ -68,7 +72,7 @@ class DebianImageDownloadWorker(
             report(AvfImageInstallPhase.MANIFEST)
             DebianArtifactDownloader { isStopped }.download(release.manifestUri,
                 stagingRoot.resolve(DebianImageLayout.MANIFEST_FILE), 64 * 1024)
-            if (DebianImageVerifier.sha256(stagingRoot.resolve(DebianImageLayout.MANIFEST_FILE)) != release.manifestSha256) {
+            if (DebianImageVerifier.sha256(stagingRoot.resolve(DebianImageLayout.MANIFEST_FILE), ::checkCancellation) != release.manifestSha256) {
                 return@withContext failure("Downloaded manifest checksum does not match catalog")
             }
             DebianImageVerifier.parse(stagingRoot.resolve(DebianImageLayout.MANIFEST_FILE))
@@ -76,7 +80,7 @@ class DebianImageDownloadWorker(
                 DebianImageLayout.SYSTEM_IMAGE, DebianImageLayout.HOME_IMAGE, DebianImageLayout.CONFIG_IMAGE)
                 .forEachIndexed { index, name -> downloadArtifact(release, name, stagingRoot, index + 1) }
             report(AvfImageInstallPhase.VERIFY)
-            when (val verification = DebianImageVerifier.verify(stagingRoot)) {
+            when (val verification = DebianImageVerifier.verify(stagingRoot, ::checkCancellation)) {
                 is ImageVerification.Invalid -> failure(verification.reason)
                 is ImageVerification.Ready -> when (
                     val installed = dev.terminal.runtime.session.StorageRegistry(applicationContext.filesDir) {
@@ -84,7 +88,7 @@ class DebianImageDownloadWorker(
                     }.transaction {
                         validateImageGeneration(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId), generation)
                         report(AvfImageInstallPhase.INSTALL)
-                        DebianImageInstaller.install(stagingRoot, target)
+                        DebianImageInstaller.install(stagingRoot, target, ::checkCancellation)
                     }
                 ) {
                     is ImageInstallResult.Installed -> success("installed")
@@ -115,6 +119,7 @@ class DebianImageDownloadWorker(
     }
 
     private fun report(phase: AvfImageInstallPhase, artifact: Int = 0, bytes: Long? = null, total: Long? = null) {
+        checkCancellation()
         val now = android.os.SystemClock.elapsedRealtime()
         if (lastProgress.getString(AvfImageInstallMonitor.KEY_PHASE) == phase.name &&
             lastProgress.getInt(AvfImageInstallMonitor.KEY_ARTIFACT, 0) == artifact &&
@@ -138,6 +143,11 @@ class DebianImageDownloadWorker(
         report(AvfImageInstallPhase.COMPLETE)
         // WorkManager clears running progress at completion; outputData retains the final snapshot.
         return Result.success(Data.Builder().putAll(lastProgress).putString(KEY_STATUS, status).build())
+    }
+
+    private fun checkCancellation() {
+        workContext?.ensureActive()
+        if (isStopped) throw CancellationException("AVF image installation cancelled")
     }
 
     private fun foregroundInfo(): ForegroundInfo {

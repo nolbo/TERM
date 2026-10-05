@@ -11,6 +11,7 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.NonCancellable
 
 /** Runs official package managers through the same APK-owned loader, in service-owned jobs. */
 internal class RootlessEnvironmentSetup(
@@ -125,6 +126,8 @@ internal suspend fun runRootlessSetupCommand(
     val process = ProcessBuilder(arguments).directory(File(spec.hostCwd)).redirectErrorStream(true).apply {
         environment().clear()
         spec.hostEnvironment.forEach { environment()[it.substringBefore('=')] = it.substringAfter('=') }
+        // Packaged engines supporting EXITKILL also reap tracees if forced termination is needed.
+        environment()["PROOT_EXITKILL"] = "1"
         if (fastfdLibrary != null) {
             environment()["PROOT_FASTSTAT"] = "2"
             environment()["PROOT_FASTFD"] = "1"
@@ -182,8 +185,13 @@ internal suspend fun runRootlessSetupCommand(
                 }
             } finally {
                 // Closing the pipe releases the blocking reader before coroutineScope joins it.
-                if (process.isAlive) process.destroyForcibly()
-                process.inputStream.close()
+                withContext(NonCancellable + Dispatchers.IO) {
+                    if (process.isAlive) {
+                        process.destroy() // Let --kill-on-exit reap this command's children first.
+                        if (!process.waitFor(2, java.util.concurrent.TimeUnit.SECONDS)) process.destroyForcibly()
+                    }
+                    process.inputStream.close()
+                }
                 output.cancel()
             }
         }

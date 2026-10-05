@@ -23,13 +23,14 @@ object DebianImageInstaller {
         if (it is ImageVerification.Ready) DebianImageVerifier.recordInstallation(root)
     }
 
-    fun install(stagingDirectory: Path, destination: Path): ImageInstallResult {
+    fun install(stagingDirectory: Path, destination: Path, checkCancellation: () -> Unit = {}): ImageInstallResult {
+        checkCancellation()
         if (Files.exists(destination)) {
-            return ImageInstallResult.AlreadyInstalled(DebianImageVerifier.verifyInstalled(destination))
+            return ImageInstallResult.AlreadyInstalled(DebianImageVerifier.verifyInstalled(destination, checkCancellation))
         }
         val parent = destination.parent ?: return ImageInstallResult.Failed("Image destination has no parent directory")
         if (!Files.isDirectory(parent)) return ImageInstallResult.Failed("Image destination parent is missing")
-        val stagingVerification = DebianImageVerifier.verify(stagingDirectory)
+        val stagingVerification = DebianImageVerifier.verify(stagingDirectory, checkCancellation)
         if (stagingVerification !is ImageVerification.Ready) {
             return ImageInstallResult.Failed((stagingVerification as ImageVerification.Invalid).reason)
         }
@@ -37,20 +38,22 @@ object DebianImageInstaller {
         val temporary = parent.resolve(".${destination.fileName}.install-${UUID.randomUUID()}")
         return try {
             Files.createDirectory(temporary)
-            copyArtifact(stagingDirectory, temporary, DebianImageLayout.MANIFEST_FILE)
-            copyArtifact(stagingDirectory, temporary, DebianImageLayout.KERNEL_IMAGE)
-            copyArtifact(stagingDirectory, temporary, DebianImageLayout.INITRD_IMAGE)
-            copyArtifact(stagingDirectory, temporary, DebianImageLayout.SYSTEM_IMAGE)
-            copyArtifact(stagingDirectory, temporary, DebianImageLayout.HOME_IMAGE)
-            copyArtifact(stagingDirectory, temporary, DebianImageLayout.CONFIG_IMAGE)
-            when (val verification = DebianImageVerifier.verify(temporary)) {
+            for (name in listOf(DebianImageLayout.MANIFEST_FILE, DebianImageLayout.KERNEL_IMAGE,
+                DebianImageLayout.INITRD_IMAGE, DebianImageLayout.SYSTEM_IMAGE,
+                DebianImageLayout.HOME_IMAGE, DebianImageLayout.CONFIG_IMAGE)) {
+                copyArtifact(stagingDirectory, temporary, name, checkCancellation)
+            }
+            when (val verification = DebianImageVerifier.verify(temporary, checkCancellation)) {
                 is ImageVerification.Invalid -> ImageInstallResult.Failed(verification.reason)
                 is ImageVerification.Ready -> {
                     DebianImageVerifier.recordInstallation(temporary)
+                    checkCancellation()
                     moveIntoPlace(temporary, destination)
                     ImageInstallResult.Installed(destination)
                 }
             }
+        } catch (error: java.util.concurrent.CancellationException) {
+            throw error
         } catch (error: Exception) {
             ImageInstallResult.Failed("Image installation failed: ${error.message}")
         } finally {
@@ -58,10 +61,22 @@ object DebianImageInstaller {
         }
     }
 
-    private fun copyArtifact(sourceRoot: Path, targetRoot: Path, name: String) {
+    private fun copyArtifact(sourceRoot: Path, targetRoot: Path, name: String, checkCancellation: () -> Unit) {
         val source = sourceRoot.resolve(name)
         require(Files.isRegularFile(source, java.nio.file.LinkOption.NOFOLLOW_LINKS)) { "Staged artifact is not a regular file: $name" }
-        Files.copy(source, targetRoot.resolve(name), StandardCopyOption.COPY_ATTRIBUTES)
+        val target = targetRoot.resolve(name)
+        Files.newInputStream(source).use { input ->
+            Files.newOutputStream(target).use { output ->
+                val buffer = ByteArray(64 * 1024)
+                while (true) {
+                    checkCancellation()
+                    val count = input.read(buffer)
+                    if (count < 0) break
+                    output.write(buffer, 0, count)
+                }
+            }
+        }
+        Files.setLastModifiedTime(target, Files.getLastModifiedTime(source))
     }
 
     private fun moveIntoPlace(temporary: Path, destination: Path) {

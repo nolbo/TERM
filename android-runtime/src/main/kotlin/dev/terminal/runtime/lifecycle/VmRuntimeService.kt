@@ -244,7 +244,7 @@ class VmRuntimeService : Service() {
                         rootlessStatusJson(owner, RootlessDistribution.entries.first { it.runtime == environment.sessionRuntime }).apply {
                             put("canInstall", idle && ownerIdle && !busy && getBoolean("installable"))
                             put("canRemove", idle && ownerIdle && !busy && getBoolean("hasData"))
-                            put("busy", busy)
+                            put("busy", busy || owner.isInstallationActive())
                         }
                     }
                     dev.terminal.runtime.session.EnvironmentRuntime.AVF -> {
@@ -260,6 +260,19 @@ class VmRuntimeService : Service() {
                     else -> JSONObject()
                 }.put("environmentId", environment.id.value).toString()
             }
+        }
+        override fun cancelRootlessInstallation(runtimeType: String, storageId: String): Boolean {
+            enforceHostToolUi()
+            val selected = requireNotNull(SessionRuntime.fromWireName(runtimeType)) { "Unknown runtime" }
+            check(selected in rootlessBackends) { "Only Userspace Linux installations can be cancelled here" }
+            dev.terminal.runtime.session.SessionStorage.validate(storageId)
+            // Cancellation must not acquire the preparation lock held by the installer.
+            val environment = environmentRegistry.transaction(storageDefaults()) {
+                all().firstOrNull { it.sessionRuntime == selected && it.storage.id == storageId }
+            }
+            val owner = environment?.let { environmentBackends[it.id] as? RootlessDebianBackend }
+                ?: rootlessBackends[selected]?.takeIf { storageId == "legacy" || storageId == defaultStorageId(selected) }
+            return owner?.cancelInstallation() == true
         }
         override fun measureEnvironmentUsageJson(environmentId: String): String {
             enforceHostToolUi()
@@ -315,7 +328,9 @@ class VmRuntimeService : Service() {
                     }
                     refreshSessions(client)
                 }
-            }; "" }.exceptionOrNull()?.userMessage().orEmpty()
+            }; "" }.exceptionOrNull()?.takeUnless {
+                it is dev.terminal.runtime.rootless.RootlessInstallationCancelledException
+            }?.userMessage().orEmpty()
         }
         override fun measureStorage(runtimeType: String, storageId: String): Long =
             JSONObject(measureStorageUsageJson(runtimeType, storageId)).getLong("bytes")
@@ -934,7 +949,10 @@ class VmRuntimeService : Service() {
             try {
                 if (trackAsWork) updateServiceLifetime()
                 runCatching { withContext(Dispatchers.Default) { block() } }
-                    .onFailure { notifyOperationError(errorOperation, it.userMessage()) }
+                    .onFailure {
+                        if (it !is dev.terminal.runtime.rootless.RootlessInstallationCancelledException)
+                            notifyOperationError(errorOperation, it.userMessage())
+                    }
             } finally {
                 if (trackAsWork) {
                     hostBackgroundOperationCount.decrementAndGet()
@@ -1629,14 +1647,17 @@ class VmRuntimeService : Service() {
             put("canMigrateToNative", rootlessBackend.canMigrateToNative())
             put("installed", rootlessBackend.hasInstalledImage())
             put("installable", rootlessBackend.canInstall())
-            put("state", when (rootless) {
+            put("canCancel", rootlessBackend.canCancelInstallation())
+            put("cancelling", rootlessBackend.isInstallationActive() && !rootlessBackend.canCancelInstallation())
+            val cancelled = progress?.update?.phase == dev.terminal.runtime.rootless.RootlessPhase.CANCELLED
+            put("state", if (cancelled) "CANCELLED" else when (rootless) {
                 RootlessStatus.Checking -> "CHECKING"
                 RootlessStatus.Ready -> "READY"
                 is RootlessStatus.Error -> "ERROR"
                 is RootlessStatus.SetupRequired -> "SETUP_REQUIRED"
                 is RootlessStatus.EnvironmentRequired -> "ENVIRONMENT_REQUIRED"
             })
-            put("detail", when (rootless) {
+            put("detail", if (cancelled) progress!!.update.detail else when (rootless) {
                 RootlessStatus.Checking -> progress?.update?.detail ?: "${distribution.displayName} 상태를 확인하고 있습니다"
                 RootlessStatus.Ready -> "${distribution.displayName} 기본 구성과 셸 실행 확인 완료"
                 is RootlessStatus.Error -> rootless.reason

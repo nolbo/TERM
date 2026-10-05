@@ -98,6 +98,9 @@
     <string name="rootless_install_detail">이미지와 배포판의 공식 기본 구성을 준비하고 있습니다. 기존 이미지는 보존하며 필요한 패키지와 설정을 보완합니다.</string>
     <string name="rootless_install_note">Debian은 최소 2 GiB, Ubuntu Server는 최소 4 GiB, Arch Linux ARM은 최소 2 GiB의 여유 공간과 인터넷 연결이 필요합니다. 이 창을 닫아도 런타임 소유 설치 작업은 계속됩니다.</string>
     <string name="rootless_install_failed">실행환경 준비를 완료하지 못했습니다</string>
+    <string name="install_cancel">설치 취소</string>
+    <string name="install_cancelling">설치 취소 중…</string>
+    <string name="install_cancelled">설치 취소됨</string>
     <string name="image_imported">Debian 이미지를 가져왔습니다</string>
     <string name="image_already_installed">Debian 이미지가 이미 설치되어 있습니다</string>
     <string name="image_import_failed">이미지 가져오기 실패: %1$s</string>
@@ -239,6 +242,7 @@
     <string name="avf_install_retrying">설치 재시도를 기다리는 중</string>
     <string name="avf_install_failed">이미지 설치 실패</string>
     <string name="avf_install_cancelled">이미지 설치 취소됨</string>
+    <string name="avf_install_cancelled_note">해당 AVF 실행환경 상세에서 이미지 설치를 다시 요청할 수 있습니다.</string>
     <string name="avf_install_kernel">부팅 이미지</string>
     <string name="avf_install_initrd">초기 부팅 이미지</string>
     <string name="avf_install_system">시스템 이미지</string>

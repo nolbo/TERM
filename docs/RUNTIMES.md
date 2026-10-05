@@ -47,6 +47,8 @@ driver with the official NDK r28 sysroot and compiler runtime archives.
 
 ## Rootless Linux
 
+Userspace Linux installation can be explicitly cancelled from its environment detail or installation dialog. The owning service stops only that backend's preparation, cleans temporary downloads/extraction, and retains any activated rootfs, home and workspace. A retry recovers interrupted package operations before verifying readiness. Closing a view does not cancel installation.
+
 Each approved distribution uses its own `RootlessDebianBackend` instance (the
 existing class name is retained). Debian retains its independent rootfs at
 `files/rootless/debian/rootfs`, including `/bin/sh` and `apt`, before creating a
@@ -175,6 +177,8 @@ results and remaining device restrictions are in
 [emulated acceleration](ROOTLESS_EMULATED_ACCELERATION.md).
 
 ## AVF Debian
+
+The image progress card can cancel its current WorkManager attempt, including queued work or retries. Cancellation interrupts download, verification and copying before atomic activation and removes that attempt's temporary files. An already activated image is preserved; no VM or terminal session is terminated. Installation can be requested again in the same environment.
 
 The APK includes the AOSP AVF execution driver. AVF still needs a supported Android 15+ device, both system permissions, and a compatible device-provided custom-image API authorized by the platform. The API declarations are compile-only, and Native remains the default owner. AVF uses a separate image/root filesystem and guest session daemon. See `AVF_NOTES.md`.
 

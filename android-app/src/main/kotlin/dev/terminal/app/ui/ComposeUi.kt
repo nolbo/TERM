@@ -371,6 +371,7 @@ data class SessionUi(
 data class RuntimeChoiceUi(
     val id: String, val available: Boolean, val detail: String, val installable: Boolean = false,
     val environmentRequired: Boolean = false, val state: String = "", val progress: RootlessProgressUi? = null,
+    val canCancelInstallation: Boolean = false,
 )
 
 @DrawableRes
@@ -709,6 +710,9 @@ fun RootlessSetupDialog(
     error: String?,
     onRetry: () -> Unit,
     progress: RootlessProgressUi? = null,
+    onCancelInstall: (() -> Unit)? = null,
+    cancelling: Boolean = false,
+    cancelled: Boolean = false,
     onDismiss: () -> Unit,
 ) {
     AlertDialog(
@@ -732,7 +736,13 @@ fun RootlessSetupDialog(
             }
         },
         confirmButton = {
-            if (error != null) Button(onClick = onRetry, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.retry)) }
+            if (running && onCancelInstall != null) {
+                TextButton(onClick = onCancelInstall, enabled = !cancelling, shapes = ButtonDefaults.shapes()) {
+                    Text(stringResource(if (cancelling) R.string.install_cancelling else R.string.install_cancel))
+                }
+            } else if (error != null || cancelled || progress?.phase == "CANCELLED") {
+                Button(onClick = onRetry, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.retry)) }
+            }
         },
         dismissButton = { TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.close)) } },
     )

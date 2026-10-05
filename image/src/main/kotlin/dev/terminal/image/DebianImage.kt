@@ -67,23 +67,26 @@ object DebianImageVerifier {
     }.getOrDefault(false)
 
     /** A writable VM disk changes after first boot; immutable artifacts remain pinned. */
-    fun verifyInstalled(root: Path): ImageVerification {
+    fun verifyInstalled(root: Path, checkCancellation: () -> Unit = {}): ImageVerification {
+        checkCancellation()
         val receipt = root.resolve(INSTALL_RECEIPT)
         val manifest = root.resolve(DebianImageLayout.MANIFEST_FILE)
         val hasReceipt = runCatching {
             Files.isRegularFile(receipt, java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
                 Files.size(receipt) <= 65 && String(Files.readAllBytes(receipt), Charsets.US_ASCII).trim() == sha256(manifest)
         }.getOrDefault(false)
-        return verify(root, verifyHome = !hasReceipt)
+        return verify(root, verifyHome = !hasReceipt, checkCancellation)
     }
 
     internal fun recordInstallation(root: Path) {
         Files.write(root.resolve(INSTALL_RECEIPT), (sha256(root.resolve(DebianImageLayout.MANIFEST_FILE)) + "\n").toByteArray(Charsets.US_ASCII))
     }
 
-    fun verify(root: Path): ImageVerification = verify(root, verifyHome = true)
+    fun verify(root: Path, checkCancellation: () -> Unit = {}): ImageVerification =
+        verify(root, verifyHome = true, checkCancellation)
 
-    private fun verify(root: Path, verifyHome: Boolean): ImageVerification {
+    private fun verify(root: Path, verifyHome: Boolean, checkCancellation: () -> Unit): ImageVerification {
+        checkCancellation()
         val layout = DebianImageLayout(root)
         if (!Files.isDirectory(root)) return ImageVerification.Invalid("Debian image directory is missing")
         val required = listOf(layout.manifest, layout.kernelImage, layout.initrdImage, layout.systemImage, layout.homeImage, layout.configImage)
@@ -108,7 +111,7 @@ object DebianImageVerifier {
         )
         for ((file, expected) in hashes) {
             if (file == layout.homeImage && !verifyHome) continue
-            if (!SHA256.matches(expected) || sha256(file) != expected) {
+            if (!SHA256.matches(expected) || sha256(file, checkCancellation) != expected) {
                 return ImageVerification.Invalid("Checksum verification failed for ${file.fileName}")
             }
         }
@@ -129,12 +132,14 @@ object DebianImageVerifier {
         )
     }
 
-    fun sha256(path: Path): String = Files.newInputStream(path).use { input -> sha256(input) }
+    fun sha256(path: Path, checkCancellation: () -> Unit = {}): String =
+        Files.newInputStream(path).use { input -> sha256(input, checkCancellation) }
 
-    private fun sha256(input: InputStream): String {
+    private fun sha256(input: InputStream, checkCancellation: () -> Unit): String {
         val digest = MessageDigest.getInstance("SHA-256")
         val buffer = ByteArray(HASH_BUFFER_BYTES)
         while (true) {
+            checkCancellation()
             val count = input.read(buffer)
             if (count < 0) break
             digest.update(buffer, 0, count)

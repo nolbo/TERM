@@ -10,6 +10,48 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class DebianImageVerifierTest {
+    @Test fun cancellationStopsVerificationWithoutChangingArtifacts() {
+        val root = Files.createTempDirectory("debian-cancel-verification")
+        try {
+            writeVerifiedImage(root)
+            var checks = 0
+            assertThrows(java.util.concurrent.CancellationException::class.java) {
+                DebianImageVerifier.verify(root) {
+                    if (++checks == 3) throw java.util.concurrent.CancellationException("cancelled")
+                }
+            }
+            assertTrue(DebianImageVerifier.verify(root) is ImageVerification.Ready)
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun cancellationDuringCopyCleansTemporaryImageAndCanRetry() {
+        val root = Files.createTempDirectory("debian-cancel-copy")
+        try {
+            val source = Files.createDirectory(root.resolve("source"))
+            writeVerifiedImage(source)
+            Files.write(source.resolve("system.img"), ByteArray(300_000) { (it * 37).toByte() })
+            val manifest = source.resolve("manifest.properties")
+            Files.writeString(manifest, Files.readString(manifest).replace(Regex("system.sha256=[a-f0-9]+"),
+                "system.sha256=${DebianImageVerifier.sha256(source.resolve("system.img"))}"))
+            val destination = root.resolve("installed")
+            assertThrows(java.util.concurrent.CancellationException::class.java) {
+                DebianImageInstaller.install(source, destination) {
+                    Files.list(root).use { entries ->
+                        entries.filter { it.fileName.toString().startsWith(".installed.install-") }.forEach { temporary ->
+                            val artifact = temporary.resolve("system.img")
+                            if (Files.exists(artifact) && Files.size(artifact) >= 64 * 1024)
+                                throw java.util.concurrent.CancellationException("cancelled")
+                        }
+                    }
+                }
+            }
+            assertFalse(Files.exists(destination))
+            Files.list(root).use { entries -> assertEquals(listOf(source), entries.toList()) }
+            assertTrue(DebianImageInstaller.install(source, destination) is ImageInstallResult.Installed)
+            assertTrue(DebianImageVerifier.verifyInstalled(destination) is ImageVerification.Ready)
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     @Test fun installationPresenceRequiresCompleteRegularFiles() {
         val root = Files.createTempDirectory("debian-presence-test")
         try {

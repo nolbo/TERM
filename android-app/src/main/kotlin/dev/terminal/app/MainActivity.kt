@@ -162,6 +162,8 @@ class MainActivity : TerminalActivity() {
     private var terminatingSessionIds by mutableStateOf(emptySet<String>())
     private var rootlessVisible by mutableStateOf(false)
     private var rootlessRunning by mutableStateOf(false)
+    private var rootlessCanCancel by mutableStateOf(false)
+    private var rootlessCancelling by mutableStateOf(false)
     private var rootlessStatus by mutableStateOf("")
     private var rootlessProgress by mutableStateOf<RootlessProgressUi?>(null)
     private var avfImageInstallations by mutableStateOf(emptyList<dev.terminal.runtime.image.AvfImageInstallSnapshot>())
@@ -265,7 +267,21 @@ class MainActivity : TerminalActivity() {
             val storageId = rootlessLaunchSpec?.storageId ?: "legacy"
             val progressKey = if (storageId == "legacy") rootlessInstallRuntime else "$rootlessInstallRuntime:$storageId"
             if (runtimeType != progressKey) return@runOnUiThread
+            if (phase == dev.terminal.runtime.rootless.RootlessPhase.CANCELLED.displayName) {
+                rootlessRunning = false
+                rootlessCanCancel = false
+                rootlessCancelling = false
+                rootlessInstallInFlight = false
+                rootlessStatus = getString(R.string.install_cancelled)
+                rootlessDetail = detail
+                rootlessError = null
+                rootlessProgress = rootlessProgress?.copy(phase = "CANCELLED", label = rootlessStatus,
+                    detail = detail, fraction = null, completedBytes = null, totalBytes = null,
+                    finishedAtElapsedMs = SystemClock.elapsedRealtime())
+                return@runOnUiThread
+            }
             if (rootlessLaunchSpec?.storageId?.let { it != "legacy" } == true) {
+                rootlessCanCancel = phase != dev.terminal.runtime.rootless.RootlessPhase.READY.displayName
                 rootlessStatus = phase
                 rootlessDetail = detail
                 return@runOnUiThread
@@ -695,7 +711,10 @@ class MainActivity : TerminalActivity() {
             )
         }
         if (rootlessVisible) {
-            RootlessSetupDialog(rootlessInstallRuntime, rootlessStatus, rootlessDetail, rootlessRunning, rootlessError, ::beginRootlessInstall, rootlessProgress) {
+            RootlessSetupDialog(rootlessInstallRuntime, rootlessStatus, rootlessDetail, rootlessRunning, rootlessError,
+                ::beginRootlessInstall, rootlessProgress,
+                onCancelInstall = if (rootlessCanCancel || rootlessCancelling) ::cancelRootlessInstall else null,
+                cancelling = rootlessCancelling, cancelled = rootlessStatus == getString(R.string.install_cancelled)) {
                 rootlessVisible = false
             }
         }
@@ -1128,12 +1147,22 @@ class MainActivity : TerminalActivity() {
         if (rootlessInstallInFlight) return
         rootlessInstallInFlight = true
         rootlessRunning = true
+        rootlessCanCancel = false
+        rootlessCancelling = false
         rootlessProgress = null
         rootlessSessionsBeforeInstall = sessions.mapTo(mutableSetOf()) { it.id }
         rootlessStatus = getString(R.string.rootless_installing, getString(runtimeTitleResource(rootlessInstallRuntime)))
         rootlessDetail = getString(R.string.rootless_install_detail)
         rootlessError = null
         createSession(rootlessLaunchSpec ?: builtInLaunchSpec(rootlessInstallRuntime))
+    }
+
+    private fun cancelRootlessInstall() {
+        if (rootlessCancelling) return
+        safeRuntimeCall { service ->
+            rootlessCancelling = service.cancelRootlessInstallation(rootlessInstallRuntime,
+                rootlessLaunchSpec?.storageId ?: "legacy")
+        }
     }
 
     private fun builtInLaunchSpec(runtimeType: String) =
@@ -1182,6 +1211,9 @@ class MainActivity : TerminalActivity() {
         rootlessProgress = choice.progress
         rootlessDetail = choice.detail
         rootlessRunning = choice.state == "CHECKING"
+        rootlessCanCancel = choice.canCancelInstallation
+        if (!rootlessRunning) rootlessCancelling = false
+        if (choice.state == "CANCELLED") rootlessInstallInFlight = false
         choice.progress?.let {
             rootlessStatus = it.label
             rootlessError = choice.detail.takeIf { choice.state == "ERROR" }

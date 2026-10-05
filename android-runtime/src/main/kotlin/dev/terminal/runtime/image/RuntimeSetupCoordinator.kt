@@ -49,6 +49,12 @@ class RuntimeSetupCoordinator(private val context: Context) {
         .getWorkInfos(WorkQuery.fromUniqueWorkNames(installationWorkNames(storageId)))
         .awaitImageOperation().any { !it.state.isFinished }
 
+    /** Cancel the observed attempt only, so a stale view cannot cancel a later retry. */
+    suspend fun cancelImageInstallation(workId: String) {
+        RemoteWorkManager.getInstance(context).cancelWorkById(java.util.UUID.fromString(workId))
+            .awaitImageOperation()
+    }
+
     /** Metadata adoption never renames an already-enqueued legacy installation. */
     internal fun installationWorkNames(storageId: String): List<String> = buildList {
         add(DebianImageDownloadWorker.workName(storageId))

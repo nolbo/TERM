@@ -16,6 +16,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.CancellationException
 
 /** Permissionless distribution/glibc runtime. PRoot and its loader must be immutable APK payloads. */
 class RootlessDebianBackend(
@@ -29,15 +30,18 @@ class RootlessDebianBackend(
     private val appContext = context.applicationContext
     private val state = MutableStateFlow<RuntimeState>(RuntimeState.Stopped)
     private val progressTracker = RootlessProgressTracker(android.os.SystemClock::elapsedRealtime)
+    private val installation = RootlessInstallation()
     private val progressReporter = object : RootlessProgressReporter {
         override fun report(phase: RootlessPhase, detail: String) = update(RootlessProgressUpdate(phase, detail))
         override fun update(progress: RootlessProgressUpdate) {
+            installation.ensureActive()
             if (progressTracker.record(progress)) reporter.report(progress.phase, progressTracker.latest!!.update.detail)
         }
     }
     private val layout = RootlessDebianLayout(storageRoot ?: File(appContext.filesDir, "rootless/${distribution.directory}"), distribution,
         workspaceRoot = storageRoot?.let { File(it, "workspace") })
-    private val bootstrapper = RootlessBootstrapper(appContext, layout, progressReporter)
+    private val bootstrapper = RootlessBootstrapper(appContext, layout, progressReporter,
+        checkCancellation = installation::ensureActive)
     private val dns = RootlessDnsStore(appContext)
     private val prepareMutex = Mutex()
     private var controller: RootlessSessionController? = null
@@ -51,39 +55,50 @@ class RootlessDebianBackend(
         if (RootlessEnvironmentProfile.validate(layout).isFailure && controller?.list()?.getOrThrow().orEmpty().isNotEmpty()) {
             return@withLock Result.failure(IllegalStateException("이 배포판의 모든 세션을 종료한 뒤 환경 보완을 실행하세요"))
         }
-        runCatching {
-            check(!RootlessNativeMigration.pending(layout.root.parentFile.toPath())) {
-                "중단된 가속 형식 이전이 있습니다. 설정에서 중단된 이전 복구를 실행하세요"
+        try {
+            installation.run {
+                check(!RootlessNativeMigration.pending(layout.root.parentFile.toPath())) {
+                    "중단된 가속 형식 이전이 있습니다. 설정에서 중단된 이전 복구를 실행하세요"
+                }
+                if (progressTracker.latest?.update?.phase != RootlessPhase.WAITING) progressTracker.reset()
+                state.value = RuntimeState.Preparing
+                layout.createHostDirectories()
+                progressReporter.report(RootlessPhase.EXECUTABLE, "셸 실행에 필요한 파일을 확인하고 있습니다")
+                require("arm64-v8a" in android.os.Build.SUPPORTED_ABIS) {
+                    "지원되지 않는 ABI입니다: ${android.os.Build.SUPPORTED_ABIS.joinToString()} (필요: arm64-v8a)"
+                }
+                proot = executableLoader.resolvePackagedExecutable("proot").getOrElse {
+                    throw RootlessSetupException(RootlessPhase.EXECUTABLE, it)
+                }
+                loader = executableLoader.resolvePackagedExecutable("proot-loader").getOrElse {
+                    throw RootlessSetupException(RootlessPhase.EXECUTABLE, it)
+                }
+                bootstrapper.installIfNeeded().getOrThrow()
+                layout.validateInstalledRootfs().getOrThrow()
+                if (RootlessEnvironmentProfile.validate(layout).isFailure) {
+                    controller?.close()
+                    controller = null
+                    RootlessEnvironmentSetup(appContext, layout, requireNotNull(proot), requireNotNull(loader), progressReporter,
+                        resolverFile = dns.resolverFile(layout)).prepare()
+                } else configureRootlessLoginHome(layout)
+                state.value = if (controller == null) RuntimeState.Stopped else RuntimeState.Ready
+                progressReporter.report(RootlessPhase.READY, "${distribution.displayName} 기본 구성과 셸 실행을 확인했습니다")
+                progressTracker.finish()
             }
-            if (progressTracker.latest?.update?.phase != RootlessPhase.WAITING) progressTracker.reset()
-            state.value = RuntimeState.Preparing
-            layout.createHostDirectories()
-            progressReporter.report(RootlessPhase.EXECUTABLE, "셸 실행에 필요한 파일을 확인하고 있습니다")
-            require("arm64-v8a" in android.os.Build.SUPPORTED_ABIS) {
-                "지원되지 않는 ABI입니다: ${android.os.Build.SUPPORTED_ABIS.joinToString()} (필요: arm64-v8a)"
-            }
-            proot = executableLoader.resolvePackagedExecutable("proot").getOrElse {
-                throw RootlessSetupException(RootlessPhase.EXECUTABLE, it)
-            }
-            loader = executableLoader.resolvePackagedExecutable("proot-loader").getOrElse {
-                throw RootlessSetupException(RootlessPhase.EXECUTABLE, it)
-            }
-            bootstrapper.installIfNeeded().getOrThrow()
-            layout.validateInstalledRootfs().getOrThrow()
-            if (RootlessEnvironmentProfile.validate(layout).isFailure) {
-                controller?.close()
-                controller = null
-                RootlessEnvironmentSetup(appContext, layout, requireNotNull(proot), requireNotNull(loader), progressReporter,
-                    resolverFile = dns.resolverFile(layout)).prepare()
-            } else configureRootlessLoginHome(layout)
-            state.value = if (controller == null) RuntimeState.Stopped else RuntimeState.Ready
-            progressReporter.report(RootlessPhase.READY, "${distribution.displayName} 기본 구성과 셸 실행을 확인했습니다")
-            progressTracker.finish()
-        }.onFailure {
+            Result.success(Unit)
+        } catch (cancelled: CancellationException) {
             proot = null
             loader = null
-            state.value = RuntimeState.Failed(it.message ?: "${distribution.displayName} setup failed")
+            state.value = RuntimeState.Stopped
+            progressReporter.report(RootlessPhase.CANCELLED, RootlessInstallation.CANCELLED_MESSAGE)
             progressTracker.finish()
+            throw cancelled
+        } catch (error: Exception) {
+            proot = null
+            loader = null
+            state.value = RuntimeState.Failed(error.message ?: "${distribution.displayName} setup failed")
+            progressTracker.finish()
+            Result.failure(error)
         }
     }
 
@@ -155,6 +170,9 @@ class RootlessDebianBackend(
 
     fun sessionController(): SessionController? = controller
     fun installProgress(): RootlessInstallProgress? = progressTracker.latest
+    fun isInstallationActive(): Boolean = installation.active
+    fun canCancelInstallation(): Boolean = installation.cancellable
+    fun cancelInstallation(): Boolean = installation.cancel()
 
     /** Called only when the service queues preparation behind another runtime operation. */
     fun reportPreparationWaiting() {
