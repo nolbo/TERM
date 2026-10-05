@@ -871,12 +871,12 @@ public final class TerminalView extends View {
 
     /** Send a single mouse event code to the terminal. */
     void sendMouseEventCode(MotionEvent e, int button, boolean pressed) {
+        boolean wheel = button == TerminalEmulator.MOUSE_WHEELDOWN_BUTTON || button == TerminalEmulator.MOUSE_WHEELUP_BUTTON
+            || button == TerminalEmulator.MOUSE_WHEELLEFT_BUTTON || button == TerminalEmulator.MOUSE_WHEELRIGHT_BUTTON;
         int[] columnAndRow = getColumnAndRow(e, false);
         int x = columnAndRow[0] + 1;
         int y = columnAndRow[1] + 1;
-        if (pressed && e.getActionMasked() != MotionEvent.ACTION_SCROLL
-                && (button == TerminalEmulator.MOUSE_WHEELDOWN_BUTTON || button == TerminalEmulator.MOUSE_WHEELUP_BUTTON
-                    || button == TerminalEmulator.MOUSE_WHEELLEFT_BUTTON || button == TerminalEmulator.MOUSE_WHEELRIGHT_BUTTON)) {
+        if (pressed && e.getActionMasked() != MotionEvent.ACTION_SCROLL && wheel) {
             if (mMouseStartDownTime == e.getDownTime()) {
                 x = mMouseScrollStartX;
                 y = mMouseScrollStartY;
@@ -886,7 +886,13 @@ public final class TerminalView extends View {
                 mMouseScrollStartY = y;
             }
         }
-        mEmulator.sendMouseEvent(button, x, y, pressed);
+        // Read Hotkeys at dispatch time for both touch and physical wheels. Wheel input
+        // does not consume latched modifiers or pass through keyboard callbacks.
+        int modifiers = wheel ?
+            (mClient.readShiftKey() ? TerminalEmulator.MOUSE_MODIFIER_SHIFT : 0)
+                | (mClient.readAltKey() ? TerminalEmulator.MOUSE_MODIFIER_ALT : 0)
+                | (mClient.readControlKey() ? TerminalEmulator.MOUSE_MODIFIER_CTRL : 0) : 0;
+        mEmulator.sendMouseEvent(button | modifiers, x, y, pressed);
     }
 
     /** Horizontal scrolling is exclusively application mouse input, with no key/scrollback fallback. */

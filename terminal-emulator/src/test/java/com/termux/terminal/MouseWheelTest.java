@@ -1,6 +1,35 @@
 package com.termux.terminal;
 
 public class MouseWheelTest extends TerminalTestCase {
+    public void testAllModifierCombinationsAndWheelDirectionsUseSgrButtonBits() {
+        assertEquals(4, TerminalEmulator.MOUSE_MODIFIER_SHIFT);
+        assertEquals(8, TerminalEmulator.MOUSE_MODIFIER_ALT);
+        assertEquals(16, TerminalEmulator.MOUSE_MODIFIER_CTRL);
+        withTerminalSized(80, 24).enterString("\033[?1000h\033[?1006h");
+        int[] expectedMasks = {0, 4, 8, 12, 16, 20, 24, 28};
+        for (int combination = 0; combination < expectedMasks.length; combination++) {
+            int modifiers = ((combination & 1) != 0 ? TerminalEmulator.MOUSE_MODIFIER_SHIFT : 0)
+                | ((combination & 2) != 0 ? TerminalEmulator.MOUSE_MODIFIER_ALT : 0)
+                | ((combination & 4) != 0 ? TerminalEmulator.MOUSE_MODIFIER_CTRL : 0);
+            for (int button = 64; button <= 67; button++) {
+                mTerminal.sendMouseEvent(button | modifiers, 7, 12, true);
+                assertEquals("\033[<" + (button + expectedMasks[combination]) + ";7;12M", mOutput.getOutputAndClear());
+            }
+        }
+    }
+
+    public void testModifiedWheelLegacyEncodingAndTrackingGate() {
+        withTerminalSized(80, 24).enterString("\033[?1000h");
+        mTerminal.sendMouseEvent(TerminalEmulator.MOUSE_WHEELUP_BUTTON | TerminalEmulator.MOUSE_MODIFIER_SHIFT, 7, 12, true);
+        mTerminal.sendMouseEvent(TerminalEmulator.MOUSE_WHEELDOWN_BUTTON | TerminalEmulator.MOUSE_MODIFIER_SHIFT, 7, 12, true);
+        mTerminal.sendMouseEvent(TerminalEmulator.MOUSE_WHEELLEFT_BUTTON | TerminalEmulator.MOUSE_MODIFIER_ALT, 7, 12, true);
+        mTerminal.sendMouseEvent(TerminalEmulator.MOUSE_WHEELRIGHT_BUTTON | TerminalEmulator.MOUSE_MODIFIER_CTRL, 7, 12, true);
+        assertEquals("\033[Md',\033[Me',\033[Mj',\033[Ms',", mOutput.getOutputAndClear());
+        enterString("\033[?1000l");
+        mTerminal.sendMouseEvent(TerminalEmulator.MOUSE_WHEELUP_BUTTON | TerminalEmulator.MOUSE_MODIFIER_SHIFT, 7, 12, true);
+        assertEquals("", mOutput.getOutputAndClear());
+    }
+
     public void testHorizontalSgrWheelForEachTrackingModeAndScreen() {
         assertEquals(66, TerminalEmulator.MOUSE_WHEELLEFT_BUTTON);
         assertEquals(67, TerminalEmulator.MOUSE_WHEELRIGHT_BUTTON);

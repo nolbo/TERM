@@ -42,6 +42,9 @@ public final class TerminalEmulator implements java.io.Serializable {
     /** Xterm wheel buttons 6 and 7, encoded with the wheel bit (64). */
     public static final int MOUSE_WHEELLEFT_BUTTON = 66;
     public static final int MOUSE_WHEELRIGHT_BUTTON = 67;
+    public static final int MOUSE_MODIFIER_SHIFT = 4;
+    public static final int MOUSE_MODIFIER_ALT = 8;
+    public static final int MOUSE_MODIFIER_CTRL = 16;
 
     /** Used for invalid data - http://en.wikipedia.org/wiki/Replacement_character#Replacement_character */
     public static final int UNICODE_REPLACEMENT_CHAR = 0xFFFD;

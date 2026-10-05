@@ -12,6 +12,82 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TerminalHorizontalWheelTest {
+    @Test fun allHotkeyModifierCombinationsApplyToTouchMouseAndTrackpadWheelsWithoutConsumption() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        var stateChanges = 0
+        val callbacks = TerminalInputCallbacks(onModifierStateChanged = { stateChanges++ })
+        withTerminal(callbacks) { view, output ->
+            append(view, "\u001b[?1003h\u001b[?1006h")
+            val distance = 2.25f * spacing(view)
+            val directions = listOf(64 to (0f to distance), 65 to (0f to -distance),
+                66 to (distance to 0f), 67 to (-distance to 0f))
+            val masks = listOf(0, 4, 8, 12, 16, 20, 24, 28)
+            for (combination in masks.indices) {
+                callbacks.shiftPressed = combination and 1 != 0
+                callbacks.altPressed = combination and 2 != 0
+                callbacks.controlPressed = combination and 4 != 0
+                for ((button, delta) in directions) {
+                    output.reset()
+                    val drag = Drag(view)
+                    val anchor = drag.move(delta.first, delta.second)
+                    drag.finish(cancel = true)
+                    assertEquals("touch button $button, mask ${masks[combination]}",
+                        anchor.sequence(button + masks[combination]).repeat(2), output.toString("UTF-8"))
+                    for (source in listOf(InputDevice.SOURCE_MOUSE, InputDevice.SOURCE_TOUCHPAD)) {
+                        output.reset()
+                        val cell = wheel(view,
+                            horizontal = when (button) { 66 -> -1f; 67 -> 1f; else -> 0f },
+                            vertical = when (button) { 64 -> 1f; 65 -> -1f; else -> 0f }, source = source)
+                        assertEquals("physical button $button, mask ${masks[combination]}, source $source",
+                            cell.sequence(button + masks[combination]).repeat(3), output.toString("UTF-8"))
+                    }
+                    assertEquals(combination and 1 != 0, callbacks.readShiftKey())
+                    assertEquals(combination and 2 != 0, callbacks.readAltKey())
+                    assertEquals(combination and 4 != 0, callbacks.readControlKey())
+                }
+            }
+        }
+        // Keyboard consumption posts to the main looper: drain it before checking persistence.
+        instrumentation.waitForIdleSync()
+        instrumentation.runOnMainSync {
+            assertTrue(callbacks.readShiftKey())
+            assertTrue(callbacks.readAltKey())
+            assertTrue(callbacks.readControlKey())
+            assertEquals("Wheel input must never schedule modifier consumption", 0, stateChanges)
+        }
+    }
+
+    @Test fun wheelReadsHotkeyChangesDuringDragAndStopsApplyingModifiersWhenToggledOff() {
+        val callbacks = TerminalInputCallbacks()
+        withTerminal(callbacks) { view, output ->
+            append(view, "\u001b[?1000h\u001b[?1006h")
+            callbacks.shiftPressed = true
+            val drag = Drag(view)
+            val cell = drag.move(0f, 2.25f * spacing(view))
+            assertEquals(cell.sequence(68).repeat(2), output.toString("UTF-8"))
+            output.reset()
+            callbacks.altPressed = true
+            callbacks.controlPressed = true
+            drag.move(0f, spacing(view))
+            assertEquals(cell.sequence(92), output.toString("UTF-8"))
+            output.reset()
+            callbacks.shiftPressed = false
+            callbacks.altPressed = false
+            callbacks.controlPressed = false
+            drag.move(0f, spacing(view))
+            drag.finish(cancel = true)
+            assertEquals(cell.sequence(64), output.toString("UTF-8"))
+            output.reset()
+            callbacks.shiftPressed = true
+            val physical = wheel(view, horizontal = 0f, vertical = -1f)
+            assertEquals(physical.sequence(69).repeat(3), output.toString("UTF-8"))
+            output.reset()
+            callbacks.shiftPressed = false
+            wheel(view, horizontal = 0f, vertical = -1f)
+            assertEquals(physical.sequence(65).repeat(3), output.toString("UTF-8"))
+        }
+    }
+
     @Test fun touchDirectionsEmitExactSgrWheelPressesInEveryTrackingMode() {
         for (mode in listOf(1000, 1002, 1003)) withTerminal { view, output ->
             append(view, "\u001b[?$mode" + "h\u001b[?1006h\u001b[?1049h")
@@ -153,14 +229,15 @@ class TerminalHorizontalWheelTest {
         assertTrue(codes.all { it == 0 || it == 32 })
     }
 
-    private fun withTerminal(block: (TerminalView, ByteArrayOutputStream) -> Unit) {
+    private fun withTerminal(callbacks: TerminalInputCallbacks = TerminalInputCallbacks(),
+                             block: (TerminalView, ByteArrayOutputStream) -> Unit) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.runOnMainSync {
             val output = ByteArrayOutputStream()
             val backend = RemoteTerminalBackend(write = { output.write(it) }, resize = { _, _ -> })
             val session = TerminalSession("", "/", emptyArray(), emptyArray(), 1000, TerminalCallbacks {}, backend)
             val view = TerminalView(instrumentation.targetContext, null).apply {
-                setTerminalViewClient(TerminalInputCallbacks())
+                setTerminalViewClient(callbacks)
                 setTextSize(20)
                 layout(0, 0, 1000, 600)
                 attachSession(session)
