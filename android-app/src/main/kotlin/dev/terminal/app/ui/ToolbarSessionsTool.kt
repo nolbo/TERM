@@ -10,6 +10,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
@@ -65,11 +66,11 @@ internal fun ToolbarSessionsTool(
     onReorder: (List<String>) -> Unit = {},
     expansionProgress: Float = LocalToolbarExpansionProgress.current,
     profileEnvironmentNames: Map<EnvironmentId, String> = emptyMap(),
+    headerTabScroll: ScrollState = rememberScrollState(),
 ) {
     val haptics = LocalTerminalHaptics.current
     // Keep each list's position when switching between the default and expanded headers.
     val tabScroll = rememberScrollState()
-    val headerTabScroll = rememberScrollState()
     val profileScroll = rememberLazyListState()
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val progress = expansionProgress.coerceIn(0f, 1f)

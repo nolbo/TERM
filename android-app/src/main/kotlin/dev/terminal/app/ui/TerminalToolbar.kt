@@ -9,6 +9,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.PagerState
+import androidx.compose.foundation.pager.PagerDefaults
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
@@ -25,6 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.platform.LocalDensity
@@ -32,6 +34,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Velocity
 import dev.terminal.app.*
 import dev.terminal.app.R
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -199,7 +202,24 @@ private fun ToolbarPageHandle(pager: PagerState, count: Int, visible: Boolean, c
 private fun ColumnScope.ToolbarPages(tools: List<String>, pager: PagerState, interactive: Boolean,
     pageNavigationEnabled: Boolean,
     content: @Composable (String, Boolean) -> Unit) {
+    val fling = PagerDefaults.flingBehavior(pager)
+    val currentFling by rememberUpdatedState(fling)
+    val defaultConnection = PagerDefaults.pageNestedScrollConnection(pager, Orientation.Horizontal)
+    val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) 1f else -1f
+    val navigationEnabled by rememberUpdatedState(interactive && pageNavigationEnabled)
+    val pageConnection = remember(pager, defaultConnection, direction) {
+        object : NestedScrollConnection by defaultConnection {
+            override suspend fun onPreFling(available: Velocity): Velocity {
+                if (!navigationEnabled || pager.currentPageOffsetFraction == 0f) return Velocity.Zero
+                // A tab-list edge drag has moved the pager. Snap with the original release
+                // velocity before the inner list and the default connection consume it.
+                pager.scroll { with(currentFling) { performFling(available.x * direction) } }
+                return Velocity(available.x, 0f)
+            }
+        }
+    }
     HorizontalPager(state = pager, userScrollEnabled = interactive && pageNavigationEnabled,
+        flingBehavior = fling, pageNestedScrollConnection = pageConnection,
         key = { tools[it] }, modifier = Modifier.weight(1f).fillMaxWidth()) { page ->
         content(tools[page], interactive && !pager.isScrollInProgress && page == pager.currentPage)
     }

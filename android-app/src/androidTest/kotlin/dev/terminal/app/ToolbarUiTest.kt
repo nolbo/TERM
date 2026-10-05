@@ -11,12 +11,16 @@ import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -24,6 +28,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import dev.terminal.app.ui.*
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.lifecycle.VmRuntimeService
+import kotlinx.coroutines.launch
 import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Test
@@ -107,6 +112,18 @@ class ToolbarUiTest {
     }
     private fun bounds(node: AccessibilityNodeInfo) = Rect().also { node.getBoundsInScreen(it) }
     private fun handle() = description(label(R.string.toolbar_handle))
+
+    private fun swipe(x: Float, y: Float, dx: Float) {
+        val start = SystemClock.uptimeMillis()
+        for (i in 0..10) {
+            val action = when (i) { 0 -> MotionEvent.ACTION_DOWN; 10 -> MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
+            val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, x + dx * i / 10, y, 0)
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, false)) } finally { event.recycle() }
+            SystemClock.sleep(10)
+        }
+        settle()
+    }
 
     private fun assertNoHandleHover(node: AccessibilityNodeInfo) {
         val rect = bounds(node)
@@ -476,6 +493,138 @@ class ToolbarUiTest {
             if (previous == null) editor.remove(KEY_SKIP_SESSION_CLOSE_CONFIRMATION)
             else editor.putBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, previous)
             editor.commit()
+        }
+    }
+
+    @Test fun defaultSessionTabsHandOffEdgeSwipesFromSelectedAndInactiveTabs() {
+        assertDefaultSessionTabEdgeSwipes(LayoutDirection.Ltr)
+    }
+
+    @Test fun defaultSessionTabsHandOffEdgeSwipesInRtl() {
+        assertDefaultSessionTabEdgeSwipes(LayoutDirection.Rtl)
+    }
+
+    @Test fun defaultSessionTabsPrioritizeListScrollingAndRespectDisabledPaging() {
+        val navigation = mutableStateOf(true)
+        val sessions = (0..3).map { SessionUi("scroll-$it", "NATIVE", "Scrollable session $it with a long title", "RUNNING") }
+        var currentTool: String? = null
+        var tabActions = 0
+        var headerScroll: ScrollState? = null
+        var positionTabs: ((Boolean) -> Unit)? = null
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    val scroll = rememberScrollState()
+                    val scope = rememberCoroutineScope()
+                    SideEffect {
+                        headerScroll = scroll
+                        positionTabs = { forward -> scope.launch { scroll.scrollTo(if (forward) scroll.maxValue else 0) } }
+                    }
+                    Column(Modifier.fillMaxSize()) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(ToolbarConfig(tools = listOf(SESSIONS_TOOL, "next")),
+                            ToolbarSheetMode.Default, {}, 400.dp, TerminalChromeColors(Color.Black),
+                            pageNavigationEnabled = navigation.value) { id, active ->
+                            SideEffect { if (active) currentTool = id }
+                            if (id == SESSIONS_TOOL) ToolbarSessionsTool(sessions, sessions.first().id, active,
+                                emptySet(), emptyList(), {}, {}, false, { tabActions++ },
+                                { tabActions++ }, { tabActions++ }, {}, {}, {}, headerTabScroll = scroll)
+                            else Text("next tool", Modifier.fillMaxSize())
+                        }
+                    }
+                } }
+            } }
+            settle()
+            val density = context.resources.displayMetrics.density
+            val before = bounds(tabText(sessions.first().title))
+            swipe(before.right - 16 * density, before.exactCenterY(), -96 * density)
+            val first = find { it.text?.toString() == sessions.first().title }
+            assertTrue("The inner list must scroll before changing tools", first == null || bounds(first).width() < before.width())
+            assertEquals(SESSIONS_TOOL, currentTool)
+
+            val page = bounds(handle())
+            scenario.onActivity { requireNotNull(positionTabs)(true) }
+            settle()
+            assertEquals(requireNotNull(headerScroll).maxValue, requireNotNull(headerScroll).value)
+            assertEquals("Positioning tabs must keep the sessions tool selected", SESSIONS_TOOL, currentTool)
+            scenario.onActivity { navigation.value = false }
+            settle()
+            val edge = bounds(tabText(sessions.last().title))
+            val x = edge.right - 24 * density
+            swipe(x, edge.exactCenterY(), -(x - page.left - 8 * density))
+            assertEquals("Disabling page navigation must also block edge swipes", SESSIONS_TOOL, currentTool)
+            assertEquals(0, tabActions)
+        }
+    }
+
+    private fun assertDefaultSessionTabEdgeSwipes(layoutDirection: LayoutDirection) {
+        val density = context.resources.displayMetrics.density
+        val sessions = (0..2).map { SessionUi("edge-$it", "NATIVE", "Edge session $it with a long title", "RUNNING") }
+        for (forward in listOf(true, false)) for (selectedEdge in listOf(false, true)) {
+            val edge = if (forward) sessions.last() else sessions.first()
+            val selected = if (selectedEdge) edge.id else if (forward) sessions.first().id else sessions.last().id
+            val starts = if (selectedEdge) listOf("title", "icon", "padding", "close") else listOf("title", "icon", "padding")
+            for (start in starts) {
+                val config = mutableStateOf(ToolbarConfig(tools = listOf(SESSIONS_TOOL)))
+                var tabActions = 0
+                var currentTool: String? = null
+                var headerScroll: ScrollState? = null
+                var positionTabs: ((Boolean) -> Unit)? = null
+                ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    scenario.onActivity { activity -> activity.setContent {
+                        DroidTheme { TerminalHapticFeedbackProvider {
+                            val scroll = rememberScrollState()
+                            val scope = rememberCoroutineScope()
+                            SideEffect {
+                                headerScroll = scroll
+                                positionTabs = { toEnd -> scope.launch { scroll.scrollTo(if (toEnd) scroll.maxValue else 0) } }
+                            }
+                            CompositionLocalProvider(LocalLayoutDirection provides layoutDirection) {
+                                Column(Modifier.fillMaxSize()) {
+                                    Spacer(Modifier.weight(1f))
+                                    TerminalToolbar(config.value, ToolbarSheetMode.Default, {}, 400.dp,
+                                        TerminalChromeColors(Color.Black)) { id, active ->
+                                        SideEffect { if (active) currentTool = id }
+                                        if (id == SESSIONS_TOOL) ToolbarSessionsTool(sessions, selected, active,
+                                            emptySet(), emptyList(), {}, {}, false, { tabActions++ },
+                                            { tabActions++ }, { tabActions++ }, {}, {}, {}, headerTabScroll = scroll)
+                                        else Text("$id tool", Modifier.fillMaxSize())
+                                    }
+                                }
+                            }
+                        } }
+                    } }
+                    settle()
+                    scenario.onActivity { config.value = ToolbarConfig(tools = listOf("before", "previous", SESSIONS_TOOL, "next", "after")) }
+                    settle()
+                    val page = bounds(handle())
+                    // ScrollState.scrollTo positions only the tabs, without nested-scroll overflow.
+                    scenario.onActivity { requireNotNull(positionTabs)(forward) }
+                    settle()
+                    assertEquals(if (forward) requireNotNull(headerScroll).maxValue else 0, requireNotNull(headerScroll).value)
+                    assertEquals("Positioning tabs must keep the sessions tool selected", SESSIONS_TOOL, currentTool)
+                    val body = bounds(tabText(edge.title))
+                    val rect = if (start == "close") bounds(description(context.getString(R.string.terminate_session_description, edge.title))) else body
+                    val rtl = layoutDirection == LayoutDirection.Rtl
+                    val x = when (start) {
+                        "icon" -> if (rtl) rect.right - 22 * density else rect.left + 22 * density
+                        "title" -> if (rtl) rect.left + 24 * density else rect.right - 24 * density
+                        else -> rect.exactCenterX()
+                    }
+                    val y = if (start == "padding") rect.top + 3 * density else rect.exactCenterY()
+                    val moveLeft = forward != rtl
+                    val distance = if (moveLeft) x - page.left - 8 * density else page.right - x - 8 * density
+                    val case = "$layoutDirection forward=$forward selected=$selectedEdge start=$start"
+                    swipe(x, y, if (moveLeft) -distance else distance)
+                    val targetLabel = if (forward) "next tool" else "previous tool"
+                    val target = bounds(waitForNode("$targetLabel snapped after edge swipe: $case") {
+                        it.text?.toString() == targetLabel && bounds(it).let { area -> area.left == page.left && area.right == page.right }
+                    })
+                    assertEquals("The target tool must finish snapping: $case", page.left, target.left)
+                    assertEquals("The target tool must fill the viewport: $case", page.right, target.right)
+                    assertEquals("An edge swipe must not select, rename, or close a tab: $case", 0, tabActions)
+                }
+            }
         }
     }
 
