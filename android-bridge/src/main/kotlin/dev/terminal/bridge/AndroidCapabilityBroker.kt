@@ -72,7 +72,7 @@ class AndroidCapabilityBroker(
         notifications.notify(
             nextNotificationId(),
             NotificationCompat.Builder(appContext, CHANNEL_ID)
-                .setSmallIcon(android.R.drawable.stat_sys_warning)
+                .setSmallIcon(R.drawable.ic_notification_terminal)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setAutoCancel(true)

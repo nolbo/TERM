@@ -13,6 +13,7 @@ import dev.terminal.image.DebianImageVerifier
 import dev.terminal.image.ImageInstallResult
 import dev.terminal.image.ImageVerification
 import dev.terminal.image.DebianArtifactDownloader
+import dev.terminal.runtime.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.CancellationException
@@ -146,7 +147,7 @@ class DebianImageDownloadWorker(
             notificationChannelCreated = true
         }
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setSmallIcon(R.drawable.ic_notification_terminal)
             .setContentTitle("AVF Debian 자동 설치")
             .setContentText(when (lastProgress.getString(AvfImageInstallMonitor.KEY_PHASE)) {
                 "MANIFEST" -> "설치 정보 확인 중"
