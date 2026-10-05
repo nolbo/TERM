@@ -23,7 +23,9 @@ object DebianImageInstaller {
         if (it is ImageVerification.Ready) DebianImageVerifier.recordInstallation(root)
     }
 
-    fun install(stagingDirectory: Path, destination: Path, checkCancellation: () -> Unit = {}): ImageInstallResult {
+    /** Activation may fence deletion under a metadata lock; copying and hashing stay outside it. */
+    fun install(stagingDirectory: Path, destination: Path,
+        activate: (() -> Unit) -> Unit = { it() }, checkCancellation: () -> Unit = {}): ImageInstallResult {
         checkCancellation()
         if (Files.exists(destination)) {
             return ImageInstallResult.AlreadyInstalled(DebianImageVerifier.verifyInstalled(destination, checkCancellation))
@@ -47,8 +49,11 @@ object DebianImageInstaller {
                 is ImageVerification.Invalid -> ImageInstallResult.Failed(verification.reason)
                 is ImageVerification.Ready -> {
                     DebianImageVerifier.recordInstallation(temporary)
-                    checkCancellation()
-                    moveIntoPlace(temporary, destination)
+                    activate {
+                        checkCancellation()
+                        check(!Files.exists(destination)) { "Image destination already exists; refusing replacement" }
+                        moveIntoPlace(temporary, destination)
+                    }
                     ImageInstallResult.Installed(destination)
                 }
             }

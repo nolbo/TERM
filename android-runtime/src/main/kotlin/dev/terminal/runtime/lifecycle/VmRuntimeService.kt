@@ -83,7 +83,6 @@ class VmRuntimeService : Service() {
     private val explicitlyStartedEnvironments = java.util.concurrent.ConcurrentHashMap.newKeySet<EnvironmentId>()
     private val sessionClientMutex = Mutex()
     private val preparationLocks = StoragePreparationLocks()
-    private val storageMigrationMutex = Mutex()
     private val primaryPreparationMutex = Mutex()
     private val terminalSinks = java.util.concurrent.ConcurrentHashMap<Pair<String, android.os.IBinder>, dev.terminal.runtime.session.RuntimeTerminalState.Sink>()
     private val terminalDeaths = java.util.concurrent.ConcurrentHashMap<Pair<String, android.os.IBinder>, android.os.IBinder.DeathRecipient>()
@@ -304,10 +303,11 @@ class VmRuntimeService : Service() {
                             val profile = dev.terminal.runtime.session.SessionProfile("environment:${environment.id}", environment.name,
                                 environment.sessionRuntime, if (environment.sessionRuntime == SessionRuntime.NATIVE) "/system/bin/sh" else "/bin/bash",
                                 environmentId = environment.id)
-                            check(ensureEnvironmentController(profile.resolve(environment), client)) { "Environment cannot start" }
-                            preparationLocks.withStorage(environment.sessionRuntime, environment.storage.id) {
-                                check(client.isRegistered(environment.sessionRuntime, environment.storage.id) &&
-                                    environment.storage.id !in client.disconnectedStorages(environment.sessionRuntime)) { "Environment stopped during startup" }
+                            preparationLocks.withStorage(
+                                resolve = { environmentRegistry.transaction(storageDefaults()) { resolveLaunch(profile.resolve(environment)) } },
+                                key = { it.runtime to it.storageId },
+                            ) { spec ->
+                                check(ensureEnvironmentControllerLocked(spec, client)) { "Environment cannot start" }
                                 explicitlyStartedEnvironments.add(environment.id)
                             }
                         }
@@ -454,17 +454,19 @@ class VmRuntimeService : Service() {
                     val client = ensureSessionRegistry()
                         ?: throw IllegalStateException("세션 런타임에 연결할 수 없습니다")
                     migrateLegacyStorages(client)
-                    storageMigrationMutex.withLock {
-                        val spec = environmentRegistry.transaction(storageDefaults()) { resolveLaunch(parsed.getOrThrow()) }
+                    preparationLocks.withStorage(
+                        resolve = { environmentRegistry.transaction(storageDefaults()) { resolveLaunch(parsed.getOrThrow()) } },
+                        key = { it.runtime to it.storageId },
+                    ) { spec ->
                         val requestedRuntime = spec.runtime
                         Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
-                        if (!ensureEnvironmentController(spec, client)) {
+                        if (!ensureEnvironmentControllerLocked(spec, client)) {
                             if (launch != null) {
                                 pendingAvfLaunches.fail(launch, runtimeUnavailableReason(requestedRuntime))
                                 sessionSnapshots.republish()
                             }
                             notifyOperationError("세션 생성:${requestedRuntime.wireName}:${spec.storageId}", runtimeUnavailableReason(requestedRuntime))
-                            return@launchRuntimeOperation
+                            return@withStorage
                         }
                         val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
                         val kittyId = nextKittyId()
@@ -1007,10 +1009,11 @@ class VmRuntimeService : Service() {
         broadcast { it.onRuntimeStateChanged(state.wireName, state.detail()) }
     }
 
-    private suspend fun ensureSessionRegistry(): UnifiedSessionRegistry? = storageMigrationMutex.withLock { ensureSessionRegistryLocked() }
-
-    private suspend fun ensureSessionRegistryLocked(): UnifiedSessionRegistry? = sessionClientMutex.withLock {
-        (sessionClient as? UnifiedSessionRegistry)?.let { attachPrimaryAvf(it); return@withLock it }
+    private suspend fun ensureSessionRegistry(): UnifiedSessionRegistry? = sessionClientMutex.withLock {
+        (sessionClient as? UnifiedSessionRegistry)?.let {
+            preparationLocks.tryWithAll { attachPrimaryAvf(it) }
+            return@withLock it
+        }
         run {
             val registry = UnifiedSessionRegistry(onDisconnected = { runtime, _ ->
                 if (runtime == SessionRuntime.AVF) scheduleGuestReconnect()
@@ -1033,7 +1036,7 @@ class VmRuntimeService : Service() {
                     dev.terminal.runtime.session.TerminalPalette.asProperties(
                         dev.terminal.runtime.session.TerminalPalette.resolve({ key, fallback -> preferences.getString(key, fallback).orEmpty() }, spec.palette))
                 })
-            attachPrimaryAvf(registry)
+            preparationLocks.tryWithAll { attachPrimaryAvf(registry) }
             sessionClient = registry
             scope.launch {
                 registry.events.collect { event ->
@@ -1067,7 +1070,6 @@ class VmRuntimeService : Service() {
 
     private suspend fun environmentsJson(): String {
         val client = ensureSessionRegistry()
-        migrateLegacyStorages(client)
         val sessions = client?.list()?.getOrThrow().orEmpty().filter { it.state != dev.terminal.protocol.SessionStatus.EXITED }
         val (environments, profiles) = environmentRegistry.transaction(storageDefaults()) { all() to profiles() }
         return JSONArray(environments.sortedWith(compareBy({ it.runtime.ordinal }, { it.name }, { it.id.value })).map { environment ->
@@ -1227,8 +1229,8 @@ class VmRuntimeService : Service() {
     }
 
     /** Runs on service IO/default dispatchers. No UI lifetime owns or stops an environment. */
-    private suspend fun migrateLegacyStorages(client: UnifiedSessionRegistry?) = storageMigrationMutex.withLock {
-        preparationLocks.withAll {
+    private suspend fun migrateLegacyStorages(client: UnifiedSessionRegistry?) {
+        preparationLocks.tryWithAll {
             val defaults = storageDefaults()
             for (runtime in SessionRuntime.entries) {
                 try {
@@ -1268,120 +1270,115 @@ class VmRuntimeService : Service() {
         }
     }
 
-    private suspend fun ensureEnvironmentController(spec: dev.terminal.runtime.session.SessionLaunchSpec,
+    /** Caller holds the resolved storage lease through registration and session creation. */
+    private suspend fun ensureEnvironmentControllerLocked(spec: dev.terminal.runtime.session.SessionLaunchSpec,
         registry: UnifiedSessionRegistry): Boolean {
         // When Native is the default owner, even legacy/default AVF storage needs its own AVF provider.
         if (spec.storageId == "legacy" && spec.runtime != SessionRuntime.NATIVE &&
-            (spec.runtime != SessionRuntime.AVF || backend !is NativeBackend)) return ensureRuntimeController(spec.runtime, registry)
+            (spec.runtime != SessionRuntime.AVF || backend !is NativeBackend)) return ensureRuntimeControllerLocked(spec.runtime, registry)
         if (spec.runtime == SessionRuntime.AVF && backend !is NativeBackend &&
             spec.storageId == defaultStorageId(SessionRuntime.AVF)) {
-            return preparationLocks.withStorage(spec.runtime, spec.storageId) {
-                storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(spec.runtime, spec.storageId)) }
-                startPrimaryBackend()
-                attachPrimaryAvf(registry)
-                registry.isRegistered(spec.runtime, spec.storageId)
-            }
-        }
-        return preparationLocks.withStorage(spec.runtime, spec.storageId) {
             storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(spec.runtime, spec.storageId)) }
-            if (registry.isRegistered(spec.runtime, spec.storageId) && spec.storageId !in registry.disconnectedStorages(spec.runtime)) return@withStorage true
-            val executionEnvironment = requireNotNull(spec.executionEnvironment)
-            val key = executionEnvironment.id
-            val root = dev.terminal.runtime.session.SessionStorage.root(filesDir, spec.runtime, spec.storageId)
-            val owner = environmentBackends.getOrPut(key) {
-                when (spec.runtime) {
-                    SessionRuntime.NATIVE -> NativeBackend(applicationContext, root).also { native ->
-                        native.configureUsbTooling({ id ->
-                            usbBroker.register(id, SessionRuntime.NATIVE.wireName) +
-                                dev.terminal.runtime.native.ApkNativeExecutableLoader(applicationContext)
-                                    .resolvePackagedExecutable("terminal-usb").getOrNull()?.let {
-                                        mapOf("TERMINAL_USB_CLIENT" to it.absolutePath)
-                                    }.orEmpty()
-                        }, usbBroker::unregister)
+            startPrimaryBackend()
+            attachPrimaryAvf(registry)
+            return registry.isRegistered(spec.runtime, spec.storageId)
+        }
+        storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(spec.runtime, spec.storageId)) }
+        if (registry.isRegistered(spec.runtime, spec.storageId) && spec.storageId !in registry.disconnectedStorages(spec.runtime)) return true
+        val executionEnvironment = requireNotNull(spec.executionEnvironment)
+        val key = executionEnvironment.id
+        val root = dev.terminal.runtime.session.SessionStorage.root(filesDir, spec.runtime, spec.storageId)
+        val owner = environmentBackends.getOrPut(key) {
+            when (spec.runtime) {
+                SessionRuntime.NATIVE -> NativeBackend(applicationContext, root).also { native ->
+                    native.configureUsbTooling({ id ->
+                        usbBroker.register(id, SessionRuntime.NATIVE.wireName) +
+                            dev.terminal.runtime.native.ApkNativeExecutableLoader(applicationContext)
+                                .resolvePackagedExecutable("terminal-usb").getOrNull()?.let {
+                                    mapOf("TERMINAL_USB_CLIENT" to it.absolutePath)
+                                }.orEmpty()
+                    }, usbBroker::unregister)
+                }
+                SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH ->
+                    newRootlessEnvironmentBackend(executionEnvironment)
+                SessionRuntime.AVF -> {
+                    require(checkSelfPermission("android.permission.MANAGE_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED &&
+                        checkSelfPermission("android.permission.USE_CUSTOM_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        "AVF requires privileged custom VM access"
                     }
-                    SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH ->
-                        newRootlessEnvironmentBackend(executionEnvironment)
-                    SessionRuntime.AVF -> {
-                        require(checkSelfPermission("android.permission.MANAGE_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED &&
-                            checkSelfPermission("android.permission.USE_CUSTOM_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                            "AVF requires privileged custom VM access"
-                        }
-                        val provider = applicationContext as? RuntimeBackendProvider
-                            ?: error("AVF system runtime provider is unavailable")
-                        provider.createRuntimeBackend(applicationContext).also {
-                            check(it is dev.terminal.runtime.avf.AvfBackend && it !== backend && environmentBackends.values.none { existing -> existing === it }) {
-                                "AVF provider must create an independent backend for each storage"
-                            }
+                    val provider = applicationContext as? RuntimeBackendProvider
+                        ?: error("AVF system runtime provider is unavailable")
+                    provider.createRuntimeBackend(applicationContext).also {
+                        check(it is dev.terminal.runtime.avf.AvfBackend && it !== backend && environmentBackends.values.none { existing -> existing === it }) {
+                            "AVF provider must create an independent backend for each storage"
                         }
                     }
                 }
             }
-            if (spec.runtime == SessionRuntime.AVF && key !in startedEnvironmentBackends) {
-                RuntimeSetupCoordinator(applicationContext).awaitInstalledImage(root.toPath(), spec.storageId)
-            }
-            val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
-            if (key !in startedEnvironmentBackends) {
-                owner.prepare(RuntimeConfig(
-                    instanceId = if (spec.runtime == SessionRuntime.AVF)
-                        requireNotNull(executionEnvironment.runtimeMetadata.vmInstanceId) else spec.storageId,
-                    imageDirectory = root.path,
-                    memoryMib = preferences.getInt(KEY_AVF_MEMORY, 2048).coerceIn(512, 32768),
-                    cpuCount = preferences.getInt(KEY_AVF_CPU, 2).coerceIn(1, 16),
-                    protectedVm = preferences.getBoolean(KEY_AVF_PROTECTED, false),
-                    enableNetwork = preferences.getBoolean(KEY_AVF_NETWORK, true),
-                    sharedDirectory = if (spec.runtime == SessionRuntime.AVF) sharedDirectories.provision(spec.storageId).getOrThrow().path else null,
-                )).getOrThrow()
-                owner.start().getOrThrow()
-                startedEnvironmentBackends.add(key)
-            }
-            val controller = when (owner) {
-                is NativeBackend -> requireNotNull(owner.sessionController())
-                is RootlessDebianBackend -> requireNotNull(owner.sessionController())
-                else -> owner.connectSessionClient().getOrThrow()
-            }
-            registry.register(executionEnvironment, controller)
-            true
         }
+        if (spec.runtime == SessionRuntime.AVF && key !in startedEnvironmentBackends) {
+            RuntimeSetupCoordinator(applicationContext).awaitInstalledImage(root.toPath(), spec.storageId)
+        }
+        val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
+        if (key !in startedEnvironmentBackends) {
+            owner.prepare(RuntimeConfig(
+                instanceId = if (spec.runtime == SessionRuntime.AVF)
+                    requireNotNull(executionEnvironment.runtimeMetadata.vmInstanceId) else spec.storageId,
+                imageDirectory = root.path,
+                memoryMib = preferences.getInt(KEY_AVF_MEMORY, 2048).coerceIn(512, 32768),
+                cpuCount = preferences.getInt(KEY_AVF_CPU, 2).coerceIn(1, 16),
+                protectedVm = preferences.getBoolean(KEY_AVF_PROTECTED, false),
+                enableNetwork = preferences.getBoolean(KEY_AVF_NETWORK, true),
+                sharedDirectory = if (spec.runtime == SessionRuntime.AVF) sharedDirectories.provision(spec.storageId).getOrThrow().path else null,
+            )).getOrThrow()
+            owner.start().getOrThrow()
+            startedEnvironmentBackends.add(key)
+        }
+        val controller = when (owner) {
+            is NativeBackend -> requireNotNull(owner.sessionController())
+            is RootlessDebianBackend -> requireNotNull(owner.sessionController())
+            else -> owner.connectSessionClient().getOrThrow()
+        }
+        registry.register(executionEnvironment, controller)
+        return true
     }
 
-    private suspend fun ensureRuntimeController(runtime: SessionRuntime, registry: UnifiedSessionRegistry): Boolean {
+    private suspend fun ensureRuntimeControllerLocked(runtime: SessionRuntime, registry: UnifiedSessionRegistry): Boolean {
         val selectedRootless = rootlessBackends[runtime]
         if (preparationLocks.isLocked(runtime) && selectedRootless?.status() !is RootlessStatus.Ready) {
             selectedRootless?.reportPreparationWaiting()
         }
         return try {
-            preparationLocks.withStorage(runtime) {
-                if (registry.isRegistered(runtime)) {
-                    val rootless = rootlessBackends[runtime]
-                    if (rootless == null || rootless.status() is RootlessStatus.Ready) return@withStorage true
-                    registry.removeIfIdle(runtime) { rootless.prepare().getOrThrow() }
-                }
-                when (runtime) {
-                    SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH -> {
-                        val rootlessBackend = rootlessBackends.getValue(runtime)
-                        val prepared = rootlessBackend.prepare()
-                        val started = prepared.isSuccess && rootlessBackend.start().isSuccess
-                        if (started) rootlessBackend.sessionController()?.let {
-                            val environment = environmentForStorage(runtime, "legacy")
-                            environmentBackends[environment.id] = rootlessBackend
-                            startedEnvironmentBackends.add(environment.id)
-                            registry.register(environment, it)
-                        }
-                        started && registry.isRegistered(runtime)
+            if (registry.isRegistered(runtime)) {
+                val rootless = rootlessBackends[runtime]
+                if (rootless == null || rootless.status() is RootlessStatus.Ready) return true
+                registry.removeIfIdle(runtime) { rootless.prepare().getOrThrow() }
+            }
+            when (runtime) {
+                SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH -> {
+                    val rootlessBackend = rootlessBackends.getValue(runtime)
+                    val prepared = rootlessBackend.prepare()
+                    val started = prepared.isSuccess && rootlessBackend.start().isSuccess
+                    if (started) rootlessBackend.sessionController()?.let {
+                        val environment = environmentForStorage(runtime, "legacy")
+                        environmentBackends[environment.id] = rootlessBackend
+                        startedEnvironmentBackends.add(environment.id)
+                        registry.register(environment, it)
                     }
-                    SessionRuntime.NATIVE -> backend is NativeBackend && (backend as NativeBackend).sessionController()?.let {
-                        val environment = environmentForStorage(runtime, "legacy")
-                        environmentBackends[environment.id] = backend
-                        startedEnvironmentBackends.add(environment.id)
-                        registry.register(environment, it); true
-                    } == true
-                    SessionRuntime.AVF -> backend !is NativeBackend && backend.connectSessionClient().getOrNull()?.let {
-                        val environment = environmentForStorage(runtime, "legacy")
-                        environmentBackends[environment.id] = backend
-                        startedEnvironmentBackends.add(environment.id)
-                        registry.register(environment, it); true
-                    } == true
+                    started && registry.isRegistered(runtime)
                 }
+                SessionRuntime.NATIVE -> backend is NativeBackend && (backend as NativeBackend).sessionController()?.let {
+                    val environment = environmentForStorage(runtime, "legacy")
+                    environmentBackends[environment.id] = backend
+                    startedEnvironmentBackends.add(environment.id)
+                    registry.register(environment, it); true
+                } == true
+                SessionRuntime.AVF -> backend !is NativeBackend && backend.connectSessionClient().getOrNull()?.let {
+                    val environment = environmentForStorage(runtime, "legacy")
+                    environmentBackends[environment.id] = backend
+                    startedEnvironmentBackends.add(environment.id)
+                    registry.register(environment, it); true
+                } == true
             }
         } finally { selectedRootless?.clearPreparationWaiting() }
     }

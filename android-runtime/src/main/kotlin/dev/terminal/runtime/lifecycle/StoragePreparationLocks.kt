@@ -16,14 +16,19 @@ internal class StoragePreparationLocks {
     fun isLocked(runtime: SessionRuntime, storageId: String = "legacy") =
         locks[runtime to storageId]?.isLocked == true
 
-    suspend fun <T> withStorage(runtime: SessionRuntime, storageId: String = "legacy", block: suspend () -> T): T {
+    suspend fun <T> withStorage(runtime: SessionRuntime, storageId: String = "legacy", block: suspend () -> T): T =
+        withStorage({ runtime to storageId }, { it }) { block() }
+
+    /** Resolve identities after admission so adoption cannot race resolution or session creation. */
+    suspend fun <S, T> withStorage(resolve: () -> S, key: (S) -> Pair<SessionRuntime, String>, block: suspend (S) -> T): T {
         admission.withLock {
             synchronized(monitor) {
                 if (active++ == 0) drained = CompletableDeferred()
             }
         }
         try {
-            return locks.computeIfAbsent(runtime to storageId) { Mutex() }.withLock { block() }
+            val resolved = resolve()
+            return locks.computeIfAbsent(key(resolved)) { Mutex() }.withLock { block(resolved) }
         } finally {
             synchronized(monitor) { if (--active == 0) drained.complete(Unit) }
         }
@@ -32,5 +37,17 @@ internal class StoragePreparationLocks {
     suspend fun <T> withAll(block: suspend () -> T): T = admission.withLock {
         synchronized(monitor) { drained }.await()
         block()
+    }
+
+    /** Opportunistic maintenance must not queue behind an installation and close admission. */
+    suspend fun tryWithAll(block: suspend () -> Unit): Boolean {
+        if (!admission.tryLock()) return false
+        try {
+            if (synchronized(monitor) { active != 0 }) return false
+            block()
+            return true
+        } finally {
+            admission.unlock()
+        }
     }
 }

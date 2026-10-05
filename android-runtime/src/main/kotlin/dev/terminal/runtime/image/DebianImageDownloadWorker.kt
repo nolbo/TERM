@@ -83,13 +83,7 @@ class DebianImageDownloadWorker(
             when (val verification = DebianImageVerifier.verify(stagingRoot, ::checkCancellation)) {
                 is ImageVerification.Invalid -> failure(verification.reason)
                 is ImageVerification.Ready -> when (
-                    val installed = dev.terminal.runtime.session.StorageRegistry(applicationContext.filesDir) {
-                        applicationContext.getSharedPreferences("session-profiles", Context.MODE_PRIVATE).all.mapValues { it.value as String }
-                    }.transaction {
-                        validateImageGeneration(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId), generation)
-                        report(AvfImageInstallPhase.INSTALL)
-                        DebianImageInstaller.install(stagingRoot, target, ::checkCancellation)
-                    }
+                    val installed = installImage(stagingRoot, target, storageId, generation)
                 ) {
                     is ImageInstallResult.Installed -> success("installed")
                     is ImageInstallResult.AlreadyInstalled -> if (installed.verification is ImageVerification.Ready)
@@ -107,6 +101,19 @@ class DebianImageDownloadWorker(
         } finally {
             if (Files.exists(stagingRoot)) deleteTree(stagingRoot)
         }
+    }
+
+    private fun installImage(stagingRoot: Path, target: Path, storageId: String, generation: Long): ImageInstallResult {
+        report(AvfImageInstallPhase.INSTALL)
+        val registry = dev.terminal.runtime.session.StorageRegistry(applicationContext.filesDir) {
+            applicationContext.getSharedPreferences("session-profiles", Context.MODE_PRIVATE).all.mapValues { it.value as String }
+        }
+        return DebianImageInstaller.install(stagingRoot, target, activate = { promote ->
+            registry.transaction {
+                validateImageGeneration(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId), generation)
+                promote()
+            }
+        }, checkCancellation = ::checkCancellation)
     }
 
     private fun downloadArtifact(release: DebianImageRelease, name: String, stagingRoot: Path, index: Int) {

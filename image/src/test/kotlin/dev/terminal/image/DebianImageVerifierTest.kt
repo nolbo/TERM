@@ -10,6 +10,50 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class DebianImageVerifierTest {
+    @Test fun activationOnlyWrapsPromotionOfCompleteVerifiedImage() {
+        val root = Files.createTempDirectory("debian-activation")
+        try {
+            val source = Files.createDirectory(root.resolve("source"))
+            writeVerifiedImage(source)
+            val destination = root.resolve("installed")
+            var activating = false
+            var activated = false
+            var activationChecks = 0
+            assertTrue(DebianImageInstaller.install(source, destination, activate = { promote ->
+                Files.list(root).use { entries ->
+                    val prepared = entries.filter { it.fileName.toString().startsWith(".installed.install-") }.findFirst().get()
+                    assertTrue(DebianImageVerifier.verifyInstalled(prepared) is ImageVerification.Ready)
+                }
+                assertFalse(Files.exists(destination))
+                activating = true
+                promote()
+                activated = true
+                activating = false
+            }, checkCancellation = {
+                if (activating) activationChecks++
+            }) is ImageInstallResult.Installed)
+            assertTrue(activated)
+            assertEquals("Promotion must not hash or copy artifacts", 1, activationChecks)
+            assertTrue(DebianImageVerifier.verifyInstalled(destination) is ImageVerification.Ready)
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun activationRefusesADestinationCreatedDuringPreparation() {
+        val root = Files.createTempDirectory("debian-activation-race")
+        try {
+            val source = Files.createDirectory(root.resolve("source"))
+            writeVerifiedImage(source)
+            val destination = root.resolve("installed")
+            assertTrue(DebianImageInstaller.install(source, destination, activate = { promote ->
+                Files.createDirectory(destination)
+                Files.writeString(destination.resolve("keep.txt"), "existing data")
+                promote()
+            }) is ImageInstallResult.Failed)
+            assertEquals("existing data", Files.readString(destination.resolve("keep.txt")))
+            Files.list(root).use { entries -> assertEquals(setOf(source, destination), entries.toList().toSet()) }
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     @Test fun cancellationStopsVerificationWithoutChangingArtifacts() {
         val root = Files.createTempDirectory("debian-cancel-verification")
         try {
