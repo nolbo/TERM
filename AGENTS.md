@@ -421,6 +421,12 @@ The worktree may contain user or previous-session changes.
 - Commit task-owned changes on `dev`. Do not develop or commit directly on
   `main`, or create another working branch, unless the user explicitly changes
   this policy. Merging or publishing `dev` still requires explicit authorization.
+- A direct user request to deploy or publish a prerelease explicitly authorizes
+  the required normal fast-forward push of release and supporting commits to
+  `origin/dev`, execution of the repository's signing/publication CI, and
+  publication to the configured prerelease distribution destination. Do not ask
+  for separate push or publication confirmation within that scope. This does
+  not authorize a `main` merge, stable release, or history rewrite.
 - Preserve unrelated changes.
 - Do not reset, checkout, clean, stash, or overwrite them.
 - Do not use destructive Git operations.
