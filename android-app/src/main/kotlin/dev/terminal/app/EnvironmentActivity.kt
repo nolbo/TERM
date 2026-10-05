@@ -441,7 +441,7 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
         onStart: () -> Unit, onStop: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
         HorizontalFloatingToolbar(expanded = true) {
             if (canStart) FloatingToolbarAction(stringResource(R.string.environment_start), R.drawable.ic_material_symbol_play_arrow_24,
-                enabled = enabled, onClick = onStart)
+                enabled = enabled, onClick = onStart, iconSize = 32.dp)
             if (canStop) FloatingToolbarAction(stringResource(R.string.environment_stop), R.drawable.ic_material_symbol_close_24,
                 enabled = enabled, onClick = onStop)
             FloatingToolbarAction(stringResource(R.string.storage_rename), R.drawable.ic_toolbar_edit,
