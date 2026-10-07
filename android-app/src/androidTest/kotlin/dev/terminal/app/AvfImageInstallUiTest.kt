@@ -43,6 +43,16 @@ class AvfImageInstallUiTest {
         }
         assertNotNull("Missing visible text: $text", find(instrumentation.uiAutomation.rootInActiveWindow, text, contains))
     }
+    private fun waitForGone(text: String) {
+        val deadline = SystemClock.elapsedRealtime() + 5_000
+        while (SystemClock.elapsedRealtime() < deadline) {
+            instrumentation.waitForIdleSync()
+            instrumentation.uiAutomation.clearCache()
+            if (find(instrumentation.uiAutomation.rootInActiveWindow, text) == null) return
+            SystemClock.sleep(50)
+        }
+        assertNull("Unexpected visible text: $text", find(instrumentation.uiAutomation.rootInActiveWindow, text))
+    }
     private fun snapshot(state: AvfImageInstallState = AvfImageInstallState.RUNNING,
         phase: AvfImageInstallPhase = AvfImageInstallPhase.DOWNLOAD, total: Long? = 100L * 1024 * 1024,
         error: String? = null): AvfImageInstallSnapshot {
@@ -50,7 +60,7 @@ class AvfImageInstallUiTest {
         return AvfImageInstallSnapshot("fixture-job", "legacy", state, phase, 3, 40L * 1024 * 1024, total, now - 5000, now, error)
     }
 
-    @Test fun dialogShowsMeasuredDownloadAndCanCloseAndReopenWithoutChangingWork() {
+    @Test fun dialogShowsMeasuredDownloadAndStaysDismissedWithoutProgressButton() {
         val recording = snapshot()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             fun render() = scenario.onActivity { activity -> activity.setContent {
@@ -75,12 +85,16 @@ class AvfImageInstallUiTest {
             var close = find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.close))
             while (close != null && !close.isClickable) close = close.parent
             assertTrue(close!!.performAction(AccessibilityNodeInfo.ACTION_CLICK))
-            waitFor(label(R.string.avf_install_open_progress))
+            waitForGone(label(R.string.avf_install_title))
+            assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_install_open_progress)))
             assertEquals(AvfImageInstallState.RUNNING, recording.state)
-            var open = find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_install_open_progress))
-            while (open != null && !open.isClickable) open = open.parent
-            assertTrue(open!!.performAction(AccessibilityNodeInfo.ACTION_CLICK))
-            waitFor(context.getString(R.string.rootless_stage_percent, 40), contains = true)
+            scenario.recreate()
+            render()
+            instrumentation.waitForIdleSync()
+            instrumentation.uiAutomation.clearCache()
+            assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_install_title)))
+            assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_install_open_progress)))
+            assertEquals(AvfImageInstallState.RUNNING, recording.state)
         }
     }
 

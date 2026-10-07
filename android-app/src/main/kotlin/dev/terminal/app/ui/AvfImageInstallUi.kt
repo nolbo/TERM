@@ -128,17 +128,11 @@ internal fun AvfImageInstallCard(snapshot: AvfImageInstallSnapshot, modifier: Mo
 }
 
 @Composable
-internal fun AvfImageInstallationUi(snapshots: List<AvfImageInstallSnapshot>, modifier: Modifier = Modifier) {
+internal fun AvfImageInstallationUi(snapshots: List<AvfImageInstallSnapshot>) {
     var visibleId by rememberSaveable { mutableStateOf<String?>(null) }
     var dismissedIds by rememberSaveable { mutableStateOf(emptyList<String>()) }
-    val active = snapshots.firstOrNull { it.active }
     LaunchedEffect(snapshots) {
         if (visibleId == null) visibleId = snapshots.firstOrNull { it.active && it.workId !in dismissedIds }?.workId
-    }
-    if (active != null) {
-        TextButton(onClick = { visibleId = active.workId }, modifier = modifier.fillMaxWidth()) {
-            Text(stringResource(R.string.avf_install_open_progress))
-        }
     }
     snapshots.firstOrNull { it.workId == visibleId }?.let { snapshot ->
         fun dismiss() {

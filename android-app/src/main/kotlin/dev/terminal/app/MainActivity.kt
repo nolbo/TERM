@@ -642,8 +642,7 @@ class MainActivity : TerminalActivity() {
             BoxWithConstraints(Modifier.fillMaxSize()) {
                 val toolbarMaxHeight = (maxHeight * 0.6f).coerceAtMost(480.dp)
                 Column(Modifier.fillMaxSize()) {
-                    dev.terminal.app.ui.AvfImageInstallationUi(avfImageInstallations,
-                        Modifier.windowInsetsPadding(topInsets))
+                    dev.terminal.app.ui.AvfImageInstallationUi(avfImageInstallations)
                     if (activeSessionId == null) {
                         Box(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(topInsets)) {
                             TerminalEmptyState(runtimeMessage, ::showNewSessionSheet,
