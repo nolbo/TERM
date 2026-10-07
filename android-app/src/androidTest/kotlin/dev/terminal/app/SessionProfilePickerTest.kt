@@ -305,7 +305,7 @@ class SessionProfilePickerTest {
         }
     }
 
-    @Test fun longProfileListCreatesAndSelectsOneSessionThenClosesTheSheet() = withSessions { service, first, _ ->
+    @Test fun longProfileListCreatesAndSelectsOneSessionThenRestoresDefaultSize() = withSessions { service, first, _ ->
         val store = SessionProfiles(context)
         val native = store.all().first { it.runtime == SessionRuntime.NATIVE }
         val token = UUID.randomUUID().toString()
@@ -334,14 +334,45 @@ class SessionProfilePickerTest {
                 val row = requireNotNull(created)
                 assertEquals(profiles.last().id, row.getJSONObject("launchSpec").getString("profileId"))
                 assertEquals("keyboard", row.getJSONObject("launchSpec").getString("icon"))
-                await("new session selected and sheet hidden") {
+                await("new session selected and toolbar restored to default size") {
                     state<String?>(scenario, "activeSessionId") == row.getString("id") &&
-                        state<ToolbarSheetMode>(scenario, "toolbarSheetMode") == ToolbarSheetMode.Hidden &&
-                        findLabel(R.string.new_session) == null && findLabel(R.string.select_profile) == null
+                        state<ToolbarSheetMode>(scenario, "toolbarSheetMode") == ToolbarSheetMode.Default &&
+                        find { it.stateDescription?.toString() == context.getString(R.string.toolbar_default) } != null &&
+                        findLabel(R.string.new_session) != null && findLabel(R.string.select_profile) == null
                 }
                 assertTrue(sessions(service).any { it.getString("id") == first })
             }
         } finally { profiles.forEach { store.delete(it.id) } }
+    }
+
+    @Test fun profileSelectionRestoresExpandedSize() = withSessions { service, first, _ ->
+        val native = SessionProfiles(context).all().first { it.runtime == SessionRuntime.NATIVE }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            select(scenario, first)
+            click(R.string.toolbar_handle)
+            await("expanded toolbar before opening the profile picker") {
+                state<ToolbarSheetMode>(scenario, "toolbarSheetMode") == ToolbarSheetMode.Expanded
+            }
+            val before = sessions(service).map { it.getString("id") }.toSet()
+            click(R.string.new_session)
+            await("profile picker") { findLabel(R.string.select_profile) != null }
+            scrollTo(native.name)
+            click(native.name)
+            var created: JSONObject? = null
+            await("exactly one new session") {
+                created = sessions(service).filter { it.getString("id") !in before }.singleOrNull()
+                created != null
+            }
+            val row = requireNotNull(created)
+            assertEquals(native.id, row.getJSONObject("launchSpec").getString("profileId"))
+            await("new session selected and toolbar restored to expanded size") {
+                state<String?>(scenario, "activeSessionId") == row.getString("id") &&
+                    state<ToolbarSheetMode>(scenario, "toolbarSheetMode") == ToolbarSheetMode.Expanded &&
+                    find { it.stateDescription?.toString() == context.getString(R.string.toolbar_expanded) } != null &&
+                    findLabel(R.string.new_session) != null && findLabel(R.string.select_profile) == null
+            }
+            assertTrue(sessions(service).any { it.getString("id") == first })
+        }
     }
 
     @Test fun secondaryActionOpensProfileEditorWithoutCreatingASession() = withSessions { service, first, _ ->
@@ -436,10 +467,14 @@ class SessionProfilePickerTest {
         while (node != null && !node.isClickable) node = node.parent
         node?.takeIf { it.isEnabled }?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
     }
-    private fun scrollTo(label: String) = await("scroll to $label") {
-        if (find { it.hasLabel(label) } != null) true else {
-            verticalList()?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
-            false
+    private fun scrollTo(label: String) {
+        val list = generateSequence(findLabel(R.string.select_profile)) { it.parent }
+            .firstOrNull { it.isScrollable } ?: verticalList()
+        await("scroll to $label") {
+            if (find { it.hasLabel(label) } != null) true else {
+                list?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+                false
+            }
         }
     }
     private fun verticalList() = find { node -> node.isScrollable && node.actionList.any {

@@ -176,6 +176,7 @@ class MainActivity : TerminalActivity() {
     private var runtimeMessage by mutableStateOf("")
     private var feedbackMessage by mutableStateOf<String?>(null)
     private var sessionProfilePickerVisible by mutableStateOf(false)
+    private var sessionProfilePickerReturnMode = ToolbarSheetMode.Default
     private var newSessionSheetVisible by mutableStateOf(false)
     private var unavailableChoice by mutableStateOf<RuntimeChoiceUi?>(null)
     private var avfLaunchFailure by mutableStateOf<String?>(null)
@@ -722,7 +723,7 @@ class MainActivity : TerminalActivity() {
                                         terminatingSessionIds = terminatingSessionIds, profiles = profiles,
                                         onSelectProfile = { profile ->
                                             selectProfile(profile)
-                                            toolbarSheetMode = ToolbarSheetMode.Hidden
+                                            toolbarSheetMode = sessionProfilePickerReturnMode
                                         }, onAddProfile = {
                                             toolbarSheetMode = ToolbarSheetMode.Hidden
                                             addProfile()
@@ -1202,6 +1203,7 @@ class MainActivity : TerminalActivity() {
 
     private fun showSessionProfilePicker() {
         if (!refreshRuntimeChoicesForNewSession()) return
+        sessionProfilePickerReturnMode = toolbarSheetMode
         newSessionSheetVisible = false
         sessionProfilePickerVisible = true
         terminalView?.let { view ->
