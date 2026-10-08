@@ -1,0 +1,245 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
+package dev.terminal.app
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.ScrollState
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.CustomAccessibilityAction
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.customActions
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.dp
+import dev.terminal.app.ui.LocalTerminalHaptics
+import kotlin.math.ceil
+
+private data class HotkeyDrag(
+    val index: Int,
+    val initial: HotkeyBounds,
+    val initialPointer: Offset,
+    val pointer: Offset,
+    val candidate: HotkeyBounds,
+    val corner: HotkeyCorner?,
+)
+
+private fun LayoutCoordinates.rootRect(): Rect =
+    Rect(localToRoot(Offset.Zero), Size(size.width.toFloat(), size.height.toFloat()))
+
+@Composable
+internal fun EditableHotkeyPreview(
+    layout: HotkeyLayout,
+    scrollState: ScrollState,
+    viewportBounds: () -> Rect?,
+    onChange: (HotkeyLayout) -> Unit,
+    onEdit: (Int) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val cells = remember { mutableMapOf<Int, LayoutCoordinates>() }
+    val handles = remember { mutableMapOf<HotkeyCorner, LayoutCoordinates>() }
+    var grid by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    var selectedIndex by rememberSaveable { mutableIntStateOf(-1) }
+    var drag by remember { mutableStateOf<HotkeyDrag?>(null) }
+    val currentLayout by rememberUpdatedState(layout)
+    val change by rememberUpdatedState(onChange)
+    val viewport by rememberUpdatedState(viewportBounds)
+    val haptics = LocalTerminalHaptics.current
+    val density = LocalDensity.current
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val gap = with(density) { HOTKEY_GAP_DP.dp.toPx() }
+    val rowPitch = with(density) { (HOTKEY_HEIGHT_DP + HOTKEY_GAP_DP).dp.toPx() }
+    val edge = with(density) { 48.dp.toPx() }
+    val speed = with(density) { 480.dp.toPx() }
+
+    fun canvasPoint(root: Offset): Offset? {
+        val coordinates = grid?.takeIf { it.isAttached } ?: return null
+        val local = root - coordinates.localToRoot(Offset.Zero)
+        val x = if (rtl) coordinates.size.width - local.x else local.x
+        return Offset(x / ((coordinates.size.width + gap) / currentLayout.columns), local.y / rowPitch)
+    }
+    fun start(index: Int, root: Offset, corner: HotkeyCorner? = null) {
+        val initial = hotkeyBounds(currentLayout).getOrNull(index) ?: return
+        val pointer = canvasPoint(root) ?: return
+        selectedIndex = index
+        drag = HotkeyDrag(index, initial, pointer, root, initial, corner)
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+    }
+    fun move(root: Offset) {
+        val current = drag ?: return
+        val pointer = canvasPoint(root) ?: return
+        val delta = pointer - current.initialPointer
+        drag = current.copy(pointer = root,
+            candidate = transformHotkeyBounds(current.initial, delta.x, delta.y, currentLayout.columns, current.corner))
+    }
+    fun finish() {
+        val current = drag
+        drag = null
+        if (current != null && viewport()?.contains(current.pointer) == true && current.candidate != current.initial) {
+            val updated = placeHotkey(currentLayout, current.index, current.candidate)
+            if (updated != currentLayout) {
+                change(updated)
+                haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+            }
+        }
+    }
+
+    // Root coordinates remain stable while edge scrolling moves the canvas beneath the pointer.
+    LaunchedEffect(drag != null) {
+        if (drag == null) return@LaunchedEffect
+        var previous = withFrameNanos { it }
+        while (drag != null) {
+            val now = withFrameNanos { it }
+            val seconds = ((now - previous) / 1_000_000_000f).coerceAtMost(0.05f)
+            previous = now
+            val pointer = drag?.pointer ?: break
+            val bounds = viewport() ?: continue
+            val direction = when {
+                !bounds.contains(pointer) -> 0f
+                pointer.y < bounds.top + edge -> -((bounds.top + edge - pointer.y) / edge)
+                pointer.y > bounds.bottom - edge -> (pointer.y - bounds.bottom + edge) / edge
+                else -> 0f
+            }
+            if (direction != 0f) {
+                scrollState.scrollBy(direction * speed * seconds)
+                move(pointer)
+            }
+        }
+    }
+    LaunchedEffect(layout.keys.size) {
+        if (selectedIndex !in layout.keys.indices) selectedIndex = -1
+    }
+
+    val sourceBounds = hotkeyBounds(layout)
+    val shown = drag?.let { active -> layout.copy(keys = positionedHotkeys(layout).toMutableList().apply {
+        set(active.index, get(active.index).copy(bounds = active.candidate))
+    }) } ?: layout
+    val selectedBounds = hotkeyBounds(shown).getOrNull(selectedIndex)
+    val valid = drag?.let { canPlaceHotkey(layout, it.index, it.candidate) && viewport()?.contains(it.pointer) == true } ?: true
+    val selectionColor by animateColorAsState(if (valid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+        MaterialTheme.motionScheme.fastEffectsSpec(), label = "Hotkey placement validity")
+    val elevation by animateDpAsState(if (drag == null) 0.dp else 8.dp,
+        MaterialTheme.motionScheme.fastSpatialSpec(), label = "Hotkey drag elevation")
+    val guideColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.15f)
+    val actionLabels = listOf(R.string.hotkey_move_left, R.string.hotkey_move_right, R.string.hotkey_move_up,
+        R.string.hotkey_move_down, R.string.hotkey_wider, R.string.hotkey_narrower, R.string.hotkey_taller, R.string.hotkey_shorter)
+        .map { stringResource(it) }
+    val actions = listOf(Triple(-0.25f, 0f, false), Triple(0.25f, 0f, false), Triple(0f, -0.25f, false), Triple(0f, 0.25f, false),
+        Triple(0.25f, 0f, true), Triple(-0.25f, 0f, true), Triple(0f, 0.25f, true), Triple(0f, -0.25f, true))
+
+    Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        HotkeyGrid(shown, editing = true,
+            minimumRows = minOf(MAX_HOTKEY_ROWS, maxOf(6, ceil(hotkeyBounds(shown).maxOf { it.bottom }).toInt() + 2)),
+            canvasModifier = Modifier.drawBehind {
+                val pitch = (size.width + gap) / layout.columns
+                for (column in 0..layout.columns) for (row in 0..ceil(size.height / rowPitch).toInt()) {
+                    drawCircle(guideColor, 1.dp.toPx(), Offset(column * pitch, row * rowPitch))
+                }
+            }.onGloballyPositioned { grid = it }.pointerInput(layout) {
+                detectDragGesturesAfterLongPress(
+                    onDragStart = { local ->
+                        val root = grid?.takeIf { it.isAttached }?.localToRoot(local)
+                        val index = root?.let { point -> cells.entries.firstOrNull {
+                            it.key in layout.keys.indices && it.value.isAttached && it.value.rootRect().contains(point)
+                        }?.key }
+                        if (root != null && index != null) start(index, root)
+                    },
+                    onDrag = { event, _ ->
+                        if (drag != null) {
+                            event.consume()
+                            grid?.takeIf { it.isAttached }?.localToRoot(event.position)?.let(::move)
+                        }
+                    },
+                    onDragEnd = ::finish,
+                    onDragCancel = { drag = null },
+                )
+            },
+            cellModifier = { index ->
+                Modifier.onGloballyPositioned { cells[index] = it }.graphicsLayer {
+                    shadowElevation = if (drag?.index == index) elevation.toPx() else 0f
+                    shape = CircleShape
+                }.semantics {
+                    selected = index == selectedIndex
+                    customActions = actions.mapIndexed { action, (dx, dy, resize) ->
+                        CustomAccessibilityAction(actionLabels[action]) {
+                            val bounds = transformHotkeyBounds(sourceBounds[index], dx, dy, layout.columns,
+                                if (resize) HotkeyCorner.BottomRight else null)
+                            val updated = placeHotkey(layout, index, bounds)
+                            if (updated != layout) { selectedIndex = index; change(updated); true } else false
+                        }
+                    }
+                }
+            },
+            decoration = { pitch ->
+                if (selectedBounds != null) {
+                    val rect = selectedBounds
+                    val x = pitch * rect.x
+                    val y = ((HOTKEY_HEIGHT_DP + HOTKEY_GAP_DP) * rect.y).dp
+                    val width = pitch * rect.width - HOTKEY_GAP_DP.dp
+                    val height = ((HOTKEY_HEIGHT_DP + HOTKEY_GAP_DP) * rect.height - HOTKEY_GAP_DP).dp
+                    Box(Modifier.offset(x, y).size(width, height).border(2.dp, selectionColor, CircleShape))
+                    HotkeyCorner.entries.forEach { corner ->
+                        val cornerName = stringResource(when (corner) {
+                            HotkeyCorner.TopLeft -> R.string.hotkey_top_left
+                            HotkeyCorner.TopRight -> R.string.hotkey_top_right
+                            HotkeyCorner.BottomLeft -> R.string.hotkey_bottom_left
+                            HotkeyCorner.BottomRight -> R.string.hotkey_bottom_right
+                        })
+                        val description = stringResource(R.string.hotkey_resize_handle, layout.keys[selectedIndex].name, cornerName)
+                        Box(Modifier.offset(x + (if (corner.left) 0.dp else width) - 16.dp,
+                            y + (if (corner.top) 0.dp else height) - 16.dp).size(32.dp)
+                            .onGloballyPositioned { handles[corner] = it }
+                            .semantics { contentDescription = description }
+                            .pointerInput(layout, selectedIndex, corner) {
+                                detectDragGestures(
+                                    onDragStart = { local -> handles[corner]?.takeIf { it.isAttached }
+                                        ?.localToRoot(local)?.let { start(selectedIndex, it, corner) } },
+                                    onDrag = { event, _ ->
+                                        event.consume()
+                                        handles[corner]?.takeIf { it.isAttached }?.localToRoot(event.position)?.let(::move)
+                                    },
+                                    onDragEnd = ::finish,
+                                    onDragCancel = { drag = null },
+                                )
+                            }, contentAlignment = Alignment.Center) {
+                            Box(Modifier.size(12.dp).background(selectionColor, CircleShape)
+                                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape))
+                        }
+                    }
+                }
+            },
+        ) { index -> if (drag == null) selectedIndex = index }
+        if (selectedIndex in layout.keys.indices) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(layout.keys[selectedIndex].name, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
+                TextButton(onClick = { onEdit(selectedIndex) }, shapes = ButtonDefaults.shapes()) {
+                    Text(stringResource(R.string.hotkey_edit))
+                }
+            }
+        }
+    }
+}

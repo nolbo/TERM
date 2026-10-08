@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
@@ -41,7 +42,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
-/** The editor and the live toolbar use the same ordered, spanning grid. */
+/** Both surfaces render the saved coordinates, including gaps and different key heights. */
 @Composable
 internal fun HotkeyGrid(
     layout: HotkeyLayout,
@@ -53,113 +54,120 @@ internal fun HotkeyGrid(
     enabled: Boolean = true,
     terminalColors: dev.terminal.app.ui.TerminalChromeColors? = null,
     cellModifier: (Int) -> Modifier = { Modifier },
+    minimumRows: Int = 0,
+    canvasModifier: Modifier = Modifier,
+    decoration: @Composable BoxScope.(androidx.compose.ui.unit.Dp) -> Unit = {},
     onKey: (Int) -> Unit,
 ) {
     val haptics = LocalTerminalHaptics.current
-    // All keys, including modifiers and editor previews, have the same fixed height.
+    val bounds = remember(layout) { hotkeyBounds(layout) }
     CompositionLocalProvider(LocalMinimumInteractiveComponentSize provides HOTKEY_HEIGHT_DP.dp) {
         BoxWithConstraints(modifier.fillMaxWidth()) {
-            val columns = minOf(layout.columns, ((maxWidth.value + 4) / 52).toInt().coerceAtLeast(1))
-            val cellWidth = (maxWidth - (4 * (columns - 1)).dp) / columns
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                hotkeyRows(layout.keys, columns).forEach { row ->
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        row.forEach { index ->
-                            val key = layout.keys[index]
-                            val span = key.span.coerceAtMost(columns)
-                            val cell = Modifier.width(cellWidth * span + (4 * (span - 1)).dp).height(HOTKEY_HEIGHT_DP.dp).then(cellModifier(index))
-                            val description = if (editing) stringResource(R.string.hotkey_edit_description, index + 1, key.name, key.shortcut)
-                                else "${key.name}: ${key.shortcut}"
-                            val content: @Composable () -> Unit = {
-                                Text(key.name, fontFamily = LocalTerminalMonospaceFontFamily.current, fontSize = layout.fontSize.sp,
-                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            }
-                            if (!editing && key.shortcut in setOf("CTRL", "ALT", "SHIFT")) {
-                                FilledTonalToggleButton(
-                                    enabled = enabled,
-                                    checked = when (key.shortcut) {
-                                        "CTRL" -> control
-                                        "ALT" -> alt
-                                        else -> shift
-                                    },
-                                    onCheckedChange = {
-                                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                                        onKey(index)
-                                    },
-                                    modifier = cell.semantics { contentDescription = description },
-                                    shapes = ToggleButtonDefaults.shapesFor(ButtonDefaults.MinHeight)
-                                        .copy(pressedShape = CircleShape, checkedShape = CircleShape),
-                                    colors = FilledTonalToggleButtonDefaults.colors(
-                                        containerColor = terminalColors?.container ?: MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        contentColor = terminalColors?.onContainer ?: MaterialTheme.colorScheme.onSurface,
-                                        disabledContainerColor = (terminalColors?.foreground ?: MaterialTheme.colorScheme.onSurface).copy(alpha = 0.12f),
-                                        disabledContentColor = (terminalColors?.foreground ?: MaterialTheme.colorScheme.onSurface).copy(alpha = 0.38f),
-                                        checkedContainerColor = terminalColors?.checkedContainer ?: TerminalStatusBlueContainer,
-                                        checkedContentColor = terminalColors?.onCheckedContainer ?: TerminalOnStatusBlueContainer,
-                                    ),
-                                    contentPadding = PaddingValues(horizontal = 2.dp),
-                                ) { content() }
-                            } else {
-                                val interactions = remember { MutableInteractionSource() }
-                                val currentOnKey by rememberUpdatedState({ onKey(index) })
-                                val repeatable = !editing && isRepeatableHotkey(key.shortcut)
-                                var repeatJob by remember { mutableStateOf<Job?>(null) }
-                                var repeated by remember { mutableStateOf(false) }
-                                LaunchedEffect(interactions, key.shortcut, repeatable, enabled) {
-                                    if (!repeatable || !enabled) return@LaunchedEffect
-                                    try {
-                                        interactions.interactions.collect { interaction ->
-                                            when (interaction) {
-                                                is PressInteraction.Press -> {
-                                                    repeatJob?.cancel()
-                                                    repeated = false
-                                                    repeatJob = launch {
-                                                        delay(400)
-                                                        while (isActive) {
-                                                            repeated = true
-                                                            currentOnKey()
-                                                            delay(60)
-                                                        }
+            // Scroll a narrow viewport instead of repacking keys or losing their saved gaps.
+            val canvasWidth = maxOf(maxWidth, (layout.columns * 52 - HOTKEY_GAP_DP).dp)
+            val pitch = (canvasWidth + HOTKEY_GAP_DP.dp) / layout.columns
+            val rows = maxOf(minimumRows.toFloat(), bounds.maxOfOrNull { it.bottom } ?: 1f)
+            Box(Modifier.horizontalScroll(rememberScrollState())) {
+                Box(Modifier.width(canvasWidth).height(((HOTKEY_HEIGHT_DP + HOTKEY_GAP_DP) * rows - HOTKEY_GAP_DP).dp)
+                    .then(canvasModifier)) {
+                    layout.keys.forEachIndexed { index, key ->
+                        val rect = bounds[index]
+                        val cell = Modifier.offset(pitch * rect.x, ((HOTKEY_HEIGHT_DP + HOTKEY_GAP_DP) * rect.y).dp)
+                            .size(pitch * rect.width - HOTKEY_GAP_DP.dp,
+                                ((HOTKEY_HEIGHT_DP + HOTKEY_GAP_DP) * rect.height - HOTKEY_GAP_DP).dp)
+                            .then(cellModifier(index))
+                        val description = if (editing) stringResource(R.string.hotkey_edit_description, index + 1, key.name, key.shortcut)
+                            else "${key.name}: ${key.shortcut}"
+                        val content: @Composable () -> Unit = {
+                            Text(key.name, fontFamily = LocalTerminalMonospaceFontFamily.current, fontSize = layout.fontSize.sp,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                        if (!editing && key.shortcut in setOf("CTRL", "ALT", "SHIFT")) {
+                            FilledTonalToggleButton(
+                                enabled = enabled,
+                                checked = when (key.shortcut) {
+                                    "CTRL" -> control
+                                    "ALT" -> alt
+                                    else -> shift
+                                },
+                                onCheckedChange = {
+                                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                    onKey(index)
+                                },
+                                modifier = cell.semantics { contentDescription = description },
+                                shapes = ToggleButtonDefaults.shapesFor(ButtonDefaults.MinHeight)
+                                    .copy(pressedShape = CircleShape, checkedShape = CircleShape),
+                                colors = FilledTonalToggleButtonDefaults.colors(
+                                    containerColor = terminalColors?.container ?: MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    contentColor = terminalColors?.onContainer ?: MaterialTheme.colorScheme.onSurface,
+                                    disabledContainerColor = (terminalColors?.foreground ?: MaterialTheme.colorScheme.onSurface).copy(alpha = 0.12f),
+                                    disabledContentColor = (terminalColors?.foreground ?: MaterialTheme.colorScheme.onSurface).copy(alpha = 0.38f),
+                                    checkedContainerColor = terminalColors?.checkedContainer ?: TerminalStatusBlueContainer,
+                                    checkedContentColor = terminalColors?.onCheckedContainer ?: TerminalOnStatusBlueContainer,
+                                ),
+                                contentPadding = PaddingValues(horizontal = 2.dp),
+                            ) { content() }
+                        } else {
+                            val interactions = remember { MutableInteractionSource() }
+                            val currentOnKey by rememberUpdatedState({ onKey(index) })
+                            val repeatable = !editing && isRepeatableHotkey(key.shortcut)
+                            var repeatJob by remember { mutableStateOf<Job?>(null) }
+                            var repeated by remember { mutableStateOf(false) }
+                            LaunchedEffect(interactions, key.shortcut, repeatable, enabled) {
+                                if (!repeatable || !enabled) return@LaunchedEffect
+                                try {
+                                    interactions.interactions.collect { interaction ->
+                                        when (interaction) {
+                                            is PressInteraction.Press -> {
+                                                repeatJob?.cancel()
+                                                repeated = false
+                                                repeatJob = launch {
+                                                    delay(400)
+                                                    while (isActive) {
+                                                        repeated = true
+                                                        currentOnKey()
+                                                        delay(60)
                                                     }
                                                 }
-                                                is PressInteraction.Release -> repeatJob?.cancel()
-                                                is PressInteraction.Cancel -> {
-                                                    repeatJob?.cancel()
-                                                    repeated = false
-                                                }
+                                            }
+                                            is PressInteraction.Release -> repeatJob?.cancel()
+                                            is PressInteraction.Cancel -> {
+                                                repeatJob?.cancel()
+                                                repeated = false
                                             }
                                         }
-                                    } finally {
-                                        repeatJob?.cancel()
-                                        repeated = false
                                     }
+                                } finally {
+                                    repeatJob?.cancel()
+                                    repeated = false
                                 }
-                                FilledTonalButton(
-                                    onClick = {
-                                        // Release can reach onClick before the interaction collector.
-                                        // Cancel synchronously and don't append an extra key after a hold.
-                                        repeatJob?.cancel()
-                                        if (!repeated) {
-                                            haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                                            currentOnKey()
-                                        }
-                                        repeated = false
-                                    },
-                                    enabled = enabled,
-                                    interactionSource = interactions,
-                                    modifier = cell.semantics { contentDescription = description },
-                                    shapes = ButtonDefaults.shapes().copy(pressedShape = CircleShape),
-                                    colors = ButtonDefaults.filledTonalButtonColors(
-                                        containerColor = terminalColors?.container ?: MaterialTheme.colorScheme.surfaceContainerHigh,
-                                        contentColor = terminalColors?.onContainer ?: MaterialTheme.colorScheme.onSurface,
-                                        disabledContainerColor = (terminalColors?.foreground ?: MaterialTheme.colorScheme.onSurface).copy(alpha = 0.12f),
-                                        disabledContentColor = (terminalColors?.foreground ?: MaterialTheme.colorScheme.onSurface).copy(alpha = 0.38f),
-                                    ),
-                                    contentPadding = PaddingValues(horizontal = 2.dp),
-                                ) { content() }
                             }
+                            FilledTonalButton(
+                                onClick = {
+                                    // Release can reach onClick before the interaction collector.
+                                    // Cancel synchronously and don't append an extra key after a hold.
+                                    repeatJob?.cancel()
+                                    if (!repeated) {
+                                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                        currentOnKey()
+                                    }
+                                    repeated = false
+                                },
+                                enabled = enabled,
+                                interactionSource = interactions,
+                                modifier = cell.semantics { contentDescription = description },
+                                shapes = ButtonDefaults.shapes().copy(pressedShape = CircleShape),
+                                colors = ButtonDefaults.filledTonalButtonColors(
+                                    containerColor = terminalColors?.container ?: MaterialTheme.colorScheme.surfaceContainerHigh,
+                                    contentColor = terminalColors?.onContainer ?: MaterialTheme.colorScheme.onSurface,
+                                    disabledContainerColor = (terminalColors?.foreground ?: MaterialTheme.colorScheme.onSurface).copy(alpha = 0.12f),
+                                    disabledContentColor = (terminalColors?.foreground ?: MaterialTheme.colorScheme.onSurface).copy(alpha = 0.38f),
+                                ),
+                                contentPadding = PaddingValues(horizontal = 2.dp),
+                            ) { content() }
                         }
                     }
+                    decoration(pitch)
                 }
             }
         }
@@ -187,16 +195,20 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
                 Text(stringResource(R.string.settings_hotkeys_description), style = MaterialTheme.typography.bodyLarge)
                 Card(shape = MaterialTheme.shapes.extraLarge) {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        HotkeySizeControl(R.string.hotkey_columns, layout.columns, 2..10) { update(layout.copy(columns = it)) }
+                        val minimumColumns = kotlin.math.ceil(hotkeyBounds(layout).maxOf { it.right }).toInt().coerceAtLeast(2)
+                        HotkeySizeControl(R.string.hotkey_columns, layout.columns, minimumColumns..10) {
+                            update(resizeHotkeyCanvas(layout, it))
+                        }
+                        Text(stringResource(R.string.hotkey_canvas_support), style = MaterialTheme.typography.bodySmall)
                         HotkeySizeControl(R.string.hotkey_font_size, layout.fontSize, 10..24) { update(layout.copy(fontSize = it)) }
                     }
                 }
                 Text(stringResource(R.string.hotkey_preview), style = MaterialTheme.typography.titleMedium)
                 Text(stringResource(R.string.hotkey_preview_support), style = MaterialTheme.typography.bodyMedium)
-                ReorderableHotkeyPreview(
+                EditableHotkeyPreview(
                     layout = layout, scrollState = scrollState,
                     viewportBounds = { viewport?.takeIf { it.isAttached }?.boundsInRoot() },
-                    onMove = { from, to -> update(moveHotkey(layout, from, to)) },
+                    onChange = update,
                     onEdit = { editingIndex = it },
                 )
                 Button(onClick = {
@@ -229,18 +241,12 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
             initial = layout.keys.getOrNull(index) ?: Hotkey("", "CTRL+C"),
             index = index, count = layout.keys.size,
             onSave = { hotkey ->
-                update(layout.copy(keys = layout.keys.toMutableList().apply {
-                    if (index == size) add(hotkey) else set(index, hotkey)
-                }))
-                editingIndex = -1
-            },
-            onMove = { key, target ->
-                val updated = layout.copy(keys = layout.keys.toMutableList().apply { set(index, key) })
-                update(moveHotkey(updated, index, target))
+                update(if (index == layout.keys.size) addHotkey(layout, hotkey)
+                    else layout.copy(keys = layout.keys.toMutableList().apply { set(index, hotkey) }))
                 editingIndex = -1
             },
             onRemove = {
-                update(layout.copy(keys = layout.keys.filterIndexed { position, _ -> position != index }))
+                update(removeHotkey(layout, index))
                 editingIndex = -1
             },
             onDismiss = { editingIndex = -1 },
@@ -269,20 +275,20 @@ private fun HotkeySizeControl(title: Int, value: Int, range: IntRange, onChange:
         if (updated != value) haptics.performDenseHapticFeedback(HapticFeedbackType.KeyboardTap)
         onChange(updated)
     },
-        valueRange = range.first.toFloat()..range.last.toFloat(), steps = range.last - range.first - 1,
+        valueRange = range.first.toFloat()..range.last.toFloat(), steps = (range.last - range.first - 1).coerceAtLeast(0),
+        enabled = range.first < range.last,
         modifier = Modifier.semantics { contentDescription = label })
 }
 
 @Composable
 private fun HotkeyEditDialog(
     initial: Hotkey, index: Int, count: Int,
-    onSave: (Hotkey) -> Unit, onMove: (Hotkey, Int) -> Unit, onRemove: () -> Unit, onDismiss: () -> Unit,
+    onSave: (Hotkey) -> Unit, onRemove: () -> Unit, onDismiss: () -> Unit,
 ) {
     var name by rememberSaveable(index) { mutableStateOf(initial.name) }
     var shortcut by rememberSaveable(index) { mutableStateOf(initial.shortcut) }
-    var span by rememberSaveable(index) { mutableIntStateOf(initial.span) }
     var showHelp by rememberSaveable(index) { mutableStateOf(false) }
-    val hotkey = Hotkey(name.trim(), shortcut.trim().uppercase(Locale.ROOT), span)
+    val hotkey = initial.copy(name = name.trim(), shortcut = shortcut.trim().uppercase(Locale.ROOT))
     val valid = validHotkey(hotkey)
     val haptics = LocalTerminalHaptics.current
     AlertDialog(
@@ -320,22 +326,7 @@ private fun HotkeyEditDialog(
                     shortcut = presets[preset].shortcut
                     if (name.isBlank()) name = shortcut
                 }
-                HotkeySizeControl(R.string.hotkey_span, span, 1..4) { span = it }
                 if (index < count) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        OutlinedButton(onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                            onMove(hotkey, index - 1)
-                        }, enabled = valid && index > 0, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) {
-                            Text(stringResource(R.string.hotkey_move_before))
-                        }
-                        OutlinedButton(onClick = {
-                            haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                            onMove(hotkey, index + 1)
-                        }, enabled = valid && index < count - 1, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) {
-                            Text(stringResource(R.string.hotkey_move_after))
-                        }
-                    }
                     TextButton(onClick = {
                         haptics.performHapticFeedback(HapticFeedbackType.Confirm)
                         onRemove()

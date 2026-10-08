@@ -6,13 +6,19 @@ import android.view.MotionEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
 import androidx.compose.runtime.key
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.terminal.app.ui.TerminalHapticFeedbackProvider
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -26,20 +32,30 @@ class HotkeyRepeatTest {
         val enabled = mutableStateOf(true)
         val generation = mutableStateOf(0)
         val composedGeneration = AtomicInteger(-1)
+        val composedEnabled = AtomicBoolean(true)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
-                    MaterialTheme {
+                    MaterialTheme { TerminalHapticFeedbackProvider {
                         val renderedGeneration = generation.value
-                        SideEffect { composedGeneration.set(renderedGeneration) }
+                        val renderedEnabled = enabled.value
+                        SideEffect {
+                            composedGeneration.set(renderedGeneration)
+                            composedEnabled.set(renderedEnabled)
+                        }
                         key(generation.value) {
                             HotkeyGrid(HotkeyLayout(columns = 4, keys = listOf(
                                 Hotkey("LEFT", "LEFT"), Hotkey("BS", "BACKSPACE"),
                                 Hotkey("DEL", "DELETE"), Hotkey("ENTER", "ENTER"),
-                            )), enabled = enabled.value) { count.incrementAndGet() }
+                            )), modifier = Modifier.systemBarsPadding().padding(16.dp), enabled = renderedEnabled) { count.incrementAndGet() }
                         }
-                    }
+                    } }
                 }
+            }
+            fun awaitEnabled(expected: Boolean) {
+                val deadline = SystemClock.uptimeMillis() + 2000
+                while (composedEnabled.get() != expected && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(16)
+                assertEquals("Wait for the enabled state to reach the rendered view", expected, composedEnabled.get())
             }
             val left = bounds("LEFT: LEFT")
             val down = press(left)
@@ -73,11 +89,11 @@ class HotkeyRepeatTest {
             val heldDisable = press(left)
             SystemClock.sleep(650)
             instrumentation.runOnMainSync { enabled.value = false }
-            instrumentation.waitForIdleSync()
+            awaitEnabled(false)
             assertStable(count)
             event(heldDisable, MotionEvent.ACTION_CANCEL, left)
             instrumentation.runOnMainSync { enabled.value = true }
-            instrumentation.waitForIdleSync()
+            awaitEnabled(true)
 
             val heldReplace = press(left)
             SystemClock.sleep(650)

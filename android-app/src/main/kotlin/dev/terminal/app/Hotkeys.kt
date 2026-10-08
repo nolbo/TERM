@@ -9,8 +9,21 @@ import java.util.Locale
 internal const val KEY_HOTKEYS = "hotkey-toolbar-v1"
 internal const val MAX_HOTKEYS = 48
 internal const val HOTKEY_HEIGHT_DP = 40
+internal const val HOTKEY_GAP_DP = 4
+internal const val MAX_HOTKEY_ROWS = 128
 
-internal data class Hotkey(val name: String, val shortcut: String, val span: Int = 1)
+/** Coordinates use the saved canvas columns and 44 dp row pitch; fractions allow free placement. */
+internal data class HotkeyBounds(val x: Float, val y: Float, val width: Float = 1f, val height: Float = 1f) {
+    val right get() = x + width
+    val bottom get() = y + height
+    fun overlaps(other: HotkeyBounds): Boolean =
+        x < other.right - 0.0001f && right > other.x + 0.0001f &&
+            y < other.bottom - 0.0001f && bottom > other.y + 0.0001f
+    fun fits(columns: Int): Boolean = listOf(x, y, width, height).all { it.isFinite() } &&
+        x >= 0 && y >= 0 && width >= 1 && height >= 1 && right <= columns && bottom <= MAX_HOTKEY_ROWS
+}
+
+internal data class Hotkey(val name: String, val shortcut: String, val span: Int = 1, val bounds: HotkeyBounds? = null)
 internal data class HotkeyLayout(
     val columns: Int = 7,
     val fontSize: Int = 12,
@@ -68,7 +81,7 @@ internal fun parseHotkeyChord(value: String): HotkeyChord? {
 
 internal fun validHotkey(key: Hotkey): Boolean =
     key.name.isNotBlank() && key.name.length <= 32 && key.name.none { it.isISOControl() } &&
-        key.span in 1..4 && key.shortcut.length <= 80 &&
+        key.span in 1..4 && (key.bounds?.fits(10) != false) && key.shortcut.length <= 80 &&
         (key.shortcut in setOf("CTRL", "ALT", "SHIFT") || parseHotkeyChord(key.shortcut) != null)
 
 internal fun readHotkeyLayout(preferences: SharedPreferences): HotkeyLayout =
@@ -76,24 +89,36 @@ internal fun readHotkeyLayout(preferences: SharedPreferences): HotkeyLayout =
 
 internal fun parseHotkeyLayout(value: String?): HotkeyLayout = runCatching {
     val json = JSONObject(value ?: return HotkeyLayout())
-    require(json.getInt("version") == 1)
+    val version = json.getInt("version")
+    require(version in 1..2)
     val array = json.getJSONArray("keys")
     require(array.length() in 1..MAX_HOTKEYS)
     val keys = (0 until array.length()).map { index ->
         val item = array.getJSONObject(index)
-        Hotkey(item.getString("name"), item.getString("shortcut"), item.getInt("span")).also { require(validHotkey(it)) }
+        val bounds = if (version == 2 && item.has("bounds")) item.getJSONObject("bounds").let {
+            HotkeyBounds(it.getDouble("x").toFloat(), it.getDouble("y").toFloat(),
+                it.getDouble("width").toFloat(), it.getDouble("height").toFloat())
+        } else null
+        Hotkey(item.getString("name"), item.getString("shortcut"), item.getInt("span"), bounds).also { require(validHotkey(it)) }
     }
     HotkeyLayout(json.getInt("columns"), json.getInt("fontSize"), keys,
         if (json.has("enabled")) json.getBoolean("enabled") else true).also {
         require(it.columns in 2..10 && it.fontSize in 10..24)
+        val bounds = hotkeyBounds(it)
+        require(bounds.all { rect -> rect.fits(it.columns) })
+        require(bounds.indices.none { index -> bounds.take(index).any { other -> bounds[index].overlaps(other) } })
     }
 }.getOrDefault(HotkeyLayout())
 
 internal fun serializeHotkeyLayout(layout: HotkeyLayout): String = JSONObject()
-    .put("version", 1).put("columns", layout.columns).put("fontSize", layout.fontSize)
+    .put("version", 2).put("columns", layout.columns).put("fontSize", layout.fontSize)
     .put("enabled", layout.enabled)
     .put("keys", JSONArray().apply {
-        layout.keys.forEach { put(JSONObject().put("name", it.name).put("shortcut", it.shortcut).put("span", it.span)) }
+        layout.keys.forEach { key ->
+            put(JSONObject().put("name", key.name).put("shortcut", key.shortcut).put("span", key.span).apply {
+                key.bounds?.let { put("bounds", JSONObject().put("x", it.x).put("y", it.y).put("width", it.width).put("height", it.height)) }
+            })
+        }
     }).toString()
 
 /** Ordered grid packing. Narrow screens clamp spans without changing the saved layout. */
@@ -112,7 +137,64 @@ internal fun hotkeyRows(keys: List<Hotkey>, columns: Int): List<List<Int>> {
     return rows
 }
 
-internal fun moveHotkey(layout: HotkeyLayout, from: Int, to: Int): HotkeyLayout {
-    if (from !in layout.keys.indices || to !in layout.keys.indices) return layout
-    return layout.copy(keys = layout.keys.toMutableList().apply { add(to, removeAt(from)) })
+/** Legacy keys retain their original packed positions until the layout is first edited. */
+internal fun hotkeyBounds(layout: HotkeyLayout): List<HotkeyBounds> {
+    val packed = mutableMapOf<Int, HotkeyBounds>()
+    hotkeyRows(layout.keys, layout.columns).forEachIndexed { row, indices ->
+        var column = 0
+        indices.forEach { index ->
+            val width = layout.keys[index].span.coerceAtMost(layout.columns)
+            packed[index] = HotkeyBounds(column.toFloat(), row.toFloat(), width.toFloat())
+            column += width
+        }
+    }
+    return layout.keys.mapIndexed { index, key -> key.bounds ?: packed.getValue(index) }
+}
+
+internal fun positionedHotkeys(layout: HotkeyLayout): List<Hotkey> = hotkeyBounds(layout).mapIndexed { index, bounds ->
+    layout.keys[index].copy(bounds = bounds)
+}
+
+internal fun canPlaceHotkey(layout: HotkeyLayout, index: Int, bounds: HotkeyBounds): Boolean =
+    index in layout.keys.indices && bounds.fits(layout.columns) &&
+        hotkeyBounds(layout).withIndex().none { (other, rect) -> other != index && bounds.overlaps(rect) }
+
+internal fun placeHotkey(layout: HotkeyLayout, index: Int, bounds: HotkeyBounds): HotkeyLayout =
+    if (!canPlaceHotkey(layout, index, bounds)) layout else layout.copy(keys = positionedHotkeys(layout).toMutableList().apply {
+        set(index, get(index).copy(bounds = bounds))
+    })
+
+internal fun addHotkey(layout: HotkeyLayout, key: Hotkey): HotkeyLayout {
+    if (layout.keys.size >= MAX_HOTKEYS || !validHotkey(key)) return layout
+    val occupied = hotkeyBounds(layout)
+    val width = key.span.coerceAtMost(layout.columns).toFloat()
+    for (row in 0 until MAX_HOTKEY_ROWS) for (column in 0..layout.columns - width.toInt()) {
+        val bounds = HotkeyBounds(column.toFloat(), row.toFloat(), width)
+        if (occupied.none(bounds::overlaps)) return layout.copy(keys = positionedHotkeys(layout) + key.copy(bounds = bounds))
+    }
+    return layout
+}
+
+internal fun removeHotkey(layout: HotkeyLayout, index: Int): HotkeyLayout =
+    if (layout.keys.size <= 1 || index !in layout.keys.indices) layout
+    else layout.copy(keys = positionedHotkeys(layout).filterIndexed { position, _ -> position != index })
+
+internal fun resizeHotkeyCanvas(layout: HotkeyLayout, columns: Int): HotkeyLayout =
+    if (columns !in 2..10 || columns == layout.columns || hotkeyBounds(layout).any { it.right > columns }) layout
+    else layout.copy(columns = columns, keys = positionedHotkeys(layout))
+
+internal enum class HotkeyCorner(val left: Boolean, val top: Boolean) {
+    TopLeft(true, true), TopRight(false, true), BottomLeft(true, false), BottomRight(false, false),
+}
+
+internal fun transformHotkeyBounds(bounds: HotkeyBounds, dx: Float, dy: Float, columns: Int,
+    corner: HotkeyCorner? = null): HotkeyBounds {
+    if (!dx.isFinite() || !dy.isFinite()) return bounds
+    if (corner == null) return bounds.copy(x = (bounds.x + dx).coerceIn(0f, columns - bounds.width),
+        y = (bounds.y + dy).coerceIn(0f, MAX_HOTKEY_ROWS - bounds.height))
+    val left = if (corner.left) (bounds.x + dx).coerceIn(0f, bounds.right - 1f) else bounds.x
+    val right = if (!corner.left) (bounds.right + dx).coerceIn(bounds.x + 1f, columns.toFloat()) else bounds.right
+    val top = if (corner.top) (bounds.y + dy).coerceIn(0f, bounds.bottom - 1f) else bounds.y
+    val bottom = if (!corner.top) (bounds.bottom + dy).coerceIn(bounds.y + 1f, MAX_HOTKEY_ROWS.toFloat()) else bounds.bottom
+    return HotkeyBounds(left, top, right - left, bottom - top)
 }
