@@ -4,12 +4,15 @@
 package dev.terminal.app.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.*
@@ -111,6 +114,17 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
         if (index >= 0 && active && expanded) scroll.animateScrollToItem(index)
     }
     val searchLabel = stringResource(R.string.history_search_description)
+    val searchCornerRadius by animateDpAsState(
+        targetValue = if (active && searchFocused) 16.dp else 28.dp,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
+        label = "historySearchCornerRadius",
+    )
+    val searchOutline by animateColorAsState(
+        targetValue = if (active && searchFocused) colors.accent else Color.Transparent,
+        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
+        label = "historySearchOutline",
+    )
+    val searchShape = RoundedCornerShape(searchCornerRadius)
     Column(Modifier.fillMaxSize().padding(horizontal = 4.dp)) {
         Row(Modifier.fillMaxWidth().height(60.dp), verticalAlignment = Alignment.CenterVertically) {
             HistoryNavigationButton(previous.command == null, false,
@@ -118,7 +132,7 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
             HistoryNavigationButton(next.command == null, true,
                 ready && (next.command != null || snapshot.row < 0)) { jump(next) }
             TextField(value = query, onValueChange = { query = it.take(256) }, singleLine = true,
-                enabled = active, shape = CircleShape,
+                enabled = active, shape = searchShape,
                 placeholder = { Text(stringResource(R.string.history_search), maxLines = 1) },
                 textStyle = MaterialTheme.typography.bodyMedium,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -133,7 +147,8 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
                     focusedPlaceholderColor = colors.onContainer, unfocusedPlaceholderColor = colors.onContainer,
                     focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
                     disabledIndicatorColor = Color.Transparent,
-                ), modifier = Modifier.weight(1f).onFocusChanged { searchFocused = it.isFocused }
+                ), modifier = Modifier.weight(1f).border(2.dp, searchOutline, searchShape)
+                    .onFocusChanged { searchFocused = it.isFocused }
                     .semantics { contentDescription = searchLabel })
             Box {
                 val scopeLabel = stringResource(R.string.history_scope, stringResource(searchScope.title))
