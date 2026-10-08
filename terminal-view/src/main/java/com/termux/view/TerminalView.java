@@ -782,8 +782,13 @@ public final class TerminalView extends View {
                 getResources().getString(R.string.history_previous)));
             info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.history_next_command,
                 getResources().getString(R.string.history_next)));
+            if (mTopRow > -mEmulator.getScreen().getActiveTranscriptRows())
+                info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.history_first_output,
+                    getResources().getString(R.string.history_top)));
             if (mTopRow < 0) info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.history_latest_output,
                 getResources().getString(R.string.history_latest)));
+            if (getPendingHistoryOutputRows() > 0) info.setStateDescription(
+                getResources().getString(R.string.history_new_output, getPendingHistoryOutputRows()));
         }
     }
 
@@ -791,9 +796,8 @@ public final class TerminalView extends View {
     public boolean performAccessibilityAction(int action, Bundle arguments) {
         if (action == R.id.history_previous_command) return scrollToPreviousCommand();
         if (action == R.id.history_next_command) return scrollToNextCommand();
-        if (action == R.id.history_latest_output && mHistoryScrollbar.eligible()) {
-            scrollToLatest(); return true;
-        }
+        if (action == R.id.history_first_output) return mHistoryScrollbar.scrollToEdge(false);
+        if (action == R.id.history_latest_output) return mHistoryScrollbar.scrollToEdge(true);
         return super.performAccessibilityAction(action, arguments);
     }
 

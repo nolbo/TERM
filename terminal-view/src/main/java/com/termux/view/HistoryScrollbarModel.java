@@ -69,6 +69,18 @@ public final class HistoryScrollbarModel {
         return best;
     }
 
+    /** At and beyond the command range, the rail buttons navigate to the history edges. */
+    public static boolean atCommandBoundary(List<CommandMarker> markers, int row, boolean next) {
+        Integer boundary = null;
+        for (CommandMarker marker : markers) {
+            Integer position = marker.anchor.getRow();
+            if (position == null) continue;
+            position = Math.min(0, position);
+            if (boundary == null || (next ? position > boundary : position < boundary)) boundary = position;
+        }
+        return boundary == null || (next ? row >= boundary : row <= boundary);
+    }
+
     /** Selected identity disambiguates multiple commands at exactly the same row. */
     public static CommandMarker adjacent(List<CommandMarker> markers, int row, boolean next, CommandMarker selected) {
         int selectedIndex = markers.indexOf(selected);

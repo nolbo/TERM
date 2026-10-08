@@ -47,7 +47,9 @@ class TerminalHistoryScrollbarTest {
             assertTrue(capsule.contains(thumb))
             assertTrue(bounds("railTouch").contains(bounds("previous")))
             assertTrue(bounds("railTouch").contains(bounds("next")))
-            for (name in listOf("failed", "chevron")) {
+            assertEquals(32 * dp, bounds("previous").height(), 0.1f)
+            assertEquals(32 * dp, bounds("next").height(), 0.1f)
+            for (name in listOf("failed", "chevronUp")) {
                 val symbol = field(name) as Drawable
                 assertFalse("$name is drawn", symbol.bounds.isEmpty)
                 assertTrue("$name stays inside the capsule", capsule.contains(RectF(symbol.bounds)))
@@ -164,7 +166,7 @@ class TerminalHistoryScrollbarTest {
         main { assertFalse(view.isHistoryScrollbarVisible) }
     }
 
-    @Test fun capsuleStaysOpenUntilRightSwipeAndKeepsLatestActionAfterDismissal() = withTerminal {
+    @Test fun capsuleStaysOpenUntilRightSwipeAndLeavesNoFloatingLatestButton() = withTerminal {
         ActivityScenario.launch(AppInfoActivity::class.java).use { scenario ->
             scenario.onActivity { it.setContentView(view) }
             instrumentation.waitForIdleSync()
@@ -184,9 +186,19 @@ class TerminalHistoryScrollbarTest {
                 assertEquals(top, view.topRow)
                 assertTrue(view.topRow < 0)
                 render()
-                val latest = bounds("latest")
-                tap(latest.centerX(), latest.centerY())
-                assertEquals(0, view.topRow)
+                val x = bounds("capsule").left - 16 * density()
+                val y = bounds("capsule").bottom - 24 * density()
+                val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+                try {
+                    val bar = overlay()
+                    bar.javaClass.getDeclaredMethod("draw", Canvas::class.java).apply { isAccessible = true }.invoke(bar, Canvas(bitmap))
+                    assertEquals("The former floating button is absent", Color.TRANSPARENT, bitmap.getPixel(x.toInt(), y.toInt()))
+                } finally { bitmap.recycle() }
+                Drag(x, y).apply {
+                    assertFalse(field("captured") as Boolean)
+                    cancel()
+                }
+                assertEquals(top, view.topRow)
             }
             SystemClock.sleep(180)
             main { assertFalse(view.isHistoryScrollbarVisible) }
@@ -228,7 +240,7 @@ class TerminalHistoryScrollbarTest {
                 }
                 entering.setCurrentFraction(0.5f)
                 val capsule = bounds("capsule")
-                val y = capsule.top + 50 * density() // Below the arrow, above the first marker.
+                val y = capsule.top + 34 * density() // The gap below the compact arrow.
                 val offset = (1 - number("reveal")) * 48 * density()
                 assertTrue(offset > 0)
                 snapshot().let { frame ->
@@ -363,6 +375,89 @@ class TerminalHistoryScrollbarTest {
         }
     }
 
+    @Test fun compactArrowsSwitchSymbolsAndJumpToHistoryEdgesAtAndBeyondCommands() = withTerminal(commands = 0) {
+        main {
+            repeat(30) { append("leading output\r\n") }
+            repeat(3) { command ->
+                append("\u001b]133;C\u0007command-$command\r\n")
+                repeat(4) { append("output\r\n") }
+                append("\u001b]133;D;0\u0007")
+            }
+            repeat(view.mEmulator.mRows + 20) { append("trailing output\r\n") }
+        }
+        reveal()
+        main {
+            val markers = view.mEmulator.history.markers
+            val first = markers.first()
+            val last = markers.last()
+            val oldest = -view.mEmulator.screen.activeTranscriptRows
+            assertTrue(first.anchor.row!! > oldest)
+            assertTrue(last.anchor.row!! < -1)
+            assertTrue(view.jumpToCommand(markers[1]))
+            val previousCommandSymbol = arrowSnapshot("previous")
+            val nextCommandSymbol = arrowSnapshot("next")
+            try {
+                for (aboveFirst in listOf(false, true)) {
+                    assertTrue(view.jumpToCommand(first))
+                    if (aboveFirst) scroll(-1f)
+                    arrowSnapshot("previous").let { frame ->
+                        try { assertFalse("The top edge has a distinct icon", previousCommandSymbol.sameAs(frame)) }
+                        finally { frame.recycle() }
+                    }
+                    tap(bounds("previous").centerX(), bounds("previous").centerY())
+                    assertEquals(oldest, view.topRow)
+                    tap(bounds("previous").centerX(), bounds("previous").centerY())
+                    assertEquals(oldest, view.topRow)
+                    tap(bounds("next").centerX(), bounds("next").centerY())
+                    assertEquals(first.anchor.row, view.topRow)
+                }
+                for (belowLast in listOf(false, true)) {
+                    assertTrue(view.jumpToCommand(last))
+                    if (belowLast) scroll(1f)
+                    arrowSnapshot("next").let { frame ->
+                        try { assertFalse("The bottom edge has a distinct icon", nextCommandSymbol.sameAs(frame)) }
+                        finally { frame.recycle() }
+                    }
+                    tap(bounds("next").centerX(), bounds("next").centerY())
+                    assertEquals(0, view.topRow)
+                    tap(bounds("next").centerX(), bounds("next").centerY())
+                    assertEquals(0, view.topRow)
+                    tap(bounds("previous").centerX(), bounds("previous").centerY())
+                    assertEquals(last.anchor.row, view.topRow)
+                }
+                val info = AccessibilityNodeInfo.obtain()
+                view.onInitializeAccessibilityNodeInfo(info)
+                assertTrue(info.actionList.any { it.id == com.termux.view.R.id.history_first_output })
+                assertTrue(view.performAccessibilityAction(com.termux.view.R.id.history_first_output, null))
+                assertEquals(oldest, view.topRow)
+                assertTrue(view.performAccessibilityAction(com.termux.view.R.id.history_latest_output, null))
+                assertEquals(0, view.topRow)
+            } finally {
+                previousCommandSymbol.recycle()
+                nextCommandSymbol.recycle()
+            }
+        }
+    }
+
+    @Test fun arrowsNavigateHistoryEdgesWithoutShellMarkers() = withTerminal(commands = 0) {
+        main { repeat(150) { append("output-$it\r\n") } }
+        reveal()
+        main {
+            render()
+            assertTrue(view.mEmulator.history.markers.isEmpty())
+            tap(bounds("previous").centerX(), bounds("previous").centerY())
+            assertEquals(-view.mEmulator.screen.activeTranscriptRows, view.topRow)
+            render()
+            assertEquals(97, (field("edgeArrowUp") as Drawable).alpha)
+            assertEquals(255, (field("edgeArrow") as Drawable).alpha)
+            tap(bounds("next").centerX(), bounds("next").centerY())
+            assertEquals(0, view.topRow)
+            render()
+            assertEquals(255, (field("edgeArrowUp") as Drawable).alpha)
+            assertEquals(97, (field("edgeArrow") as Drawable).alpha)
+        }
+    }
+
     @Test fun freshOutputAccumulatesThroughTrimButResizeDoesNotCountAsNewOutput() = withTerminal {
         scroll(-4f)
         reveal()
@@ -377,8 +472,11 @@ class TerminalHistoryScrollbarTest {
             repeat(1100) { append("trim\r\n") }
             assertEquals(1103L, view.pendingHistoryOutputRows)
             render()
-            val latest = bounds("latest")
-            tap(latest.centerX(), latest.centerY())
+            val info = AccessibilityNodeInfo.obtain()
+            view.onInitializeAccessibilityNodeInfo(info)
+            assertTrue(info.stateDescription.toString().contains("1103"))
+            val next = bounds("next")
+            tap(next.centerX(), next.centerY())
             assertEquals(0, view.topRow)
             assertEquals(0L, view.pendingHistoryOutputRows)
         }
@@ -521,6 +619,14 @@ class TerminalHistoryScrollbarTest {
         return bitmap
     }
     private fun render() { snapshot().recycle() }
+    private fun arrowSnapshot(name: String): Bitmap {
+        val full = snapshot()
+        try {
+            val capsule = bounds("capsule")
+            val arrow = bounds(name)
+            return Bitmap.createBitmap(full, capsule.left.toInt(), arrow.top.toInt(), capsule.width().toInt(), arrow.height().toInt())
+        } finally { full.recycle() }
+    }
     private fun scroll(amount: Float) = main {
         val properties = arrayOf(MotionEvent.PointerProperties().apply { id = 0; toolType = MotionEvent.TOOL_TYPE_MOUSE })
         val coordinates = arrayOf(MotionEvent.PointerCoords().apply { x = 300f; y = 300f; setAxisValue(MotionEvent.AXIS_VSCROLL, -amount) })

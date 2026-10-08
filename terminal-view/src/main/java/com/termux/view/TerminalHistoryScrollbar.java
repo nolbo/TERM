@@ -25,8 +25,8 @@ final class TerminalHistoryScrollbar {
     private final TerminalView view;
     private final float dp;
     private final TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-    private final RectF capsule = new RectF(), railTouch = new RectF(), thumb = new RectF(), previous = new RectF(), next = new RectF(), latest = new RectF();
-    private final Drawable completed, running, failed, chevron;
+    private final RectF capsule = new RectF(), railTouch = new RectF(), thumb = new RectF(), previous = new RectF(), next = new RectF();
+    private final Drawable completed, running, failed, chevron, chevronUp, edgeArrow, edgeArrowUp;
     private final Runnable clearTooltip;
     private ValueAnimator animator;
     private float reveal;
@@ -38,7 +38,7 @@ final class TerminalHistoryScrollbar {
     private TouchAxis touchAxis = TouchAxis.UNDECIDED;
     private long lastMove;
     private float releaseSpeed;
-    private boolean captured, dragging, cancelled, railPressed;
+    private boolean captured, dragging, cancelled;
     private int pointerId;
     private CommandMarker selected;
     private long tooltipUntil;
@@ -58,6 +58,9 @@ final class TerminalHistoryScrollbar {
         running = symbol(R.drawable.ic_history_play_arrow);
         failed = symbol(R.drawable.ic_history_block);
         chevron = symbol(R.drawable.ic_history_expand_more);
+        chevronUp = symbol(R.drawable.ic_history_expand_more);
+        edgeArrow = symbol(R.drawable.ic_history_vertical_align_bottom);
+        edgeArrowUp = symbol(R.drawable.ic_history_vertical_align_bottom);
     }
 
     boolean eligible() {
@@ -159,28 +162,19 @@ final class TerminalHistoryScrollbar {
     private void layout() {
         float width = view.getWidth(), height = view.getHeight();
         float top = Math.max(0, view.getTerminalContentTopInset());
-        boolean navigation = !markers().isEmpty();
         capsule.set(width - 32 * dp, top + 8 * dp, width - 8 * dp, height - 8 * dp);
         railTouch.set(width - 48 * dp, capsule.top, width, capsule.bottom);
-        previous.set(railTouch.left, capsule.top, railTouch.right, capsule.top + 48 * dp);
-        next.set(railTouch.left, capsule.bottom - 48 * dp, railTouch.right, capsule.bottom);
-        trackTop = capsule.top + (navigation ? 52 : 4) * dp;
-        trackBottom = Math.max(trackTop + 1, capsule.bottom - (navigation ? 52 : 4) * dp);
+        float navigationHeight = Math.min(32 * dp, capsule.height() / 2);
+        previous.set(railTouch.left, capsule.top, railTouch.right, capsule.top + navigationHeight);
+        next.set(railTouch.left, capsule.bottom - navigationHeight, railTouch.right, capsule.bottom);
+        trackTop = previous.bottom + 4 * dp;
+        trackBottom = Math.max(trackTop + 1, next.top - 4 * dp);
         thumbHeight = HistoryScrollbarModel.thumbHeight(trackBottom - trackTop, view.mEmulator.mRows, historyRows(), 48 * dp);
         float y = trackTop + (trackBottom - trackTop - thumbHeight)
             * HistoryScrollbarModel.fraction(view.getTopRow(), historyRows());
         thumb.set(capsule.left + 2 * dp, y, capsule.right - 2 * dp, y + thumbHeight);
         paint.setTextSize(12 * view.getResources().getDisplayMetrics().scaledDensity);
-        String label = latestLabel();
-        float labelRight = capsule.left - 8 * dp;
-        float labelWidth = Math.min(labelRight, paint.measureText(label) + 24 * dp);
-        latest.set(Math.max(0, labelRight - labelWidth), capsule.bottom - 48 * dp, labelRight, capsule.bottom);
         updateDensity();
-    }
-
-    private String latestLabel() {
-        return pendingOutput > 0 ? view.getResources().getString(R.string.history_new_output, pendingOutput)
-            : view.getResources().getString(R.string.history_latest);
     }
 
     void draw(Canvas canvas) {
@@ -188,7 +182,6 @@ final class TerminalHistoryScrollbar {
         layout();
         int foreground = view.getHistoryScrollbarForeground();
         int surface = view.getHistoryScrollbarSurface();
-        if (view.getTopRow() < 0) label(canvas, latest, latestLabel(), surface, foreground, 1);
         if (reveal <= 0) return;
         int saved = canvas.save();
         canvas.clipRect(0, 0, view.getWidth(), view.getHeight());
@@ -209,10 +202,8 @@ final class TerminalHistoryScrollbar {
             if (bucket.failed) drawSymbol(canvas, failed, x, y + (bucket.running ? 10 * dp : 0), 18, foreground, 1);
             if (!bucket.running && !bucket.failed) drawSymbol(canvas, completed, x, y, 18, foreground, 1);
         }
-        if (!markers().isEmpty()) {
-            arrow(canvas, previous, true, foreground);
-            arrow(canvas, next, false, foreground);
-        }
+        arrow(canvas, previous, true, foreground);
+        arrow(canvas, next, false, foreground);
         canvas.restoreToCount(saved);
         if (shown && reveal == 1) {
             if (dragging) tooltip(canvas, view.getResources().getString(R.string.history_lines_ago, -view.getTopRow()), surface, foreground);
@@ -258,11 +249,46 @@ final class TerminalHistoryScrollbar {
     }
 
     private void arrow(Canvas canvas, RectF bounds, boolean up, int foreground) {
-        CommandMarker marker = HistoryScrollbarModel.adjacent(markers(), view.getTopRow(), !up, selected);
+        CommandMarker marker = navigationMarker(!up);
+        boolean enabled = marker != null || view.getTopRow() != (up ? -historyRows() : 0);
+        boolean showCount = !up && pendingOutput > 0;
+        float y = bounds.centerY() - (showCount ? 5 * dp : 0);
         int saved = canvas.save();
-        if (up) canvas.rotate(180, capsule.centerX(), bounds.centerY());
-        drawSymbol(canvas, chevron, capsule.centerX(), bounds.centerY(), 18, foreground, marker == null ? 0.38f : 1);
+        if (up) canvas.rotate(180, capsule.centerX(), y);
+        // VectorDrawable keeps native render state: each direction needs its own alpha/bounds.
+        Drawable glyph = marker == null ? (up ? edgeArrowUp : edgeArrow) : (up ? chevronUp : chevron);
+        drawSymbol(canvas, glyph, capsule.centerX(), y, 18, foreground, enabled ? 1 : 0.38f);
         canvas.restoreToCount(saved);
+        if (showCount) {
+            String count = pendingOutput > 999 ? "999+" : Long.toString(pendingOutput);
+            float textSize = paint.getTextSize();
+            paint.setTextSize(8 * view.getResources().getDisplayMetrics().scaledDensity);
+            float available = capsule.width() - 8 * dp;
+            if (paint.measureText(count) > available) paint.setTextSize(paint.getTextSize() * available / paint.measureText(count));
+            color(foreground, 1);
+            canvas.drawText(count, capsule.centerX() - paint.measureText(count) / 2, bounds.bottom - 4 * dp, paint);
+            paint.setTextSize(textSize);
+        }
+    }
+
+    private CommandMarker navigationMarker(boolean forward) {
+        if (HistoryScrollbarModel.atCommandBoundary(markers(), view.getTopRow(), forward)) return null;
+        return HistoryScrollbarModel.adjacent(markers(), view.getTopRow(), forward, selected);
+    }
+
+    private void navigateViewport(boolean forward) {
+        CommandMarker marker = navigationMarker(forward);
+        if (marker == null) scrollToEdge(forward); else jump(marker);
+    }
+
+    boolean scrollToEdge(boolean forward) {
+        if (!eligible()) return false;
+        selected = null;
+        tooltipUntil = 0;
+        view.removeCallbacks(clearTooltip);
+        if (forward) view.scrollToLatest(); else view.setHistoryTopRow(-historyRows());
+        view.announceForAccessibility(view.getResources().getString(forward ? R.string.history_latest : R.string.history_top));
+        return true;
     }
 
     private void color(int color, float opacity) { paint.setColor(color); paint.setAlpha(Math.round(255 * opacity)); }
@@ -302,9 +328,7 @@ final class TerminalHistoryScrollbar {
         if (action == MotionEvent.ACTION_DOWN) {
             if (!eligible() || event.getPointerCount() != 1) return false;
             layout();
-            boolean latestHit = view.getTopRow() < 0 && latest.contains(event.getX(), event.getY());
-            boolean railHit = shown && isVisible() && railTouch.contains(event.getX() - slideOffset(), event.getY());
-            if (!latestHit && !railHit) return false;
+            if (!shown || !isVisible() || !railTouch.contains(event.getX() - slideOffset(), event.getY())) return false;
             captured = true;
             cancelled = dragging = false;
             pointerId = event.getPointerId(0);
@@ -314,8 +338,7 @@ final class TerminalHistoryScrollbar {
             resetSwipe();
             lastMove = event.getEventTime();
             releaseSpeed = 0;
-            railPressed = railHit && !latestHit;
-            boolean thumbPressed = railHit && thumb.top <= event.getY() && event.getY() <= thumb.bottom;
+            boolean thumbPressed = thumb.top <= event.getY() && event.getY() <= thumb.bottom;
             grabOffset = thumbPressed ? event.getY() - thumb.top : thumbHeight / 2;
             view.stopHistoryScrollAnimation();
             if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(true);
@@ -335,13 +358,13 @@ final class TerminalHistoryScrollbar {
                 if (event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) {
                     // A rail swipe can reach the right edge before travelling 48dp. Axis lock
                     // already crossed touch slop, so allow it to dismiss within the hit target.
-                    if (railPressed && dx > 0 && !swipeResolved) { dismiss(); swipeResolved = true; }
+                    if (dx > 0 && !swipeResolved) { dismiss(); swipeResolved = true; }
                     else onHorizontalScroll(lastX - x);
                 }
                 lastX = x;
                 return true;
             }
-            if (railPressed && touchAxis == TouchAxis.VERTICAL) dragging = true;
+            if (touchAxis == TouchAxis.VERTICAL) dragging = true;
             if (dragging) {
                 layout();
                 long elapsed = event.getEventTime() - lastMove;
@@ -361,10 +384,9 @@ final class TerminalHistoryScrollbar {
                         CommandMarker marker = HistoryScrollbarModel.nearest(markers(), view.getTopRow(), 2);
                         if (marker != null) jump(marker);
                     }
-                } else if (view.getTopRow() < 0 && latest.contains(event.getX(), event.getY())) view.scrollToLatest();
-                else if (railPressed && !markers().isEmpty() && previous.contains(event.getX() - slideOffset(), event.getY())) navigate(false);
-                else if (railPressed && !markers().isEmpty() && next.contains(event.getX() - slideOffset(), event.getY())) navigate(true);
-                else if (railPressed && railTouch.contains(event.getX() - slideOffset(), event.getY())) {
+                } else if (previous.contains(event.getX() - slideOffset(), event.getY())) navigateViewport(false);
+                else if (next.contains(event.getX() - slideOffset(), event.getY())) navigateViewport(true);
+                else if (railTouch.contains(event.getX() - slideOffset(), event.getY())) {
                     layout();
                     CommandMarker marker = hitMarker(event.getY());
                     if (marker != null) jump(marker);

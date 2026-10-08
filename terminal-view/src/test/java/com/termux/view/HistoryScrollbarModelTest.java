@@ -86,4 +86,53 @@ public class HistoryScrollbarModelTest {
         List<CommandMarker> markers = emulator.getHistory().getMarkers();
         assertNull(HistoryScrollbarModel.adjacent(markers, 0, true, markers.get(1)));
     }
+
+    @Test public void edgeNavigationIncludesFirstAndLastCommandPositions() {
+        append("leading output\r\n\033]133;C\007first\r\n\033]133;D;0\007");
+        append("\033]133;C\007middle\r\n\033]133;D;0\007");
+        append("\033]133;C\007last\r\n\033]133;D;0\007");
+        for (int i = 0; i < 10; i++) append("trailing output\r\n");
+        List<CommandMarker> markers = emulator.getHistory().getMarkers();
+        int first = markers.get(0).anchor.getRow(), last = markers.get(2).anchor.getRow();
+        assertTrue(HistoryScrollbarModel.atCommandBoundary(markers, first, false));
+        assertTrue(HistoryScrollbarModel.atCommandBoundary(markers, first - 1, false));
+        assertFalse(HistoryScrollbarModel.atCommandBoundary(markers, first + 1, false));
+        assertTrue(HistoryScrollbarModel.atCommandBoundary(markers, last, true));
+        assertTrue(HistoryScrollbarModel.atCommandBoundary(markers, last + 1, true));
+        assertFalse(HistoryScrollbarModel.atCommandBoundary(markers, last - 1, true));
+        int middle = markers.get(1).anchor.getRow();
+        assertFalse(HistoryScrollbarModel.atCommandBoundary(markers, middle, false));
+        assertFalse(HistoryScrollbarModel.atCommandBoundary(markers, middle, true));
+    }
+
+    @Test public void liveScreenAndSameRowCommandsUseViewportCoordinatesForEdgeNavigation() {
+        append("\033]133;C\007\033]133;D;0\007\033]133;C\007\033]133;D;0\007");
+        append("\r\n\033]133;C\007\033]133;D;0\007");
+        List<CommandMarker> markers = emulator.getHistory().getMarkers();
+        assertTrue(markers.get(2).anchor.getRow() > 0);
+        assertTrue(HistoryScrollbarModel.atCommandBoundary(markers, 0, false));
+        assertTrue(HistoryScrollbarModel.atCommandBoundary(markers, 0, true));
+        assertFalse(HistoryScrollbarModel.atCommandBoundary(markers, -1, true));
+        assertSame(markers.get(1), HistoryScrollbarModel.adjacent(markers, 0, true, markers.get(0)));
+    }
+
+    @Test public void commandEdgesFollowReflowAndIgnoreTrimmedAnchors() {
+        assertTrue(HistoryScrollbarModel.atCommandBoundary(emulator.getHistory().getMarkers(), -1, false));
+        assertTrue(HistoryScrollbarModel.atCommandBoundary(emulator.getHistory().getMarkers(), -1, true));
+        for (int i = 0; i < 8; i++) append("\033]133;C\007abcdefghijklmnopqrstuvwxyz\r\n\033]133;D;0\007");
+        for (int i = 0; i < 10; i++) append("tail\r\n");
+        List<CommandMarker> markers = emulator.getHistory().getMarkers();
+        int originalFirst = markers.get(0).anchor.getRow();
+        emulator.resize(12, 4, 1, 1);
+        int first = markers.get(0).anchor.getRow(), last = markers.get(7).anchor.getRow();
+        assertNotEquals(originalFirst, first);
+        assertTrue(HistoryScrollbarModel.atCommandBoundary(markers, first, false));
+        assertFalse(HistoryScrollbarModel.atCommandBoundary(markers, first + 1, false));
+        assertTrue(HistoryScrollbarModel.atCommandBoundary(markers, last, true));
+        assertFalse(HistoryScrollbarModel.atCommandBoundary(markers, last - 1, true));
+        for (int i = 0; i < 1100; i++) append("trim\r\n");
+        assertTrue(emulator.getHistory().getMarkers().isEmpty());
+        assertTrue(HistoryScrollbarModel.atCommandBoundary(markers, -4, false));
+        assertTrue(HistoryScrollbarModel.atCommandBoundary(markers, -4, true));
+    }
 }
