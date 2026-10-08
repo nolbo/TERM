@@ -51,6 +51,7 @@ class HotkeyInputTest {
             }
             expect("C") { dispatchHotkeyShortcut(view, callbacks, "C") }
             expect("!") { dispatchHotkeyShortcut(view, callbacks, "1") }
+            expect(" ") { dispatchHotkeyShortcut(view, callbacks, "SPACE") }
             expect("\u001b[Z") { dispatchHotkeyShortcut(view, callbacks, "TAB") }
             expect("\u001b[1;8D", control = true, alt = true) { dispatchHotkeyShortcut(view, callbacks, "LEFT") }
             expect("\u001bb") { dispatchHotkeyShortcut(view, callbacks, "ALT+B") }
@@ -97,9 +98,31 @@ class HotkeyInputTest {
                 expect("CTRL+ALT+LEFT", "\u001b[1;7D")
                 expect("SHIFT+1", "!")
                 expect("CTRL+SPACE", "\u0000")
+                expect("SPACE", " ")
+                expect("ALT+SPACE", "\u001b ")
+                expect("SHIFT+SPACE", " ")
+                expect("CTRL+ALT+SPACE", "\u001b\u0000")
+                expect("CTRL+SHIFT+SPACE", "\u0000")
+                expect("ALT+SHIFT+SPACE", "\u001b ")
+                expect("CTRL+ALT+SHIFT+SPACE", "\u001b\u0000")
                 expect("ENTER", "\r")
                 callbacks.controlPressed = true
                 expect("C", "\u0003")
+                callbacks.controlPressed = false
+
+                // Report every press and release to distinguish SHIFT+SPACE from plain SPACE.
+                val mode = "\u001b[>11u".toByteArray()
+                session.emulator.append(mode, mode.size)
+                for ((chord, expected) in listOf(
+                    "SPACE" to "\u001b[32u\u001b[32;1:3u",
+                    "CTRL+SPACE" to "\u001b[32;5u\u001b[32;5:3u",
+                    "ALT+SPACE" to "\u001b[32;3u\u001b[32;3:3u",
+                    "SHIFT+SPACE" to "\u001b[32;2u\u001b[32;2:3u",
+                    "CTRL+ALT+SPACE" to "\u001b[32;7u\u001b[32;7:3u",
+                    "CTRL+SHIFT+SPACE" to "\u001b[32;6u\u001b[32;6:3u",
+                    "ALT+SHIFT+SPACE" to "\u001b[32;4u\u001b[32;4:3u",
+                    "CTRL+ALT+SHIFT+SPACE" to "\u001b[32;8u\u001b[32;8:3u",
+                )) expect(chord, expected)
             } finally {
                 backend.close()
             }

@@ -30,7 +30,7 @@ internal data class HotkeyChord(val key: String, val control: Boolean, val alt: 
     val keyCode: Int? get() = namedHotkeyCodes[key]
     val codePoint: Int? get() {
         if (keyCode != null) return null
-        val character = when (key) { "SPACE" -> ' '; "PLUS" -> '+'; else -> key.single() }
+        val character = if (key == "PLUS") '+' else key.single()
         return (if (shift) shiftHotkeyCharacter(character) else character).code
     }
 }
@@ -47,6 +47,7 @@ private fun shiftHotkeyCharacter(value: Char): Char {
 internal val namedHotkeyCodes = mapOf(
     "ESC" to KeyEvent.KEYCODE_ESCAPE, "TAB" to KeyEvent.KEYCODE_TAB,
     "ENTER" to KeyEvent.KEYCODE_ENTER, "BACKSPACE" to KeyEvent.KEYCODE_DEL,
+    "SPACE" to KeyEvent.KEYCODE_SPACE,
     "DELETE" to KeyEvent.KEYCODE_FORWARD_DEL, "INSERT" to KeyEvent.KEYCODE_INSERT,
     "HOME" to KeyEvent.KEYCODE_MOVE_HOME, "END" to KeyEvent.KEYCODE_MOVE_END,
     "PAGEUP" to KeyEvent.KEYCODE_PAGE_UP, "PAGEDOWN" to KeyEvent.KEYCODE_PAGE_DOWN,
@@ -61,7 +62,7 @@ internal fun parseHotkeyChord(value: String): HotkeyChord? {
     if (modifiers.any { it !in setOf("CTRL", "ALT", "SHIFT") } || modifiers.distinct().size != modifiers.size) return null
     val token = parts.last()
     val key = if (token.length == 1 && token[0] in '!'..'~') token.lowercase(Locale.ROOT) else token
-    if (key !in namedHotkeyCodes && key !in setOf("SPACE", "PLUS") && !(key.length == 1 && key[0] in '!'..'~')) return null
+    if (key !in namedHotkeyCodes && key != "PLUS" && !(key.length == 1 && key[0] in '!'..'~')) return null
     return HotkeyChord(key, "CTRL" in modifiers, "ALT" in modifiers, "SHIFT" in modifiers)
 }
 

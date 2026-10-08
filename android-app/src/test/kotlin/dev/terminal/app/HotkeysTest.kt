@@ -82,8 +82,16 @@ class HotkeysTest {
         assertEquals('C'.code, parseHotkeyChord("SHIFT+C")?.codePoint)
         assertEquals('!'.code, parseHotkeyChord("SHIFT+1")?.codePoint)
         assertEquals('+'.code, parseHotkeyChord("ALT+PLUS")?.codePoint)
-        assertEquals(' '.code, parseHotkeyChord("CTRL+SPACE")?.codePoint)
+        assertEquals(KeyEvent.KEYCODE_SPACE, parseHotkeyChord("CTRL+SPACE")?.keyCode)
         assertEquals(KeyEvent.KEYCODE_F12, parseHotkeyChord("CTRL+F12")?.keyCode)
+    }
+
+    @Test fun spaceChordsCanBeSavedAndRestoredWithEveryModifierCombination() {
+        val shortcuts = listOf("SPACE", "CTRL+SPACE", "ALT+SPACE", "SHIFT+SPACE", "CTRL+ALT+SPACE",
+            "CTRL+SHIFT+SPACE", "ALT+SHIFT+SPACE", "CTRL+ALT+SHIFT+SPACE")
+        val layout = HotkeyLayout(keys = shortcuts.map { Hotkey(it, it) })
+        assertTrue(layout.keys.all(::validHotkey))
+        assertEquals(layout, parseHotkeyLayout(serializeHotkeyLayout(layout)))
     }
 
     @Test fun invalidChordsCannotBeSavedOrSentAsShellText() {

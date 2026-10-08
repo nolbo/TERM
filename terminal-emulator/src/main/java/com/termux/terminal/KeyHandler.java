@@ -243,7 +243,7 @@ public final class KeyHandler {
             case KEYCODE_SPACE:
                 // If ctrl is not down, return null so that it goes through normal input processing (which may e.g. cause a
                 // combining accent to be written):
-                return ((keyMode & KEYMOD_CTRL) == 0) ? null : "\0";
+                return ((keyMode & KEYMOD_CTRL) == 0) ? null : (((keyMode & KEYMOD_ALT) == 0) ? "\0" : "\033\0");
             case KEYCODE_TAB:
                 // This is back-tab when shifted:
                 return (keyMode & KEYMOD_SHIFT) == 0 ? "\011" : "\033[Z";

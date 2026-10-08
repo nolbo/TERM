@@ -6,6 +6,16 @@ import junit.framework.TestCase;
 
 public class KeyHandlerTest extends TestCase {
 
+	public void testControlSpacePreservesAltAndIgnoresShiftInLegacyMode() {
+		for (int shift : new int[] { 0, KeyHandler.KEYMOD_SHIFT }) {
+			assertNull(KeyHandler.getCode(KeyEvent.KEYCODE_SPACE, shift, false, false));
+			assertNull(KeyHandler.getCode(KeyEvent.KEYCODE_SPACE, shift | KeyHandler.KEYMOD_ALT, false, false));
+			assertKeysEquals("\0", KeyHandler.getCode(KeyEvent.KEYCODE_SPACE, shift | KeyHandler.KEYMOD_CTRL, false, false));
+			assertKeysEquals("\033\0", KeyHandler.getCode(KeyEvent.KEYCODE_SPACE,
+				shift | KeyHandler.KEYMOD_CTRL | KeyHandler.KEYMOD_ALT, false, false));
+		}
+	}
+
 	private static String stringToHex(String s) {
 		if (s == null) return null;
 		StringBuilder buffer = new StringBuilder();

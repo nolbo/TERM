@@ -311,12 +311,13 @@ private fun HotkeyEditDialog(
                     }
                 }
                 // Compact presets and basic keys share the same grid as the toolbar.
-                HotkeyGrid(HotkeyLayout(columns = 3, keys = listOf(
+                val presets = listOf(
                     Hotkey("Ctrl+C", "CTRL+C"), Hotkey("Ctrl+D", "CTRL+D"), Hotkey("Ctrl+L", "CTRL+L"),
                     Hotkey("Ctrl", "CTRL"), Hotkey("Alt", "ALT"), Hotkey("Tab", "TAB"),
-                    Hotkey("Shift", "SHIFT"),
-                )), editing = true) { preset ->
-                    shortcut = listOf("CTRL+C", "CTRL+D", "CTRL+L", "CTRL", "ALT", "TAB", "SHIFT")[preset]
+                    Hotkey("Shift", "SHIFT"), Hotkey("Space", "SPACE"), Hotkey("Ctrl+Space", "CTRL+SPACE"),
+                )
+                HotkeyGrid(HotkeyLayout(columns = 3, keys = presets), editing = true) { preset ->
+                    shortcut = presets[preset].shortcut
                     if (name.isBlank()) name = shortcut
                 }
                 HotkeySizeControl(R.string.hotkey_span, span, 1..4) { span = it }
