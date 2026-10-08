@@ -5,8 +5,8 @@ package dev.terminal.app.ui
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -114,17 +114,6 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
         if (index >= 0 && active && expanded) scroll.animateScrollToItem(index)
     }
     val searchLabel = stringResource(R.string.history_search_description)
-    val searchCornerRadius by animateDpAsState(
-        targetValue = if (active && searchFocused) 16.dp else 28.dp,
-        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(),
-        label = "historySearchCornerRadius",
-    )
-    val searchOutline by animateColorAsState(
-        targetValue = if (active && searchFocused) colors.accent else Color.Transparent,
-        animationSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
-        label = "historySearchOutline",
-    )
-    val searchShape = RoundedCornerShape(searchCornerRadius)
     Column(Modifier.fillMaxSize().padding(horizontal = 4.dp)) {
         Row(Modifier.fillMaxWidth().height(60.dp), verticalAlignment = Alignment.CenterVertically) {
             HistoryNavigationButton(previous.command == null, false,
@@ -132,7 +121,7 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
             HistoryNavigationButton(next.command == null, true,
                 ready && (next.command != null || snapshot.row < 0)) { jump(next) }
             TextField(value = query, onValueChange = { query = it.take(256) }, singleLine = true,
-                enabled = active, shape = searchShape,
+                enabled = active, shape = CircleShape,
                 placeholder = { Text(stringResource(R.string.history_search), maxLines = 1) },
                 textStyle = MaterialTheme.typography.bodyMedium,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
@@ -147,8 +136,7 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
                     focusedPlaceholderColor = colors.onContainer, unfocusedPlaceholderColor = colors.onContainer,
                     focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
                     disabledIndicatorColor = Color.Transparent,
-                ), modifier = Modifier.weight(1f).border(2.dp, searchOutline, searchShape)
-                    .onFocusChanged { searchFocused = it.isFocused }
+                ), modifier = Modifier.weight(1f).onFocusChanged { searchFocused = it.isFocused }
                     .semantics { contentDescription = searchLabel })
             Box {
                 val scopeLabel = stringResource(R.string.history_scope, stringResource(searchScope.title))
@@ -222,10 +210,21 @@ private fun HistoryNavigationButton(edge: Boolean, next: Boolean, enabled: Boole
 private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enabled: Boolean,
     first: Boolean, last: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val colors = LocalToolbarColors.current
-    val background by animateColorAsState(if (selected) colors.checkedContainer else Color.Transparent,
+    val background by animateColorAsState(if (selected) colors.container else Color.Transparent,
         MaterialTheme.motionScheme.fastEffectsSpec(), label = "historyCommandSelection")
-    val baseForeground = if (selected) colors.onCheckedContainer else colors.foreground
+    val outline by animateColorAsState(if (selected) colors.accent else Color.Transparent,
+        MaterialTheme.motionScheme.fastEffectsSpec(), label = "historyCommandOutline")
+    val cornerRadius by animateDpAsState(if (selected) 16.dp else 28.dp,
+        MaterialTheme.motionScheme.defaultSpatialSpec(), label = "historyCommandCornerRadius")
+    val nodeSize by animateDpAsState(if (selected) 36.dp else 32.dp,
+        MaterialTheme.motionScheme.defaultSpatialSpec(), label = "historyCommandNodeSize")
+    val nodeBackground by animateColorAsState(if (selected) colors.checkedContainer else colors.container,
+        MaterialTheme.motionScheme.fastEffectsSpec(), label = "historyCommandNodeBackground")
+    val nodeContent by animateColorAsState(if (selected) colors.onCheckedContainer else colors.onContainer,
+        MaterialTheme.motionScheme.fastEffectsSpec(), label = "historyCommandNodeContent")
+    val baseForeground = if (selected) colors.onContainer else colors.foreground
     val foreground = if (enabled) baseForeground else baseForeground.copy(alpha = 0.38f)
+    val graphColor = colors.foreground.copy(alpha = 0.3f * if (enabled) 1f else 0.38f)
     val status = when (command.status) {
         HistoryCommandStatus.Running -> stringResource(R.string.history_running)
         HistoryCommandStatus.Failed -> stringResource(R.string.history_failed, command.exitCode ?: -1)
@@ -234,24 +233,24 @@ private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enable
     }
     val commandText = command.marker.commandText ?: stringResource(R.string.history_command_unavailable)
     Surface(onClick, enabled = enabled, shape = MaterialTheme.shapes.extraLarge,
-        color = background, contentColor = foreground,
+        color = Color.Transparent, contentColor = colors.foreground,
         modifier = modifier.fillMaxWidth().semantics { this.selected = selected; stateDescription = status }) {
-        Row(Modifier.height(IntrinsicSize.Min).heightIn(min = 56.dp).padding(end = 16.dp),
+        Row(Modifier.height(IntrinsicSize.Min).heightIn(min = 56.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(48.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
                 Canvas(Modifier.fillMaxSize()) {
                     val x = size.width / 2
-                    val gap = 16.dp.toPx()
-                    if (!first) drawLine(foreground.copy(alpha = foreground.alpha * 0.3f), Offset(x, 0f),
+                    val gap = (nodeSize / 2 + 2.dp).toPx()
+                    if (!first) drawLine(graphColor, Offset(x, 0f),
                         Offset(x, center.y - gap), strokeWidth = 2.dp.toPx())
-                    if (!last) drawLine(foreground.copy(alpha = foreground.alpha * 0.3f), Offset(x, center.y + gap),
+                    if (!last) drawLine(graphColor, Offset(x, center.y + gap),
                         Offset(x, size.height), strokeWidth = 2.dp.toPx())
                 }
                 TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
                     tooltip = { PlainTooltip { Text(status) } }, state = rememberTooltipState()) {
-                    Surface(shape = CircleShape, color = if (selected) colors.checkedContainer else colors.container,
-                        contentColor = foreground) {
-                        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                    Surface(shape = CircleShape, color = nodeBackground,
+                        contentColor = if (enabled) nodeContent else nodeContent.copy(alpha = 0.38f)) {
+                        Box(Modifier.size(nodeSize), contentAlignment = Alignment.Center) {
                             Icon(painterResource(when (command.status) {
                                 HistoryCommandStatus.Running -> R.drawable.ic_material_symbol_play_arrow_24
                                 HistoryCommandStatus.Completed -> R.drawable.ic_material_symbol_check_circle_24
@@ -261,9 +260,13 @@ private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enable
                     }
                 }
             }
-            Text(commandText, Modifier.weight(1f).padding(vertical = 12.dp), maxLines = 2,
-                overflow = TextOverflow.Ellipsis, fontFamily = LocalTerminalMonospaceFontFamily.current,
-                style = MaterialTheme.typography.bodyMedium)
+            Surface(shape = RoundedCornerShape(cornerRadius), color = background, contentColor = foreground,
+                border = BorderStroke(1.dp, outline),
+                modifier = Modifier.weight(1f).padding(vertical = 4.dp).padding(end = 4.dp)) {
+                Text(commandText, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), maxLines = 2,
+                    overflow = TextOverflow.Ellipsis, fontFamily = LocalTerminalMonospaceFontFamily.current,
+                    style = MaterialTheme.typography.bodyMedium)
+            }
         }
     }
 }
