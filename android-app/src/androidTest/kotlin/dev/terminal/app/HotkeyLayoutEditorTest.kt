@@ -139,6 +139,37 @@ class HotkeyLayoutEditorTest {
         assertEquals(initial.keys[1], layout.keys[1])
     }
 
+    @Test fun selectedKeyIconsOpenTheSimplifiedDialogAndDeleteOnlyTheDraftUntilSaved() = withEditor { _ ->
+        val a = keyBounds(0, "A")
+        val editLabel = context.getString(R.string.hotkey_edit)
+        val deleteLabel = context.getString(R.string.hotkey_remove)
+        tap(a)
+        val edit = awaitLabel(editLabel)
+        val delete = awaitLabel(deleteLabel)
+        assertTrue("Edit and delete actions must sit beside each other", delete.left >= edit.right)
+        assertTrue(findNode(editLabel)?.text.isNullOrEmpty())
+        assertTrue(findNode(deleteLabel)?.text.isNullOrEmpty())
+        tap(edit)
+        awaitLabel(context.getString(R.string.hotkey_supported_keys))
+        assertNull("Delete belongs in the preview", findNode(deleteLabel))
+        for (preset in listOf("Ctrl+C", "Ctrl+D", "Ctrl+L", "Ctrl", "Alt", "Tab", "Shift", "Space", "Ctrl+Space")) {
+            assertNull("The edit dialog must not offer preset buttons: $preset", findNode(preset))
+        }
+        tap(awaitLabel(context.getString(R.string.cancel)))
+        tap(awaitLabel(deleteLabel))
+        awaitCondition("The deleted key is still in the preview") {
+            findLabel(context.getString(R.string.hotkey_edit_description, 1, "A", "A")) == null
+        }
+        keyBounds(0, "B")
+        assertEquals(initial, readHotkeyLayout(preferences()))
+        tap(keyBounds(0, "B"))
+        // The tooltip anchor stays enabled; exercise the disabled button beneath it.
+        tap(awaitLabel(deleteLabel))
+        keyBounds(0, "B")
+        save()
+        assertEquals(listOf(initial.keys[1]), readHotkeyLayout(preferences()).keys)
+    }
+
     @Test fun cancellingRestoresSwappedKeysAndDroppingOnANeighborExchangesPositions() = withEditor { _ ->
         val a = keyBounds(0, "A")
         val b = keyBounds(1, "B")

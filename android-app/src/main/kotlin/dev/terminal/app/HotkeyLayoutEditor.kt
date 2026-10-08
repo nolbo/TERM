@@ -40,6 +40,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
 import dev.terminal.app.ui.LocalTerminalHaptics
+import dev.terminal.app.ui.FloatingToolbarAction
 import kotlin.math.ceil
 
 private data class HotkeyDrag(
@@ -279,9 +280,17 @@ internal fun EditableHotkeyPreview(
         if (selectedIndex in layout.keys.indices) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(layout.keys[selectedIndex].name, Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                TextButton(onClick = { onEdit(selectedIndex) }, shapes = ButtonDefaults.shapes()) {
-                    Text(stringResource(R.string.hotkey_edit))
-                }
+                FloatingToolbarAction(stringResource(R.string.hotkey_edit), R.drawable.ic_toolbar_edit,
+                    enabled = drag == null, onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        onEdit(selectedIndex)
+                    })
+                FloatingToolbarAction(stringResource(R.string.hotkey_remove), R.drawable.ic_material_symbol_delete_24,
+                    enabled = drag == null && layout.keys.size > 1, destructive = true, onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        change(removeHotkey(layout, selectedIndex))
+                        selectedIndex = -1
+                    })
             }
         }
     }

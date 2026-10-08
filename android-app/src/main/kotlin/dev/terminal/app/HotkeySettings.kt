@@ -245,10 +245,6 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
                     else layout.copy(keys = layout.keys.toMutableList().apply { set(index, hotkey) }))
                 editingIndex = -1
             },
-            onRemove = {
-                update(removeHotkey(layout, index))
-                editingIndex = -1
-            },
             onDismiss = { editingIndex = -1 },
         )
     }
@@ -283,7 +279,7 @@ private fun HotkeySizeControl(title: Int, value: Int, range: IntRange, onChange:
 @Composable
 private fun HotkeyEditDialog(
     initial: Hotkey, index: Int, count: Int,
-    onSave: (Hotkey) -> Unit, onRemove: () -> Unit, onDismiss: () -> Unit,
+    onSave: (Hotkey) -> Unit, onDismiss: () -> Unit,
 ) {
     var name by rememberSaveable(index) { mutableStateOf(initial.name) }
     var shortcut by rememberSaveable(index) { mutableStateOf(initial.shortcut) }
@@ -315,22 +311,6 @@ private fun HotkeyEditDialog(
                         Text(stringResource(R.string.hotkey_shortcut_support), Modifier.padding(top = 12.dp),
                             style = MaterialTheme.typography.bodySmall)
                     }
-                }
-                // Compact presets and basic keys share the same grid as the toolbar.
-                val presets = listOf(
-                    Hotkey("Ctrl+C", "CTRL+C"), Hotkey("Ctrl+D", "CTRL+D"), Hotkey("Ctrl+L", "CTRL+L"),
-                    Hotkey("Ctrl", "CTRL"), Hotkey("Alt", "ALT"), Hotkey("Tab", "TAB"),
-                    Hotkey("Shift", "SHIFT"), Hotkey("Space", "SPACE"), Hotkey("Ctrl+Space", "CTRL+SPACE"),
-                )
-                HotkeyGrid(HotkeyLayout(columns = 3, keys = presets), editing = true) { preset ->
-                    shortcut = presets[preset].shortcut
-                    if (name.isBlank()) name = shortcut
-                }
-                if (index < count) {
-                    TextButton(onClick = {
-                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                        onRemove()
-                    }, enabled = count > 1, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.hotkey_remove)) }
                 }
             }
         },
