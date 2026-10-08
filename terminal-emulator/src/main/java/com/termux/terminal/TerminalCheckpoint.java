@@ -18,7 +18,7 @@ public final class TerminalCheckpoint {
         "java.lang.Integer", "java.lang.Long", "java.lang.Number", "java.lang.StringBuilder",
         "java.util.Stack", "java.util.Vector", "java.util.ArrayList", "java.util.ArrayDeque",
         "java.util.HashMap", "java.util.LinkedHashMap", "java.util.Properties", "java.util.Hashtable",
-        "[B", "[C", "[I", "[J", "[Z", "[Ljava.lang.Object;",
+        "[B", "[C", "[I", "[J", "[Z", "[Ljava.lang.Object;", "[Ljava.lang.String;",
         "[Lcom.termux.terminal.TerminalRow;"
     );
 

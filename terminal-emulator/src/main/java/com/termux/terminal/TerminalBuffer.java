@@ -321,24 +321,34 @@ public final class TerminalBuffer implements java.io.Serializable {
                 }
 
                 int lastNonSpaceIndex = 0;
-                boolean justToCursor = false;
-                if (cursorAtThisRow || oldLine.mLineWrap) {
-                    // Take the whole line, either because of cursor on it, or if line wrapping.
+                if (oldLine.mLineWrap) {
+                    // Wrapped rows retain their full width.
                     lastNonSpaceIndex = oldLine.getSpaceUsed();
-                    if (cursorAtThisRow) justToCursor = true;
                 } else {
                     for (int i = 0; i < oldLine.getSpaceUsed(); i++)
                         // NEWLY INTRODUCED BUG! Should not index oldLine.mStyle with char indices
                         if (oldLine.mText[i] != ' '/* || oldLine.mStyle[i] != currentStyle */)
                             lastNonSpaceIndex = i + 1;
+                    // Keep the cursor cell without dropping content to its right.
+                    if (cursorAtThisRow)
+                        lastNonSpaceIndex = Math.max(lastNonSpaceIndex, oldLine.findStartOfColumn(oldCursorColumn + 1));
                 }
 
                 if (anchors != null) for (HistoryAnchor anchor : anchors)
                     lastNonSpaceIndex = Math.max(lastNonSpaceIndex, oldLine.findStartOfColumn(anchor.column) + 1);
 
+                // Linked spaces are content too, including at the end of a logical line.
+                for (int column = oldLine.mStyle.length - 1; column >= 0; column--) {
+                    if (oldLine.getHyperlink(column) != null) {
+                        lastNonSpaceIndex = Math.max(lastNonSpaceIndex, oldLine.findStartOfColumn(column + 1));
+                        break;
+                    }
+                }
+
                 int currentOldCol = 0;
                 long styleAtCol = 0;
                 int underlineAtCol = TextStyle.COLOR_INDEX_FOREGROUND;
+                String hyperlinkAtCol = null;
                 for (int i = 0; i < lastNonSpaceIndex; i++) {
                     // Note that looping over java character, not cells.
                     char c = oldLine.mText[i];
@@ -348,6 +358,7 @@ public final class TerminalBuffer implements java.io.Serializable {
                     if (displayWidth > 0) {
                         styleAtCol = oldLine.getStyle(currentOldCol);
                         underlineAtCol = oldLine.getUnderlineColor(currentOldCol);
+                        hyperlinkAtCol = oldLine.getHyperlink(currentOldCol);
                     }
 
                     // Line wrap as necessary:
@@ -364,7 +375,7 @@ public final class TerminalBuffer implements java.io.Serializable {
 
                     int offsetDueToCombiningChar = ((displayWidth <= 0 && currentOutputExternalColumn > 0) ? 1 : 0);
                     int outputColumn = currentOutputExternalColumn - offsetDueToCombiningChar;
-                    setChar(outputColumn, currentOutputExternalRow, codePoint, styleAtCol, underlineAtCol);
+                    setChar(outputColumn, currentOutputExternalRow, codePoint, styleAtCol, underlineAtCol, hyperlinkAtCol);
 
                     if (anchors != null && displayWidth > 0) {
                         java.util.Iterator<HistoryAnchor> iterator = anchors.iterator();
@@ -386,7 +397,6 @@ public final class TerminalBuffer implements java.io.Serializable {
                         }
                         currentOldCol += displayWidth;
                         currentOutputExternalColumn += displayWidth;
-                        if (justToCursor && newCursorPlaced) break;
                     }
                 }
                 if (anchors != null) for (HistoryAnchor anchor : anchors) anchor.release();
@@ -521,10 +531,22 @@ public final class TerminalBuffer implements java.io.Serializable {
     }
 
     public void setChar(int column, int row, int codePoint, long style, int underlineColor) {
+        setChar(column, row, codePoint, style, underlineColor, null);
+    }
+
+    public void setChar(int column, int row, int codePoint, long style, int underlineColor, String hyperlink) {
         if (row  < 0 || row >= mScreenRows || column < 0 || column >= mColumns)
             throw new IllegalArgumentException("TerminalBuffer.setChar(): row=" + row + ", column=" + column + ", mScreenRows=" + mScreenRows + ", mColumns=" + mColumns);
         row = externalToInternalRow(row);
-        allocateFullLineIfNecessary(row).setChar(column, codePoint, style, underlineColor);
+        allocateFullLineIfNecessary(row).setChar(column, codePoint, style, underlineColor, hyperlink);
+    }
+
+    /** Cell coordinates include negative scrollback rows. Does not allocate blank rows. */
+    public String getHyperlinkAt(int externalRow, int column) {
+        if (column < 0 || column >= mColumns || externalRow < -mActiveTranscriptRows || externalRow >= mScreenRows)
+            return null;
+        TerminalRow line = mLines[externalToInternalRow(externalRow)];
+        return line == null ? null : line.getHyperlink(column);
     }
 
     public long getStyleAt(int externalRow, int column) {

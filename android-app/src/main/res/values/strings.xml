@@ -1,6 +1,6 @@
 <resources>
-    <string name="terminal_open_links">웹 링크 열기</string>
-    <string name="terminal_open_links_support">터미널의 http/https 주소를 한 번 탭하면 브라우저로 엽니다. 더블 탭과 스크롤은 기존 동작을 유지합니다.</string>
+    <string name="terminal_open_links">터미널 링크 열기</string>
+    <string name="terminal_open_links_support">터미널의 링크나 http/https 주소를 한 번 탭하면 브라우저로 엽니다. http/https 링크만 열며 더블 탭과 스크롤은 기존 동작을 유지합니다.</string>
     <string name="terminal_link_no_browser">웹 링크를 열 수 있는 앱이 없습니다.</string>
     <string name="new_session_rootless_group">Userspace Linux</string>
     <string name="select_distribution">배포판 선택</string>

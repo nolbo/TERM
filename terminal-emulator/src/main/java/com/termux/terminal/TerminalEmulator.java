@@ -216,6 +216,9 @@ public final class TerminalEmulator implements java.io.Serializable {
 
     /** Holds OSC and device control arguments, which can be strings. */
     private StringBuilder mOSCOrDeviceControlArgs = new StringBuilder();
+    private boolean mOSCDiscarding;
+    /** Destination for subsequent printable cells, committed only by a complete OSC 8. */
+    private String mActiveHyperlink;
 
     /**
      * True if the current escape sequence should continue, false if the current escape sequence should be terminated.
@@ -435,6 +438,8 @@ public final class TerminalEmulator implements java.io.Serializable {
         mArgs = state.mArgs;
         mArgsSubParamsBitSet = state.mArgsSubParamsBitSet;
         mOSCOrDeviceControlArgs = state.mOSCOrDeviceControlArgs;
+        mOSCDiscarding = state.mOSCDiscarding;
+        mActiveHyperlink = state.mActiveHyperlink;
         mContinueSequence = state.mContinueSequence;
         mEscapeState = state.mEscapeState;
         mSavedStateMain = state.mSavedStateMain;
@@ -708,6 +713,7 @@ public final class TerminalEmulator implements java.io.Serializable {
                         || (codePoint < 0b1111111111111111 && mUtf8Index > 3)) {
                         // Overlong encoding.
                         codePoint = UNICODE_REPLACEMENT_CHAR;
+                        discardMalformedOSC();
                     }
 
                     mUtf8Index = mUtf8ToFollow = 0;
@@ -718,11 +724,13 @@ public final class TerminalEmulator implements java.io.Serializable {
                         // on binary input. XTerm does not allow them in utf-8:
                         // "It is not possible to use a C1 control obtained from decoding the
                         // UTF-8 text" - http://invisible-island.net/xterm/ctlseqs/ctlseqs.html
+                        discardMalformedOSC();
                     } else {
                         switch (Character.getType(codePoint)) {
                             case Character.UNASSIGNED:
                             case Character.SURROGATE:
                                 codePoint = UNICODE_REPLACEMENT_CHAR;
+                                discardMalformedOSC();
                         }
                         processCodePoint(codePoint);
                     }
@@ -730,7 +738,11 @@ public final class TerminalEmulator implements java.io.Serializable {
             } else {
                 // Not a UTF-8 continuation byte so replace the entire sequence up to now with the replacement char:
                 mUtf8Index = mUtf8ToFollow = 0;
-                emitCodePoint(UNICODE_REPLACEMENT_CHAR);
+                if (mEscapeState == ESC_OSC || mEscapeState == ESC_OSC_ESC) {
+                    mOSCDiscarding = true;
+                } else {
+                    emitCodePoint(UNICODE_REPLACEMENT_CHAR);
+                }
                 // The Unicode Standard Version 6.2 – Core Specification
                 // (http://www.unicode.org/versions/Unicode6.2.0/ch03.pdf):
                 // "If the converter encounters an ill-formed UTF-8 code unit sequence which starts with a valid first
@@ -752,6 +764,7 @@ public final class TerminalEmulator implements java.io.Serializable {
                 mUtf8ToFollow = 3;
             } else {
                 // Not a valid UTF-8 sequence start, signal invalid data:
+                discardMalformedOSC();
                 processCodePoint(UNICODE_REPLACEMENT_CHAR);
                 return;
             }
@@ -764,6 +777,24 @@ public final class TerminalEmulator implements java.io.Serializable {
         // Always drain oversized or unsupported strings through ST, never display their tail as text.
         if (mEscapeState == ESC_P || mEscapeState == ESC_APC) {
             consumeGraphicsString(b);
+            return;
+        }
+
+        // OSC payload controls must not move the cursor or escape into printable output.
+        // Keep incomplete/oversized strings pending until their terminator or cancellation.
+        if (mEscapeState == ESC_OSC || mEscapeState == ESC_OSC_ESC) {
+            if (b == 24 || b == 26) {
+                if (isHyperlinkOSC()) mActiveHyperlink = null;
+                mOSCOrDeviceControlArgs.setLength(0);
+                finishSequence();
+            } else if (b == 7) {
+                if (mEscapeState == ESC_OSC_ESC) mOSCDiscarding = true;
+                doOscSetTextParameters("\007");
+            } else if (mEscapeState == ESC_OSC_ESC) {
+                doOscEsc(b);
+            } else {
+                doOsc(b);
+            }
             return;
         }
 
@@ -1778,6 +1809,7 @@ public final class TerminalEmulator implements java.io.Serializable {
                 break;
             case ']': // OSC
                 mOSCOrDeviceControlArgs.setLength(0);
+                mOSCDiscarding = false;
                 continueSequence(ESC_OSC);
                 break;
             case '>': // DECKPNM
@@ -2335,14 +2367,23 @@ public final class TerminalEmulator implements java.io.Serializable {
                 // The ESC character was not followed by a \, so insert the ESC and
                 // the current character in arg buffer.
                 collectOSCArgs(27);
-                collectOSCArgs(b);
-                continueSequence(ESC_OSC);
+                if (b == 27) {
+                    continueSequence(ESC_OSC_ESC);
+                } else {
+                    collectOSCArgs(b);
+                    continueSequence(ESC_OSC);
+                }
                 break;
         }
     }
 
     /** An Operating System Controls (OSC) Set Text Parameters. May come here from BEL or ST. */
     private void doOscSetTextParameters(String bellOrStringTerminator) {
+        if (mOSCDiscarding) {
+            if (isHyperlinkOSC()) mActiveHyperlink = null;
+            finishSequence();
+            return;
+        }
         int value = -1;
         String textParameter = "";
         // Extract initial $value from initial "$value;..." string.
@@ -2352,6 +2393,10 @@ public final class TerminalEmulator implements java.io.Serializable {
                 textParameter = mOSCOrDeviceControlArgs.substring(mOSCArgTokenizerIndex + 1);
                 break;
             } else if (b >= '0' && b <= '9') {
+                if (value > (Integer.MAX_VALUE - (b - '0')) / 10) {
+                    finishSequence();
+                    return;
+                }
                 value = ((value < 0) ? 0 : value * 10) + (b - '0');
             } else {
                 unknownSequence(b);
@@ -2360,6 +2405,14 @@ public final class TerminalEmulator implements java.io.Serializable {
         }
 
         switch (value) {
+            case 8: // OSC 8 ; params ; URI. An empty URI ends the link.
+                mActiveHyperlink = null;
+                int separator = textParameter.indexOf(';');
+                // Parameters (including colon-separated id= values) are opaque here.
+                // Split only once so semicolons in the destination remain intact.
+                if (separator >= 0 && separator + 1 < textParameter.length())
+                    mActiveHyperlink = textParameter.substring(separator + 1);
+                break;
             case 133:
                 if (!isAlternateBufferActive()) {
                     char boundary = textParameter.isEmpty() ? 0 : textParameter.charAt(0);
@@ -2646,12 +2699,24 @@ public final class TerminalEmulator implements java.io.Serializable {
     }
 
     private void collectOSCArgs(int b) {
-        if (mOSCOrDeviceControlArgs.length() < MAX_OSC_STRING_LENGTH) {
+        if (b < 32 || b >= 0x7f && b <= 0x9f
+            || mOSCOrDeviceControlArgs.length() + Character.charCount(b) > MAX_OSC_STRING_LENGTH)
+            mOSCDiscarding = true;
+        if (!mOSCDiscarding) {
             mOSCOrDeviceControlArgs.appendCodePoint(b);
-            continueSequence(mEscapeState);
-        } else {
-            unknownSequence(b);
         }
+        continueSequence(mEscapeState);
+    }
+
+    private boolean isHyperlinkOSC() {
+        int i = 0;
+        while (i < mOSCOrDeviceControlArgs.length() && mOSCOrDeviceControlArgs.charAt(i) == '0') i++;
+        return i < mOSCOrDeviceControlArgs.length() && mOSCOrDeviceControlArgs.charAt(i) == '8'
+            && (i + 1 == mOSCOrDeviceControlArgs.length() || mOSCOrDeviceControlArgs.charAt(i + 1) == ';');
+    }
+
+    private void discardMalformedOSC() {
+        if (mEscapeState == ESC_OSC || mEscapeState == ESC_OSC_ESC) mOSCDiscarding = true;
     }
 
     private void unimplementedSequence(int b) {
@@ -2848,7 +2913,7 @@ public final class TerminalEmulator implements java.io.Serializable {
         // so was mCursorCol changed after the offsetDueToCombiningChar conditional by another thread?
         // TODO: Check if there are thread synchronization issues with mCursorCol and mCursorRow, possibly causing others bugs too.
         if (column < 0) column = 0;
-        mScreen.setChar(column, mCursorRow, codePoint, getStyle(), mUnderlineColor);
+        mScreen.setChar(column, mCursorRow, codePoint, getStyle(), mUnderlineColor, mActiveHyperlink);
 
         if (autoWrap && displayWidth > 0)
             mAboutToAutoWrap = (mCursorCol == right - displayWidth);
@@ -2948,6 +3013,8 @@ public final class TerminalEmulator implements java.io.Serializable {
         mContinueSequence = false;
         mEscapeState = ESC_NONE;
         mInsertMode = false;
+        mActiveHyperlink = null;
+        mOSCDiscarding = false;
         mTopMargin = mLeftMargin = 0;
         mBottomMargin = mRows;
         mRightMargin = mColumns;

@@ -1,5 +1,7 @@
 package dev.terminal.app
 
+import android.content.Intent
+import android.net.Uri
 import android.os.Handler
 import android.os.Looper
 import android.view.KeyEvent
@@ -8,6 +10,14 @@ import android.view.ScaleGestureDetector
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TerminalSessionClient
 import com.termux.view.TerminalViewClient
+
+/** Shared validation for OSC 8 destinations and automatically detected web URLs. */
+internal fun terminalLinkIntent(url: String): Intent? {
+    if (url.any { it <= '\u0020' || it in '\u007f'..'\u009f' }) return null
+    val uri = Uri.parse(url)
+    if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) return null
+    return Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE)
+}
 
 class TerminalCallbacks(
     private val titleChanged: (TerminalSession) -> Unit = {},

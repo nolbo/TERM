@@ -242,6 +242,8 @@ can explicitly terminate matching sessions. See [KITTY_PROTOCOL.md](KITTY_PROTOC
 
 ## Host terminal checkpoints
 
+OSC 8 hyperlinks are untrusted terminal metadata, stored per cell and carried with text through scrollback, copy, reflow and same-build checkpoints. Parsing never launches an Android activity. Only an explicit tap with the existing terminal-link setting enabled can open a destination, through the shared `ACTION_VIEW` + `CATEGORY_BROWSABLE` path. Both OSC 8 and regex-detected destinations require an http/https scheme and non-empty host; controls and other schemes (including file, content and intent) are rejected. A disallowed explicit destination never falls back to a different URL in its label. OSC arguments remain bounded and malformed or oversized strings are discarded through their terminator; incomplete strings do not commit link state. OSC 8 parameters such as `id` are accepted without adding UI or an unbounded identity registry.
+
 Terminal checkpoints are created and read only between components of the same
 app build. The runtime service is not exported; no guest capability, wire frame
 or file path accepts a serialized checkpoint. Transfers expose only the read end

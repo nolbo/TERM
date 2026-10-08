@@ -61,6 +61,8 @@ public final class TerminalRow implements java.io.Serializable {
     final long[] mStyle;
     /** Lazily allocated SGR 58 colors, also used as kitty placeholder placement IDs. */
     private int[] mUnderlineColors;
+    /** OSC 8 destinations shared by linked cells; absent on rows without hyperlinks. */
+    private String[] mHyperlinks;
     /** If this row might contain chars with width != 1, used for deactivating fast path */
     boolean mHasNonOneWidthOrSurrogateChars;
 
@@ -79,6 +81,7 @@ public final class TerminalRow implements java.io.Serializable {
         final int x2 = line.findStartOfColumn(sourceX2);
         boolean startingFromSecondHalfOfWideChar = (sourceX1 > 0 && line.wideDisplayCharacterStartingAt(sourceX1 - 1));
         final int[] sourceUnderline = line.mUnderlineColors == null ? null : line.mUnderlineColors.clone();
+        final String[] sourceHyperlinks = line.mHyperlinks == null ? null : line.mHyperlinks.clone();
         final long[] sourceStyles = this == line ? line.mStyle.clone() : line.mStyle;
         final char[] sourceChars = (this == line) ? Arrays.copyOf(line.mText, line.mText.length) : line.mText;
         int latestNonCombiningWidth = 0;
@@ -97,7 +100,8 @@ public final class TerminalRow implements java.io.Serializable {
                 latestNonCombiningWidth = w;
             }
             setChar(destinationX, codePoint, sourceStyles[sourceX1],
-                sourceUnderline == null ? TextStyle.COLOR_INDEX_FOREGROUND : sourceUnderline[sourceX1]);
+                sourceUnderline == null ? TextStyle.COLOR_INDEX_FOREGROUND : sourceUnderline[sourceX1],
+                sourceHyperlinks == null ? null : sourceHyperlinks[sourceX1]);
         }
     }
 
@@ -163,6 +167,7 @@ public final class TerminalRow implements java.io.Serializable {
         Arrays.fill(mText, ' ');
         Arrays.fill(mStyle, style);
         if (mUnderlineColors != null) Arrays.fill(mUnderlineColors, TextStyle.COLOR_INDEX_FOREGROUND);
+        mHyperlinks = null;
         mSpaceUsed = (short) mColumns;
         mHasNonOneWidthOrSurrogateChars = false;
     }
@@ -177,6 +182,19 @@ public final class TerminalRow implements java.io.Serializable {
     }
 
     public void setChar(int columnToSet, int codePoint, long style, int underlineColor) {
+        setChar(columnToSet, codePoint, style, underlineColor, null);
+    }
+
+    public String getHyperlink(int column) {
+        return mHyperlinks == null ? null : mHyperlinks[column];
+    }
+
+    private void setHyperlink(int column, int width, String hyperlink) {
+        if (mHyperlinks == null && hyperlink != null) mHyperlinks = new String[mColumns];
+        if (mHyperlinks != null) Arrays.fill(mHyperlinks, column, column + width, hyperlink);
+    }
+
+    public void setChar(int columnToSet, int codePoint, long style, int underlineColor, String hyperlink) {
         if (columnToSet  < 0 || columnToSet >= mStyle.length)
             throw new IllegalArgumentException("TerminalRow.setChar(): columnToSet=" + columnToSet + ", codePoint=" + codePoint + ", style=" + style);
 
@@ -195,6 +213,7 @@ public final class TerminalRow implements java.io.Serializable {
                 mHasNonOneWidthOrSurrogateChars = true;
             } else {
                 mText[columnToSet] = (char) codePoint;
+                setHyperlink(columnToSet, 1, hyperlink);
                 return;
             }
         }
@@ -300,11 +319,18 @@ public final class TerminalRow implements java.io.Serializable {
                 mSpaceUsed -= nextLen;
             }
         }
+        // Combining marks belong to the existing base cell, even across OSC 8 boundaries.
+        if (!newIsCombining) {
+            setHyperlink(columnToSet, Math.max(oldCodePointDisplayWidth, newCodePointDisplayWidth), null);
+            setHyperlink(columnToSet, newCodePointDisplayWidth, hyperlink);
+        }
     }
 
     boolean isBlank() {
         for (int charIndex = 0, charLen = getSpaceUsed(); charIndex < charLen; charIndex++)
             if (mText[charIndex] != ' ') return false;
+        if (mHyperlinks != null) for (String hyperlink : mHyperlinks)
+            if (hyperlink != null) return false;
         return true;
     }
 

@@ -57,6 +57,51 @@ public class TerminalCheckpointTest extends TerminalTestCase {
         emulator.append(bytes, bytes.length);
     }
 
+    public void testHyperlinksInBothScreensScrollbackAndActiveDestinationSurviveCheckpoint() throws Exception {
+        withTerminalSized(8, 4);
+        enterString("\033]8;id=main;https://main.example\033\\abcdefghij\033]8;;\007\r\n1\r\n2\r\n3\r\n4");
+        assertTrue(mTerminal.getScreen().getActiveTranscriptRows() > 0);
+        enterString("\033[?1049h\033[H\033]8;id=alt;https://alt.example\007ALT");
+        TerminalEmulator mirror = restore(mTerminal, new MockTerminalOutput());
+        sameState(mTerminal, mirror);
+        String suffix = "X\033]8;;\033\\Y\033[?1049l";
+        append(mTerminal, suffix);
+        append(mirror, suffix);
+        sameState(mTerminal, mirror);
+        assertEquals("https://main.example", mirror.getScreen().getHyperlinkAt(-2, 0));
+        append(mirror, "\033[?47h");
+        assertEquals("https://alt.example", mirror.getScreen().getHyperlinkAt(0, 3));
+        assertNull(mirror.getScreen().getHyperlinkAt(0, 4));
+    }
+
+    public void testEveryByteCheckpointPreservesPartialHyperlinkStartAndEnd() throws Exception {
+        byte[] input = "\033]8;id=one:unknown=x;https://example.com/한;a\033\\한label\033]8;;\007X".getBytes(StandardCharsets.UTF_8);
+        for (int split = 0; split <= input.length; split++) {
+            withTerminalSized(10, 4);
+            mTerminal.append(Arrays.copyOf(input, split), split);
+            TerminalEmulator mirror = restore(mTerminal, new MockTerminalOutput());
+            byte[] suffix = Arrays.copyOfRange(input, split, input.length);
+            mTerminal.append(suffix, suffix.length);
+            mirror.append(suffix, suffix.length);
+            sameState(mTerminal, mirror);
+            assertEquals("https://example.com/한;a", mirror.getScreen().getHyperlinkAt(0, 0));
+            assertEquals("https://example.com/한;a", mirror.getScreen().getHyperlinkAt(0, 6));
+            assertNull(mirror.getScreen().getHyperlinkAt(0, 7));
+        }
+    }
+
+    public void testDiscardedHyperlinkStateSurvivesCheckpointUntilTerminator() throws Exception {
+        withTerminalSized(20, 4);
+        enterString("\033]8;;https://old.example\007A\033]8;;https://bad.example/\n");
+        TerminalEmulator mirror = restore(mTerminal, new MockTerminalOutput());
+        String suffix = "tail\033\\B";
+        append(mTerminal, suffix);
+        append(mirror, suffix);
+        sameState(mTerminal, mirror);
+        assertEquals("AB", mirror.getScreen().getTranscriptText());
+        assertNull(mirror.getScreen().getHyperlinkAt(0, 1));
+    }
+
     public void testBackgroundDeclarationsAndWholeScreenEraseSurviveCheckpoint() throws Exception {
         withTerminalSized(80, 24);
         enterString("\033[?1049h\033[48;2;18;52;86m\033[2J\033]11;#000000\007");

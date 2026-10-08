@@ -216,7 +216,7 @@ public final class TerminalView extends View {
                 }
                 requestFocus();
                 if (!mEmulator.isMouseTrackingActive()) {
-                    String link = getWebLinkAt(event.getX(), event.getY());
+                    String link = getLinkAt(event.getX(), event.getY());
                     if (link != null && mClient.onOpenLink(link)) return true;
                 }
                 mClient.onSingleTapUp(event);
@@ -1634,8 +1634,15 @@ public final class TerminalView extends View {
         return (int) (x / mRenderer.mFontWidth);
     }
 
-    /** Match only visible web URLs, using terminal columns rather than UTF-16 offsets. */
-    public String getWebLinkAt(float x, float y) {
+    /** Explicit OSC 8 metadata takes precedence, even when its scheme cannot be opened. */
+    public String getLinkAt(float x, float y) {
+        int[] cell = getLinkCellAt(x, y);
+        if (cell == null) return null;
+        String hyperlink = mEmulator.getScreen().getHyperlinkAt(cell[1], cell[0]);
+        return hyperlink != null ? hyperlink : getWebLinkAt(x, y);
+    }
+
+    private int[] getLinkCellAt(float x, float y) {
         if (mEmulator == null || mRenderer == null || x < 0 || y < 0) return null;
         int column = (int) (x / mRenderer.mFontWidth);
         int screenRow = (int) Math.floor((y - getTerminalContentTopInset() - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing + mScrollOffset);
@@ -1644,6 +1651,14 @@ public final class TerminalView extends View {
             getTerminalContentTopInset(), mRenderer.mFontLineSpacing);
         if (column >= mEmulator.mColumns || row < firstRow
                 || screenRow >= mEmulator.mRows + (mScrollOffset > 0 ? 1 : 0)) return null;
+        return new int[]{column, row};
+    }
+
+    /** Regex fallback for visible web URLs, using terminal columns rather than UTF-16 offsets. */
+    public String getWebLinkAt(float x, float y) {
+        int[] cell = getLinkCellAt(x, y);
+        if (cell == null) return null;
+        int column = cell[0], row = cell[1];
         com.termux.terminal.TerminalBuffer buffer = mEmulator.getScreen();
         int first = row, last = row;
         while (first > -buffer.getActiveTranscriptRows() && row - first < 32 && buffer.getLineWrap(first - 1)) first--;

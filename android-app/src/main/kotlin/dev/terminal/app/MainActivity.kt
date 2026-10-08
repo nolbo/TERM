@@ -1127,10 +1127,9 @@ class MainActivity : TerminalActivity() {
 
     private fun openTerminalWebLink(url: String): Boolean {
         if (!terminalPreferences().getBoolean(SettingsDetailActivity.KEY_OPEN_LINKS, false)) return false
-        val uri = android.net.Uri.parse(url)
-        if (uri.scheme?.lowercase() !in setOf("http", "https") || uri.host.isNullOrBlank()) return false
+        val intent = terminalLinkIntent(url) ?: return false
         try {
-            startActivity(Intent(Intent.ACTION_VIEW, uri).addCategory(Intent.CATEGORY_BROWSABLE))
+            startActivity(intent)
         } catch (_: android.content.ActivityNotFoundException) {
             feedbackMessage = getString(R.string.terminal_link_no_browser)
         } catch (_: SecurityException) {
