@@ -1,11 +1,23 @@
 package dev.terminal.app.ui
 
-import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.dp
 import dev.terminal.app.R
 import dev.terminal.runtime.session.EnvironmentId
 import dev.terminal.runtime.session.SessionLaunchSpec
@@ -37,12 +49,43 @@ data class ProfileInstallationStatus(
     }
 }
 
-/** Both entry points show the same status for profiles sharing an Environment. */
+/** Both entry points badge only confirmed missing installations. */
+@Composable
+internal fun ProfilePickerIcon(
+    profile: SessionProfile,
+    installationStatuses: Map<EnvironmentId, ProfileInstallationStatus>,
+    tint: Color,
+    badgeContentColor: Color = MaterialTheme.colorScheme.surface,
+) {
+    val state = if (profile.runtime == SessionRuntime.NATIVE) null
+        else profile.environmentId?.let { installationStatuses[it]?.state } ?: ProfileInstallationState.CHECKING
+    val statusDescription = state?.let {
+        stringResource(when (it) {
+            ProfileInstallationState.CHECKING -> R.string.profile_installation_checking
+            ProfileInstallationState.INSTALLED -> R.string.profile_installation_installed
+            ProfileInstallationState.MISSING -> R.string.profile_installation_missing
+            ProfileInstallationState.INSTALLING -> R.string.profile_installation_installing
+            ProfileInstallationState.UNKNOWN -> R.string.profile_installation_unknown
+        })
+    }
+    Box(Modifier.size(32.dp).semantics {
+        if (statusDescription != null) stateDescription = statusDescription
+    }, contentAlignment = Alignment.Center) {
+        ProfileIcon(profile.icon, profile.runtime.wireName, tint = tint)
+        if (state == ProfileInstallationState.MISSING) {
+            Box(Modifier.align(Alignment.BottomEnd).size(16.dp).background(tint, CircleShape),
+                contentAlignment = Alignment.Center) {
+                Icon(painterResource(R.drawable.ic_material_symbol_download_24), null,
+                    Modifier.size(12.dp), tint = badgeContentColor)
+            }
+        }
+    }
+}
+
 @Composable
 fun ProfileSupportingContent(
     profile: SessionProfile,
     environmentNames: Map<EnvironmentId, String>,
-    installationStatuses: Map<EnvironmentId, ProfileInstallationStatus>,
 ) {
     val runtimeLabel = stringResource(when (profile.runtime) {
         SessionRuntime.NATIVE -> R.string.runtime_native_title
@@ -51,19 +94,7 @@ fun ProfileSupportingContent(
     })
     val environmentName = profile.environmentId?.let { environmentNames[it] }
         ?: stringResource(runtimeTitleResource(profile.runtime.wireName))
-    Column {
-        Text(if (environmentName == runtimeLabel) runtimeLabel else "$environmentName · $runtimeLabel")
-        if (profile.runtime != SessionRuntime.NATIVE) {
-            val state = profile.environmentId?.let { installationStatuses[it]?.state } ?: ProfileInstallationState.CHECKING
-            Text(stringResource(when (state) {
-                ProfileInstallationState.CHECKING -> R.string.profile_installation_checking
-                ProfileInstallationState.INSTALLED -> R.string.profile_installation_installed
-                ProfileInstallationState.MISSING -> R.string.profile_installation_missing
-                ProfileInstallationState.INSTALLING -> R.string.profile_installation_installing
-                ProfileInstallationState.UNKNOWN -> R.string.profile_installation_unknown
-            }))
-        }
-    }
+    Text(if (environmentName == runtimeLabel) runtimeLabel else "$environmentName · $runtimeLabel")
 }
 
 @Composable

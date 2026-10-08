@@ -212,10 +212,11 @@ class ProfileInstallationConsentTest {
                         state<List<SessionProfile>>(it, "profiles").value = fixtures.map { pair -> pair.second }
                     }
                     for (label in listOf(R.string.profile_installation_installed, R.string.profile_installation_missing, R.string.profile_installation_installing)) {
-                        await("Menu $menu must show ${context.getString(label)}") {
-                            if (find(context.getString(label)) != null) true
+                        await("Menu $menu must announce ${context.getString(label)}") {
+                            if (findNode { it.stateDescription?.toString() == context.getString(label) } != null) true
                             else { findNode { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
                         }
+                        assertNull("Installation status must not add a text line", find(context.getString(label)))
                     }
                     statuses[fixtures[1].first.id.value] = """{"installed":true,"available":true}"""
                     await("Visible menu must refresh installation state") {

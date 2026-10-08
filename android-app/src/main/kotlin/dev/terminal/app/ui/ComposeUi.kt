@@ -458,10 +458,8 @@ fun NewSessionSheet(profiles: List<dev.terminal.runtime.session.SessionProfile>,
                         scope.launch { sheetState.hide(); onSelectProfile(profile) }
                     },
                     shapes = terminalListItemShapes(),
-                    leadingContent = { Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-                        ProfileIcon(profile.icon, profile.runtime.wireName, tint = TerminalStatusBlue)
-                    } },
-                    supportingContent = { ProfileSupportingContent(profile, environmentNames, installationStatuses) },
+                    leadingContent = { ProfilePickerIcon(profile, installationStatuses, tint = TerminalStatusBlue) },
+                    supportingContent = { ProfileSupportingContent(profile, environmentNames) },
                     colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     modifier = Modifier.fillMaxWidth(),
                 ) { Text(profile.name) }

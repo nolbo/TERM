@@ -139,11 +139,10 @@ internal fun ToolbarSessionsTool(
                                     onSelectProfile(profile)
                                 }, enabled = active && profilePickerVisible,
                                     leadingContent = {
-                                        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-                                            ProfileIcon(profile.icon, profile.runtime.wireName, tint = colors.accent)
-                                        }
+                                        ProfilePickerIcon(profile, profileInstallationStatuses, tint = colors.accent,
+                                            badgeContentColor = colors.background)
                                     }, supportingContent = {
-                                        ProfileSupportingContent(profile, profileEnvironmentNames, profileInstallationStatuses)
+                                        ProfileSupportingContent(profile, profileEnvironmentNames)
                                     }, verticalAlignment = Alignment.CenterVertically,
                                     shapes = terminalListItemShapes(),
                                     colors = ListItemDefaults.colors(containerColor = Color.Transparent,
