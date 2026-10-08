@@ -160,7 +160,7 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
             !snapshot.available -> stringResource(R.string.history_application_viewport)
             snapshot.commands.isEmpty() && query.isNotEmpty() -> stringResource(R.string.history_no_results)
             snapshot.commands.isEmpty() -> stringResource(R.string.history_empty)
-            else -> stringResource(R.string.history_count, snapshot.commands.size)
+            else -> if (expanded) stringResource(R.string.history_count, snapshot.commands.size) else ""
         }
         Text(summary, Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(28.dp),
             maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall,
