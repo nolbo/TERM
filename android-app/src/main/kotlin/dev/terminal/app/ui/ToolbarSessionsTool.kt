@@ -139,8 +139,7 @@ internal fun ToolbarSessionsTool(
                                     onSelectProfile(profile)
                                 }, enabled = active && profilePickerVisible,
                                     leadingContent = {
-                                        ProfilePickerIcon(profile, profileInstallationStatuses, tint = colors.accent,
-                                            badgeContentColor = colors.background)
+                                        ProfilePickerIcon(profile, profileInstallationStatuses, tint = colors.accent)
                                     }, supportingContent = {
                                         ProfileSupportingContent(profile, profileEnvironmentNames)
                                     }, verticalAlignment = Alignment.CenterVertically,

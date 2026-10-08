@@ -1,22 +1,26 @@
 package dev.terminal.app.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.R
 import dev.terminal.runtime.session.EnvironmentId
@@ -55,7 +59,6 @@ internal fun ProfilePickerIcon(
     profile: SessionProfile,
     installationStatuses: Map<EnvironmentId, ProfileInstallationStatus>,
     tint: Color,
-    badgeContentColor: Color = MaterialTheme.colorScheme.surface,
 ) {
     val state = if (profile.runtime == SessionRuntime.NATIVE) null
         else profile.environmentId?.let { installationStatuses[it]?.state } ?: ProfileInstallationState.CHECKING
@@ -71,12 +74,23 @@ internal fun ProfilePickerIcon(
     Box(Modifier.size(32.dp).semantics {
         if (statusDescription != null) stateDescription = statusDescription
     }, contentAlignment = Alignment.Center) {
-        ProfileIcon(profile.icon, profile.runtime.wireName, tint = tint)
+        val mask = if (state == ProfileInstallationState.MISSING) Modifier.drawWithCache {
+            val radius = 8.dp.toPx()
+            val center = Offset(if (layoutDirection == LayoutDirection.Rtl) radius else size.width - radius,
+                size.height - radius)
+            val cutout = Path().apply { addOval(Rect(center, radius)) }
+            onDrawWithContent {
+                clipPath(cutout, clipOp = ClipOp.Difference) { this@onDrawWithContent.drawContent() }
+            }
+        } else Modifier
+        Box(Modifier.matchParentSize().then(mask), contentAlignment = Alignment.Center) {
+            ProfileIcon(profile.icon, profile.runtime.wireName, tint = tint)
+        }
         if (state == ProfileInstallationState.MISSING) {
-            Box(Modifier.align(Alignment.BottomEnd).size(16.dp).background(tint, CircleShape),
+            Box(Modifier.align(Alignment.BottomEnd).size(16.dp),
                 contentAlignment = Alignment.Center) {
                 Icon(painterResource(R.drawable.ic_material_symbol_download_24), null,
-                    Modifier.size(12.dp), tint = badgeContentColor)
+                    Modifier.size(12.dp), tint = tint)
             }
         }
     }
