@@ -39,7 +39,10 @@ internal class TerminalPaletteTransition(
                 emulator, followTuiBackground(), target,
             )))
             chrome = fromChrome.interpolate(targetChrome, fraction)
-            view.setHistoryScrollbarColors(requireNotNull(chrome).onContainer.toArgb(), requireNotNull(chrome).container.toArgb())
+            requireNotNull(chrome).let {
+                view.setHistoryScrollbarColors(it.onContainer.toArgb(), it.container.toArgb(),
+                    it.checkedContainer.toArgb(), it.onCheckedContainer.toArgb())
+            }
             view.setPaletteOverride(if (fraction < 1f) current else null)
             val canvasBackground = requireNotNull(chrome).background.toArgb()
                 .takeIf { followTuiBackground() && emulator.isAlternateBufferActive }

@@ -578,6 +578,8 @@ class MainActivity : TerminalActivity() {
 
     @Composable
     private fun TerminalScreen() {
+        val motionScheme = MaterialTheme.motionScheme
+        val historyScrollbarMotion = remember(motionScheme) { HistoryScrollbarMotion(motionScheme) }
         val edgeToEdgeTerminal = activeSessionId != null
         val topInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top)
         val terminalTopInset = if (edgeToEdgeTerminal) topInsets.getTop(LocalDensity.current) else 0
@@ -664,6 +666,7 @@ class MainActivity : TerminalActivity() {
                         AndroidView(
                             factory = { context ->
                                 TerminalView(context, null).apply {
+                                    setHistoryScrollbarTypeface(android.graphics.Typeface.create(BundledFonts.googleSans(context), 500, false))
                                     setTerminalGridBottomAligned(true)
                                     isFocusable = true
                                     isFocusableInTouchMode = true
@@ -674,6 +677,7 @@ class MainActivity : TerminalActivity() {
                                 }
                             },
                             update = { view ->
+                                historyScrollbarMotion.applyTo(view)
                                 view.setScrollbackTopInset(terminalTopInset)
                                 attachRenderer(view)
                             },

@@ -1,5 +1,6 @@
 package com.termux.view;
 
+import android.animation.ValueAnimator;
 import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Activity;
@@ -91,6 +92,8 @@ public final class TerminalView extends View {
     private final TerminalHistoryScrollbar mHistoryScrollbar;
     private int mHistoryScrollbarForeground = 0xFFE3E4E8;
     private int mHistoryScrollbarSurface = 0xFF242528;
+    private int mHistoryScrollbarActive = 0xFF8AB4F8;
+    private int mHistoryScrollbarOnActive = 0xFF000000;
 
     // View state only: do not keep closed sessions (or their processes) alive.
     public static final class ScrollPosition {
@@ -755,13 +758,34 @@ public final class TerminalView extends View {
     public void setHistoryScrollbarSnapEnabled(boolean enabled) { mHistoryScrollbar.setSnapEnabled(enabled); }
 
     public void setHistoryScrollbarColors(int foreground, int surface) {
+        setHistoryScrollbarColors(foreground, surface, foreground, surface);
+    }
+
+    public void setHistoryScrollbarColors(int foreground, int surface, int active, int onActive) {
         mHistoryScrollbarForeground = foreground;
         mHistoryScrollbarSurface = surface;
+        mHistoryScrollbarActive = active;
+        mHistoryScrollbarOnActive = onActive;
         invalidate();
     }
 
+    /** The host supplies its theme's motion without adding Compose or session ownership here. */
+    public interface HistoryScrollbarAnimatorFactory {
+        interface Frame { void update(float value, float velocity); }
+        ValueAnimator create(float initial, float target, float velocity, Frame frame);
+    }
+
+    public void setHistoryScrollbarMotion(HistoryScrollbarAnimatorFactory spatial,
+            HistoryScrollbarAnimatorFactory fastSpatial, HistoryScrollbarAnimatorFactory effects) {
+        mHistoryScrollbar.setMotion(spatial, fastSpatial, effects);
+    }
+
+    public void setHistoryScrollbarTypeface(Typeface typeface) { mHistoryScrollbar.setTypeface(typeface); }
+
     int getHistoryScrollbarForeground() { return mHistoryScrollbarForeground; }
     int getHistoryScrollbarSurface() { return mHistoryScrollbarSurface; }
+    int getHistoryScrollbarActive() { return mHistoryScrollbarActive; }
+    int getHistoryScrollbarOnActive() { return mHistoryScrollbarOnActive; }
     void stopHistoryScrollAnimation() { stopScrollAnimation(); }
 
     void setHistoryTopRow(int row) {

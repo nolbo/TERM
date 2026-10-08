@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+
 package dev.terminal.app
 
 import android.animation.ValueAnimator
@@ -13,6 +15,9 @@ import android.view.MotionEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.core.app.ActivityScenario
+import androidx.compose.material3.MotionScheme
+import androidx.compose.ui.graphics.toArgb
+import dev.terminal.app.ui.TerminalChromeColors
 import com.termux.terminal.CommandMarker
 import com.termux.terminal.TerminalCheckpoint
 import com.termux.terminal.TerminalSession
@@ -78,10 +83,13 @@ class TerminalHistoryScrollbarTest {
             render()
             assertTrue(buckets().any { it.running && it.failed })
             for (name in listOf("running", "failed")) {
-                val symbol = field(name) as Drawable
-                assertFalse(symbol.bounds.isEmpty)
-                assertTrue(bounds("capsule").contains(RectF(symbol.bounds)))
-                assertEquals(18 * density(), symbol.bounds.width().toFloat(), 1f)
+                val instances = listOf(field(name), field("active" + name.replaceFirstChar(Char::uppercaseChar)))
+                    .map { it as Drawable }.filter { !it.bounds.isEmpty }
+                assertTrue("$name is drawn with normal or active contrast", instances.isNotEmpty())
+                for (symbol in instances) {
+                    assertTrue(bounds("capsule").contains(RectF(symbol.bounds)))
+                    assertEquals(18 * density(), symbol.bounds.width().toFloat(), 1f)
+                }
             }
             val mixed = buckets().first { it.running && it.failed }
             tap(bounds("capsule").centerX(), bucketY(mixed) - 10 * density())
@@ -114,7 +122,7 @@ class TerminalHistoryScrollbarTest {
                 val x = (circle.left + density()).toInt()
                 assertEquals("A circle leaves its corner uncovered", Color.BLACK,
                     frame.getPixel(x, (circle.top + density()).toInt()))
-                assertEquals("The handle is drawn beneath the command icon", Color.rgb(51, 51, 51),
+                assertEquals("The handle is drawn beneath the command icon", Color.WHITE,
                     frame.getPixel(x, circle.centerY().toInt()))
             } finally { frame.recycle() }
             drag.move(center + 8 * density())
@@ -321,7 +329,7 @@ class TerminalHistoryScrollbarTest {
                     try { assertTrue("Entry starts outside the screen", baseline.sameAs(frame)) }
                     finally { frame.recycle() }
                 }
-                entering.setCurrentFraction(0.5f)
+                seekPartialSlide(entering)
                 val capsule = bounds("capsule")
                 val y = capsule.top + 34 * density() // The gap below the compact arrow.
                 val offset = (1 - number("reveal")) * 48 * density()
@@ -350,7 +358,7 @@ class TerminalHistoryScrollbarTest {
                 rightSwipe()
                 val exiting = field("animator") as ValueAnimator
                 exiting.pause()
-                exiting.setCurrentFraction(0.5f)
+                seekPartialSlide(exiting)
                 val exitOffset = (1 - number("reveal")) * 48 * density()
                 snapshot().let { frame ->
                     try {
@@ -379,9 +387,9 @@ class TerminalHistoryScrollbarTest {
             assertFalse(view.isHistoryScrollbarVisible)
 
             leftSwipe()
-            (field("animator") as ValueAnimator).apply { pause(); setCurrentFraction(0.5f) }
+            (field("animator") as ValueAnimator).apply { pause(); setCurrentFraction(0.15f) }
             rightSwipe()
-            (field("animator") as ValueAnimator).apply { pause(); setCurrentFraction(0.5f) }
+            (field("animator") as ValueAnimator).apply { pause(); setCurrentFraction(0.15f) }
             val position = number("reveal")
             leftSwipe()
             assertEquals("Reversing preserves the current position", position, number("reveal"), 0f)
@@ -639,12 +647,161 @@ class TerminalHistoryScrollbarTest {
         }
     }
 
+    @Test fun expressiveHandleUsesPaletteAccentAndContrastingCommandGlyph() = withTerminal {
+        reveal()
+        main {
+            render()
+            val marker = buckets().first { it.failed }.failedMarker
+            for (background in listOf(Color.BLACK, Color.WHITE, Color.rgb(100, 112, 130))) {
+                val colors = TerminalChromeColors(androidx.compose.ui.graphics.Color(background))
+                view.setHistoryScrollbarColors(colors.onContainer.toArgb(), colors.container.toArgb(),
+                    colors.checkedContainer.toArgb(), colors.onCheckedContainer.toArgb())
+                assertTrue(view.jumpToCommand(marker))
+                val frame = snapshot()
+                try {
+                    val circle = bounds("visualThumb")
+                    assertCircularThumbAt(circle.centerY())
+                    assertEquals("The selected command has the palette's active background", colors.checkedContainer.toArgb(),
+                        frame.getPixel((circle.left + density()).toInt(), circle.centerY().toInt()))
+                    var hasContrastingInk = false
+                    for (y in (circle.centerY() - 5 * density()).toInt()..(circle.centerY() + 5 * density()).toInt()) {
+                        for (x in (circle.centerX() - 5 * density()).toInt()..(circle.centerX() + 5 * density()).toInt()) {
+                            if (frame.getPixel(x, y) == colors.onCheckedContainer.toArgb()) hasContrastingInk = true
+                        }
+                    }
+                    assertTrue("The command glyph remains readable on the active handle", hasContrastingInk)
+                } finally { frame.recycle() }
+            }
+        }
+    }
+
+    @Test fun navigationPressMorphRestoresOnCancelAndDisabledArrowKeepsItsSurface() = withTerminal(commands = 0) {
+        main { repeat(150) { append("output\r\n") } }
+        reveal()
+        main {
+            val before = arrowSnapshot("previous")
+            val top = view.topRow
+            val drag = Drag(bounds("previous").centerX(), bounds("previous").centerY())
+            val press = field("pressAnimator") as ValueAnimator
+            press.pause()
+            press.setCurrentFraction(1f)
+            arrowSnapshot("previous").let { frame ->
+                try { assertFalse("Press changes shape and state layer", before.sameAs(frame)) }
+                finally { frame.recycle() }
+            }
+            assertEquals("Press alone does not navigate", top, view.topRow)
+            drag.cancel()
+            (field("pressAnimator") as ValueAnimator).apply { pause(); setCurrentFraction(1f) }
+            arrowSnapshot("previous").let { frame ->
+                try { assertTrue("Cancellation restores the resting shape", before.sameAs(frame)) }
+                finally { frame.recycle() }
+            }
+            before.recycle()
+            assertEquals(top, view.topRow)
+            val disabled = arrowSnapshot("next")
+            Drag(bounds("next").centerX(), bounds("next").centerY()).apply {
+                arrowSnapshot("next").let { frame ->
+                    try { assertTrue("Disabled navigation retains its surface", disabled.sameAs(frame)) }
+                    finally { frame.recycle() }
+                }
+                cancel()
+            }
+            disabled.recycle()
+        }
+    }
+
+    @Test fun expressiveMotionRetainsVelocityAndApplicationTakeoverStopsEveryAnimation() = withTerminal {
+        main {
+            leftSwipe()
+            (field("animator") as ValueAnimator).apply { pause(); setCurrentFraction(0.15f) }
+            val position = number("reveal")
+            val velocity = number("revealVelocity")
+            assertTrue("Entry is a moving spring", velocity > 0)
+            rightSwipe()
+            (field("animator") as ValueAnimator).apply { pause(); setCurrentFraction(0f) }
+            assertEquals("Reversal retains the visible position", position, number("reveal"), 0f)
+            assertEquals("Reversal retains momentum", velocity, number("revealVelocity"), 0f)
+            leftSwipe()
+            (field("animator") as ValueAnimator).apply { pause(); setCurrentFraction(1f) }
+            assertTrue(view.jumpToCommand(view.mEmulator.history.markers[20]))
+            (field("tooltipAnimator") as ValueAnimator).apply { pause(); setCurrentFraction(0.25f) }
+            assertTrue(number("tooltipOpacity") > 0 && number("tooltipOpacity") < 1)
+            render()
+            val drag = Drag(bounds("visualThumb").centerX(), bounds("visualThumb").centerY())
+            (field("pressAnimator") as ValueAnimator).apply { pause(); setCurrentFraction(0.25f) }
+            assertTrue(number("pressure") > 0)
+            append("\u001b[?1049h")
+            assertFalse(view.isHistoryScrollbarVisible)
+            assertEquals(0f, number("tooltipOpacity"), 0f)
+            assertEquals(0f, number("pressure"), 0f)
+            for (name in listOf("animator", "pressAnimator", "tooltipAnimator")) {
+                assertFalse("$name stops when the application owns the viewport", (field(name) as ValueAnimator).isStarted)
+            }
+            drag.cancel()
+            assertEquals(0, output.size())
+        }
+    }
+
+    @Test fun tooltipFadesOutAndClearsItsLabelWithoutClosingTheCapsule() = withTerminal {
+        reveal()
+        main {
+            assertTrue(view.jumpToCommand(view.mEmulator.history.markers[20]))
+            (field("tooltipAnimator") as ValueAnimator).apply { pause(); setCurrentFraction(1f) }
+            assertEquals(1f, number("tooltipOpacity"), 0f)
+            (field("clearTooltip") as Runnable).run()
+            (field("tooltipAnimator") as ValueAnimator).apply { pause(); setCurrentFraction(0.25f) }
+            assertTrue("The label fades rather than disappearing at once", number("tooltipOpacity") in 0.001f..0.999f)
+            (field("tooltipAnimator") as ValueAnimator).setCurrentFraction(1f)
+            assertEquals(0f, number("tooltipOpacity"), 0f)
+            val bar = overlay()
+            assertNull(bar.javaClass.getDeclaredField("tooltipText").apply { isAccessible = true }.get(bar))
+            assertTrue(view.isHistoryScrollbarVisible)
+            assertEquals(1f, number("reveal"), 0f)
+        }
+    }
+
+    /** Run separately with the device animator duration scale set to zero. */
+    @Test fun disabledMotionAppliesFinalStatesWithoutStartingAnimations() = withTerminal {
+        ActivityScenario.launch(AppInfoActivity::class.java).use { scenario ->
+            scenario.onActivity { it.setContentView(view) }
+            instrumentation.waitForIdleSync()
+            org.junit.Assume.assumeFalse("Requires system animator scale 0", ValueAnimator.areAnimatorsEnabled())
+            main {
+                leftSwipe()
+                assertEquals(1f, number("reveal"), 0f)
+                assertTrue(view.isHistoryScrollbarVisible)
+                assertTrue(view.jumpToCommand(view.mEmulator.history.markers[20]))
+                assertEquals(1f, number("tooltipOpacity"), 0f)
+                render()
+                Drag(bounds("visualThumb").centerX(), bounds("visualThumb").centerY()).apply {
+                    assertEquals(1f, number("pressure"), 0f)
+                    cancel()
+                }
+                assertEquals(0f, number("pressure"), 0f)
+                assertEquals(0f, number("tooltipOpacity"), 0f)
+                assertTrue(view.jumpToCommand(view.mEmulator.history.markers[20]))
+                (field("clearTooltip") as Runnable).run()
+                assertEquals(0f, number("tooltipOpacity"), 0f)
+                rightSwipe()
+                assertEquals(0f, number("reveal"), 0f)
+                assertFalse(view.isHistoryScrollbarVisible)
+                val bar = overlay()
+                for (name in listOf("animator", "pressAnimator", "tooltipAnimator")) {
+                    val animator = bar.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(bar) as? ValueAnimator
+                    assertFalse("$name must not start when animations are disabled", animator?.isStarted == true)
+                }
+                assertEquals(0, output.size())
+            }
+        }
+    }
+
     private fun withTerminal(commands: Int = 40, test: () -> Unit) {
         main {
             output.reset()
             backend = RemoteTerminalBackend(write = { output.write(it) }, resize = { _, _ -> })
             val session = TerminalSession("", "/", emptyArray(), emptyArray(), 1000, TerminalCallbacks {}, backend)
             view = TerminalView(instrumentation.targetContext, null).apply {
+                HistoryScrollbarMotion(MotionScheme.expressive()).applyTo(this)
                 setTerminalViewClient(TerminalInputCallbacks())
                 setTextSize(20)
                 layout(0, 0, 1000, 1400)
@@ -744,6 +901,13 @@ class TerminalHistoryScrollbarTest {
             SystemClock.sleep(20)
         }
         fail("Scrollbar did not slide out")
+    }
+    private fun seekPartialSlide(animator: ValueAnimator) {
+        for (step in 1..99) {
+            animator.setCurrentFraction(step / 100f)
+            if (number("reveal") in 0.6f..0.8f) return
+        }
+        fail("The slide must pass through a visible, partially translated position")
     }
     private fun leftSwipe() = main {
         Drag(view.width * 0.7f, view.height * 0.5f).apply {
