@@ -3,8 +3,14 @@
 
 package dev.terminal.app.ui
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.updateTransition
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -18,6 +24,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
@@ -153,7 +160,13 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
         snapshot.commands.isEmpty() -> stringResource(R.string.history_empty)
         else -> ""
     }
-    val compactHeaderHeight = ToolbarHotkeyViewportHeight - if (summary.isNotEmpty()) 28.dp else 0.dp
+    val summarySpatial = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
+    val summaryEffects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    val summaryTransition = updateTransition(summary, label = "historySummary")
+    val summaryProgress by summaryTransition.animateFloat(transitionSpec = { summarySpatial },
+        label = "historySummarySpace") { if (it.isNotEmpty()) 1f else 0f }
+    val summaryHeight = 28.dp * summaryProgress.coerceIn(0f, 1f)
+    val compactHeaderHeight = ToolbarHotkeyViewportHeight - summaryHeight
     val headerHeight = compactHeaderHeight + (60.dp - compactHeaderHeight) * expansion.value
     Column(Modifier.fillMaxSize().padding(horizontal = 4.dp)) {
         Row(Modifier.fillMaxWidth().height(headerHeight), verticalAlignment = Alignment.CenterVertically) {
@@ -226,10 +239,18 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
                 }
             }
         }
-        if (summary.isNotEmpty()) {
-            Text(summary, Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(28.dp),
-                maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall,
-                color = colors.foreground)
+        summaryTransition.AnimatedContent(
+            modifier = Modifier.fillMaxWidth().height(summaryHeight).clipToBounds(),
+            contentAlignment = Alignment.TopStart,
+            transitionSpec = { (fadeIn(summaryEffects) togetherWith fadeOut(summaryEffects)).using(null) },
+        ) { displayedSummary ->
+            if (displayedSummary.isNotEmpty()) {
+                Text(displayedSummary, Modifier.fillMaxWidth().padding(horizontal = 12.dp)
+                    .wrapContentHeight(Alignment.Top, unbounded = true).height(28.dp)
+                    .semantics { if (displayedSummary != summary) hideFromAccessibility() },
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall,
+                    color = colors.foreground)
+            }
         }
         ToolbarScrollEdges(scroll.canScrollBackward, scroll.canScrollForward,
             Modifier.weight(1f).fillMaxWidth().graphicsLayer { alpha = expansion.value }) {
