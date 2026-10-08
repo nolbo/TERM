@@ -271,10 +271,7 @@ private fun HistoryNavigationButton(edge: Boolean, next: Boolean, enabled: Boole
 private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enabled: Boolean,
     first: Boolean, last: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val colors = LocalToolbarColors.current
-    val primary = MaterialTheme.colorScheme.primary.let {
-        if (colorContrast(it, colors.background) >= 4.5f) it else colors.foreground
-    }
-    val baseForeground by animateColorAsState(if (selected) primary else colors.unselectedTabContent,
+    val baseForeground by animateColorAsState(if (selected) colors.checkedContainer else colors.unselectedTabContent,
         MaterialTheme.motionScheme.fastEffectsSpec(), label = "historyCommandContent")
     val foreground = if (enabled) baseForeground else baseForeground.copy(alpha = 0.38f)
     val graphColor = colors.foreground.copy(alpha = 0.3f * if (enabled) 1f else 0.38f)
