@@ -37,14 +37,15 @@ class TerminalHistoryScrollbarTest {
             val capsule = bounds("capsule")
             val thumb = bounds("thumb")
             val dp = view.resources.displayMetrics.density
-            assertEquals(48 * dp, capsule.width(), 0.1f)
+            assertEquals(24 * dp, capsule.width(), 0.1f)
+            assertEquals(48 * dp, bounds("railTouch").width(), 0.1f)
             assertTrue(capsule.height() > capsule.width() * 5)
-            assertEquals(40 * dp, thumb.width(), 0.1f)
+            assertEquals(20 * dp, thumb.width(), 0.1f)
             assertTrue(thumb.height() >= 48 * dp)
             assertTrue(capsule.contains(thumb))
-            assertTrue(capsule.contains(bounds("previous")))
-            assertTrue(capsule.contains(bounds("next")))
-            for (name in listOf("cluster", "failed", "chevron")) {
+            assertTrue(bounds("railTouch").contains(bounds("previous")))
+            assertTrue(bounds("railTouch").contains(bounds("next")))
+            for (name in listOf("failed", "chevron")) {
                 val symbol = field(name) as Drawable
                 assertFalse("$name is drawn", symbol.bounds.isEmpty)
                 assertTrue("$name stays inside the capsule", capsule.contains(RectF(symbol.bounds)))
@@ -53,8 +54,8 @@ class TerminalHistoryScrollbarTest {
             assertTrue(buckets.any { it.count > 1 })
             assertTrue(buckets.size < view.mEmulator.history.markers.size)
             view.setHistoryScrollbarSnapEnabled(false)
-            // The capsule's full width is touchable, including the thumb's outer inset.
-            val drag = Drag(capsule.left + 2 * dp, thumb.centerY())
+            // The drawing shrinks by half while the outer, invisible hit target stays 48dp wide.
+            val drag = Drag(bounds("railTouch").left + 2 * dp, thumb.centerY())
             drag.move(-1000f)
             assertTrue(view.isHistoryScrollbarDragging)
             assertEquals(-view.mEmulator.screen.activeTranscriptRows, view.topRow)
@@ -63,6 +64,28 @@ class TerminalHistoryScrollbarTest {
             drag.finish()
             assertFalse(view.isHistoryScrollbarDragging)
             assertEquals(0, output.size())
+        }
+    }
+
+    @Test fun mixedDensityDrawsOnlyStatusSymbolsInsideNarrowCapsule() = withTerminal {
+        main { append("\u001b]133;A\u0007$ \u001b]133;B\u0007live --private=value\r\n\u001b]133;C\u0007") }
+        reveal()
+        main {
+            render()
+            assertTrue(buckets().any { it.running && it.failed })
+            for (name in listOf("running", "failed")) {
+                val symbol = field(name) as Drawable
+                assertFalse(symbol.bounds.isEmpty)
+                assertTrue(bounds("capsule").contains(RectF(symbol.bounds)))
+                assertEquals(18 * density(), symbol.bounds.width().toFloat(), 1f)
+            }
+            val mixed = buckets().first { it.running && it.failed }
+            tap(bounds("capsule").centerX(), bucketY(mixed) - 10 * density())
+            assertEquals(minOf(0, mixed.runningMarker.anchor.row!!), view.topRow)
+            assertEquals(mixed.runningMarker.commandName, markerLabel(mixed.runningMarker))
+            tap(bounds("capsule").centerX(), bucketY(mixed) + 10 * density())
+            assertEquals(minOf(0, mixed.failedMarker.anchor.row!!), view.topRow)
+            assertEquals(mixed.failedMarker.commandName, markerLabel(mixed.failedMarker))
         }
     }
 
@@ -194,6 +217,7 @@ class TerminalHistoryScrollbarTest {
             val middle = markers[markers.size / 2]
             assertTrue(view.jumpToCommand(middle))
             assertEquals(middle.anchor.row, view.topRow)
+            assertEquals("tool-${markers.size / 2}", markerLabel(middle))
             assertTrue(view.scrollToPreviousCommand())
             assertEquals(markers[markers.size / 2 - 1].anchor.row, view.topRow)
             assertTrue(view.scrollToNextCommand())
@@ -202,11 +226,13 @@ class TerminalHistoryScrollbarTest {
             view.onScreenUpdated()
             assertTrue(view.jumpToCommand(middle))
             assertEquals(middle.anchor.row, view.topRow)
+            assertEquals("tool-${markers.size / 2}", markerLabel(middle))
             render()
             for (bucket in buckets()) {
-                val target = bucket.marker
+                val target = if (bucket.failed) bucket.failedMarker else if (bucket.running) bucket.runningMarker else bucket.marker
                 tap(bounds("capsule").centerX(), bucketY(bucket))
                 assertEquals("Displayed symbol jumps to its retained command", minOf(0, target.anchor.row!!), view.topRow)
+                assertEquals(target.commandName, markerLabel(target))
             }
             assertTrue(view.jumpToCommand(middle))
             tap(bounds("previous").centerX(), bounds("previous").centerY())
@@ -268,16 +294,19 @@ class TerminalHistoryScrollbarTest {
         main {
             val markers = view.mEmulator.history.markers
             val time = markers.first().startedAt
+            val name = markers.first().commandName
             render()
             val state = ByteArrayOutputStream().also { TerminalCheckpoint.write(view.mEmulator, it) }
             view.mEmulator.restoreState(TerminalCheckpoint.read(ByteArrayInputStream(state.toByteArray())))
             view.onScreenUpdated()
             assertEquals(time, view.mEmulator.history.markers.first().startedAt)
+            assertEquals(name, view.mEmulator.history.markers.first().commandName)
             render()
             val restored = buckets().first()
             assertTrue(view.mEmulator.history.markers.contains(restored.marker))
+            val restoredTarget = if (restored.failed) restored.failedMarker else if (restored.running) restored.runningMarker else restored.marker
             tap(bounds("capsule").centerX(), bucketY(restored))
-            assertEquals(restored.marker.anchor.row, view.topRow)
+            assertEquals(restoredTarget.anchor.row, view.topRow)
             assertTrue(view.jumpToCommand(view.mEmulator.history.markers[4]))
             render()
             val thumb = bounds("thumb")
@@ -325,7 +354,7 @@ class TerminalHistoryScrollbarTest {
                 attachSession(session)
             }
             repeat(commands) { command ->
-                append("\u001b]133;A\u0007$ command\r\n\u001b]133;C\u0007")
+                append("\u001b]133;A\u0007$ \u001b]133;B\u0007tool-$command --private=value\r\n\u001b]133;C\u0007")
                 repeat(4) { append("output-$command-$it\r\n") }
                 append("\u001b]133;D;${command % 3}\u0007")
             }
@@ -352,6 +381,9 @@ class TerminalHistoryScrollbarTest {
     }
     private fun field(name: String): Any = overlay().let { bar ->
         checkNotNull(bar.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(bar))
+    }
+    private fun markerLabel(marker: CommandMarker): String = overlay().let { bar ->
+        bar.javaClass.getDeclaredMethod("markerLabel", CommandMarker::class.java).apply { isAccessible = true }.invoke(bar, marker) as String
     }
     @Suppress("UNCHECKED_CAST")
     private fun buckets() = field("density") as List<HistoryScrollbarModel.Bucket>

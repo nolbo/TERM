@@ -45,6 +45,8 @@ public class HistoryScrollbarModelTest {
         assertTrue(buckets.stream().anyMatch(bucket -> bucket.count > 1));
         for (HistoryScrollbarModel.Bucket bucket : buckets) {
             assertNotNull(bucket.marker);
+            if (bucket.running) assertTrue(bucket.runningMarker.isRunning());
+            if (bucket.failed) assertTrue(bucket.failedMarker.isFailed());
             int index = Math.round(HistoryScrollbarModel.fraction(bucket.marker.anchor.getRow(),
                 emulator.getScreen().getActiveTranscriptRows()) * 11);
             assertEquals(bucket.index, index);

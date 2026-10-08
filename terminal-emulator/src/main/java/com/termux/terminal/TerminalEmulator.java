@@ -2362,6 +2362,7 @@ public final class TerminalEmulator implements java.io.Serializable {
                     char boundary = textParameter.isEmpty() ? 0 : textParameter.charAt(0);
                     if (textParameter.length() == 1 || textParameter.length() > 1 && textParameter.charAt(1) == ';') {
                         if (boundary == 'A') getHistory().promptStarted(mCursorRow, mCursorCol);
+                        else if (boundary == 'B') getHistory().commandInputStarted(mCursorRow, mCursorCol);
                         else if (boundary == 'C') getHistory().commandStarted(mCursorRow, mCursorCol);
                         else if (boundary == 'D') {
                             Integer code = null;

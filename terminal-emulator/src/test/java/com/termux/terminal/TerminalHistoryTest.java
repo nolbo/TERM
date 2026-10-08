@@ -39,15 +39,76 @@ public class TerminalHistoryTest extends TerminalTestCase {
         assertNull(markers().get(1).getExitCode());
     }
 
+    public void testCommandNameUsesInputBoundariesWithoutKeepingArguments() {
+        withTerminalSized(80, 4);
+        enterString("\033]133;A\007odd custom prompt → \033]133;B\007CONFIG='private value' /usr/bin/git status --token=secret\r\n\033]133;C\007");
+        CommandMarker marker = markers().get(0);
+        assertEquals("git", marker.getCommandName());
+        enterString("\033]133;D;7\007output must not become the name\r\n");
+        assertEquals("git", marker.getCommandName());
+        enterString("\033]133;A\007prompt \033]133;B\007'/opt/My tools/my tool' --private=argument\r\n\033]133;C\007");
+        assertEquals("my tool", markers().get(1).getCommandName());
+        for (java.lang.reflect.Field field : CommandMarker.class.getDeclaredFields())
+            assertFalse("Names must be derived from retained cells", field.getType() == String.class);
+    }
+
+    public void testLegacyPromptNamesAndUnknownInputNeverUseExecutionOutput() {
+        withTerminalSized(80, 5);
+        enterString("\033]133;A\007\033[31muser@host:/tmp $ \033[0mcargo test --secret=value\r\n\033]133;C\007output\r\n\033]133;D;0\007");
+        assertEquals("cargo", markers().get(0).getCommandName());
+        enterString("\033]133;A\007# printf '$ other'\r\n\033]133;C\007\033]133;D;0\007");
+        assertEquals("printf", markers().get(1).getCommandName());
+        enterString("\033]133;C\007not-a-command-name\r\n");
+        assertNull(markers().get(2).getCommandName());
+    }
+
+    public void testCommandNameFollowsReflowAndReleasesInputAnchorsWithTrim() {
+        withTerminalSized(40, 5);
+        enterString("\033]133;A\007$ \033]133;B\007/usr/bin/tool😀 --private=argument\r\n\033]133;C\007\033]133;D;0\007");
+        CommandMarker marker = markers().get(0);
+        assertEquals("tool😀", marker.getCommandName());
+        resize(7, 5);
+        assertEquals("tool😀", marker.getCommandName());
+        resize(50, 6);
+        assertEquals("tool😀", marker.getCommandName());
+        marker.anchor.release();
+        assertNull(marker.getCommandName());
+        assertNull(marker.inputStart.line);
+        assertNull(marker.inputEnd.line);
+        assertTrue(markers().isEmpty());
+    }
+
+    public void testInputBoundaryCheckpointPreservesCommandNamesAndPendingInput() throws Exception {
+        withTerminalSized(30, 5);
+        enterString("\033]133;A\007$ \033]133;B\007first --private=value\r\n\033]133;C\007\033]133;D;1\007\033]133;A\007$ \033]133;B\007second --secret=value\r\n");
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        TerminalCheckpoint.write(mTerminal, bytes);
+        mTerminal.restoreState(TerminalCheckpoint.read(new ByteArrayInputStream(bytes.toByteArray())));
+        assertEquals("first", markers().get(0).getCommandName());
+        enterString("\033]133;C\007");
+        assertEquals("second", markers().get(1).getCommandName());
+    }
+
+    public void testOnlyCommandNameIsReadAndLongNamesAreBounded() {
+        withTerminalSized(200, 4);
+        StringBuilder name = new StringBuilder();
+        for (int i = 0; i < 100; i++) name.append('x');
+        enterString("\033]133;A\007$ \033]133;B\007" + name + "; printf private-arguments\r\n\033]133;C\007");
+        assertEquals(name.substring(0, 80) + "…", markers().get(0).getCommandName());
+    }
+
     public void testTrimInvalidatesIdentityBeforeRingRowIsReused() {
         TerminalBuffer buffer = new TerminalBuffer(8, 8, 3);
         TerminalHistory history = buffer.getHistory();
         history.commandStarted(0, 0);
         HistoryAnchor anchor = history.getMarkers().get(0).anchor;
+        CommandMarker marker = history.getMarkers().get(0);
         for (int i = 0; i < 5; i++) buffer.scrollDownOneLine(0, 3, TextStyle.NORMAL);
         assertEquals(Integer.valueOf(-5), anchor.getRow());
         buffer.scrollDownOneLine(0, 3, TextStyle.NORMAL);
         assertNull(anchor.getRow());
+        assertNull(marker.getCommandName());
+        assertNull(marker.inputEnd.line);
         assertTrue(history.getMarkers().isEmpty());
         history.commandStarted(0, 0);
         assertNotSame(anchor, history.getMarkers().get(0).anchor);

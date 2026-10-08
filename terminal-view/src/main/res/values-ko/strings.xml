@@ -4,8 +4,5 @@
   <string name="history_lines_ago">%1$d줄 전</string>
   <string name="history_previous">이전 명령</string>
   <string name="history_next">다음 명령</string>
-  <string name="history_running">실행 중</string>
-  <string name="history_completed">완료</string>
-  <string name="history_failed">실패</string>
-  <string name="history_marker_exit">%1$s · %2$s · 종료 코드 %3$d</string>
+  <string name="history_command">명령</string>
 </resources>

@@ -6,14 +6,14 @@ import android.graphics.Paint;
 import android.graphics.RectF;
 import android.graphics.drawable.Drawable;
 import android.os.SystemClock;
+import android.text.TextUtils;
+import android.text.TextPaint;
 import android.view.MotionEvent;
 import android.view.ViewConfiguration;
 import com.termux.terminal.CommandMarker;
 import com.termux.terminal.TerminalEmulator;
 import com.termux.terminal.TerminalHistory;
-import java.text.DateFormat;
 import java.util.Collections;
-import java.util.Date;
 import java.util.List;
 
 /** Presentation and gestures only. All retained command state belongs to the terminal buffer. */
@@ -21,9 +21,9 @@ final class TerminalHistoryScrollbar {
     private static final long IDLE_MILLIS = 1600;
     private final TerminalView view;
     private final float dp;
-    private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private final RectF capsule = new RectF(), thumb = new RectF(), previous = new RectF(), next = new RectF(), latest = new RectF();
-    private final Drawable command, cluster, completed, running, failed, chevron;
+    private final TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
+    private final RectF capsule = new RectF(), railTouch = new RectF(), thumb = new RectF(), previous = new RectF(), next = new RectF(), latest = new RectF();
+    private final Drawable completed, running, failed, chevron;
     private final Runnable hide = () -> animateTo(0);
     private ValueAnimator animator;
     private float alpha;
@@ -46,8 +46,6 @@ final class TerminalHistoryScrollbar {
     TerminalHistoryScrollbar(TerminalView view) {
         this.view = view;
         dp = view.getResources().getDisplayMetrics().density;
-        command = symbol(R.drawable.ic_history_terminal);
-        cluster = symbol(R.drawable.ic_history_layers);
         completed = symbol(R.drawable.ic_history_check_circle);
         running = symbol(R.drawable.ic_history_play_arrow);
         failed = symbol(R.drawable.ic_history_block);
@@ -131,15 +129,16 @@ final class TerminalHistoryScrollbar {
         float width = view.getWidth(), height = view.getHeight();
         float top = Math.max(0, view.getTerminalContentTopInset());
         boolean navigation = !markers().isEmpty();
-        capsule.set(width - 56 * dp, top + 8 * dp, width - 8 * dp, height - 8 * dp);
-        previous.set(capsule.left, capsule.top, capsule.right, capsule.top + 48 * dp);
-        next.set(capsule.left, capsule.bottom - 48 * dp, capsule.right, capsule.bottom);
+        capsule.set(width - 32 * dp, top + 8 * dp, width - 8 * dp, height - 8 * dp);
+        railTouch.set(width - 48 * dp, capsule.top, width, capsule.bottom);
+        previous.set(railTouch.left, capsule.top, railTouch.right, capsule.top + 48 * dp);
+        next.set(railTouch.left, capsule.bottom - 48 * dp, railTouch.right, capsule.bottom);
         trackTop = capsule.top + (navigation ? 52 : 4) * dp;
         trackBottom = Math.max(trackTop + 1, capsule.bottom - (navigation ? 52 : 4) * dp);
         thumbHeight = HistoryScrollbarModel.thumbHeight(trackBottom - trackTop, view.mEmulator.mRows, historyRows(), 48 * dp);
         float y = trackTop + (trackBottom - trackTop - thumbHeight)
             * HistoryScrollbarModel.fraction(view.getTopRow(), historyRows());
-        thumb.set(capsule.left + 4 * dp, y, capsule.right - 4 * dp, y + thumbHeight);
+        thumb.set(capsule.left + 2 * dp, y, capsule.right - 2 * dp, y + thumbHeight);
         paint.setTextSize(12 * view.getResources().getDisplayMetrics().scaledDensity);
         String label = latestLabel();
         float labelRight = capsule.left - 8 * dp;
@@ -161,21 +160,20 @@ final class TerminalHistoryScrollbar {
         if (view.getTopRow() < 0) label(canvas, latest, latestLabel(), surface, foreground, 1);
         if (alpha <= 0) return;
         color(surface, alpha);
-        canvas.drawRoundRect(capsule, 24 * dp, 24 * dp, paint);
+        canvas.drawRoundRect(capsule, 12 * dp, 12 * dp, paint);
         color(foreground, 0.22f * alpha);
         paint.setStrokeWidth(dp);
         paint.setStyle(Paint.Style.STROKE);
-        canvas.drawRoundRect(capsule, 24 * dp, 24 * dp, paint);
+        canvas.drawRoundRect(capsule, 12 * dp, 12 * dp, paint);
         paint.setStyle(Paint.Style.FILL);
         color(foreground, alpha * 0.2f);
-        canvas.drawRoundRect(thumb, 20 * dp, 20 * dp, paint);
+        canvas.drawRoundRect(thumb, 10 * dp, 10 * dp, paint);
         for (HistoryScrollbarModel.Bucket bucket : density) {
             float x = capsule.centerX(), y = bucketY(bucket);
-            drawSymbol(canvas, bucket.count > 1 ? cluster : command, x, y, 24, foreground, alpha);
-            // Material Symbols keep status recognizable in monochrome, including mixed clusters.
-            if (bucket.running) badge(canvas, running, x + (bucket.failed ? -10 : 10) * dp, y + 9 * dp, surface, foreground);
-            if (bucket.failed) badge(canvas, failed, x + 10 * dp, y + 9 * dp, surface, foreground);
-            if (!bucket.running && !bucket.failed) badge(canvas, completed, x + 10 * dp, y + 9 * dp, surface, foreground);
+            // Status is the only glyph; mixed clusters keep both states within the narrow capsule.
+            if (bucket.running) drawSymbol(canvas, running, x, y - (bucket.failed ? 10 * dp : 0), 18, foreground, alpha);
+            if (bucket.failed) drawSymbol(canvas, failed, x, y + (bucket.running ? 10 * dp : 0), 18, foreground, alpha);
+            if (!bucket.running && !bucket.failed) drawSymbol(canvas, completed, x, y, 18, foreground, alpha);
         }
         if (!markers().isEmpty()) {
             arrow(canvas, previous, true, foreground);
@@ -202,8 +200,13 @@ final class TerminalHistoryScrollbar {
     }
 
     private CommandMarker hitMarker(float y) {
-        for (HistoryScrollbarModel.Bucket bucket : density)
-            if (Math.abs(y - bucketY(bucket)) <= 24 * dp) return bucket.marker;
+        for (HistoryScrollbarModel.Bucket bucket : density) {
+            float center = bucketY(bucket);
+            if (Math.abs(y - center) > 24 * dp) continue;
+            if (bucket.running && (!bucket.failed || y < center)) return bucket.runningMarker;
+            if (bucket.failed) return bucket.failedMarker;
+            return bucket.marker;
+        }
         return null;
     }
 
@@ -217,17 +220,11 @@ final class TerminalHistoryScrollbar {
         symbol.draw(canvas);
     }
 
-    private void badge(Canvas canvas, Drawable symbol, float x, float y, int surface, int foreground) {
-        color(surface, alpha);
-        canvas.drawCircle(x, y, 8 * dp, paint);
-        drawSymbol(canvas, symbol, x, y, 14, foreground, alpha);
-    }
-
     private void arrow(Canvas canvas, RectF bounds, boolean up, int foreground) {
         CommandMarker marker = HistoryScrollbarModel.adjacent(markers(), view.getTopRow(), !up, selected);
         int saved = canvas.save();
-        if (up) canvas.rotate(180, bounds.centerX(), bounds.centerY());
-        drawSymbol(canvas, chevron, bounds.centerX(), bounds.centerY(), 24, foreground, alpha * (marker == null ? 0.38f : 1));
+        if (up) canvas.rotate(180, capsule.centerX(), bounds.centerY());
+        drawSymbol(canvas, chevron, capsule.centerX(), bounds.centerY(), 18, foreground, alpha * (marker == null ? 0.38f : 1));
         canvas.restoreToCount(saved);
     }
 
@@ -237,6 +234,7 @@ final class TerminalHistoryScrollbar {
         color(surface, opacity);
         canvas.drawRoundRect(bounds, 16 * dp, 16 * dp, paint);
         color(foreground, opacity);
+        text = TextUtils.ellipsize(text, paint, Math.max(0, bounds.width() - 16 * dp), TextUtils.TruncateAt.END).toString();
         int saved = canvas.save();
         canvas.clipRect(bounds.left + 8 * dp, bounds.top, bounds.right - 8 * dp, bounds.bottom);
         canvas.drawText(text, bounds.centerX() - paint.measureText(text) / 2,
@@ -253,11 +251,8 @@ final class TerminalHistoryScrollbar {
     }
 
     private String markerLabel(CommandMarker marker) {
-        String time = DateFormat.getTimeInstance(DateFormat.SHORT).format(new Date(marker.startedAt));
-        String state = view.getResources().getString(marker.isRunning() ? R.string.history_running
-            : marker.isFailed() ? R.string.history_failed : R.string.history_completed);
-        return marker.getExitCode() == null ? time + " · " + state
-            : view.getResources().getString(R.string.history_marker_exit, time, state, marker.getExitCode());
+        String name = marker.getCommandName();
+        return name != null ? name : view.getResources().getString(R.string.history_command);
     }
 
     boolean touch(MotionEvent event) {
@@ -271,7 +266,7 @@ final class TerminalHistoryScrollbar {
             if (!eligible() || event.getPointerCount() != 1) return false;
             layout();
             boolean latestHit = view.getTopRow() < 0 && latest.contains(event.getX(), event.getY());
-            boolean railHit = alpha > 0.05f && capsule.contains(event.getX(), event.getY());
+            boolean railHit = alpha > 0.05f && railTouch.contains(event.getX(), event.getY());
             if (!latestHit && !railHit) return false;
             captured = true;
             cancelled = dragging = false;
@@ -317,7 +312,7 @@ final class TerminalHistoryScrollbar {
                 } else if (view.getTopRow() < 0 && latest.contains(event.getX(), event.getY())) view.scrollToLatest();
                 else if (!markers().isEmpty() && previous.contains(event.getX(), event.getY())) navigate(false);
                 else if (!markers().isEmpty() && next.contains(event.getX(), event.getY())) navigate(true);
-                else if (railPressed && capsule.contains(event.getX(), event.getY())) {
+                else if (railPressed && railTouch.contains(event.getX(), event.getY())) {
                     layout();
                     CommandMarker marker = hitMarker(event.getY());
                     if (marker != null) jump(marker);
