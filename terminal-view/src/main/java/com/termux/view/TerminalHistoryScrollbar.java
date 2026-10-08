@@ -61,8 +61,8 @@ final class TerminalHistoryScrollbar {
         failed = symbol(R.drawable.ic_history_block);
         chevron = symbol(R.drawable.ic_history_expand_more);
         chevronUp = symbol(R.drawable.ic_history_expand_more);
-        edgeArrow = symbol(R.drawable.ic_history_vertical_align_bottom);
-        edgeArrowUp = symbol(R.drawable.ic_history_vertical_align_bottom);
+        edgeArrow = symbol(R.drawable.ic_history_chevron_line_down);
+        edgeArrowUp = symbol(R.drawable.ic_history_chevron_line_down);
     }
 
     boolean eligible() {
