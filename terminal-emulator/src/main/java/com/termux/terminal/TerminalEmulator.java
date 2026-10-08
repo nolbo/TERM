@@ -486,6 +486,14 @@ public final class TerminalEmulator implements java.io.Serializable {
         return mScreen == mAltBuffer;
     }
 
+    public TerminalHistory getHistory() { return mMainBuffer.getHistory(); }
+
+    /** Application-owned viewports must receive their original mouse/scroll input. */
+    public boolean isHistoryViewportOwnedByApplication() {
+        return isAlternateBufferActive() || isMouseTrackingActive() || mTopMargin != 0 || mBottomMargin != mRows
+            || mLeftMargin != 0 || mRightMargin != mColumns || isCursorKeysApplicationMode();
+    }
+
     private int getTerminalTranscriptRows(Integer transcriptRows) {
         if (transcriptRows == null || transcriptRows < TERMINAL_TRANSCRIPT_ROWS_MIN || transcriptRows > TERMINAL_TRANSCRIPT_ROWS_MAX)
             return DEFAULT_TERMINAL_TRANSCRIPT_ROWS;
@@ -2349,6 +2357,23 @@ public final class TerminalEmulator implements java.io.Serializable {
         }
 
         switch (value) {
+            case 133:
+                if (!isAlternateBufferActive()) {
+                    char boundary = textParameter.isEmpty() ? 0 : textParameter.charAt(0);
+                    if (textParameter.length() == 1 || textParameter.length() > 1 && textParameter.charAt(1) == ';') {
+                        if (boundary == 'A') getHistory().promptStarted(mCursorRow, mCursorCol);
+                        else if (boundary == 'C') getHistory().commandStarted(mCursorRow, mCursorCol);
+                        else if (boundary == 'D') {
+                            Integer code = null;
+                            if (textParameter.length() > 2) {
+                                try { code = Integer.valueOf(textParameter.substring(2).split(";", 2)[0]); }
+                                catch (NumberFormatException ignored) { }
+                            }
+                            getHistory().commandCompleted(code);
+                        }
+                    }
+                }
+                break;
             case 0: // Change icon name and window title to T.
             case 1: // Change icon name to T.
             case 2: // Change window title to T.

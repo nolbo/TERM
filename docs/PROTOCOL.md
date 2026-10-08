@@ -66,6 +66,10 @@ changing command/work tracking. This focus is separate from runtime attachment
 and the last selected Kitty window.
 No guest RPC or Android capability is granted by these sequences.
 
+## Command history boundaries
+
+The emulator consumes the existing OSC 133 A/C/D shell boundaries in the main screen, independently of notification policy. A marks the prompt anchor, C starts a command at that anchor (or at the current cursor if A is unavailable), and D completes it with an optional integer exit code; returning to A completes an outstanding command with unknown status. BEL and ST terminators and chunked sequences use the existing OSC parser. Repeated C while running is idempotent, and alternate-screen boundaries are ignored. Bash integration emits A after the existing prompt hook while preserving that hook's exit status. User rc files may override the hooks, and other shells need their own OSC integration. No command payload, title or capability is stored in marker metadata. The host-private, same-build terminal checkpoint includes anchors and pending prompt/running state; the guest wire protocol is unchanged.
+
 ## Terminal paste
 
 Paste is application input, not a shell command queue. With DECSET 2004 enabled,

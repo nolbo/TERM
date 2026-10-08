@@ -9,6 +9,7 @@ import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Typeface;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -28,6 +29,7 @@ import android.view.View;
 import android.view.ViewConfiguration;
 import android.view.ViewTreeObserver;
 import android.view.accessibility.AccessibilityManager;
+import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.autofill.AutofillManager;
 import android.view.autofill.AutofillValue;
 import android.view.inputmethod.BaseInputConnection;
@@ -40,6 +42,7 @@ import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 
 import com.termux.terminal.KeyHandler;
+import com.termux.terminal.CommandMarker;
 import com.termux.terminal.KittyKeyboard;
 import com.termux.terminal.TerminalEmulator;
 import com.termux.terminal.TerminalSession;
@@ -85,6 +88,9 @@ public final class TerminalView extends View {
     private int mTerminalGridHeight;
     private boolean mSmoothScrollingEnabled;
     private int mScrollGeneration;
+    private final TerminalHistoryScrollbar mHistoryScrollbar;
+    private int mHistoryScrollbarForeground = 0xFFE3E4E8;
+    private int mHistoryScrollbarSurface = 0xFF242528;
 
     // View state only: do not keep closed sessions (or their processes) alive.
     public static final class ScrollPosition {
@@ -174,6 +180,8 @@ public final class TerminalView extends View {
 
     public TerminalView(Context context, AttributeSet attributes) { // NO_UCD (unused code)
         super(context, attributes);
+        mHistoryScrollbar = new TerminalHistoryScrollbar(this);
+        setVerticalScrollBarEnabled(false);
         mLayoutResizeScheduler = new StableResizeScheduler(new StableResizeScheduler.CallbackQueue() {
             @Override
             public void removeCallbacks(Runnable callback) {
@@ -405,6 +413,7 @@ public final class TerminalView extends View {
         stopScrollAnimation();
         stopTextSelectionMode();
         saveSessionScrollPosition();
+        mHistoryScrollbar.reset();
         ScrollPosition savedPosition = mSessionScrollPositions.get(session);
         mTopRow = savedPosition == null ? 0 : savedPosition.row;
         mScrollOffset = savedPosition == null || !mSmoothScrollingEnabled ? 0 : savedPosition.offset;
@@ -429,8 +438,7 @@ public final class TerminalView extends View {
             if (hasWindowFocus()) mEmulator.sendFocusEvent(true);
         }
 
-        // Wait with enabling the scrollbar until we have a terminal to get scroll position from.
-        setVerticalScrollBarEnabled(true);
+        mHistoryScrollbar.screenUpdated();
 
         return true;
     }
@@ -718,6 +726,7 @@ public final class TerminalView extends View {
 
         saveSessionScrollPosition();
 
+        mHistoryScrollbar.screenUpdated();
         postInvalidateOnAnimation();
         if (mAccessibilityEnabled) setContentDescription(getText());
     }
@@ -729,6 +738,60 @@ public final class TerminalView extends View {
         mScrollRemainder = 0;
         if (mTopRow != 0) { mTopRow = 0; invalidate(); }
         if (mEmulator != null) mLastTranscriptScroll = mEmulator.getTranscriptRowShiftCounter();
+        mHistoryScrollbar.screenUpdated();
+        saveSessionScrollPosition();
+        invalidate();
+    }
+
+    public boolean scrollToPreviousCommand() { return mHistoryScrollbar.navigate(false); }
+    public boolean scrollToNextCommand() { return mHistoryScrollbar.navigate(true); }
+    public boolean jumpToCommand(CommandMarker marker) { return mHistoryScrollbar.jump(marker); }
+    public boolean isHistoryScrollbarVisible() { return mHistoryScrollbar.isVisible(); }
+    public boolean isHistoryScrollbarDragging() { return mHistoryScrollbar.isDragging(); }
+    public long getPendingHistoryOutputRows() { return mHistoryScrollbar.getPendingOutput(); }
+    public void setHistoryScrollbarSnapEnabled(boolean enabled) { mHistoryScrollbar.setSnapEnabled(enabled); }
+
+    public void setHistoryScrollbarColors(int foreground, int surface) {
+        mHistoryScrollbarForeground = foreground;
+        mHistoryScrollbarSurface = surface;
+        invalidate();
+    }
+
+    int getHistoryScrollbarForeground() { return mHistoryScrollbarForeground; }
+    int getHistoryScrollbarSurface() { return mHistoryScrollbarSurface; }
+    void stopHistoryScrollAnimation() { stopScrollAnimation(); }
+
+    void setHistoryTopRow(int row) {
+        stopScrollAnimation();
+        mTopRow = Math.min(0, Math.max(-mEmulator.getScreen().getActiveTranscriptRows(), row));
+        mScrollOffset = mScrollRemainder = 0;
+        mLastTranscriptScroll = mEmulator.getTranscriptRowShiftCounter();
+        saveSessionScrollPosition();
+        mHistoryScrollbar.screenUpdated();
+        invalidate();
+    }
+
+    @Override
+    public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
+        super.onInitializeAccessibilityNodeInfo(info);
+        if (mHistoryScrollbar != null && mHistoryScrollbar.eligible()) {
+            info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.history_previous_command,
+                getResources().getString(R.string.history_previous)));
+            info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.history_next_command,
+                getResources().getString(R.string.history_next)));
+            if (mTopRow < 0) info.addAction(new AccessibilityNodeInfo.AccessibilityAction(R.id.history_latest_output,
+                getResources().getString(R.string.history_latest)));
+        }
+    }
+
+    @Override
+    public boolean performAccessibilityAction(int action, Bundle arguments) {
+        if (action == R.id.history_previous_command) return scrollToPreviousCommand();
+        if (action == R.id.history_next_command) return scrollToNextCommand();
+        if (action == R.id.history_latest_output && mHistoryScrollbar.eligible()) {
+            scrollToLatest(); return true;
+        }
+        return super.performAccessibilityAction(action, arguments);
     }
 
     /** Drop a cached display list and schedule the latest emulator state for the next frame. */
@@ -927,7 +990,8 @@ public final class TerminalView extends View {
             mTopRow = clampScrollRow(mTopRow, rowsDown, mEmulator.getScreen().getActiveTranscriptRows());
             mScrollOffset = 0;
             performScrollHaptic(Math.abs(mTopRow - previousRow));
-            if (!awakenScrollBars()) invalidate();
+            mHistoryScrollbar.awaken();
+            invalidate();
             saveSessionScrollPosition();
         }
     }
@@ -960,7 +1024,7 @@ public final class TerminalView extends View {
         mTopRow = (int) Math.floor(position);
         mScrollOffset = position - mTopRow;
         performScrollHaptic(Math.abs(position - previousPosition));
-        awakenScrollBars();
+        mHistoryScrollbar.awaken();
         postInvalidateOnAnimation();
         saveSessionScrollPosition();
         return (distance < 0 && position == -mEmulator.getScreen().getActiveTranscriptRows())
@@ -1024,6 +1088,8 @@ public final class TerminalView extends View {
     @TargetApi(23)
     public boolean onTouchEvent(MotionEvent event) {
         if (mEmulator == null) return true;
+        if (!event.isButtonPressed(MotionEvent.BUTTON_SECONDARY) && !event.isButtonPressed(MotionEvent.BUTTON_TERTIARY)
+            && mHistoryScrollbar.touch(event)) return true;
         final int action = event.getAction();
         if (event.getActionMasked() == MotionEvent.ACTION_CANCEL
                 || event.getActionMasked() == MotionEvent.ACTION_POINTER_DOWN) {
@@ -1576,6 +1642,7 @@ public final class TerminalView extends View {
             canvas.translate(0, getTerminalContentTopInset() - mScrollOffset * mRenderer.mFontLineSpacing);
             drawComposingText(canvas);
             canvas.restore();
+            mHistoryScrollbar.draw(canvas);
         }
         canvas.restoreToCount(viewClip);
     }
@@ -2079,6 +2146,7 @@ public final class TerminalView extends View {
     @Override
     protected void onDetachedFromWindow() {
         removeCallbacks(mGraphicsFrame);
+        mHistoryScrollbar.dispose();
         if (mRenderer != null) mRenderer.clearPresentedFrame();
         super.onDetachedFromWindow();
 

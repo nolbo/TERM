@@ -67,6 +67,30 @@ class RuntimeTerminalStateTest {
         assertEquals(listOf("\u001b[<64;1;1M"), mirror.output.replies)
     }
 
+    @Test fun commandMarkersSurviveDetachReflowAndCheckpointWithoutOwningTheSession() {
+        val state = RuntimeTerminalState(100)
+        state.create("id", 40, 8)
+        state.output("id", "\u001b]133;A\u0007$ first\r\n\u001b]133;C\u0007".toByteArray())
+        repeat(25) { state.output("id", "command output\r\n".toByteArray()) }
+        val first = Mirror(); state.subscribe("id", first)
+        val start = first.emulator.history.markers.single().startedAt
+        state.unsubscribe("id", first)
+        state.resize("id", 20, 10)
+        state.output("id", "\u001b]133;D;3\u0007\u001b]133;A\u0007$ second\r\n\u001b]133;C\u0007".toByteArray())
+        val second = Mirror(); state.subscribe("id", second)
+        val markers = second.emulator.history.markers
+        assertEquals(2, markers.size)
+        assertEquals(start, markers.first().startedAt)
+        assertTrue(markers.first().isFailed)
+        assertEquals(3, markers.first().exitCode)
+        assertNotNull(markers.first().anchor.row)
+        assertTrue(markers.last().isRunning)
+        state.unsubscribe("id", second)
+        repeat(150) { state.output("id", "trim\r\n".toByteArray()) }
+        state.subscribe("id", first)
+        assertTrue(first.emulator.history.markers.isEmpty())
+    }
+
     @Test fun checkpointOutputResizeExitAndSavedViewportHaveOneOrder() {
         val state = RuntimeTerminalState(); state.create("id", 40, 8)
         val anchor = RuntimeTerminalState.Viewport(-40, .25f, 150)

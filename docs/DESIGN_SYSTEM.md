@@ -140,6 +140,8 @@ Hotkeys의 단독 CTRL·ALT·SHIFT 선택 상태는 세로·수평 휠 입력에
 
 ## Insets and adaptive behavior
 
+터미널 history scrollbar는 기존 `TerminalView` 캔버스의 전용 overlay다. 일반 기록의 세로 스크롤 시 120ms로 나타나고 마지막 조작 후 1.6초 대기·220ms fade-out을 사용하며 플랫폼 애니메이터 배율을 따른다. track은 2dp, thumb는 6dp·최소 높이 32dp로 그리되 조작 영역은 48dp다. 색은 현재 `TerminalChromeColors`의 `container`·`onContainer`를 사용한다. 완료는 tick, 실행 중은 빈 원, 실패는 ×로 구분하고 밀집한 marker는 약 10dp 간격의 density glyph로 합친다. 혼합 cluster에는 실행·실패 도형을 함께 남긴다. 손잡이 해제 시 두 행 이내·낮은 이동 속도에서만 가까운 marker에 약하게 맞추며 내부 API에서 snap을 끌 수 있다. 이전/다음 명령은 48dp 화살표와 접근성 동작으로 제공한다. 드래그 위치·marker tooltip과 최신 출력 동작은 12sp 글자·48dp 높이를 사용한다. text selection 및 앱 소유 viewport에는 overlay나 history 동작을 제공하지 않는다.
+
 터미널 캔버스의 한 손가락 드래그는 터치 slop 이후 수평·수직 우세 축을 결정하고 해당 제스처 동안 고정한다. 수평 드래그는 마우스 보고가 활성화된 경우에만 표준 좌우 휠 입력을 전달하며, 문자 한 줄 높이의 이동 거리마다 한 step을 누적한다. 잔여 거리를 보존하고 방향 전환·제스처 종료 시 초기화하며 수평 관성 이동은 추가하지 않는다. 마우스·트랙패드의 수평 휠도 같은 애플리케이션 입력 경로를 사용한다.
 
 **터미널 기록 → 부드러운 스크롤**은 기본 꺼짐이다. 켜면 일반 스크롤백의

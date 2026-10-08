@@ -164,6 +164,8 @@ honestly.
 
 ### UI contract
 
+Command history metadata belongs to the main terminal buffer in the authoritative runtime emulator. `CommandMarker` retains only a history anchor, start timestamp, running/completed state and optional exit code. A `HistoryAnchor` follows a retained row/cell identity, is remapped during reflow, and is invalidated before ring-buffer recycling or transcript deletion. Checkpoints preserve the anchor graph and shell boundary state across UI detach/reattach. Metadata is bounded by buffer capacity, including repeated commands on one line. The renderer's history scrollbar owns only transient interaction, density and unseen-output presentation; it never owns the session or saves command text. Terminal application viewport modes suppress its overlay and navigation.
+
 The UI presents Android Native, Userspace Linux (the Rootless/PRoot backend), and AVF Linux as explicit
 choices with their setup, compatibility, and privilege differences.
 

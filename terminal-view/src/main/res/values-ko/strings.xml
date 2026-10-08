@@ -1,0 +1,11 @@
+<resources>
+  <string name="history_latest">최신 출력으로 이동</string>
+  <string name="history_new_output">최신 출력 · 새 출력 %1$d줄</string>
+  <string name="history_lines_ago">%1$d줄 전</string>
+  <string name="history_previous">이전 명령</string>
+  <string name="history_next">다음 명령</string>
+  <string name="history_running">실행 중</string>
+  <string name="history_completed">완료</string>
+  <string name="history_failed">실패</string>
+  <string name="history_marker_exit">%1$s · %2$s · 종료 코드 %3$d</string>
+</resources>
