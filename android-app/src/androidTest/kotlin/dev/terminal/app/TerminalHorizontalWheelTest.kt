@@ -175,6 +175,25 @@ class TerminalHorizontalWheelTest {
         assertEquals(0, view.topRow)
     }
 
+    @Test fun rightEdgeStillScrollsHistoryWithoutAScrollbar() = withTerminal { view, output ->
+        append(view, (1..200).joinToString("\r\n") { "line-$it" })
+        for (smooth in listOf(false, true)) {
+            view.setSmoothScrollingEnabled(smooth)
+            view.topRow = -80
+            assertFalse(view.isVerticalScrollBarEnabled)
+            val spacing = spacing(view)
+            val drag = Drag(view, x = view.width - 8 * view.resources.displayMetrics.density)
+            drag.move(0f, 4 * spacing)
+            val older = view.topRow
+            assertTrue("Dragging down at the right edge reaches older output", older < -80)
+            drag.move(0f, -6 * spacing)
+            assertTrue("Reversing the drag reaches newer output", view.topRow > older)
+            drag.finish(cancel = true)
+            assertTrue(scroller(view).isFinished)
+            assertEquals(0, output.size())
+        }
+    }
+
     @Test fun mouseAndTrackpadWheelsPreserveFractionsDirectionsAndCurrentCoordinates() = withTerminal { view, output ->
         append(view, "\u001b[?1000h\u001b[?1006h")
         val right = wheel(view, horizontal = 0.125f).sequence(67)
@@ -267,10 +286,10 @@ class TerminalHorizontalWheelTest {
             (position[1] + 1).coerceIn(1, view.mEmulator.mRows))
     }
 
-    private inner class Drag(val view: TerminalView, val source: Int = InputDevice.SOURCE_TOUCHSCREEN) {
+    private inner class Drag(val view: TerminalView, val source: Int = InputDevice.SOURCE_TOUCHSCREEN,
+                             private var x: Float = 500f) {
         private val start = SystemClock.uptimeMillis()
         private var tick = 0L
-        private var x = 500f
         private var y = 200f
 
         init { dispatch(MotionEvent.ACTION_DOWN) }

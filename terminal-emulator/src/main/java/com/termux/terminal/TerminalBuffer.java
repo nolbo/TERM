@@ -11,18 +11,6 @@ import java.util.Arrays;
 public final class TerminalBuffer implements java.io.Serializable {
     private static final long serialVersionUID = 1L;
 
-    private final TerminalHistory mHistory = new TerminalHistory(this);
-
-    public TerminalHistory getHistory() { return mHistory; }
-
-    Integer resolveHistoryAnchor(HistoryAnchor anchor) {
-        TerminalRow line = anchor.line;
-        if (line == null || line.mHistorySlot >= mTotalRows || mLines[line.mHistorySlot] != line) return null;
-        int row = (line.mHistorySlot - mScreenFirstRow + mTotalRows) % mTotalRows;
-        if (row >= mScreenRows) row -= mTotalRows;
-        return row < -mActiveTranscriptRows ? null : row;
-    }
-
     TerminalRow[] mLines;
     /** The length of {@link #mLines}. */
     int mTotalRows;
@@ -225,11 +213,8 @@ public final class TerminalBuffer implements java.io.Serializable {
             // styled spaces. Reflowing merely to enlarge its storage loses those cells
             // during an IME hide/show or renderer reattachment at the same width.
             TerminalRow[] expanded = new TerminalRow[newTotalRows];
-            for (int row = -mActiveTranscriptRows; row < mScreenRows; row++) {
+            for (int row = -mActiveTranscriptRows; row < mScreenRows; row++)
                 expanded[row + mActiveTranscriptRows] = mLines[externalToInternalRow(row)];
-                if (expanded[row + mActiveTranscriptRows] != null)
-                    expanded[row + mActiveTranscriptRows].mHistorySlot = row + mActiveTranscriptRows;
-            }
             mLines = expanded;
             mScreenFirstRow = mActiveTranscriptRows;
             mTotalRows = newTotalRows;
@@ -260,17 +245,15 @@ public final class TerminalBuffer implements java.io.Serializable {
             mScreenFirstRow += shiftDownOfTopRow;
             mScreenFirstRow = (mScreenFirstRow < 0) ? (mScreenFirstRow + mTotalRows) : (mScreenFirstRow % mTotalRows);
             mTotalRows = newTotalRows;
-            mActiveTranscriptRows = altScreen ? 0 : Math.min(mTotalRows - newRows, Math.max(0, mActiveTranscriptRows + shiftDownOfTopRow));
+            mActiveTranscriptRows = altScreen ? 0 : Math.max(0, mActiveTranscriptRows + shiftDownOfTopRow);
             cursor[1] -= shiftDownOfTopRow;
             mScreenRows = newRows;
         } else {
             // Copy away old state and update new:
             TerminalRow[] oldLines = mLines;
             mLines = new TerminalRow[newTotalRows];
-            for (int i = 0; i < newTotalRows; i++) {
+            for (int i = 0; i < newTotalRows; i++)
                 mLines[i] = new TerminalRow(newColumns, currentStyle);
-                mLines[i].mHistorySlot = i;
-            }
 
             final int oldActiveTranscriptRows = mActiveTranscriptRows;
             final int oldScreenFirstRow = mScreenFirstRow;
@@ -300,11 +283,9 @@ public final class TerminalBuffer implements java.io.Serializable {
                 internalOldRow = (internalOldRow < 0) ? (oldTotalRows + internalOldRow) : (internalOldRow % oldTotalRows);
 
                 TerminalRow oldLine = oldLines[internalOldRow];
-                java.util.ArrayList<HistoryAnchor> anchors = oldLine == null ? null : oldLine.mHistoryAnchors;
-                if (oldLine != null) oldLine.mHistoryAnchors = null;
                 boolean cursorAtThisRow = externalOldRow == oldCursorRow;
                 // The cursor may only be on a non-null line, which we should not skip:
-                if (oldLine == null || anchors == null && (!(!newCursorPlaced && cursorAtThisRow)) && oldLine.isBlank()) {
+                if (oldLine == null || (!(!newCursorPlaced && cursorAtThisRow)) && oldLine.isBlank()) {
                     skippedBlankLines++;
                     continue;
                 } else if (skippedBlankLines > 0) {
@@ -332,9 +313,6 @@ public final class TerminalBuffer implements java.io.Serializable {
                         if (oldLine.mText[i] != ' '/* || oldLine.mStyle[i] != currentStyle */)
                             lastNonSpaceIndex = i + 1;
                 }
-
-                if (anchors != null) for (HistoryAnchor anchor : anchors)
-                    lastNonSpaceIndex = Math.max(lastNonSpaceIndex, oldLine.findStartOfColumn(anchor.column) + 1);
 
                 int currentOldCol = 0;
                 long styleAtCol = 0;
@@ -366,18 +344,6 @@ public final class TerminalBuffer implements java.io.Serializable {
                     int outputColumn = currentOutputExternalColumn - offsetDueToCombiningChar;
                     setChar(outputColumn, currentOutputExternalRow, codePoint, styleAtCol, underlineAtCol);
 
-                    if (anchors != null && displayWidth > 0) {
-                        java.util.Iterator<HistoryAnchor> iterator = anchors.iterator();
-                        while (iterator.hasNext()) {
-                            HistoryAnchor anchor = iterator.next();
-                            if (anchor.column >= currentOldCol && anchor.column < currentOldCol + displayWidth) {
-                                anchor.moveTo(mLines[externalToInternalRow(currentOutputExternalRow)],
-                                    outputColumn + anchor.column - currentOldCol);
-                                iterator.remove();
-                            }
-                        }
-                    }
-
                     if (displayWidth > 0) {
                         if (oldCursorRow == externalOldRow && oldCursorColumn == currentOldCol) {
                             newCursorColumn = currentOutputExternalColumn;
@@ -389,7 +355,6 @@ public final class TerminalBuffer implements java.io.Serializable {
                         if (justToCursor && newCursorPlaced) break;
                     }
                 }
-                if (anchors != null) for (HistoryAnchor anchor : anchors) anchor.release();
                 // Old row has been copied. Check if we need to insert newline if old line was not wrapping:
                 if (externalOldRow != (oldScreenRows - 1) && !oldLine.mLineWrap) {
                     if (currentOutputExternalRow == mScreenRows - 1) {
@@ -408,9 +373,6 @@ public final class TerminalBuffer implements java.io.Serializable {
 
         // Handle cursor scrolling off screen:
         if (cursor[0] < 0 || cursor[1] < 0) cursor[0] = cursor[1] = 0;
-        // Fast height changes can discard rows without recycling their objects.
-        mHistory.discardInvalidAnchors();
-        mHistory.coordinatesChanged();
     }
 
     /**
@@ -428,14 +390,10 @@ public final class TerminalBuffer implements java.io.Serializable {
         // Save away line to be overwritten:
         TerminalRow lineToBeOverWritten = mLines[(srcInternal + start + 1) % totalRows];
         // Do the copy from bottom to top.
-        for (int i = start; i >= 0; --i) {
-            int slot = (srcInternal + i + 1) % totalRows;
-            mLines[slot] = mLines[(srcInternal + i) % totalRows];
-            if (mLines[slot] != null) mLines[slot].mHistorySlot = slot;
-        }
+        for (int i = start; i >= 0; --i)
+            mLines[(srcInternal + i + 1) % totalRows] = mLines[(srcInternal + i) % totalRows];
         // Put back overwritten line, now above the block:
         mLines[(srcInternal) % totalRows] = lineToBeOverWritten;
-        if (lineToBeOverWritten != null) lineToBeOverWritten.mHistorySlot = srcInternal % totalRows;
     }
 
     /**
@@ -464,11 +422,9 @@ public final class TerminalBuffer implements java.io.Serializable {
         int blankRow = externalToInternalRow(bottomMargin - 1);
         if (mLines[blankRow] == null) {
             mLines[blankRow] = new TerminalRow(mColumns, style);
-            mLines[blankRow].mHistorySlot = blankRow;
         } else {
             mLines[blankRow].clear(style);
         }
-        mHistory.coordinatesChanged();
     }
 
     /**
@@ -511,9 +467,7 @@ public final class TerminalBuffer implements java.io.Serializable {
     }
 
     public TerminalRow allocateFullLineIfNecessary(int row) {
-        if (mLines[row] == null) mLines[row] = new TerminalRow(mColumns, 0);
-        mLines[row].mHistorySlot = row;
-        return mLines[row];
+        return (mLines[row] == null) ? (mLines[row] = new TerminalRow(mColumns, 0)) : mLines[row];
     }
 
     public void setChar(int column, int row, int codePoint, long style) {
@@ -557,10 +511,6 @@ public final class TerminalBuffer implements java.io.Serializable {
     }
 
     public void clearTranscript() {
-        for (int row = -mActiveTranscriptRows; row < 0; row++) {
-            TerminalRow line = mLines[externalToInternalRow(row)];
-            if (line != null) line.discardHistoryAnchors();
-        }
         if (mScreenFirstRow < mActiveTranscriptRows) {
             Arrays.fill(mLines, mTotalRows + mScreenFirstRow - mActiveTranscriptRows, mTotalRows, null);
             Arrays.fill(mLines, 0, mScreenFirstRow, null);

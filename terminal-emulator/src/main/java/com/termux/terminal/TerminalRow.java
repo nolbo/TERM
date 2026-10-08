@@ -10,17 +10,6 @@ import java.util.Arrays;
 public final class TerminalRow implements java.io.Serializable {
     private static final long serialVersionUID = 1L;
 
-    /** History identity follows the row object; anchors are invalidated before recycling it. */
-    int mHistorySlot;
-    java.util.ArrayList<HistoryAnchor> mHistoryAnchors;
-
-    void discardHistoryAnchors() {
-        if (mHistoryAnchors == null) return;
-        java.util.ArrayList<HistoryAnchor> anchors = mHistoryAnchors;
-        mHistoryAnchors = null;
-        for (HistoryAnchor anchor : anchors) anchor.release();
-    }
-
     private static final float SPARE_CAPACITY_FACTOR = 1.5f;
 
     /**
@@ -159,7 +148,6 @@ public final class TerminalRow implements java.io.Serializable {
     }
 
     public void clear(long style) {
-        discardHistoryAnchors();
         Arrays.fill(mText, ' ');
         Arrays.fill(mStyle, style);
         if (mUnderlineColors != null) Arrays.fill(mUnderlineColors, TextStyle.COLOR_INDEX_FOREGROUND);

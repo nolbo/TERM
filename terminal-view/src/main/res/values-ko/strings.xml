@@ -1,9 +1,0 @@
-<resources>
-  <string name="history_latest">최신 출력으로 이동</string>
-  <string name="history_top">맨 위로 이동</string>
-  <string name="history_new_output">새 출력 %1$d줄</string>
-  <string name="history_lines_ago">%1$d줄 전</string>
-  <string name="history_previous">이전 명령</string>
-  <string name="history_next">다음 명령</string>
-  <string name="history_command">명령</string>
-</resources>

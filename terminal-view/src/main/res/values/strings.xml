@@ -2,11 +2,4 @@
   <string name="paste_text">Paste</string>
   <string name="copy_text">Copy</string>
   <string name="text_selection_more">More…</string>
-  <string name="history_latest">Jump to latest output</string>
-  <string name="history_top">Scroll to top</string>
-  <string name="history_new_output">%1$d new lines</string>
-  <string name="history_lines_ago">%1$d lines ago</string>
-  <string name="history_previous">Previous command</string>
-  <string name="history_next">Next command</string>
-  <string name="history_command">Command</string>
 </resources>

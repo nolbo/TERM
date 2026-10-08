@@ -11,7 +11,6 @@ public final class TerminalCheckpoint {
     private static final Set<String> CLASSES = Set.of(
         TerminalEmulator.class.getName(), TerminalBuffer.class.getName(), TerminalRow.class.getName(),
         TerminalColors.class.getName(), TerminalGraphics.class.getName(), TerminalImage.class.getName(),
-        TerminalHistory.class.getName(), HistoryAnchor.class.getName(), CommandMarker.class.getName(),
         KittyAnimation.class.getName(), KittyKeyboard.class.getName(), SynchronizedOutput.class.getName(),
         "com.termux.terminal.TerminalEmulator$SavedScreenState",
         "com.termux.terminal.TerminalGraphics$Placement",

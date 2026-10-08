@@ -1,6 +1,0 @@
-<resources>
-  <item name="history_previous_command" type="id" />
-  <item name="history_next_command" type="id" />
-  <item name="history_latest_output" type="id" />
-  <item name="history_first_output" type="id" />
-</resources>
