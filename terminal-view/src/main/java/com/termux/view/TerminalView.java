@@ -109,6 +109,7 @@ public final class TerminalView extends View {
     private enum ScrollAxis { UNDECIDED, HORIZONTAL, VERTICAL }
     private ScrollAxis mTouchScrollAxis = ScrollAxis.UNDECIDED;
     private float mHorizontalScrollRemainder;
+    private float mHistoryRevealDistance;
     int[] mDefaultSelectors = new int[]{-1,-1,-1,-1};
 
     float mScaleFactor = 1.f;
@@ -261,6 +262,11 @@ public final class TerminalView extends View {
                                 doHorizontalScroll(e, steps);
                             } else {
                                 mHorizontalScrollRemainder = 0;
+                                if (e.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) {
+                                    mHistoryRevealDistance = Math.max(0, mHistoryRevealDistance + distanceX);
+                                    if (mHistoryRevealDistance >= 48 * getResources().getDisplayMetrics().density)
+                                        mHistoryScrollbar.awaken();
+                                }
                             }
                             return true;
                         }
@@ -968,6 +974,7 @@ public final class TerminalView extends View {
     private void resetTouchScroll() {
         mTouchScrollAxis = ScrollAxis.UNDECIDED;
         mHorizontalScrollRemainder = 0;
+        mHistoryRevealDistance = 0;
     }
 
     /** Perform a scroll, either from dragging the screen or by scrolling a mouse wheel. */
@@ -990,7 +997,7 @@ public final class TerminalView extends View {
             mTopRow = clampScrollRow(mTopRow, rowsDown, mEmulator.getScreen().getActiveTranscriptRows());
             mScrollOffset = 0;
             performScrollHaptic(Math.abs(mTopRow - previousRow));
-            mHistoryScrollbar.awaken();
+            mHistoryScrollbar.onViewportScrolled();
             invalidate();
             saveSessionScrollPosition();
         }
@@ -1024,7 +1031,7 @@ public final class TerminalView extends View {
         mTopRow = (int) Math.floor(position);
         mScrollOffset = position - mTopRow;
         performScrollHaptic(Math.abs(position - previousPosition));
-        mHistoryScrollbar.awaken();
+        mHistoryScrollbar.onViewportScrolled();
         postInvalidateOnAnimation();
         saveSessionScrollPosition();
         return (distance < 0 && position == -mEmulator.getScreen().getActiveTranscriptRows())

@@ -43,6 +43,26 @@ public class HistoryScrollbarModelTest {
         assertTrue(buckets.stream().anyMatch(bucket -> bucket.running));
         assertTrue(buckets.stream().anyMatch(bucket -> bucket.failed));
         assertTrue(buckets.stream().anyMatch(bucket -> bucket.count > 1));
+        for (HistoryScrollbarModel.Bucket bucket : buckets) {
+            assertNotNull(bucket.marker);
+            int index = Math.round(HistoryScrollbarModel.fraction(bucket.marker.anchor.getRow(),
+                emulator.getScreen().getActiveTranscriptRows()) * 11);
+            assertEquals(bucket.index, index);
+        }
+    }
+
+    @Test public void aggregateTapTargetIsCommandNearestDisplayedGlyphAndSurvivesTrim() {
+        for (int i = 0; i < 1200; i++) append("\033]133;C\007x\r\n\033]133;D;0\007");
+        int rows = emulator.getScreen().getActiveTranscriptRows();
+        List<CommandMarker> markers = emulator.getHistory().getMarkers();
+        List<HistoryScrollbarModel.Bucket> buckets = HistoryScrollbarModel.aggregate(markers, rows, 5);
+        for (HistoryScrollbarModel.Bucket bucket : buckets) {
+            int center = HistoryScrollbarModel.rowAt(bucket.index / 4f, rows);
+            assertSame(HistoryScrollbarModel.nearest(markers, center, rows), bucket.marker);
+            assertTrue(bucket.marker.anchor.getRow() >= -rows);
+        }
+        HistoryScrollbarModel.Bucket single = HistoryScrollbarModel.aggregate(markers, rows, 1).get(0);
+        assertSame(HistoryScrollbarModel.nearest(markers, HistoryScrollbarModel.rowAt(0.5f, rows), rows), single.marker);
     }
 
     @Test public void navigationDisambiguatesSameRowAndWeakSnapHasSmallRadius() {

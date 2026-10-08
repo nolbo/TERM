@@ -3,6 +3,7 @@ package dev.terminal.app
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.RectF
+import android.graphics.drawable.Drawable
 import android.os.SystemClock
 import android.os.Looper
 import android.view.InputDevice
@@ -14,6 +15,7 @@ import com.termux.terminal.CommandMarker
 import com.termux.terminal.TerminalCheckpoint
 import com.termux.terminal.TerminalSession
 import com.termux.view.TerminalView
+import com.termux.view.HistoryScrollbarModel
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import org.junit.Assert.*
@@ -25,19 +27,34 @@ class TerminalHistoryScrollbarTest {
     private lateinit var backend: RemoteTerminalBackend
     private val output = ByteArrayOutputStream()
 
-    @Test fun ordinaryScrollRevealsThinThumbWithLargeHitAreaAndDragTraversesHistory() = withTerminal {
+    @Test fun leftSwipeRevealsCapsuleWithInternalSymbolsAndDragTraversesHistory() = withTerminal {
         assertFalse(view.isHistoryScrollbarVisible)
         scroll(-3f)
-        waitForVisible()
+        assertFalse(view.isHistoryScrollbarVisible)
+        reveal()
         main {
             render()
+            val capsule = bounds("capsule")
             val thumb = bounds("thumb")
             val dp = view.resources.displayMetrics.density
-            assertEquals(6 * dp, thumb.width(), 0.1f)
-            assertTrue(thumb.height() >= 32 * dp)
+            assertEquals(48 * dp, capsule.width(), 0.1f)
+            assertTrue(capsule.height() > capsule.width() * 5)
+            assertEquals(40 * dp, thumb.width(), 0.1f)
+            assertTrue(thumb.height() >= 48 * dp)
+            assertTrue(capsule.contains(thumb))
+            assertTrue(capsule.contains(bounds("previous")))
+            assertTrue(capsule.contains(bounds("next")))
+            for (name in listOf("cluster", "failed", "chevron")) {
+                val symbol = field(name) as Drawable
+                assertFalse("$name is drawn", symbol.bounds.isEmpty)
+                assertTrue("$name stays inside the capsule", capsule.contains(RectF(symbol.bounds)))
+            }
+            val buckets = buckets()
+            assertTrue(buckets.any { it.count > 1 })
+            assertTrue(buckets.size < view.mEmulator.history.markers.size)
             view.setHistoryScrollbarSnapEnabled(false)
-            // Start well to the left of the 6dp drawing, inside its 48dp touch target.
-            val drag = Drag(view.width - 30 * dp, thumb.centerY())
+            // The capsule's full width is touchable, including the thumb's outer inset.
+            val drag = Drag(capsule.left + 2 * dp, thumb.centerY())
             drag.move(-1000f)
             assertTrue(view.isHistoryScrollbarDragging)
             assertEquals(-view.mEmulator.screen.activeTranscriptRows, view.topRow)
@@ -49,12 +66,85 @@ class TerminalHistoryScrollbarTest {
         }
     }
 
+    @Test fun verticalRightwardShortAndMouseGesturesDoNotRevealCapsule() = withTerminal {
+        main {
+            val vertical = Drag(300f, 600f)
+            vertical.move(900f)
+            vertical.cancel()
+            assertTrue(view.topRow < 0)
+            assertFalse(view.isHistoryScrollbarVisible)
+            val top = view.topRow
+            Drag(300f, 600f).apply { moveTo(700f, 600f); finish() }
+            Drag(700f, 600f).apply { moveTo(700f - 16 * density(), 600f); cancel() }
+            Drag(700f, 600f, InputDevice.SOURCE_MOUSE).apply { moveTo(300f, 600f); finish() }
+            assertEquals(top, view.topRow)
+        }
+        SystemClock.sleep(180)
+        main { assertFalse(view.isHistoryScrollbarVisible) }
+        reveal()
+        assertTrue(view.isHistoryScrollbarVisible)
+    }
+
+    @Test fun emptyHistoryCannotBeRevealedBySwipe() = withTerminal(commands = 0) {
+        leftSwipe()
+        SystemClock.sleep(180)
+        main { assertFalse(view.isHistoryScrollbarVisible) }
+    }
+
+    @Test fun shortHistoryUsesCenteredAggregateAndTapResolvesItsCommand() = withTerminal(commands = 0) {
+        main {
+            repeat(2) { append("\u001b]133;C\u0007command\u001b]133;D;0\u0007\r\n") }
+            repeat(view.mEmulator.mRows) { append("padding\r\n") }
+        }
+        reveal()
+        main {
+            render()
+            val bucket = buckets().single()
+            val center = (number("trackTop") + number("trackBottom")) / 2
+            tap(bounds("capsule").centerX(), center)
+            assertEquals(bucket.marker.anchor.row, view.topRow)
+        }
+    }
+
+    @Test fun pinchAndItsOneFingerTailDoNotRevealCapsule() = withTerminal {
+        main {
+            var scales = 0
+            view.setTerminalViewClient(TerminalInputCallbacks(onPinchScale = { scales++; 1f }))
+            val start = SystemClock.uptimeMillis()
+            var tick = 0L
+            fun dispatch(action: Int, count: Int, fraction: Float) {
+                val properties = Array(count) { index -> MotionEvent.PointerProperties().apply {
+                    id = index; toolType = MotionEvent.TOOL_TYPE_FINGER
+                } }
+                val coordinates = Array(count) { index -> MotionEvent.PointerCoords().apply {
+                    x = 600f + index * 200f + fraction * (if (index == 0) -450f else 150f)
+                    y = 600f; pressure = 1f; size = 1f
+                } }
+                val event = MotionEvent.obtain(start, start + tick, action, count, properties, coordinates,
+                    0, 0, 1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0)
+                try { view.onTouchEvent(event) } finally { event.recycle() }
+                tick += 30
+            }
+            dispatch(MotionEvent.ACTION_DOWN, 1, 0f)
+            dispatch(MotionEvent.ACTION_POINTER_DOWN or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), 2, 0f)
+            for (step in 1..10) dispatch(MotionEvent.ACTION_MOVE, 2, step / 10f)
+            dispatch(MotionEvent.ACTION_POINTER_UP or (1 shl MotionEvent.ACTION_POINTER_INDEX_SHIFT), 2, 1f)
+            dispatch(MotionEvent.ACTION_MOVE, 1, 1.2f)
+            dispatch(MotionEvent.ACTION_UP, 1, 1.2f)
+            assertTrue(scales > 0)
+            assertEquals(0, view.topRow)
+            assertEquals(0, output.size())
+        }
+        SystemClock.sleep(180)
+        main { assertFalse(view.isHistoryScrollbarVisible) }
+    }
+
     @Test fun idleFadesTrackButKeepsLatestActionAvailable() = withTerminal {
         ActivityScenario.launch(AppInfoActivity::class.java).use { scenario ->
             scenario.onActivity { it.setContentView(view) }
             instrumentation.waitForIdleSync()
             scroll(-3f)
-            waitForVisible()
+            reveal()
             val deadline = SystemClock.uptimeMillis() + 4000
             var visible = true
             while (visible && SystemClock.uptimeMillis() < deadline) {
@@ -69,23 +159,25 @@ class TerminalHistoryScrollbarTest {
                 tap(latest.centerX(), latest.centerY())
                 assertEquals(0, view.topRow)
             }
+            SystemClock.sleep(180)
+            main { assertFalse(view.isHistoryScrollbarVisible) }
         }
     }
 
     @Test fun releaseSnapsOnlyWithinTwoRowsAndCanBeDisabled() = withTerminal {
         scroll(-3f)
-        waitForVisible()
+        reveal()
         main {
             val target = view.mEmulator.history.markers[10]
             for (enabled in listOf(true, false)) {
                 view.scrollToLatest()
                 view.setHistoryScrollbarSnapEnabled(enabled)
-                // The bar is still visible from the preceding ordinary scroll.
+                // The bar is still visible from the preceding swipe.
                 render()
                 val thumb = bounds("thumb")
                 val destination = markerY(target) + (number("trackBottom") - number("trackTop") - number("thumbHeight")) /
                     view.mEmulator.screen.activeTranscriptRows
-                val drag = Drag(view.width - 20 * density(), thumb.centerY())
+                val drag = Drag(bounds("capsule").centerX(), thumb.centerY())
                 drag.move(destination)
                 drag.move(destination) // Pause at the destination instead of flinging past it.
                 drag.finish()
@@ -96,7 +188,7 @@ class TerminalHistoryScrollbarTest {
 
     @Test fun markerTapAndPreviousNextActionsJumpToAnchorsIncludingAfterReflow() = withTerminal {
         scroll(-3f)
-        waitForVisible()
+        reveal()
         main {
             val markers = view.mEmulator.history.markers
             val middle = markers[markers.size / 2]
@@ -111,10 +203,16 @@ class TerminalHistoryScrollbarTest {
             assertTrue(view.jumpToCommand(middle))
             assertEquals(middle.anchor.row, view.topRow)
             render()
-            val target = markers[3]
-            val y = markerY(target)
-            tap(view.width - 24 * density(), y)
-            assertEquals("Marker tap resolves retained history", target.anchor.row!!, view.topRow)
+            for (bucket in buckets()) {
+                val target = bucket.marker
+                tap(bounds("capsule").centerX(), bucketY(bucket))
+                assertEquals("Displayed symbol jumps to its retained command", minOf(0, target.anchor.row!!), view.topRow)
+            }
+            assertTrue(view.jumpToCommand(middle))
+            tap(bounds("previous").centerX(), bounds("previous").centerY())
+            assertEquals(markers[markers.size / 2 - 1].anchor.row, view.topRow)
+            tap(bounds("next").centerX(), bounds("next").centerY())
+            assertEquals(middle.anchor.row, view.topRow)
             val info = AccessibilityNodeInfo.obtain()
             view.onInitializeAccessibilityNodeInfo(info)
             assertTrue(info.actionList.any { it.id == com.termux.view.R.id.history_previous_command })
@@ -125,7 +223,7 @@ class TerminalHistoryScrollbarTest {
 
     @Test fun freshOutputAccumulatesThroughTrimButResizeDoesNotCountAsNewOutput() = withTerminal {
         scroll(-4f)
-        waitForVisible()
+        reveal()
         main {
             val top = view.topRow
             append("new-1\r\nnew-2\r\nnew-3\r\n")
@@ -146,38 +244,44 @@ class TerminalHistoryScrollbarTest {
 
     @Test fun alternateMouseAndApplicationOwnedViewportsHideOverlayAndPreserveWheelInput() = withTerminal {
         scroll(-3f)
-        waitForVisible()
-        main {
-            append("\u001b[?1049h")
-            assertFalse(view.isHistoryScrollbarVisible)
-            assertFalse(view.jumpToCommand(view.mEmulator.history.markers.first()))
-            append("\u001b[?1049l\u001b[?1003h\u001b[?1006h")
-            assertFalse(view.isHistoryScrollbarVisible)
-            assertFalse(view.scrollToPreviousCommand())
-            scroll(-1f)
-            assertTrue(output.toString("UTF-8").contains("\u001b[<64;"))
-            output.reset()
-            append("\u001b[?1003l\u001b[2;5r")
-            assertFalse(view.isHistoryScrollbarVisible)
-            append("\u001b[r\u001b[?1h")
-            assertFalse(view.isHistoryScrollbarVisible)
+        reveal()
+        for (mode in listOf("\u001b[?1049h", "\u001b[?1049l\u001b[?1003h\u001b[?1006h",
+            "\u001b[?1003l\u001b[2;5r", "\u001b[r\u001b[?1h")) {
+            main { append(mode) }
+            leftSwipe()
+            SystemClock.sleep(180)
+            main {
+                assertFalse(view.isHistoryScrollbarVisible)
+                assertFalse(view.scrollToPreviousCommand())
+                if (view.mEmulator.isMouseTrackingActive) {
+                    scroll(-1f)
+                    assertTrue(output.toString("UTF-8").contains("\u001b[<64;"))
+                    output.reset()
+                }
+            }
         }
     }
 
     @Test fun checkpointAndSessionSwitchPreserveMarkersAndCancelOldDrag() = withTerminal {
         scroll(-3f)
-        waitForVisible()
+        reveal()
         main {
             val markers = view.mEmulator.history.markers
             val time = markers.first().startedAt
+            render()
             val state = ByteArrayOutputStream().also { TerminalCheckpoint.write(view.mEmulator, it) }
             view.mEmulator.restoreState(TerminalCheckpoint.read(ByteArrayInputStream(state.toByteArray())))
             view.onScreenUpdated()
             assertEquals(time, view.mEmulator.history.markers.first().startedAt)
+            render()
+            val restored = buckets().first()
+            assertTrue(view.mEmulator.history.markers.contains(restored.marker))
+            tap(bounds("capsule").centerX(), bucketY(restored))
+            assertEquals(restored.marker.anchor.row, view.topRow)
             assertTrue(view.jumpToCommand(view.mEmulator.history.markers[4]))
             render()
             val thumb = bounds("thumb")
-            val drag = Drag(view.width - 20 * density(), thumb.centerY())
+            val drag = Drag(bounds("capsule").centerX(), thumb.centerY())
             drag.move(thumb.centerY() - 100)
             assertTrue(view.isHistoryScrollbarDragging)
             val otherBackend = RemoteTerminalBackend(write = {}, resize = { _, _ -> })
@@ -196,11 +300,11 @@ class TerminalHistoryScrollbarTest {
 
     @Test fun appTakingViewportDuringDragCancelsWithoutLeakingMousePress() = withTerminal {
         scroll(-3f)
-        waitForVisible()
+        reveal()
         main {
             render()
             val thumb = bounds("thumb")
-            val drag = Drag(view.width - 20 * density(), thumb.centerY())
+            val drag = Drag(bounds("capsule").centerX(), thumb.centerY())
             drag.move(thumb.centerY() - 100)
             append("\u001b[?1003h\u001b[?1006h")
             drag.finish()
@@ -209,7 +313,7 @@ class TerminalHistoryScrollbarTest {
         }
     }
 
-    private fun withTerminal(test: () -> Unit) {
+    private fun withTerminal(commands: Int = 40, test: () -> Unit) {
         main {
             output.reset()
             backend = RemoteTerminalBackend(write = { output.write(it) }, resize = { _, _ -> })
@@ -220,7 +324,7 @@ class TerminalHistoryScrollbarTest {
                 layout(0, 0, 1000, 1400)
                 attachSession(session)
             }
-            repeat(40) { command ->
+            repeat(commands) { command ->
                 append("\u001b]133;A\u0007$ command\r\n\u001b]133;C\u0007")
                 repeat(4) { append("output-$command-$it\r\n") }
                 append("\u001b]133;D;${command % 3}\u0007")
@@ -245,6 +349,17 @@ class TerminalHistoryScrollbarTest {
     }
     private fun number(name: String): Float = overlay().let { bar ->
         bar.javaClass.getDeclaredField(name).apply { isAccessible = true }.getFloat(bar)
+    }
+    private fun field(name: String): Any = overlay().let { bar ->
+        checkNotNull(bar.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(bar))
+    }
+    @Suppress("UNCHECKED_CAST")
+    private fun buckets() = field("density") as List<HistoryScrollbarModel.Bucket>
+    private fun bucketY(bucket: HistoryScrollbarModel.Bucket): Float {
+        val bins = overlay().let { bar -> bar.javaClass.getDeclaredField("densityBins").apply { isAccessible = true }.getInt(bar) }
+        if (bins == 1) return (number("trackTop") + number("trackBottom")) / 2
+        return number("trackTop") + number("thumbHeight") / 2 + bucket.index *
+            (number("trackBottom") - number("trackTop") - number("thumbHeight")) / maxOf(1, bins - 1)
     }
     private fun markerY(marker: CommandMarker): Float {
         val height = number("thumbHeight")
@@ -275,16 +390,26 @@ class TerminalHistoryScrollbarTest {
         }
         fail("Scrollbar did not fade in")
     }
+    private fun leftSwipe() = main {
+        Drag(view.width * 0.7f, view.height * 0.5f).apply {
+            moveTo(view.width * 0.5f, view.height * 0.5f)
+            moveTo(view.width * 0.3f, view.height * 0.5f)
+            finish()
+        }
+    }
+    private fun reveal() { leftSwipe(); waitForVisible() }
     private fun tap(x: Float, y: Float) { Drag(x, y).finish() }
-    private inner class Drag(private val x: Float, private var y: Float) {
+    private inner class Drag(private var x: Float, private var y: Float, private val source: Int = InputDevice.SOURCE_TOUCHSCREEN) {
         private val start = SystemClock.uptimeMillis()
         private var time = start
         init { event(MotionEvent.ACTION_DOWN) }
         fun move(destination: Float) { y = destination; time += 30; event(MotionEvent.ACTION_MOVE) }
+        fun moveTo(destinationX: Float, destinationY: Float) { x = destinationX; move(destinationY) }
         fun finish() { time += 30; event(MotionEvent.ACTION_UP) }
+        fun cancel() { time += 30; event(MotionEvent.ACTION_CANCEL) }
         private fun event(action: Int) {
             val event = MotionEvent.obtain(start, time, action, x, y, 0)
-            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            event.source = source
             view.onTouchEvent(event)
             event.recycle()
         }

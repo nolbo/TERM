@@ -24,6 +24,8 @@ public final class HistoryScrollbarModel {
         public final int index;
         public int count;
         public boolean running, failed;
+        /** Command nearest this glyph's history position; used by the same glyph's hit target. */
+        public CommandMarker marker;
         Bucket(int index) { this.index = index; }
     }
 
@@ -40,6 +42,9 @@ public final class HistoryScrollbarModel {
             bucket.count++;
             bucket.running |= marker.isRunning();
             bucket.failed |= marker.isFailed();
+            int centerRow = rowAt(bucketCount == 1 ? 0.5f : (float) index / (bucketCount - 1), historyRows);
+            if (bucket.marker == null || Math.abs((long) row - centerRow)
+                < Math.abs((long) bucket.marker.anchor.getRow() - centerRow)) bucket.marker = marker;
         }
         ArrayList<Bucket> result = new ArrayList<>();
         for (Bucket bin : bins) if (bin != null) result.add(bin);
