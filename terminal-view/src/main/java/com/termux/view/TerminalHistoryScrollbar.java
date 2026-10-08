@@ -8,8 +8,11 @@ import android.graphics.drawable.Drawable;
 import android.os.SystemClock;
 import android.text.TextUtils;
 import android.text.TextPaint;
+import android.view.InputDevice;
 import android.view.MotionEvent;
 import android.view.ViewConfiguration;
+import android.view.animation.AccelerateInterpolator;
+import android.view.animation.DecelerateInterpolator;
 import com.termux.terminal.CommandMarker;
 import com.termux.terminal.TerminalEmulator;
 import com.termux.terminal.TerminalHistory;
@@ -18,17 +21,21 @@ import java.util.List;
 
 /** Presentation and gestures only. All retained command state belongs to the terminal buffer. */
 final class TerminalHistoryScrollbar {
-    private static final long IDLE_MILLIS = 1600;
+    private static final long TOOLTIP_MILLIS = 1600;
     private final TerminalView view;
     private final float dp;
     private final TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final RectF capsule = new RectF(), railTouch = new RectF(), thumb = new RectF(), previous = new RectF(), next = new RectF(), latest = new RectF();
     private final Drawable completed, running, failed, chevron;
-    private final Runnable hide = () -> animateTo(0);
+    private final Runnable clearTooltip;
     private ValueAnimator animator;
-    private float alpha;
+    private float reveal;
     private float animationTarget;
-    private float trackTop, trackBottom, thumbHeight, downY, lastY, grabOffset;
+    private float trackTop, trackBottom, thumbHeight, downX, downY, lastX, lastY, grabOffset;
+    private float swipeDistance;
+    private boolean shown, swipeResolved;
+    private enum TouchAxis { UNDECIDED, HORIZONTAL, VERTICAL }
+    private TouchAxis touchAxis = TouchAxis.UNDECIDED;
     private long lastMove;
     private float releaseSpeed;
     private boolean captured, dragging, cancelled, railPressed;
@@ -45,6 +52,7 @@ final class TerminalHistoryScrollbar {
 
     TerminalHistoryScrollbar(TerminalView view) {
         this.view = view;
+        clearTooltip = () -> { tooltipUntil = 0; view.invalidate(); };
         dp = view.getResources().getDisplayMetrics().density;
         completed = symbol(R.drawable.ic_history_check_circle);
         running = symbol(R.drawable.ic_history_play_arrow);
@@ -58,7 +66,7 @@ final class TerminalHistoryScrollbar {
             && emulator.getScreen().getActiveTranscriptRows() > 0 && !view.isSelectingText();
     }
 
-    boolean isVisible() { return eligible() && alpha > 0.05f; }
+    boolean isVisible() { return eligible() && reveal > 0.05f; }
     boolean isDragging() { return dragging; }
     long getPendingOutput() { return pendingOutput; }
     void setSnapEnabled(boolean enabled) { snapEnabled = enabled; }
@@ -74,9 +82,12 @@ final class TerminalHistoryScrollbar {
     }
 
     void dispose() {
-        view.removeCallbacks(hide);
+        view.removeCallbacks(clearTooltip);
         if (animator != null) animator.cancel();
-        alpha = 0;
+        reveal = 0;
+        shown = false;
+        tooltipUntil = 0;
+        resetSwipe();
         captured = dragging = false;
         if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(false);
     }
@@ -90,35 +101,55 @@ final class TerminalHistoryScrollbar {
         lastOutput = output;
         wasBrowsing = browsing;
         if (!eligible()) {
-            view.removeCallbacks(hide);
+            view.removeCallbacks(clearTooltip);
             if (animator != null) animator.cancel();
-            alpha = 0;
+            reveal = 0;
+            shown = false;
+            tooltipUntil = 0;
             if (captured) cancelled = true;
             dragging = false;
         }
     }
 
-    void awaken() {
+    private void show() {
         screenUpdated();
         if (!eligible()) return;
-        view.removeCallbacks(hide);
+        shown = true;
         animateTo(1);
-        if (!captured) view.postDelayed(hide, IDLE_MILLIS);
     }
 
-    void onViewportScrolled() {
-        screenUpdated();
-        // Ordinary scrolling keeps an open capsule alive, but only a leftward swipe reveals it.
-        if (alpha > 0 || animator != null && animator.isRunning() && animationTarget == 1) awaken();
+    private void dismiss() {
+        shown = false;
+        tooltipUntil = 0;
+        view.removeCallbacks(clearTooltip);
+        animateTo(0);
     }
+
+    void resetSwipe() { swipeDistance = 0; swipeResolved = false; }
+
+    /** GestureDetector distance is positive when a finger travels left. One action per gesture. */
+    void onHorizontalScroll(float distance) {
+        if (!eligible() || swipeResolved) return;
+        if (distance * swipeDistance < 0) swipeDistance = 0;
+        swipeDistance += distance;
+        if (Math.abs(swipeDistance) < 48 * dp) return;
+        swipeResolved = true;
+        if (swipeDistance > 0) show(); else dismiss();
+    }
+
+    void onViewportScrolled() { screenUpdated(); }
+
+    private float slideOffset() { return (1 - reveal) * 48 * dp; }
 
     private void animateTo(float target) {
-        if (alpha == target || animator != null && animator.isRunning() && animationTarget == target) return;
+        if (animator != null && animator.isRunning() && animationTarget == target) return;
         if (animator != null) animator.cancel();
         animationTarget = target;
-        animator = ValueAnimator.ofFloat(alpha, target);
-        animator.setDuration(target == 1 ? 120 : 220);
-        animator.addUpdateListener(value -> { alpha = (float) value.getAnimatedValue(); view.invalidate(); });
+        if (reveal == target) { view.invalidate(); return; }
+        animator = ValueAnimator.ofFloat(reveal, target);
+        animator.setDuration(target == 1 ? 200 : 180);
+        animator.setInterpolator(target == 1 ? new DecelerateInterpolator() : new AccelerateInterpolator());
+        animator.addUpdateListener(value -> { reveal = (float) value.getAnimatedValue(); view.invalidate(); });
         animator.start();
     }
 
@@ -158,29 +189,35 @@ final class TerminalHistoryScrollbar {
         int foreground = view.getHistoryScrollbarForeground();
         int surface = view.getHistoryScrollbarSurface();
         if (view.getTopRow() < 0) label(canvas, latest, latestLabel(), surface, foreground, 1);
-        if (alpha <= 0) return;
-        color(surface, alpha);
+        if (reveal <= 0) return;
+        int saved = canvas.save();
+        canvas.clipRect(0, 0, view.getWidth(), view.getHeight());
+        canvas.translate(slideOffset(), 0);
+        color(surface, 1);
         canvas.drawRoundRect(capsule, 12 * dp, 12 * dp, paint);
-        color(foreground, 0.22f * alpha);
+        color(foreground, 0.22f);
         paint.setStrokeWidth(dp);
         paint.setStyle(Paint.Style.STROKE);
         canvas.drawRoundRect(capsule, 12 * dp, 12 * dp, paint);
         paint.setStyle(Paint.Style.FILL);
-        color(foreground, alpha * 0.2f);
+        color(foreground, 0.2f);
         canvas.drawRoundRect(thumb, 10 * dp, 10 * dp, paint);
         for (HistoryScrollbarModel.Bucket bucket : density) {
             float x = capsule.centerX(), y = bucketY(bucket);
             // Status is the only glyph; mixed clusters keep both states within the narrow capsule.
-            if (bucket.running) drawSymbol(canvas, running, x, y - (bucket.failed ? 10 * dp : 0), 18, foreground, alpha);
-            if (bucket.failed) drawSymbol(canvas, failed, x, y + (bucket.running ? 10 * dp : 0), 18, foreground, alpha);
-            if (!bucket.running && !bucket.failed) drawSymbol(canvas, completed, x, y, 18, foreground, alpha);
+            if (bucket.running) drawSymbol(canvas, running, x, y - (bucket.failed ? 10 * dp : 0), 18, foreground, 1);
+            if (bucket.failed) drawSymbol(canvas, failed, x, y + (bucket.running ? 10 * dp : 0), 18, foreground, 1);
+            if (!bucket.running && !bucket.failed) drawSymbol(canvas, completed, x, y, 18, foreground, 1);
         }
         if (!markers().isEmpty()) {
             arrow(canvas, previous, true, foreground);
             arrow(canvas, next, false, foreground);
         }
-        if (dragging) tooltip(canvas, view.getResources().getString(R.string.history_lines_ago, -view.getTopRow()), surface, foreground);
-        else if (selected != null && SystemClock.uptimeMillis() < tooltipUntil) tooltip(canvas, markerLabel(selected), surface, foreground);
+        canvas.restoreToCount(saved);
+        if (shown && reveal == 1) {
+            if (dragging) tooltip(canvas, view.getResources().getString(R.string.history_lines_ago, -view.getTopRow()), surface, foreground);
+            else if (selected != null && SystemClock.uptimeMillis() < tooltipUntil) tooltip(canvas, markerLabel(selected), surface, foreground);
+        }
     }
 
     private void updateDensity() {
@@ -224,7 +261,7 @@ final class TerminalHistoryScrollbar {
         CommandMarker marker = HistoryScrollbarModel.adjacent(markers(), view.getTopRow(), !up, selected);
         int saved = canvas.save();
         if (up) canvas.rotate(180, capsule.centerX(), bounds.centerY());
-        drawSymbol(canvas, chevron, capsule.centerX(), bounds.centerY(), 18, foreground, alpha * (marker == null ? 0.38f : 1));
+        drawSymbol(canvas, chevron, capsule.centerX(), bounds.centerY(), 18, foreground, marker == null ? 0.38f : 1);
         canvas.restoreToCount(saved);
     }
 
@@ -247,7 +284,7 @@ final class TerminalHistoryScrollbar {
         float width = Math.min(right, paint.measureText(text) + 24 * dp);
         float center = Math.max(24 * dp, Math.min(view.getHeight() - 76 * dp, thumb.centerY()));
         RectF bounds = new RectF(right - width, center - 24 * dp, right, center + 24 * dp);
-        label(canvas, bounds, text, surface, foreground, alpha);
+        label(canvas, bounds, text, surface, foreground, 1);
     }
 
     private String markerLabel(CommandMarker marker) {
@@ -266,19 +303,21 @@ final class TerminalHistoryScrollbar {
             if (!eligible() || event.getPointerCount() != 1) return false;
             layout();
             boolean latestHit = view.getTopRow() < 0 && latest.contains(event.getX(), event.getY());
-            boolean railHit = alpha > 0.05f && railTouch.contains(event.getX(), event.getY());
+            boolean railHit = shown && isVisible() && railTouch.contains(event.getX() - slideOffset(), event.getY());
             if (!latestHit && !railHit) return false;
             captured = true;
             cancelled = dragging = false;
             pointerId = event.getPointerId(0);
+            downX = lastX = event.getX();
             downY = lastY = event.getY();
+            touchAxis = TouchAxis.UNDECIDED;
+            resetSwipe();
             lastMove = event.getEventTime();
             releaseSpeed = 0;
-            railPressed = railHit;
+            railPressed = railHit && !latestHit;
             boolean thumbPressed = railHit && thumb.top <= event.getY() && event.getY() <= thumb.bottom;
             grabOffset = thumbPressed ? event.getY() - thumb.top : thumbHeight / 2;
             view.stopHistoryScrollAnimation();
-            if (railHit) awaken();
             if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(true);
             return true;
         }
@@ -287,8 +326,22 @@ final class TerminalHistoryScrollbar {
         int index = event.findPointerIndex(pointerId);
         if (index < 0) cancelled = true;
         if (action == MotionEvent.ACTION_MOVE && !cancelled) {
+            float x = event.getX(index);
             float y = event.getY(index);
-            if (railPressed && Math.abs(y - downY) > ViewConfiguration.get(view.getContext()).getScaledTouchSlop()) dragging = true;
+            float dx = x - downX, dy = y - downY;
+            if (touchAxis == TouchAxis.UNDECIDED && Math.max(Math.abs(dx), Math.abs(dy)) > ViewConfiguration.get(view.getContext()).getScaledTouchSlop())
+                touchAxis = Math.abs(dx) > Math.abs(dy) ? TouchAxis.HORIZONTAL : TouchAxis.VERTICAL;
+            if (touchAxis == TouchAxis.HORIZONTAL) {
+                if (event.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) {
+                    // A rail swipe can reach the right edge before travelling 48dp. Axis lock
+                    // already crossed touch slop, so allow it to dismiss within the hit target.
+                    if (railPressed && dx > 0 && !swipeResolved) { dismiss(); swipeResolved = true; }
+                    else onHorizontalScroll(lastX - x);
+                }
+                lastX = x;
+                return true;
+            }
+            if (railPressed && touchAxis == TouchAxis.VERTICAL) dragging = true;
             if (dragging) {
                 layout();
                 long elapsed = event.getEventTime() - lastMove;
@@ -298,21 +351,20 @@ final class TerminalHistoryScrollbar {
                     / Math.max(1, trackBottom - trackTop - thumbHeight), historyRows());
                 selected = null;
                 view.setHistoryTopRow(row);
-                awaken();
             }
             return true;
         }
         if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL) {
-            if (!cancelled && action == MotionEvent.ACTION_UP) {
+            if (!cancelled && action == MotionEvent.ACTION_UP && touchAxis != TouchAxis.HORIZONTAL) {
                 if (dragging) {
                     if (snapEnabled && releaseSpeed < 600 * dp && view.getTopRow() < 0 && view.getTopRow() > -historyRows()) {
                         CommandMarker marker = HistoryScrollbarModel.nearest(markers(), view.getTopRow(), 2);
                         if (marker != null) jump(marker);
                     }
                 } else if (view.getTopRow() < 0 && latest.contains(event.getX(), event.getY())) view.scrollToLatest();
-                else if (!markers().isEmpty() && previous.contains(event.getX(), event.getY())) navigate(false);
-                else if (!markers().isEmpty() && next.contains(event.getX(), event.getY())) navigate(true);
-                else if (railPressed && railTouch.contains(event.getX(), event.getY())) {
+                else if (railPressed && !markers().isEmpty() && previous.contains(event.getX() - slideOffset(), event.getY())) navigate(false);
+                else if (railPressed && !markers().isEmpty() && next.contains(event.getX() - slideOffset(), event.getY())) navigate(true);
+                else if (railPressed && railTouch.contains(event.getX() - slideOffset(), event.getY())) {
                     layout();
                     CommandMarker marker = hitMarker(event.getY());
                     if (marker != null) jump(marker);
@@ -320,7 +372,7 @@ final class TerminalHistoryScrollbar {
             }
             captured = dragging = false;
             if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(false);
-            if (railPressed) awaken();
+            resetSwipe();
             return true;
         }
         return true;
@@ -337,8 +389,10 @@ final class TerminalHistoryScrollbar {
         if (row == null) return false;
         view.setHistoryTopRow(row);
         selected = marker;
-        tooltipUntil = SystemClock.uptimeMillis() + IDLE_MILLIS;
-        awaken();
+        tooltipUntil = SystemClock.uptimeMillis() + TOOLTIP_MILLIS;
+        view.removeCallbacks(clearTooltip);
+        view.postDelayed(clearTooltip, TOOLTIP_MILLIS);
+        show();
         view.announceForAccessibility(markerLabel(marker));
         return true;
     }

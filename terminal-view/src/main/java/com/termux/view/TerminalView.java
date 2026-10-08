@@ -109,7 +109,6 @@ public final class TerminalView extends View {
     private enum ScrollAxis { UNDECIDED, HORIZONTAL, VERTICAL }
     private ScrollAxis mTouchScrollAxis = ScrollAxis.UNDECIDED;
     private float mHorizontalScrollRemainder;
-    private float mHistoryRevealDistance;
     int[] mDefaultSelectors = new int[]{-1,-1,-1,-1};
 
     float mScaleFactor = 1.f;
@@ -263,9 +262,7 @@ public final class TerminalView extends View {
                             } else {
                                 mHorizontalScrollRemainder = 0;
                                 if (e.isFromSource(InputDevice.SOURCE_TOUCHSCREEN)) {
-                                    mHistoryRevealDistance = Math.max(0, mHistoryRevealDistance + distanceX);
-                                    if (mHistoryRevealDistance >= 48 * getResources().getDisplayMetrics().density)
-                                        mHistoryScrollbar.awaken();
+                                    mHistoryScrollbar.onHorizontalScroll(distanceX);
                                 }
                             }
                             return true;
@@ -974,7 +971,7 @@ public final class TerminalView extends View {
     private void resetTouchScroll() {
         mTouchScrollAxis = ScrollAxis.UNDECIDED;
         mHorizontalScrollRemainder = 0;
-        mHistoryRevealDistance = 0;
+        mHistoryScrollbar.resetSwipe();
     }
 
     /** Perform a scroll, either from dragging the screen or by scrolling a mouse wheel. */

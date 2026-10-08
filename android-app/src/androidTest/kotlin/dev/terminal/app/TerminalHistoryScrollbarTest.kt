@@ -1,7 +1,9 @@
 package dev.terminal.app
 
+import android.animation.ValueAnimator
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.Color
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
 import android.os.SystemClock
@@ -162,20 +164,24 @@ class TerminalHistoryScrollbarTest {
         main { assertFalse(view.isHistoryScrollbarVisible) }
     }
 
-    @Test fun idleFadesTrackButKeepsLatestActionAvailable() = withTerminal {
+    @Test fun capsuleStaysOpenUntilRightSwipeAndKeepsLatestActionAfterDismissal() = withTerminal {
         ActivityScenario.launch(AppInfoActivity::class.java).use { scenario ->
             scenario.onActivity { it.setContentView(view) }
             instrumentation.waitForIdleSync()
             scroll(-3f)
             reveal()
-            val deadline = SystemClock.uptimeMillis() + 4000
-            var visible = true
-            while (visible && SystemClock.uptimeMillis() < deadline) {
-                SystemClock.sleep(50)
-                main { visible = view.isHistoryScrollbarVisible }
+            SystemClock.sleep(2200) // Exceed the former idle timeout and fade duration.
+            var top = 0
+            main {
+                assertTrue(view.isHistoryScrollbarVisible)
+                assertEquals(1f, number("reveal"), 0f)
+                top = view.topRow
             }
+            rightSwipe()
+            waitForHidden()
             main {
                 assertFalse(view.isHistoryScrollbarVisible)
+                assertEquals(top, view.topRow)
                 assertTrue(view.topRow < 0)
                 render()
                 val latest = bounds("latest")
@@ -184,6 +190,116 @@ class TerminalHistoryScrollbarTest {
             }
             SystemClock.sleep(180)
             main { assertFalse(view.isHistoryScrollbarVisible) }
+        }
+    }
+
+    @Test fun rightSwipeStartingInsideRailDismissesWithoutDraggingOrJumping() = withTerminal {
+        scroll(-3f)
+        reveal()
+        main {
+            render()
+            val top = view.topRow
+            val x = bounds("railTouch").left + 10 * density()
+            val y = bounds("thumb").centerY()
+            val drag = Drag(x, y)
+            assertTrue(field("captured") as Boolean)
+            drag.moveTo(x + 30 * density(), y + 2 * density())
+            assertFalse(view.isHistoryScrollbarDragging)
+            drag.finish()
+            assertEquals(top, view.topRow)
+            assertEquals(0, output.size())
+        }
+        waitForHidden()
+    }
+
+    @Test fun capsuleSlidesAtFullOpacityAndTouchTargetFollowsIt() = withTerminal {
+        main {
+            val surface = Color.rgb(37, 53, 71)
+            view.setHistoryScrollbarColors(Color.WHITE, surface)
+            val baseline = snapshot()
+            try {
+                leftSwipe()
+                val entering = field("animator") as ValueAnimator
+                entering.pause()
+                entering.setCurrentFraction(0f)
+                snapshot().let { frame ->
+                    try { assertTrue("Entry starts outside the screen", baseline.sameAs(frame)) }
+                    finally { frame.recycle() }
+                }
+                entering.setCurrentFraction(0.5f)
+                val capsule = bounds("capsule")
+                val y = capsule.top + 50 * density() // Below the arrow, above the first marker.
+                val offset = (1 - number("reveal")) * 48 * density()
+                assertTrue(offset > 0)
+                snapshot().let { frame ->
+                    try {
+                        assertEquals("The moving capsule stays opaque", surface,
+                            frame.getPixel((capsule.centerX() + offset).toInt(), y.toInt()))
+                        val x = (capsule.left + 2 * density()).toInt()
+                        assertEquals("The resting position remains uncovered", baseline.getPixel(x, y.toInt()), frame.getPixel(x, y.toInt()))
+                    } finally { frame.recycle() }
+                }
+                Drag(bounds("railTouch").left + density(), y).apply {
+                    assertFalse("The old hit target must move with the capsule", field("captured") as Boolean)
+                    cancel()
+                }
+                Drag(bounds("railTouch").left + offset + density(), y).apply {
+                    assertTrue("The translated rail accepts touches", field("captured") as Boolean)
+                    cancel()
+                }
+                entering.setCurrentFraction(1f)
+                snapshot().let { frame ->
+                    try { assertEquals(surface, frame.getPixel(capsule.centerX().toInt(), y.toInt())) }
+                    finally { frame.recycle() }
+                }
+                rightSwipe()
+                val exiting = field("animator") as ValueAnimator
+                exiting.pause()
+                exiting.setCurrentFraction(0.5f)
+                val exitOffset = (1 - number("reveal")) * 48 * density()
+                snapshot().let { frame ->
+                    try {
+                        assertEquals("Exit slides toward the right without fading", surface,
+                            frame.getPixel((capsule.centerX() + exitOffset).toInt(), y.toInt()))
+                    } finally { frame.recycle() }
+                }
+                exiting.setCurrentFraction(1f)
+                snapshot().let { frame ->
+                    try { assertTrue("Exit leaves no overlay behind", baseline.sameAs(frame)) }
+                    finally { frame.recycle() }
+                }
+                assertFalse(view.isHistoryScrollbarVisible)
+            } finally { baseline.recycle() }
+        }
+    }
+
+    @Test fun reversingSwipeCancelsOppositeAnimationIncludingBeforeItsFirstFrame() = withTerminal {
+        main {
+            leftSwipe()
+            val entering = field("animator") as ValueAnimator
+            entering.pause()
+            entering.setCurrentFraction(0f)
+            rightSwipe()
+            assertFalse(entering.isRunning)
+            assertFalse(view.isHistoryScrollbarVisible)
+
+            leftSwipe()
+            (field("animator") as ValueAnimator).apply { pause(); setCurrentFraction(0.5f) }
+            rightSwipe()
+            (field("animator") as ValueAnimator).apply { pause(); setCurrentFraction(0.5f) }
+            val position = number("reveal")
+            leftSwipe()
+            assertEquals("Reversing preserves the current position", position, number("reveal"), 0f)
+            (field("animator") as ValueAnimator).apply { pause(); setCurrentFraction(1f) }
+
+            rightSwipe()
+            val exiting = field("animator") as ValueAnimator
+            exiting.pause()
+            exiting.setCurrentFraction(0f)
+            leftSwipe()
+            assertFalse(exiting.isRunning)
+            assertEquals(1f, number("reveal"), 0f)
+            assertTrue(view.isHistoryScrollbarVisible)
         }
     }
 
@@ -399,11 +515,12 @@ class TerminalHistoryScrollbarTest {
         return top + height / 2 + (number("trackBottom") - top - height) *
             (1 + marker.anchor.row!!.toFloat() / view.mEmulator.screen.activeTranscriptRows)
     }
-    private fun render() {
+    private fun snapshot(): Bitmap {
         val bitmap = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
         view.draw(Canvas(bitmap))
-        bitmap.recycle()
+        return bitmap
     }
+    private fun render() { snapshot().recycle() }
     private fun scroll(amount: Float) = main {
         val properties = arrayOf(MotionEvent.PointerProperties().apply { id = 0; toolType = MotionEvent.TOOL_TYPE_MOUSE })
         val coordinates = arrayOf(MotionEvent.PointerCoords().apply { x = 300f; y = 300f; setAxisValue(MotionEvent.AXIS_VSCROLL, -amount) })
@@ -416,16 +533,33 @@ class TerminalHistoryScrollbarTest {
         val until = SystemClock.uptimeMillis() + 2000
         while (SystemClock.uptimeMillis() < until) {
             var visible = false
-            main { visible = view.isHistoryScrollbarVisible }
+            main { visible = view.isHistoryScrollbarVisible && number("reveal") == 1f }
             if (visible) return
             SystemClock.sleep(20)
         }
-        fail("Scrollbar did not fade in")
+        fail("Scrollbar did not slide in")
+    }
+    private fun waitForHidden() {
+        val until = SystemClock.uptimeMillis() + 2000
+        while (SystemClock.uptimeMillis() < until) {
+            var hidden = false
+            main { hidden = number("reveal") == 0f }
+            if (hidden) return
+            SystemClock.sleep(20)
+        }
+        fail("Scrollbar did not slide out")
     }
     private fun leftSwipe() = main {
         Drag(view.width * 0.7f, view.height * 0.5f).apply {
             moveTo(view.width * 0.5f, view.height * 0.5f)
             moveTo(view.width * 0.3f, view.height * 0.5f)
+            finish()
+        }
+    }
+    private fun rightSwipe() = main {
+        Drag(view.width * 0.3f, view.height * 0.5f).apply {
+            moveTo(view.width * 0.5f, view.height * 0.5f)
+            moveTo(view.width * 0.7f, view.height * 0.5f)
             finish()
         }
     }
