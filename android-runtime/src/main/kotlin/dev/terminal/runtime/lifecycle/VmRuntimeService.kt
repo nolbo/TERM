@@ -72,8 +72,11 @@ class VmRuntimeService : Service() {
     private var notificationUpdateJob: Job? = null
     private var lastNotificationContent: Pair<Int, String>? = null
     private val taskNotifications by lazy { dev.terminal.runtime.notifications.SessionTaskNotifications(this) }
-    private val listeners = RemoteCallbackList<IRuntimeStateListener>()
     private val listenerLock = Any()
+    private val notificationFocusByListener = mutableMapOf<android.os.IBinder, String?>()
+    private val listeners = object : RemoteCallbackList<IRuntimeStateListener>() {
+        override fun onCallbackDied(callback: IRuntimeStateListener) = clearSessionNotificationFocus(callback)
+    }
     private val broadcastLock = Any()
     private lateinit var backend: RuntimeBackend
     private lateinit var rootlessBackends: Map<SessionRuntime, RootlessDebianBackend>
@@ -844,7 +847,7 @@ class VmRuntimeService : Service() {
 
         override fun registerListener(listener: IRuntimeStateListener) {
             val snapshot = synchronized(listenerLock) {
-                listeners.register(listener)
+                if (listeners.register(listener)) notificationFocusByListener.putIfAbsent(listener.asBinder(), null)
                 publishedSessions
             }
             runCatching {
@@ -855,8 +858,25 @@ class VmRuntimeService : Service() {
         }
 
         override fun unregisterListener(listener: IRuntimeStateListener) {
-            listeners.unregister(listener)
+            synchronized(listenerLock) {
+                listeners.unregister(listener)
+                clearSessionNotificationFocus(listener)
+            }
         }
+
+        override fun setSessionNotificationFocus(sessionId: String?, listener: IRuntimeStateListener) {
+            synchronized(listenerLock) {
+                val client = listener.asBinder()
+                if (!notificationFocusByListener.containsKey(client) || notificationFocusByListener[client] == sessionId) return
+                notificationFocusByListener[client] = sessionId
+                taskNotifications.setFocusedSessions(notificationFocusByListener.values.filterNotNull().toSet())
+            }
+        }
+    }
+
+    private fun clearSessionNotificationFocus(listener: IRuntimeStateListener) = synchronized(listenerLock) {
+        notificationFocusByListener.remove(listener.asBinder())
+        taskNotifications.setFocusedSessions(notificationFocusByListener.values.filterNotNull().toSet())
     }
 
     override fun onCreate() {

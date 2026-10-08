@@ -236,6 +236,11 @@ PROMPT_COMMAND hooks supply completion boundaries without rewriting user rc file
 Native submission timing ignores bracketed-paste newlines until Enter is sent.
 The observer uses a monotonic clock, a 10-second long-command threshold and per-session
 plus global rate limits. It owns no process and starts no polling/background timer.
+Completion alerts are suppressed before rate limiting for the selected session of
+a resumed, window-focused terminal Activity. The UI reports this transient focus
+per registered Binder listener; pause, window focus loss, unregister and listener
+death clear it. Other sessions and explicit attention requests still notify, and
+completion continues to update work state even when its alert is suppressed.
 A separate Android notification channel and immutable, session-specific activity
 PendingIntent provide click-through; missing sessions are never recreated. Disabling
 the preference cancels only task notifications. Permission denial cannot stop PTYs.

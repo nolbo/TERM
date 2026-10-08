@@ -24,6 +24,9 @@ internal class SessionActivityTracker(
     private val sessions = mutableMapOf<String, Session>()
     private var enabled = false
     private var lastAlert: Long? = null
+    private var focusedSessions = emptySet<String>()
+
+    @Synchronized fun setFocusedSessions(ids: Set<String>) { focusedSessions = ids.toSet() }
 
     /** Unknown shells retain the old protection only for a bounded inactivity lease. */
     @Synchronized fun running(ids: Set<String>) {
@@ -74,6 +77,7 @@ internal class SessionActivityTracker(
         val alerts = mutableListOf<Alert>()
         fun alert(kind: Kind, code: Int? = null) {
             val now = clock()
+            if (kind == Kind.COMPLETED && id in focusedSessions) return
             if (!enabled || session.lastAlert?.let { now - it < 10_000 } == true || lastAlert?.let { now - it < 1_000 } == true) return
             session.lastAlert = now
             lastAlert = now
@@ -143,7 +147,7 @@ internal class SessionActivityTracker(
         val session = sessions.remove(id) ?: return emptyList()
         val start = session.started ?: return emptyList()
         val now = clock()
-        if (!enabled || now - start < longCommandMs || session.lastAlert?.let { now - it < 10_000 } == true ||
+        if (!enabled || id in focusedSessions || now - start < longCommandMs || session.lastAlert?.let { now - it < 10_000 } == true ||
             lastAlert?.let { now - it < 1_000 } == true) return emptyList()
         lastAlert = now
         return listOf(Alert(id, Kind.COMPLETED, code))

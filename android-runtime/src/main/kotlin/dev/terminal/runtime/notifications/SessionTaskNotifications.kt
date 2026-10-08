@@ -33,9 +33,13 @@ internal class SessionTaskNotifications(private val context: Context) {
     fun workActive() = tracker.workActive()
     fun nextExpiryMs() = tracker.nextExpiryMs()
     fun input(id: String, bytes: ByteArray) = tracker.input(id, bytes)
-    fun output(id: String, bytes: ByteArray, replay: Boolean, title: () -> String) =
+    fun setFocusedSessions(ids: Set<String>) = synchronized(lock) { tracker.setFocusedSessions(ids) }
+    fun output(id: String, bytes: ByteArray, replay: Boolean, title: () -> String) = synchronized(lock) {
         tracker.output(id, bytes, replay).forEach { post(it, title()) }
-    fun exited(id: String, code: Int, title: String) = tracker.exited(id, code).forEach { post(it, title) }
+    }
+    fun exited(id: String, code: Int, title: String) = synchronized(lock) {
+        tracker.exited(id, code).forEach { post(it, title) }
+    }
     fun forget(id: String) { tracker.forget(id); manager.cancel(id, NOTIFICATION_ID) }
 
     private fun post(alert: SessionActivityTracker.Alert, title: String) = synchronized(lock) {

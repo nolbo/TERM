@@ -10,6 +10,8 @@ import android.os.SystemClock
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
+import androidx.test.runner.lifecycle.Stage
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.lifecycle.VmRuntimeService
 import dev.terminal.runtime.notifications.SessionNotificationSettings
@@ -89,20 +91,7 @@ class SessionTaskNotificationsTest {
             await("second session") { runningIds().size > before.size + owned.size }
             owned += runningIds().filter { it !in before && it !in owned }
             notification.contentIntent.send()
-            await("notification opens the exact session") {
-                val root = instrumentation.uiAutomation.rootInActiveWindow ?: return@await false
-                fun selected(node: android.view.accessibility.AccessibilityNodeInfo?): Boolean {
-                    if (node == null) return false
-                    fun hasTarget(current: android.view.accessibility.AccessibilityNodeInfo?): Boolean {
-                        if (current == null) return false
-                        if (current.text?.toString()?.contains("Notification target") == true) return true
-                        return (0 until current.childCount).any { hasTarget(current.getChild(it)) }
-                    }
-                    if (node.isSelected && hasTarget(node)) return true
-                    return (0 until node.childCount).any { selected(node.getChild(it)) }
-                }
-                selected(root)
-            }
+            await("notification opens the exact session") { selectedSession(owned.first()) }
             service.setSessionTaskNotifications(false)
             await("option clears only task alerts") { alert() == null }
             assertTrue(manager.activeNotifications.any { it.id == 1001 })
@@ -117,6 +106,105 @@ class SessionTaskNotificationsTest {
             marker.delete()
         }
     }
+
+    @Test fun focusedCompletionIsSuppressedAcrossRecreationAndLeavingTerminalRestoresNotifications() {
+        assertTrue("Grant Android notification permission", manager.areNotificationsEnabled())
+        val oldSetting = context.getSharedPreferences("runtime-settings", Context.MODE_PRIVATE)
+            .getBoolean(SessionNotificationSettings.KEY_ENABLED, false)
+        val queue = LinkedBlockingQueue<IRuntimeService>()
+        val connection = object : ServiceConnection {
+            override fun onServiceConnected(name: ComponentName, binder: IBinder) { queue.offer(IRuntimeService.Stub.asInterface(binder)) }
+            override fun onServiceDisconnected(name: ComponentName) = Unit
+        }
+        val owned = mutableListOf<String>()
+        val markers = List(2) { File(context.cacheDir, "focused-notification-test-${System.nanoTime()}-$it") }
+        var bound = false
+        var service: IRuntimeService? = null
+        var settings: SettingsActivity? = null
+        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        try {
+            assertTrue(context.bindService(Intent(context, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE))
+            bound = true
+            val connected = requireNotNull(queue.poll(10, TimeUnit.SECONDS))
+            service = connected
+            await("ready") { connected.state == "READY" }
+            fun ids(): Set<String> {
+                val values = JSONArray(connected.sessionsJson)
+                return (0 until values.length()).mapTo(mutableSetOf()) { values.getJSONObject(it).getString("id") }
+            }
+            fun alert(id: String) = manager.activeNotifications.firstOrNull { it.id == 1002 && it.tag == id }
+            connected.setSessionTaskNotifications(false)
+            repeat(2) {
+                val before = ids()
+                connected.createSession("NATIVE", "/system/bin/sh", "", 24, 80)
+                await("new session") { (ids() - before).isNotEmpty() }
+                owned += ids() - before
+            }
+            val focused = owned.first()
+            val background = owned.last()
+            connected.renameSession(focused, "Focused completion test")
+            scenario.onActivity { activity ->
+                activity.startActivity(Intent(activity.intent)
+                    .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                    .putExtra(SessionNotificationSettings.EXTRA_SESSION_ID, focused))
+            }
+            fun awaitFocus() = await("selected terminal has window focus") { selectedSession(focused) }
+            awaitFocus()
+            connected.setSessionTaskNotifications(true)
+            owned.forEachIndexed { index, id ->
+                connected.writeSessionInput(id, "sleep 11; printf done > '${markers[index].absolutePath}'\n".toByteArray())
+            }
+            scenario.recreate()
+            awaitFocus()
+            await("other session completes and notifies", 20000) { markers.all { it.exists() } && alert(background) != null }
+            SystemClock.sleep(350)
+            assertNull("The focused session must not send completion notifications", alert(focused))
+            connected.setSessionTaskNotifications(false)
+            connected.setSessionTaskNotifications(true)
+            connected.writeSessionInput(focused, "sleep 11; false\n".toByteArray())
+            scenario.onActivity { it.startActivity(Intent(context, SettingsActivity::class.java)) }
+            await("settings opened") {
+                instrumentation.runOnMainSync {
+                    settings = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
+                        .filterIsInstance<SettingsActivity>().firstOrNull()
+                }
+                settings != null
+            }
+            await("leaving the terminal restores completion alerts", 20000) { alert(focused) != null }
+            instrumentation.runOnMainSync { settings?.finish() }
+            settings = null
+            awaitFocus()
+            assertTrue(ids().containsAll(owned))
+        } finally {
+            instrumentation.runOnMainSync { settings?.finish() }
+            service?.let { connected ->
+                connected.setSessionTaskNotifications(oldSetting)
+                owned.forEach { connected.terminateSession(it) }
+            }
+            scenario.close()
+            if (bound) context.unbindService(connection)
+            markers.forEach { it.delete() }
+        }
+    }
+
+    private fun selectedSession(id: String): Boolean {
+        fun terminal(view: android.view.View): com.termux.view.TerminalView? {
+            if (view is com.termux.view.TerminalView) return view
+            val group = view as? android.view.ViewGroup ?: return null
+            return (0 until group.childCount).firstNotNullOfOrNull { terminal(group.getChildAt(it)) }
+        }
+        var selected = false
+        instrumentation.runOnMainSync {
+            val activity = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
+                .filterIsInstance<MainActivity>().firstOrNull()
+            val expected = (context.applicationContext as TerminalApplication).terminalSessions.sessions[id]
+            selected = expected != null && activity?.window?.decorView?.let {
+                it.hasWindowFocus() && terminal(it)?.currentSession === expected
+            } == true
+        }
+        return selected
+    }
+
     private fun await(label: String, timeout: Long = 10000, condition: () -> Boolean) {
         val until = SystemClock.elapsedRealtime() + timeout
         while (!condition() && SystemClock.elapsedRealtime() < until) SystemClock.sleep(100)

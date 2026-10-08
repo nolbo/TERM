@@ -92,6 +92,60 @@ class SessionActivityTrackerTest {
         assertEquals(SessionActivityTracker.Kind.COMPLETED, tracker.send(osc("133;D;0") + osc("133;A")).single().kind)
     }
 
+    @Test fun focusedCompletionUpdatesWorkWithoutConsumingNotificationLimits() {
+        val tracker = tracker()
+        tracker.setFocusedSessions(setOf("native-a"))
+        tracker.send(osc("133;C"))
+        tracker.send(osc("133;C"), "native-b")
+        now = 10000
+        assertTrue(tracker.send(osc("133;D;1") + osc("133;A")).isEmpty())
+        assertTrue(tracker.workActive())
+        assertEquals("native-b", tracker.send(osc("133;D;0"), "native-b").single().sessionId)
+        assertFalse(tracker.workActive())
+        now += 1000
+        assertEquals("Suppressed completion must not consume the session limit",
+            SessionActivityTracker.Kind.ATTENTION, tracker.send("\u0007").single().kind)
+        tracker.setFocusedSessions(emptySet())
+        now += 10000
+        assertTrue("Returning to a background prompt must not replay completion", tracker.send(osc("133;A")).isEmpty())
+    }
+
+    @Test fun completionUsesFocusAtFinishRatherThanAtCommandStart() {
+        val tracker = tracker()
+        tracker.setFocusedSessions(setOf("native-a"))
+        tracker.send(osc("133;C"))
+        tracker.setFocusedSessions(emptySet())
+        now = 10000
+        assertEquals(SessionActivityTracker.Kind.COMPLETED, tracker.send(osc("133;D;0")).single().kind)
+        tracker.send(osc("133;C"))
+        tracker.setFocusedSessions(setOf("native-a"))
+        now += 10000
+        assertTrue(tracker.send(osc("133;A")).isEmpty())
+        tracker.setFocusedSessions(setOf("native-b"))
+        tracker.send(osc("133;C"))
+        now += 10000
+        assertEquals(SessionActivityTracker.Kind.COMPLETED, tracker.send(osc("133;D;0")).single().kind)
+    }
+
+    @Test fun focusedSessionExitDoesNotNotifyOrLimitOtherSessionExits() {
+        val tracker = tracker()
+        tracker.setFocusedSessions(setOf("native-a"))
+        tracker.send(osc("133;C"))
+        tracker.send(osc("133;C"), "native-b")
+        now = 10000
+        assertTrue(tracker.exited("native-a", 0).isEmpty())
+        assertEquals("native-b", tracker.exited("native-b", 7).single().sessionId)
+        assertFalse(tracker.workActive())
+    }
+
+    @Test fun explicitAttentionStillNotifiesForFocusedSessions() {
+        val tracker = tracker()
+        tracker.setFocusedSessions(setOf("native-a"))
+        assertEquals(SessionActivityTracker.Kind.ATTENTION, tracker.send("\u0007").single().kind)
+        now += 10000
+        assertEquals(SessionActivityTracker.Kind.ATTENTION, tracker.send(osc("777;notify;title;body")).single().kind)
+    }
+
     @Test fun fragmentedFramesAndUtf8DoNotInventBellOrControlRequests() {
         val tracker = tracker()
         assertTrue(tracker.send("\u001b]77").isEmpty())

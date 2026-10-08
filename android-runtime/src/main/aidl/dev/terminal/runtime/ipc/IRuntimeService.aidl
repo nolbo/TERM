@@ -68,4 +68,5 @@ interface IRuntimeService {
     void createSessionFromSpecWithInstallationConsent(String launchSpecJson, String requestId, int rows, int cols);
     void initializeAvfImage(String storageId, String requestId, IAvfImageInitializationCallback callback);
     void cancelAvfImageInitialization(String requestId);
+    void setSessionNotificationFocus(@nullable String sessionId, IRuntimeStateListener listener);
 }

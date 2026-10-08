@@ -57,6 +57,13 @@ oversized frames never request a notification. String storage is bounded to 1024
 bytes; embedded bells in unrelated OSC/DCS/APC payloads do not trigger requests.
 Payload titles/bodies are intentionally not displayed or executed. The service uses
 its own notification templates and only permits session navigation on tap.
+The app-private `setSessionNotificationFocus(sessionId, listener)` reports the
+selected session only while its terminal Activity is resumed and window-focused;
+null clears focus. Only registered runtime listeners may report focus, and
+unregister or Binder death removes their state. Completion alerts for focused
+sessions are suppressed before rate limiting, without suppressing attention or
+changing command/work tracking. This focus is separate from runtime attachment
+and the last selected Kitty window.
 No guest RPC or Android capability is granted by these sequences.
 
 ## Terminal paste

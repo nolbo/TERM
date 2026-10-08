@@ -224,6 +224,7 @@ class MainActivity : TerminalActivity() {
     private var bound = false
     private var bindingRequested = false
     private var activityStarted = false
+    private var activityResumed = false
     private var toolbarInputActive by mutableStateOf(false)
     private var rootlessInstallRuntime by mutableStateOf("ROOTLESS")
     private var rootlessInstallInFlight = false
@@ -352,6 +353,7 @@ class MainActivity : TerminalActivity() {
                 ignoreInitialRuntimeFocus = notificationTarget == null && activeSessionId != null
                 val connectedGeneration = bindingGeneration
                 connected.registerListener(currentListener)
+                updateSessionNotificationFocus()
                 if (ignoreInitialRuntimeFocus) mainHandler.post { ignoreInitialRuntimeFocus = false }
                 // Registration also replays the service's last focused tab. An explicit
                 // notification target wins after those initial callbacks have drained.
@@ -493,6 +495,8 @@ class MainActivity : TerminalActivity() {
 
     override fun onResume() {
         super.onResume()
+        activityResumed = true
+        updateSessionNotificationFocus()
         toolbarInputActive = true
         val preferences = terminalPreferences()
         followTuiBackground = preferences.getBoolean(TerminalAppearance.KEY_FOLLOW_TUI_BACKGROUND, false)
@@ -519,6 +523,8 @@ class MainActivity : TerminalActivity() {
     }
 
     override fun onPause() {
+        activityResumed = false
+        updateSessionNotificationFocus()
         toolbarInputActive = false
         super.onPause()
     }
@@ -966,6 +972,7 @@ class MainActivity : TerminalActivity() {
         if (selected == null) {
             runtimeAttachment.reset()
             releaseTerminalFocus()
+            updateSessionNotificationFocus()
         } else if (selected != displayedSessionId || runtimeAttachment.sessionId != selected) {
             attach(selected)
         }
@@ -985,6 +992,7 @@ class MainActivity : TerminalActivity() {
         val selected = sessions.firstOrNull { it.id == id } ?: return
         paletteTransition.capture(terminalView)
         activeSessionId = id
+        updateSessionNotificationFocus()
         getSharedPreferences("terminal-ui-state", MODE_PRIVATE).edit().putString("active-session", id).apply()
         if (selected.pendingLaunch) {
             runtimeAttachment.reset()
@@ -1126,7 +1134,16 @@ class MainActivity : TerminalActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        updateSessionNotificationFocus(hasFocus)
         if (hasFocus && keyboardRequested) requestTerminalKeyboard()
+    }
+
+    private fun updateSessionNotificationFocus(hasWindowFocus: Boolean = window.decorView.hasWindowFocus()) {
+        val currentListener = listener ?: return
+        val focused = activeSessionId?.takeIf { id ->
+            activityResumed && hasWindowFocus && sessions.any { it.id == id && !it.pendingLaunch }
+        }
+        runCatching { runtime?.setSessionNotificationFocus(focused, currentListener) }
     }
 
     private val showTerminalKeyboard = Runnable {
@@ -1392,7 +1409,10 @@ class MainActivity : TerminalActivity() {
             rootlessInstallInFlight = false
             rootlessError = getString(R.string.rootless_progress_disconnected)
         }
-        if (bindingRequested) runCatching { unbindService(connection) }
+        if (bindingRequested) {
+            listener?.let { current -> runCatching { runtime?.unregisterListener(current) } }
+            runCatching { unbindService(connection) }
+        }
         bindingGeneration++
         bindingRequested = false
         bound = false
