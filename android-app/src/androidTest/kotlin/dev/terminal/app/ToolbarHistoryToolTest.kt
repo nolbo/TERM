@@ -5,7 +5,11 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.os.Bundle
 import android.os.SystemClock
+import android.view.InputDevice
+import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.inputmethod.InputMethodManager
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
@@ -13,6 +17,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
 import com.termux.terminal.TerminalSession
@@ -64,6 +71,47 @@ class ToolbarHistoryToolTest {
         click(node { it.contentDescription?.toString()?.startsWith(label(R.string.history_scope).substringBefore('%')) == true })
         click(text(label(id)))
     }
+    private fun keyboardVisible(scenario: ActivityScenario<MainActivity>): Boolean {
+        var visible = false
+        scenario.onActivity { activity ->
+            visible = ViewCompat.getRootWindowInsets(activity.window.decorView)
+                ?.isVisible(WindowInsetsCompat.Type.ime()) == true
+        }
+        return visible
+    }
+    private fun awaitKeyboard(scenario: ActivityScenario<MainActivity>, visible: Boolean) {
+        val deadline = SystemClock.uptimeMillis() + 5000
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (keyboardVisible(scenario) == visible) return
+            SystemClock.sleep(50)
+        }
+        fail("IME visibility did not become $visible")
+    }
+    private fun changeTool(scenario: ActivityScenario<MainActivity>, next: Boolean) {
+        var width = 0f
+        var y = 0f
+        scenario.onActivity { activity ->
+            val decor = activity.window.decorView
+            val location = IntArray(2)
+            decor.getLocationOnScreen(location)
+            val bottom = requireNotNull(ViewCompat.getRootWindowInsets(decor))
+                .getInsets(WindowInsetsCompat.Type.ime() or WindowInsetsCompat.Type.navigationBars()).bottom
+            width = decor.width.toFloat()
+            // Accessibility bounds can lag IME animations; swipe the toolbar above the current insets.
+            y = location[1] + decor.height - bottom - 14 * context.resources.displayMetrics.density
+        }
+        val x = width * if (next) 0.9f else 0.1f
+        val dx = width * if (next) -0.8f else 0.8f
+        val start = SystemClock.uptimeMillis()
+        for (i in 0..10) {
+            val action = when (i) { 0 -> MotionEvent.ACTION_DOWN; 10 -> MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
+            val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action, x + dx * i / 10, y, 0)
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, false)) } finally { event.recycle() }
+            SystemClock.sleep(10)
+        }
+        settle()
+    }
     private fun append(view: TerminalView, value: String) {
         value.toByteArray().let { view.mEmulator.append(it, it.size) }
         view.onScreenUpdated()
@@ -79,7 +127,8 @@ class ToolbarHistoryToolTest {
         command("false", "needle-output", 7)
         command("sleep 9", "running-output", null)
     }
-    private fun withTool(mode: ToolbarSheetMode, block: (ActivityScenario<MainActivity>, TerminalView, ByteArrayOutputStream) -> Unit) {
+    private fun withTool(mode: ToolbarSheetMode, tools: List<String> = listOf(HISTORY_TOOL),
+        block: (ActivityScenario<MainActivity>, TerminalView, ByteArrayOutputStream) -> Unit) {
         val writes = ByteArrayOutputStream()
         val backend = RemoteTerminalBackend(write = { writes.write(it) }, resize = { _, _ -> })
         try {
@@ -88,6 +137,8 @@ class ToolbarHistoryToolTest {
                 scenario.onActivity { activity ->
                     val session = TerminalSession("", "/", emptyArray(), emptyArray(), 1000, TerminalCallbacks {}, backend)
                     view = TerminalView(activity, null).apply {
+                        isFocusable = true
+                        isFocusableInTouchMode = true
                         setTerminalViewClient(TerminalInputCallbacks())
                         setTextSize(48)
                         layout(0, 0, 1000, 700)
@@ -96,11 +147,18 @@ class ToolbarHistoryToolTest {
                     activity.setContent {
                         var sheet by remember { mutableStateOf(mode) }
                         DroidTheme {
-                            Column(Modifier.fillMaxSize()) {
+                            Column(Modifier.fillMaxSize().imePadding()) {
                                 AndroidView(factory = { view }, modifier = Modifier.weight(1f).fillMaxWidth())
-                                TerminalToolbar(ToolbarConfig(tools = listOf(HISTORY_TOOL)), sheet, { sheet = it },
-                                    400.dp, TerminalChromeColors(Color.Black), animateModeChanges = false) { _, active ->
-                                    ToolbarHistoryTool(active) { view }
+                                TerminalToolbar(ToolbarConfig(tools = tools), sheet, { sheet = it },
+                                    400.dp, TerminalChromeColors(Color.Black), animateModeChanges = false) { tool, active ->
+                                    if (tool == HISTORY_TOOL) ToolbarHistoryTool(active, onReturnToTerminal = {
+                                        view.post {
+                                            if (view.isAttachedToWindow && view.hasWindowFocus() && view.requestFocus()) {
+                                                WindowCompat.getInsetsController(activity.window, view).show(WindowInsetsCompat.Type.ime())
+                                            }
+                                        }
+                                    }) { view }
+                                    else androidx.compose.material3.Text("Other tool", Modifier.fillMaxSize())
                                 }
                             }
                         }
@@ -113,6 +171,41 @@ class ToolbarHistoryToolTest {
             }
         } finally { backend.close() }
     }
+
+    @Test fun switchingToolsReturnsSearchFocusToTerminalAndKeepsKeyboard() =
+        withTool(ToolbarSheetMode.Default, listOf(HISTORY_TOOL, HOTKEY_TOOL)) { scenario, view, writes ->
+            click(description(R.string.history_search_description))
+            awaitKeyboard(scenario, true)
+            query("needle")
+            assertTrue(node { it.isEditable }.isFocused)
+            changeTool(scenario, true)
+            text("Other tool")
+            scenario.onActivity { activity ->
+                assertTrue("Tool changes must return input focus to the terminal", view.hasFocus())
+                assertTrue(activity.getSystemService(InputMethodManager::class.java).isActive(view))
+            }
+            awaitKeyboard(scenario, true)
+            assertEquals(0, writes.size())
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_X)
+            settle()
+            assertEquals("x", writes.toString("UTF-8"))
+        }
+
+    @Test fun switchingToolsAfterKeyboardDismissalDoesNotReopenIt() =
+        withTool(ToolbarSheetMode.Default, listOf(HISTORY_TOOL, HOTKEY_TOOL)) { scenario, _, writes ->
+            click(description(R.string.history_search_description))
+            awaitKeyboard(scenario, true)
+            query("needle")
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            awaitKeyboard(scenario, false)
+            changeTool(scenario, true)
+            text("Other tool")
+            repeat(5) {
+                SystemClock.sleep(100)
+                assertFalse("Tool changes must not reopen a dismissed keyboard", keyboardVisible(scenario))
+            }
+            assertEquals(0, writes.size())
+        }
 
     @Test fun compactArrowsWalkCommandsThenBecomeTopAndBottomActions() = withTool(ToolbarSheetMode.Default) { scenario, view, _ ->
         description(R.string.history_search_description)

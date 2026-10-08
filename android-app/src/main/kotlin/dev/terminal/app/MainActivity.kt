@@ -776,7 +776,7 @@ class MainActivity : TerminalActivity() {
                                             preferences.edit().putString(KEY_TOOLBAR_COMMANDS,
                                                 serializeToolbarCommands(toolbarCommands)).apply()
                                         })
-                                    HISTORY_TOOL -> ToolbarHistoryTool(active, terminal = {
+                                    HISTORY_TOOL -> ToolbarHistoryTool(active, onReturnToTerminal = ::requestTerminalKeyboard, terminal = {
                                         terminalView?.takeIf {
                                             activeSessionId == toolbarSessionId &&
                                                 it.currentSession === toolbarSessionId?.let(terminalSessions::get)

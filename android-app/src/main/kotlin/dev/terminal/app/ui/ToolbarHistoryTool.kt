@@ -31,12 +31,15 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.termux.terminal.CommandMarker
 import com.termux.terminal.TerminalHistory
 import com.termux.view.TerminalView
@@ -65,7 +68,7 @@ private data class HistoryToolSnapshot(
 )
 
 @Composable
-internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) {
+internal fun ToolbarHistoryTool(active: Boolean, onReturnToTerminal: () -> Unit, terminal: () -> TerminalView?) {
     val colors = LocalToolbarColors.current
     val expansion = LocalToolbarExpansionProgress.current
     var query by rememberSaveable { mutableStateOf("") }
@@ -76,7 +79,12 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
     var refresh by remember { mutableIntStateOf(0) }
     val currentTerminal by rememberUpdatedState(terminal)
     val focusManager = LocalFocusManager.current
+    val composeView = LocalView.current
     var searchFocused by remember { mutableStateOf(false) }
+    // Capture before disabling the TextField changes its focus and dismisses the IME.
+    val wasSearchFocused = searchFocused
+    val returnToTerminal = !active && wasSearchFocused &&
+        ViewCompat.getRootWindowInsets(composeView)?.isVisible(WindowInsetsCompat.Type.ime()) == true
     val searchOwner = remember { arrayOfNulls<TerminalView>(1) }
     DisposableEffect(active) {
         onDispose {
@@ -87,7 +95,8 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
     LaunchedEffect(active) {
         if (!active) {
             menu = false
-            if (searchFocused) focusManager.clearFocus()
+            if (wasSearchFocused) focusManager.clearFocus()
+            if (returnToTerminal) onReturnToTerminal()
         }
     }
     // Read the UI mirror on its main thread, only on the selected, visible tool.
