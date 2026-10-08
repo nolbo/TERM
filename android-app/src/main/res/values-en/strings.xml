@@ -331,6 +331,7 @@
     <string name="history_scope_output">Output</string>
     <string name="history_scope_all">Both</string>
     <string name="history_scope">Search scope: %1$s</string>
+    <string name="history_scope_choose">Choose search scope</string>
     <string name="history_search">Search</string>
     <string name="history_search_description">Search command history</string>
     <string name="history_application_viewport">Navigation is unavailable while an application controls the viewport.</string>

@@ -1,5 +1,6 @@
 package dev.terminal.app
 
+import android.graphics.Rect
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
@@ -127,6 +128,32 @@ class ToolbarHistoryToolTest {
         click(description(R.string.history_next))
         click(description(R.string.history_bottom))
         scenario.onActivity { assertEquals(0, view.topRow) }
+    }
+
+    @Test fun compactIconScopeSplitButtonSupportsBothSegmentsAndAllRanges() = withTool(ToolbarSheetMode.Default) { _, _, writes ->
+        fun currentScope(id: Int) = node {
+            it.contentDescription?.toString() == context.getString(R.string.history_scope, label(id))
+        }
+        val minimumTouchSize = (48 * context.resources.displayMetrics.density).toInt()
+        listOf(currentScope(R.string.history_scope_commands), description(R.string.history_scope_choose)).forEach { button ->
+            val bounds = Rect().also { button.getBoundsInScreen(it) }
+            assertTrue("Each split segment needs a 48 dp touch target",
+                bounds.width() >= minimumTouchSize && bounds.height() >= minimumTouchSize)
+        }
+        assertNull(find { it.text?.toString() == label(R.string.history_scope_commands) })
+        query("needle")
+        click(description(R.string.history_scope_choose))
+        text(label(R.string.history_scope_commands)); text(label(R.string.history_scope_output)); text(label(R.string.history_scope_all))
+        click(text(label(R.string.history_scope_output)))
+        currentScope(R.string.history_scope_output)
+        assertNull(find { it.text?.toString() == label(R.string.history_scope_output) })
+        click(currentScope(R.string.history_scope_output))
+        click(text(label(R.string.history_scope_all)))
+        currentScope(R.string.history_scope_all)
+        click(description(R.string.history_scope_choose))
+        click(text(label(R.string.history_scope_commands)))
+        currentScope(R.string.history_scope_commands)
+        assertEquals(0, writes.size())
     }
 
     @Test fun expandedTimelineExposesStatusAndFiltersEachSearchScope() = withTool(ToolbarSheetMode.Expanded) { scenario, view, _ ->

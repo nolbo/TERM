@@ -4,6 +4,7 @@
 package dev.terminal.app.ui
 
 import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -36,6 +37,13 @@ import dev.terminal.app.*
 import dev.terminal.app.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+
+private val HistorySearchScope.icon: Int
+    get() = when (this) {
+        HistorySearchScope.Commands -> R.drawable.ic_material_symbol_terminal_24
+        HistorySearchScope.Output -> R.drawable.ic_material_symbol_subject_24
+        HistorySearchScope.All -> R.drawable.ic_material_symbol_layers_24
+    }
 
 private data class HistoryToolSnapshot(
     val commands: List<HistoryCommand> = emptyList(),
@@ -135,20 +143,45 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
                     disabledIndicatorColor = Color.Transparent,
                 ), modifier = Modifier.weight(1f).onFocusChanged { searchFocused = it.isFocused }
                     .semantics { contentDescription = searchLabel })
-            Box {
+            Box(Modifier.padding(start = 4.dp)) {
                 val scopeLabel = stringResource(R.string.history_scope, stringResource(searchScope.title))
-                TextButton(onClick = { menu = true }, enabled = active,
-                    contentPadding = PaddingValues(horizontal = 8.dp),
-                    colors = ButtonDefaults.textButtonColors(contentColor = colors.foreground,
-                        disabledContentColor = colors.foreground.copy(alpha = 0.38f)),
-                    modifier = Modifier.heightIn(min = 48.dp).semantics { contentDescription = scopeLabel }) {
-                    Text(stringResource(searchScope.title), style = MaterialTheme.typography.labelMedium)
-                    Icon(painterResource(R.drawable.ic_material_symbol_expand_more_24), null, Modifier.size(16.dp))
-                }
+                val menuLabel = stringResource(R.string.history_scope_choose)
+                val buttonColors = ButtonDefaults.filledTonalButtonColors(
+                    containerColor = colors.container, contentColor = colors.onContainer,
+                    disabledContainerColor = colors.container,
+                    disabledContentColor = colors.onContainer.copy(alpha = 0.38f))
+                val menuRotation by animateFloatAsState(if (menu) 180f else 0f,
+                    MaterialTheme.motionScheme.fastSpatialSpec(), label = "historyScopeMenuRotation")
+                SplitButtonLayout(
+                    leadingButton = {
+                        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                            tooltip = { PlainTooltip { Text(scopeLabel) } }, state = rememberTooltipState()) {
+                            SplitButtonDefaults.TonalLeadingButton(onClick = { menu = true }, enabled = active,
+                                colors = buttonColors, contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.size(48.dp).semantics { contentDescription = scopeLabel }) {
+                                Icon(painterResource(searchScope.icon), null, Modifier.size(24.dp))
+                            }
+                        }
+                    },
+                    trailingButton = {
+                        TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                            tooltip = { PlainTooltip { Text(menuLabel) } }, state = rememberTooltipState()) {
+                            SplitButtonDefaults.TonalTrailingButton(checked = menu, onCheckedChange = { menu = it },
+                                enabled = active, colors = buttonColors, contentPadding = PaddingValues(0.dp),
+                                modifier = Modifier.size(48.dp).semantics {
+                                    contentDescription = menuLabel; stateDescription = scopeLabel
+                                }) {
+                                Icon(painterResource(R.drawable.ic_material_symbol_expand_more_24), null,
+                                    Modifier.size(24.dp).rotate(menuRotation))
+                            }
+                        }
+                    })
                 DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
                     HistorySearchScope.entries.forEach { scope ->
                         DropdownMenuItem(text = { Text(stringResource(scope.title)) },
                             onClick = { searchScope = scope; menu = false },
+                            leadingIcon = { Icon(painterResource(scope.icon), null) },
+                            modifier = Modifier.semantics { this.selected = scope == searchScope },
                             trailingIcon = { if (scope == searchScope) Icon(
                                 painterResource(R.drawable.ic_material_symbol_check_circle_24), null) })
                     }

@@ -568,6 +568,7 @@
     <string name="history_scope_output">출력</string>
     <string name="history_scope_all">명령과 출력</string>
     <string name="history_scope">검색 범위: %1$s</string>
+    <string name="history_scope_choose">검색 범위 선택</string>
     <string name="history_search">검색</string>
     <string name="history_search_description">명령 기록 검색</string>
     <string name="history_application_viewport">터미널 앱이 화면을 제어하는 동안 이동할 수 없습니다.</string>
