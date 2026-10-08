@@ -257,12 +257,12 @@ private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enable
     Surface(onClick, enabled = enabled, shape = MaterialTheme.shapes.extraLarge,
         color = Color.Transparent, contentColor = foreground,
         modifier = modifier.fillMaxWidth().semantics { this.selected = selected; stateDescription = status }) {
-        Row(Modifier.height(IntrinsicSize.Min).heightIn(min = 56.dp),
+        Row(Modifier.height(IntrinsicSize.Min).heightIn(min = 48.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(48.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
                 Canvas(Modifier.fillMaxSize()) {
                     val x = size.width / 2
-                    val gap = 16.dp.toPx()
+                    val gap = 14.dp.toPx()
                     if (!first) drawLine(graphColor, Offset(x, 0f),
                         Offset(x, center.y - gap), strokeWidth = 2.dp.toPx())
                     if (!last) drawLine(graphColor, Offset(x, center.y + gap),
@@ -279,7 +279,7 @@ private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enable
                     }
                 }
             }
-            Text(commandText, Modifier.weight(1f).padding(start = 12.dp, end = 16.dp, top = 16.dp, bottom = 16.dp),
+            Text(commandText, Modifier.weight(1f).padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
                 maxLines = 2, overflow = TextOverflow.Ellipsis, fontFamily = LocalTerminalMonospaceFontFamily.current,
                 style = MaterialTheme.typography.bodyMedium)
         }
