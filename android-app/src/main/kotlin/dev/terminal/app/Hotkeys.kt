@@ -5,6 +5,7 @@ import android.view.KeyEvent
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+import kotlin.math.roundToInt
 
 internal const val KEY_HOTKEYS = "hotkey-toolbar-v1"
 internal const val MAX_HOTKEYS = 48
@@ -12,7 +13,7 @@ internal const val HOTKEY_HEIGHT_DP = 40
 internal const val HOTKEY_GAP_DP = 4
 internal const val MAX_HOTKEY_ROWS = 128
 
-/** Coordinates use the saved canvas columns and 44 dp row pitch; fractions allow free placement. */
+/** Grid cells use the saved canvas columns and 44 dp row pitch; older fractional layouts remain readable. */
 internal data class HotkeyBounds(val x: Float, val y: Float, val width: Float = 1f, val height: Float = 1f) {
     val right get() = x + width
     val bottom get() = y + height
@@ -190,11 +191,18 @@ internal enum class HotkeyCorner(val left: Boolean, val top: Boolean) {
 internal fun transformHotkeyBounds(bounds: HotkeyBounds, dx: Float, dy: Float, columns: Int,
     corner: HotkeyCorner? = null): HotkeyBounds {
     if (!dx.isFinite() || !dy.isFinite()) return bounds
-    if (corner == null) return bounds.copy(x = (bounds.x + dx).coerceIn(0f, columns - bounds.width),
-        y = (bounds.y + dy).coerceIn(0f, MAX_HOTKEY_ROWS - bounds.height))
-    val left = if (corner.left) (bounds.x + dx).coerceIn(0f, bounds.right - 1f) else bounds.x
-    val right = if (!corner.left) (bounds.right + dx).coerceIn(bounds.x + 1f, columns.toFloat()) else bounds.right
-    val top = if (corner.top) (bounds.y + dy).coerceIn(0f, bounds.bottom - 1f) else bounds.y
-    val bottom = if (!corner.top) (bounds.bottom + dy).coerceIn(bounds.y + 1f, MAX_HOTKEY_ROWS.toFloat()) else bounds.bottom
+    fun snap(value: Float) = value.roundToInt().toFloat()
+    val fixedLeft = snap(bounds.x)
+    val fixedTop = snap(bounds.y)
+    val fixedRight = snap(bounds.right)
+    val fixedBottom = snap(bounds.bottom)
+    if (corner == null) return HotkeyBounds(
+        snap(bounds.x + dx).coerceIn(0f, columns - (fixedRight - fixedLeft)),
+        snap(bounds.y + dy).coerceIn(0f, MAX_HOTKEY_ROWS - (fixedBottom - fixedTop)),
+        fixedRight - fixedLeft, fixedBottom - fixedTop)
+    val left = if (corner.left) snap(bounds.x + dx).coerceIn(0f, fixedRight - 1f) else fixedLeft
+    val right = if (!corner.left) snap(bounds.right + dx).coerceIn(fixedLeft + 1f, columns.toFloat()) else fixedRight
+    val top = if (corner.top) snap(bounds.y + dy).coerceIn(0f, fixedBottom - 1f) else fixedTop
+    val bottom = if (!corner.top) snap(bounds.bottom + dy).coerceIn(fixedTop + 1f, MAX_HOTKEY_ROWS.toFloat()) else fixedBottom
     return HotkeyBounds(left, top, right - left, bottom - top)
 }

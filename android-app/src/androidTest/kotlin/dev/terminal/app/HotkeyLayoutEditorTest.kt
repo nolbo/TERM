@@ -31,7 +31,7 @@ class HotkeyLayoutEditorTest {
         Hotkey("B", "B", bounds = HotkeyBounds(3f, 0f)),
     ))
 
-    @Test fun keyMovesIntoDistantEmptySpaceWithoutMovingItsNeighborAndSaves() = withEditor { _ ->
+    @Test fun keySnapsIntoDistantEmptySpaceWithoutMovingItsNeighborAndSaves() = withEditor { _ ->
         val a = keyBounds(0, "A")
         val b = keyBounds(1, "B")
         val pitch = (b.left - a.left) / 3f
@@ -42,8 +42,7 @@ class HotkeyLayoutEditorTest {
         save()
         val layout = readHotkeyLayout(preferences())
         assertEquals(listOf("A", "B"), layout.keys.map { it.name })
-        assertEquals(1.25f, layout.keys[0].bounds!!.x, 0.12f)
-        assertEquals(2.25f, layout.keys[0].bounds!!.y, 0.12f)
+        assertEquals(HotkeyBounds(1f, 2f), layout.keys[0].bounds)
         assertEquals(initial.keys[1], layout.keys[1])
     }
 
@@ -53,7 +52,7 @@ class HotkeyLayoutEditorTest {
         tap(a)
         val corner = awaitLabel(context.getString(R.string.hotkey_resize_handle, "A", context.getString(R.string.hotkey_bottom_right)))
         val pitch = (b.left - a.left) / 3f
-        drag(corner, corner.exactCenterX() + pitch, corner.exactCenterY() + 44 * density * 1.5f, longPress = false)
+        drag(corner, corner.exactCenterX() + pitch * 1.25f, corner.exactCenterY() + 44 * density * 1.65f, longPress = false)
         val resized = keyBounds(0, "A")
         assertEquals(a.left, resized.left)
         assertEquals(a.top, resized.top)
@@ -63,8 +62,40 @@ class HotkeyLayoutEditorTest {
         val bounds = readHotkeyLayout(preferences()).keys[0].bounds!!
         assertEquals(0f, bounds.x, 0.01f)
         assertEquals(0f, bounds.y, 0.01f)
-        assertEquals(2f, bounds.width, 0.2f)
-        assertEquals(2.5f, bounds.height, 0.2f)
+        assertEquals(2f, bounds.width, 0f)
+        assertEquals(3f, bounds.height, 0f)
+    }
+
+    @Test fun gesturesShorterThanHalfACellKeepTheKeyUnchanged() = withEditor { _ ->
+        val a = keyBounds(0, "A")
+        val pitch = (keyBounds(1, "B").left - a.left) / 3f
+        drag(a, a.exactCenterX() + pitch * 0.3f, a.exactCenterY() + 44 * density * 0.3f)
+        assertEquals(a, keyBounds(0, "A"))
+        tap(a)
+        val corner = awaitLabel(context.getString(R.string.hotkey_resize_handle, "A", context.getString(R.string.hotkey_bottom_right)))
+        drag(corner, corner.exactCenterX() + pitch * 0.3f, corner.exactCenterY() + 44 * density * 0.3f, longPress = false)
+        assertEquals(a, keyBounds(0, "A"))
+        save()
+        assertEquals(initial, readHotkeyLayout(preferences()))
+    }
+
+    @Test fun accessibilityActionsMoveAndResizeByOneCell() = withEditor { _ ->
+        for (label in listOf(R.string.hotkey_move_down, R.string.hotkey_move_right, R.string.hotkey_wider, R.string.hotkey_taller)) {
+            var node = findNode(context.getString(R.string.hotkey_edit_description, 1, "A", "A"))
+            var performed = false
+            while (node != null && !performed) {
+                val action = node.actionList.firstOrNull { it.label?.toString() == context.getString(label) }
+                if (action != null) performed = node.performAction(action.id)
+                node = node.parent
+            }
+            assertTrue("Missing or rejected action: ${context.getString(label)}", performed)
+            instrumentation.waitForIdleSync()
+            SystemClock.sleep(180)
+        }
+        save()
+        val layout = readHotkeyLayout(preferences())
+        assertEquals(HotkeyBounds(1f, 1f, 2f, 2f), layout.keys[0].bounds)
+        assertEquals(initial.keys[1], layout.keys[1])
     }
 
     @Test fun cancelledMoveAndOverlappingDropLeaveTheDraftAndPreferencesUnchanged() = withEditor { _ ->
@@ -143,7 +174,7 @@ class HotkeyLayoutEditorTest {
         repeat(6) {
             instrumentation.waitForIdleSync()
             val a = findLabel(context.getString(R.string.hotkey_edit_description, 1, "A", "A"))
-            val screen = Rect().also { instrumentation.uiAutomation.rootInActiveWindow.getBoundsInScreen(it) }
+            val screen = Rect().also { awaitRoot().getBoundsInScreen(it) }
             if (a != null && a.height() > 35 * density && a.top > screen.top + 80 * density && a.bottom < screen.bottom - 250 * density) return
             val down = SystemClock.uptimeMillis()
             val x = screen.width() * 0.8f
@@ -160,6 +191,15 @@ class HotkeyLayoutEditorTest {
     }
 
     private fun keyBounds(index: Int, name: String) = awaitLabel(context.getString(R.string.hotkey_edit_description, index + 1, name, name))
+    private fun awaitRoot(): AccessibilityNodeInfo {
+        val deadline = SystemClock.uptimeMillis() + 5_000
+        while (SystemClock.uptimeMillis() < deadline) {
+            instrumentation.uiAutomation.rootInActiveWindow?.let { return it }
+            SystemClock.sleep(50)
+        }
+        throw AssertionError("Active window did not appear")
+    }
+
     private fun awaitLabel(label: String): Rect {
         val deadline = SystemClock.uptimeMillis() + 5_000
         while (SystemClock.uptimeMillis() < deadline) {
@@ -169,11 +209,13 @@ class HotkeyLayoutEditorTest {
         throw AssertionError("UI label did not appear: $label")
     }
 
-    private fun findLabel(label: String): Rect? {
-        fun visit(node: AccessibilityNodeInfo): Rect? {
+    private fun findLabel(label: String): Rect? = findNode(label)?.let { node -> Rect().also(node::getBoundsInScreen) }
+
+    private fun findNode(label: String): AccessibilityNodeInfo? {
+        fun visit(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
             node.refresh()
             if (node.text?.toString() == label || node.contentDescription?.toString() == label)
-                return Rect().also(node::getBoundsInScreen)
+                return node
             for (index in 0 until node.childCount) node.getChild(index)?.let { visit(it)?.let { found -> return found } }
             return null
         }

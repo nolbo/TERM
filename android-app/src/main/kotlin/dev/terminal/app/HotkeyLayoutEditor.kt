@@ -148,8 +148,8 @@ internal fun EditableHotkeyPreview(
     val actionLabels = listOf(R.string.hotkey_move_left, R.string.hotkey_move_right, R.string.hotkey_move_up,
         R.string.hotkey_move_down, R.string.hotkey_wider, R.string.hotkey_narrower, R.string.hotkey_taller, R.string.hotkey_shorter)
         .map { stringResource(it) }
-    val actions = listOf(Triple(-0.25f, 0f, false), Triple(0.25f, 0f, false), Triple(0f, -0.25f, false), Triple(0f, 0.25f, false),
-        Triple(0.25f, 0f, true), Triple(-0.25f, 0f, true), Triple(0f, 0.25f, true), Triple(0f, -0.25f, true))
+    val actions = listOf(Triple(-1f, 0f, false), Triple(1f, 0f, false), Triple(0f, -1f, false), Triple(0f, 1f, false),
+        Triple(1f, 0f, true), Triple(-1f, 0f, true), Triple(0f, 1f, true), Triple(0f, -1f, true))
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         HotkeyGrid(shown, editing = true,

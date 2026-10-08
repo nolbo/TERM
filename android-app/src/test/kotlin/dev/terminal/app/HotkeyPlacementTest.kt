@@ -48,6 +48,38 @@ class HotkeyPlacementTest {
         assertEquals(HotkeyBounds(5f, 126f, 2f, 2f), transformHotkeyBounds(bounds, 100f, 200f, 7))
     }
 
+    @Test fun movementSnapsToTheNearestCellInBothDirections() {
+        val bounds = HotkeyBounds(2f, 3f, 2f, 2f)
+        assertEquals(bounds, transformHotkeyBounds(bounds, 0.49f, -0.49f, 7))
+        assertEquals(HotkeyBounds(3f, 2f, 2f, 2f), transformHotkeyBounds(bounds, 0.51f, -0.51f, 7))
+        assertEquals(HotkeyBounds(1f, 4f, 2f, 2f), transformHotkeyBounds(bounds, -0.51f, 0.51f, 7))
+    }
+
+    @Test fun allCornersSnapWithoutMovingTheirOppositeCorner() {
+        val bounds = HotkeyBounds(2f, 3f, 2f, 2f)
+        for (corner in HotkeyCorner.entries) {
+            val dx = if (corner.left) -0.6f else 0.6f
+            val dy = if (corner.top) -0.6f else 0.6f
+            assertEquals(bounds, transformHotkeyBounds(bounds, dx / 2, dy / 2, 7, corner))
+            val resized = transformHotkeyBounds(bounds, dx, dy, 7, corner)
+            assertEquals(3f, resized.width, 0f)
+            assertEquals(3f, resized.height, 0f)
+            assertEquals(if (corner.left) bounds.right else bounds.x, if (corner.left) resized.right else resized.x, 0f)
+            assertEquals(if (corner.top) bounds.bottom else bounds.y, if (corner.top) resized.bottom else resized.y, 0f)
+        }
+    }
+
+    @Test fun editingAnOlderFractionalKeyAlignsOnlyThatKeyToTheGrid() {
+        val older = placeHotkey(original, 0, HotkeyBounds(1.2f, 3.4f, 1.6f, 2.2f))
+        val bounds = hotkeyBounds(older)[0]
+        assertEquals(older, parseHotkeyLayout(serializeHotkeyLayout(older)))
+        val moved = placeHotkey(older, 0, transformHotkeyBounds(bounds, 1.1f, 1.1f, 7))
+        assertEquals(HotkeyBounds(2f, 5f, 2f, 3f), hotkeyBounds(moved)[0])
+        assertEquals(hotkeyBounds(older).drop(1), hotkeyBounds(moved).drop(1))
+        assertEquals(moved, parseHotkeyLayout(serializeHotkeyLayout(moved)))
+        assertEquals(HotkeyBounds(1f, 3f, 3f, 4f), transformHotkeyBounds(bounds, 1.1f, 1.1f, 7, HotkeyCorner.BottomRight))
+    }
+
     @Test fun deletingLeavesAHoleAndAddingFillsAnAvailableAreaWithoutRepacking() {
         val sparse = placeHotkey(original, 2, HotkeyBounds(5f, 8.5f, 1.5f, 2f))
         val removed = removeHotkey(sparse, 0)
