@@ -25,7 +25,8 @@ object DebianImageInstaller {
 
     /** Activation may fence deletion under a metadata lock; copying and hashing stay outside it. */
     fun install(stagingDirectory: Path, destination: Path,
-        activate: (() -> Unit) -> Unit = { it() }, checkCancellation: () -> Unit = {}): ImageInstallResult {
+        activate: (() -> Unit) -> Unit = { it() }, initializePackageIndexes: Boolean = false,
+        checkCancellation: () -> Unit = {}): ImageInstallResult {
         checkCancellation()
         if (Files.exists(destination)) {
             return ImageInstallResult.AlreadyInstalled(DebianImageVerifier.verifyInstalled(destination, checkCancellation))
@@ -49,6 +50,9 @@ object DebianImageInstaller {
                 is ImageVerification.Invalid -> ImageInstallResult.Failed(verification.reason)
                 is ImageVerification.Ready -> {
                     DebianImageVerifier.recordInstallation(temporary)
+                    if (initializePackageIndexes && verification.manifest.aptInitializationVersion == 1) {
+                        DebianAptInitialization.markPending(temporary)
+                    }
                     activate {
                         checkCancellation()
                         check(!Files.exists(destination)) { "Image destination already exists; refusing replacement" }

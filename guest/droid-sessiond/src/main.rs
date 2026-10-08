@@ -1,4 +1,5 @@
 mod graphics_transport;
+mod apt_init;
 mod protocol;
 mod pty;
 mod session;
@@ -14,6 +15,10 @@ use session_protocol::SessionRequest;
 use server::SessionServer;
 
 fn main() {
+    if std::env::args().any(|argument| argument == "--apt-initializer") {
+        apt_init::serve().expect("APT initializer listener terminated");
+        return;
+    }
     if std::env::args().any(|argument| argument == "--self-check") {
         let mut sessions = SessionRegistry::default();
         let session = sessions.create_shell("/bin/sh", "/home/user", 24, 80);

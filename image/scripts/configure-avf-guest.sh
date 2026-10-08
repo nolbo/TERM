@@ -37,6 +37,9 @@ install -m 0755 /tmp/term-avf/image-selftest /usr/local/lib/droid/image-selftest
 install -m 0755 /tmp/term-avf/image-user-selftest /usr/local/lib/droid/image-user-selftest
 sh /tmp/term-avf/configure-avf-user.sh /tmp/term-avf/droid.sudoers
 sh /tmp/term-avf/configure-avf-network.sh / /tmp/term-avf/term-virtio.network
+install -m 0755 /tmp/term-avf/initialize-avf-apt.sh /usr/local/lib/droid/initialize-avf-apt.sh
+command -v timeout flock >/dev/null
+sh /tmp/term-avf/clean-avf-apt.sh /
 mkdir -p /etc/droid-config /.droid/lower /.droid/state
 chmod 0700 /.droid
 mkdir -p /etc/systemd/system/droid-agent.service.d
@@ -49,7 +52,7 @@ for module in overlay virtio_blk virtio_pci virtio_mmio ext4; do
   printf '%s\n' "$module" >> /etc/initramfs-tools/modules
 done
 mkinitramfs -c gzip -o /boot/term-initrd.img "$kernel"
-for service in droid-sessiond droid-agent droid-port-agent; do
+for service in droid-sessiond droid-agent droid-port-agent droid-apt-init; do
   systemctl enable "$service.service"
   systemd-analyze verify "/etc/systemd/system/$service.service"
 done

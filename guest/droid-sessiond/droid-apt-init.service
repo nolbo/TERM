@@ -1,0 +1,14 @@
+[Unit]
+Description=TERM initial Debian package index refresh
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/droid/droid-sessiond --apt-initializer
+User=root
+Restart=on-failure
+RestartSec=2
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

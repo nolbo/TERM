@@ -258,7 +258,7 @@
     <string name="avf_image_install">Install image</string>
     <string name="avf_image_save_first">Save the execution environment before installing the image.</string>
     <string name="avf_image_install_confirm_title">Install the AVF Debian image?</string>
-    <string name="avf_image_install_confirm_message">Download and install Debian in the %1$s execution environment. View progress in execution environment details.</string>
+    <string name="avf_image_install_confirm_message">Download and install Debian in the %1$s execution environment, start its virtual machine to retrieve current package lists if needed. Internet access and AVF execution privileges are required. View progress in execution environment details.</string>
     <string name="avf_image_install_later">Install later</string>
     <string name="avf_image_current_build">Current build</string>
     <string name="avf_install_title">AVF Debian image installation</string>
@@ -273,6 +273,13 @@
     <string name="avf_install_downloading">Downloading and decompressing images</string>
     <string name="avf_install_verifying">Verifying image integrity</string>
     <string name="avf_install_installing">Installing images and final verification</string>
+    <string name="avf_install_booting">Preparing Debian for initial startup</string>
+    <string name="avf_install_apt_refresh">Retrieving current package lists</string>
+    <string name="avf_apt_status">Package list initialization</string>
+    <string name="avf_apt_pending">Refresh needed · Connect to the Internet and retry.</string>
+    <string name="avf_apt_updated_at">Initial refresh completed · %1$s</string>
+    <string name="avf_apt_retry">Retry package list refresh</string>
+    <string name="avf_install_initialization_consent">Images requiring package list initialization start the virtual machine during installation and retrieve current lists from the Internet. Installed images are preserved if the refresh fails.</string>
     <string name="avf_install_complete">Image installation complete</string>
     <string name="avf_install_waiting">Waiting to start installation</string>
     <string name="avf_install_retrying">Waiting to retry installation</string>
@@ -290,8 +297,8 @@
     <string name="avf_install_artifact">%1$s · %2$d / 5</string>
     <string name="avf_install_open_progress">View AVF Debian installation progress</string>
     <string name="avf_install_background_note">Installation continues after closing this screen. View progress in the AVF execution environment details.</string>
-    <string name="avf_install_complete_note">The Debian image is installed. Open a session with an AVF profile.</string>
-    <string name="avf_install_retry_note">Review the error, then retry image installation in the AVF execution environment details.</string>
+    <string name="avf_install_complete_note">The Debian image is ready. Open a session with an AVF profile.</string>
+    <string name="avf_install_retry_note">Review the error, then retry in the AVF execution environment details. If the image is installed, only package list initialization is retried.</string>
     <string name="avf_install_download_note">The size and percentage refer to the compressed image currently downloading.</string>
     <string name="avf_image_product_required">The AVF driver is included. A supported device and both AVF system permissions are required to use it.</string>
     <string name="avf_image_catalog_missing">This product build has no approved automatic installation image. The product image must be published first.</string>

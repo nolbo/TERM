@@ -30,7 +30,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
 
-/** Downloads only a catalog-pinned Debian release; it never owns a VM or session. */
+/** Installs a pinned image, then observes VM/APT initialization owned by :vmhost. */
 class DebianImageDownloadWorker(
     appContext: Context,
     workerParams: WorkerParameters,
@@ -64,7 +64,7 @@ class DebianImageDownloadWorker(
             if (Files.exists(target)) {
                 report(AvfImageInstallPhase.VERIFY)
                 return@withContext if (DebianImageVerifier.verifyInstalled(target, ::checkCancellation) is ImageVerification.Ready) {
-                    success("already_installed")
+                    initializeInstalledImage(storageId)
                 } else failure("Existing AVF image is invalid; refusing replacement")
             }
             Files.createDirectories(target.parent)
@@ -85,9 +85,9 @@ class DebianImageDownloadWorker(
                 is ImageVerification.Ready -> when (
                     val installed = installImage(stagingRoot, target, storageId, generation)
                 ) {
-                    is ImageInstallResult.Installed -> success("installed")
+                    is ImageInstallResult.Installed -> initializeInstalledImage(storageId)
                     is ImageInstallResult.AlreadyInstalled -> if (installed.verification is ImageVerification.Ready)
-                        success("already_installed")
+                        initializeInstalledImage(storageId)
                         else failure("Existing AVF image is invalid; refusing replacement")
                     is ImageInstallResult.Failed -> failure(installed.reason)
                 }
@@ -113,7 +113,17 @@ class DebianImageDownloadWorker(
                 validateImageGeneration(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId), generation)
                 promote()
             }
-        }, checkCancellation = ::checkCancellation)
+        }, checkCancellation = ::checkCancellation, initializePackageIndexes = true)
+    }
+
+    private suspend fun initializeInstalledImage(storageId: String): Result {
+        val root = dev.terminal.runtime.session.SessionStorage.root(applicationContext.filesDir,
+            dev.terminal.runtime.session.SessionRuntime.AVF, storageId).toPath()
+        // Legacy image releases and pre-upgrade installs have no initialization request.
+        if (!dev.terminal.image.DebianAptInitialization.isRequired(root)) return success("already_installed")
+        report(AvfImageInstallPhase.BOOT)
+        initializeAvfImage(applicationContext, storageId) { phase -> report(phase) }
+        return success("initialized")
     }
 
     private fun downloadArtifact(release: DebianImageRelease, name: String, stagingRoot: Path, index: Int) {
@@ -125,7 +135,7 @@ class DebianImageDownloadWorker(
             }
     }
 
-    private fun report(phase: AvfImageInstallPhase, artifact: Int = 0, bytes: Long? = null, total: Long? = null) {
+    @Synchronized private fun report(phase: AvfImageInstallPhase, artifact: Int = 0, bytes: Long? = null, total: Long? = null) {
         checkCancellation()
         val now = android.os.SystemClock.elapsedRealtime()
         if (lastProgress.getString(AvfImageInstallMonitor.KEY_PHASE) == phase.name &&
@@ -171,6 +181,8 @@ class DebianImageDownloadWorker(
                 "DOWNLOAD" -> "이미지 다운로드 및 압축 해제 중"
                 "VERIFY" -> "이미지 무결성 검증 중"
                 "INSTALL" -> "이미지 설치 및 최종 검증 중"
+                "BOOT" -> "Debian 초기 실행 준비 중"
+                "APT_REFRESH" -> "최신 패키지 목록을 가져오는 중"
                 "COMPLETE" -> "이미지 설치 완료"
                 else -> "이미지 설치 준비 중"
             })

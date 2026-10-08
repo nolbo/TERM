@@ -5,7 +5,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 
-enum class AvfImageInstallPhase { PREPARING, MANIFEST, DOWNLOAD, VERIFY, INSTALL, COMPLETE }
+enum class AvfImageInstallPhase { PREPARING, MANIFEST, DOWNLOAD, VERIFY, INSTALL, BOOT, APT_REFRESH, COMPLETE }
 enum class AvfImageInstallState { WAITING, RUNNING, RETRYING, SUCCEEDED, FAILED, CANCELLED }
 
 data class AvfImageInstallSnapshot(

@@ -10,7 +10,7 @@ RUN set -eu; mkdir /binaries && \
        guest/droid-port-agent/target/release/droid-port-agent \
        guest/droid-cli/target/release/droid /binaries/ && \
     cp guest/droid-sessiond/droid-sessiond.service guest/droid-agent/droid-agent.service \
-       guest/droid-port-agent/droid-port-agent.service guest/termux-api-compat/termux-* /binaries/
+       guest/droid-port-agent/droid-port-agent.service guest/droid-sessiond/droid-apt-init.service guest/termux-api-compat/termux-* /binaries/
 
 FROM debian:bookworm-slim
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
@@ -21,6 +21,8 @@ COPY image/scripts/install-droid-guest.sh /payload/install-droid-guest.sh
 COPY image/scripts/configure-avf-guest.sh /payload/configure-avf-guest.sh
 COPY image/scripts/configure-avf-user.sh /payload/configure-avf-user.sh
 COPY image/scripts/configure-avf-network.sh /payload/configure-avf-network.sh
+COPY image/scripts/initialize-avf-apt.sh /payload/initialize-avf-apt.sh
+COPY image/scripts/clean-avf-apt.sh /payload/clean-avf-apt.sh
 COPY image/scripts/term-virtio.network /payload/term-virtio.network
 COPY image/scripts/droid.sudoers /payload/droid.sudoers
 COPY image/scripts/droid-overlay /payload/droid-overlay

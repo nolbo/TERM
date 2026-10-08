@@ -13,9 +13,9 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
-/** Explicitly requested installation is independent from VM startup and survives its requesting UI. */
+/** Explicit installation downloads the image and requests service-owned VM/APT initialization. */
 class RuntimeSetupCoordinator(private val context: Context) {
-    /** Called only after installation consent. Enqueueing does not start a VM or a session. */
+    /** Called only after installation consent, including the initial VM/APT preparation. */
     suspend fun requestImageInstallation(storageId: String, releaseId: String = BundledDebianImageCatalog.DEFAULT_RELEASE_ID) {
         check(BundledDebianImageCatalog.find(releaseId) != null) {
             "이 제품 빌드에 AVF 설치 이미지가 등록되지 않았습니다."
@@ -26,8 +26,11 @@ class RuntimeSetupCoordinator(private val context: Context) {
             context.getSharedPreferences("session-profiles", Context.MODE_PRIVATE).all.mapValues { it.value as String }
         }.transaction {
             validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId))
-            if (!dev.terminal.image.DebianImageVerifier.hasInstalledImage(imageRoot)) {
-                check(!Files.exists(imageRoot, LinkOption.NOFOLLOW_LINKS)) {
+            val installed = dev.terminal.image.DebianImageVerifier.hasInstalledImage(imageRoot)
+            val pending = dev.terminal.image.DebianAptInitialization.isRequired(imageRoot) &&
+                dev.terminal.image.DebianAptInitialization.completedAt(imageRoot) == null
+            if (!installed || pending) {
+                check(installed || !Files.exists(imageRoot, LinkOption.NOFOLLOW_LINKS)) {
                     "이미지 저장공간에 기존 파일이 있어 자동으로 교체할 수 없습니다."
                 }
                 // Enqueue and removal use the same process-shared lock; no late request can
@@ -70,6 +73,10 @@ class RuntimeSetupCoordinator(private val context: Context) {
         val manager = RemoteWorkManager.getInstance(context)
         val workNames = installationWorkNames(storageId)
         while (true) {
+            // Initialization may need the storage lease held by the launching
+            // service. Once activated, that launch performs/joins APT setup
+            // itself instead of waiting on a worker blocked on the same lease.
+            if (Files.exists(imageRoot, LinkOption.NOFOLLOW_LINKS)) return
             val history = manager.getWorkInfos(WorkQuery.fromUniqueWorkNames(workNames)).awaitImageOperation()
             val work = history.firstOrNull { !it.state.isFinished } ?: history.maxByOrNull { info ->
                 info.tags.firstOrNull { it.startsWith(AvfImageInstallMonitor.REQUESTED_TAG) }

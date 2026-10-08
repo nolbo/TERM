@@ -94,6 +94,8 @@ New AVF factory images treat each VM as a single-user development environment. I
 
 The APK packages the direct AOSP AVF driver, but its compile-only platform API declarations must never appear as runtime classes in the APK. The optional device-provided shared library supplies the implementation. Driver creation is gated by Android 15+, AVF support, and both actual custom VM permission grants; the device must separately authorize the hidden custom-image API under its platform policy. Packaging does not grant permissions, install an implementation, or use reflection or hidden-API exemptions. Native remains the default owner, so absent platform classes cannot break permissionless service startup. `PlatformProbeAvfDriver` remains a public-SDK-safe diagnostic implementation for integrations without a provider.
 
+The guest APT initializer is a root service restricted to host-CID vsock port 40503 and one fixed operation. It accepts no arbitrary executable, shell text, path, source or environment. It invokes the guest APT tool with signature verification intact, disables PDiffs only for the initial full refresh, fails on repository errors and bounds lock/network/overall waits. Cancellation kills only its dedicated process group. This is guest administration and grants no Android capability. The host verifies all original image artifacts and records the installation receipt before allowing writable initialization; it never rewrites manifest hashes to accommodate guest state.
+
 ## Executable policy
 
 Android 10 and newer disallow `execve` of files in a writable app home for apps

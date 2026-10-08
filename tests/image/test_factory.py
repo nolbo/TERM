@@ -60,6 +60,7 @@ class ImageFactoryTests(unittest.TestCase):
             catalog = dict(line.split("=", 1) for line in (root / "catalog.properties").read_text().splitlines())
             self.assertEqual(factory.sha256(root / "manifest.properties"), catalog["manifestSha256"])
             self.assertEqual("gzip", catalog["compression"])
+            self.assertEqual("1", manifest["aptInitializationVersion"])
             for key, name in factory.ARTIFACTS.items():
                 self.assertEqual(manifest[key + ".sha256"], hashlib.sha256(gzip.decompress((root / (name + ".gz")).read_bytes())).hexdigest())
                 self.assertLessEqual((root / name).stat().st_size, int(catalog["maxArtifactBytes"]))
@@ -95,20 +96,22 @@ class ImageFactoryTests(unittest.TestCase):
                 unit = REPO / f"guest/{name}/{name}.service"
                 if unit.exists():
                     (binaries / (name + ".service")).write_bytes(unit.read_bytes())
+            (binaries / "droid-apt-init.service").write_bytes((REPO / "guest/droid-sessiond/droid-apt-init.service").read_bytes())
             subprocess.run(["sh", str(REPO / "image/scripts/install-droid-guest.sh"), str(root), str(binaries)], check=True)
-            for name in ["droid-sessiond", "droid-agent", "droid-port-agent"]:
+            for name in ["droid-sessiond", "droid-agent", "droid-port-agent", "droid-apt-init"]:
                 unit = root / f"etc/systemd/system/{name}.service"
-                executable = next(line.split("=", 1)[1] for line in unit.read_text().splitlines() if line.startswith("ExecStart="))
+                executable = next(line.split("=", 1)[1].split()[0] for line in unit.read_text().splitlines() if line.startswith("ExecStart="))
                 self.assertTrue((root / executable.lstrip("/")).is_file())
                 self.assertTrue((root / f"etc/systemd/system/multi-user.target.wants/{name}.service").is_symlink())
             session_unit = (root / "etc/systemd/system/droid-sessiond.service").read_text()
             self.assertIn("User=droid\n", session_unit)
             self.assertIn("NoNewPrivileges=no\n", session_unit)
+            self.assertIn("--apt-initializer", (root / "etc/systemd/system/droid-apt-init.service").read_text())
 
     def test_smoke_requires_user_setup_success_on_each_boot(self):
         boots = [b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"]
         for failed_boot in range(2):
-            results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_NETWORK_CONFIG_OK" +
+            results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_APT_BASE_CLEAN_OK\nTERM_AVF_APT_INIT_OK" +
                        (b"\nTERM_AVF_USER_SETUP_OK" if index != failed_boot else b""))
                        for index, marker in enumerate(boots)]
             with self.subTest(failed_boot=failed_boot), mock.patch('subprocess.run', side_effect=results), \
@@ -171,7 +174,7 @@ class ImageFactoryTests(unittest.TestCase):
     def test_smoke_requires_sealed_network_configuration_on_each_boot(self):
         boots = [b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"]
         for failed_boot in range(2):
-            results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_USER_SETUP_OK" +
+            results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_APT_BASE_CLEAN_OK\nTERM_AVF_APT_INIT_OK" +
                        (b"\nTERM_AVF_NETWORK_CONFIG_OK" if index != failed_boot else b""))
                        for index, marker in enumerate(boots)]
             with self.subTest(failed_boot=failed_boot), mock.patch('subprocess.run', side_effect=results), \
@@ -180,7 +183,7 @@ class ImageFactoryTests(unittest.TestCase):
                     runpy.run_path(str(REPO / "image/scripts/smoke-avf-image.py"))
 
     def test_smoke_accepts_both_offline_boots_only_after_user_setup_succeeds(self):
-        results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_NETWORK_CONFIG_OK")
+        results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_APT_BASE_CLEAN_OK\nTERM_AVF_APT_INIT_OK")
                    for marker in [b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"]]
         with mock.patch('subprocess.run', side_effect=results) as qemu, mock.patch('sys.stdout', new_callable=io.StringIO):
             runpy.run_path(str(REPO / "image/scripts/smoke-avf-image.py"))
@@ -188,6 +191,55 @@ class ImageFactoryTests(unittest.TestCase):
         for invocation in qemu.call_args_list:
             command = invocation.args[0]
             self.assertEqual("none", command[command.index("-nic") + 1])
+
+    def test_apt_cache_cleanup_preserves_release_trust_sources_and_package_database(self):
+        def clean(root):
+            subprocess.run(["sh", str(REPO / "image/scripts/clean-avf-apt.sh"), str(root)], check=True, capture_output=True)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            preserve = ["var/lib/apt/lists/debian_InRelease", "var/lib/apt/lists/debian_Release.gpg",
+                        "var/lib/apt/lists/debian_Release", "var/lib/apt/lists/lock",
+                        "var/lib/dpkg/status", "etc/apt/sources.list", "etc/apt/trusted.gpg"]
+            remove = ["var/lib/apt/lists/debian_Packages.lz4", "var/lib/apt/lists/debian_Sources",
+                      "var/lib/apt/lists/debian_Translation-en", "var/lib/apt/lists/partial/download",
+                      "var/lib/apt/lists/auxfiles/stale", "var/cache/apt/archives/old.deb",
+                      "var/cache/apt/archives/partial/old.deb", "var/cache/apt/pkgcache.bin",
+                      "var/cache/apt/srcpkgcache.bin"]
+            for name in preserve + remove:
+                file = root / name
+                file.parent.mkdir(parents=True, exist_ok=True)
+                file.write_text(name)
+            partial = root / "var/lib/apt/lists/partial"
+            partial.chmod(0o700)
+            for _ in range(2):
+                clean(root)
+                for name in preserve:
+                    self.assertEqual(name, (root / name).read_text())
+                for name in remove:
+                    self.assertFalse((root / name).exists())
+                self.assertEqual(0o700, partial.stat().st_mode & 0o777)
+
+    def test_apt_cache_cleanup_never_follows_links_outside_the_guest(self):
+        def clean(root):
+            return subprocess.run(["sh", str(REPO / "image/scripts/clean-avf-apt.sh"), str(root)], capture_output=True, text=True)
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary) / "root"
+            outside = Path(temporary) / "outside"
+            outside.mkdir()
+            (outside / "keep").write_text("private")
+            (root / "var/lib/apt").mkdir(parents=True)
+            (root / "var/lib/apt/lists").symlink_to(outside, target_is_directory=True)
+            result = clean(root)
+            self.assertNotEqual(0, result.returncode)
+            self.assertIn("symlink", result.stderr)
+            self.assertEqual("private", (outside / "keep").read_text())
+
+    def test_smoke_rejects_missing_apt_initialization_evidence(self):
+        results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_APT_BASE_CLEAN_OK")
+                   for marker in [b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"]]
+        with mock.patch('subprocess.run', side_effect=results), mock.patch('sys.stdout', new_callable=io.StringIO):
+            with self.assertRaisesRegex(SystemExit, "APT initialization"):
+                runpy.run_path(str(REPO / "image/scripts/smoke-avf-image.py"))
 
 
 if __name__ == "__main__":

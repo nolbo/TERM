@@ -13,6 +13,7 @@ import dev.terminal.app.ui.settingsItemSurface
 import dev.terminal.app.ui.terminalSettingsListItemColors
 import dev.terminal.image.BundledDebianImageCatalog
 import dev.terminal.image.DebianImageVerifier
+import dev.terminal.image.DebianAptInitialization
 import dev.terminal.runtime.image.AvfImageInstallSnapshot
 import dev.terminal.runtime.image.AvfImageInstallState
 import dev.terminal.runtime.session.SessionRuntime
@@ -37,8 +38,22 @@ internal fun hasAvfEnvironmentImage(context: Context, storageId: String): Boolea
 ) {
     val context = LocalContext.current
     var installed by remember(storageId) { mutableStateOf<Boolean?>(null) }
+    var aptPending by remember(storageId) { mutableStateOf(false) }
+    var aptCompletedAt by remember(storageId) { mutableStateOf<Long?>(null) }
     LaunchedEffect(storageId, snapshot, revision) {
-        installed = withContext(Dispatchers.IO) { hasAvfEnvironmentImage(context, storageId) }
+        do {
+            val state = withContext(Dispatchers.IO) {
+                val root = SessionStorage.root(context.filesDir, SessionRuntime.AVF, storageId).toPath()
+                Triple(hasAvfEnvironmentImage(context, storageId), DebianAptInitialization.isRequired(root),
+                    DebianAptInitialization.completedAt(root))
+            }
+            installed = state.first
+            aptCompletedAt = state.third
+            aptPending = state.second && state.third == null
+            // A later session can finish a cancelled installation's pending
+            // refresh without changing its old WorkManager result.
+            if (aptPending) kotlinx.coroutines.delay(2_000)
+        } while (aptPending)
     }
     EnvironmentSection(R.string.debian_image) {
         ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors(),
@@ -47,12 +62,20 @@ internal fun hasAvfEnvironmentImage(context: Context, storageId: String): Boolea
                 false -> R.string.avf_image_not_installed
                 null -> R.string.avf_image_checking
             })) }) { Text(stringResource(R.string.avf_image_installation_status)) }
-        val progress = snapshot?.takeIf { it.active || installed == false &&
+        if (installed == true && (aptPending || aptCompletedAt != null)) {
+            ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors(),
+                supportingContent = { Text(if (aptPending) stringResource(R.string.avf_apt_pending)
+                    else stringResource(R.string.avf_apt_updated_at,
+                        java.text.DateFormat.getDateTimeInstance().format(java.util.Date(requireNotNull(aptCompletedAt) * 1000)))) }) {
+                Text(stringResource(R.string.avf_apt_status))
+            }
+        }
+        val progress = snapshot?.takeIf { it.active || (installed == false || aptPending) &&
             it.state in setOf(AvfImageInstallState.FAILED, AvfImageInstallState.CANCELLED) }
         if (progress != null) AvfImageInstallCard(progress)
-        if (installed == false && progress?.active != true) {
+        if ((installed == false || aptPending) && progress?.active != true) {
             val available = BundledDebianImageCatalog.find(BundledDebianImageCatalog.DEFAULT_RELEASE_ID) != null
-            EnvironmentActionSetting(R.string.avf_image_install, R.drawable.ic_material_symbol_download_24,
+            EnvironmentActionSetting(if (aptPending) R.string.avf_apt_retry else R.string.avf_image_install, R.drawable.ic_material_symbol_download_24,
                 enabled = savedStorage && available && !requesting,
                 supporting = when {
                     !savedStorage -> R.string.avf_image_save_first

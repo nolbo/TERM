@@ -113,4 +113,60 @@ class AvfImageInstallUiTest {
             waitFor(label(R.string.avf_install_complete_note))
         }
     }
+
+    @Test fun aptRefreshFailureStaysDistinctFromCompletedImageInstallation() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            fun show(state: AvfImageInstallSnapshot) = scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { Column(Modifier.verticalScroll(rememberScrollState())) { AvfImageInstallCard(state) } }
+            } }
+            show(snapshot(phase = AvfImageInstallPhase.APT_REFRESH))
+            waitFor(label(R.string.avf_install_apt_refresh))
+            assertNull(find(instrumentation.uiAutomation.rootInActiveWindow,
+                context.getString(R.string.rootless_stage_percent, 40), contains = true))
+            show(snapshot(AvfImageInstallState.FAILED, AvfImageInstallPhase.APT_REFRESH,
+                error = "패키지 목록 갱신 실패 · 설치된 디스크는 보존됨"))
+            waitFor("패키지 목록 갱신 실패 · 설치된 디스크는 보존됨")
+            assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_install_complete_note)))
+        }
+    }
+
+    @Test fun pendingIndexesPreserveInstalledStatusAndOfferInitializationOnlyRetry() {
+        val scratch = java.io.File(context.cacheDir, "apt-ui-${java.util.UUID.randomUUID()}").apply { mkdirs() }
+        val storageId = java.util.UUID.randomUUID().toString()
+        val isolated = object : android.content.ContextWrapper(context) {
+            override fun getFilesDir() = scratch
+        }
+        val root = dev.terminal.runtime.session.SessionStorage.root(scratch,
+            dev.terminal.runtime.session.SessionRuntime.AVF, storageId).toPath()
+        java.nio.file.Files.createDirectories(root)
+        val hashes = "0".repeat(64)
+        java.nio.file.Files.write(root.resolve("manifest.properties"),
+            ("formatVersion=1\ndistribution=debian\narchitecture=arm64\n" +
+                listOf("kernel", "initrd", "system", "home", "config").joinToString("") { "$it.sha256=$hashes\n" }).toByteArray())
+        for (file in listOf("vmlinuz", "initrd.img", "system.img", "home.img", "config.img"))
+            java.nio.file.Files.write(root.resolve(file), "preserved fixture".toByteArray())
+        dev.terminal.image.DebianAptInitialization.markPending(root)
+        var retried = false
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity -> activity.setContent {
+                    androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalContext provides isolated) {
+                        DroidTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+                            AvfEnvironmentImageSetting(storageId, null, 0, true, false, { retried = true })
+                        } }
+                    }
+                } }
+                waitFor(label(R.string.avf_image_installed))
+                waitFor(label(R.string.avf_apt_pending))
+                waitFor(label(R.string.avf_apt_retry))
+                var retry = find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_apt_retry))
+                while (retry != null && !retry.isClickable) retry = retry.parent
+                assertTrue(requireNotNull(retry).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                instrumentation.waitForIdleSync()
+                assertTrue(retried)
+                assertEquals("preserved fixture", String(java.nio.file.Files.readAllBytes(root.resolve("home.img"))))
+                assertNull(dev.terminal.image.DebianAptInitialization.completedAt(root))
+            }
+        } finally { scratch.deleteRecursively() }
+    }
 }

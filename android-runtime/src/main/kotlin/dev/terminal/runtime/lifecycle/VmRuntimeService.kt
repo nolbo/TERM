@@ -81,6 +81,7 @@ class VmRuntimeService : Service() {
     private val startedEnvironmentBackends = java.util.concurrent.ConcurrentHashMap.newKeySet<EnvironmentId>()
     // Explicit environment starts outlive UI bindings, including with no terminal sessions.
     private val explicitlyStartedEnvironments = java.util.concurrent.ConcurrentHashMap.newKeySet<EnvironmentId>()
+    private val imageInitializationJobs = ConcurrentHashMap<String, Job>()
     private val sessionClientMutex = Mutex()
     private val preparationLocks = StoragePreparationLocks()
     private val primaryPreparationMutex = Mutex()
@@ -272,6 +273,36 @@ class VmRuntimeService : Service() {
             val owner = environment?.let { environmentBackends[it.id] as? RootlessDebianBackend }
                 ?: rootlessBackends[selected]?.takeIf { storageId == "legacy" || storageId == defaultStorageId(selected) }
             return owner?.cancelInstallation() == true
+        }
+        override fun initializeAvfImage(storageId: String, requestId: String,
+            callback: dev.terminal.runtime.ipc.IAvfImageInitializationCallback) {
+            enforceHostToolUi()
+            dev.terminal.runtime.session.SessionStorage.validate(storageId)
+            java.util.UUID.fromString(requestId)
+            val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                var error = ""
+                try {
+                    trackedEnvironmentOperation {
+                        kotlinx.coroutines.withTimeout(420_000) {
+                            initializeAvfEnvironment(storageId) { phase ->
+                                runCatching { callback.onProgress(phase.name) }.getOrThrow()
+                            }
+                        }
+                    }
+                } catch (failure: Exception) {
+                    error = if (failure is kotlinx.coroutines.CancellationException) "패키지 목록 초기화가 중단되었습니다. 다시 시도할 수 있습니다."
+                        else failure.userMessage()
+                } finally {
+                    imageInitializationJobs.remove(requestId)
+                    runCatching { callback.onComplete(error) }
+                }
+            }
+            check(imageInitializationJobs.putIfAbsent(requestId, job) == null) { "Duplicate initialization request" }
+            job.start()
+        }
+        override fun cancelAvfImageInitialization(requestId: String) {
+            enforceHostToolUi()
+            imageInitializationJobs[requestId]?.cancel()
         }
         override fun measureEnvironmentUsageJson(environmentId: String): String {
             enforceHostToolUi()
@@ -922,7 +953,10 @@ class VmRuntimeService : Service() {
     private suspend fun startPrimaryBackend() = primaryPreparationMutex.withLock {
         // Rebinding an Activity must be idempotent. In particular, do not
         // prepare a Native backend again after it has reached READY.
-        if (latestState is RuntimeState.Ready || latestState is RuntimeState.Active || latestState is RuntimeState.Idle) return@withLock
+        if (latestState is RuntimeState.Ready || latestState is RuntimeState.Active || latestState is RuntimeState.Idle) {
+            if (backend is dev.terminal.runtime.avf.AvfBackend) ensureAvfPackageIndexes(backend, filesDir.toPath().resolve("vm/default"))
+            return@withLock
+        }
         if (backend is NativeBackend) {
             backend.prepare(RuntimeConfig(imageDirectory = filesDir.toPath().resolve("native-runtime").toString())).getOrThrow()
             backend.start().getOrThrow()
@@ -945,6 +979,68 @@ class VmRuntimeService : Service() {
         )
         backend.prepare(config).getOrThrow()
         backend.start().getOrThrow()
+        try { ensureAvfPackageIndexes(backend, imageRoot) }
+        catch (failure: Exception) {
+            if ((backend as? dev.terminal.runtime.avf.AvfBackend)?.startedNewVm == true) {
+                withContext(kotlinx.coroutines.NonCancellable) {
+                    runCatching { backend.stop(StopMode.GRACEFUL).getOrThrow() }.exceptionOrNull()?.let(failure::addSuppressed)
+                }
+            }
+            throw failure
+        }
+    }
+
+    /** Holds only this environment's lease, so other runtimes remain usable during APT/network waits. */
+    private suspend fun initializeAvfEnvironment(storageId: String,
+        progress: (dev.terminal.runtime.image.AvfImageInstallPhase) -> Unit) {
+        preparationLocks.withStorage(SessionRuntime.AVF, storageId) {
+            storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(SessionRuntime.AVF, storageId)) }
+            val environment = environmentForStorage(SessionRuntime.AVF, storageId)
+            val root = dev.terminal.runtime.session.SessionStorage.root(filesDir, SessionRuntime.AVF, storageId).toPath()
+            if (dev.terminal.image.DebianAptInitialization.completedAt(root) != null) return@withStorage
+            check(dev.terminal.image.DebianAptInitialization.isRequired(root)) { "이 이미지에는 자동 패키지 목록 초기화 요청이 없습니다." }
+            val registry = ensureSessionRegistry() ?: error("Runtime unavailable")
+            val wasStarted = environment.id in startedEnvironmentBackends ||
+                (backend is dev.terminal.runtime.avf.AvfBackend && primaryReady())
+            val profile = dev.terminal.runtime.session.SessionProfile("image-init:${environment.id}", environment.name,
+                SessionRuntime.AVF, "/bin/bash", environmentId = environment.id)
+            val spec = environmentRegistry.transaction(storageDefaults()) { resolveLaunch(profile.resolve(environment)) }
+            try {
+                progress(dev.terminal.runtime.image.AvfImageInstallPhase.BOOT)
+                check(ensureEnvironmentControllerLocked(spec, registry, imageProgress = progress)) { "AVF 초기 실행을 준비할 수 없습니다." }
+                check(dev.terminal.image.DebianAptInitialization.completedAt(root) != null) { "패키지 목록 갱신이 완료되지 않았습니다." }
+            } finally {
+                withContext(kotlinx.coroutines.NonCancellable) {
+                    val owner = environmentBackends[environment.id]
+                        ?: backend.takeIf { it is dev.terminal.runtime.avf.AvfBackend }
+                    // A reconnect can reach a pre-existing VM with live PTYs. Stop
+                    // only a VM actually booted here, and never an explicit start.
+                    if (!wasStarted && owner is dev.terminal.runtime.avf.AvfBackend && owner.startedNewVm &&
+                        environment.id !in explicitlyStartedEnvironments) {
+                        if (registry.isRegistered(SessionRuntime.AVF, storageId)) {
+                            registry.deleteStorageIfIdle(SessionRuntime.AVF, storageId) { release ->
+                                owner.stop(StopMode.GRACEFUL).getOrThrow()
+                                release()
+                                clearEnvironmentStart(environment.id)
+                            }
+                        } else {
+                            owner.stop(StopMode.GRACEFUL).getOrThrow()
+                            clearEnvironmentStart(environment.id)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private suspend fun ensureAvfPackageIndexes(owner: dev.terminal.runtime.api.RuntimeBackend, root: java.nio.file.Path,
+        progress: (dev.terminal.runtime.image.AvfImageInstallPhase) -> Unit = {}) {
+        if (!dev.terminal.image.DebianAptInitialization.isRequired(root) ||
+            dev.terminal.image.DebianAptInitialization.completedAt(root) != null) return
+        val avf = owner as? dev.terminal.runtime.avf.AvfBackend ?: error("AVF 초기화 소유자가 없습니다.")
+        progress(dev.terminal.runtime.image.AvfImageInstallPhase.APT_REFRESH)
+        val completedAt = dev.terminal.runtime.image.AvfAptInitializer.initialize(avf.connectImageInitializer().getOrThrow())
+        dev.terminal.image.DebianAptInitialization.markComplete(root, completedAt)
     }
 
     private fun launchRuntimeOperation(trackAsWork: Boolean = false, errorOperation: String = "런타임 작업", block: suspend () -> Unit) {
@@ -1292,7 +1388,8 @@ class VmRuntimeService : Service() {
 
     /** Caller holds the resolved storage lease through registration and session creation. */
     private suspend fun ensureEnvironmentControllerLocked(spec: dev.terminal.runtime.session.SessionLaunchSpec,
-        registry: UnifiedSessionRegistry, installationApproved: Boolean = false): Boolean {
+        registry: UnifiedSessionRegistry, installationApproved: Boolean = false,
+        imageProgress: (dev.terminal.runtime.image.AvfImageInstallPhase) -> Unit = {}): Boolean {
         val executionEnvironment = requireNotNull(spec.executionEnvironment)
         if (spec.runtime in rootlessBackends && !installationApproved &&
             !rootlessEnvironmentBackend(executionEnvironment).hasInstalledImage()) {
@@ -1310,7 +1407,13 @@ class VmRuntimeService : Service() {
         }
         // When Native is the default owner, even legacy/default AVF storage needs its own AVF provider.
         if (spec.storageId == "legacy" && spec.runtime != SessionRuntime.NATIVE &&
-            (spec.runtime != SessionRuntime.AVF || backend !is NativeBackend)) return ensureRuntimeControllerLocked(spec.runtime, registry)
+            (spec.runtime != SessionRuntime.AVF || backend !is NativeBackend)) {
+            if (spec.runtime == SessionRuntime.AVF) {
+                imageProgress(dev.terminal.runtime.image.AvfImageInstallPhase.APT_REFRESH)
+                startPrimaryBackend()
+            }
+            return ensureRuntimeControllerLocked(spec.runtime, registry)
+        }
         if (spec.runtime == SessionRuntime.AVF && backend !is NativeBackend &&
             spec.storageId == defaultStorageId(SessionRuntime.AVF)) {
             storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(spec.runtime, spec.storageId)) }
@@ -1319,7 +1422,12 @@ class VmRuntimeService : Service() {
             return registry.isRegistered(spec.runtime, spec.storageId)
         }
         storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(spec.runtime, spec.storageId)) }
-        if (registry.isRegistered(spec.runtime, spec.storageId) && spec.storageId !in registry.disconnectedStorages(spec.runtime)) return true
+        if (registry.isRegistered(spec.runtime, spec.storageId) && spec.storageId !in registry.disconnectedStorages(spec.runtime)) {
+            if (spec.runtime == SessionRuntime.AVF) ensureAvfPackageIndexes(
+                environmentBackends[executionEnvironment.id] ?: backend,
+                dev.terminal.runtime.session.SessionStorage.root(filesDir, spec.runtime, spec.storageId).toPath(), imageProgress)
+            return true
+        }
         val key = executionEnvironment.id
         val root = dev.terminal.runtime.session.SessionStorage.root(filesDir, spec.runtime, spec.storageId)
         val owner = environmentBackends.getOrPut(key) {
@@ -1354,6 +1462,7 @@ class VmRuntimeService : Service() {
             RuntimeSetupCoordinator(applicationContext).awaitInstalledImage(root.toPath(), spec.storageId)
         }
         val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
+        var startedForInitialization = false
         if (key !in startedEnvironmentBackends) {
             owner.prepare(RuntimeConfig(
                 instanceId = if (spec.runtime == SessionRuntime.AVF)
@@ -1367,6 +1476,19 @@ class VmRuntimeService : Service() {
             )).getOrThrow()
             owner.start().getOrThrow()
             startedEnvironmentBackends.add(key)
+            startedForInitialization = spec.runtime == SessionRuntime.AVF &&
+                dev.terminal.image.DebianAptInitialization.isRequired(root.toPath()) &&
+                dev.terminal.image.DebianAptInitialization.completedAt(root.toPath()) == null
+        }
+        try { if (spec.runtime == SessionRuntime.AVF) ensureAvfPackageIndexes(owner, root.toPath(), imageProgress) }
+        catch (failure: Exception) {
+            if (startedForInitialization && (owner as? dev.terminal.runtime.avf.AvfBackend)?.startedNewVm == true) {
+                withContext(kotlinx.coroutines.NonCancellable) {
+                    runCatching { owner.stop(StopMode.GRACEFUL).getOrThrow(); clearEnvironmentStart(key) }
+                        .exceptionOrNull()?.let(failure::addSuppressed)
+                }
+            }
+            throw failure
         }
         val controller = when (owner) {
             is NativeBackend -> requireNotNull(owner.sessionController())

@@ -10,6 +10,72 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class DebianImageVerifierTest {
+    @Test fun aptInitializationIsRecordedBeforeActivationAndDoesNotInvalidateWritableState() {
+        val root = Files.createTempDirectory("debian-apt-init")
+        try {
+            val source = Files.createDirectory(root.resolve("source"))
+            writeVerifiedImage(source, aptInitializationVersion = "1")
+            val destination = root.resolve("installed")
+            assertTrue(DebianImageInstaller.install(source, destination, initializePackageIndexes = true,
+                activate = { promote ->
+                    Files.list(root).use { entries ->
+                        val prepared = entries.filter { it.fileName.toString().startsWith(".installed.install-") }.findFirst().get()
+                        assertTrue(DebianAptInitialization.isRequired(prepared))
+                        assertEquals(null, DebianAptInitialization.completedAt(prepared))
+                    }
+                    promote()
+                }) is ImageInstallResult.Installed)
+            assertTrue(DebianAptInitialization.isRequired(destination))
+            assertEquals(null, DebianAptInitialization.completedAt(destination))
+            Files.writeString(destination.resolve("home.img"), "updated APT indexes")
+            assertTrue(DebianImageVerifier.verifyInstalled(destination) is ImageVerification.Ready)
+            DebianAptInitialization.markComplete(destination, 1_800_000_000)
+            assertEquals(1_800_000_000L, DebianAptInitialization.completedAt(destination))
+            assertTrue(DebianImageVerifier.verifyInstalled(destination) is ImageVerification.Ready)
+            Files.writeString(destination.resolve("manifest.properties"), "changed manifest")
+            assertEquals(null, DebianAptInitialization.completedAt(destination))
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun legacyImagesAreNotAutomaticallyMarkedForInitialization() {
+        val root = Files.createTempDirectory("debian-apt-legacy")
+        try {
+            writeVerifiedImage(root)
+            assertFalse(DebianAptInitialization.isRequired(root))
+            assertEquals(null, DebianAptInitialization.completedAt(root))
+            Files.createSymbolicLink(root.resolve(DebianAptInitialization.FILE_NAME), root.resolve("manifest.properties"))
+            assertTrue(DebianAptInitialization.isRequired(root))
+            assertEquals(null, DebianAptInitialization.completedAt(root))
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun onlineInstallationOfLegacyImageDoesNotRequireAMissingGuestEndpoint() {
+        val root = Files.createTempDirectory("debian-apt-legacy-install")
+        try {
+            val source = Files.createDirectory(root.resolve("source"))
+            writeVerifiedImage(source)
+            val destination = root.resolve("installed")
+            assertTrue(DebianImageInstaller.install(source, destination,
+                initializePackageIndexes = true) is ImageInstallResult.Installed)
+            assertFalse(DebianAptInitialization.isRequired(destination))
+            assertEquals(0, (DebianImageVerifier.verifyInstalled(destination) as ImageVerification.Ready)
+                .manifest.aptInitializationVersion)
+        } finally { root.toFile().deleteRecursively() }
+    }
+
+    @Test fun unknownAptInitializationVersionIsRejectedBeforeInstallation() {
+        val root = Files.createTempDirectory("debian-apt-unknown-version")
+        try {
+            val source = Files.createDirectory(root.resolve("source"))
+            writeVerifiedImage(source, aptInitializationVersion = "2")
+            val destination = root.resolve("installed")
+            assertFalse(DebianImageVerifier.hasInstalledImage(source))
+            assertTrue(DebianImageVerifier.verify(source) is ImageVerification.Invalid)
+            assertTrue(DebianImageInstaller.install(source, destination,
+                initializePackageIndexes = true) is ImageInstallResult.Failed)
+            assertFalse(Files.exists(destination))
+        } finally { root.toFile().deleteRecursively() }
+    }
     @Test fun activationOnlyWrapsPromotionOfCompleteVerifiedImage() {
         val root = Files.createTempDirectory("debian-activation")
         try {
@@ -244,7 +310,7 @@ class DebianImageVerifierTest {
         } finally { root.toFile().deleteRecursively() }
     }
 
-    private fun writeVerifiedImage(root: Path) {
+    private fun writeVerifiedImage(root: Path, aptInitializationVersion: String? = null) {
         Files.writeString(root.resolve("system.img"), "system")
         Files.writeString(root.resolve("vmlinuz"), "kernel")
         Files.writeString(root.resolve("initrd.img"), "initrd")
@@ -260,5 +326,9 @@ class DebianImageVerifierTest {
             home.sha256=${DebianImageVerifier.sha256(root.resolve("home.img"))}
             config.sha256=${DebianImageVerifier.sha256(root.resolve("config.img"))}
         """.trimIndent())
+        if (aptInitializationVersion != null) {
+            Files.writeString(root.resolve("manifest.properties"), "\naptInitializationVersion=$aptInitializationVersion\n",
+                java.nio.file.StandardOpenOption.APPEND)
+        }
     }
 }

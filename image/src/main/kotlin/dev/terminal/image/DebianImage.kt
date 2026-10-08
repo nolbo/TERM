@@ -16,6 +16,7 @@ data class DebianImageManifest(
     val systemSha256: String,
     val homeSha256: String,
     val configSha256: String,
+    val aptInitializationVersion: Int = 0,
 )
 
 data class DebianImageLayout(val root: Path) {
@@ -129,6 +130,10 @@ object DebianImageVerifier {
             systemSha256 = getProperty("system.sha256") ?: error("system.sha256 missing"),
             homeSha256 = getProperty("home.sha256") ?: error("home.sha256 missing"),
             configSha256 = getProperty("config.sha256") ?: error("config.sha256 missing"),
+            aptInitializationVersion = getProperty("aptInitializationVersion")?.let {
+                require(it == "1") { "Unsupported APT initialization version" }
+                1
+            } ?: 0,
         )
     }
 

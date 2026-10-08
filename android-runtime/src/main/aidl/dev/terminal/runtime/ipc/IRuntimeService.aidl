@@ -2,6 +2,7 @@ package dev.terminal.runtime.ipc;
 
 import dev.terminal.runtime.ipc.IRuntimeStateListener;
 import dev.terminal.runtime.ipc.ITerminalStateListener;
+import dev.terminal.runtime.ipc.IAvfImageInitializationCallback;
 
 interface IRuntimeService {
     String getStorageJson();
@@ -65,4 +66,6 @@ interface IRuntimeService {
     String setUserspaceLinuxDns(String mode, String servers);
     boolean cancelRootlessInstallation(String runtimeType, String storageId);
     void createSessionFromSpecWithInstallationConsent(String launchSpecJson, String requestId, int rows, int cols);
+    void initializeAvfImage(String storageId, String requestId, IAvfImageInitializationCallback callback);
+    void cancelAvfImageInitialization(String requestId);
 }

@@ -42,4 +42,25 @@ runuser -u droid -- sh -eu -c '
   test "$(term-avf-setup-probe)" = TERM_AVF_APT_OK
   apt_probe purge term-avf-setup-probe
 ' image-user-selftest "$repository"
+# Exercise the production initializer offline, including a failed repository,
+# successful full refresh, and an idempotent retry. This is disposable overlay
+# state; the producer never ships this local repository or completion receipt.
+rm -rf /var/lib/droid/apt-initialization
+printf 'Dir::Etc::sourcelist "%s/sources.list";\nDir::Etc::sourceparts "%s/empty";\nAcquire::Languages "none";\n' \
+  "$repository" "$repository" > "$repository/apt.conf"
+printf 'deb [trusted=yes] file:%s/missing ./\n' "$repository" > "$repository/sources.list"
+if APT_CONFIG="$repository/apt.conf" /usr/local/lib/droid/initialize-avf-apt.sh; then
+  echo 'APT initialization accepted an unavailable repository' >&2
+  exit 1
+fi
+test ! -e /var/lib/droid/apt-initialization/complete
+printf 'deb [trusted=yes] file:%s ./\n' "$repository" > "$repository/sources.list"
+APT_CONFIG="$repository/apt.conf" /usr/local/lib/droid/initialize-avf-apt.sh
+completed=$(cat /var/lib/droid/apt-initialization/complete)
+test "$completed" -gt 0
+printf 'deb [trusted=yes] file:%s/missing ./\n' "$repository" > "$repository/sources.list"
+APT_CONFIG="$repository/apt.conf" /usr/local/lib/droid/initialize-avf-apt.sh
+test "$(cat /var/lib/droid/apt-initialization/complete)" = "$completed"
+rm -rf /var/lib/droid/apt-initialization
+echo TERM_AVF_APT_INIT_OK
 echo TERM_AVF_USER_SETUP_OK

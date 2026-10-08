@@ -36,6 +36,8 @@ sibling temporary directory, verifies it again, and then promotes it to the VM
 location. It never replaces an existing image; upgrade/rollback policy remains
 a separate future design decision.
 
+New producer manifests declare optional `aptInitializationVersion=1`, which identifies the fixed host-only guest APT initializer. Online installs of those verified images refresh the full indexes through `:vmhost` before reporting completion and preserve the disks for retry on failure. Older manifests omit this field and retain file-only installation; unknown initialization versions are rejected. Existing installed images are not migrated.
+
 Image download is a one-time WorkManager task, not a VM owner. It accepts only
 a release ID from a bundled/OEM catalog; the catalog pins an HTTPS manifest URL,
 its SHA-256 hash, and an artifact-size limit. The image factory produces the catalog. Ordinary builds embed the reviewed `image/catalog-approved.properties` when present, and `-PavfImageCatalog=...` overrides it for an isolated product/candidate build. Without either input the source build retains an empty catalog. Default approval requires successful unauthenticated public downloads and remains a reviewed source change. HTTPS asset redirects are bounded and cannot downgrade to HTTP; both compressed transfers and decompressed artifacts have size limits. The pinned manifest and uncompressed artifact hashes remain mandatory.

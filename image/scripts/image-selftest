@@ -25,6 +25,18 @@ for service in systemd-networkd systemd-resolved; do
   systemctl --root=/ is-enabled --quiet "$service.service"
 done
 echo TERM_AVF_NETWORK_CONFIG_OK
+if [ -d /.droid/lower/var/lib/apt/lists ]; then
+  if find /.droid/lower/var/lib/apt/lists -type f ! -name '*_Release' ! -name '*_Release.gpg' ! -name '*_InRelease' ! -name lock -print -quit | grep -q .; then
+    echo 'Sealed image contains stale APT indexes' >&2
+    exit 1
+  fi
+fi
+test ! -e /.droid/lower/var/cache/apt/pkgcache.bin
+test ! -e /.droid/lower/var/cache/apt/srcpkgcache.bin
+test ! -e /.droid/lower/var/lib/droid/apt-initialization/complete
+test -x /usr/local/lib/droid/initialize-avf-apt.sh
+systemctl --root=/ is-enabled --quiet droid-apt-init.service
+echo TERM_AVF_APT_BASE_CLEAN_OK
 /usr/local/lib/droid/image-user-selftest
 mkdir -p /var/lib/droid-image-test
 if [ -e /var/lib/droid-image-test/persistent ]; then

@@ -47,6 +47,8 @@ class AospAvfPlatformDriver(
         "AVF VirtualMachineManager is unavailable on this device"
     }
     private val mutex = Mutex()
+    @Volatile override var startedNewVm: Boolean = false
+        private set
 
     private var prepared: RuntimeConfig? = null
     @Volatile private var machine: VirtualMachine? = null
@@ -74,6 +76,7 @@ class AospAvfPlatformDriver(
     }
 
     override suspend fun start(config: RuntimeConfig): Result<Unit> = mutex.withLock {
+        startedNewVm = false
         val bootStartedAt = SystemClock.elapsedRealtime()
         var nextMachine: VirtualMachine? = null
         var startedHere = false
@@ -99,6 +102,7 @@ class AospAvfPlatformDriver(
             })
             check(machine === vm) { "AVF stopped while connecting to the Debian session daemon" }
             Log.i(TAG, "vm.sessiond duration_ms=${SystemClock.elapsedRealtime() - bootStartedAt} reused=${!startedHere}")
+            startedNewVm = startedHere
             Result.success(Unit)
         } catch (failure: Throwable) {
             pendingSessionConnection.getAndSet(null)?.let { connection ->
@@ -127,6 +131,7 @@ class AospAvfPlatformDriver(
             activeMachine.stop()
             pendingSessionConnection.getAndSet(null)?.close()
             machine = null
+            startedNewVm = false
         }
     }
 
@@ -152,6 +157,7 @@ class AospAvfPlatformDriver(
     }
 
     override suspend fun connectGuestBridge(): Result<GuestConnection> = connectGuestPort(DROID_AGENT_PORT)
+    override suspend fun connectImageInitializer(): Result<GuestConnection> = connectGuestPort(40_503)
 
     override suspend fun connectGuestPortAgent(): Result<GuestConnection> = connectGuestPort(DROID_PORT_AGENT_PORT)
 

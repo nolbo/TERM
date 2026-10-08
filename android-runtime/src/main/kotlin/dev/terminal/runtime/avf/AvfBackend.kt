@@ -26,6 +26,8 @@ import kotlinx.coroutines.sync.withLock
 class AvfBackend(
     private val driver: AvfPlatformDriver,
 ) : RuntimeBackend {
+    val startedNewVm: Boolean get() = driver.startedNewVm
+    suspend fun connectImageInitializer(): Result<GuestConnection> = driver.connectImageInitializer()
     private val mutex = Mutex()
     private val state = MutableStateFlow<RuntimeState>(RuntimeState.Stopped)
     private var config: RuntimeConfig? = null
@@ -97,6 +99,10 @@ class AvfBackend(
 
 /** Implemented in the AOSP/system-SDK deployment module in the next spike. */
 interface AvfPlatformDriver {
+    /** True only if the latest successful start booted a stopped VM, not a reconnect. */
+    val startedNewVm: Boolean get() = false
+    suspend fun connectImageInitializer(): Result<GuestConnection> = Result.failure(
+        UnsupportedOperationException("이 Debian 이미지는 자동 패키지 목록 초기화를 지원하지 않습니다."))
     /** Must fully verify the installed image before accepting it for [start]. */
     suspend fun prepare(config: RuntimeConfig): Result<Unit>
     suspend fun start(config: RuntimeConfig): Result<Unit>

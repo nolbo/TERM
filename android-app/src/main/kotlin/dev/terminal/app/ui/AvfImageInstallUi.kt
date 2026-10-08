@@ -30,6 +30,8 @@ private fun phaseTitle(phase: AvfImageInstallPhase) = when (phase) {
     AvfImageInstallPhase.DOWNLOAD -> R.string.avf_install_downloading
     AvfImageInstallPhase.VERIFY -> R.string.avf_install_verifying
     AvfImageInstallPhase.INSTALL -> R.string.avf_install_installing
+    AvfImageInstallPhase.BOOT -> R.string.avf_install_booting
+    AvfImageInstallPhase.APT_REFRESH -> R.string.avf_install_apt_refresh
     AvfImageInstallPhase.COMPLETE -> R.string.avf_install_complete
 }
 

@@ -74,7 +74,8 @@ fun ProfileInstallationDialog(spec: SessionLaunchSpec, onInstall: () -> Unit, on
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.profile_installation_title)) },
         text = { Text(stringResource(R.string.profile_installation_question,
-            spec.executionEnvironment?.name ?: spec.profileName, software)) },
+            spec.executionEnvironment?.name ?: spec.profileName, software) +
+            if (spec.runtime == SessionRuntime.AVF) "\n\n" + stringResource(R.string.avf_install_initialization_consent) else "") },
         confirmButton = { TextButton(onClick = onInstall) { Text(stringResource(R.string.install)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
     )

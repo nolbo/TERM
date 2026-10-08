@@ -87,6 +87,19 @@ class CatalogVerificationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'pinned catalog'):
             verifier.verify_directory(self.root)
 
+    def test_legacy_manifest_remains_supported_and_unknown_initializer_is_rejected(self):
+        current = (self.root / 'manifest.properties').read_bytes()
+        for version in [None, b'1', b'2', b'0', b'invalid']:
+            with self.subTest(version=version):
+                data = current.replace(b'aptInitializationVersion=1\n',
+                                       b'' if version is None else b'aptInitializationVersion=' + version + b'\n')
+                approved = {'manifestSha256': verifier.digest(data)}
+                if version in (None, b'1'):
+                    verifier.manifest(data, approved)
+                else:
+                    with self.assertRaisesRegex(ValueError, 'APT initialization version'):
+                        verifier.manifest(data, approved)
+
     def test_private_mutable_or_injected_catalogs_are_rejected(self):
         original = (self.root / 'catalog.properties').read_bytes()
         invalid = [
