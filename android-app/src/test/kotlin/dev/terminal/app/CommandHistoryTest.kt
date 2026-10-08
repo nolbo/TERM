@@ -21,23 +21,21 @@ class CommandHistoryTest {
         if (exit != null) append("\u001b]133;D;$exit\u0007")
     }
 
-    @Test fun scopesFilterByCommandAndItsOwnOutputWithoutReadingOtherCommands() {
+    @Test fun graphAlwaysReadsAllCommandsWithTheirStatus() {
         val terminal = terminal()
         terminal.command("echo needle", "alpha")
         terminal.command("printf beta", "needle", 3)
         terminal.command("sleep 1", "working", null)
-        val all = readCommandHistory(terminal, "", HistorySearchScope.All)
+        val all = readCommandHistory(terminal)
         assertEquals(listOf(HistoryCommandStatus.Completed, HistoryCommandStatus.Failed, HistoryCommandStatus.Running), all.map { it.status })
-        assertEquals(listOf(all[0]), readCommandHistory(terminal, "NEEDLE", HistorySearchScope.Commands))
-        assertEquals(listOf(all[1]), readCommandHistory(terminal, "needle", HistorySearchScope.Output))
-        assertEquals(all.take(2), readCommandHistory(terminal, "needle", HistorySearchScope.All))
-        assertTrue(readCommandHistory(terminal, "no matches", HistorySearchScope.All).isEmpty())
+        assertEquals(listOf("echo needle", "printf beta", "sleep 1"), all.map { it.marker.commandText })
+        assertEquals(listOf(0, 3, null), all.map { it.exitCode })
     }
 
     @Test fun navigationChangesToEdgesAndUsesIdentityForCommandsSharingTheViewport() {
         val terminal = terminal()
         repeat(3) { terminal.command("command-$it", "output") }
-        val commands = readCommandHistory(terminal, "", HistorySearchScope.All)
+        val commands = readCommandHistory(terminal)
         val first = commands.first()
         val last = commands.last()
         assertNull(commandHistoryTarget(commands, first.viewportRow, false, first.marker).command)
@@ -51,15 +49,15 @@ class CommandHistoryTest {
         assertNull(commandHistoryTarget(emptyList(), -5, false).command)
     }
 
-    @Test fun filteringKeepsLogicalNavigationAndTrimRemovesSearchResults() {
+    @Test fun trimRemovesGraphCommandsWithTheirHistory() {
         val terminal = terminal()
         terminal.command("first", "match")
         terminal.command("ignored", "other")
         terminal.command("third", "match")
-        val filtered = readCommandHistory(terminal, "match", HistorySearchScope.Output)
-        assertEquals(2, filtered.size)
-        assertEquals(filtered.last(), commandHistoryTarget(filtered, filtered.first().viewportRow, true, filtered.first().marker).command)
+        val commands = readCommandHistory(terminal)
+        assertEquals(3, commands.size)
+        assertEquals(commands[1], commandHistoryTarget(commands, commands.first().viewportRow, true, commands.first().marker).command)
         repeat(150) { terminal.append("trim\r\n") }
-        assertTrue(readCommandHistory(terminal, "match", HistorySearchScope.Output).isEmpty())
+        assertTrue(readCommandHistory(terminal).isEmpty())
     }
 }

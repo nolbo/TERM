@@ -2,11 +2,12 @@ package dev.terminal.app
 
 import com.termux.terminal.CommandMarker
 import com.termux.terminal.TerminalEmulator
+import com.termux.terminal.TerminalSearch
 
-internal enum class HistorySearchScope(val title: Int) {
-    Commands(R.string.history_scope_commands),
-    Output(R.string.history_scope_output),
-    All(R.string.history_scope_all),
+internal enum class HistorySearchScope(val title: Int, val cells: TerminalSearch.Scope) {
+    Commands(R.string.history_scope_commands, TerminalSearch.Scope.COMMANDS),
+    Output(R.string.history_scope_output, TerminalSearch.Scope.OUTPUT),
+    All(R.string.history_scope_all, TerminalSearch.Scope.ALL),
 }
 
 internal enum class HistoryCommandStatus { Running, Completed, Failed }
@@ -23,17 +24,9 @@ internal data class HistoryCommand(
 internal data class HistoryTarget(val command: HistoryCommand? = null, val bottom: Boolean = false)
 
 /** A view of retained cells, never a second shell history or a session owner. */
-internal fun readCommandHistory(emulator: TerminalEmulator, query: String, scope: HistorySearchScope): List<HistoryCommand> =
+internal fun readCommandHistory(emulator: TerminalEmulator): List<HistoryCommand> =
     emulator.history.markers.mapNotNull { marker ->
         val row = marker.anchor.row ?: return@mapNotNull null
-        if (query.isNotEmpty()) {
-            val matches = when (scope) {
-                HistorySearchScope.Commands -> marker.matchesCommand(query)
-                HistorySearchScope.Output -> marker.matchesOutput(query)
-                HistorySearchScope.All -> marker.matchesCommand(query) || marker.matchesOutput(query)
-            }
-            if (!matches) return@mapNotNull null
-        }
         HistoryCommand(marker, row, when {
             marker.isRunning -> HistoryCommandStatus.Running
             marker.isFailed -> HistoryCommandStatus.Failed

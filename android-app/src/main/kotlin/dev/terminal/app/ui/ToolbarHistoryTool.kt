@@ -51,6 +51,8 @@ private data class HistoryToolSnapshot(
     val oldest: Int = 0,
     val available: Boolean = false,
     val attached: Boolean = false,
+    val searchCount: Int = 0,
+    val searchIndex: Int = -1,
     val query: String = "",
     val scope: HistorySearchScope = HistorySearchScope.Commands,
 )
@@ -68,6 +70,13 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
     val currentTerminal by rememberUpdatedState(terminal)
     val focusManager = LocalFocusManager.current
     var searchFocused by remember { mutableStateOf(false) }
+    val searchOwner = remember { arrayOfNulls<TerminalView>(1) }
+    DisposableEffect(active) {
+        onDispose {
+            searchOwner[0]?.clearHistorySearch()
+            searchOwner[0] = null
+        }
+    }
     LaunchedEffect(active) {
         if (!active) {
             menu = false
@@ -83,17 +92,23 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
         var revision = -1L
         while (isActive) {
             val view = currentTerminal()
+            if (searchOwner[0] !== view) {
+                searchOwner[0]?.clearHistorySearch()
+                searchOwner[0] = view
+            }
             val emulator = view?.mEmulator
             val history = emulator?.history
             val commands = if (emulator != null && history != null && (history !== previous || history.revision != revision)) {
                 previous = history
                 revision = history.revision
-                readCommandHistory(emulator, query, searchScope)
+                readCommandHistory(emulator)
             } else if (emulator != null) snapshot.commands else emptyList()
+            view?.updateHistorySearch(query, searchScope.cells)
             snapshot = HistoryToolSnapshot(commands = commands, row = view?.topRow ?: 0,
                 oldest = -(emulator?.screen?.activeTranscriptRows ?: 0),
                 available = emulator != null && !emulator.isHistoryViewportOwnedByApplication,
-                attached = emulator != null, query = query, scope = searchScope)
+                attached = emulator != null, searchCount = view?.historySearchMatches?.size ?: 0,
+                searchIndex = view?.historySearchIndex ?: -1, query = query, scope = searchScope)
             delay(200)
         }
     }
@@ -101,6 +116,17 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
     val current = currentHistoryCommand(snapshot.commands, snapshot.row, selected)
     val previous = commandHistoryTarget(snapshot.commands, snapshot.row, false, current)
     val next = commandHistoryTarget(snapshot.commands, snapshot.row, true, current)
+    val searching = query.isNotEmpty()
+    fun search(next: Boolean) {
+        if (!ready) return
+        val view = currentTerminal() ?: return
+        if (view.moveHistorySearchMatch(next)) {
+            selected = null
+            snapshot = snapshot.copy(row = view.topRow, searchIndex = view.historySearchIndex,
+                searchCount = view.historySearchMatches.size)
+            refresh++
+        }
+    }
     fun jump(target: HistoryTarget) {
         if (!ready) return
         val view = currentTerminal() ?: return
@@ -121,17 +147,19 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
     val searchLabel = stringResource(R.string.history_search_description)
     Column(Modifier.fillMaxSize().padding(horizontal = 4.dp)) {
         Row(Modifier.fillMaxWidth().height(60.dp), verticalAlignment = Alignment.CenterVertically) {
-            HistoryNavigationButton(previous.command == null, false,
-                ready && (previous.command != null || snapshot.row > snapshot.oldest)) { jump(previous) }
-            HistoryNavigationButton(next.command == null, true,
-                ready && (next.command != null || snapshot.row < 0)) { jump(next) }
+            HistoryNavigationButton(!searching && previous.command == null, false,
+                ready && if (searching) snapshot.searchCount > 0 else (previous.command != null || snapshot.row > snapshot.oldest),
+                searching) { if (searching) search(false) else jump(previous) }
+            HistoryNavigationButton(!searching && next.command == null, true,
+                ready && if (searching) snapshot.searchCount > 0 else (next.command != null || snapshot.row < 0),
+                searching) { if (searching) search(true) else jump(next) }
             TextField(value = query, onValueChange = { query = it.take(256) }, singleLine = true,
                 enabled = active, shape = CircleShape,
                 placeholder = { Text(stringResource(R.string.history_search), maxLines = 1) },
                 textStyle = MaterialTheme.typography.bodyMedium,
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = {
-                    snapshot.commands.lastOrNull()?.let { jump(HistoryTarget(it)) }
+                    if (searching) search(true)
                 }),
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = colors.container, unfocusedContainerColor = colors.container,
@@ -191,7 +219,8 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
         val summary = when {
             !snapshot.attached || snapshot.query != query || snapshot.scope != searchScope -> stringResource(R.string.toolbar_loading)
             !snapshot.available -> stringResource(R.string.history_application_viewport)
-            snapshot.commands.isEmpty() && query.isNotEmpty() -> stringResource(R.string.history_no_results)
+            searching && snapshot.searchCount == 0 -> stringResource(R.string.history_no_results)
+            searching -> stringResource(R.string.history_search_count, snapshot.searchIndex + 1, snapshot.searchCount)
             snapshot.commands.isEmpty() -> stringResource(R.string.history_empty)
             else -> if (expanded) stringResource(R.string.history_count, snapshot.commands.size) else ""
         }
@@ -218,9 +247,11 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
 }
 
 @Composable
-private fun HistoryNavigationButton(edge: Boolean, next: Boolean, enabled: Boolean, onClick: () -> Unit) {
+private fun HistoryNavigationButton(edge: Boolean, next: Boolean, enabled: Boolean, searching: Boolean, onClick: () -> Unit) {
     val colors = LocalToolbarColors.current
-    val label = stringResource(if (edge) {
+    val label = stringResource(if (searching) {
+        if (next) R.string.history_search_next else R.string.history_search_previous
+    } else if (edge) {
         if (next) R.string.history_bottom else R.string.history_top
     } else if (next) R.string.history_next else R.string.history_previous)
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),

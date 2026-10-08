@@ -1,6 +1,8 @@
 package dev.terminal.app
 
 import android.graphics.Rect
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
@@ -156,7 +158,7 @@ class ToolbarHistoryToolTest {
         assertEquals(0, writes.size())
     }
 
-    @Test fun expandedTimelineExposesStatusAndFiltersEachSearchScope() = withTool(ToolbarSheetMode.Expanded) { scenario, view, _ ->
+    @Test fun expandedTimelineStaysCompleteWhileSearchMovesThroughTerminalCells() = withTool(ToolbarSheetMode.Expanded) { scenario, view, writes ->
         text("echo needle"); text("false"); text("sleep 9")
         node { it.stateDescription?.toString() == label(R.string.history_running) }
         node { it.stateDescription?.toString() == context.getString(R.string.history_failed, 7) }
@@ -164,39 +166,167 @@ class ToolbarHistoryToolTest {
         click(text("false"))
         scenario.onActivity { assertEquals(view.mEmulator.history.markers[1].anchor.row!!.coerceAtMost(0), view.topRow) }
         query("needle")
-        text("echo needle")
-        assertNull(find { it.text?.toString() == "false" })
+        text("echo needle"); text("false"); text("sleep 9")
+        scenario.onActivity {
+            assertEquals(1, view.historySearchMatches.size)
+            assertEquals(7, view.currentHistorySearchMatch!!.startColumn)
+        }
         scope(R.string.history_scope_output)
-        text("false")
-        assertNull(find { it.text?.toString() == "echo needle" })
+        text("echo needle"); text("false"); text("sleep 9")
+        scenario.onActivity {
+            assertEquals(40, view.historySearchMatches.size)
+            val hit = view.currentHistorySearchMatch!!
+            assertTrue(hit.startRow > view.mEmulator.history.markers[1].anchor.row!!)
+            assertEquals(hit.startRow.coerceAtMost(0), view.topRow)
+        }
         scope(R.string.history_scope_all)
-        text("false"); text("echo needle")
+        text("false"); text("echo needle"); text("sleep 9")
+        scenario.onActivity { assertEquals(41, view.historySearchMatches.size) }
         query("unmatched")
         text(label(R.string.history_no_results))
-        assertNull(find { it.text?.toString() == "false" })
+        text("false"); text("echo needle"); text("sleep 9")
+        scenario.onActivity { assertTrue(view.historySearchMatches.isEmpty()) }
+        click(text("false"))
+        scenario.onActivity { assertEquals(view.mEmulator.history.markers[1].anchor.row!!.coerceAtMost(0), view.topRow) }
+        assertEquals(0, writes.size())
+    }
+
+    @Test fun compactSearchNavigatesIndividualOutputOccurrencesAndReturnsToCommandNavigation() = withTool(ToolbarSheetMode.Default) { scenario, view, writes ->
+        query("needle-output")
+        text(label(R.string.history_no_results))
+        scope(R.string.history_scope_output)
+        scenario.onActivity { assertEquals(39, view.historySearchIndex) }
+        click(description(R.string.history_search_previous))
+        scenario.onActivity {
+            assertEquals(38, view.historySearchIndex)
+            assertEquals(view.currentHistorySearchMatch!!.startRow.coerceAtMost(0), view.topRow)
+        }
+        click(description(R.string.history_search_next))
+        scenario.onActivity { assertEquals(39, view.historySearchIndex) }
+        click(description(R.string.history_search_next))
+        scenario.onActivity { assertEquals(0, view.historySearchIndex) }
+        query("")
+        description(R.string.history_previous)
+        scenario.onActivity { assertTrue(view.historySearchMatches.isEmpty()) }
+        assertEquals(0, writes.size())
+    }
+
+    @Test fun ordinaryOutputIsSearchableWithoutAnyCommandMarkers() = withTool(ToolbarSheetMode.Default) { scenario, view, writes ->
+        val other = RemoteTerminalBackend(write = { writes.write(it) }, resize = { _, _ -> })
+        try {
+            scenario.onActivity {
+                view.attachSession(TerminalSession("", "/", emptyArray(), emptyArray(), 1000, TerminalCallbacks {}, other))
+                append(view, "unmarked needle needle\r\n")
+                repeat(60) { append(view, "ordinary-output-$it\r\n") }
+            }
+            scope(R.string.history_scope_output)
+            query("needle")
+            scenario.onActivity {
+                assertTrue(view.mEmulator.history.markers.isEmpty())
+                assertEquals(2, view.historySearchMatches.size)
+                assertEquals(16, view.currentHistorySearchMatch!!.startColumn)
+                assertTrue(view.topRow < 0)
+            }
+            click(description(R.string.history_search_previous))
+            scenario.onActivity { assertEquals(9, view.currentHistorySearchMatch!!.startColumn) }
+            assertEquals(0, writes.size())
+        } finally { other.close() }
+    }
+
+    @Test fun keyboardResizeKeepsTheSelectedTerminalOccurrenceVisible() = withTool(ToolbarSheetMode.Default) { scenario, view, writes ->
+        scope(R.string.history_scope_output)
+        query("needle-output-39")
+        scenario.onActivity {
+            val width = view.width
+            val height = view.height
+            view.layout(0, 0, width, height + 2400)
+            view.updateSize()
+            assertTrue("The occurrence starts on the taller live screen", view.currentHistorySearchMatch!!.startRow >= 0)
+            view.layout(0, 0, width, 300)
+            view.updateSize()
+            val hit = view.currentHistorySearchMatch!!
+            assertTrue("The occurrence enters scrollback when the keyboard returns", hit.startRow < 0)
+            assertEquals(hit.startRow, view.topRow)
+            assertEquals("needle-output-39", view.mEmulator.screen.getSelectedText(
+                hit.startColumn, hit.startRow, hit.endColumn - 1, hit.endRow))
+            view.layout(0, 0, width, height)
+            view.updateSize()
+        }
+        assertEquals(0, writes.size())
+    }
+
+    @Test fun searchPaintsTerminalCellsAndClearsWhenTheToolLeaves() = withTool(ToolbarSheetMode.Default) { scenario, view, writes ->
+        query("needle")
+        scenario.onActivity { activity ->
+            val emulator = view.mEmulator
+            val cells = emulator.screen.transcriptText
+            val highlighted = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            val plain = Bitmap.createBitmap(view.width, view.height, Bitmap.Config.ARGB_8888)
+            view.draw(Canvas(highlighted))
+            view.clearHistorySearch()
+            view.draw(Canvas(plain))
+            assertFalse("Search must visibly highlight the terminal canvas", highlighted.sameAs(plain))
+            assertSame(emulator, view.mEmulator)
+            assertEquals(cells, emulator.screen.transcriptText)
+            highlighted.recycle(); plain.recycle()
+            view.updateHistorySearch("needle", com.termux.terminal.TerminalSearch.Scope.COMMANDS)
+            activity.setContent { Box(Modifier.fillMaxSize()) }
+        }
+        settle()
+        scenario.onActivity {
+            assertTrue(view.historySearchMatches.isEmpty())
+            assertNotNull(view.mEmulator)
+        }
+        assertEquals(0, writes.size())
+    }
+
+    @Test fun ownerResizeKeepsSearchVisibleWithoutPullingManualBrowsingBack() = withTool(ToolbarSheetMode.Default) { scenario, view, writes ->
+        scope(R.string.history_scope_output)
+        query("needle-output-39")
+        scenario.onActivity {
+            val columns = view.mEmulator.mColumns
+            // Mirror the owner's resize event, which arrives after applySize has returned.
+            view.mEmulator.resize(columns, 80, 1, 1)
+            view.onScreenUpdated()
+            assertTrue(view.currentHistorySearchMatch!!.startRow >= 0)
+            view.mEmulator.resize(columns, 4, 1, 1)
+            view.onScreenUpdated()
+            assertEquals(view.currentHistorySearchMatch!!.startRow, view.topRow)
+            assertTrue(view.topRow < 0)
+            view.jumpToHistoryRow(-view.mEmulator.screen.activeTranscriptRows)
+            view.mEmulator.resize(columns, 8, 1, 1)
+            view.onScreenUpdated()
+            assertEquals("A manually browsed viewport must stay at the oldest retained line",
+                -view.mEmulator.screen.activeTranscriptRows, view.topRow)
+        }
+        assertEquals(0, writes.size())
     }
 
     @Test fun applicationViewportBlocksJumpsAndMainHistoryReturnsIntact() = withTool(ToolbarSheetMode.Expanded) { scenario, view, writes ->
+        query("needle")
         scenario.onActivity {
             append(view, "\u001b[?1049h\u001b]133;C\u0007alternate\u001b]133;D;9\u0007")
             writes.reset()
             assertFalse(view.jumpToCommand(view.mEmulator.history.markers.first()))
             assertFalse(view.jumpToHistoryRow(-50))
+            assertFalse(view.moveHistorySearchMatch(true))
             assertEquals(0, view.topRow)
             assertFalse(view.isVerticalScrollBarEnabled)
         }
         settle()
         text(label(R.string.history_application_viewport))
-        var button: AccessibilityNodeInfo? = description(R.string.history_previous)
+        var button: AccessibilityNodeInfo? = description(R.string.history_search_previous)
         var disabled = false
         while (button != null) {
             disabled = disabled || !button.isEnabled
             button = button.parent
         }
         assertTrue("The navigation button must expose disabled semantics", disabled)
+        scenario.onActivity { assertTrue(view.historySearchMatches.isEmpty()) }
         assertEquals(0, writes.size())
         scenario.onActivity { append(view, "\u001b[?1049l") }
         settle()
+        query("")
         click(text("echo needle"))
         scenario.onActivity {
             assertTrue(view.topRow < 0)
@@ -205,6 +335,7 @@ class ToolbarHistoryToolTest {
     }
 
     @Test fun reattachingAnotherSessionReplacesTheHistoryWithoutStartingOrWritingIt() = withTool(ToolbarSheetMode.Expanded) { scenario, view, writes ->
+        query("needle")
         val other = RemoteTerminalBackend(write = { writes.write(it) }, resize = { _, _ -> })
         try {
             lateinit var original: TerminalSession
@@ -216,10 +347,12 @@ class ToolbarHistoryToolTest {
             }
             settle()
             text("another-session")
+            scenario.onActivity { assertTrue(view.historySearchMatches.isEmpty()) }
             assertNull(find { it.text?.toString() == "echo needle" })
             scenario.onActivity { view.attachSession(original) }
             settle()
             text("echo needle")
+            scenario.onActivity { assertEquals(1, view.historySearchMatches.size) }
             assertNull(find { it.text?.toString() == "another-session" })
             assertEquals(0, writes.size())
         } finally { other.close() }

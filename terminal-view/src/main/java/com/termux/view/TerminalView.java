@@ -7,6 +7,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.os.Build;
 import android.os.Handler;
@@ -42,7 +43,10 @@ import androidx.annotation.RequiresApi;
 import com.termux.terminal.KeyHandler;
 import com.termux.terminal.KittyKeyboard;
 import com.termux.terminal.TerminalEmulator;
+import com.termux.terminal.TerminalHistory;
+import com.termux.terminal.TerminalSearch;
 import com.termux.terminal.TerminalSession;
+import com.termux.terminal.TextStyle;
 import com.termux.view.textselection.TextSelectionCursorController;
 
 import java.util.WeakHashMap;
@@ -61,6 +65,16 @@ public final class TerminalView extends View {
     public TerminalSession mTermSession;
     /** Our terminal emulator whose session is {@link #mTermSession}. */
     public TerminalEmulator mEmulator;
+
+    // Search belongs to this renderer, never to a session or its checkpoint.
+    private TerminalHistory mSearchHistory;
+    private long mSearchRevision = -1, mSearchTranscriptShift;
+    private int mSearchColumns, mSearchRows;
+    private String mSearchQuery = "";
+    private TerminalSearch.Scope mSearchScope = TerminalSearch.Scope.COMMANDS;
+    private java.util.List<TerminalSearch.Match> mSearchMatches = java.util.Collections.emptyList();
+    private int mSearchIndex = -1;
+    private final Paint mSearchPaint = new Paint();
 
     public TerminalRenderer mRenderer;
 
@@ -400,6 +414,7 @@ public final class TerminalView extends View {
     public boolean attachSession(TerminalSession session) {
         if (session != mTermSession) mKittyPressedKeys.clear();
         if (session == mTermSession) return false;
+        clearHistorySearch();
         if (mEmulator != null && hasWindowFocus()) mEmulator.sendFocusEvent(false);
         mScaleFactor = 1.f;
         if (mRenderer != null) mRenderer.clearPresentedFrame();
@@ -711,6 +726,9 @@ public final class TerminalView extends View {
             mTopRow = 0;
             mScrollOffset = 0;
         }
+        // Authoritative backends apply geometry after the View's layout request returns.
+        if (mSearchHistory != null && (mSearchColumns != mEmulator.mColumns || mSearchRows != mEmulator.mRows))
+            updateHistorySearch(mSearchQuery, mSearchScope);
 
         mEmulator.clearScrollCounter();
 
@@ -1537,6 +1555,7 @@ public final class TerminalView extends View {
             int clamped = Math.min(0, Math.max(-mEmulator.getScreen().getActiveTranscriptRows(), mTopRow));
             if (clamped != mTopRow || clamped == 0 || mEmulator.isAlternateBufferActive()) mScrollOffset = 0;
             mTopRow = clamped;
+            if (mSearchHistory != null) updateHistorySearch(mSearchQuery, mSearchScope);
             scrollTo(0, 0);
             invalidate();
         }
@@ -1561,6 +1580,7 @@ public final class TerminalView extends View {
             mRenderer.setPaletteOverride(mPaletteOverride);
             mRenderer.setCanvasBackgroundOverride(mCanvasBackgroundOverride);
             mRenderer.render(mEmulator, canvas, mTopRow, sel[0], sel[1], sel[2], sel[3], mScrollOffset, getTerminalContentTopInset());
+            if (syncDelay == 0) drawHistorySearch(canvas);
             long graphicsDelay = syncDelay > 0 ? syncDelay : mEmulator.getGraphics().getAnimationDelayMillis();
             removeCallbacks(mGraphicsFrame);
             if (graphicsDelay >= 0 && isShown() && getWindowVisibility() == VISIBLE)
@@ -1699,6 +1719,103 @@ public final class TerminalView extends View {
 
     public int getTopRow() {
         return mTopRow;
+    }
+
+    /** Refresh only when retained cells change. A new query jumps to its newest occurrence. */
+    public void updateHistorySearch(String query, TerminalSearch.Scope scope) {
+        if (query == null || query.isEmpty() || mEmulator == null || mEmulator.isHistoryViewportOwnedByApplication()) {
+            clearHistorySearch();
+            return;
+        }
+        TerminalHistory history = mEmulator.getHistory();
+        boolean changed = history != mSearchHistory || !query.equals(mSearchQuery) || scope != mSearchScope;
+        boolean resized = mSearchColumns != mEmulator.mColumns || mSearchRows != mEmulator.mRows;
+        if (!changed && !resized && mSearchRevision == history.getRevision()) return;
+        TerminalSearch.Match selected = getCurrentHistorySearchMatch();
+        long shift = mEmulator.getTranscriptRowShiftCounter();
+        long selectedRow = selected == null ? 0 : selected.startRow - (shift - mSearchTranscriptShift);
+        long previousTop = mTopRow == 0 ? 0 : mTopRow + (shift - mSearchTranscriptShift);
+        boolean keepVisible = !changed && resized && !isSelectingText() && selected != null
+            && selected.startRow >= previousTop && selected.startRow < previousTop + mSearchRows;
+        int previousIndex = mSearchIndex;
+        mSearchMatches = TerminalSearch.find(history, query, scope);
+        mSearchHistory = history; mSearchQuery = query; mSearchScope = scope;
+        mSearchRevision = history.getRevision(); mSearchTranscriptShift = shift;
+        mSearchColumns = mEmulator.mColumns; mSearchRows = mEmulator.mRows;
+        mSearchIndex = mSearchMatches.isEmpty() ? -1 : changed ? mSearchMatches.size() - 1
+            : Math.min(Math.max(0, previousIndex), mSearchMatches.size() - 1);
+        if (!changed && selected != null) {
+            for (int i = 0; i < mSearchMatches.size(); i++) {
+                TerminalSearch.Match match = mSearchMatches.get(i);
+                if (match.startRow == selectedRow && match.startColumn == selected.startColumn) {
+                    mSearchIndex = i;
+                    break;
+                }
+            }
+        }
+        if (mSearchIndex >= 0) {
+            int row = mSearchMatches.get(mSearchIndex).startRow;
+            if (changed || keepVisible && (row < mTopRow || row >= mTopRow + mEmulator.mRows)) jumpToHistoryRow(row);
+        }
+        invalidate();
+    }
+
+    public void clearHistorySearch() {
+        if (mSearchHistory == null) return;
+        mSearchHistory = null; mSearchRevision = -1; mSearchQuery = "";
+        mSearchMatches = java.util.Collections.emptyList(); mSearchIndex = -1;
+        invalidate();
+    }
+
+    public java.util.List<TerminalSearch.Match> getHistorySearchMatches() { return mSearchMatches; }
+    public int getHistorySearchIndex() { return mSearchIndex; }
+    public TerminalSearch.Match getCurrentHistorySearchMatch() {
+        return mSearchIndex < 0 ? null : mSearchMatches.get(mSearchIndex);
+    }
+
+    /** Local, cyclic occurrence navigation, without sending shell input. */
+    public boolean moveHistorySearchMatch(boolean next) {
+        if (mEmulator == null || mEmulator.isHistoryViewportOwnedByApplication()) return false;
+        updateHistorySearch(mSearchQuery, mSearchScope);
+        if (mSearchMatches.isEmpty()) return false;
+        mSearchIndex = (mSearchIndex + (next ? 1 : mSearchMatches.size() - 1)) % mSearchMatches.size();
+        return jumpToHistoryRow(mSearchMatches.get(mSearchIndex).startRow);
+    }
+
+    private void drawHistorySearch(Canvas canvas) {
+        if (mSearchHistory != mEmulator.getHistory() || mSearchRevision != mSearchHistory.getRevision()
+            || mEmulator.isHistoryViewportOwnedByApplication() || isSelectingText()) return;
+        int firstRow = TerminalViewport.firstDrawnRow(mTopRow, mEmulator.getScreen().getActiveTranscriptRows(),
+            getTerminalContentTopInset(), mRenderer.mFontLineSpacing);
+        int lastRow = Math.min(mEmulator.mRows - 1, mTopRow + mEmulator.mRows - 1 + (mScrollOffset > 0 ? 1 : 0));
+        int[] palette = mPaletteOverride == null ? mEmulator.mColors.mCurrentColors : mPaletteOverride;
+        int color = palette[mEmulator.isReverseVideo() ? TextStyle.COLOR_INDEX_BACKGROUND : TextStyle.COLOR_INDEX_FOREGROUND];
+        float stroke = getResources().getDisplayMetrics().density;
+        // Matches are ordered: avoid walking off-screen occurrences on every animation frame.
+        int low = 0, high = mSearchMatches.size();
+        while (low < high) {
+            int middle = (low + high) >>> 1;
+            if (mSearchMatches.get(middle).endRow < firstRow) low = middle + 1; else high = middle;
+        }
+        for (int i = low; i < mSearchMatches.size(); i++) {
+            TerminalSearch.Match match = mSearchMatches.get(i);
+            if (match.startRow > lastRow) break;
+            for (int row = Math.max(firstRow, match.startRow); row <= Math.min(lastRow, match.endRow); row++) {
+                float left = (row == match.startRow ? match.startColumn : 0) * mRenderer.mFontWidth;
+                float right = (row == match.endRow ? match.endColumn : mEmulator.mColumns) * mRenderer.mFontWidth;
+                float top = getTerminalContentTopInset() + mRenderer.mFontLineSpacingAndAscent
+                    + (row - mTopRow - mScrollOffset) * mRenderer.mFontLineSpacing;
+                mSearchPaint.setStyle(Paint.Style.FILL);
+                mSearchPaint.setColor((color & 0x00FFFFFF) | (i == mSearchIndex ? 0x50000000 : 0x30000000));
+                canvas.drawRect(left, top, right, top + mRenderer.mFontLineSpacing, mSearchPaint);
+                if (i == mSearchIndex) {
+                    mSearchPaint.setStyle(Paint.Style.STROKE); mSearchPaint.setStrokeWidth(stroke);
+                    mSearchPaint.setColor(color);
+                    canvas.drawRect(left + stroke / 2, top + stroke / 2, right - stroke / 2,
+                        top + mRenderer.mFontLineSpacing - stroke / 2, mSearchPaint);
+                }
+            }
+        }
     }
 
     /** Explicit local history navigation; never sends scroll or key input to an application. */
