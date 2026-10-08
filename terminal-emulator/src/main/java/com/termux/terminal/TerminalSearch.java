@@ -46,9 +46,9 @@ public final class TerminalSearch {
                 long start = position(buffer, first, marker.inputStart.getColumn());
                 long end = position(buffer, last, marker.inputEnd.getColumn());
                 if (marker.inputIncludesPrompt) {
-                    long input = afterLegacyPrompt(buffer, start, end);
-                    prompts.add(new Range(start, input < 0 ? end : input));
-                    if (input < 0) continue;
+                    Long input = afterLegacyPrompt(buffer, start, end);
+                    prompts.add(new Range(start, input == null ? end : input));
+                    if (input == null) continue;
                     start = input;
                 } else {
                     Integer prompt = marker.anchor.getRow();
@@ -109,13 +109,14 @@ public final class TerminalSearch {
     }
 
     // Legacy A/C producers include PS1. Use the same bounded delimiter fallback as command previews.
-    private static long afterLegacyPrompt(TerminalBuffer buffer, long start, long end) {
+    // Missing boundaries use null: retained scrollback cells have valid negative positions.
+    private static Long afterLegacyPrompt(TerminalBuffer buffer, long start, long end) {
         boolean delimiter = false, whitespace = false;
         int inspected = 0;
         int firstRow = (int) Math.floorDiv(start, buffer.mColumns);
         for (int row = firstRow; position(buffer, row, 0) < end && inspected < 4096; row++) {
             TerminalRow line = buffer.mLines[buffer.externalToInternalRow(row)];
-            if (line == null) return -1;
+            if (line == null) return null;
             int column = 0;
             for (int offset = 0; offset < line.getSpaceUsed() && inspected++ < 4096;) {
                 int cp = Character.codePointAt(line.mText, offset, line.getSpaceUsed());
@@ -123,7 +124,7 @@ public final class TerminalSearch {
                 long cell = position(buffer, row, column);
                 column += Math.max(0, WcWidth.width(cp));
                 if (cell < start) continue;
-                if (cell >= end) return whitespace ? cell : -1;
+                if (cell >= end) return whitespace ? cell : null;
                 boolean space = cp == ' ' || cp == '\t' || cp == '\r' || cp == '\n';
                 if (whitespace && !space) return cell;
                 if (delimiter && space) whitespace = true;
@@ -131,6 +132,6 @@ public final class TerminalSearch {
             }
             if (delimiter && !line.mLineWrap) whitespace = true;
         }
-        return -1;
+        return null;
     }
 }

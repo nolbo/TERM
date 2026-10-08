@@ -57,6 +57,31 @@ public class TerminalSearchTest extends TerminalTestCase {
         assertEquals(1, output.get(0).startRow);
     }
 
+    public void testLegacyBashCommandsRemainSearchableInScrollback() throws Exception {
+        withTerminalSized(60, 4);
+        for (String command : new String[]{"ls -al", "ls -al /usr/bin"}) {
+            enterString("\033]133;A\007root@ubuntu:~# " + command + "\r\n\033]133;C\007");
+            for (int i = 0; i < 20; i++) enterString("listed-file-" + i + "\r\n");
+            enterString("\033]133;D;0\007");
+        }
+        assertEquals("ls -al", mTerminal.getHistory().getMarkers().get(0).getCommandText());
+        assertEquals("ls -al /usr/bin", mTerminal.getHistory().getMarkers().get(1).getCommandText());
+        for (CommandMarker marker : mTerminal.getHistory().getMarkers()) assertTrue(marker.anchor.getRow() < 0);
+        List<TerminalSearch.Match> hits = find("ls", TerminalSearch.Scope.COMMANDS);
+        assertEquals(2, hits.size());
+        for (TerminalSearch.Match hit : hits) { assertTrue(hit.startRow < 0); assertCells(hit, "ls"); }
+        assertTrue(find("root@ubuntu", TerminalSearch.Scope.COMMANDS).isEmpty());
+        assertTrue(find("ls -al", TerminalSearch.Scope.OUTPUT).isEmpty());
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        TerminalCheckpoint.write(mTerminal, bytes);
+        mTerminal.restoreState(TerminalCheckpoint.read(new ByteArrayInputStream(bytes.toByteArray())));
+        assertEquals(2, find("ls", TerminalSearch.Scope.COMMANDS).size());
+        resize(12, 6);
+        assertEquals(2, find("ls", TerminalSearch.Scope.COMMANDS).size());
+        resize(80, 4);
+        assertEquals(2, find("ls", TerminalSearch.Scope.COMMANDS).size());
+    }
+
     public void testSoftWrapsUnicodeCellsCombiningMarksAndOverlappingMatches() {
         withTerminalSized(6, 5);
         enterString("abcdNEEDLEzz");

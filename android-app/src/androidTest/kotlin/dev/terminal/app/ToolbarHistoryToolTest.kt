@@ -267,6 +267,40 @@ class ToolbarHistoryToolTest {
         assertEquals(0, writes.size())
     }
 
+    @Test fun legacyBashCommandScopeFindsCommandsAfterLongOutput() = withTool(ToolbarSheetMode.Expanded) { scenario, view, writes ->
+        scenario.onActivity {
+            listOf("ls -al", "ls -al /usr/bin").forEach { command ->
+                append(view, "\r\n\u001b]133;A\u0007root@ubuntu:~# $command\r\n\u001b]133;C\u0007")
+                repeat(60) { append(view, "listed-file-$it\r\n") }
+                append(view, "\u001b]133;D;0\u0007")
+            }
+        }
+        settle()
+        text("ls -al"); text("ls -al /usr/bin")
+        query("ls")
+        // "false" from the fixture also contains "ls".
+        text(context.getString(R.string.history_search_count, 3, 3))
+        scenario.onActivity {
+            assertEquals(3, view.historySearchMatches.size)
+            view.historySearchMatches.takeLast(2).forEach { hit ->
+                assertTrue(hit.startRow < 0)
+                assertEquals("ls", view.mEmulator.screen.getSelectedText(
+                    hit.startColumn, hit.startRow, hit.endColumn - 1, hit.endRow))
+            }
+        }
+        click(description(R.string.history_search_previous))
+        scenario.onActivity {
+            assertEquals(1, view.historySearchIndex)
+            assertEquals(view.currentHistorySearchMatch!!.startRow, view.topRow)
+        }
+        scope(R.string.history_scope_output)
+        text(label(R.string.history_no_results))
+        scenario.onActivity { assertTrue(view.historySearchMatches.isEmpty()) }
+        scope(R.string.history_scope_commands)
+        text(context.getString(R.string.history_search_count, 3, 3))
+        assertEquals(0, writes.size())
+    }
+
     @Test fun ordinaryOutputIsSearchableWithoutAnyCommandMarkers() = withTool(ToolbarSheetMode.Default) { scenario, view, writes ->
         val other = RemoteTerminalBackend(write = { writes.write(it) }, resize = { _, _ -> })
         try {
