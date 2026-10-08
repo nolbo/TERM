@@ -99,7 +99,7 @@ internal fun ProfilePickerIcon(
             val outline = AndroidPath()
             Paint().apply {
                 style = Paint.Style.FILL_AND_STROKE
-                strokeWidth = 3.dp.toPx()
+                strokeWidth = 4.dp.toPx()
                 strokeJoin = Paint.Join.ROUND
                 strokeCap = Paint.Cap.ROUND
             }.getFillPath(symbolPath, outline)
