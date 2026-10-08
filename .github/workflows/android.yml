@@ -11,6 +11,11 @@ jobs:
   build-and-unit-test:
     if: ${{ !startsWith(github.ref, 'refs/tags/v0.1.0-rootless.') }}
     runs-on: ubuntu-latest
+    # Publish directly from the verified build directory without an Actions
+    # artifact handoff. Serialize channel builds through publication.
+    concurrency:
+      group: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && 'term-public-release' || format('term-verification-{0}', github.run_id) }}
+      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
@@ -88,11 +93,13 @@ jobs:
           python3 tests/usb/safety_gate.py --scope host --ndk "$ANDROID_HOME/ndk/$terminal_ndk_version" > "${{ runner.temp }}/usb-safety-report.json"
       - name: Publish safety scope report
         if: always()
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: usb-safety-report
           path: ${{ runner.temp }}/usb-safety-report.json
       - name: Publish debug APK
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: droid-terminal-debug
@@ -142,6 +149,7 @@ jobs:
             android-runtime/build/sidestore-native/distributions/sidestore-bootstrap-source.tar.gz android-app/build/update/
       - name: Publish signed update APK
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: terminal-${{ github.ref_name }}-update
@@ -161,23 +169,11 @@ jobs:
             android-runtime/build/device-safety-rust/target
           key: ${{ steps.rust-cache.outputs.cache-primary-key }}
 
-  publish-update:
-    needs: build-and-unit-test
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
-    runs-on: ubuntu-latest
-    concurrency:
-      group: term-public-release
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: terminal-${{ github.ref_name }}-update
-          path: update
       - name: Publish verified update to TERM
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
         env:
           GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
-        run: bash tools/updates/publish.sh update
+        run: bash tools/updates/publish.sh android-app/build/update
 
   sign-rootless-prerelease:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v0.1.0-rootless.')

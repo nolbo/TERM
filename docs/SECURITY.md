@@ -12,6 +12,10 @@ sizes, redirects and transfer time; and requires exact SHA-256/bytes plus the
 installed app's package/version and current signing certificates before offering
 installation. The system package installer independently validates the APK.
 Signing and cross-repository publisher secrets stay in CI, never in APKs.
+App channel release credentials are scoped to trusted main/dev push steps. Their build job
+publishes directly from its verified signed output after all verification gates,
+under the shared publication concurrency group. Actions artifact uploads are
+optional archives and are not used as the publication input.
 A non-exported FileProvider exposes only the dedicated update cache with a
 temporary read grant; the user must grant unknown-app installation and confirm
 the system installer. The app never uninstalls a conflicting debug build or

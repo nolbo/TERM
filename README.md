@@ -98,9 +98,12 @@ base64 -w 0 "$HOME/.local/share/terminal-signing/terminal-release.p12" \
 gh secret set TERMINAL_SIGNING_STORE_PASSWORD --repo nolbo/terminal
 ```
 
-After verification, main/dev push builds upload a signed `terminal-<channel>-update`
-Actions artifact with integrity metadata and native corresponding-source
-bundles, then publish it to the public [TERM distribution repository](https://github.com/nolbo/TERM).
+After verification, main/dev push builds publish the signed APK, integrity
+metadata and native corresponding-source bundles directly from the verified
+build directory to the public [TERM distribution repository](https://github.com/nolbo/TERM).
+Channel build jobs are serialized through publication. Actions copies of the
+APKs and safety report are optional; artifact storage failures do not bypass
+verification or prevent publication.
 Cross-repository publishing requires a separate `TERMINAL_UPDATES_TOKEN` secret,
 restricted to that repository with `Contents: write`. Fork PRs and other
 branches other than main/dev do not receive signing or publication secrets.

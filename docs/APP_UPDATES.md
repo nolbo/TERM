@@ -68,8 +68,8 @@ or library upgrade is needed for this runtime compatibility fix.
 `dev-<full source SHA>` prereleases in the
 distribution repository. This is a distribution tag, not a Git object imported
 from the private source repository. Uploads remain drafts until complete;
-published APK/source assets are never overwritten. The publication job is
-serialized and compares codes so a slower old build cannot become latest.
+published APK/source assets are never overwritten. The channel build job is
+serialized through publication and compares codes so a slower old build cannot become latest.
 Dev prereleases always set `latest=false`, leaving stable `/releases/latest`
 untouched. A separate **dev-latest** prerelease holds only the mutable
 `update.json` discovery pointer, never an APK. Newer dev builds upload that
@@ -121,7 +121,11 @@ temporary release keystore remains outside Gradle's cached user home.
 Rootless input hashes and both APK payload checks continue to run on every build.
 
 APK/source artifacts use `compression-level: 0` to avoid recompressing ZIP/gzip
-payloads. Canonical verification, app tests, the USB safety gate and release lint
+payloads. These Actions archives, including the safety report, are best effort:
+artifact storage quota or upload failures do not stop channel publication.
+The channel job publishes directly from its verified signed build directory,
+without downloading an Actions artifact in a second job. Canonical verification,
+app tests, the USB safety gate and release lint
 remain publication prerequisites. The USB gate remains sequential because it
 executes Gradle and reads shared test-result files. Publication stays serialized
 and retains immutable assets and the forward-only latest-code comparison.
