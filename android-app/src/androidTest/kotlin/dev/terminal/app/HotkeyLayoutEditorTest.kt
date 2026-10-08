@@ -91,6 +91,35 @@ class HotkeyLayoutEditorTest {
         assertEquals(initial, readHotkeyLayout(preferences()))
     }
 
+    @Test fun bodyDragTracksTheFingerBetweenCellsAndSnapsOnlyWhenReleased() = withEditor { _ ->
+        val a = keyBounds(0, "A")
+        val b = keyBounds(1, "B")
+        val pitch = (b.left - a.left) / 3f
+        val rowPitch = 44 * density
+        val dropX = a.exactCenterX() + pitch * 1.25f
+        val dropY = a.exactCenterY() + rowPitch * 1.25f
+        drag(a, dropX, dropY, whileHeld = { down ->
+            // Reverse direction and cross cell boundaries without snapping the visual path.
+            for ((dx, dy) in listOf(1.25f to 1.25f, 0.3f to 0.3f, 1.65f to 0.55f, 1.25f to 1.25f)) {
+                val x = a.exactCenterX() + pitch * dx
+                val y = a.exactCenterY() + rowPitch * dy
+                event(down, MotionEvent.ACTION_MOVE, x, y)
+                awaitCondition("The dragged key did not follow the fractional pointer position") {
+                    val current = keyBounds(0, "A")
+                    abs(current.exactCenterX() - x) <= 2 && abs(current.exactCenterY() - y) <= 2
+                }
+                assertEquals(b, keyBounds(1, "B"))
+                assertEquals(initial, readHotkeyLayout(preferences()))
+            }
+        })
+        awaitCondition("The released key did not settle on the grid") {
+            val current = keyBounds(0, "A")
+            abs(current.left - a.left - pitch) <= 2 && abs(current.top - a.top - rowPitch) <= 2
+        }
+        save()
+        assertEquals(HotkeyBounds(1f, 1f), readHotkeyLayout(preferences()).keys[0].bounds)
+    }
+
     @Test fun accessibilityActionsMoveAndResizeByOneCell() = withEditor { _ ->
         for (label in listOf(R.string.hotkey_move_down, R.string.hotkey_move_right, R.string.hotkey_wider, R.string.hotkey_taller)) {
             var node = findNode(context.getString(R.string.hotkey_edit_description, 1, "A", "A"))
@@ -139,11 +168,13 @@ class HotkeyLayoutEditorTest {
             drag(a, edge, c.exactCenterY(), cancel = true, whileHeld = {
                 assertEquals(a, keyBounds(1, "B"))
                 assertEquals(c, keyBounds(2, "C"))
+                assertEquals(edge, keyBounds(0, "A").exactCenterX(), 2f)
             })
             awaitCondition("Cancelled insertion did not restore the row") { a == keyBounds(0, "A") && b == keyBounds(1, "B") }
             drag(a, edge, c.exactCenterY(), whileHeld = { down ->
                 assertEquals(a, keyBounds(1, "B"))
                 assertEquals(c, keyBounds(2, "C"))
+                assertEquals(edge, keyBounds(0, "A").exactCenterX(), 2f)
                 event(down, MotionEvent.ACTION_MOVE, c.exactCenterX(), c.exactCenterY())
                 awaitCondition("Center hover did not swap") { a == keyBounds(2, "C") && b == keyBounds(1, "B") }
                 event(down, MotionEvent.ACTION_MOVE, edge, c.exactCenterY())
@@ -201,11 +232,12 @@ class HotkeyLayoutEditorTest {
             android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f)
         val layout = initial.copy(keys = listOf(initial.keys[0], initial.keys[1].copy(bounds = HotkeyBounds(1f, 0f))))
         val target = mutableStateOf(layout)
+        val draggingIndex = mutableStateOf<Int?>(null)
         val frames = CopyOnWriteArrayList<Pair<Int, Rect>>()
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 MaterialTheme { TerminalHapticFeedbackProvider {
-                    HotkeyGrid(animatedHotkeyLayout(target.value), modifier = Modifier.padding(32.dp).systemBarsPadding(),
+                    HotkeyGrid(animatedHotkeyLayout(target.value, draggingIndex.value), modifier = Modifier.padding(32.dp).systemBarsPadding(),
                         cellModifier = { index -> Modifier.onGloballyPositioned {
                             val origin = it.localToRoot(Offset.Zero)
                             frames.add(index to Rect(origin.x.roundToInt(), origin.y.roundToInt(),
@@ -216,6 +248,24 @@ class HotkeyLayoutEditorTest {
             val a = awaitLabel("A: A")
             val b = awaitLabel("B: B")
             val pitch = b.left - a.left
+            scenario.onActivity {
+                draggingIndex.value = 0
+                target.value = layout.copy(keys = layout.keys.toMutableList().apply {
+                    set(0, get(0).copy(bounds = HotkeyBounds(0.3f, 0.3f)))
+                })
+            }
+            awaitCondition("Direct dragging did not display fractional coordinates") {
+                val current = findLabel("A: A") ?: return@awaitCondition false
+                abs(current.left - a.left - pitch * 0.3f) <= 2 && abs(current.top - a.top - 44 * density * 0.3f) <= 2
+            }
+            SystemClock.sleep(100)
+            frames.clear()
+            scenario.onActivity { draggingIndex.value = null; target.value = layout }
+            awaitCondition("The released key did not return to its grid cell") { findLabel("A: A") == a }
+            assertTrue("Release must animate from the fractional drag position", frames.any { (index, rect) ->
+                index == 0 && rect.left > a.left && rect.left < a.left + pitch * 0.3f &&
+                    rect.top > a.top && rect.top < a.top + 44 * density * 0.3f
+            })
             frames.clear()
             scenario.onActivity { target.value = placeHotkey(layout, 0, HotkeyBounds(1f, 0f, 2f, 2f)) }
             awaitCondition("Animated keys did not reach their placement") {

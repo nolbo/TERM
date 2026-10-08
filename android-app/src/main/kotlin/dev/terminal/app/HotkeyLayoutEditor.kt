@@ -13,6 +13,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -47,6 +48,7 @@ private data class HotkeyDrag(
     val initial: HotkeyBounds,
     val initialPointer: Offset,
     val pointer: Offset,
+    val translation: Offset,
     val candidate: HotkeyBounds,
     val preview: HotkeyLayout?,
     val corner: HotkeyCorner?,
@@ -57,19 +59,22 @@ private fun LayoutCoordinates.rootRect(): Rect =
 
 /** Share the animated geometry with the buttons, their hit areas, and all four corner handles. */
 @Composable
-internal fun animatedHotkeyLayout(layout: HotkeyLayout): HotkeyLayout {
+internal fun animatedHotkeyLayout(layout: HotkeyLayout, draggingIndex: Int? = null): HotkeyLayout {
     val bounds = hotkeyBounds(layout)
     val motion = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
     return layout.copy(keys = layout.keys.mapIndexed { index, hotkey -> key(index) {
         val rect = bounds[index]
-        val x by animateFloatAsState(rect.x, motion, label = "Hotkey x")
-        val y by animateFloatAsState(rect.y, motion, label = "Hotkey y")
-        val width by animateFloatAsState(rect.width, motion, label = "Hotkey width")
-        val height by animateFloatAsState(rect.height, motion, label = "Hotkey height")
+        val followsPointer = index == draggingIndex
+        val spec = if (followsPointer) snap<Float>() else motion
+        val x by animateFloatAsState(rect.x, spec, label = "Hotkey x")
+        val y by animateFloatAsState(rect.y, spec, label = "Hotkey y")
+        val width by animateFloatAsState(rect.width, spec, label = "Hotkey width")
+        val height by animateFloatAsState(rect.height, spec, label = "Hotkey height")
         val safeWidth = width.coerceIn(1f, layout.columns.toFloat())
         val safeHeight = height.coerceIn(1f, MAX_HOTKEY_ROWS.toFloat())
-        hotkey.copy(bounds = HotkeyBounds(x.coerceIn(0f, layout.columns - safeWidth),
-            y.coerceIn(0f, MAX_HOTKEY_ROWS - safeHeight), safeWidth, safeHeight))
+        // Render touch coordinates immediately; keep the animation at that position for release.
+        // Visual coordinates may leave the canvas while dragging or settling back into it.
+        hotkey.copy(bounds = if (followsPointer) rect else HotkeyBounds(x, y, safeWidth, safeHeight))
     } })
 }
 
@@ -108,7 +113,7 @@ internal fun EditableHotkeyPreview(
         val initial = hotkeyBounds(currentLayout).getOrNull(index) ?: return
         val pointer = canvasPoint(root) ?: return
         selectedIndex = index
-        drag = HotkeyDrag(index, currentLayout, initial, pointer, root, initial, currentLayout, corner)
+        drag = HotkeyDrag(index, currentLayout, initial, pointer, root, Offset.Zero, initial, currentLayout, corner)
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
     fun move(root: Offset) {
@@ -120,7 +125,7 @@ internal fun EditableHotkeyPreview(
             current.initial.x + delta.x + current.initial.width / 2, current.initial.y + delta.y + current.initial.height / 2)
         else if (candidate == current.candidate) current.preview
         else resolveHotkeyPlacement(current.originalLayout, current.index, candidate)
-        drag = current.copy(pointer = root, candidate = candidate, preview = preview)
+        drag = current.copy(pointer = root, translation = delta, candidate = candidate, preview = preview)
     }
     fun finish() {
         val current = drag
@@ -167,7 +172,12 @@ internal fun EditableHotkeyPreview(
     val target = drag?.let { active -> active.preview ?: layout.copy(keys = positionedHotkeys(layout).toMutableList().apply {
         set(active.index, get(active.index).copy(bounds = active.candidate))
     }) } ?: layout
-    val shown = animatedHotkeyLayout(target)
+    val moving = drag?.takeIf { it.corner == null }
+    val visualTarget = moving?.let { active -> target.copy(keys = positionedHotkeys(target).toMutableList().apply {
+        set(active.index, get(active.index).copy(bounds = active.initial.copy(
+            x = active.initial.x + active.translation.x, y = active.initial.y + active.translation.y)))
+    }) } ?: target
+    val shown = animatedHotkeyLayout(visualTarget, moving?.index)
     val selectedBounds = hotkeyBounds(shown).getOrNull(selectedIndex)
     val valid = drag?.let { it.preview != null && viewport()?.contains(it.pointer) == true } ?: true
     val selectionColor by animateColorAsState(if (valid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
