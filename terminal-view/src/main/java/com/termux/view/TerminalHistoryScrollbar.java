@@ -26,6 +26,8 @@ final class TerminalHistoryScrollbar {
     private final float dp;
     private final TextPaint paint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
     private final RectF capsule = new RectF(), railTouch = new RectF(), thumb = new RectF(), previous = new RectF(), next = new RectF();
+    // Keep drag coordinates independent of the smaller, icon-aligned presentation.
+    private final RectF visualThumb = new RectF();
     private final Drawable completed, running, failed, chevron, chevronUp, edgeArrow, edgeArrowUp;
     private final Runnable clearTooltip;
     private ValueAnimator animator;
@@ -175,6 +177,34 @@ final class TerminalHistoryScrollbar {
         thumb.set(capsule.left + 2 * dp, y, capsule.right - 2 * dp, y + thumbHeight);
         paint.setTextSize(12 * view.getResources().getDisplayMetrics().scaledDensity);
         updateDensity();
+        updateThumbShape();
+    }
+
+    private void updateThumbShape() {
+        float radius = thumb.width() / 2;
+        float closest = radius, center = thumb.centerY();
+        Integer selectedRow = selected == null ? null : selected.anchor.getRow();
+        boolean atSelected = selectedRow != null && Math.min(0, selectedRow) == view.getTopRow();
+        int selectedBin = atSelected ? Math.round(HistoryScrollbarModel.fraction(selectedRow, historyRows()) * (densityBins - 1)) : -1;
+        findMarker: for (HistoryScrollbarModel.Bucket bucket : density) {
+            boolean mixed = bucket.running && bucket.failed;
+            for (int i = 0; i < (mixed ? 2 : 1); i++) {
+                CommandMarker marker = bucket.running && i == 0 ? bucket.runningMarker
+                    : bucket.failed ? bucket.failedMarker : bucket.marker;
+                float y = bucketY(bucket) + (mixed ? (i == 0 ? -10 : 10) * dp : 0);
+                // A marker tap uses its aggregated glyph even when binning offsets its row.
+                if (atSelected && bucket.index == selectedBin && marker.isRunning() == selected.isRunning()
+                    && marker.isFailed() == selected.isFailed()) { closest = 0; center = y; break findMarker; }
+                float distance = Math.abs(thumb.centerY() - y);
+                if (distance < closest) { closest = distance; center = y; }
+            }
+        }
+        // Morph within the icon's region, fully circular in its inner 6dp. Adjacent mixed
+        // symbols are 20dp apart, so their transition regions meet without jumping targets.
+        float morph = Math.max(0, Math.min(1, (radius - closest) / (4 * dp)));
+        morph = morph * morph * (3 - 2 * morph);
+        visualThumb.set(thumb.left, thumb.top + (center - radius - thumb.top) * morph,
+            thumb.right, thumb.bottom + (center + radius - thumb.bottom) * morph);
     }
 
     void draw(Canvas canvas) {
@@ -194,7 +224,7 @@ final class TerminalHistoryScrollbar {
         canvas.drawRoundRect(capsule, 12 * dp, 12 * dp, paint);
         paint.setStyle(Paint.Style.FILL);
         color(foreground, 0.2f);
-        canvas.drawRoundRect(thumb, 10 * dp, 10 * dp, paint);
+        canvas.drawRoundRect(visualThumb, 10 * dp, 10 * dp, paint);
         for (HistoryScrollbarModel.Bucket bucket : density) {
             float x = capsule.centerX(), y = bucketY(bucket);
             // Status is the only glyph; mixed clusters keep both states within the narrow capsule.
@@ -338,7 +368,8 @@ final class TerminalHistoryScrollbar {
             resetSwipe();
             lastMove = event.getEventTime();
             releaseSpeed = 0;
-            boolean thumbPressed = thumb.top <= event.getY() && event.getY() <= thumb.bottom;
+            boolean thumbPressed = thumb.top <= event.getY() && event.getY() <= thumb.bottom
+                || visualThumb.top <= event.getY() && event.getY() <= visualThumb.bottom;
             grabOffset = thumbPressed ? event.getY() - thumb.top : thumbHeight / 2;
             view.stopHistoryScrollAnimation();
             if (view.getParent() != null) view.getParent().requestDisallowInterceptTouchEvent(true);

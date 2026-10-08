@@ -87,9 +87,92 @@ class TerminalHistoryScrollbarTest {
             tap(bounds("capsule").centerX(), bucketY(mixed) - 10 * density())
             assertEquals(minOf(0, mixed.runningMarker.anchor.row!!), view.topRow)
             assertEquals(mixed.runningMarker.commandName, markerLabel(mixed.runningMarker))
+            render()
+            assertCircularThumbAt(bucketY(mixed) - 10 * density())
             tap(bounds("capsule").centerX(), bucketY(mixed) + 10 * density())
             assertEquals(minOf(0, mixed.failedMarker.anchor.row!!), view.topRow)
             assertEquals(mixed.failedMarker.commandName, markerLabel(mixed.failedMarker))
+            render()
+            assertCircularThumbAt(bucketY(mixed) + 10 * density())
+        }
+    }
+
+    @Test fun thumbBecomesCommandBackgroundAndRestoresCapsuleWhenDraggedAway() = withTerminal {
+        reveal()
+        main {
+            view.setHistoryScrollbarColors(Color.WHITE, Color.BLACK)
+            view.setHistoryScrollbarSnapEnabled(false)
+            render()
+            val bucket = buckets()[buckets().size / 2]
+            val center = bucketY(bucket)
+            val drag = Drag(bounds("railTouch").left + 2 * density(), bounds("thumb").centerY())
+            drag.move(center)
+            val frame = snapshot()
+            try {
+                assertCircularThumbAt(center)
+                val circle = bounds("visualThumb")
+                val x = (circle.left + density()).toInt()
+                assertEquals("A circle leaves its corner uncovered", Color.BLACK,
+                    frame.getPixel(x, (circle.top + density()).toInt()))
+                assertEquals("The handle is drawn beneath the command icon", Color.rgb(51, 51, 51),
+                    frame.getPixel(x, circle.centerY().toInt()))
+            } finally { frame.recycle() }
+            drag.move(center + 8 * density())
+            render()
+            assertTrue("The shape changes continuously near the icon", bounds("visualThumb").height() > 20 * density())
+            assertTrue(bounds("visualThumb").height() < bounds("thumb").height())
+            drag.move(center + 24 * density())
+            render()
+            assertEquals("Leaving the command region restores the original handle", bounds("thumb"), bounds("visualThumb"))
+            drag.move(center)
+            render()
+            assertCircularThumbAt(center)
+            drag.finish()
+            assertFalse(view.isHistoryScrollbarDragging)
+            assertEquals(0, output.size())
+        }
+    }
+
+    @Test fun circularThumbAfterMarkerJumpKeepsOriginalDragCoordinates() = withTerminal {
+        reveal()
+        main {
+            view.setHistoryScrollbarSnapEnabled(false)
+            render()
+            val bucket = buckets()[buckets().size / 2]
+            tap(bounds("capsule").centerX(), bucketY(bucket))
+            render()
+            assertCircularThumbAt(bucketY(bucket))
+            val logical = bounds("thumb")
+            val circle = bounds("visualThumb")
+            val delta = 20 * density()
+            val expected = HistoryScrollbarModel.rowAt(
+                (logical.top + delta - number("trackTop")) /
+                    (number("trackBottom") - number("trackTop") - number("thumbHeight")),
+                view.mEmulator.screen.activeTranscriptRows)
+            val drag = Drag(circle.centerX(), circle.centerY())
+            drag.move(circle.centerY() + delta)
+            assertEquals("Changing the visible height does not change the drag origin", expected, view.topRow)
+            drag.finish()
+            assertEquals(expected, view.topRow)
+        }
+    }
+
+    @Test fun commandBackgroundFollowsReflowAndReturnsToCapsuleAfterTrim() = withTerminal {
+        reveal()
+        main {
+            val marker = view.mEmulator.history.markers[20]
+            assertTrue(view.jumpToCommand(marker))
+            render()
+            assertEquals(bounds("visualThumb").width(), bounds("visualThumb").height(), 0.1f)
+            view.mEmulator.resize(view.mEmulator.mColumns / 2, view.mEmulator.mRows, 1, 1)
+            view.onScreenUpdated()
+            assertTrue(view.jumpToCommand(marker))
+            render()
+            assertEquals(bounds("visualThumb").width(), bounds("visualThumb").height(), 0.1f)
+            repeat(1100) { append("trim\r\n") }
+            render()
+            assertTrue(view.mEmulator.history.markers.isEmpty())
+            assertEquals(bounds("thumb"), bounds("visualThumb"))
         }
     }
 
@@ -619,6 +702,13 @@ class TerminalHistoryScrollbarTest {
         return bitmap
     }
     private fun render() { snapshot().recycle() }
+    private fun assertCircularThumbAt(y: Float) {
+        val circle = bounds("visualThumb")
+        assertEquals(20 * density(), circle.width(), 0.1f)
+        assertEquals(circle.width(), circle.height(), 0.1f)
+        assertEquals(bounds("capsule").centerX(), circle.centerX(), 0.1f)
+        assertEquals(y, circle.centerY(), 0.1f)
+    }
     private fun arrowSnapshot(name: String): Bitmap {
         val full = snapshot()
         try {
