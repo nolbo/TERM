@@ -61,6 +61,7 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
         R.string.session_skip_close_confirmation_summary, terminal + R.string.toolbar_settings + R.string.toolbar_sessions)
     entry("toolbar-memory", R.string.toolbar_memory, null, terminal + R.string.toolbar_settings)
     entry("toolbar-commands", R.string.toolbar_commands, null, terminal + R.string.toolbar_settings)
+    entry("toolbar-history", R.string.toolbar_history, R.string.toolbar_history_description, terminal + R.string.toolbar_settings)
     entry("toolbar", R.string.toolbar_settings, R.string.toolbar_settings_summary, terminal)
     entry("hotkeys", R.string.settings_hotkeys_title, R.string.settings_hotkeys_summary, terminal + R.string.toolbar_settings)
     entry("usb", R.string.usb_title, R.string.usb_summary, terminal)

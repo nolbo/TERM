@@ -498,6 +498,8 @@ read-only file descriptors rather than Binder-sized byte arrays or a bounded raw
 transcript. PTY and VM ownership remains behind the runtime controllers. See
 [TERMINAL_TUI.md](TERMINAL_TUI.md) for state transfer, lifecycle guarantees and tests.
 
+Shell command history metadata belongs to the main terminal buffer, alongside retained cells. OSC 133 prompt/input/execution/completion boundaries attach logical cell anchors, start time and completion status; command strings are derived from retained cells rather than persisted in a second history. Trim invalidates anchors before ring-row reuse; resize/reflow remaps them. The anchor graph and pending shell boundaries travel in the same host-private checkpoint, so detached sessions continue recording independently of the optional command-history toolbar tool. The tool reads the UI mirror and performs local viewport jumps; it never owns runtime subscriptions or PTYs.
+
 The shared emulator and view implement bounded SIXEL and kitty graphics,
 including animation, Unicode and relative placements. Runtime PTY owners resolve
 local media into direct image bytes before UI transport; rendering never opens

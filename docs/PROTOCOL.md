@@ -44,6 +44,12 @@ the service revision without querying a controller or starting a VM.
 The original Binder method remains supported and allocates an AVF request UUID
 in the service. No guest frame, profile version, or VM permission changes.
 
+## Command history boundaries
+
+The main terminal buffer consumes OSC 133 A (prompt), B (input), C (execution) and D (completion with optional exit code), terminated by BEL or ST. Boundaries in the alternate buffer are ignored. Logical cell anchors identify retained command input and output ranges, survive reflow and same-build terminal checkpoints, and are removed with trimmed history. Command text is derived from retained cells; no additional command-string history is serialized. Search is a case-insensitive literal query over the selected input/output range, with a 4,096-character display preview and a 256-character UI query limit.
+
+The app-owned Android mksh prompt emits `B;droid=mksh` after PS1 and `B;droid=mksh-continuation` after PS2, inside nonprinting prompt delimiters. These explicit variants opt into echoed LF submission boundaries because mksh has no PS0 hook; continuation input extends the input range before output search. Ordinary B producers require C. Native D/A still report the exit status and next prompt. Bash adds A to the existing status-preserving D/PROMPT_COMMAND and C/PS0 hooks; user rc files may override integration. Without B, conventional A/C prompt delimiters provide a bounded display fallback. The toolbar refuses local history jumps while alternate screen, mouse tracking, application cursor mode or partial margins give the application its viewport. These display rules do not alter the independent notification parser or input transport.
+
 ## Task notification signals
 
 The app-private Binder setting `setSessionTaskNotifications(enabled)` persists an

@@ -1686,6 +1686,23 @@ public final class TerminalView extends View {
         return mTopRow;
     }
 
+    /** Explicit local history navigation; never sends scroll or key input to an application. */
+    public boolean jumpToHistoryRow(int row) {
+        if (mEmulator == null || mEmulator.isHistoryViewportOwnedByApplication()) return false;
+        stopTextSelectionMode();
+        setTopRow(Math.max(-mEmulator.getScreen().getActiveTranscriptRows(), Math.min(0, row)));
+        mScrollRemainder = 0;
+        saveSessionScrollPosition();
+        invalidate();
+        return true;
+    }
+
+    public boolean jumpToCommand(com.termux.terminal.CommandMarker marker) {
+        if (mEmulator == null || marker == null || !mEmulator.getHistory().getMarkers().contains(marker)) return false;
+        Integer row = marker.anchor.getRow();
+        return row != null && jumpToHistoryRow(row);
+    }
+
     public void setTopRow(int mTopRow) {
         this.mTopRow = mTopRow;
         mScrollOffset = 0;

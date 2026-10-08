@@ -4,6 +4,11 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ToolbarConfigTest {
+    @Test fun historyIsOptionalAndItsOrderSurvivesPersistence() {
+        val config = ToolbarConfig().addTool(HISTORY_TOOL).moveTool(2, 0)
+        assertEquals(config, parseToolbarConfig(serializeToolbarConfig(config)))
+        assertEquals(listOf(SESSIONS_TOOL, HOTKEY_TOOL), config.removeTool(HISTORY_TOOL).tools)
+    }
     @Test fun removedClipboardIsDroppedWithoutChangingOtherToolsOrEnabledState() {
         val previous = ToolbarConfig(false, listOf(MEMORY_TOOL, "clipboard", HOTKEY_TOOL, COMMANDS_TOOL))
         assertEquals(previous.copy(tools = listOf(SESSIONS_TOOL, MEMORY_TOOL, HOTKEY_TOOL, COMMANDS_TOOL)),

@@ -325,4 +325,25 @@
     <string name="hotkey_narrower">Decrease key width by one cell</string>
     <string name="hotkey_taller">Increase key height by one cell</string>
     <string name="hotkey_shorter">Decrease key height by one cell</string>
+    <string name="toolbar_history">Command history</string>
+    <string name="toolbar_history_description">Search commands and output in retained terminal history. Arrows move between matching commands, then to the top or bottom at the first or last command. Expand the toolbar for a command timeline with status dots; tap a row to jump to that command. Only commands with shell integration boundaries appear, and trimmed history removes its entries. Navigation is disabled while a terminal application controls the viewport.</string>
+    <string name="history_scope_commands">Commands</string>
+    <string name="history_scope_output">Output</string>
+    <string name="history_scope_all">Both</string>
+    <string name="history_scope">Search scope: %1$s</string>
+    <string name="history_search">Search</string>
+    <string name="history_search_description">Search command history</string>
+    <string name="history_application_viewport">Navigation is unavailable while an application controls the viewport.</string>
+    <string name="history_no_results">No matching commands.</string>
+    <string name="history_empty">No commands reported by shell integration yet.</string>
+    <string name="history_count">%1$d commands</string>
+    <string name="history_top">Go to top of history</string>
+    <string name="history_bottom">Go to bottom of history</string>
+    <string name="history_previous">Go to previous command</string>
+    <string name="history_next">Go to next command</string>
+    <string name="history_running">Running</string>
+    <string name="history_failed">Failed · exit code %1$d</string>
+    <string name="history_completed">Completed · exit code unknown</string>
+    <string name="history_completed_code">Completed · exit code %1$d</string>
+    <string name="history_command_unavailable">Command text unavailable</string>
 </resources>

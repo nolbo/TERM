@@ -13,6 +13,7 @@ class ShellActivityIntegrationTest {
         process.waitFor()
         assertTrue(output, output.contains("\u001b]133;C\u0007"))
         assertTrue(output, output.contains("\u001b]133;D;1\u0007user-status=1"))
+        assertTrue(output, output.contains("user-status=1\n\u001b]133;A\u0007"))
     }
     @Test fun integrationDoesNotExceedGuestEnvironmentBounds() {
         val full = (1..63).associate { "VAR_$it" to "value" }

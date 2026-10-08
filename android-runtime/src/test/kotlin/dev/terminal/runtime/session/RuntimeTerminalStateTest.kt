@@ -9,6 +9,32 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RuntimeTerminalStateTest {
+    @Test fun commandHistoryContinuesWhileDetachedAndRestoresSearchableAnchors() {
+        val state = RuntimeTerminalState(100)
+        state.create("history", 40, 5)
+        state.output("history", "\u001b]133;A\u0007~ $ \u001b]133;B;droid=mksh\u0007first --argument\r\n".toByteArray())
+        state.output("history", "first-output\r\n".toByteArray())
+        val first = Mirror()
+        state.subscribe("history", first)
+        assertEquals("first --argument", first.emulator.history.markers.single().commandText)
+        assertTrue(first.emulator.history.markers.single().isRunning)
+        state.unsubscribe("history", first)
+        state.output("history", "\u001b]133;D;5\u0007\u001b]133;A\u0007~ $ \u001b]133;B;droid=mksh\u0007second\r\nsecond-output\r\n".toByteArray())
+        state.resize("history", 12, 6)
+        val second = Mirror()
+        state.subscribe("history", second)
+        val markers = second.emulator.history.markers
+        assertEquals(2, markers.size)
+        assertEquals(5, markers.first().exitCode)
+        assertTrue(markers.first().matchesOutput("first-output"))
+        assertTrue(markers.first().matchesCommand("--argument"))
+        assertTrue(markers.last().isRunning)
+        assertEquals("second", markers.last().commandText)
+        state.output("history", "\u001b]133;D;0\u0007".toByteArray())
+        repeat(160) { state.output("history", "trim\r\n".toByteArray()) }
+        assertTrue(second.emulator.history.markers.isEmpty())
+        assertEquals(listOf("checkpoint"), first.order)
+    }
     private class Output : TerminalOutput() {
         val replies = mutableListOf<String>()
         override fun write(bytes: ByteArray, offset: Int, count: Int) { replies += String(bytes, offset, count) }

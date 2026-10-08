@@ -242,6 +242,17 @@ internal fun prepareNativeShellRc(home: File): File = File(home, ".droid-shrc").
         else
           PS1="${'$'}PS1 \${'$'} "
         fi
+        # mksh has no PS0. Opt into echoed-input boundaries after the visible prompt.
+        # Keep the OSC outside prompt width accounting, including with NO_COLOR/TERM=dumb.
+        if [ "${'$'}{DROID_PROMPT_MARKERS-}" = 1 ] && [ -n "${'$'}{KSH_VERSION-}" ]; then
+          droid_mark=${'$'}(printf '\001'); droid_cr=${'$'}(printf '\r')
+          droid_esc=${'$'}(printf '\033'); droid_bel=${'$'}(printf '\007')
+          case "${'$'}PS1" in "${'$'}droid_mark"*) ;; *) PS1="${'$'}droid_mark${'$'}droid_cr${'$'}droid_mark${'$'}PS1" ;; esac
+          PS1="${'$'}PS1${'$'}droid_mark${'$'}droid_esc]133;B;droid=mksh${'$'}droid_bel${'$'}droid_mark"
+          case "${'$'}{PS2-> }" in "${'$'}droid_mark"*) ;; *) PS2="${'$'}droid_mark${'$'}droid_cr${'$'}droid_mark${'$'}{PS2-> }" ;; esac
+          PS2="${'$'}PS2${'$'}droid_mark${'$'}droid_esc]133;B;droid=mksh-continuation${'$'}droid_bel${'$'}droid_mark"
+          unset droid_mark droid_cr droid_esc droid_bel
+        fi
         """.trimIndent() + System.lineSeparator(),
     )
 }

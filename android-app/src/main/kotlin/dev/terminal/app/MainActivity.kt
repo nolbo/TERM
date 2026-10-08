@@ -63,6 +63,7 @@ import dev.terminal.app.ui.TerminalToolbar
 import dev.terminal.app.ui.ToolbarHotkeys
 import dev.terminal.app.ui.ToolbarMemoryTool
 import dev.terminal.app.ui.ToolbarCommandsTool
+import dev.terminal.app.ui.ToolbarHistoryTool
 import androidx.compose.foundation.layout.BoxWithConstraints
 import dev.terminal.app.ui.NewSessionSheet
 import dev.terminal.app.ui.RootlessSetupDialog
@@ -775,6 +776,12 @@ class MainActivity : TerminalActivity() {
                                             preferences.edit().putString(KEY_TOOLBAR_COMMANDS,
                                                 serializeToolbarCommands(toolbarCommands)).apply()
                                         })
+                                    HISTORY_TOOL -> ToolbarHistoryTool(active, terminal = {
+                                        terminalView?.takeIf {
+                                            activeSessionId == toolbarSessionId &&
+                                                it.currentSession === toolbarSessionId?.let(terminalSessions::get)
+                                        }
+                                    })
                                     HOTKEY_TOOL -> ToolbarHotkeys(
                                         layout = hotkeyLayout, control = controlPressed, alt = altPressed, shift = shiftPressed,
                                         colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,

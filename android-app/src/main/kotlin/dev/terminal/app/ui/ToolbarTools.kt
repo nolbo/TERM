@@ -258,6 +258,8 @@ internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences,
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             when (tool.id) {
+                HISTORY_TOOL -> Text(stringResource(R.string.toolbar_history_description),
+                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 SESSIONS_TOOL -> SettingsGroup {
                     ListItem(onClick = {
                         skipCloseConfirmation = !skipCloseConfirmation

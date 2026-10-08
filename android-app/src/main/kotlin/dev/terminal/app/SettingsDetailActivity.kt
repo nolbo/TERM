@@ -136,7 +136,7 @@ class SettingsDetailActivity : TerminalActivity() {
                 TOOLBAR -> ToolbarSettings(terminalPreferences, { finish() }) { screen ->
                     startActivity(Intent(this, SettingsDetailActivity::class.java).putExtra(EXTRA_CATEGORY, screen))
                 }
-                "toolbar-sessions", "toolbar-memory", "toolbar-commands" ->
+                "toolbar-sessions", "toolbar-memory", "toolbar-commands", "toolbar-history" ->
                     dev.terminal.app.ui.ToolbarToolSettings(category, terminalPreferences, onBack = { finish() },
                         initialCommandId = intent.getStringExtra("toolbar-command-id"))
                 HOTKEYS -> HotkeySettings(terminalPreferences) { finish() }
