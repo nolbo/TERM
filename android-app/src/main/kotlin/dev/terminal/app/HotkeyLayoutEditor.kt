@@ -116,9 +116,11 @@ internal fun EditableHotkeyPreview(
         val pointer = canvasPoint(root) ?: return
         val delta = pointer - current.initialPointer
         val candidate = transformHotkeyBounds(current.initial, delta.x, delta.y, current.originalLayout.columns, current.corner)
-        drag = current.copy(pointer = root, candidate = candidate,
-            preview = if (candidate == current.candidate) current.preview
-                else resolveHotkeyPlacement(current.originalLayout, current.index, candidate))
+        val preview = if (current.corner == null) resolveHotkeyMove(current.originalLayout, current.index, candidate,
+            current.initial.x + delta.x + current.initial.width / 2, current.initial.y + delta.y + current.initial.height / 2)
+        else if (candidate == current.candidate) current.preview
+        else resolveHotkeyPlacement(current.originalLayout, current.index, candidate)
+        drag = current.copy(pointer = root, candidate = candidate, preview = preview)
     }
     fun finish() {
         val current = drag
@@ -218,7 +220,8 @@ internal fun EditableHotkeyPreview(
                             if (drag != null) return@CustomAccessibilityAction false
                             val bounds = transformHotkeyBounds(sourceBounds[index], dx, dy, layout.columns,
                                 if (resize) HotkeyCorner.BottomRight else null)
-                            val updated = placeHotkey(layout, index, bounds)
+                            val updated = (if (resize) resolveHotkeyPlacement(layout, index, bounds)
+                                else resolveHotkeyMove(layout, index, bounds)) ?: layout
                             if (updated != layout) { selectedIndex = index; change(updated); true } else false
                         }
                     }

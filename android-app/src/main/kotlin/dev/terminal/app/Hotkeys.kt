@@ -159,27 +159,115 @@ internal fun positionedHotkeys(layout: HotkeyLayout): List<Hotkey> = hotkeyBound
     layout.keys[index].copy(bounds = bounds)
 }
 
-/** Keep the edited key fixed and push intersecting keys down in their original spatial order. */
-internal fun resolveHotkeyPlacement(layout: HotkeyLayout, index: Int, bounds: HotkeyBounds): HotkeyLayout? {
+private enum class HotkeyPushDirection { Left, Right, Up, Down }
+
+/** Resizing reserves the requested rectangle while neighboring keys make room. */
+internal fun resolveHotkeyPlacement(layout: HotkeyLayout, index: Int, bounds: HotkeyBounds): HotkeyLayout? =
+    pushHotkeys(layout, index, bounds, HotkeyPushDirection.Down, allowFallback = true)
+
+/** A center hover swaps keys; an edge hover opens an insertion slot along that edge's axis. */
+internal fun resolveHotkeyMove(layout: HotkeyLayout, index: Int, bounds: HotkeyBounds,
+    centerX: Float = bounds.x + bounds.width / 2, centerY: Float = bounds.y + bounds.height / 2): HotkeyLayout? {
+    if (index !in layout.keys.indices || !bounds.fits(layout.columns) || !centerX.isFinite() || !centerY.isFinite()) return null
+    val original = hotkeyBounds(layout)
+    if (original[index] == bounds) return layout
+    if (original.indices.none { it != index && bounds.overlaps(original[it]) })
+        return layout.copy(keys = layout.keys.mapIndexed { key, value -> value.copy(bounds = if (key == index) bounds else original[key]) })
+    val hovered = original.indices.firstOrNull { it != index && centerX >= original[it].x && centerX < original[it].right &&
+        centerY >= original[it].y && centerY < original[it].bottom }
+    if (hovered != null) {
+        val target = original[hovered]
+        val horizontal = (centerX - target.x) / target.width - 0.5f
+        val vertical = (centerY - target.y) / target.height - 0.5f
+        if (abs(horizontal) <= 0.25f && abs(vertical) <= 0.25f) {
+            val swapped = original.toMutableList().apply {
+                set(index, bounds.copy(x = target.x.roundToInt().toFloat(), y = target.y.roundToInt().toFloat()))
+                set(hovered, target.copy(x = original[index].x.roundToInt().toFloat(), y = original[index].y.roundToInt().toFloat()))
+            }
+            if (swapped.all { it.fits(layout.columns) } && swapped.indices.none { key -> swapped.take(key).any(swapped[key]::overlaps) })
+                return layout.copy(keys = layout.keys.mapIndexed { key, value -> value.copy(bounds = swapped[key]) })
+        }
+        val alongRow = abs(horizontal) >= abs(vertical)
+        val boundary = if (alongRow) {
+            if (horizontal < 0f) target.x else target.right
+        } else {
+            if (vertical < 0f) target.y else target.bottom
+        }
+        val slots = if (alongRow) listOf(
+            bounds.copy(x = floor(boundary - bounds.width), y = target.y.roundToInt().toFloat()) to HotkeyPushDirection.Left,
+            bounds.copy(x = ceil(boundary), y = target.y.roundToInt().toFloat()) to HotkeyPushDirection.Right,
+        ) else listOf(
+            bounds.copy(x = target.x.roundToInt().toFloat(), y = floor(boundary - bounds.height)) to HotkeyPushDirection.Up,
+            bounds.copy(x = target.x.roundToInt().toFloat(), y = ceil(boundary)) to HotkeyPushDirection.Down,
+        )
+        for (fallback in listOf(false, true)) {
+            bestHotkeyMove(layout, index, bounds, slots.mapNotNull { (slot, direction) ->
+                if (slot == original[index]) null else pushHotkeys(layout, index, slot, direction, fallback)
+            })?.let { return it }
+        }
+    }
+    // Wide/tall keys can intersect neighbors even when their center is over an empty cell.
+    val dx = bounds.x - original[index].x
+    val dy = bounds.y - original[index].y
+    val directions = if (abs(dx) >= abs(dy)) listOf(
+        if (dx < 0f) HotkeyPushDirection.Left else HotkeyPushDirection.Right, HotkeyPushDirection.Up,
+        HotkeyPushDirection.Down, if (dx < 0f) HotkeyPushDirection.Right else HotkeyPushDirection.Left,
+    ) else listOf(
+        if (dy < 0f) HotkeyPushDirection.Up else HotkeyPushDirection.Down, HotkeyPushDirection.Left,
+        HotkeyPushDirection.Right, if (dy < 0f) HotkeyPushDirection.Down else HotkeyPushDirection.Up,
+    )
+    for (fallback in listOf(false, true)) {
+        bestHotkeyMove(layout, index, bounds, directions.mapNotNull { pushHotkeys(layout, index, bounds, it, fallback) })
+            ?.let { return it }
+    }
+    return null
+}
+
+private fun bestHotkeyMove(layout: HotkeyLayout, index: Int, requested: HotkeyBounds, candidates: List<HotkeyLayout>): HotkeyLayout? {
+    val original = hotkeyBounds(layout)
+    return candidates.minWithOrNull(compareBy<HotkeyLayout> { candidate ->
+        hotkeyBounds(candidate).mapIndexed { key, rect ->
+            if (key == index) 0.0 else (abs(rect.x - original[key].x) + abs(rect.y - original[key].y)).toDouble()
+        }.sum()
+    }.thenBy { candidate ->
+        val moved = hotkeyBounds(candidate)[index]
+        abs(moved.x - requested.x) + abs(moved.y - requested.y)
+    })
+}
+
+/** Resolve a directional chain without moving keys that it does not reach. */
+private fun pushHotkeys(layout: HotkeyLayout, index: Int, bounds: HotkeyBounds,
+    direction: HotkeyPushDirection, allowFallback: Boolean): HotkeyLayout? {
     if (index !in layout.keys.indices || !bounds.fits(layout.columns)) return null
     val original = hotkeyBounds(layout)
     if (original[index] == bounds) return layout
     val result = original.toMutableList().apply { set(index, bounds) }
     val placed = mutableListOf(bounds)
-    val order = original.indices.filter { it != index }
-        .sortedWith(compareBy({ original[it].y }, { original[it].x }, { it }))
+    val order = original.indices.filter { it != index }.sortedWith(compareBy<Int> {
+        when (direction) {
+            HotkeyPushDirection.Left -> -original[it].right
+            HotkeyPushDirection.Right -> original[it].x
+            HotkeyPushDirection.Up -> -original[it].bottom
+            HotkeyPushDirection.Down -> original[it].y
+        }
+    }.thenBy { original[it].y }.thenBy { original[it].x }.thenBy { it })
     order.forEachIndexed { position, other ->
         var candidate = original[other]
         while (candidate.fits(layout.columns)) {
             val collisions = placed.filter(candidate::overlaps)
             if (collisions.isEmpty()) break
-            candidate = candidate.copy(
-                x = candidate.x.roundToInt().toFloat().coerceIn(0f, floor(layout.columns - candidate.width)),
-                y = ceil(collisions.maxOf { it.bottom }),
-            )
+            val x = candidate.x.roundToInt().toFloat().coerceIn(0f, floor(layout.columns - candidate.width))
+            val y = candidate.y.roundToInt().toFloat().coerceIn(0f, floor(MAX_HOTKEY_ROWS - candidate.height))
+            candidate = when (direction) {
+                HotkeyPushDirection.Left -> candidate.copy(x = floor(collisions.minOf { it.x } - candidate.width), y = y)
+                HotkeyPushDirection.Right -> candidate.copy(x = ceil(collisions.maxOf { it.right }), y = y)
+                HotkeyPushDirection.Up -> candidate.copy(x = x, y = floor(collisions.minOf { it.y } - candidate.height))
+                HotkeyPushDirection.Down -> candidate.copy(x = x, y = ceil(collisions.maxOf { it.bottom }))
+            }
         }
         if (!candidate.fits(layout.columns)) {
-            // At the bottom edge, reuse a free cell (including the edited key's old position).
+            if (!allowFallback) return null
+            // At an edge, reuse a free cell (including the edited key's old position).
             val remaining = order.drop(position + 1).map { original[it] }
             candidate = nearestHotkeySpace(original[other], layout.columns, placed + remaining)
                 ?: nearestHotkeySpace(original[other], layout.columns, placed) ?: return null

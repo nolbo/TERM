@@ -110,11 +110,11 @@ class HotkeyLayoutEditorTest {
         assertEquals(initial.keys[1], layout.keys[1])
     }
 
-    @Test fun cancellingRestoresDisplacedKeysAndDroppingOnANeighborMovesIt() = withEditor { _ ->
+    @Test fun cancellingRestoresSwappedKeysAndDroppingOnANeighborExchangesPositions() = withEditor { _ ->
         val a = keyBounds(0, "A")
         val b = keyBounds(1, "B")
         drag(a, b.exactCenterX(), b.exactCenterY(), cancel = true, whileHeld = {
-            assertTrue(keyBounds(1, "B").top > b.top + 20 * density)
+            assertEquals(a, keyBounds(1, "B"))
             assertEquals(initial, readHotkeyLayout(preferences()))
         })
         awaitCondition("Cancelled keys did not return") { a == keyBounds(0, "A") && b == keyBounds(1, "B") }
@@ -123,7 +123,38 @@ class HotkeyLayoutEditorTest {
         drag(a, b.exactCenterX(), b.exactCenterY())
         assertEquals(initial, readHotkeyLayout(preferences()))
         save()
-        assertEquals(listOf(HotkeyBounds(3f, 0f), HotkeyBounds(3f, 1f)), hotkeyBounds(readHotkeyLayout(preferences())))
+        assertEquals(listOf(HotkeyBounds(3f, 0f), HotkeyBounds(0f, 0f)), hotkeyBounds(readHotkeyLayout(preferences())))
+    }
+
+    @Test fun hoveringAtAnEdgeInsertsAndHoveringAtTheCenterSwapsWithinTheSameCell() {
+        val row = initial.copy(keys = listOf("A", "B", "C", "D").mapIndexed { index, name ->
+            Hotkey(name, name, bounds = HotkeyBounds(index.toFloat(), 0f))
+        })
+        withEditor(row) { _ ->
+            val a = keyBounds(0, "A")
+            val b = keyBounds(1, "B")
+            val c = keyBounds(2, "C")
+            val d = keyBounds(3, "D")
+            val edge = c.left + (b.left - a.left) * 0.05f
+            drag(a, edge, c.exactCenterY(), cancel = true, whileHeld = {
+                assertEquals(a, keyBounds(1, "B"))
+                assertEquals(c, keyBounds(2, "C"))
+            })
+            awaitCondition("Cancelled insertion did not restore the row") { a == keyBounds(0, "A") && b == keyBounds(1, "B") }
+            drag(a, edge, c.exactCenterY(), whileHeld = { down ->
+                assertEquals(a, keyBounds(1, "B"))
+                assertEquals(c, keyBounds(2, "C"))
+                event(down, MotionEvent.ACTION_MOVE, c.exactCenterX(), c.exactCenterY())
+                awaitCondition("Center hover did not swap") { a == keyBounds(2, "C") && b == keyBounds(1, "B") }
+                event(down, MotionEvent.ACTION_MOVE, edge, c.exactCenterY())
+                awaitCondition("Edge hover did not reopen the insertion slot") { a == keyBounds(1, "B") && c == keyBounds(2, "C") }
+                assertEquals(d, keyBounds(3, "D"))
+                assertEquals(row, readHotkeyLayout(preferences()))
+            })
+            save()
+            assertEquals(listOf(HotkeyBounds(1f, 0f), HotkeyBounds(0f, 0f), HotkeyBounds(2f, 0f), HotkeyBounds(3f, 0f)),
+                hotkeyBounds(readHotkeyLayout(preferences())))
+        }
     }
 
     @Test fun movingAndResizingOnlyCommitWhenThePointerIsReleased() {
@@ -146,22 +177,22 @@ class HotkeyLayoutEditorTest {
             val b = keyBounds(1, "B")
             val pitch = (b.left - a.left).toFloat()
             drag(a, b.exactCenterX(), b.exactCenterY(), whileHeld = {
-                assertTrue(keyBounds(1, "B").top > b.top + 20 * density)
+                assertEquals(a, keyBounds(1, "B"))
                 assertEquals(0, changes.get())
                 assertEquals(adjacent, committed.get())
             })
             assertEquals(1, changes.get())
-            assertEquals(listOf(HotkeyBounds(1f, 0f), HotkeyBounds(1f, 1f)), hotkeyBounds(committed.get()))
+            assertEquals(listOf(HotkeyBounds(1f, 0f), HotkeyBounds(0f, 0f)), hotkeyBounds(committed.get()))
             tap(keyBounds(0, "A"))
-            val corner = awaitLabel(context.getString(R.string.hotkey_resize_handle, "A", context.getString(R.string.hotkey_bottom_right)))
-            drag(corner, corner.exactCenterX() + pitch * 1.2f, corner.exactCenterY() + 44 * density * 1.2f,
+            val corner = awaitLabel(context.getString(R.string.hotkey_resize_handle, "A", context.getString(R.string.hotkey_bottom_left)))
+            drag(corner, corner.exactCenterX() - pitch * 0.8f, corner.exactCenterY() + 44 * density * 1.2f,
                 longPress = false, whileHeld = {
                     assertEquals(1, changes.get())
                     assertEquals(1f, committed.get().keys[0].bounds!!.width, 0f)
                     assertTrue(keyBounds(1, "B").top > b.top + 60 * density)
                 })
             assertEquals(2, changes.get())
-            assertEquals(listOf(HotkeyBounds(1f, 0f, 2f, 2f), HotkeyBounds(1f, 2f)), hotkeyBounds(committed.get()))
+            assertEquals(listOf(HotkeyBounds(0f, 0f, 2f, 2f), HotkeyBounds(0f, 2f)), hotkeyBounds(committed.get()))
         }
     }
 
@@ -241,9 +272,9 @@ class HotkeyLayoutEditorTest {
     private fun preferences() = context.getSharedPreferences(SettingsDetailActivity.TERMINAL_PREFERENCES, 0)
     private fun save() = tap(awaitLabel(context.getString(R.string.save)))
 
-    private fun withEditor(block: (ActivityScenario<SettingsDetailActivity>) -> Unit) {
+    private fun withEditor(layout: HotkeyLayout = initial, block: (ActivityScenario<SettingsDetailActivity>) -> Unit) {
         val original = preferences().getString(KEY_HOTKEYS, null)
-        preferences().edit().putString(KEY_HOTKEYS, serializeHotkeyLayout(initial)).commit()
+        preferences().edit().putString(KEY_HOTKEYS, serializeHotkeyLayout(layout)).commit()
         try {
             val intent = Intent(context, SettingsDetailActivity::class.java)
                 .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, SettingsDetailActivity.HOTKEYS)
@@ -330,7 +361,7 @@ class HotkeyLayoutEditorTest {
         SystemClock.sleep(150)
     }
 
-    private fun drag(from: Rect, x: Float, y: Float, longPress: Boolean = true, cancel: Boolean = false, whileHeld: (() -> Unit)? = null) {
+    private fun drag(from: Rect, x: Float, y: Float, longPress: Boolean = true, cancel: Boolean = false, whileHeld: ((Long) -> Unit)? = null) {
         val down = SystemClock.uptimeMillis()
         event(down, MotionEvent.ACTION_DOWN, from.exactCenterX(), from.exactCenterY())
         if (longPress) SystemClock.sleep(ViewConfiguration.getLongPressTimeout().toLong() + 150)
@@ -343,7 +374,7 @@ class HotkeyLayoutEditorTest {
         }
         if (whileHeld != null) {
             SystemClock.sleep(400)
-            whileHeld()
+            whileHeld(down)
         }
         event(down, if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP, x, y)
         instrumentation.waitForIdleSync()
