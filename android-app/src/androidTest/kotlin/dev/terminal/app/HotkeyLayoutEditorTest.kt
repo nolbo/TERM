@@ -8,17 +8,29 @@ import android.view.ViewConfiguration
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBarsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect as ComposeRect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.terminal.app.ui.TerminalHapticFeedbackProvider
 import org.junit.Assert.*
+import org.junit.Assume.assumeTrue
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.CopyOnWriteArrayList
+import kotlin.math.abs
+import kotlin.math.roundToInt
 
 /** Exercises real move/resize gestures and restores the original preferences after every test. */
 @RunWith(AndroidJUnit4::class)
@@ -98,16 +110,95 @@ class HotkeyLayoutEditorTest {
         assertEquals(initial.keys[1], layout.keys[1])
     }
 
-    @Test fun cancelledMoveAndOverlappingDropLeaveTheDraftAndPreferencesUnchanged() = withEditor { _ ->
+    @Test fun cancellingRestoresDisplacedKeysAndDroppingOnANeighborMovesIt() = withEditor { _ ->
         val a = keyBounds(0, "A")
         val b = keyBounds(1, "B")
-        drag(a, a.exactCenterX(), a.exactCenterY() + 90 * density, cancel = true)
-        assertEquals(a, keyBounds(0, "A"))
-        drag(a, b.exactCenterX(), b.exactCenterY())
+        drag(a, b.exactCenterX(), b.exactCenterY(), cancel = true, whileHeld = {
+            assertTrue(keyBounds(1, "B").top > b.top + 20 * density)
+            assertEquals(initial, readHotkeyLayout(preferences()))
+        })
+        awaitCondition("Cancelled keys did not return") { a == keyBounds(0, "A") && b == keyBounds(1, "B") }
         assertEquals(a, keyBounds(0, "A"))
         assertEquals(b, keyBounds(1, "B"))
-        save()
+        drag(a, b.exactCenterX(), b.exactCenterY())
         assertEquals(initial, readHotkeyLayout(preferences()))
+        save()
+        assertEquals(listOf(HotkeyBounds(3f, 0f), HotkeyBounds(3f, 1f)), hotkeyBounds(readHotkeyLayout(preferences())))
+    }
+
+    @Test fun movingAndResizingOnlyCommitWhenThePointerIsReleased() {
+        val adjacent = initial.copy(keys = listOf(initial.keys[0], initial.keys[1].copy(bounds = HotkeyBounds(1f, 0f))))
+        val model = mutableStateOf(adjacent)
+        val committed = AtomicReference(adjacent)
+        val changes = AtomicInteger()
+        val viewport = AtomicReference<ComposeRect?>()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                MaterialTheme { TerminalHapticFeedbackProvider {
+                    EditableHotkeyPreview(model.value, rememberScrollState(), viewport::get,
+                        onChange = { model.value = it; committed.set(it); changes.incrementAndGet() }, onEdit = {},
+                        modifier = Modifier.padding(32.dp).systemBarsPadding().onGloballyPositioned {
+                            viewport.set(ComposeRect(it.localToRoot(Offset.Zero), Size(it.size.width.toFloat(), it.size.height.toFloat())))
+                        })
+                } }
+            } }
+            val a = keyBounds(0, "A")
+            val b = keyBounds(1, "B")
+            val pitch = (b.left - a.left).toFloat()
+            drag(a, b.exactCenterX(), b.exactCenterY(), whileHeld = {
+                assertTrue(keyBounds(1, "B").top > b.top + 20 * density)
+                assertEquals(0, changes.get())
+                assertEquals(adjacent, committed.get())
+            })
+            assertEquals(1, changes.get())
+            assertEquals(listOf(HotkeyBounds(1f, 0f), HotkeyBounds(1f, 1f)), hotkeyBounds(committed.get()))
+            tap(keyBounds(0, "A"))
+            val corner = awaitLabel(context.getString(R.string.hotkey_resize_handle, "A", context.getString(R.string.hotkey_bottom_right)))
+            drag(corner, corner.exactCenterX() + pitch * 1.2f, corner.exactCenterY() + 44 * density * 1.2f,
+                longPress = false, whileHeld = {
+                    assertEquals(1, changes.get())
+                    assertEquals(1f, committed.get().keys[0].bounds!!.width, 0f)
+                    assertTrue(keyBounds(1, "B").top > b.top + 60 * density)
+                })
+            assertEquals(2, changes.get())
+            assertEquals(listOf(HotkeyBounds(1f, 0f, 2f, 2f), HotkeyBounds(1f, 2f)), hotkeyBounds(committed.get()))
+        }
+    }
+
+    @Test fun activeAndDisplacedKeysAnimateTheirPositionAndSize() {
+        assumeTrue(android.provider.Settings.Global.getFloat(context.contentResolver,
+            android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f) > 0f)
+        val layout = initial.copy(keys = listOf(initial.keys[0], initial.keys[1].copy(bounds = HotkeyBounds(1f, 0f))))
+        val target = mutableStateOf(layout)
+        val frames = CopyOnWriteArrayList<Pair<Int, Rect>>()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                MaterialTheme { TerminalHapticFeedbackProvider {
+                    HotkeyGrid(animatedHotkeyLayout(target.value), modifier = Modifier.padding(32.dp).systemBarsPadding(),
+                        cellModifier = { index -> Modifier.onGloballyPositioned {
+                            val origin = it.localToRoot(Offset.Zero)
+                            frames.add(index to Rect(origin.x.roundToInt(), origin.y.roundToInt(),
+                                origin.x.roundToInt() + it.size.width, origin.y.roundToInt() + it.size.height))
+                        } }) {}
+                } }
+            } }
+            val a = awaitLabel("A: A")
+            val b = awaitLabel("B: B")
+            val pitch = b.left - a.left
+            frames.clear()
+            scenario.onActivity { target.value = placeHotkey(layout, 0, HotkeyBounds(1f, 0f, 2f, 2f)) }
+            awaitCondition("Animated keys did not reach their placement") {
+                val currentA = findLabel("A: A") ?: return@awaitCondition false
+                val currentB = findLabel("B: B") ?: return@awaitCondition false
+                abs(currentA.left - b.left) <= 2 && abs(currentA.width() - a.width() - pitch) <= 2 &&
+                    abs(currentA.height() - (84 * density).roundToInt()) <= 2 &&
+                    abs(currentB.top - b.top - (88 * density).roundToInt()) <= 2
+            }
+            assertTrue("The active key position must animate", frames.any { (index, rect) -> index == 0 && rect.left > a.left && rect.left < b.left })
+            assertTrue("The active key width must animate", frames.any { (index, rect) -> index == 0 && rect.width() > a.width() && rect.width() < a.width() + pitch })
+            assertTrue("The active key height must animate", frames.any { (index, rect) -> index == 0 && rect.height() > a.height() && rect.height() < 84 * density })
+            assertTrue("The displaced key must animate", frames.any { (index, rect) -> index == 1 && rect.top > b.top && rect.top < b.top + 88 * density })
+        }
     }
 
     @Test fun draftPlacementSurvivesRecreationAndCancelDoesNotPersistIt() = withEditor { scenario ->
@@ -191,6 +282,15 @@ class HotkeyLayoutEditorTest {
     }
 
     private fun keyBounds(index: Int, name: String) = awaitLabel(context.getString(R.string.hotkey_edit_description, index + 1, name, name))
+    private fun awaitCondition(message: String, condition: () -> Boolean) {
+        val deadline = SystemClock.uptimeMillis() + 5_000
+        while (SystemClock.uptimeMillis() < deadline) {
+            if (condition()) return
+            SystemClock.sleep(32)
+        }
+        throw AssertionError(message)
+    }
+
     private fun awaitRoot(): AccessibilityNodeInfo {
         val deadline = SystemClock.uptimeMillis() + 5_000
         while (SystemClock.uptimeMillis() < deadline) {
@@ -230,7 +330,7 @@ class HotkeyLayoutEditorTest {
         SystemClock.sleep(150)
     }
 
-    private fun drag(from: Rect, x: Float, y: Float, longPress: Boolean = true, cancel: Boolean = false) {
+    private fun drag(from: Rect, x: Float, y: Float, longPress: Boolean = true, cancel: Boolean = false, whileHeld: (() -> Unit)? = null) {
         val down = SystemClock.uptimeMillis()
         event(down, MotionEvent.ACTION_DOWN, from.exactCenterX(), from.exactCenterY())
         if (longPress) SystemClock.sleep(ViewConfiguration.getLongPressTimeout().toLong() + 150)
@@ -240,6 +340,10 @@ class HotkeyLayoutEditorTest {
                 from.exactCenterX() + (x - from.exactCenterX()) * fraction,
                 from.exactCenterY() + (y - from.exactCenterY()) * fraction)
             SystemClock.sleep(20)
+        }
+        if (whileHeld != null) {
+            SystemClock.sleep(400)
+            whileHeld()
         }
         event(down, if (cancel) MotionEvent.ACTION_CANCEL else MotionEvent.ACTION_UP, x, y)
         instrumentation.waitForIdleSync()

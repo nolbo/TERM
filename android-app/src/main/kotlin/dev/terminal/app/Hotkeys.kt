@@ -5,6 +5,9 @@ import android.view.KeyEvent
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Locale
+import kotlin.math.abs
+import kotlin.math.ceil
+import kotlin.math.floor
 import kotlin.math.roundToInt
 
 internal const val KEY_HOTKEYS = "hotkey-toolbar-v1"
@@ -156,14 +159,55 @@ internal fun positionedHotkeys(layout: HotkeyLayout): List<Hotkey> = hotkeyBound
     layout.keys[index].copy(bounds = bounds)
 }
 
-internal fun canPlaceHotkey(layout: HotkeyLayout, index: Int, bounds: HotkeyBounds): Boolean =
-    index in layout.keys.indices && bounds.fits(layout.columns) &&
-        hotkeyBounds(layout).withIndex().none { (other, rect) -> other != index && bounds.overlaps(rect) }
+/** Keep the edited key fixed and push intersecting keys down in their original spatial order. */
+internal fun resolveHotkeyPlacement(layout: HotkeyLayout, index: Int, bounds: HotkeyBounds): HotkeyLayout? {
+    if (index !in layout.keys.indices || !bounds.fits(layout.columns)) return null
+    val original = hotkeyBounds(layout)
+    if (original[index] == bounds) return layout
+    val result = original.toMutableList().apply { set(index, bounds) }
+    val placed = mutableListOf(bounds)
+    val order = original.indices.filter { it != index }
+        .sortedWith(compareBy({ original[it].y }, { original[it].x }, { it }))
+    order.forEachIndexed { position, other ->
+        var candidate = original[other]
+        while (candidate.fits(layout.columns)) {
+            val collisions = placed.filter(candidate::overlaps)
+            if (collisions.isEmpty()) break
+            candidate = candidate.copy(
+                x = candidate.x.roundToInt().toFloat().coerceIn(0f, floor(layout.columns - candidate.width)),
+                y = ceil(collisions.maxOf { it.bottom }),
+            )
+        }
+        if (!candidate.fits(layout.columns)) {
+            // At the bottom edge, reuse a free cell (including the edited key's old position).
+            val remaining = order.drop(position + 1).map { original[it] }
+            candidate = nearestHotkeySpace(original[other], layout.columns, placed + remaining)
+                ?: nearestHotkeySpace(original[other], layout.columns, placed) ?: return null
+        }
+        result[other] = candidate
+        placed.add(candidate)
+    }
+    return layout.copy(keys = layout.keys.mapIndexed { key, value -> value.copy(bounds = result[key]) })
+}
+
+private fun nearestHotkeySpace(original: HotkeyBounds, columns: Int, occupied: List<HotkeyBounds>): HotkeyBounds? {
+    var nearest: HotkeyBounds? = null
+    var distance = Float.POSITIVE_INFINITY
+    for (row in 0..floor(MAX_HOTKEY_ROWS - original.height).toInt()) {
+        for (column in 0..floor(columns - original.width).toInt()) {
+            val candidate = original.copy(x = column.toFloat(), y = row.toFloat())
+            val nextDistance = abs(candidate.x - original.x) + abs(candidate.y - original.y)
+            if (nextDistance < distance && occupied.none(candidate::overlaps)) {
+                nearest = candidate
+                distance = nextDistance
+            }
+        }
+    }
+    return nearest
+}
 
 internal fun placeHotkey(layout: HotkeyLayout, index: Int, bounds: HotkeyBounds): HotkeyLayout =
-    if (!canPlaceHotkey(layout, index, bounds)) layout else layout.copy(keys = positionedHotkeys(layout).toMutableList().apply {
-        set(index, get(index).copy(bounds = bounds))
-    })
+    resolveHotkeyPlacement(layout, index, bounds) ?: layout
 
 internal fun addHotkey(layout: HotkeyLayout, key: Hotkey): HotkeyLayout {
     if (layout.keys.size >= MAX_HOTKEYS || !validHotkey(key)) return layout

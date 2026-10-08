@@ -25,8 +25,8 @@ class HotkeyPlacementTest {
         assertEquals(2, JSONObject(serializeHotkeyLayout(layout)).getInt("version"))
     }
 
-    @Test fun overlappingOutsideAndNonFiniteChangesAreRejectedWithoutMovingOtherKeys() {
-        for (bounds in listOf(HotkeyBounds(2f, 0f), HotkeyBounds(-1f, 2f), HotkeyBounds(6.5f, 2f),
+    @Test fun outsideAndNonFiniteChangesAreRejectedWithoutMovingOtherKeys() {
+        for (bounds in listOf(HotkeyBounds(-1f, 2f), HotkeyBounds(6.5f, 2f),
             HotkeyBounds(0f, 128f), HotkeyBounds(0f, 2f, 0.5f), HotkeyBounds(Float.NaN, 2f),
             HotkeyBounds(0f, Float.POSITIVE_INFINITY))) {
             assertEquals(bounds.toString(), original, placeHotkey(original, 0, bounds))
@@ -35,6 +35,48 @@ class HotkeyPlacementTest {
         val malformed = JSONObject(serializeHotkeyLayout(placeHotkey(original, 0, HotkeyBounds(0f, 3f))))
         malformed.getJSONArray("keys").getJSONObject(0).getJSONObject("bounds").put("y", 0).put("x", 2)
         assertEquals(HotkeyLayout(), parseHotkeyLayout(malformed.toString()))
+    }
+
+    @Test fun movingIntoOccupiedCellsPushesNeighborsWithoutRepackingDistantKeys() {
+        val layout = original.copy(keys = original.keys + Hotkey("Far", "TAB", bounds = HotkeyBounds(6f, 8f)))
+        val moved = placeHotkey(layout, 0, HotkeyBounds(2f, 0f, 2f))
+        assertEquals(listOf(HotkeyBounds(2f, 0f, 2f), HotkeyBounds(2f, 1f), HotkeyBounds(3f, 1f), HotkeyBounds(6f, 8f)), hotkeyBounds(moved))
+        assertEquals(layout.keys.map { it.copy(bounds = null) }, moved.keys.map { it.copy(bounds = null) })
+        assertEquals(moved, parseHotkeyLayout(serializeHotkeyLayout(moved)))
+    }
+
+    @Test fun growingBothAxesPushesAChainOfDifferentSizedKeys() {
+        val layout = HotkeyLayout(columns = 4, keys = listOf(
+            Hotkey("A", "A", bounds = HotkeyBounds(0f, 0f)),
+            Hotkey("B", "B", bounds = HotkeyBounds(1f, 0f, 2f)),
+            Hotkey("C", "C", bounds = HotkeyBounds(1f, 1f, 2f, 2f)),
+            Hotkey("D", "D", bounds = HotkeyBounds(3f, 6f)),
+        ))
+        val resized = placeHotkey(layout, 0, HotkeyBounds(0f, 0f, 3f, 2f))
+        assertEquals(listOf(HotkeyBounds(0f, 0f, 3f, 2f), HotkeyBounds(1f, 2f, 2f),
+            HotkeyBounds(1f, 3f, 2f, 2f), HotkeyBounds(3f, 6f)), hotkeyBounds(resized))
+        assertEquals(resized, parseHotkeyLayout(serializeHotkeyLayout(resized)))
+    }
+
+    @Test fun bottomEdgeDisplacementCanReuseTheVacatedSpaceAbove() {
+        val layout = HotkeyLayout(columns = 2, keys = listOf(
+            Hotkey("A", "A", bounds = HotkeyBounds(0f, 0f, 2f, 127f)),
+            Hotkey("B", "B", bounds = HotkeyBounds(0f, 127f, 2f)),
+        ))
+        val moved = placeHotkey(layout, 0, HotkeyBounds(0f, 1f, 2f, 127f))
+        assertEquals(HotkeyBounds(0f, 0f, 2f), hotkeyBounds(moved)[1])
+        assertEquals(moved, parseHotkeyLayout(serializeHotkeyLayout(moved)))
+        assertNull(resolveHotkeyPlacement(layout, 0, HotkeyBounds(0f, 0f, 2f, 128f)))
+        assertEquals(layout, placeHotkey(layout, 0, HotkeyBounds(0f, 0f, 2f, 128f)))
+    }
+
+    @Test fun previewingFromTheSameOriginalLayoutDoesNotAccumulateDisplacement() {
+        val before = hotkeyBounds(original)
+        val preview = resolveHotkeyPlacement(original, 0, HotkeyBounds(2f, 0f, 2f))
+        assertNotNull(preview)
+        assertEquals(before, hotkeyBounds(original))
+        assertEquals(preview, resolveHotkeyPlacement(original, 0, HotkeyBounds(2f, 0f, 2f)))
+        assertEquals(original, resolveHotkeyPlacement(original, 0, before[0]))
     }
 
     @Test fun everyCornerResizesBothAxesWhileKeepingTheOppositeCornerFixed() {

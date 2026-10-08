@@ -359,14 +359,14 @@
     <string name="shared_storage_settings_unavailable">이 기기에서 모든 파일 접근 설정을 열 수 없습니다.</string>
     <string name="settings_hotkeys_title">터미널 단축키</string>
     <string name="settings_hotkeys_summary">그리드 배치, 키 크기와 단축키 조합</string>
-    <string name="settings_hotkeys_description">자주 쓰는 키 조합을 원하는 그리드 칸에 배치하세요. 키를 이동하고 모서리를 끌어 크기를 한 칸씩 바꾼 뒤 저장하면 적용됩니다.</string>
+    <string name="settings_hotkeys_description">자주 쓰는 키 조합을 원하는 그리드 칸에 배치하세요. 이동하거나 크기를 늘리면 주변 키가 자리를 비웁니다. 손을 놓아 배치를 확정한 뒤 저장하면 적용됩니다.</string>
     <string name="hotkey_enabled">터미널 단축키 사용</string>
     <string name="hotkey_enabled_support">끄면 터미널 하단의 단축키 버튼을 숨깁니다. 배치는 유지됩니다. 저장 후 적용됩니다.</string>
     <string name="hotkey_columns">배치 영역 가로 칸</string>
     <string name="hotkey_font_size">키 글자 크기 (sp)</string>
     <string name="hotkey_span">키 너비 (그리드 칸)</string>
     <string name="hotkey_preview">배치 미리보기</string>
-    <string name="hotkey_preview_support">키를 누르면 모서리 조절점이 나타납니다. 키를 길게 눌러 빈 곳으로 옮기거나 모서리를 끌어 가로·세로 크기를 바꾸세요. 위치와 크기는 점 격자에 한 칸씩 맞춰집니다. 빨간 테두리는 다른 키와 겹쳐 놓을 수 없는 위치입니다. 가장자리에 머무르면 스크롤되며, 아래 저장을 눌러 적용합니다.</string>
+    <string name="hotkey_preview_support">키를 누르면 모서리 조절점이 나타납니다. 키를 길게 눌러 이동하거나 모서리를 끌어 크기를 한 칸씩 바꾸세요. 겹친 키는 아래로 이동하며 변경을 애니메이션으로 미리 보여줍니다. 손을 놓으면 배치가 확정되고 취소하면 돌아갑니다. 빨간 테두리는 배치할 공간이 없거나 편집 영역 밖인 상태입니다. 아래 저장을 눌러 적용합니다.</string>
     <string name="hotkey_edit_description">%1$d번째 키 %2$s 편집, %3$s</string>
     <string name="hotkey_add">단축키 추가</string>
     <string name="hotkey_edit">단축키 편집</string>

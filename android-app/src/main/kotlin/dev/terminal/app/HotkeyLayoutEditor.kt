@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -36,20 +37,41 @@ import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import dev.terminal.app.ui.LocalTerminalHaptics
 import kotlin.math.ceil
 
 private data class HotkeyDrag(
     val index: Int,
+    val originalLayout: HotkeyLayout,
     val initial: HotkeyBounds,
     val initialPointer: Offset,
     val pointer: Offset,
     val candidate: HotkeyBounds,
+    val preview: HotkeyLayout?,
     val corner: HotkeyCorner?,
 )
 
 private fun LayoutCoordinates.rootRect(): Rect =
     Rect(localToRoot(Offset.Zero), Size(size.width.toFloat(), size.height.toFloat()))
+
+/** Share the animated geometry with the buttons, their hit areas, and all four corner handles. */
+@Composable
+internal fun animatedHotkeyLayout(layout: HotkeyLayout): HotkeyLayout {
+    val bounds = hotkeyBounds(layout)
+    val motion = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
+    return layout.copy(keys = layout.keys.mapIndexed { index, hotkey -> key(index) {
+        val rect = bounds[index]
+        val x by animateFloatAsState(rect.x, motion, label = "Hotkey x")
+        val y by animateFloatAsState(rect.y, motion, label = "Hotkey y")
+        val width by animateFloatAsState(rect.width, motion, label = "Hotkey width")
+        val height by animateFloatAsState(rect.height, motion, label = "Hotkey height")
+        val safeWidth = width.coerceIn(1f, layout.columns.toFloat())
+        val safeHeight = height.coerceIn(1f, MAX_HOTKEY_ROWS.toFloat())
+        hotkey.copy(bounds = HotkeyBounds(x.coerceIn(0f, layout.columns - safeWidth),
+            y.coerceIn(0f, MAX_HOTKEY_ROWS - safeHeight), safeWidth, safeHeight))
+    } })
+}
 
 @Composable
 internal fun EditableHotkeyPreview(
@@ -86,23 +108,25 @@ internal fun EditableHotkeyPreview(
         val initial = hotkeyBounds(currentLayout).getOrNull(index) ?: return
         val pointer = canvasPoint(root) ?: return
         selectedIndex = index
-        drag = HotkeyDrag(index, initial, pointer, root, initial, corner)
+        drag = HotkeyDrag(index, currentLayout, initial, pointer, root, initial, currentLayout, corner)
         haptics.performHapticFeedback(HapticFeedbackType.LongPress)
     }
     fun move(root: Offset) {
         val current = drag ?: return
         val pointer = canvasPoint(root) ?: return
         val delta = pointer - current.initialPointer
-        drag = current.copy(pointer = root,
-            candidate = transformHotkeyBounds(current.initial, delta.x, delta.y, currentLayout.columns, current.corner))
+        val candidate = transformHotkeyBounds(current.initial, delta.x, delta.y, current.originalLayout.columns, current.corner)
+        drag = current.copy(pointer = root, candidate = candidate,
+            preview = if (candidate == current.candidate) current.preview
+                else resolveHotkeyPlacement(current.originalLayout, current.index, candidate))
     }
     fun finish() {
         val current = drag
         drag = null
-        if (current != null && viewport()?.contains(current.pointer) == true && current.candidate != current.initial) {
-            val updated = placeHotkey(currentLayout, current.index, current.candidate)
-            if (updated != currentLayout) {
-                change(updated)
+        if (current != null && current.originalLayout == currentLayout && viewport()?.contains(current.pointer) == true) {
+            val preview = current.preview
+            if (preview != null && preview != currentLayout) {
+                change(preview)
                 haptics.performHapticFeedback(HapticFeedbackType.Confirm)
             }
         }
@@ -133,13 +157,17 @@ internal fun EditableHotkeyPreview(
     LaunchedEffect(layout.keys.size) {
         if (selectedIndex !in layout.keys.indices) selectedIndex = -1
     }
+    LaunchedEffect(layout) {
+        if (drag?.originalLayout?.let { it != layout } == true) drag = null
+    }
 
     val sourceBounds = hotkeyBounds(layout)
-    val shown = drag?.let { active -> layout.copy(keys = positionedHotkeys(layout).toMutableList().apply {
+    val target = drag?.let { active -> active.preview ?: layout.copy(keys = positionedHotkeys(layout).toMutableList().apply {
         set(active.index, get(active.index).copy(bounds = active.candidate))
     }) } ?: layout
+    val shown = animatedHotkeyLayout(target)
     val selectedBounds = hotkeyBounds(shown).getOrNull(selectedIndex)
-    val valid = drag?.let { canPlaceHotkey(layout, it.index, it.candidate) && viewport()?.contains(it.pointer) == true } ?: true
+    val valid = drag?.let { it.preview != null && viewport()?.contains(it.pointer) == true } ?: true
     val selectionColor by animateColorAsState(if (valid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
         MaterialTheme.motionScheme.fastEffectsSpec(), label = "Hotkey placement validity")
     val elevation by animateDpAsState(if (drag == null) 0.dp else 8.dp,
@@ -153,7 +181,8 @@ internal fun EditableHotkeyPreview(
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
         HotkeyGrid(shown, editing = true,
-            minimumRows = minOf(MAX_HOTKEY_ROWS, maxOf(6, ceil(hotkeyBounds(shown).maxOf { it.bottom }).toInt() + 2)),
+            minimumRows = minOf(MAX_HOTKEY_ROWS, maxOf(6,
+                ceil(maxOf(hotkeyBounds(target).maxOf { it.bottom }, hotkeyBounds(shown).maxOf { it.bottom })).toInt() + 2)),
             canvasModifier = Modifier.drawBehind {
                 val pitch = (size.width + gap) / layout.columns
                 for (column in 0..layout.columns) for (row in 0..ceil(size.height / rowPitch).toInt()) {
@@ -179,13 +208,14 @@ internal fun EditableHotkeyPreview(
                 )
             },
             cellModifier = { index ->
-                Modifier.onGloballyPositioned { cells[index] = it }.graphicsLayer {
+                Modifier.onGloballyPositioned { cells[index] = it }.zIndex(if (drag?.index == index) 1f else 0f).graphicsLayer {
                     shadowElevation = if (drag?.index == index) elevation.toPx() else 0f
                     shape = CircleShape
                 }.semantics {
                     selected = index == selectedIndex
                     customActions = actions.mapIndexed { action, (dx, dy, resize) ->
                         CustomAccessibilityAction(actionLabels[action]) {
+                            if (drag != null) return@CustomAccessibilityAction false
                             val bounds = transformHotkeyBounds(sourceBounds[index], dx, dy, layout.columns,
                                 if (resize) HotkeyCorner.BottomRight else null)
                             val updated = placeHotkey(layout, index, bounds)
@@ -201,7 +231,7 @@ internal fun EditableHotkeyPreview(
                     val y = ((HOTKEY_HEIGHT_DP + HOTKEY_GAP_DP) * rect.y).dp
                     val width = pitch * rect.width - HOTKEY_GAP_DP.dp
                     val height = ((HOTKEY_HEIGHT_DP + HOTKEY_GAP_DP) * rect.height - HOTKEY_GAP_DP).dp
-                    Box(Modifier.offset(x, y).size(width, height).border(2.dp, selectionColor, CircleShape))
+                    Box(Modifier.offset(x, y).size(width, height).zIndex(2f).border(2.dp, selectionColor, CircleShape))
                     HotkeyCorner.entries.forEach { corner ->
                         val cornerName = stringResource(when (corner) {
                             HotkeyCorner.TopLeft -> R.string.hotkey_top_left
@@ -211,7 +241,7 @@ internal fun EditableHotkeyPreview(
                         })
                         val description = stringResource(R.string.hotkey_resize_handle, layout.keys[selectedIndex].name, cornerName)
                         Box(Modifier.offset(x + (if (corner.left) 0.dp else width) - 16.dp,
-                            y + (if (corner.top) 0.dp else height) - 16.dp).size(32.dp)
+                            y + (if (corner.top) 0.dp else height) - 16.dp).size(32.dp).zIndex(2f)
                             .onGloballyPositioned { handles[corner] = it }
                             .semantics { contentDescription = description }
                             .pointerInput(layout, selectedIndex, corner) {
