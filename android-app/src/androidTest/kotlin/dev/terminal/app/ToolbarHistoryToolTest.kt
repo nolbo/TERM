@@ -253,11 +253,29 @@ class ToolbarHistoryToolTest {
         assertNull(find { it.text?.toString() == label(R.string.history_scope_commands) })
         query("needle")
         fun filterImage(scope: Int): Bitmap {
-            val area = bounds(currentScope(scope))
-            val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
-            return try {
-                Bitmap.createBitmap(screenshot, area.left, area.top, area.width(), area.height())
-            } finally { screenshot.recycle() }
+            val deadline = SystemClock.elapsedRealtime() + 5000
+            val size = (24 * density).toInt()
+            var previous: Bitmap? = null
+            while (SystemClock.elapsedRealtime() < deadline) {
+                val area = bounds(currentScope(scope))
+                val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+                val icon = try {
+                    Bitmap.createBitmap(screenshot, area.centerX() - size / 2, area.centerY() - size / 2, size, size)
+                } finally { screenshot.recycle() }
+                val pixels = IntArray(size * size)
+                icon.getPixels(pixels, 0, size, 0, 0, size, size)
+                // Accessibility bounds can precede rendering and popup dismissal animations.
+                // Compare the icon only after its light foreground is visible and stable.
+                if (pixels.any { android.graphics.Color.luminance(it) > 0.4f } && previous?.sameAs(icon) == true) {
+                    previous.recycle()
+                    return icon
+                }
+                previous?.recycle()
+                previous = icon
+                SystemClock.sleep(100)
+            }
+            previous?.recycle()
+            error("The filter icon did not finish rendering")
         }
         val originalFilter = filterImage(R.string.history_scope_commands)
         fun assertSameFilter(scope: Int) {
