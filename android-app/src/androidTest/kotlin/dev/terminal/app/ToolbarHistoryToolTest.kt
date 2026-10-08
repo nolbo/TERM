@@ -132,10 +132,25 @@ class ToolbarHistoryToolTest {
         scenario.onActivity { assertEquals(0, view.topRow) }
     }
 
-    @Test fun compactIconScopeSplitButtonSupportsBothSegmentsAndAllRanges() = withTool(ToolbarSheetMode.Default) { _, _, writes ->
+    @Test fun compactIconScopeSplitButtonSupportsBothSegmentsAndAllRanges() = withTool(ToolbarSheetMode.Default) { scenario, view, writes ->
         fun currentScope(id: Int) = node {
             it.contentDescription?.toString() == context.getString(R.string.history_scope, label(id))
         }
+        fun bounds(node: AccessibilityNodeInfo) = Rect().also { node.getBoundsInScreen(it) }
+        val fieldBounds = bounds(description(R.string.history_search_description))
+        val density = context.resources.displayMetrics.density
+        scenario.onActivity {
+            val location = IntArray(2).also(view::getLocationOnScreen)
+            val contentCenter = location[1] + view.height + (24 + 92 / 2) * density
+            assertEquals("Compact controls must be centered below the handle",
+                contentCenter.toDouble(), fieldBounds.exactCenterY().toDouble(), 1.0)
+        }
+        listOf(description(R.string.history_previous), description(R.string.history_bottom),
+            currentScope(R.string.history_scope_commands), description(R.string.history_scope_choose)).forEach { control ->
+            assertEquals("Arrows, search and scope controls must share a vertical center",
+                fieldBounds.exactCenterY().toDouble(), bounds(control).exactCenterY().toDouble(), 1.0)
+        }
+        assertNull(find { it.text?.toString() == context.getString(R.string.history_count, 3) })
         val minimumTouchSize = (48 * context.resources.displayMetrics.density).toInt()
         listOf(currentScope(R.string.history_scope_commands), description(R.string.history_scope_choose)).forEach { button ->
             val bounds = Rect().also { button.getBoundsInScreen(it) }
@@ -160,12 +175,14 @@ class ToolbarHistoryToolTest {
 
     @Test fun expandedTimelineStaysCompleteWhileSearchMovesThroughTerminalCells() = withTool(ToolbarSheetMode.Expanded) { scenario, view, writes ->
         text("echo needle"); text("false"); text("sleep 9")
+        assertNull(find { it.text?.toString() == context.getString(R.string.history_count, 3) })
         node { it.stateDescription?.toString() == label(R.string.history_running) }
         node { it.stateDescription?.toString() == context.getString(R.string.history_failed, 7) }
         node { it.stateDescription?.toString() == context.getString(R.string.history_completed_code, 0) }
         click(text("false"))
         scenario.onActivity { assertEquals(view.mEmulator.history.markers[1].anchor.row!!.coerceAtMost(0), view.topRow) }
         query("needle")
+        text(context.getString(R.string.history_search_count, 1, 1))
         text("echo needle"); text("false"); text("sleep 9")
         scenario.onActivity {
             assertEquals(1, view.historySearchMatches.size)

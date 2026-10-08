@@ -145,8 +145,18 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
         if (index >= 0 && active && expanded) scroll.animateScrollToItem(index)
     }
     val searchLabel = stringResource(R.string.history_search_description)
+    val summary = when {
+        !snapshot.attached || snapshot.query != query || snapshot.scope != searchScope -> stringResource(R.string.toolbar_loading)
+        !snapshot.available -> stringResource(R.string.history_application_viewport)
+        searching && snapshot.searchCount == 0 -> stringResource(R.string.history_no_results)
+        searching -> stringResource(R.string.history_search_count, snapshot.searchIndex + 1, snapshot.searchCount)
+        snapshot.commands.isEmpty() -> stringResource(R.string.history_empty)
+        else -> ""
+    }
+    val compactHeaderHeight = ToolbarHotkeyViewportHeight - if (summary.isNotEmpty()) 28.dp else 0.dp
+    val headerHeight = compactHeaderHeight + (60.dp - compactHeaderHeight) * expansion.value
     Column(Modifier.fillMaxSize().padding(horizontal = 4.dp)) {
-        Row(Modifier.fillMaxWidth().height(60.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.fillMaxWidth().height(headerHeight), verticalAlignment = Alignment.CenterVertically) {
             HistoryNavigationButton(!searching && previous.command == null, false,
                 ready && if (searching) snapshot.searchCount > 0 else (previous.command != null || snapshot.row > snapshot.oldest),
                 searching) { if (searching) search(false) else jump(previous) }
@@ -216,17 +226,11 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
                 }
             }
         }
-        val summary = when {
-            !snapshot.attached || snapshot.query != query || snapshot.scope != searchScope -> stringResource(R.string.toolbar_loading)
-            !snapshot.available -> stringResource(R.string.history_application_viewport)
-            searching && snapshot.searchCount == 0 -> stringResource(R.string.history_no_results)
-            searching -> stringResource(R.string.history_search_count, snapshot.searchIndex + 1, snapshot.searchCount)
-            snapshot.commands.isEmpty() -> stringResource(R.string.history_empty)
-            else -> if (expanded) stringResource(R.string.history_count, snapshot.commands.size) else ""
+        if (summary.isNotEmpty()) {
+            Text(summary, Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(28.dp),
+                maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall,
+                color = colors.foreground)
         }
-        Text(summary, Modifier.fillMaxWidth().padding(horizontal = 12.dp).height(28.dp),
-            maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall,
-            color = colors.foreground)
         ToolbarScrollEdges(scroll.canScrollBackward, scroll.canScrollForward,
             Modifier.weight(1f).fillMaxWidth().graphicsLayer { alpha = expansion.value }) {
             LazyColumn(state = scroll, modifier = Modifier.fillMaxSize().semantics {
