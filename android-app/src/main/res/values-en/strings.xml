@@ -349,5 +349,6 @@
     <string name="history_failed">Failed · exit code %1$d</string>
     <string name="history_completed">Completed · exit code unknown</string>
     <string name="history_completed_code">Completed · exit code %1$d</string>
+    <string name="history_exit_code">Exit code %1$d</string>
     <string name="history_command_unavailable">Command text unavailable</string>
 </resources>

@@ -586,5 +586,6 @@
     <string name="history_failed">실패 · 종료 코드 %1$d</string>
     <string name="history_completed">완료 · 종료 코드 알 수 없음</string>
     <string name="history_completed_code">완료 · 종료 코드 %1$d</string>
+    <string name="history_exit_code">종료 코드 %1$d</string>
     <string name="history_command_unavailable">명령 내용 없음</string>
 </resources>

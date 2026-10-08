@@ -197,7 +197,7 @@ internal fun ToolbarHistoryTool(active: Boolean, terminal: () -> TerminalView?) 
                             SplitButtonDefaults.TonalLeadingButton(onClick = { menu = true }, enabled = active,
                                 colors = buttonColors, contentPadding = PaddingValues(0.dp),
                                 modifier = Modifier.size(48.dp).semantics { contentDescription = scopeLabel }) {
-                                Icon(painterResource(searchScope.icon), null, Modifier.size(24.dp))
+                                Icon(painterResource(R.drawable.ic_material_symbol_filter_alt_24), null, Modifier.size(24.dp))
                             }
                         }
                     },
@@ -311,9 +311,14 @@ private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enable
                     }
                 }
             }
-            Text(commandText, Modifier.weight(1f).padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp),
-                maxLines = 2, overflow = TextOverflow.Ellipsis, fontFamily = LocalTerminalMonospaceFontFamily.current,
-                style = MaterialTheme.typography.bodyMedium)
+            Column(Modifier.weight(1f).padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)) {
+                Text(commandText, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    fontFamily = LocalTerminalMonospaceFontFamily.current, style = MaterialTheme.typography.bodySmall)
+                command.exitCode?.let { code ->
+                    Text(stringResource(R.string.history_exit_code, code),
+                        fontFamily = LocalTerminalMonospaceFontFamily.current, style = MaterialTheme.typography.labelSmall)
+                }
+            }
         }
     }
 }

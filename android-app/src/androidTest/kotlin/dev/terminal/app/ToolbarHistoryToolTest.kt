@@ -46,7 +46,7 @@ class ToolbarHistoryToolTest {
         error("Missing command history UI element")
     }
     private fun description(id: Int) = node { it.contentDescription?.toString() == label(id) }
-    private fun text(value: String) = node { it.text?.toString() == value }
+    private fun text(value: String) = node { it.text?.toString()?.lineSequence()?.any { line -> line == value } == true }
     private fun click(original: AccessibilityNodeInfo) {
         var target = original
         while (!target.isClickable && target.parent != null) target = target.parent
@@ -159,18 +159,57 @@ class ToolbarHistoryToolTest {
         }
         assertNull(find { it.text?.toString() == label(R.string.history_scope_commands) })
         query("needle")
+        fun filterImage(scope: Int): Bitmap {
+            val area = bounds(currentScope(scope))
+            val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+            return try {
+                Bitmap.createBitmap(screenshot, area.left, area.top, area.width(), area.height())
+            } finally { screenshot.recycle() }
+        }
+        val originalFilter = filterImage(R.string.history_scope_commands)
+        fun assertSameFilter(scope: Int) {
+            val currentFilter = filterImage(scope)
+            try { assertTrue("The filter icon must stay fixed across scopes", originalFilter.sameAs(currentFilter)) }
+            finally { currentFilter.recycle() }
+        }
         click(description(R.string.history_scope_choose))
         text(label(R.string.history_scope_commands)); text(label(R.string.history_scope_output)); text(label(R.string.history_scope_all))
         click(text(label(R.string.history_scope_output)))
         currentScope(R.string.history_scope_output)
+        assertSameFilter(R.string.history_scope_output)
         assertNull(find { it.text?.toString() == label(R.string.history_scope_output) })
         click(currentScope(R.string.history_scope_output))
         click(text(label(R.string.history_scope_all)))
         currentScope(R.string.history_scope_all)
+        assertSameFilter(R.string.history_scope_all)
         click(description(R.string.history_scope_choose))
         click(text(label(R.string.history_scope_commands)))
         currentScope(R.string.history_scope_commands)
+        assertSameFilter(R.string.history_scope_commands)
+        originalFilter.recycle()
         assertEquals(0, writes.size())
+    }
+
+    @Test fun timelineShowsExitCodesOnlyWhenKnown() = withTool(ToolbarSheetMode.Expanded) { scenario, view, _ ->
+        fun row(command: String): AccessibilityNodeInfo {
+            var node = text(command)
+            while (node.stateDescription == null && node.parent != null) node = node.parent
+            return node
+        }
+        fun hasCode(node: AccessibilityNodeInfo): Boolean {
+            val prefix = label(R.string.history_exit_code).substringBefore('%')
+            if (node.text?.toString()?.lineSequence()?.any { it.startsWith(prefix) } == true) return true
+            return (0 until node.childCount).any { hasCode(node.getChild(it)) }
+        }
+        text(context.getString(R.string.history_exit_code, 0))
+        text(context.getString(R.string.history_exit_code, 7))
+        assertTrue(hasCode(row("echo needle")))
+        assertTrue(hasCode(row("false")))
+        assertFalse(hasCode(row("sleep 9")))
+        scenario.onActivity { append(view, "\u001b]133;D\u0007") }
+        settle()
+        assertEquals(label(R.string.history_completed), row("sleep 9").stateDescription?.toString())
+        assertFalse(hasCode(row("sleep 9")))
     }
 
     @Test fun expandedTimelineStaysCompleteWhileSearchMovesThroughTerminalCells() = withTool(ToolbarSheetMode.Expanded) { scenario, view, writes ->
