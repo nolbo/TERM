@@ -1,5 +1,8 @@
 package dev.terminal.app.ui
 
+import android.graphics.Matrix
+import android.graphics.Paint
+import android.graphics.Path as AndroidPath
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.AlertDialog
@@ -7,17 +10,20 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithCache
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.ClipOp
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asAndroidPath
+import androidx.compose.ui.graphics.asComposePath
 import androidx.compose.ui.graphics.drawscope.clipPath
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.graphics.vector.VectorPath
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.vectorResource
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.LayoutDirection
@@ -71,14 +77,33 @@ internal fun ProfilePickerIcon(
             ProfileInstallationState.UNKNOWN -> R.string.profile_installation_unknown
         })
     }
+    val badgeSize = 16.dp
+    val symbolSize = 12.dp
+    val downloadIcon = if (state == ProfileInstallationState.MISSING)
+        ImageVector.vectorResource(R.drawable.ic_material_symbol_download_24) else null
+    val downloadPath = downloadIcon?.let { icon ->
+        remember(icon) { PathParser().addPathNodes((icon.root[0] as VectorPath).pathData).toPath() }
+    }
     Box(Modifier.size(32.dp).semantics {
         if (statusDescription != null) stateDescription = statusDescription
     }, contentAlignment = Alignment.Center) {
-        val mask = if (state == ProfileInstallationState.MISSING) Modifier.drawWithCache {
-            val radius = 8.dp.toPx()
-            val center = Offset(if (layoutDirection == LayoutDirection.Rtl) radius else size.width - radius,
-                size.height - radius)
-            val cutout = Path().apply { addOval(Rect(center, radius)) }
+        val mask = if (downloadIcon != null && downloadPath != null) Modifier.drawWithCache {
+            val symbolPixels = symbolSize.toPx()
+            val inset = (badgeSize.toPx() - symbolPixels) / 2
+            val left = if (layoutDirection == LayoutDirection.Rtl) inset else size.width - symbolPixels - inset
+            val matrix = Matrix().apply {
+                setScale(symbolPixels / downloadIcon.viewportWidth, symbolPixels / downloadIcon.viewportHeight)
+                postTranslate(left, size.height - symbolPixels - inset)
+            }
+            val symbolPath = AndroidPath(downloadPath.asAndroidPath()).apply { transform(matrix) }
+            val outline = AndroidPath()
+            Paint().apply {
+                style = Paint.Style.FILL_AND_STROKE
+                strokeWidth = 3.dp.toPx()
+                strokeJoin = Paint.Join.ROUND
+                strokeCap = Paint.Cap.ROUND
+            }.getFillPath(symbolPath, outline)
+            val cutout = outline.asComposePath()
             onDrawWithContent {
                 clipPath(cutout, clipOp = ClipOp.Difference) { this@onDrawWithContent.drawContent() }
             }
@@ -86,11 +111,10 @@ internal fun ProfilePickerIcon(
         Box(Modifier.matchParentSize().then(mask), contentAlignment = Alignment.Center) {
             ProfileIcon(profile.icon, profile.runtime.wireName, tint = tint)
         }
-        if (state == ProfileInstallationState.MISSING) {
-            Box(Modifier.align(Alignment.BottomEnd).size(16.dp),
+        if (downloadIcon != null) {
+            Box(Modifier.align(Alignment.BottomEnd).size(badgeSize),
                 contentAlignment = Alignment.Center) {
-                Icon(painterResource(R.drawable.ic_material_symbol_download_24), null,
-                    Modifier.size(12.dp), tint = tint)
+                Icon(downloadIcon, null, Modifier.size(symbolSize), tint = tint)
             }
         }
     }
