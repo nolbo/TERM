@@ -93,13 +93,13 @@ class EnvironmentRegistry(val storage: StorageRegistry) {
                     persistence.persist()
                 }
             }
-            val snapshot = spec.executionEnvironment ?: return spec.toProfile().resolve(environment)
+            val snapshot = spec.executionEnvironment ?: return SessionLaunchSpec(spec.toProfile(), environment, spec.tabTitle)
             check(snapshot.id == environment.id && snapshot.runtime == environment.runtime && snapshot.distribution == environment.distribution &&
                 persistence.canonicalKey(snapshot.storageKey) == environment.storageKey && snapshot.runtimeMetadata == environment.runtimeMetadata) {
                 "Environment snapshot is incompatible"
             }
             return if (snapshot.storage == environment.storage) spec
-                else spec.toProfile().resolve(snapshot.copy(storage = environment.storage))
+                else SessionLaunchSpec(spec.toProfile(), snapshot.copy(storage = environment.storage), spec.tabTitle)
         }
 
         /** Fresh environment + profile commit together; no rootfs, home or disk files are copied. */

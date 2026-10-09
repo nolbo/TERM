@@ -132,7 +132,8 @@ class VmRuntimeService : Service() {
     private val portListenerBudget = java.util.concurrent.Semaphore(128)
     @Volatile private var publishedSessions = PublishedSessions(0L, "[]", 0)
     @Volatile private var liveAvfEnvironments: Set<EnvironmentId> = emptySet()
-    private val sessionSnapshots = SessionSnapshotPipeline(::publishSessionSnapshot)
+    private val sessionSnapshots = SessionSnapshotPipeline(::publishSessionSnapshot,
+        launchTitle = { id -> (sessionClient as? UnifiedSessionRegistry)?.launchOf(id)?.tabTitle })
     private val pendingAvfLaunches = PendingAvfSessionLaunches()
     private val hostBackgroundOperationCount = AtomicInteger(0)
     @Volatile private var latestState: RuntimeState = RuntimeState.Stopped

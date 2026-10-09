@@ -16,7 +16,7 @@ data class WorkspaceLaunch(val id: String, val name: String, val profileId: Stri
     }
     fun resolve(profile: SessionProfile, resolve: (SessionProfile) -> SessionLaunchSpec): SessionLaunchSpec {
         require(profile.id == profileId) { "Profile was removed" }
-        return resolve(if (directory.isEmpty()) profile else profile.copy(workingDirectory = directory))
+        return resolve(if (directory.isEmpty()) profile else profile.copy(workingDirectory = directory)).withTabTitle(name)
     }
     fun json() = JSONObject().put("id", id).put("name", name).put("profileId", profileId).put("directory", directory)
         .put("startWithWorkspace", startWithWorkspace)

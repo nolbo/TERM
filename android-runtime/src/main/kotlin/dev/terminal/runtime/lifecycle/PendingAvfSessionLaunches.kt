@@ -48,7 +48,8 @@ internal class PendingAvfSessionLaunches {
         completed.forEach(launches::remove)
         launches.values.forEach { launch ->
             result.put(JSONObject().put("id", launch.tabId).put("runtime", "AVF")
-                .put("title", launch.spec.profileName).put("initialTitle", launch.spec.profileName)
+                .put("title", launch.spec.tabTitle ?: launch.spec.profileName).put("initialTitle", launch.spec.profileName)
+                .put("explicitTitle", launch.spec.tabTitle != null)
                 .put("state", if (launch.error == null) "PREPARING" else "LAUNCH_FAILED")
                 .put("pendingLaunch", true).put("launchRequestId", launch.requestId)
                 .put("launchError", launch.error ?: JSONObject.NULL)

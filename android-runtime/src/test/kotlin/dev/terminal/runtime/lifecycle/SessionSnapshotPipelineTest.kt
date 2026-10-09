@@ -15,6 +15,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionSnapshotPipelineTest {
+    @Test fun configuredCustomTitleIsPresentInTheFirstSnapshotAndAllowsALaterRename() = runBlocking {
+        val controller = DelayedListController().also { it.releaseFirstList.complete(Unit) }
+        val published = mutableListOf<SessionSnapshot>()
+        fun newPipeline() = SessionSnapshotPipeline(published::add) { id -> if (id == "native-a") "Workspace build" else null }
+        val pipeline = newPipeline()
+        val created = pipeline.refresh(controller).getOrThrow()
+        assertEquals("Workspace build", published.first().sessions.first().title)
+        assertEquals(setOf("native-a"), created.explicitTitleIds)
+        assertEquals("native-a", created.initialTitles["native-a"])
+        assertEquals("native-b", created.sessions.last().title)
+        assertEquals(created, pipeline.refresh(controller).getOrThrow())
+        pipeline.rename("native-a", "My new name").getOrThrow()
+        assertEquals("My new name", pipeline.refresh(controller).getOrThrow().sessions.first().title)
+        // Recovery from the persisted launch snapshot retains its assigned custom title.
+        assertEquals("Workspace build", newPipeline().refresh(controller).getOrThrow().sessions.first().title)
+    }
+
     @Test fun launchStatePublicationPreservesSessionsWithoutListingTheControllerAgain() = runBlocking {
         val controller = DelayedListController().also { it.releaseFirstList.complete(Unit) }
         val published = mutableListOf<SessionSnapshot>()

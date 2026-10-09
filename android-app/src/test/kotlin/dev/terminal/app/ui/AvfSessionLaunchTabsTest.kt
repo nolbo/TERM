@@ -10,6 +10,19 @@ import org.junit.Test
 class AvfSessionLaunchTabsTest {
     private val spec = SessionProfile("avf", "Debian VM", SessionRuntime.AVF, "/bin/bash").resolve()
 
+    @Test fun workspaceTitleIsAnExplicitNameAndShellTitlesRemainSubtitles() {
+        val tab = avfLaunchTab("workspace-request", spec.withTabTitle("Workspace server"))
+        assertEquals("Workspace server", tab.title)
+        assertTrue(tab.hasExplicitTabTitle)
+        assertEquals("Debian VM", tab.initialTitle)
+        val display = sessionWithDisplayTitles(tab.copy(pendingLaunch = false, state = "RUNNING"), "Shell title")
+        assertEquals("Workspace server", display.title)
+        assertEquals("Shell title", display.subtitle)
+        val regular = avfLaunchTab("profile-request", spec)
+        assertFalse(regular.hasExplicitTabTitle)
+        assertEquals("Shell title", sessionWithDisplayTitles(regular, "Shell title").title)
+    }
+
     @Test fun aPendingTabCarriesTheProfileWithoutClaimingARunningShell() {
         val tab = avfLaunchTab("request-a", spec)
         assertEquals("avf-launch:request-a", tab.id)

@@ -2,6 +2,8 @@
 
 ## Session profile launch requests
 
+Both launch JSON versions accept optional `tabTitle` (1–128 printable characters), independent of the profile `name`. Workspace configurations supply their own name here; absence preserves automatic tab naming for ordinary profile launches. The service publishes it as an explicit custom title from the first session snapshot and on AVF preparation/failure rows, with subsequent session renames taking precedence. Environment snapshot rebinding retains this field. It is host display metadata and changes no guest frames, capabilities, or launch arguments.
+
 The app-private Binder `createSessionFromSpec(launchSpecJson, rows, cols)` accepts
 version 1 JSON (legacy) and version 2 JSON with `profileId`, `name`, `runtime` (existing wire runtime name),
 `shell`, `arguments` (string array), `cwd`, `environment` (string map), and

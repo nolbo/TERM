@@ -8,7 +8,10 @@ import kotlinx.coroutines.sync.withLock
 /** Serializes controller mutations with the authoritative snapshot they publish. */
 internal class SessionSnapshotPipeline(
     private val publish: (SessionSnapshot) -> Unit,
+    private val launchTitle: (String) -> String?,
 ) {
+    constructor(publish: (SessionSnapshot) -> Unit) : this(publish, { null })
+
     private val mutex = Mutex()
     private val renamedTitles = mutableMapOf<String, String>()
     private val initialTitles = mutableMapOf<String, String>()
@@ -75,7 +78,11 @@ internal class SessionSnapshotPipeline(
             val sessionIds = sessions.mapTo(mutableSetOf()) { it.id }
             renamedTitles.keys.retainAll(sessionIds)
             initialTitles.keys.retainAll(sessionIds)
-            sessions.forEach { initialTitles.putIfAbsent(it.id, it.title) }
+            sessions.forEach {
+                initialTitles.putIfAbsent(it.id, it.title)
+                // Assign a configured custom title before the session's first publication.
+                launchTitle(it.id)?.let { title -> renamedTitles.putIfAbsent(it.id, title) }
+            }
             commit(sessions.map { session ->
                 (renamedTitles[session.id] ?: initialTitles[session.id])?.let { session.copy(title = it) } ?: session
             })
@@ -83,8 +90,9 @@ internal class SessionSnapshotPipeline(
 
     private fun commit(sessions: List<SessionDescriptor>, force: Boolean = false): SessionSnapshot {
         val previous = current
-        if (!force && previous?.sessions == sessions && previous.initialTitles == initialTitles) return previous
         val explicitTitleIds = renamedTitles.keys.intersect(sessions.mapTo(mutableSetOf()) { it.id })
+        if (!force && previous?.sessions == sessions && previous.initialTitles == initialTitles &&
+            previous.explicitTitleIds == explicitTitleIds) return previous
         return SessionSnapshot(++revision, sessions, explicitTitleIds, initialTitles.toMap()).also {
             current = it
             publish(it)

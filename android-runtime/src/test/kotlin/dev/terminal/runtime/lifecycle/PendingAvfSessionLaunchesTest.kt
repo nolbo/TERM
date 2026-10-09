@@ -9,6 +9,21 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class PendingAvfSessionLaunchesTest {
+    @Test fun configuredCustomTitleAppearsWhilePreparingAndAfterFailure() {
+        val requests = PendingAvfSessionLaunches()
+        val original = launch()
+        val named = original.copy(spec = original.spec.withTabTitle("Workspace server"))
+        requests.begin(named)
+        fun tab() = JSONArray(requests.project("[]")).getJSONObject(0)
+        assertEquals("Workspace server", tab().getString("title"))
+        assertTrue(tab().getBoolean("explicitTitle"))
+        assertEquals("Debian VM", tab().getString("initialTitle"))
+        assertEquals("Debian VM", tab().getJSONObject("launchSpec").getString("name"))
+        requests.fail(named, "image damaged")
+        assertEquals("Workspace server", tab().getString("title"))
+        assertTrue(tab().getBoolean("explicitTitle"))
+    }
+
     private fun launch() = PendingAvfSessionLaunches.Launch(UUID.randomUUID().toString(),
         SessionProfile("avf", "Debian VM", SessionRuntime.AVF, "/bin/bash").resolve())
 

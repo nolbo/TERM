@@ -31,7 +31,8 @@ data class SessionProfile(
 }
 
 /** Defensive copies make this snapshot independent even of mutable caller collections. */
-class SessionLaunchSpec(profile: SessionProfile, val executionEnvironment: Environment? = null) {
+class SessionLaunchSpec(profile: SessionProfile, val executionEnvironment: Environment? = null,
+    val tabTitle: String? = null) {
     val profileId = profile.id
     val profileName = profile.name
     val runtime = executionEnvironment?.sessionRuntime ?: profile.runtime
@@ -51,6 +52,9 @@ class SessionLaunchSpec(profile: SessionProfile, val executionEnvironment: Envir
         SessionStorage.validate(storageId)
         require(profileId.isNotBlank() && profileId.length <= 128) { "Invalid profile ID" }
         require(profileName.isNotBlank() && profileName.length <= 128) { "Profile name must contain 1–128 characters" }
+        require(tabTitle == null || (tabTitle.isNotBlank() && tabTitle.length <= 128 && tabTitle.none(Char::isISOControl))) {
+            "Tab title must contain 1–128 printable characters"
+        }
         require(shell.startsWith('/') && '\u0000' !in shell) { "Shell must be an absolute path" }
         require(workingDirectory.isEmpty() || workingDirectory.startsWith('/')) { "Working directory must be absolute or empty" }
         require('\u0000' !in workingDirectory && '\u0000' !in startupCommand) { "NUL is not allowed" }
@@ -70,6 +74,7 @@ class SessionLaunchSpec(profile: SessionProfile, val executionEnvironment: Envir
         .put("arguments", JSONArray(shellArguments)).put("cwd", workingDirectory)
         .put("environment", JSONObject(environment)).put("startupCommand", startupCommand).put("storageId", storageId).put("icon", icon)
         .apply {
+            tabTitle?.let { put("tabTitle", it) }
             palette?.let { put("palette", JSONArray(it)) }
             environmentId?.let { put("environmentId", it.value) }
             executionEnvironment?.let { put("executionEnvironment", it.toJson()) }
@@ -77,8 +82,11 @@ class SessionLaunchSpec(profile: SessionProfile, val executionEnvironment: Envir
 
     fun toProfile() = SessionProfile(profileId, profileName, runtime, shell, shellArguments, workingDirectory, environment, startupCommand, storageId, icon, palette, environmentId)
 
-    override fun equals(other: Any?): Boolean = other is SessionLaunchSpec && toProfile() == other.toProfile() && executionEnvironment == other.executionEnvironment
-    override fun hashCode(): Int = 31 * toProfile().hashCode() + (executionEnvironment?.hashCode() ?: 0)
+    fun withTabTitle(title: String) = SessionLaunchSpec(toProfile(), executionEnvironment, title)
+
+    override fun equals(other: Any?): Boolean = other is SessionLaunchSpec && toProfile() == other.toProfile() &&
+        executionEnvironment == other.executionEnvironment && tabTitle == other.tabTitle
+    override fun hashCode(): Int = 31 * (31 * toProfile().hashCode() + (executionEnvironment?.hashCode() ?: 0)) + (tabTitle?.hashCode() ?: 0)
 
     companion object {
         const val LEGACY_MAX_BYTES = 32768
@@ -104,7 +112,8 @@ class SessionLaunchSpec(profile: SessionProfile, val executionEnvironment: Envir
                 json.optString("storageId", "legacy"), json.optString("icon", "auto"),
                 if (!json.has("palette") || json.isNull("palette")) null else json.getJSONArray("palette").let { colors ->
                     List(colors.length()) { index -> require(colors.get(index) is String); colors.getString(index) }
-                }, environmentId).let { SessionLaunchSpec(it, executionEnvironment) }
+                }, environmentId).let { SessionLaunchSpec(it, executionEnvironment,
+                    if (json.has("tabTitle")) json.getString("tabTitle") else null) }
         }
     }
 }

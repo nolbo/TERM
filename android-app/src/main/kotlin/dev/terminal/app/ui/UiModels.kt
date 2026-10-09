@@ -30,7 +30,8 @@ internal fun parseSessions(json: String): List<SessionUi> = runCatching {
 }.getOrDefault(emptyList())
 
 internal fun avfLaunchTab(requestId: String, spec: dev.terminal.runtime.session.SessionLaunchSpec) = SessionUi(
-    id = "avf-launch:$requestId", runtime = "AVF", title = spec.profileName, state = "PREPARING",
+    id = "avf-launch:$requestId", runtime = "AVF", title = spec.tabTitle ?: spec.profileName, state = "PREPARING",
+    hasExplicitTabTitle = spec.tabTitle != null, initialTitle = spec.profileName,
     profileId = spec.profileId, launchSpec = spec, pendingLaunch = true, launchRequestId = requestId,
 )
 
