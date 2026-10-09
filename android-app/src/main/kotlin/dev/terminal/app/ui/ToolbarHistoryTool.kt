@@ -249,14 +249,20 @@ internal fun ToolbarHistoryTool(active: Boolean, onReturnToTerminal: () -> Unit,
                             }
                         }
                     })
-                DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                    HistorySearchScope.entries.forEach { scope ->
-                        DropdownMenuItem(text = { Text(stringResource(scope.title)) },
-                            onClick = { searchScope = scope; menu = false },
-                            leadingIcon = { Icon(painterResource(scope.icon), null) },
-                            modifier = Modifier.semantics { this.selected = scope == searchScope },
-                            trailingIcon = { if (scope == searchScope) Icon(
-                                painterResource(R.drawable.ic_material_symbol_check_circle_24), null) })
+                DropdownMenuPopup(expanded = menu && active, onDismissRequest = { menu = false }) {
+                    DropdownMenuGroup(shapes = MenuDefaults.groupShape(0, 1),
+                        modifier = Modifier.verticalScroll(rememberScrollState())) {
+                        HistorySearchScope.entries.forEachIndexed { index, scope ->
+                            SelectableDropdownMenuItem(selected = scope == searchScope,
+                                shapes = MenuDefaults.itemShape(index, HistorySearchScope.entries.size),
+                                text = { Text(stringResource(scope.title)) },
+                                onClick = { searchScope = scope; menu = false },
+                                leadingIcon = { Icon(painterResource(scope.icon), null,
+                                    modifier = Modifier.size(MenuDefaults.LeadingIconSize)) },
+                                trailingContent = { if (scope == searchScope) Icon(
+                                    painterResource(R.drawable.ic_material_symbol_check_circle_24), null,
+                                    modifier = Modifier.size(MenuDefaults.TrailingIconSize)) })
+                        }
                     }
                 }
             }

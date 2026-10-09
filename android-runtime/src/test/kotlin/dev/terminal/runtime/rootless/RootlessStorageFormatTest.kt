@@ -70,6 +70,7 @@ class RootlessStorageFormatTest {
         for (distribution in RootlessDistribution.entries) {
             val layout = RootlessDebianLayout(File(temporary.root, distribution.directory), distribution)
             layout.createHostDirectories()
+            layout.workspace.mkdirs() // Simulate pre-upgrade user data retained for interrupted migration recovery.
             layout.rootfs.mkdirs()
             val root = layout.rootfs.toPath()
             val data = Files.write(root.resolve(".l2s.fixture"), "package data".toByteArray())

@@ -58,7 +58,7 @@ class RootlessImageRemovalTest {
             backend.prepare().getOrThrow()
             assertEquals(RootlessStatus.Ready, backend.status())
             val home = File(layout.home, "keep").apply { writeText("home") }
-            val workspace = File(layout.workspace, "keep").apply { writeText("workspace") }
+            val workspace = File(layout.workspace, "keep").apply { requireNotNull(parentFile).mkdirs(); writeText("workspace") }
             val sibling = File(isolated.filesDir, "rootless/ubuntu/rootfs/keep").apply { parentFile!!.mkdirs(); writeText("sibling") }
             backend.remove().getOrThrow()
             assertFalse(layout.rootfs.exists())

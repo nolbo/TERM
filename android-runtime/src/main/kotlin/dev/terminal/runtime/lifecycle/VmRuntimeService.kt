@@ -35,8 +35,6 @@ import dev.terminal.runtime.session.SessionLaunchSpec
 import dev.terminal.runtime.session.SessionRuntime
 import kotlinx.coroutines.flow.first
 import dev.terminal.runtime.session.UnifiedSessionRegistry
-import dev.terminal.runtime.forwarding.PortForwardRegistry
-import dev.terminal.runtime.forwarding.PortAgentCollector
 import dev.terminal.runtime.forwarding.LocalhostPortForwarder
 import dev.terminal.runtime.power.RuntimeWakeController
 import dev.terminal.runtime.power.WakePolicyStore
@@ -68,6 +66,7 @@ import java.util.concurrent.ConcurrentHashMap
 /** Owns the runtime in :vmhost; activities only bind, observe, and unbind. */
 class VmRuntimeService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    @Volatile private var destroying = false
     private var foreground = false // Accessed only on the main dispatcher.
     private var notificationUpdateJob: Job? = null
     private var lastNotificationContent: Pair<Int, String>? = null
@@ -111,20 +110,28 @@ class VmRuntimeService : Service() {
     }
     private val guestRetry = ReconnectBackoff()
     private val bridgeRetry = ReconnectBackoff()
-    private val portRetry = ReconnectBackoff()
     private var wakeExpiryJob: Job? = null
     private var reconnectJob: Job? = null
     private var bridgeJob: Job? = null
-    private var portAgentJob: Job? = null
     private lateinit var sharedDirectories: SharedDirectoryManager
     private lateinit var wakeController: RuntimeWakeController
     private lateinit var wakePolicies: WakePolicyStore
     private lateinit var capabilityGrants: SharedPreferencesCapabilityGrantStore
     private lateinit var usbBroker: dev.terminal.runtime.usb.UsbBroker
     @Volatile private var guestReportedWorkActive = false
-    private val portRegistry = PortForwardRegistry()
-    private lateinit var portForwarder: LocalhostPortForwarder
+    private val localServices by lazy {
+        val preferences = getSharedPreferences("local-services", MODE_PRIVATE)
+        dev.terminal.runtime.forwarding.LocalServiceManager(
+            read = { preferences.getString("state", null) },
+            write = { check(preferences.edit().putString("state", it).commit()) { "STORAGE_FAILED" } })
+    }
+    private val localServiceListeners = RemoteCallbackList<dev.terminal.runtime.ipc.ILocalServicesListener>()
+    private val localServiceBroadcastLock = Any()
+    private val portObservers = ConcurrentHashMap<EnvironmentId, Pair<RuntimeBackend, dev.terminal.runtime.forwarding.AvfPortObserver>>()
+    private val portConnectionBudget = java.util.concurrent.Semaphore(64)
+    private val portListenerBudget = java.util.concurrent.Semaphore(128)
     @Volatile private var publishedSessions = PublishedSessions(0L, "[]", 0)
+    @Volatile private var liveAvfEnvironments: Set<EnvironmentId> = emptySet()
     private val sessionSnapshots = SessionSnapshotPipeline(::publishSessionSnapshot)
     private val pendingAvfLaunches = PendingAvfSessionLaunches()
     private val hostBackgroundOperationCount = AtomicInteger(0)
@@ -205,6 +212,76 @@ class VmRuntimeService : Service() {
         }
     }
     private val environmentRegistry by lazy { EnvironmentRegistry(storageRegistry) }
+    private val workspaces by lazy {
+        val preferences = getSharedPreferences("workspaces", MODE_PRIVATE)
+        dev.terminal.runtime.workspace.WorkspaceRegistry(
+            read = { preferences.getString("state", null) },
+            write = { check(preferences.edit().putString("state", it).commit()) { "Workspace save failed" } })
+    }
+    private val workspaceLaunches = ConcurrentHashMap<String, String>()
+    private val sharedFolderManagement = Any()
+    private val sharedFolders by lazy {
+        val preferences = getSharedPreferences("shared-folders", MODE_PRIVATE)
+        dev.terminal.runtime.storage.SharedFolderRegistry(filesDir.canonicalFile, { preferences.getString("folders", null) },
+            { check(preferences.edit().putString("folders", it).commit()) { "Shared Folder save failed" } })
+    }
+    private fun legacyWorkspaceSources() = dev.terminal.runtime.storage.LegacyWorkspaces.sources(filesDir,
+        environmentRegistry.transaction(storageDefaults()) { all() })
+    private val sharedFolderJobs by lazy {
+        dev.terminal.runtime.storage.SharedFolderJobs(applicationContext, scope, sharedFolders, ::legacyWorkspaceSources,
+            withLegacyLease = ::withLegacyWorkspaceLease, openVm = { id ->
+                val environment = environmentRegistry.transaction(storageDefaults()) { requireEnvironment(id) }
+                check(environment.runtime == dev.terminal.runtime.session.EnvironmentRuntime.AVF) { "Not an AVF environment" }
+                val owner = environmentBackends[id] ?: error("Start this AVF environment first; file transfer never starts a VM")
+                owner.openGuestFileTransfer().getOrThrow()
+            }, tracked = { work -> trackedEnvironmentOperation { work() } }, withVmLease = { id, work ->
+                preparationLocks.withStorage(
+                    resolve = { environmentRegistry.transaction(storageDefaults()) { requireEnvironment(id) } },
+                    key = { it.sessionRuntime to it.storage.id },
+                ) { work() }
+            })
+    }
+    /** Long copies reserve only owners of the selected old folder, never logical Workspaces. */
+    private suspend fun withLegacyWorkspaceLease(source: dev.terminal.runtime.storage.LegacyWorkspaces.Source, work: suspend () -> Unit) {
+        val client = ensureSessionRegistry() ?: error("Cannot verify sessions")
+        var selected = emptyList<Environment>()
+        preparationLocks.withStorages(resolve = {
+            selected = dev.terminal.runtime.storage.LegacyWorkspaces.users(filesDir.canonicalFile, source,
+                environmentRegistry.transaction(storageDefaults()) { all() })
+            // Include the fixed old storage even after its Environment has been tombstoned.
+            selected.map { it.sessionRuntime to it.storage.id } +
+                if (source.id.startsWith("retained:") && source.directory.name == "workspace") {
+                    val key = source.id.substringAfter(':')
+                    SessionRuntime.entries.firstOrNull { key.startsWith(it.wireName + "-") }?.let {
+                        listOf(it to key.removePrefix(it.wireName + "-"))
+                    }.orEmpty()
+                } else emptyList()
+        }) {
+            dev.terminal.runtime.storage.LegacyWorkspaces.verifyNoPendingMigration(filesDir.canonicalFile, source)
+            selected.forEach { environment ->
+                check(client.verifiedSessions(environment).getOrThrow().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) {
+                    "Close this environment's sessions before copying old /workspace data: ${environment.name}"
+                }
+                val owner = environmentBackends[environment.id] ?: rootlessBackends[environment.sessionRuntime]
+                    ?.takeIf { environment.storage.id == defaultStorageId(environment.sessionRuntime) }
+                check(owner == null || owner.observeState().first() is RuntimeState.Stopped) { "Stop this environment before copying old /workspace data: ${environment.name}" }
+                check((owner as? RootlessDebianBackend)?.isInstallationActive() != true) { "Environment installation is running" }
+                if (environment.runtime == dev.terminal.runtime.session.EnvironmentRuntime.AVF)
+                    check(!RuntimeSetupCoordinator(applicationContext).isInstallationActive(environment.storage.id)) { "Environment installation is running" }
+            }
+            dev.terminal.runtime.backup.EnvironmentWriterProbe(android.os.Process.myUid(), android.os.Process.myPid()).verify(listOf(source.directory.toPath()))
+            work()
+        }
+    }
+
+    private suspend fun collectTemporaryWorkspaces() {
+        val registry = sessionClient as? UnifiedSessionRegistry ?: return
+        workspaces.reconcile(registry.verifiedWorkspaceSessions(workspaces.snapshot().memberships.keys), workspaceLaunches.values.toSet())
+    }
+    private val backupJobs by lazy {
+        dev.terminal.runtime.backup.EnvironmentBackupJobs(applicationContext, environmentRegistry, ::storageDefaults, scope,
+            tracked = { work -> trackedEnvironmentOperation { work() } }, withLease = ::withEnvironmentBackupLease)
+    }
     private fun environmentForStorage(runtime: SessionRuntime, storageId: String): Environment =
         environmentRegistry.transaction(storageDefaults()) { forStorage(dev.terminal.runtime.session.StorageRegistry.Key(runtime, storageId)) }
 
@@ -216,6 +293,100 @@ class VmRuntimeService : Service() {
                 SessionRuntime.ROOTLESS_ARCH -> "Arch"; SessionRuntime.NATIVE -> "Native"; SessionRuntime.AVF -> "AVF" }, it, "/bin/sh") }
 
     private val binder = object : IRuntimeService.Stub() {
+        override fun getSharedFoldersJson(): String {
+            enforceHostToolUi()
+            val environments = environmentRegistry.transaction(storageDefaults()) { all() }
+            return JSONObject().put("folders", JSONArray(sharedFolders.all().map { folder -> folder.json().put("hostPath", sharedFolders.directory(folder).path) }))
+                .put("environments", JSONArray(environments.map { it.toJson() }))
+                .put("legacySources", JSONArray(legacyWorkspaceSources().map { it.json() }))
+                .put("operations", JSONArray(sharedFolderJobs.snapshots())).toString()
+        }
+        override fun saveSharedFolder(folderJson: String): String {
+            enforceHostToolUi()
+            return runCatching { synchronized(sharedFolderManagement) {
+                require(folderJson.toByteArray().size <= 16 * 1024)
+                val folder = dev.terminal.runtime.storage.SharedFolder.parse(JSONObject(folderJson))
+                val ids = environmentRegistry.transaction(storageDefaults()) { all().mapTo(mutableSetOf()) { it.id } }
+                require(folder.environments.all { it in ids }) { "Environment was removed" }
+                sharedFolderJobs.revokeFolder(folder.id)
+                sharedFolders.save(folder)
+            }; "" }.exceptionOrNull()?.userMessage().orEmpty()
+        }
+        override fun deleteSharedFolder(folderId: String): String {
+            enforceHostToolUi()
+            return runCatching { synchronized(sharedFolderManagement) {
+                check(!sharedFolderJobs.hasActive()) { "Finish or cancel file operations before deleting a Shared Folder" }
+                kotlinx.coroutines.runBlocking(Dispatchers.IO) { preparationLocks.withAll {
+                    val registry = ensureSessionRegistry() ?: error("Cannot verify sessions")
+                    check(registry.verifiedWorkspaceSessions(workspaces.snapshot().memberships.keys)?.isEmpty() == true) { "Close all sessions before deleting Shared Folder data" }
+                    dev.terminal.runtime.backup.EnvironmentWriterProbe(android.os.Process.myUid(), android.os.Process.myPid())
+                        .verify(listOf(sharedFolders.directory(sharedFolders.requireFolder(folderId)).toPath()))
+                    sharedFolders.delete(folderId)
+                } }
+            }; "" }.exceptionOrNull()?.userMessage().orEmpty()
+        }
+        override fun startSharedFolderOperation(requestId: String, requestJson: String): String {
+            enforceHostToolUi()
+            return synchronized(sharedFolderManagement) { sharedFolderJobs.submit(requestId, requestJson) }
+        }
+        override fun cancelSharedFolderOperation(requestId: String): Boolean { enforceHostToolUi(); return sharedFolderJobs.cancel(requestId) }
+        override fun getWorkspacesJson(): String {
+            enforceHostToolUi()
+            val snapshot = workspaces.snapshot()
+            return snapshot.copy(memberships = snapshot.memberships + workspaceLaunches.entries.filter { pendingAvfLaunches.containsRequest(it.key) }.associate { "avf-launch:${it.key}" to it.value }
+                .filterValues { id -> snapshot.workspaces.any { it.id == id } }).json().toString()
+        }
+        override fun saveWorkspace(workspaceJson: String): String {
+            enforceHostToolUi()
+            return runCatching {
+                require(workspaceJson.toByteArray().size <= 64 * 1024)
+                val workspace = dev.terminal.runtime.workspace.Workspace.parse(JSONObject(workspaceJson))
+                val profiles = environmentRegistry.transaction(storageDefaults()) { profiles() }.mapTo(mutableSetOf()) { it.id }
+                require(workspace.launches.all { it.profileId in profiles }) { "Profile was removed" }
+                workspaces.save(workspace)
+                ""
+            }.exceptionOrNull()?.userMessage().orEmpty()
+        }
+        override fun deleteWorkspace(workspaceId: String): String {
+            enforceHostToolUi()
+            return runCatching { workspaces.delete(workspaceId); "" }.exceptionOrNull()?.userMessage().orEmpty()
+        }
+        override fun selectWorkspace(filter: String): String {
+            enforceHostToolUi()
+            return runCatching {
+                workspaces.select(filter)
+                scope.launch { collectTemporaryWorkspaces(); sessionSnapshots.republish() }
+                ""
+            }.exceptionOrNull()?.userMessage().orEmpty()
+        }
+        override fun moveSessionToWorkspace(sessionId: String, workspaceId: String?): String {
+            enforceHostToolUi()
+            return runCatching {
+                val registry = sessionClient as? UnifiedSessionRegistry ?: error("Runtime unavailable")
+                check(registry.launchOf(sessionId) != null || registry.storageOf(sessionId) != null) { "Session not found" }
+                workspaces.move(sessionId, workspaceId)
+                scope.launch { collectTemporaryWorkspaces(); sessionSnapshots.republish() }
+                ""
+            }.exceptionOrNull()?.userMessage().orEmpty()
+        }
+        override fun createSessionInWorkspace(launchSpecJson: String, requestId: String, workspaceId: String?, installationConsent: Boolean, rows: Int, cols: Int) {
+            enforceHostToolUi()
+            require(java.util.UUID.fromString(requestId).toString() == requestId)
+            require(workspaceId == null || workspaces.snapshot().workspaces.any { it.id == workspaceId }) { "Workspace not found" }
+            createResolvedSession(launchSpecJson, rows, cols, requestId, installationConsent, workspaceId)
+        }
+        override fun startEnvironmentBackup(requestId: String, requestJson: String, password: CharArray): String {
+            enforceHostToolUi()
+            return backupJobs.submit(requestId, requestJson, password)
+        }
+        override fun getEnvironmentBackupsJson(): String {
+            enforceHostToolUi()
+            return backupJobs.snapshots()
+        }
+        override fun cancelEnvironmentBackup(operationId: String): Boolean {
+            enforceHostToolUi()
+            return backupJobs.cancel(operationId)
+        }
         // Retained Binder adapters for older same-app callers; the domain owner is Environment.
         override fun getStorageJson(): String = JSONArray(getEnvironmentsJson()).let { array ->
             for (index in 0 until array.length()) {
@@ -351,8 +522,7 @@ class VmRuntimeService : Service() {
                             client.deleteStorageIfIdle(environment.sessionRuntime, environment.storage.id) { release ->
                                 owner?.stop(StopMode.GRACEFUL)?.getOrThrow()
                                 release()
-                                startedEnvironmentBackends.remove(environment.id)
-                                explicitlyStartedEnvironments.remove(environment.id)
+                                clearEnvironmentStart(environment.id)
                             }
                         }
                         "INSTALL", "REPAIR" -> installRootlessEnvironment(environment, client)
@@ -424,16 +594,38 @@ class VmRuntimeService : Service() {
 
         override fun getSessionsJson(): String = pendingAvfLaunches.project(publishedSessions.json)
 
-        override fun getForwardedPortsJson(): String = JSONArray().apply {
-            portRegistry.ports.value.forEach { port ->
-                put(JSONObject().apply {
-                    put("guestPort", port.guestPort)
-                    put("hostPort", port.hostPort)
-                    put("hostAddress", port.hostAddress)
-                    put("label", port.label)
-                })
-            }
-        }.toString()
+        override fun getForwardedPortsJson(): String {
+            enforceHostToolUi()
+            // Legacy same-app adapter exposes only successfully bound proxies.
+            return JSONArray(localServices.registry.services.value.filter {
+                it.forwarding == dev.terminal.runtime.forwarding.ForwardingState.ACTIVE
+            }.map { it.toJson().put("guestPort", it.port).put("hostAddress", "127.0.0.1").put("label", it.name) }).toString()
+        }
+        override fun getLocalServicesJson(): String {
+            enforceHostToolUi()
+            return localServices.snapshot(environmentRegistry.transaction(storageDefaults()) { all() })
+        }
+        override fun saveLocalService(registrationJson: String): String {
+            enforceHostToolUi()
+            return localServices.saveManual(registrationJson, environmentRegistry.transaction(storageDefaults()) { all() })
+        }
+        override fun deleteLocalService(serviceId: String): String {
+            enforceHostToolUi()
+            return localServices.deleteManual(serviceId)
+        }
+        override fun updateLocalServiceForwarding(serviceId: String, hostPort: Int, applicationProtocol: String): String {
+            enforceHostToolUi()
+            return localServices.updateForwarding(serviceId, hostPort, applicationProtocol)
+        }
+        override fun registerLocalServicesListener(listener: dev.terminal.runtime.ipc.ILocalServicesListener) {
+            enforceHostToolUi()
+            localServiceListeners.register(listener)
+            runCatching { listener.onServicesChanged() }
+        }
+        override fun unregisterLocalServicesListener(listener: dev.terminal.runtime.ipc.ILocalServicesListener) {
+            enforceHostToolUi()
+            localServiceListeners.unregister(listener)
+        }
 
         override fun getWakePolicy(): String = wakePolicies.get().name
 
@@ -480,12 +672,14 @@ class VmRuntimeService : Service() {
         }
 
         private fun createResolvedSession(encoded: String, rows: Int, cols: Int, requestId: String? = null,
-            installationApproved: Boolean = false) {
+            installationApproved: Boolean = false, workspaceId: String? = null) {
             val parsed = runCatching { dev.terminal.runtime.session.SessionLaunchSpec.fromJson(encoded) }
             val launch = parsed.getOrNull()?.takeIf { it.runtime == SessionRuntime.AVF }?.let {
                 PendingAvfSessionLaunches.Launch(requestId ?: java.util.UUID.randomUUID().toString(), it)
             }
             if (launch != null && !pendingAvfLaunches.begin(launch)) return
+            val workspaceRequest = requestId ?: java.util.UUID.randomUUID().toString()
+            if (workspaceId != null) workspaceLaunches[workspaceRequest] = workspaceId
             val operation = "세션 생성:${parsed.getOrNull()?.runtime?.wireName ?: "UNKNOWN"}:${parsed.getOrNull()?.storageId ?: "legacy"}" +
                 (launch?.let { ":${it.requestId}" } ?: "")
             launchRuntimeOperation(trackAsWork = true, errorOperation = operation) {
@@ -516,6 +710,8 @@ class VmRuntimeService : Service() {
                                 spec,
                                 runtimeEnvironment = buildMap {
                                     if ("TERM" !in spec.environment) put("TERM", preferences.getString(KEY_NATIVE_TERM, "xterm-256color").orEmpty())
+                                    if (spec.runtime == SessionRuntime.NATIVE) put("TERM_SHARED_FOLDERS", JSONObject(sharedFolders.bindings(checkNotNull(spec.environmentId))
+                                        .associate { binding -> binding.folder.name to binding.directory.path }).toString())
                                     if (preferences.getBoolean(KEY_KITTY_GRAPHICS, false) || grantKitty) {
                                         put("KITTY_WINDOW_ID", kittyId.toString())
                                     }
@@ -523,6 +719,7 @@ class VmRuntimeService : Service() {
                                 rows = rows.toUShortDimension(),
                                 cols = cols.toUShortDimension(),
                             ).onSuccess {
+                                if (workspaceId != null && workspaces.snapshot().workspaces.any { row -> row.id == workspaceId }) workspaces.move(it.id, workspaceId)
                                 if (launch != null) {
                                     getSharedPreferences("session-launch-requests", MODE_PRIVATE).edit()
                                         .putString(it.id, launch.requestId).apply()
@@ -563,6 +760,9 @@ class VmRuntimeService : Service() {
                         sessionSnapshots.republish()
                     }
                     throw failure
+                } finally {
+                    workspaceLaunches.remove(workspaceRequest)
+                    collectTemporaryWorkspaces()
                 }
             }
         }
@@ -713,7 +913,7 @@ class VmRuntimeService : Service() {
             val runtime = (client as? UnifiedSessionRegistry)?.runtimeOf(sessionId)?.wireName ?: "UNKNOWN"
             Log.i(TAG, "session.terminate start id=$sessionId runtime=$runtime")
             taskNotifications.forget(sessionId)
-            val result = sessionSnapshots.mutateAndRefresh(client) { client.terminate(sessionId, SIGKILL) }
+            val result = sessionSnapshots.mutateAndRefresh(client) { client.terminate(sessionId, SIGKILL).onSuccess { workspaces.move(sessionId, null) } }
             result.operation
                 .onSuccess {
                     taskNotifications.forget(sessionId)
@@ -889,7 +1089,7 @@ class VmRuntimeService : Service() {
         createNotificationChannel()
         sharedDirectories = SharedDirectoryManager(applicationContext)
         wakeController = RuntimeWakeController(applicationContext)
-        portForwarder = LocalhostPortForwarder { port -> backend.openGuestPortForward(port) }
+        scope.launch { localServices.registry.services.collect { notifyLocalServices() } }
         wakePolicies = WakePolicyStore(applicationContext)
         capabilityGrants = SharedPreferencesCapabilityGrantStore(applicationContext)
         usbBroker = dev.terminal.runtime.usb.UsbBroker(applicationContext) { delta ->
@@ -906,7 +1106,8 @@ class VmRuntimeService : Service() {
                     }.orEmpty()
         }, usbBroker::unregister)
         rootlessBackends = RootlessDistribution.entries.associate { distribution ->
-            distribution.runtime to RootlessDebianBackend(applicationContext, distribution = distribution, usbBroker = usbBroker) { phase, detail ->
+            distribution.runtime to RootlessDebianBackend(applicationContext, distribution = distribution, usbBroker = usbBroker,
+                sharedFolders = { sharedFolders.bindings(environmentForStorage(distribution.runtime, defaultStorageId(distribution.runtime)).id) }) { phase, detail ->
                 Log.i(TAG, "rootless distribution=${distribution.directory} phase=${phase.name}")
                 broadcast { it.onRootlessProgress(distribution.runtime.wireName, phase.displayName, detail) }
                 val id = defaultStorageId(distribution.runtime)
@@ -951,13 +1152,13 @@ class VmRuntimeService : Service() {
     }
 
     override fun onDestroy() {
+        destroying = true
         terminalOperations.close()
         usbBroker.close()
         stopForeground(STOP_FOREGROUND_REMOVE)
         listeners.kill()
         closeSessionClient()
-        portRegistry.clear()
-        portForwarder.stopAll()
+        localServiceListeners.kill()
         wakeController.release()
         scope.cancel()
         super.onDestroy()
@@ -1137,8 +1338,11 @@ class VmRuntimeService : Service() {
             return@withLock it
         }
         run {
-            val registry = UnifiedSessionRegistry(onDisconnected = { runtime, _ ->
-                if (runtime == SessionRuntime.AVF) scheduleGuestReconnect()
+            val registry = UnifiedSessionRegistry(onDisconnected = { runtime, storageId ->
+                if (runtime == SessionRuntime.AVF) {
+                    runCatching { portObservers[environmentForStorage(runtime, storageId).id]?.second?.invalidate() }
+                    scheduleGuestReconnect()
+                }
             }, onInput = { id, bytes ->
                 taskNotifications.input(id, bytes)
                 updateWakeState()
@@ -1165,6 +1369,7 @@ class VmRuntimeService : Service() {
                     when (event) {
                         is SessionEvent.Output -> notifyTerminalOutput(event.sessionId, event.bytes, event.replay)
                         is SessionEvent.Exited -> {
+                            workspaces.move(event.sessionId, null)
                             taskNotifications.exited(event.sessionId, event.exitCode, sessionNotificationTitle(event.sessionId))
                             kittyGrants.remove(event.sessionId)
                             broadcast { it.onSessionExited(event.sessionId, event.exitCode) }
@@ -1224,7 +1429,8 @@ class VmRuntimeService : Service() {
         RootlessDebianBackend(applicationContext,
             distribution = RootlessDistribution.entries.first { it.runtime == environment.sessionRuntime },
             usbBroker = usbBroker,
-            storageRoot = dev.terminal.runtime.session.SessionStorage.root(filesDir, environment.sessionRuntime, environment.storage.id)) { phase, detail ->
+            storageRoot = dev.terminal.runtime.session.SessionStorage.root(filesDir, environment.sessionRuntime, environment.storage.id),
+            sharedFolders = { sharedFolders.bindings(environment.id) }) { phase, detail ->
             broadcast { it.onRootlessProgress("${environment.sessionRuntime.wireName}:${environment.storage.id}", phase.displayName, detail) }
         }
 
@@ -1234,6 +1440,8 @@ class VmRuntimeService : Service() {
     }
 
     private fun clearEnvironmentStart(id: EnvironmentId) {
+        portObservers.remove(id)?.second?.close()
+        localServices.detach(id.value)
         startedEnvironmentBackends.remove(id)
         explicitlyStartedEnvironments.remove(id)
     }
@@ -1242,6 +1450,55 @@ class VmRuntimeService : Service() {
         val controller = owner.sessionController() ?: return
         check(controller.connectionState.value != dev.terminal.protocol.SessionConnectionState.DISCONNECTED) { "Cannot verify environment sessions" }
         check(controller.list().getOrThrow().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) { "Environment has active sessions" }
+    }
+
+    /** Reserve only the selected persistence, plus all users of an explicitly selected legacy Workspace.
+     * No stop, signal or prepare action is performed for backup. Other independent owners keep running.
+     */
+    private suspend fun withEnvironmentBackupLease(environment: Environment,
+        workspace: dev.terminal.runtime.backup.BackupWorkspace, work: suspend (() -> Unit) -> Unit) {
+        val client = ensureSessionRegistry() ?: error("Cannot verify environment runtime state")
+        var selected = emptyList<Environment>()
+        preparationLocks.withStorages(resolve = {
+            selected = environmentRegistry.transaction(storageDefaults()) {
+                val current = requireEnvironment(environment.id)
+                check(current.storage == environment.storage && current.runtimeMetadata == environment.runtimeMetadata &&
+                    current.sessionRuntime == environment.sessionRuntime) { "Environment identity changed before backup" }
+                if (workspace == dev.terminal.runtime.backup.BackupWorkspace.LEGACY_SHARED) all().filter {
+                    it.runtime == dev.terminal.runtime.session.EnvironmentRuntime.ROOTLESS &&
+                        (it.storage.id == "legacy" || dev.terminal.runtime.session.SessionStorage.isMigratedLegacy(filesDir, it.sessionRuntime, it.storage.id))
+                } else listOf(current)
+            }
+            selected.map { it.sessionRuntime to it.storage.id }
+        }) {
+            selected.forEach { current ->
+                check(client.verifiedSessions(current).getOrThrow().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) {
+                    "Close this environment's sessions before backup: ${current.name}"
+                }
+                val owner = environmentBackends[current.id] ?: if (current.storage.id == defaultStorageId(current.sessionRuntime))
+                    rootlessBackends[current.sessionRuntime] else null
+                val state = owner?.observeState()?.first() ?: RuntimeState.Stopped
+                check(state !is RuntimeState.Failed && state !is RuntimeState.Preparing && state !is RuntimeState.Booting && state !is RuntimeState.Stopping) {
+                    "Cannot verify a stable environment runtime state: ${current.name}"
+                }
+                if (current.runtime == dev.terminal.runtime.session.EnvironmentRuntime.ROOTLESS) {
+                    check(state is RuntimeState.Stopped) { "Stop this environment before backup: ${current.name}" }
+                    val rootless = owner as? RootlessDebianBackend
+                    check(rootless?.isInstallationActive() != true) { "Environment installation is running" }
+                    if (rootless != null) verifyRootlessOwnerIdle(rootless)
+                    val root = dev.terminal.runtime.session.SessionStorage.root(filesDir.canonicalFile, current.sessionRuntime, current.storage.id)
+                    check(!dev.terminal.runtime.rootless.RootlessNativeMigration.pending(root.parentFile.toPath())) {
+                        "Recover interrupted storage migration before backup"
+                    }
+                }
+            }
+            val roots = selected.map { dev.terminal.runtime.session.SessionStorage.root(filesDir.canonicalFile, it.sessionRuntime, it.storage.id).toPath() } +
+                if (workspace == dev.terminal.runtime.backup.BackupWorkspace.LEGACY_SHARED) listOf(java.io.File(filesDir.canonicalFile, "workspace").toPath()) else emptyList()
+            val probe = dev.terminal.runtime.backup.EnvironmentWriterProbe(android.os.Process.myUid(), android.os.Process.myPid())
+            val verify = { probe.verify(roots) }
+            verify()
+            work(verify)
+        }
     }
 
     /** Preparation has no session/foreground lease after completion; launch starts the prepared owner. */
@@ -1319,6 +1576,9 @@ class VmRuntimeService : Service() {
                 environmentRegistry.transaction(storageDefaults()) {
                     // Hold the process-shared lock through the final reference check and removal.
                     delete(id) { current ->
+                        val oldWorkspace = java.io.File(dev.terminal.runtime.session.SessionStorage.root(filesDir.canonicalFile, current.sessionRuntime, current.storage.id), "workspace")
+                        if (oldWorkspace.exists()) dev.terminal.runtime.backup.EnvironmentWriterProbe(android.os.Process.myUid(), android.os.Process.myPid()).verify(listOf(oldWorkspace.toPath()))
+                        dev.terminal.runtime.storage.LegacyWorkspaces.preserveBeforeDelete(filesDir, current.storageKey)
                         kotlinx.coroutines.runBlocking {
                             if (current.runtime != dev.terminal.runtime.session.EnvironmentRuntime.NATIVE) {
                                 removeEnvironmentSoftwareOwner(current, client,
@@ -1343,6 +1603,11 @@ class VmRuntimeService : Service() {
             }
             if (client != null) refreshSessions(client)
         }
+        // Never invert preparation/environment locks against the shared-folder UI lock.
+        synchronized(sharedFolderManagement) {
+            sharedFolderJobs.revokeEnvironment(id)
+            sharedFolders.disconnectEnvironment(id)
+        }
     }
 
     private fun defaultStorageId(runtime: SessionRuntime): String =
@@ -1361,6 +1626,7 @@ class VmRuntimeService : Service() {
                     session.state == dev.terminal.protocol.SessionStatus.RUNNING
             }.forEach { session -> registry.attach(session.id) }
             environmentBackends[environmentForStorage(SessionRuntime.AVF, id).id] = backend
+            observeAvfPorts(environmentForStorage(SessionRuntime.AVF, id), backend)
         }
     }
 
@@ -1516,6 +1782,7 @@ class VmRuntimeService : Service() {
             else -> owner.connectSessionClient().getOrThrow()
         }
         registry.register(executionEnvironment, controller)
+        observeAvfPorts(executionEnvironment, owner)
         return true
     }
 
@@ -1553,7 +1820,7 @@ class VmRuntimeService : Service() {
                     val environment = environmentForStorage(runtime, "legacy")
                     environmentBackends[environment.id] = backend
                     startedEnvironmentBackends.add(environment.id)
-                    registry.register(environment, it); true
+                    registry.register(environment, it); observeAvfPorts(environment, backend); true
                 } == true
             }
         } finally { selectedRootless?.clearPreparationWaiting() }
@@ -1566,20 +1833,20 @@ class VmRuntimeService : Service() {
         latestState is RuntimeState.Active || latestState is RuntimeState.Idle
 
     private fun resetReconnectBackoff() {
-        guestRetry.reset(); bridgeRetry.reset(); portRetry.reset()
+        guestRetry.reset(); bridgeRetry.reset()
         updateReconnectWork()
     }
 
     @Synchronized private fun updateReconnectWork() {
+        portObservers.values.forEach { it.second.reconcile() }
         if (!hasReconnectWork()) {
-            reconnectJob?.cancel(); bridgeJob?.cancel(); portAgentJob?.cancel()
+            reconnectJob?.cancel(); bridgeJob?.cancel()
             return
         }
         if (!primaryReady()) return
         scheduleGuestReconnect()
         if (backend !is NativeBackend) {
             scheduleBridgeServer()
-            schedulePortAgentCollector()
         }
     }
 
@@ -1638,28 +1905,34 @@ class VmRuntimeService : Service() {
         }
     }
 
-    @Synchronized private fun schedulePortAgentCollector() {
-        if (portAgentJob?.isActive == true || !hasReconnectWork()) return
-        portAgentJob = scope.launch {
-            while (primaryReady() && hasReconnectWork()) {
-                backend.connectGuestPortAgent().getOrNull()?.let { connection ->
-                    portRetry.reset()
-                    try {
-                        PortAgentCollector(
-                            registry = portRegistry,
-                            onListening = { port -> portForwarder.start(port) },
-                            onClosed = { port -> portForwarder.stop(port) },
-                        ).collect(connection)
-                    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                    catch (error: Exception) { Log.w(TAG, "port agent disconnected: ${error.javaClass.simpleName}") }
-                    finally { connection.close() }
-                }
-                if (hasReconnectWork()) portRetry.awaitRetry()
-            }
-        }
+    private fun notifyLocalServices() = synchronized(localServiceBroadcastLock) {
+        val count = localServiceListeners.beginBroadcast()
+        try { for (index in 0 until count) runCatching { localServiceListeners.getBroadcastItem(index).onServicesChanged() } }
+        finally { localServiceListeners.finishBroadcast() }
+    }
+
+    @Synchronized private fun observeAvfPorts(environment: Environment, owner: RuntimeBackend) {
+        if (destroying || environment.sessionRuntime != SessionRuntime.AVF || portObservers[environment.id]?.first === owner) return
+        portObservers.remove(environment.id)?.second?.close()
+        localServices.attach(environment.id.value, LocalhostPortForwarder(
+            openGuestStream = { address, port -> owner.openGuestTcpForward(address, port) },
+            connectionBudget = portConnectionBudget,
+            listenerBudget = portListenerBudget,
+            onFailure = { id, hostPort, listenerFailed -> localServices.forwardingFailure(environment.id.value, id, hostPort, listenerFailed) }))
+        val observer = dev.terminal.runtime.forwarding.AvfPortObserver(scope, environment.id.value, owner, localServices,
+            canReconnect = { environment.id in explicitlyStartedEnvironments ||
+                hostBackgroundOperationCount.get() > 0 || environment.id in liveAvfEnvironments }, changed = ::notifyLocalServices)
+        portObservers[environment.id] = owner to observer
+    }
+
+    @Synchronized private fun closePortObservers() {
+        portObservers.values.forEach { it.second.close() }
+        portObservers.clear()
+        localServices.close()
     }
 
     private suspend fun refreshSessions(client: SessionController) {
+        collectTemporaryWorkspaces()
         sessionSnapshots.refresh(client)
             .onFailure { Log.w(TAG, "session.refresh failed cause=${it.javaClass.simpleName}: ${it.userMessage()}") }
     }
@@ -1674,6 +1947,9 @@ class VmRuntimeService : Service() {
         taskNotifications.running(snapshot.sessions.filter { it.state == dev.terminal.protocol.SessionStatus.RUNNING }
             .mapTo(mutableSetOf()) { it.id })
         publishedSessions = published
+        val registry = sessionClient as? UnifiedSessionRegistry
+        liveAvfEnvironments = snapshot.sessions.filter { it.state == dev.terminal.protocol.SessionStatus.RUNNING &&
+            registry?.runtimeOf(it.id) == SessionRuntime.AVF }.mapNotNull { registry?.environmentOf(it.id) }.toSet()
         updateWakeState()
         updateServiceLifetime()
         Log.d(TAG, "session.snapshot revision=${published.revision} count=${snapshot.sessions.size}")
@@ -1739,9 +2015,7 @@ class VmRuntimeService : Service() {
         reconnectJob = null
         bridgeJob?.cancel()
         bridgeJob = null
-        portAgentJob?.cancel()
-        portAgentJob = null
-        portForwarder.stopAll()
+        closePortObservers()
         val client = sessionClient
         sessionClient = null
         client?.close()

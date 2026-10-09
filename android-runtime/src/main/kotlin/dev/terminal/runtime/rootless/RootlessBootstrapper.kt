@@ -153,7 +153,8 @@ class RootlessBootstrapper(
                         "파일 $entries 개 처리 · ${bytes / (1024 * 1024)} MiB 압축 해제"))
                 }
                 configureRootlessRootfs(staging, distribution)
-                RootlessStorageFormat.prepareNewInstallation(staging, createHardLink)
+                RootlessStorageFormat.prepareNewInstallation(staging,
+                    RootlessStorageFormat.restoredDataFormat(layout.root.toPath()), createHardLink)
                 if (RootlessStorageFormat.usesEmulatedLinks(staging)) {
                     reporter.report(RootlessPhase.EXTRACT, "하드링크를 사용할 수 없어 PRoot 링크 에뮬레이션으로 설치합니다. 파일 가속은 비활성화됩니다")
                 }

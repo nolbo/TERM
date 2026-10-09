@@ -142,6 +142,40 @@ class EnvironmentRegistry(val storage: StorageRegistry) {
                 environmentId = if (shareEnvironment) environment.id else null)
         }
 
+        fun reserveRestore(operationId: String, environment: Environment) {
+            check(find(environment.id) == null && !isDeleted(environment.id))
+            persistence.reserveRestore(operationId, environment)
+        }
+
+        /** Caller supplies an already verified private staging tree, never a backup-selected path.
+         * Reservation survives a crash between filesystem rename and the atomic metadata commit.
+         */
+        fun activateRestore(operationId: String, importedProfiles: List<SessionProfile>, activate: (Environment) -> Unit): Environment {
+            val reserved = requireNotNull(persistence.pendingRestores()[operationId]) { "Restore reservation is missing" }
+            check(find(reserved.id) == null && !isDeleted(reserved.id))
+            val environment = reserved.copy(name = StorageRegistry.uniqueName(reserved.name, all().map { it.name }))
+            val saved = state.getJSONObject("profiles")
+            val encoded = importedProfiles.associate { profile ->
+                check(!profile.builtIn && !saved.has(profile.id) && defaults.none { it.id == profile.id }) { "Restore cannot replace profiles" }
+                check(profile.environmentId == environment.id && profile.storageId == environment.storage.id && profile.runtime == environment.sessionRuntime)
+                profile.id to profile.resolve(environment).toJson().toString()
+            }
+            check(encoded.size == importedProfiles.size)
+            val keys = persistence.keys() + environment.storageKey
+            activate(environment)
+            put(environment)
+            encoded.forEach { (id, profile) -> saved.put(id, profile) }
+            state.put("storages", JSONArray(keys.map { it.json() }))
+            val receipts = state.optJSONObject("environmentRestoreReceipts") ?: JSONObject().also { state.put("environmentRestoreReceipts", it) }
+            receipts.put(operationId, environment.id.value)
+            persistence.finishRestore(operationId)
+            persistence.persist()
+            return environment
+        }
+
+        fun completedRestore(operationId: String): Environment? = state.optJSONObject("environmentRestoreReceipts")
+            ?.optString(operationId)?.takeIf(String::isNotEmpty)?.let { find(EnvironmentId(it)) }
+
         fun deleteProfile(id: String, builtIn: Boolean) = persistence.deleteProfile(id, builtIn)
         fun rename(id: EnvironmentId, name: String) {
             val environment = requireEnvironment(id)
@@ -175,6 +209,8 @@ class EnvironmentRegistry(val storage: StorageRegistry) {
         /** The service has excluded creation and proved the actual runtime owner idle. */
         fun delete(id: EnvironmentId, beforeRemove: (Environment) -> Unit = {}) {
             val environment = requireDeletable(id)
+            // A workspace link can depend on rootfs/home. Fail before either is removed.
+            persistence.validateLegacyWorkspaceDeletion(environment.storageKey)
             beforeRemove(environment)
             if (environment.runtime != EnvironmentRuntime.NATIVE) {
                 persistence.removeSoftware(environment.storageKey, removeHome = environment.runtime == EnvironmentRuntime.ROOTLESS)

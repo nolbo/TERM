@@ -9,6 +9,18 @@ import org.junit.Test
 import org.junit.rules.TemporaryFolder
 
 class RootlessLaunchSpecTest {
+    @Test fun onlyExplicitSharesAreBoundAndUserWorkspaceRemainsAnOrdinaryGuestPath() {
+        val layout = RootlessDebianLayout(File(temporary.root, "shares/debian"))
+        val directory = temporary.newFolder("shared")
+        val folder = dev.terminal.runtime.storage.SharedFolder(java.util.UUID.randomUUID().toString(), "Code", emptySet())
+        val binding = dev.terminal.runtime.storage.SharedFolderBinding(folder, directory)
+        val initial = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"), "/bin/sh", "/workspace", emptyMap())
+        assertFalse(initial.arguments.any { it.endsWith(":/workspace") || it.contains("term-shares") })
+        assertEquals("/workspace", initial.guestCwd) // Users can create and use their own ordinary directory.
+        val shared = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"), "/bin/sh", "/root", emptyMap(), shares = listOf(binding))
+        assertTrue(shared.arguments.contains("${directory.path}:/mnt/term-shares/Code"))
+        assertFalse(shared.arguments.contains(directory.parentFile.absolutePath))
+    }
     @Test fun globalDnsBindAppliesToEveryDistributionWithoutChangingItsRootfs() {
         val resolver = temporary.newFile("resolver").apply { writeText("nameserver 192.0.2.53\n") }
         RootlessDistribution.entries.forEach { distribution ->
@@ -136,7 +148,7 @@ class RootlessLaunchSpecTest {
         assertFalse(denied.any { it.contains("/sdcard") || it.contains(storage.path) })
         assertEquals(denied + "${storage.path}:/sdcard", launch(storage))
         assertEquals(denied, launch(null)) // A later session after revocation has no bind.
-        assertTrue(denied.contains("${layout.workspace.absolutePath}:/workspace"))
+        assertFalse(denied.contains("${layout.workspace.absolutePath}:/workspace"))
         assertFalse(launch(storage).contains(layout.root.parentFile.parentFile.absolutePath))
     }
 
@@ -178,7 +190,7 @@ class RootlessLaunchSpecTest {
         assertTrue(launch.arguments.toList().windowed(2).contains(listOf("-r", layout.rootfs.absolutePath)))
         assertTrue(launch.arguments.toList().windowed(2).contains(listOf("-w", "/workspace")))
         assertTrue(launch.arguments.contains("${layout.home.absolutePath}:/root"))
-        assertTrue(launch.arguments.contains("${layout.workspace.absolutePath}:/workspace"))
+        assertFalse(launch.arguments.contains("${layout.workspace.absolutePath}:/workspace"))
         assertTrue(launch.arguments.contains("SAFE_NAME=value"))
         assertFalse(launch.arguments.contains("PATH=/host/path"))
         assertFalse(launch.arguments.any { it.startsWith("INVALID-NAME=") })

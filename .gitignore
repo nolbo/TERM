@@ -47,6 +47,10 @@ __pycache__/
 .coverage
 htmlcov/
 
+# Local UI validation captures and OCR data
+/.replicant/
+/eng.traineddata
+
 # Local SDK, rootfs, VM and temporary artifacts
 /.android-sdk/
 /.amd64-root/

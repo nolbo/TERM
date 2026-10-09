@@ -11,6 +11,24 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class StoragePreparationLocksTest {
+    @Test fun `shared workspace backup excludes its users while independent installation can proceed`() = runBlocking {
+        val locks = StoragePreparationLocks()
+        val release = CompletableDeferred<Unit>()
+        val backup = async(start = CoroutineStart.UNDISPATCHED) {
+            locks.withStorages({ listOf(SessionRuntime.ROOTLESS to "shared-debian", SessionRuntime.ROOTLESS_UBUNTU to "shared-ubuntu") }) { release.await() }
+        }
+        val launch = async(start = CoroutineStart.UNDISPATCHED) {
+            locks.withStorage(SessionRuntime.ROOTLESS_UBUNTU, "shared-ubuntu") { true }
+        }
+        try {
+            withTimeout(5000) { locks.withStorage(SessionRuntime.ROOTLESS_ARCH, "independent") { } }
+            assertFalse(launch.isCompleted)
+            assertFalse(locks.tryWithAll { error("Cannot adopt during backup") })
+        } finally { release.complete(Unit) }
+        backup.await(); assertTrue(launch.await())
+        withTimeout(5000) { locks.withAll { } }
+    }
+
     @Test fun `deferred adoption never blocks another storage while installation is active`() = runBlocking {
         val locks = StoragePreparationLocks()
         val release = CompletableDeferred<Unit>()

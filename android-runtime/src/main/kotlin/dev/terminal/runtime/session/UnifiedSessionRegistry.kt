@@ -335,6 +335,16 @@ class UnifiedSessionRegistry(
     fun storageOf(sessionId: String): String? = ownerKey(sessionId)?.storageId
     fun environmentOf(sessionId: String): EnvironmentId? = launches[sessionId]?.environmentId ?: ownerKey(sessionId)?.let { environments[it]?.id }
     fun launchOf(sessionId: String): SessionLaunchSpec? = launches[sessionId]
+    /** Collection of UI metadata requires a complete live-owner proof, including disconnected VMs. */
+    suspend fun verifiedWorkspaceSessions(rememberedIds: Set<String>): Set<String>? = listMutex.withLock {
+        if (rememberedIds.any { SessionRuntime.fromSessionId(it) == SessionRuntime.AVF && !owners.containsKey(it) }) return@withLock null
+        runCatching {
+            registrations.values.flatMap { registration ->
+                check(registration.controller.connectionState.value != SessionConnectionState.DISCONNECTED)
+                registration.controller.list().getOrThrow()
+            }.filter { it.state != dev.terminal.protocol.SessionStatus.EXITED }.mapTo(mutableSetOf()) { it.id }
+        }.getOrNull()
+    }
     suspend fun verifiedSessions(environment: Environment): Result<List<SessionDescriptor>> {
         val registration = registrations[StorageKey(environment.sessionRuntime, environment.storage.id)] ?: return Result.success(emptyList())
         if (registration.controller.connectionState.value == SessionConnectionState.DISCONNECTED)

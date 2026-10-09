@@ -135,10 +135,10 @@ Image-related pushes to `dev` prepare an image candidate and a debug APK embeddi
 Runtime selection is explicit. A failure in one selected runtime MUST NOT
 silently redirect the command or session to another runtime.
 
-Explicit installation cancellation targets the observed AVF WorkManager attempt or the selected Rootless backend's preparation job. Rootless preparation owns a separate child job, retains its lease through process and staging cleanup, and never cancels a live session or another environment. Downloads, hashing, extraction and AVF image copying check cancellation before promotion. Cancelled Rootless package preparation retains the activated rootfs and separate home/workspace; retry uses the existing package recovery path. Closing or recreating UI still only detaches observation.
+Explicit installation cancellation targets the observed AVF WorkManager attempt or the selected Rootless backend's preparation job. Rootless preparation owns a separate child job, retains its lease through process and staging cleanup, and never cancels a live session or another environment. Downloads, hashing, extraction and AVF image copying check cancellation before promotion. Cancelled Rootless package preparation retains the activated rootfs, home and any pre-existing workspace data; retry uses the existing package recovery path. Closing or recreating UI still only detaches observation.
 
 Rootless and AVF do not share a complete rootfs or dpkg database. Share only
-deliberate higher-level state such as workspace data, selected user files,
+deliberate higher-level state such as Shared Folder data, selected user files,
 appropriate dotfiles, and a logical package/environment manifest.
 
 ### Android boundary, storage, and power
@@ -154,8 +154,8 @@ Capability grants are separate from Android OS permissions and are scoped to
 the host-selected environment or VM identity.
 
 Storage exposure is explicit and minimal. Keep runtime roots and package
-databases separate. Share a deliberate workspace rather than the entire
-app-private directory.
+databases separate. Expose only explicitly connected Shared Folders rather than the entire
+app-private directory. Logical Workspaces never expose filesystem paths.
 
 A foreground service improves survivability but is not a permanent execution
 guarantee. Wake locks must be policy-driven, time-bounded where appropriate, and
@@ -181,6 +181,16 @@ palette exposed to terminal applications.
 
 The UI renders state and sends typed commands. It never becomes the hidden
 owner of a process, PTY, VM, package operation, or capability grant.
+
+## Local services and port ownership
+
+`LocalServicesActivity` projects the `:vmhost`-owned `LocalServiceManager`/`PortForwardRegistry`; it never starts, prepares, stops or owns an Environment, session, listener or VM. The service exposes appended, authenticated host-UI Binder methods and an invalidation callback. Visible Activities reread authoritative snapshots after invalidation/reconnection and unregister on stop; the dashboard adds no persistent polling service. Manual Native/Userspace Linux registrations and explicit AVF mappings use a bounded app-private preference record and survive Activity/runtime recreation. Live AVF observations are not restored as active after owner death.
+
+Services have a stable ID, optional Environment/session association, numeric source endpoint, TCP transport, optional user-specified HTTP/HTTPS, provenance, observation, forwarding state and errors. AVF IDs include the host-selected Environment, address and port; identical ports in different VMs never merge. Native and PRoot share Android networking: manual Environment association is logical, and neither a registration nor a configured loopback address proves a running listener or process ownership. No arbitrary Android socket enumeration, process killing, port scanning, health check or CLI registration is implemented. A CLI path needs a separately scoped authenticated host-broker operation; no stub command is shipped.
+
+One event-driven port observer and forwarding driver belong to each active AVF owner. The existing reconnect backoff is reused only while that Environment has sessions, explicit-start ownership or pending host work. Disconnect/stop closes only that Environment's TERM listeners and connections and marks surviving observations unknown; a completed snapshot or explicit close confirms listener removal. A bound Android proxy is recorded separately from discovery and never claims guest application health. Port conflicts stay visible without displacing another owner. Explicit host-port changes bind a candidate and persist its mapping before replacing the old listener; either failure keeps the old mapping. All Android binds are IPv4 loopback only, with bounded service and connection counts.
+
+Inspection found that the previous implementation connected a reported TCP port directly to the same-numbered vsock port without a guest TCP bridge. Address-aware agent extensions and a host-CID-only proxy on 40504 complete that missing path. Older agents retain their legacy report format but are honestly shown as discovery-only/forwarding unavailable. Existing images are not replaced or migrated automatically; new agent/proxy support requires an image built with the new guest source. This preserves runtime/session and wire-envelope compatibility instead of treating a successful host bind as proof that the old TCP path worked.
 
 ## Native / Rootless iPhone tool environment
 
@@ -288,7 +298,7 @@ The application uncaught-exception handler archives reports from the UI and runt
 
 Environment details also manage installed software independently of Environment deletion. Rootless installation/retry/completion prepares that instance without creating a session; progress remains service-owned across UI detach, and UUID instances have independent temporary download caches. Removing a Rootless distribution preserves its Environment/Profile identity and home/work directory by default, with explicit optional home removal. Removing AVF Debian preserves Environment/Profile identity and the host shared folder but deletes the guest disks and persistent VM instance after the platform verifies it stopped. Active/disconnected sessions and approved image work block removal; installation enqueue and the final removal check share the manifest lock. AVF copying, hashing and progress publication run outside that lock; only final generation validation and promotion of the verified sibling directory hold it, keeping Environment/Profile metadata available during installation. A persisted image generation invalidates cancelled workers before disk removal, so a stale activation cannot restore removed data. Reinstallation keeps the same Environment and persistence identities. Adopted legacy AVF environments continue observing and waiting for the old installation work name, and that work also blocks removal or a duplicate download.
 
-Deletion removes an environment, its idle runtime owner and storage together, using the same distribution/Debian removal procedure as software removal before deleting identity metadata. Rootless removal also clears the selected environment's installation cache and handles read-only distribution directories; full deletion additionally removes its home and workspace. AVF removal deletes the Debian disks and persistent VM instance, invalidates stale image activation and additionally removes the host shared folder. Linked profiles and active sessions must be removed first; active installation/management and pending legacy adoption block deletion. Unknown/unreachable runtime state blocks deletion, except that an unattached AVF environment can use the privileged platform's persisted-VM query to prove it stopped or absent before deleting any files. The service excludes preparation/creation and holds the manifest lock through the final reference and installation checks, platform deletion and filesystem removal. Environment and storage identities are tombstoned together to reject stale drafts/launches and prevent image workers recreating deleted data. Walks never follow symlinks, and another environment's roots, installation caches or legacy shared workspace are never removed. There is no automatic storage/environment garbage collection or general-user storage-only deletion.
+Deletion removes an environment, its idle runtime owner and storage together, using the same distribution/Debian removal procedure as software removal before deleting identity metadata. Rootless removal also clears the selected environment's installation cache and handles read-only distribution directories; full deletion additionally removes its home, while an existing UUID workspace remains at its original path and is excluded from storage deletion. Workspace links that could depend on rootfs data and interrupted storage migrations block deletion before any software removal. AVF removal deletes the Debian disks and persistent VM instance, invalidates stale image activation while host Shared Folders and legacy host VM folders remain independently stored. Linked profiles and active sessions must be removed first; active installation/management and pending legacy adoption block deletion. Unknown/unreachable runtime state blocks deletion, except that an unattached AVF environment can use the privileged platform's persisted-VM query to prove it stopped or absent before deleting any files. The service excludes preparation/creation and holds the manifest lock through the final reference and installation checks, platform deletion and filesystem removal. Environment and storage identities are tombstoned together to reject stale drafts/launches and prevent image workers recreating deleted data. Walks never follow symlinks, and another environment's roots, installation caches or legacy shared workspace are never removed. There is no automatic storage/environment garbage collection or general-user storage-only deletion.
 
 Size is lazily measured with a one-minute cache; zero-byte values are not cached. Access-denied descendants produce an explicit partial lower bound without changing guest permissions, while root access or other I/O failures clear the UI measurement.
 
@@ -306,9 +316,11 @@ rootfs trees or VM disks would change host paths, the existing shared `/workspac
 and AVF's persisted configuration. Adoption therefore preserves data, package databases,
 inode identity and `droid-default` rather than copying or renaming them. `SessionStorage`
 remains a path resolver with fixed allowlisted legacy locations; metadata cannot supply
-arbitrary paths. Existing Rootless environments retain the app-level shared workspace,
-which deletion of one distribution never removes. Fresh UUID environments retain their
-independent workspace and roots.
+arbitrary paths. Existing app-level and UUID workspace data remains intact, but new sessions no longer bind it to `/workspace`. New installations do not create that host directory. Logical Workspace membership never changes these storage handles or roots.
+
+Environment backup/restore is owned by `EnvironmentBackupJobs` in `:vmhost`, independently of UI lifetime. Native/Rootless Data backups contain home configuration plus explicitly selected Profiles/Workspace; Rootless Full backups additionally contain the matching rootfs and package database. Exports hold the existing storage preparation leases, require no live sessions or writers, and never stop processes. Including legacy shared Workspace checks and leases all its Rootless users. Independent Environment storage remains usable.
+
+The versioned `.termbackup` stream preserves file/link and Rootless storage semantics, verifies bounded extraction and optionally uses password-authenticated encryption. Restore always stages and validates before allocating fresh Environment/Storage/Profile identities. Pending reservations are hidden in the existing process-shared manifest; atomic tree promotion and one registry commit activate the new Environment. Recovery removes only unpublished reservations, and completion receipts protect already committed restores. AVF, overwriting and scheduled/incremental backups are excluded. See [BACKUP_RESTORE.md](BACKUP_RESTORE.md) for the format, compatibility, crash recovery and storage boundaries.
 
 The service excludes preparation and session creation while committing adoption.
 Adoption uses a non-waiting exclusive attempt and defers while storage work is active,
@@ -373,7 +385,7 @@ contain this expected session-local I/O completion so it cannot escape a
 coroutine and terminate the shared `:vmhost` process or sibling sessions.
 
 Rootless Debian, Ubuntu and Arch Linux ARM each use a distinct rootfs and home,
-and share a host-owned workspace. The service owns one backend/controller per
+and can explicitly connect independent host-owned Shared Folders. The service owns one backend/controller per
 distribution and the registry routes by the explicit host-local selection. The
 first selection of an uninstalled Environment asks for consent before installing
 that distribution's checksum-pinned archive into its rootfs. Ordinary session
@@ -516,3 +528,19 @@ the source PTY, restricts targets to the same runtime and uses existing session
 operations. Android focus requests only select tabs. UI-created sessions receive
 a grant only when the host setting is enabled; remote-created sessions do not.
 See [KITTY_PROTOCOL.md](KITTY_PROTOCOL.md) for commands, bounds and desktop limits.
+
+## Workspace Manager and Shared Folders
+
+See [SHARED_FOLDERS.md](SHARED_FOLDERS.md) for retirement, preserved data paths, transfer limits and compatibility.
+
+A Workspace is a logical, optional session group. A session has at most one membership; all-session and unassigned filters always exist. `WorkspaceRegistry` has a single runtime-process writer and persists names, permanent/temporary status, memberships, launch configurations and the selected filter through host-UI Binder calls. Activities retain only projection/selection state. Switching filters, moving sessions, promotion and Workspace deletion never signal PTYs or call a backend lifecycle operation. Deletion removes memberships and preserves sessions, Profiles, Environments and files. Empty filters keep the sessions toolbar accessible and never create replacement sessions.
+
+Temporary Workspaces survive while selected or occupied. Collection requires a complete authoritative live-session query; disconnected controllers or an unrecovered AVF owner produce unknown and prevent collection. Explicit exits/termination remove the corresponding membership. Pending launches reserve their Workspace until creation finishes; deleting it while a launch is pending makes the resulting session unassigned. Permanent launch configurations reference an existing Profile and optionally override cwd on a copied Profile before the existing immutable `SessionLaunchSpec` resolution/consent path. They never edit a Profile or allocate another Environment.
+
+Shared Folders are independent of logical Workspaces. `SharedFolderRegistry` stores data under app-private `shared-folders/<UUID>` and stores explicit Environment UUID connections in runtime-owned metadata. Native gets host paths in `TERM_SHARED_FOLDERS`; Rootless binds only selected folders at `/mnt/term-shares/<name>` when each session starts. Running sessions retain their bindings through rename/disconnection. Rootless sessions retain pinned host directory capabilities for binding lifetime. Connection settings are convenience, not Android UID isolation: Native and PRoot run as the same app UID. Deleting an Environment/Workspace cannot delete this independent storage. Explicit Shared Folder data deletion requires all session owners to be verifiably idle and file jobs finished.
+
+The Rootless layout retains its old workspace path only for data discovery, backups and interrupted native/emulated-link conversion recovery. Historic two-line migration journals retain their three fixed root indices; migrations of layouts without workspace data add a `NO_WORKSPACE` marker and never create that directory. Automatic directory creation and the special `/workspace` bind are removed; users may still create an ordinary guest `/workspace`. Settings lists Legacy common, UUID-environment, retained and legacy AVF host sources separately. Runtime-owned imports copy into unpublished storage, stream bounded regular files/directories, verify the complete source tree again, then atomically activate a new Shared Folder. ZIP exports use the Android document picker. Both retain originals on success/failure/cancellation, reject links/special files and cap work at 2 GiB/100,000 entries. Long copies lease only the selected folder's actual Environment users; unrelated Environment sessions and installations remain admitted. Interrupted unpublished imports and host file-transfer temporaries are cleaned on owner restart without touching sources or committed copies. Existing Full environment backups remain the path for Rootless link/package semantics. Deleting a UUID Environment keeps its old regular-file workspace at the original UUID path, tombstones the Environment/Storage identity and lists the remaining directory as retained data; links that might depend on the deleted rootfs and pending migration journals block deletion instead. Legacy common and legacy AVF host directories are never removed by Environment deletion.
+
+Successful Environment deletion disconnects that UUID from Shared Folders and cancels only transfers targeting that Environment, after releasing preparation and Environment registry locks. Shared Folder identities, data and connections to other Environments are retained. The editor also excludes deleted references after an owner restart interrupted this metadata cleanup.
+
+AVF exposes explicit copies through the running, host-selected VM backend and a dedicated endpoint in the existing guest-agent binary. It does not start a VM, mount Shared Folders or claim live synchronization. Each operation validates the selected folder/Environment connection; host paths never cross vsock. Files are relative to `/home/droid/term-transfers/<folder-name>`, limited to 64 MiB and 120 seconds, streamed and SHA-256 verified before no-replace atomic publication. Cancellation closes only that operation connection. Activities observe persisted job results; UI recreation/unbinding does not cancel work. Owner death marks unfinished jobs interrupted and preserves originals. New guest images include the non-root host-CID-only service; old images fail explicitly until updated. Live virtiofs mounting remains separate future work.

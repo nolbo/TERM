@@ -101,10 +101,17 @@ class DiagnosticsAndReportsUiTest {
         }
     }
 
-    @Test fun forwardedPortsRejectDevicesWithoutAvfPrivileges() {
+    @Test fun forwardedPortsRedirectWithoutRequiringAvfPrivileges() {
         assumeFalse(SessionProfiles(context).hasAvfPrivileges())
-        ActivityScenario.launch(ForwardedPortsActivity::class.java).use { scenario ->
-            assertEquals(Lifecycle.State.DESTROYED, scenario.state)
-        }
+        val monitor = instrumentation.addMonitor(LocalServicesActivity::class.java.name, null, false)
+        try {
+            ActivityScenario.launch(ForwardedPortsActivity::class.java).use { scenario ->
+                val dashboard = monitor.waitForActivityWithTimeout(5000)
+                assertNotNull(dashboard)
+                assertEquals("AVF", dashboard.intent.getStringExtra(LocalServicesActivity.EXTRA_FILTER))
+                assertEquals(Lifecycle.State.DESTROYED, scenario.state)
+                instrumentation.runOnMainSync { dashboard.finish() }
+            }
+        } finally { instrumentation.removeMonitor(monitor) }
     }
 }

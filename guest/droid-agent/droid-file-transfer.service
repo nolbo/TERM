@@ -1,0 +1,17 @@
+[Unit]
+Description=TERM explicit file copy endpoint (no live sharing)
+After=network.target
+
+[Service]
+Type=simple
+User=droid
+Group=droid
+ExecStart=/usr/local/lib/droid/droid-agent --file-transfer
+Restart=on-failure
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ReadWritePaths=/home/droid
+
+[Install]
+WantedBy=multi-user.target

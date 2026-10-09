@@ -58,7 +58,10 @@ internal object RootlessStorageFormat {
     }
 
     /** Run in unpublished staging, before package setup can create emulated links. */
-    fun prepareNewInstallation(root: Path, createHardLink: (Path, Path) -> Path = Files::createLink) {
+    fun prepareNewInstallation(root: Path, createHardLink: (Path, Path) -> Path = Files::createLink) =
+        prepareNewInstallation(root, null, createHardLink)
+
+    fun prepareNewInstallation(root: Path, preferred: LaunchFormat?, createHardLink: (Path, Path) -> Path = Files::createLink) {
         val permissions = Files.getPosixFilePermissions(root, NOFOLLOW_LINKS)
         try {
             Files.setPosixFilePermissions(root, permissions + OWNER_WRITE)
@@ -68,12 +71,14 @@ internal object RootlessStorageFormat {
                 val original = Files.write(probe.resolve("original"), byteArrayOf(1), CREATE_NEW)
                 val linked = probe.resolve("linked")
                 try {
-                    createHardLink(linked, original)
+                    if (preferred == LaunchFormat.EMULATED || preferred == LaunchFormat.LEGACY_EMULATED) nativeLinks = false
+                    else createHardLink(linked, original)
                 } catch (_: IOException) {
                     nativeLinks = false
                 } catch (_: UnsupportedOperationException) {
                     nativeLinks = false
                 }
+                require(preferred != LaunchFormat.NATIVE || nativeLinks) { "This device cannot preserve the restored home hardlink format" }
                 if (!nativeLinks) {
                     // Exercise the primitive PRoot's link emulation needs. Other storage
                     // failures still propagate; no marker is published unless this works.
@@ -96,6 +101,24 @@ internal object RootlessStorageFormat {
             Files.write(root.resolve(MARKER), (if (nativeLinks) NATIVE_LINKS else EMULATED_LINKS).toByteArray(Charsets.UTF_8), CREATE_NEW)
         } finally {
             Files.setPosixFilePermissions(root, permissions)
+        }
+    }
+
+    /** App-written metadata from a verified DATA restore; guest archives cannot select this path. */
+    fun restoredDataFormat(storageRoot: Path): LaunchFormat? {
+        val marker = storageRoot.resolve(".terminal-data-storage-format")
+        if (Files.notExists(marker, NOFOLLOW_LINKS)) return null
+        require(Files.isRegularFile(marker, NOFOLLOW_LINKS) && Files.size(marker) <= 64) { "Invalid restored data storage format" }
+        val value = Files.newInputStream(marker, NOFOLLOW_LINKS).use { input ->
+            val bytes = java.io.ByteArrayOutputStream()
+            repeat(65) { val next = input.read(); if (next < 0) return@use bytes.toString(Charsets.UTF_8.name()); bytes.write(next) }
+            error("Invalid restored data storage format")
+        }
+        return when (value.trim()) {
+            "native-hardlinks-1" -> LaunchFormat.NATIVE
+            "emulated-hardlinks-1" -> LaunchFormat.EMULATED
+            "legacy-emulated-hardlinks" -> LaunchFormat.LEGACY_EMULATED
+            else -> error("Unsupported restored data storage format")
         }
     }
 }

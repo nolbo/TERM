@@ -39,9 +39,12 @@
         </service>
         <activity android:name=".EnvironmentActivity" android:exported="false" />
         <activity android:name=".EnvironmentDetailActivity" android:exported="false" />
+        <activity android:name=".EnvironmentBackupActivity" android:exported="false" />
         <activity android:name=".StorageActivity" android:exported="false" />
         <activity android:name=".StorageDetailActivity" android:exported="false" />
         <activity android:name=".ProfilesActivity" android:exported="false" />
+        <activity android:name=".WorkspacesActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".SharedFoldersActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ProfileEditActivity" android:exported="false" />
         <activity
             android:name=".MainActivity"
@@ -68,6 +71,7 @@
         <activity android:name=".PaletteEditorActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".CrashReportActivity" android:exported="false" />
         <activity android:name=".DiagnosticsActivity" android:exported="false" />
+        <activity android:name=".LocalServicesActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ForwardedPortsActivity" android:exported="false" />
         <activity android:name=".UsbDevicesActivity" android:exported="false" />
         <activity android:name=".HostToolInputsActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />

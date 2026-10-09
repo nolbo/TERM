@@ -27,6 +27,10 @@ internal class RootlessNativeMigration(
         require(Files.isDirectory(parent)) { "이전 대상의 부모가 실제 디렉터리가 아닙니다" }
         parent.toRealPath().resolve(it.name)
     }
+    // Keep the historic three indices for old journals and permission records.
+    // New installations without legacy workspace data migrate only rootfs/home.
+    private var workspaceIncluded = true
+    private fun selectedRoots() = roots.take(if (workspaceIncluded) 3 else 2)
     private val permissionJournal = transaction.resolve("permissions")
     private val accessible = 0b101000000 // Owner read/search, without changing write or special bits.
     private val originalModes = linkedMapOf<Path, Int>()
@@ -37,7 +41,8 @@ internal class RootlessNativeMigration(
     fun migrate() {
         recover()
         if (RootlessStorageFormat.resolveForLaunch(roots[0]) == RootlessStorageFormat.LaunchFormat.NATIVE) return
-        roots.forEach { require(Files.isDirectory(it, NOFOLLOW_LINKS) && it.toRealPath() == it) { "이전 대상 경로가 실제 디렉터리가 아닙니다: $it" } }
+        workspaceIncluded = exists(roots[2])
+        selectedRoots().forEach { require(Files.isDirectory(it, NOFOLLOW_LINKS) && it.toRealPath() == it) { "이전 대상 경로가 실제 디렉터리가 아닙니다: $it" } }
         state("STAGING")
         try {
             Files.createDirectory(transaction)
@@ -71,7 +76,7 @@ internal class RootlessNativeMigration(
                     Files.newDirectoryStream(path).use { children -> children.forEach { scan(it) } }
                 }
             }
-            roots.forEach { scan(it) }
+            selectedRoots().forEach { scan(it) }
             val links = entries.filterValues { it.isSymbolicLink }.keys.associateWith { Files.readSymbolicLink(it) }
             fun special(path: Path) = path.fileName?.toString().orEmpty().let { it.startsWith(".l2s.") || it.startsWith(".proot.l2s.") }
             fun target(path: Path): Path {
@@ -106,7 +111,7 @@ internal class RootlessNativeMigration(
             }
             val replacements = groups.flatMap { (intermediate, members) -> members.map { it to finals.getValue(intermediate) } }.toMap()
             val omitted = groups.keys + finals.values + roots[0].resolve(".terminal-storage-format")
-            roots.forEachIndexed { index, root ->
+            selectedRoots().forEachIndexed { index, root ->
                 entries.filterKeys { it.startsWith(root) }.forEach { (source, attrs) ->
                     if (source !in omitted) {
                         val destination = stage(index).resolve(root.relativize(source))
@@ -144,7 +149,7 @@ internal class RootlessNativeMigration(
             restorePermissions()
             checkpoint("staged")
             state("PUBLISHING")
-            roots.forEachIndexed { index, root ->
+            selectedRoots().forEachIndexed { index, root ->
                 Files.move(root, backup(index), ATOMIC_MOVE)
                 syncDirectory(root.parent)
                 syncDirectory(transaction)
@@ -183,12 +188,13 @@ internal class RootlessNativeMigration(
             require(length <= 128)
             String(bytes, 0, length, Charsets.UTF_8).split('\n')
         }
-        require(parts.size == 2 && parts[0] == layout.distribution.name &&
+        require((parts.size == 2 || parts.size == 3 && parts[2] == "NO_WORKSPACE") && parts[0] == layout.distribution.name &&
             parts[1] in setOf("STAGING", "PUBLISHING", "COMMITTED")) {
             "다른 배포판 또는 알 수 없는 이전 기록입니다. 해당 배포판에서 이전을 다시 실행하세요"
         }
+        workspaceIncluded = parts.size == 2
         require(!exists(transaction) || Files.isDirectory(transaction, NOFOLLOW_LINKS))
-        if (parts[1] == "PUBLISHING") roots.indices.reversed().forEach { index ->
+        if (parts[1] == "PUBLISHING") selectedRoots().indices.reversed().forEach { index ->
             if (exists(backup(index))) {
                 if (exists(roots[index])) {
                     if (exists(stage(index))) deleteRootlessTree(stage(index))
@@ -197,11 +203,11 @@ internal class RootlessNativeMigration(
                 Files.move(backup(index), roots[index], ATOMIC_MOVE)
             }
         }
-        if (parts[1] == "STAGING") require(roots.indices.none { exists(backup(it)) })
-        if (parts[1] == "COMMITTED") require(roots.all { Files.isDirectory(it, NOFOLLOW_LINKS) } &&
+        if (parts[1] == "STAGING") require(selectedRoots().indices.none { exists(backup(it)) })
+        if (parts[1] == "COMMITTED") require(selectedRoots().all { Files.isDirectory(it, NOFOLLOW_LINKS) } &&
             RootlessStorageFormat.usesNativeLinks(roots[0]))
         restorePermissions()
-        roots.forEach { syncDirectory(it.parent) }
+        selectedRoots().forEach { syncDirectory(it.parent) }
         cleanup()
     }
 
@@ -259,7 +265,7 @@ internal class RootlessNativeMigration(
         val temporary = parent.resolve("$JOURNAL.tmp")
         Files.deleteIfExists(temporary)
         Files.newOutputStream(temporary, java.nio.file.StandardOpenOption.CREATE_NEW).use {
-            it.write("${layout.distribution.name}\n$value".toByteArray())
+            it.write(("${layout.distribution.name}\n$value" + if (workspaceIncluded) "" else "\nNO_WORKSPACE").toByteArray())
         }
         FileOutputStream(temporary.toFile(), true).use { it.fd.sync() }
         Files.move(temporary, journal, ATOMIC_MOVE, REPLACE_EXISTING)

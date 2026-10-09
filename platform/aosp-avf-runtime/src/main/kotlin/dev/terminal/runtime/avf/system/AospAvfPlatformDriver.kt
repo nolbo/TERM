@@ -31,6 +31,7 @@ import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * AVF custom-image driver for a platform-signed AOSP product build.
@@ -160,6 +161,38 @@ class AospAvfPlatformDriver(
     override suspend fun connectImageInitializer(): Result<GuestConnection> = connectGuestPort(40_503)
 
     override suspend fun connectGuestPortAgent(): Result<GuestConnection> = connectGuestPort(DROID_PORT_AGENT_PORT)
+    override suspend fun openGuestFileTransfer(): Result<GuestByteStream> = runCatching {
+        val activeMachine = mutex.withLock { checkNotNull(machine) { "VM is not running" } }
+        // A platform connect may block. Do not hold the VM lifecycle mutex or the
+        // caller's job while it does; a late descriptor is closed after cancellation.
+        suspendCancellableCoroutine<GuestByteStream> { continuation ->
+            try {
+                FILE_CONNECTORS.execute {
+                    try {
+                        val stream = ParcelFileDescriptorByteStream(activeMachine.connectVsock(40_505))
+                        continuation.resume(stream) { _, acquired, _ -> acquired.close() }
+                    } catch (failure: Exception) { continuation.resumeWith(Result.failure(failure)) }
+                }
+            } catch (failure: java.util.concurrent.RejectedExecutionException) {
+                continuation.resumeWith(Result.failure(IllegalStateException("Guest file connections are busy; retry later", failure)))
+            }
+        }
+    }
+
+    override suspend fun openGuestTcpForward(address: String, port: Int): Result<GuestByteStream> {
+        require(port in 1..65_535 && dev.terminal.protocol.PortPayloadCodec.validAddress(address))
+        return mutex.withLock {
+            runCatching {
+                val stream = ParcelFileDescriptorByteStream(checkNotNull(machine) { "VM is not running" }.connectVsock(40_504))
+                try {
+                    val encoded = address.toByteArray(Charsets.US_ASCII)
+                    stream.output.write(byteArrayOf(1, (port shr 8).toByte(), port.toByte(), encoded.size.toByte()) + encoded)
+                    stream.output.flush()
+                    stream
+                } catch (failure: Exception) { stream.close(); throw failure }
+            }
+        }
+    }
 
     override suspend fun openGuestPortForward(port: Int): Result<GuestByteStream> {
         require(port in 1024..65_535) { "Invalid guest forwarded port" }
@@ -272,6 +305,11 @@ class AospAvfPlatformDriver(
     private fun vmName(config: RuntimeConfig): String = "droid-${config.instanceId}"
 
     private companion object {
+        // Bounded even when a platform binder call cannot be interrupted.
+        val FILE_CONNECTORS = java.util.concurrent.ThreadPoolExecutor(0, 2, 30, java.util.concurrent.TimeUnit.SECONDS,
+            java.util.concurrent.SynchronousQueue(), java.util.concurrent.ThreadFactory { task ->
+                Thread(task, "term-file-connect").apply { isDaemon = true }
+            })
         const val TAG = "TermAvfDriver"
         val VM_NAME = Regex("[A-Za-z0-9._-]{1,64}")
         const val MIN_MEMORY_MIB = 512

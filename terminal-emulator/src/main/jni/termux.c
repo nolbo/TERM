@@ -11,6 +11,7 @@
 #include <sys/wait.h>
 #include <termios.h>
 #include <unistd.h>
+#include <sys/syscall.h>
 
 #define TERMUX_UNUSED(x) x __attribute__((__unused__))
 #ifdef __APPLE__
@@ -239,6 +240,79 @@ static char* graphics_path(JNIEnv* env, jbyteArray bytes) {
     path[size] = 0;
     if (memchr(path, 0, (size_t) size)) { free(path); graphics_io_error(env, "EINVAL: media path"); return NULL; }
     return path;
+}
+
+static int scoped_name(const char* name) {
+    return name[0] && strcmp(name, ".") && strcmp(name, "..") && !strchr(name, '/');
+}
+
+JNIEXPORT jint JNICALL Java_com_termux_terminal_ScopedFileAccess_openRoot(JNIEnv* env, jclass TERMUX_UNUSED(clazz), jbyteArray bytes) {
+    char* path = graphics_path(env, bytes);
+    if (!path) return -1;
+    int directory = -1;
+    if (path[0] != '/') goto failed;
+    directory = open("/", O_PATH | O_DIRECTORY | O_CLOEXEC);
+    char* save = NULL;
+    for (char* part = strtok_r(path, "/", &save); part; part = strtok_r(NULL, "/", &save)) {
+        if (!scoped_name(part)) goto failed;
+        int next = openat(directory, part, O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+        if (next < 0) goto failed;
+        close(directory); directory = next;
+    }
+    free(path);
+    if (directory >= 0) {
+        /* Android ancestors may be searchable but not readable. Only the pinned
+         * final app-owned directory needs listing and fsync permissions. */
+        int readable = openat(directory, ".", O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        close(directory);
+        if (readable >= 0) return readable;
+    }
+    graphics_io_error(env, "Cannot open directory capability"); return -1;
+failed:
+    if (directory >= 0) close(directory);
+    free(path); graphics_io_error(env, "Unsafe or missing directory"); return -1;
+}
+
+JNIEXPORT jint JNICALL Java_com_termux_terminal_ScopedFileAccess_openChild(JNIEnv* env, jclass TERMUX_UNUSED(clazz), jint parent, jbyteArray bytes, jint kind) {
+    char* name = graphics_path(env, bytes);
+    if (!name) return -1;
+    int fd = -1;
+    if (!scoped_name(name) || kind < 0 || kind > 3) goto done;
+    if (kind == 3 && mkdirat(parent, name, 0700) != 0) goto done;
+    int flags = O_NOFOLLOW | O_CLOEXEC | O_NONBLOCK;
+    if (kind == 1 || kind == 3) flags |= O_RDONLY | O_DIRECTORY;
+    else if (kind == 2) flags |= O_WRONLY | O_CREAT | O_EXCL;
+    else flags |= O_RDONLY;
+    fd = openat(parent, name, flags, 0600);
+    struct stat metadata;
+    if (fd >= 0 && (fstat(fd, &metadata) != 0 ||
+            ((kind == 0 || kind == 2) && (!S_ISREG(metadata.st_mode) || metadata.st_nlink != 1)))) {
+        close(fd); fd = -1;
+    }
+done:
+    free(name);
+    if (fd < 0) graphics_io_error(env, "Unsafe, missing or existing file");
+    return fd;
+}
+
+JNIEXPORT void JNICALL Java_com_termux_terminal_ScopedFileAccess_renameChild(JNIEnv* env, jclass TERMUX_UNUSED(clazz), jint source, jbyteArray old_bytes, jint destination, jbyteArray new_bytes) {
+    char* old_name = graphics_path(env, old_bytes);
+    if (!old_name) return;
+    char* new_name = graphics_path(env, new_bytes);
+    if (!new_name) { free(old_name); return; }
+    /* Linux RENAME_NOREPLACE: no check/rename race and no overwrite fallback. */
+    int result = -1;
+    if (scoped_name(old_name) && scoped_name(new_name)) result = syscall(SYS_renameat2, source, old_name, destination, new_name, 1);
+    free(old_name); free(new_name);
+    if (result != 0) graphics_io_error(env, "Cannot atomically publish file without replacing data");
+}
+
+JNIEXPORT void JNICALL Java_com_termux_terminal_ScopedFileAccess_unlinkChild(JNIEnv* env, jclass TERMUX_UNUSED(clazz), jint directory, jbyteArray bytes, jboolean is_directory) {
+    char* name = graphics_path(env, bytes);
+    if (!name) return;
+    int result = scoped_name(name) ? unlinkat(directory, name, is_directory ? AT_REMOVEDIR : 0) : -1;
+    free(name);
+    if (result != 0) graphics_io_error(env, "Cannot remove scoped file");
 }
 
 JNIEXPORT jbyteArray JNICALL

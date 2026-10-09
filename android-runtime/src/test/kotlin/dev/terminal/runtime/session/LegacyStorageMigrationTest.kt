@@ -118,7 +118,7 @@ class LegacyStorageMigrationTest {
         assertNotEquals(SessionStorage.legacyRoot(files, old.runtime), reopened.root(StorageRegistry.Key(fresh.runtime, fresh.storageId)))
     }
 
-    @Test fun avfOrphanDeletionUsesAdoptedDefaultWorkspaceButKeepsIndependentVm() {
+    @Test fun avfOrphanDeletionPreservesAllLegacyHostFolders() {
         val files = temporary.newFolder()
         val registry = StorageRegistry(files)
         val old = profile(SessionRuntime.AVF)
@@ -131,7 +131,7 @@ class LegacyStorageMigrationTest {
         assertEquals(independentId, SessionStorage.avfInstanceId(files, independentId))
         registry.transaction { deleteProfile(old.id, false); requireOrphan(key, emptyList()); delete(key) }
         assertFalse(image.exists())
-        assertFalse(shared.exists())
+        assertEquals("guest shared data", shared.readText())
         assertEquals("independent", independent.readText())
     }
 }

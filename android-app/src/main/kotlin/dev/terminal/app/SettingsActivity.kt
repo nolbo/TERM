@@ -29,6 +29,10 @@ class SettingsActivity : TerminalActivity() {
         val activity = when (target.screen) {
             "environments", "storage" -> EnvironmentActivity::class.java
             "profiles" -> ProfilesActivity::class.java
+            "workspaces" -> WorkspacesActivity::class.java
+            "shared-folders" -> SharedFoldersActivity::class.java
+            "backups" -> EnvironmentBackupActivity::class.java
+            "local-services" -> LocalServicesActivity::class.java
             "updates" -> AppUpdatesActivity::class.java
             "about" -> AppInfoActivity::class.java
             "diagnostics" -> DiagnosticsActivity::class.java

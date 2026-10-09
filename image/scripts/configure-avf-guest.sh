@@ -52,7 +52,7 @@ for module in overlay virtio_blk virtio_pci virtio_mmio ext4; do
   printf '%s\n' "$module" >> /etc/initramfs-tools/modules
 done
 mkinitramfs -c gzip -o /boot/term-initrd.img "$kernel"
-for service in droid-sessiond droid-agent droid-port-agent droid-apt-init; do
+for service in droid-sessiond droid-agent droid-port-agent droid-apt-init droid-file-transfer; do
   systemctl enable "$service.service"
   systemd-analyze verify "/etc/systemd/system/$service.service"
 done

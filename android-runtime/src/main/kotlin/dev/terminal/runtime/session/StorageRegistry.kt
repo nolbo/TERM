@@ -138,10 +138,32 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
                     if (runCatching { SessionStorage.validate(child.name) }.isSuccess && child.name != "legacy") add(Key(runtime, child.name))
                 }
             }
-        }.filterTo(mutableSetOf()) { it !in deletedKeys }
+        }.filterTo(mutableSetOf()) { it !in deletedKeys && it !in pendingRestores().values.map { environment -> environment.storageKey } }
+
+        /** Reservations hide a promoted tree until its Environment/Profile commit is durable. */
+        fun pendingRestores(): Map<String, Environment> = state.optJSONObject("pendingEnvironmentRestores")?.let { pending ->
+            pending.keys().asSequence().associateWith { Environment.fromJson(pending.getJSONObject(it)) }
+        }.orEmpty()
+        internal fun reserveRestore(operationId: String, environment: Environment) {
+            java.util.UUID.fromString(operationId)
+            check(environment.storage.id != "legacy" && environment.storageKey !in keys() &&
+                pendingRestores().values.none { it.storageKey == environment.storageKey || it.id == environment.id }) { "Restore identity is already in use" }
+            check(Files.notExists(root(environment.storageKey).toPath(), NOFOLLOW_LINKS)) { "Restore destination already exists" }
+            validateConnection(environment.storageKey)
+            val pending = state.optJSONObject("pendingEnvironmentRestores") ?: JSONObject().also { state.put("pendingEnvironmentRestores", it) }
+            check(!pending.has(operationId))
+            pending.put(operationId, environment.toJson())
+            persist()
+        }
+        internal fun finishRestore(operationId: String) { state.getJSONObject("pendingEnvironmentRestores").remove(operationId) }
+        fun abandonRestore(operationId: String) {
+            state.optJSONObject("pendingEnvironmentRestores")?.remove(operationId)
+            persist()
+        }
         fun validateConnection(key: Key) {
             val resolved = canonicalKey(key)
             check(!isDeleted(resolved)) { "Storage has been deleted; choose a new environment" }
+            check(pendingRestores().values.none { it.storageKey == resolved }) { "Environment restore is incomplete" }
             if (resolved.storageId != "legacy") check((keys() + SessionRuntime.entries.mapNotNull { runtime -> migratedLegacyId(runtime)?.let { Key(runtime, it) } })
                 .none { it.storageId == resolved.storageId && it.runtime != resolved.runtime }) {
                 "Storage runtime or Rootless distribution is incompatible"
@@ -205,10 +227,14 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
         }
 
         /** Caller has excluded session creation and verified the controller is idle. */
+        internal fun validateLegacyWorkspaceDeletion(key: Key) =
+            dev.terminal.runtime.storage.LegacyWorkspaces.preserveBeforeDelete(files, key)
+
         fun delete(key: Key, updateMetadata: () -> Unit = {}) {
             check(key.storageId != "legacy")
-            deleteTree(root(key).toPath())
-            if (key.runtime == SessionRuntime.AVF) deleteTree(File(files, "shared-vms/${SessionStorage.avfInstanceId(files, key.storageId)}").toPath())
+            val keepWorkspace = validateLegacyWorkspaceDeletion(key)
+            deleteTree(root(key).toPath(), if (keepWorkspace) "workspace" else null)
+            // Legacy host-side VM folders, like new Shared Folders, are retained independently.
             state.put("storages", JSONArray(keys().filter { it != key }.map { it.json() }))
             deletedKeys.add(key)
             state.put("deleted", JSONArray(deletedKeys.map { it.json() }))
@@ -297,17 +323,21 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
             })
             return Usage(size, incomplete)
         }
-        private fun deleteTree(path: java.nio.file.Path) {
+        private fun deleteTree(path: java.nio.file.Path, retainedChild: String? = null) {
             if (!Files.exists(path, NOFOLLOW_LINKS)) return
             // Refuse a symlinked parent rather than traverse into an unrelated tree.
             check(path.parent.toFile().canonicalFile.toPath() == path.parent.toAbsolutePath().normalize()) { "Unsafe storage parent" }
             Files.walkFileTree(path, object : java.nio.file.SimpleFileVisitor<java.nio.file.Path>() {
+                override fun preVisitDirectory(dir: java.nio.file.Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult =
+                    if (retainedChild != null && dir == path.resolve(retainedChild)) java.nio.file.FileVisitResult.SKIP_SUBTREE
+                    else java.nio.file.FileVisitResult.CONTINUE
                 override fun visitFile(file: java.nio.file.Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
                     Files.delete(file); return java.nio.file.FileVisitResult.CONTINUE
                 }
                 override fun postVisitDirectory(dir: java.nio.file.Path, failure: java.io.IOException?): java.nio.file.FileVisitResult {
                     if (failure != null) throw failure
-                    Files.delete(dir); return java.nio.file.FileVisitResult.CONTINUE
+                    if (dir != path || retainedChild == null) Files.delete(dir)
+                    return java.nio.file.FileVisitResult.CONTINUE
                 }
             })
         }

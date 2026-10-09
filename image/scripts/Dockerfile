@@ -10,7 +10,8 @@ RUN set -eu; mkdir /binaries && \
        guest/droid-port-agent/target/release/droid-port-agent \
        guest/droid-cli/target/release/droid /binaries/ && \
     cp guest/droid-sessiond/droid-sessiond.service guest/droid-agent/droid-agent.service \
-       guest/droid-port-agent/droid-port-agent.service guest/droid-sessiond/droid-apt-init.service guest/termux-api-compat/termux-* /binaries/
+       guest/droid-port-agent/droid-port-agent.service guest/droid-sessiond/droid-apt-init.service \
+       guest/droid-agent/droid-file-transfer.service guest/termux-api-compat/termux-* /binaries/
 
 FROM debian:bookworm-slim
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \

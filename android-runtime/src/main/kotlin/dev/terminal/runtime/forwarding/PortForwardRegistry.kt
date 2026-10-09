@@ -1,39 +1,23 @@
 package dev.terminal.runtime.forwarding
 
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
-/** Host-side source of truth for guest ports reported by droid-port-agent. */
+/** Service-owned observations only. Socket ownership belongs to LocalServiceManager. */
 class PortForwardRegistry {
-    private val mutablePorts = MutableStateFlow<List<ForwardedPort>>(emptyList())
-    val ports: StateFlow<List<ForwardedPort>> = mutablePorts.asStateFlow()
+    private val mutableServices = MutableStateFlow<List<LocalService>>(emptyList())
+    val services = mutableServices.asStateFlow()
 
-    @Synchronized
-    fun reportListening(guestPort: Int, label: String? = null): Result<ForwardedPort> = runCatching {
-        require(guestPort in 1..65_535) { "Invalid guest port" }
-        val safeLabel = label?.takeIf { it.length <= MAX_LABEL_LENGTH }
-        val entry = ForwardedPort(guestPort, hostPort = guestPort, label = safeLabel)
-        mutablePorts.value = (mutablePorts.value.filterNot { it.guestPort == guestPort } + entry)
-            .sortedBy { it.guestPort }
-        entry
+    @Synchronized fun get(id: String): LocalService? = mutableServices.value.firstOrNull { it.id == id }
+    @Synchronized fun put(service: LocalService) {
+        val previous = mutableServices.value.filterNot { it.id == service.id }
+        check(previous.size < MAX_SERVICES) { "SERVICE_LIMIT" }
+        mutableServices.value = (previous + service).sortedWith(compareBy({ it.runtime }, { it.environmentId }, { it.port }, { it.id }))
     }
-
-    @Synchronized
-    fun remove(guestPort: Int) {
-        mutablePorts.value = mutablePorts.value.filterNot { it.guestPort == guestPort }
+    @Synchronized fun remove(id: String) { mutableServices.value = mutableServices.value.filterNot { it.id == id } }
+    @Synchronized fun updateEnvironment(id: String, transform: (LocalService) -> LocalService) {
+        mutableServices.value = mutableServices.value.map { if (it.environmentId == id && it.source != ServiceSource.MANUAL) transform(it) else it }
     }
-
-    @Synchronized
-    fun clear() { mutablePorts.value = emptyList() }
-
-    data class ForwardedPort(
-        val guestPort: Int,
-        /** Initial policy preserves the port; a bind conflict must be reported, never remapped silently. */
-        val hostPort: Int,
-        val label: String?,
-        val hostAddress: String = "127.0.0.1",
-    )
-
-    private companion object { const val MAX_LABEL_LENGTH = 128 }
+    @Synchronized fun clear() { mutableServices.value = emptyList() }
+    companion object { const val MAX_SERVICES = 512; const val MAX_PER_ENVIRONMENT = 128; const val MAX_MANUAL = 128 }
 }

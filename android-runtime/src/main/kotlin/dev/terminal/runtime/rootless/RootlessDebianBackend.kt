@@ -25,6 +25,7 @@ class RootlessDebianBackend(
     private val distribution: RootlessDistribution = RootlessDistribution.DEBIAN,
     private val usbBroker: dev.terminal.runtime.usb.UsbBroker? = null,
     storageRoot: File? = null,
+    private val sharedFolders: () -> List<dev.terminal.runtime.storage.SharedFolderBinding> = { emptyList() },
     reporter: RootlessProgressReporter = RootlessProgressReporter.NONE,
 ) : RuntimeBackend {
     private val appContext = context.applicationContext
@@ -39,7 +40,10 @@ class RootlessDebianBackend(
         }
     }
     private val layout = RootlessDebianLayout(storageRoot ?: File(appContext.filesDir, "rootless/${distribution.directory}"), distribution,
-        workspaceRoot = storageRoot?.let { File(it, "workspace") })
+        workspaceRoot = storageRoot?.let {
+            if (it.canonicalFile == dev.terminal.runtime.session.SessionStorage.legacyRoot(appContext.filesDir, distribution.runtime).canonicalFile)
+                File(appContext.filesDir, "workspace") else File(it, "workspace")
+        })
     private val bootstrapper = RootlessBootstrapper(appContext, layout, progressReporter,
         checkCancellation = installation::ensureActive)
     private val dns = RootlessDnsStore(appContext)
@@ -150,6 +154,7 @@ class RootlessDebianBackend(
         val executable = proot ?: error("${distribution.displayName} must be prepared before start")
         val loaderExecutable = loader ?: error("${distribution.displayName} loader must be prepared before start")
         controller = RootlessSessionController(layout, executable, loaderExecutable, usbBroker = usbBroker,
+            sharedFolders = sharedFolders,
             cacheDirectory = appContext.cacheDir, resolverFile = { dns.resolverFile(layout) }, sharedStorage = {
             // Query at session creation, including after returning from system settings.
             // This UID-wide OS grant is also the Native shell's access boundary.
@@ -244,7 +249,7 @@ class RootlessDebianLayout(val root: File, val distribution: RootlessDistributio
     }
 
     fun createHostDirectories() {
-        listOf(root, home, tmp, workspace).forEach { require(it.mkdirs() || it.isDirectory) { "Cannot create ${it.path}" } }
+        listOf(root, home, tmp).forEach { require(it.mkdirs() || it.isDirectory) { "Cannot create ${it.path}" } }
     }
 
     fun validateInstalledRootfs(): Result<Unit> = runCatching {

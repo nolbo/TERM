@@ -66,11 +66,12 @@ class RootlessProfileStorageTest {
             assertTrue(File(a, "rootfs/var/lib/dpkg/status").isFile)
             assertTrue(File(b, "rootfs/var/lib/dpkg/status").isFile)
             service.writeSessionInput(sessions[0],
-                "printf a > /var/lib/dpkg/profile-storage-test; printf home > /root/profile-storage-test; printf work > /workspace/profile-storage-test\n".toByteArray())
-            await { File(a, "rootfs/var/lib/dpkg/profile-storage-test").exists() && File(a, "workspace/profile-storage-test").exists() }
+                "printf a > /var/lib/dpkg/profile-storage-test; printf home > /root/profile-storage-test; mkdir -p /workspace; printf work > /workspace/profile-storage-test\n".toByteArray())
+            await { File(a, "rootfs/var/lib/dpkg/profile-storage-test").exists() && File(a, "rootfs/workspace/profile-storage-test").exists() }
             assertFalse(File(b, "rootfs/var/lib/dpkg/profile-storage-test").exists())
             assertFalse(File(b, "home/profile-storage-test").exists())
-            assertFalse(File(b, "workspace/profile-storage-test").exists())
+            assertFalse(File(a, "workspace").exists())
+            assertFalse(File(b, "rootfs/workspace/profile-storage-test").exists())
             store.delete(first.id)
             service.writeSessionInput(sessions[2],
                 "cat /var/lib/dpkg/profile-storage-test /root/profile-storage-test /workspace/profile-storage-test > /root/shared-result\n".toByteArray())

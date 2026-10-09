@@ -13,6 +13,7 @@ internal class PendingAvfSessionLaunches {
     }
 
     private val launches = linkedMapOf<String, Launch>()
+    @Synchronized fun containsRequest(id: String) = launches.containsKey(id)
 
     @Synchronized fun begin(launch: Launch): Boolean {
         require(launch.spec.runtime == SessionRuntime.AVF)

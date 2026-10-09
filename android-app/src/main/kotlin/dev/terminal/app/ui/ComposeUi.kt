@@ -678,17 +678,7 @@ fun TerminalEmptyState(
                 Text(stringResource(R.string.new_session))
             }
         }
-        IconButton(
-            onClick = {
-                haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                onSettings()
-            },
-            modifier = Modifier.align(Alignment.TopEnd).padding(8.dp),
-            shapes = IconButtonDefaults.shapes(),
-        ) {
-            Icon(painterResource(R.drawable.ic_material_symbol_settings_24),
-                stringResource(R.string.settings), tint = MaterialTheme.colorScheme.onBackground)
-        }
+        TerminalOverflowMenu(onSettings, Modifier.align(Alignment.TopEnd).padding(8.dp))
     }
 }
 
@@ -815,7 +805,7 @@ internal fun SettingsOverview(onBack: () -> Unit, onOpen: (SettingsSearchTarget)
                     )
                 }
             } else if (query.isBlank()) {
-                val groups = listOf(listOf("environments", "profiles"), listOf("language", "terminal"),
+                val groups = listOf(listOf("environments", "profiles", "workspaces", "shared-folders", "local-services", "backups"), listOf("language", "terminal"),
                     listOf("rootless", "avf", "native"), listOf("diagnostics", "updates", "about"))
                     .map { screens -> visibleRows.filter { it.entry.target.screen in screens } }
                     .filter { it.isNotEmpty() }

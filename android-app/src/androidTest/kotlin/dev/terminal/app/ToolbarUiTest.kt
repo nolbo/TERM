@@ -214,9 +214,19 @@ class ToolbarUiTest {
             assertTrue("Tabs form a vertical list", second.top > first.bottom)
             assertEquals(first.left, second.left)
             assertTrue(bounds(description(label(R.string.new_session))).bottom <= first.top)
-            assertTrue(bounds(description(label(R.string.settings))).bottom <= first.top)
+            assertTrue(bounds(description(label(R.string.terminal_more))).bottom <= first.top)
             click(description(label(R.string.new_session)))
-            click(description(label(R.string.settings)))
+            click(description(label(R.string.terminal_more)))
+            val monitor = instrumentation.addMonitor(LocalServicesActivity::class.java.name, null, false)
+            try {
+                click(text(label(R.string.local_services_title)))
+                val dashboard = monitor.waitForActivityWithTimeout(5000)
+                assertNotNull(dashboard)
+                instrumentation.runOnMainSync { dashboard.finish() }
+                settle()
+            } finally { instrumentation.removeMonitor(monitor) }
+            click(description(label(R.string.terminal_more)))
+            click(text(label(R.string.settings)))
             assertEquals(1, newClicks)
             assertEquals(1, settingsClicks)
             description(context.getString(R.string.terminate_session_description, "First shell"))
@@ -224,20 +234,20 @@ class ToolbarUiTest {
             assertEquals("second", terminated)
             assertEquals("first", selected.value)
             assertNull(find { it.contentDescription?.toString() ==
-                context.getString(R.string.rename_session_description, "Second shell") })
-            click(description(context.getString(R.string.rename_session_description, "First shell")))
+                context.getString(R.string.workspace_session_menu, "Second shell") })
+            click(description(context.getString(R.string.workspace_session_menu, "First shell")))
             assertEquals("first", renamed)
             click(tabText("Second shell"))
             assertEquals("second", selected.value)
             assertNull(find { it.contentDescription?.toString() ==
-                context.getString(R.string.rename_session_description, "First shell") })
-            click(description(context.getString(R.string.rename_session_description, "Second shell")))
+                context.getString(R.string.workspace_session_menu, "First shell") })
+            click(description(context.getString(R.string.workspace_session_menu, "Second shell")))
             assertEquals("second", renamed)
             renamed = null
             click(description(context.getString(R.string.terminate_session_description, "Second shell")))
             assertEquals("second", terminated)
             assertNull(find { it.actionList.any { action ->
-                action.label?.toString() == context.getString(R.string.rename_session_description, "Second shell")
+                action.label?.toString() == context.getString(R.string.workspace_session_menu, "Second shell")
             } })
         }
     }
@@ -660,21 +670,31 @@ class ToolbarUiTest {
             val title = bounds(tabText("Pinned work"))
             val subtitle = bounds(tabText("Original shell"))
             val newButton = bounds(description(label(R.string.new_session)))
-            val settingsButton = bounds(description(label(R.string.settings)))
+            val settingsButton = bounds(description(label(R.string.terminal_more)))
             val density = context.resources.displayMetrics.density
             assertTrue("Horizontal tabs use the header's left side", maxOf(title.right, subtitle.right) <= newButton.left)
             assertEquals(newButton.centerY(), settingsButton.centerY())
             assertEquals("The header fills the existing default viewport", 46f * density,
                 (newButton.exactCenterY() - defaultHandle.bottom), 1f)
             assertNull(find { it.contentDescription?.toString() ==
-                context.getString(R.string.rename_session_description, "Pinned work") })
+                context.getString(R.string.workspace_session_menu, "Pinned work") })
             drag(title.exactCenterX(), title.exactCenterY(), 0f, 0f, longPress = true)
-            assertEquals("Long press edits the selected tab", "second", renamed)
+            assertEquals("Long press opens the selected session menu", "second", renamed)
             assertEquals("Long press must not switch tabs", "second", selected.value)
             click(description(context.getString(R.string.terminate_session_description, "Pinned work")))
             assertEquals("second", terminated)
             click(description(label(R.string.new_session)))
-            click(description(label(R.string.settings)))
+            click(description(label(R.string.terminal_more)))
+            val monitor = instrumentation.addMonitor(LocalServicesActivity::class.java.name, null, false)
+            try {
+                click(text(label(R.string.local_services_title)))
+                val dashboard = monitor.waitForActivityWithTimeout(5000)
+                assertNotNull(dashboard)
+                instrumentation.runOnMainSync { dashboard.finish() }
+                settle()
+            } finally { instrumentation.removeMonitor(monitor) }
+            click(description(label(R.string.terminal_more)))
+            click(text(label(R.string.settings)))
             assertEquals(1, newClicks)
             assertEquals(1, settingsClicks)
             scenario.onActivity { sessions.value = sessions.value.map {

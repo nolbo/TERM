@@ -9,9 +9,33 @@ import org.junit.rules.TemporaryFolder
 
 class RootlessNativeMigrationTest {
     @get:Rule val temporary = TemporaryFolder()
+    @Test fun convertsAndRecoversWithoutCreatingAWorkspaceInNewLayouts() {
+        for (point in listOf("success", "staged", "backed-up-0", "published-0", "published-1", "committed")) {
+            val root = File(temporary.newFolder(point), "debian")
+            val layout = RootlessDebianLayout(root, workspaceRoot = File(root, "workspace"))
+            layout.createHostDirectories(); layout.rootfs.mkdir()
+            val intermediate = layout.rootfs.toPath().resolve(".l2s.data0001")
+            val data = Files.write(intermediate.resolveSibling(".l2s.data0001.0002"), "payload".toByteArray())
+            Files.createSymbolicLink(intermediate, data)
+            for (directory in listOf(layout.rootfs, layout.home)) Files.createSymbolicLink(File(directory, "data").toPath(), intermediate)
+            if (point == "success") RootlessNativeMigration(layout).migrate()
+            else {
+                assertTrue(runCatching { RootlessNativeMigration(layout, { if (it == point) throw AssertionError("process death") }).migrate() }.isFailure)
+                assertTrue(RootlessNativeMigration.pending(root.parentFile.toPath()))
+                RootlessNativeMigration(layout).recover()
+                assertEquals(point == "committed", RootlessStorageFormat.usesNativeLinks(layout.rootfs.toPath()))
+                RootlessNativeMigration(layout).migrate()
+            }
+            assertFalse(layout.workspace.exists())
+            assertTrue(Files.isSameFile(File(layout.rootfs, "data").toPath(), File(layout.home, "data").toPath()))
+            assertEquals("payload", File(layout.home, "data").readText())
+            assertFalse(RootlessNativeMigration.pending(root.parentFile.toPath()))
+        }
+    }
     private fun fixture(name: String): RootlessDebianLayout {
         val layout = RootlessDebianLayout(File(temporary.root, "$name/rootless/debian"))
         layout.createHostDirectories()
+        layout.workspace.mkdirs() // Existing data is explicit; new installations no longer create this directory.
         layout.rootfs.mkdirs()
         val intermediate = layout.rootfs.toPath().resolve(".l2s.data0001")
         val data = Files.write(intermediate.resolveSibling(".l2s.data0001.0003"), "payload".toByteArray())

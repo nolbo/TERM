@@ -21,7 +21,7 @@ Rootless Debian, Rootless Ubuntu and AVF Debian use official `apt` and `dpkg`;
 Rootless Arch Linux ARM uses `pacman`. Every environment has an independent
 package database and home. A future `packages.lock` contains requested package names such as
 `git`, `neovim`, `python3`, and `clang`; reproducing an environment means normal
-apt installation in the target runtime, never copying `/var/lib/dpkg`.
+apt installation in the target runtime, never transplanting `/var/lib/dpkg` into an unrelated rootfs. A Full Environment backup instead copies a matching rootfs and its package database together into a new independent Environment with compatible ABI and preserved storage semantics; see [BACKUP_RESTORE.md](BACKUP_RESTORE.md). Data backups do not include a package database or installed distribution.
 
 ## Optional USB client
 
@@ -47,7 +47,7 @@ and installs that distribution's official default selection before reporting rea
 Debian standard priorities, Ubuntu minimal/standard/server metapackages, or Arch
 `base` with a full upgrade. There is no shared app-curated development bundle.
 Existing installations complete this versioned preparation in place; ready shell
-startup does not run network updates. This is not a second native package database. No user-provided PRoot binary or rootfs file is accepted. The device check `RootlessDistributionsTest` exercises Ubuntu and Arch install,
+startup does not run network updates. This is not a second native package database. Bootstrap accepts only catalog-pinned rootfs images and APK-owned PRoot. The separate, explicit TERM Full backup importer validates and restores a complete compatible Environment; it does not extend bootstrap to arbitrary rootfs archives or PRoot binaries. Restored Data home link semantics are pinned for the later explicit base installation. The device check `RootlessDistributionsTest` exercises Ubuntu and Arch install,
 identity, PTY, detach/attach and session isolation. Its optional
 `rootlessPackages=true` mode additionally updates packages and installs `hello` (Ubuntu) or `jq` (Arch).
 See `ROOTLESS_DISTRIBUTIONS.md` for the catalog and commands.

@@ -90,7 +90,7 @@ class RootlessDistributionsTest {
                 val sessionId = requireNotNull(id)
                 created += sessionId
                 service.attachSession(sessionId)
-                command(sessionId, "stty -echo; . /etc/os-release; test \"\$ID\" = '$distroId' && test \"\$HOME\" = /root && test -d /workspace")
+                command(sessionId, "stty -echo; . /etc/os-release; test \"\$ID\" = '$distroId' && test \"\$HOME\" = /root && mkdir -p /workspace && test -d /workspace")
                 command(sessionId, "ROOTLESS_TEST_VALUE='$runtime'; test -z \"\${ROOTLESS_OTHER_TEST_VALUE:-}\"")
                 service.resizeSession(sessionId, 37, 91)
                 command(sessionId, "test \"\$(stty size)\" = '37 91'")

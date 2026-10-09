@@ -28,6 +28,14 @@ interface RuntimeBackend {
     suspend fun openGuestPortForward(port: Int): Result<GuestByteStream> = Result.failure(
         UnsupportedOperationException("Guest port forwarding is unavailable"),
     )
+    /** Address-aware TCP proxy. Available only after the port agent advertises proxy v1. */
+    suspend fun openGuestTcpForward(address: String, port: Int): Result<GuestByteStream> = Result.failure(
+        UnsupportedOperationException("Guest TCP proxy is unavailable"),
+    )
+    /** Explicit copy endpoint in the selected VM; it never exports a host directory. */
+    suspend fun openGuestFileTransfer(): Result<GuestByteStream> = Result.failure(
+        UnsupportedOperationException("Guest file transfer is unavailable"),
+    )
 }
 
 data class RuntimeConfig(
@@ -67,6 +75,8 @@ interface GuestConnection : FrameTransport {
 interface GuestByteStream : Closeable {
     val input: InputStream
     val output: OutputStream
+    /** Preserve the response side when the TCP client finishes its request. */
+    fun shutdownOutput() {}
 }
 
 /** Creates a session client only after a runtime backend has authenticated its guest connection. */

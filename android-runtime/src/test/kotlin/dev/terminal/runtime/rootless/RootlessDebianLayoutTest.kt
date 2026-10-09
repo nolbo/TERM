@@ -22,6 +22,7 @@ class RootlessDebianLayoutTest {
     @Test fun requiresShellAndAptBeforeMarkingRootfsUsable() {
         val layout = RootlessDebianLayout(File(temporary.root, "rootless/debian"))
         layout.createHostDirectories()
+        assertFalse(layout.workspace.exists())
         assertTrue(layout.validateInstalledRootfs().isFailure)
 
         File(layout.rootfs, "bin").mkdirs()

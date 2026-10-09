@@ -40,14 +40,17 @@ class EnvironmentRegistryTest {
                 verified = true
             } }
             assertTrue(verified)
-            assertFalse(root.exists())
+            assertEquals(listOf("workspace"), root.list()?.toList())
+            assertEquals("workspace", File(root, "workspace/keep").readText())
+            assertFalse(File(root, "home").exists())
+            assertFalse(File(root, "rootfs").exists())
             retained.forEach { assertEquals("retained", it.readText()) }
             registry.transaction { assertEquals(listOf(sibling), all()) }
             registry.storage.transaction { assertTrue(isDeleted(environment.storageKey)) }
         }
     }
 
-    @Test fun avfDeletionVerifiesVmBeforeRemovingImageSharedFolderAndIdentity() {
+    @Test fun avfDeletionVerifiesVmAndPreservesIndependentHostFolderWhileRemovingImageAndIdentity() {
         val files = temporary.newFolder()
         val registry = EnvironmentRegistry(files)
         val environment = Environment.create(SessionRuntime.AVF, "Delete Debian")
@@ -70,7 +73,7 @@ class EnvironmentRegistryTest {
         registry.storage.transaction { assertEquals(0L, imageGeneration(environment.storageKey)); assertFalse(isDeleted(environment.storageKey)) }
         registry.transaction { delete(environment.id) { assertTrue(disk.exists()); assertTrue(shared.exists()) } }
         assertFalse(imageRoot.exists())
-        assertFalse(shared.parentFile.exists())
+        assertEquals("host data", shared.readText())
         assertEquals("retained", retained.readText())
         registry.transaction { assertEquals(listOf(sibling), all()) }
         registry.storage.transaction {

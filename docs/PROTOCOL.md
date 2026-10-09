@@ -409,10 +409,13 @@ host-selected session credentials, approvals and disconnect semantics.
 
 ## Port service
 
-`droid-port-agent` reports deduplicated TCP listener add/remove events over
-host-CID-only vsock port 40502. The host validates these events before adding
-them to `PortForwardRegistry`; reporting a port does not itself expose it to a
-network interface.
+`droid-port-agent` uses the existing protocol-v1 `PORT`/`STREAM` frame envelope over host-CID-only vsock 40502. Legacy `1` listening (`u16 port`, `u16 UTF-8 label length`, label) and `2` closed (`u16 port`) payloads remain byte-for-byte compatible. New agents also emit `5,1` snapshot-begin/proxy-version, address-aware `3` listening and `4` closed events, then `6` snapshot-end. Address-aware payloads contain `u16 port`, `u8 numeric-address byte length`, ASCII IPv4/IPv6 address, and for listening only `u16 UTF-8 label length` plus label. Integers are big-endian. Addresses are limited to 45 bytes, labels to 128 bytes, ports to 1–65535, and initial/delta reports to 128 endpoints. Missing process names remain null. Failure to read the guest listener tables disconnects the report stream instead of inventing close events.
+
+A new host consumes legacy events until a valid snapshot-begin, then ignores duplicate legacy events on that connection and uses address-aware events. Missing endpoints are closed only at a completed snapshot-end. Unknown, oversized and malformed event payloads are ignored; malformed frames/EOF disconnect only that Environment. Reconnect resets negotiated capability and rebuilds the full snapshot. Old hosts ignore unknown extension payloads and still consume legacy events. New hosts show old-agent ports as discovered, with unknown source address and unavailable TCP forwarding; they do not guess an HTTP protocol or expose a misleading active mapping.
+
+The new guest proxy binds host-CID-only vsock 40504. Each raw stream starts with `u8 version=1`, `u16 TCP port`, `u8 address length` and the numeric address, then carries TCP bytes without a frame envelope. The guest accepts only endpoints currently in its local TCP listener tables, maps wildcard addresses to same-family loopback, and rejects DNS names, URI syntax, arbitrary remote destinations and non-host CIDs. Header reads and TCP connects are time-bounded; idle streams time out after five minutes and simultaneous connections are limited to 64. This endpoint carries no Android capabilities, Binder objects, commands or process IDs.
+
+App-only AIDL appends `getLocalServicesJson`, `saveLocalService`, `deleteLocalService`, `updateLocalServiceForwarding`, and registration/unregistration of the separate one-way `ILocalServicesListener` invalidation callback. Existing transaction order and listener interfaces remain intact. All new methods require the application UID and verified main UI process. Snapshots distinguish observations from bound proxy state and include Environment metadata without creating or connecting runtime controllers. Manual registrations accept only name, stable registration ID, port, optional existing non-AVF Environment and `UNKNOWN`/`HTTP`/`HTTPS`; TCP and Android loopback are fixed. Forwarding mutation accepts only an existing observed address-aware AVF service, a nonprivileged loopback host port and an explicit application-protocol enum. The retained `getForwardedPortsJson` adapter returns successfully bound proxies only, with separate host and guest ports.
 
 ## Lifecycle service
 
@@ -466,3 +469,15 @@ and processes still in that Linux session, checking the root start time against
 PID reuse. RSS can double-count shared pages and omit detached/reparented daemons.
 Process IDs, proc paths, and arbitrary query parameters are not exposed by this RPC.
 This is independent of the guest wire protocol and grants no guest capability.
+
+## Workspace and Shared Folder host APIs
+
+App-only AIDL appends Workspace snapshot/save/delete/filter/membership operations and `createSessionInWorkspace`, preserving previous transaction order. All enforce application UID and verified main UI process. Workspace IDs are canonical UUIDs, membership has at most one value per session, and the reserved filters are `all`/`unassigned`. Launch uses the existing bounded `SessionLaunchSpec` plus a request UUID, optional Workspace UUID and explicit installation-consent bit. Workspace metadata never changes an Environment/Profile identity or invokes terminate/stop. New Shared Folder APIs accept validated folder UUID/name/Environment references, bounded operation JSON and cancellation by request UUID. Snapshots include host-only paths and persisted operation state; no host path enters guest messages.
+
+## Explicit guest file copies (TFT1)
+
+A separate raw stream on vsock 40505 belongs to the existing droid-agent binary, invoked by `droid-file-transfer.service` as non-root `droid`. Only host CID 2 is accepted. Host routing selects the actual VM backend after checking the folder connection to that Environment UUID. This stream does not share a PTY, bridge, port-forward or session envelope and accepts no guest-to-host pathname or request.
+
+The server greets with big-endian u32 `0x54465431` (TFT1). The host sends the same magic, u8 operation (`1` copy to VM, `2` copy from VM), u16 UTF-8 path length, and path bytes. The path is relative to `/home/droid/term-transfers`, starts with the selected folder name, is at most 4096 bytes/65 components, and rejects empty, dot, parent, control and oversized components. Every parent and file is opened relative to pinned directory FDs with no-follow flags. Only single-link regular files are transferred; special files, symlinks and existing destination files are rejected.
+
+For operation 1 the host sends u64 size, exactly that many file bytes, then 32-byte SHA-256. The guest verifies, fsyncs and atomically renames with `RENAME_NOREPLACE`, then replies u8 success (`0`) and the digest. For operation 2 the guest replies u8 success, u64 size, bytes and SHA-256; the host verifies and commits with the same no-replace rule, then acknowledges u8 zero and digest. Nonzero status/EOF/invalid framing fails the operation. Both enforce 64 MiB; the host closes the operation connection on cancellation or its 120-second deadline and the guest has 30-second socket I/O timeouts with at most two workers. Directory creation is scoped to the fixed destination root. Originals and prior destination files are never deleted or replaced. Failure after an atomic commit but before acknowledgement can leave a verified new copy, which a retry will not overwrite. Older guests without TFT1 remain explicitly unsupported; no image or legacy envelope is silently rewritten.

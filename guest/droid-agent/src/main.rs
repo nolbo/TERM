@@ -9,6 +9,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
+mod file_transfer;
 
 const PORT: u32 = 40_501;
 const SOCKET: &str = "/run/droid/droid-agent.sock";
@@ -20,6 +21,7 @@ const MAGIC: u32 = 0x4450_5459;
 struct SockaddrVm { family: nix::libc::sa_family_t, reserved: u16, port: u32, cid: u32, zero: [u8; 4] }
 
 fn main() -> io::Result<()> {
+    if std::env::args().nth(1).as_deref() == Some("--file-transfer") { return file_transfer::serve(); }
     let host = Arc::new(Mutex::new(None::<File>));
     let host_for_thread = host.clone();
     thread::spawn(move || accept_host_connections(host_for_thread));

@@ -38,13 +38,15 @@ class RootlessSessionController(
     private val usbBroker: dev.terminal.runtime.usb.UsbBroker? = null,
     private val cacheDirectory: File = layout.tmp,
     private val resolverFile: () -> File? = { null },
+    private val sharedFolders: () -> List<dev.terminal.runtime.storage.SharedFolderBinding> = { emptyList() },
 ) : SessionController, dev.terminal.runtime.session.SessionMemorySource {
     init {
         require(proot.isFile && proot.canExecute()) { "Packaged PRoot is not executable" }
         require(loader.isFile && loader.canExecute()) { "Packaged PRoot loader is not executable" }
     }
 
-    private class Entry(@Volatile var descriptor: SessionDescriptor, val process: PtyProcess) {
+    private class Entry(@Volatile var descriptor: SessionDescriptor, val process: PtyProcess,
+        val shares: List<dev.terminal.runtime.storage.ScopedDirectory> = emptyList()) {
         val memoryIdentity = dev.terminal.runtime.session.awaitProcessMemoryIdentity(process.processId)
         val outputMutex = Mutex()
         val inputMutex = Mutex()
@@ -91,12 +93,16 @@ class RootlessSessionController(
         }
         val id = "${layout.distribution.runtime.idPrefix}${UUID.randomUUID()}"
         val storage = sharedStorage()
+        val shares = sharedFolders()
+        val pinnedShares = mutableListOf<dev.terminal.runtime.storage.ScopedDirectory>()
+        try { shares.forEach { pinnedShares += dev.terminal.runtime.storage.ScopedDirectory.open(it.directory) } }
+        catch (failure: Exception) { pinnedShares.forEach { it.close() }; throw failure }
         val graphicsShm = File(layout.tmp, "graphics-shm").apply { mkdirs() }
         val media = GraphicsMediaResolver(
             buildList {
                 add(GraphicsMediaResolver.Mapping("/", layout.rootfs))
                 add(GraphicsMediaResolver.Mapping("/root", layout.home))
-                add(GraphicsMediaResolver.Mapping("/workspace", layout.workspace))
+                shares.forEach { add(GraphicsMediaResolver.Mapping(it.folder.guestPath, it.directory)) }
                 add(GraphicsMediaResolver.Mapping("/dev/shm", graphicsShm))
                 storage?.let { add(GraphicsMediaResolver.Mapping("/sdcard", it)) }
             }, setOf("/tmp", "/dev/shm"), "/dev/shm",
@@ -107,7 +113,9 @@ class RootlessSessionController(
             usbBroker?.clientFile, usbEnvironment,
             accelerationLibrary = if (dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION)
                 File(proot.parentFile, "libproot-faststat.so") else null,
-            nssBindings = cache?.bindings.orEmpty(), resolverFile = resolver) } catch (error: Exception) { usbBroker?.unregister(id); throw error }
+            nssBindings = cache?.bindings.orEmpty(), resolverFile = resolver, shares = shares,
+            shareHostPaths = pinnedShares.map { "/proc/${android.os.Process.myPid()}/fd/${it.fd}" })
+        } catch (error: Exception) { pinnedShares.forEach { it.close() }; usbBroker?.unregister(id); throw error }
         val (process, descriptor) = try { synchronized(this) {
             check(!cacheClosed) { "Rootless controller closed" }
             val process = PtyProcess.start(
@@ -121,9 +129,9 @@ class RootlessSessionController(
             0,
             )
             val descriptor = SessionDescriptor(id, layout.distribution.displayName, launch.guestShell, launch.guestCwd, System.currentTimeMillis(), rows, cols, SessionStatus.RUNNING)
-            entries[id] = Entry(descriptor, process)
+            entries[id] = Entry(descriptor, process, pinnedShares)
             process to descriptor
-        } } catch (error: Exception) { usbBroker?.unregister(id); throw error }
+        } } catch (error: Exception) { pinnedShares.forEach { it.close() }; usbBroker?.unregister(id); throw error }
         val reader = scope.launch {
             pumpPtyOutput(
                 process.inputStream,
@@ -157,6 +165,7 @@ class RootlessSessionController(
         scope.launch {
             val code = process.waitFor()
             reader.join()
+            pinnedShares.forEach { it.close() }
             usbBroker?.unregister(id)
             entries[id]?.let { it.descriptor = it.descriptor.copy(state = SessionStatus.EXITED, exitCode = code) }
             mutableEvents.emit(SessionEvent.Exited(id, code))
@@ -201,7 +210,7 @@ class RootlessSessionController(
         entry.process.close()
     }
     @Synchronized override fun close() {
-        entries.values.forEach { usbBroker?.unregister(it.descriptor.id); it.process.terminate(SIGKILL); it.process.close() }
+        entries.values.forEach { usbBroker?.unregister(it.descriptor.id); it.process.terminate(SIGKILL); it.process.close(); it.shares.forEach { share -> share.close() } }
         entries.clear(); mutableConnection.value = SessionConnectionState.DISCONNECTED; scope.cancel()
         cacheClosed = true
         nssCache?.close()
@@ -238,6 +247,8 @@ internal fun buildRootlessLaunchSpec(
     accelerationLibrary: File? = null,
     nssBindings: List<String> = emptyList(),
     resolverFile: File? = null,
+    shares: List<dev.terminal.runtime.storage.SharedFolderBinding> = emptyList(),
+    shareHostPaths: List<String> = emptyList(),
 ): RootlessLaunchSpec {
     check(!RootlessNativeMigration.pending(layout.root.parentFile.toPath())) {
         "중단된 가속 형식 이전이 있습니다. 설정에서 해당 배포판의 이전을 다시 실행해 복구하세요"
@@ -259,7 +270,13 @@ internal fun buildRootlessLaunchSpec(
         addAll(listOf("-b", "/dev", "-b", "/proc", "-b", "/sys"))
         addAll(listOf("-b", "${File(layout.tmp, "graphics-shm").absolutePath}:/dev/shm"))
         addAll(listOf("-b", "${layout.home.absolutePath}:/root"))
-        addAll(listOf("-b", "${layout.workspace.absolutePath}:/workspace"))
+        require(shareHostPaths.isEmpty() || shareHostPaths.size == shares.size)
+        shares.forEachIndexed { index, binding ->
+            require(binding.directory.isDirectory && binding.directory.absoluteFile == binding.directory.canonicalFile) { "Unsafe Shared Folder binding" }
+            val hostPath = shareHostPaths.getOrNull(index) ?: binding.directory.absolutePath
+            if (shareHostPaths.isNotEmpty()) require(hostPath.matches(Regex("/proc/[0-9]+/fd/[0-9]+")))
+            addAll(listOf("-b", "$hostPath:${binding.folder.guestPath}"))
+        }
         resolverFile?.let { addAll(listOf("-b", "${it.absolutePath}:/etc/resolv.conf")) }
         sharedStorage?.let { addAll(listOf("-b", "${it.absolutePath}:/sdcard")) }
         usbClientFile?.let { addAll(listOf("-b", "${it.absolutePath}:/usr/local/bin/terminal-usb")) }

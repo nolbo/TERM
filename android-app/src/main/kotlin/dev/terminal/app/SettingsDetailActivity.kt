@@ -412,7 +412,7 @@ class SettingsDetailActivity : TerminalActivity() {
         item {
             SettingsSection(R.string.section_execution) {
                 ActionSetting(R.string.forwarded_ports_title, R.string.forwarded_ports_support) {
-                    startActivity(Intent(this@SettingsDetailActivity, ForwardedPortsActivity::class.java))
+                    startActivity(LocalServicesActivity.intent(this@SettingsDetailActivity, "AVF"))
                 }
             }
         }

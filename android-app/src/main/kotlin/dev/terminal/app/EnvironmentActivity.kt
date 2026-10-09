@@ -275,6 +275,15 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                                 EnvironmentInfoRow(R.string.environment_disks, "system.img · home.img · config.img")
                             }
                         } }
+                        if (detail.environment.runtime != EnvironmentRuntime.AVF) item(key = "backup") {
+                            EnvironmentSection(R.string.backup_title) {
+                                EnvironmentActionSetting(R.string.backup_create, R.drawable.ic_material_symbol_save_24,
+                                    runtime != null && operating == null && deleting == null,
+                                    supporting = R.string.backup_summary) {
+                                    startActivity(EnvironmentBackupActivity.createIntent(this@EnvironmentScreenActivity, detail.id))
+                                }
+                            }
+                        }
                         item(key = "profiles") {
                             EnvironmentSection(R.string.storage_profiles) {
                                 if (detail.profiles.isEmpty()) EnvironmentEmpty()

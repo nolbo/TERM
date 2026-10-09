@@ -75,6 +75,10 @@ internal fun ToolbarSessionsTool(
     profileEnvironmentNames: Map<EnvironmentId, String> = emptyMap(),
     profileInstallationStatuses: Map<EnvironmentId, ProfileInstallationStatus> = emptyMap(),
     headerTabScroll: ScrollState = rememberScrollState(),
+    workspaceState: dev.terminal.runtime.workspace.WorkspaceRegistry.State = dev.terminal.runtime.workspace.WorkspaceRegistry.State(),
+    onSelectWorkspace: (String) -> Unit = {},
+    onCreateWorkspace: (String) -> Unit = {},
+    onLaunchWorkspace: (dev.terminal.runtime.workspace.WorkspaceLaunch) -> Unit = {},
 ) {
     val haptics = LocalTerminalHaptics.current
     // Keep each list's position when switching between the default and expanded headers.
@@ -177,6 +181,7 @@ internal fun ToolbarSessionsTool(
             val headerPadding = 4.dp + 4.dp * progress
             Row(Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = headerPadding),
                 verticalAlignment = Alignment.CenterVertically) {
+                WorkspaceSelector(workspaceState, sessionsActive, onSelectWorkspace, onCreateWorkspace, onLaunchWorkspace, colors.appBarIcon)
                 Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
                     if (progress < 1f && sessions.isNotEmpty()) {
                         Box(Modifier.fillMaxWidth().height(48.dp).clipToBounds().graphicsLayer { alpha = 1f - progress }) {
@@ -216,12 +221,7 @@ internal fun ToolbarSessionsTool(
                 IconButton(onClick = onNew, enabled = sessionsActive, shapes = IconButtonDefaults.shapes()) {
                     Icon(painterResource(R.drawable.ic_material_symbol_add_24), stringResource(R.string.new_session), tint = colors.appBarIcon)
                 }
-                IconButton(onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                    onSettings()
-                }, enabled = sessionsActive, shapes = IconButtonDefaults.shapes()) {
-                    Icon(painterResource(R.drawable.ic_material_symbol_settings_24), stringResource(R.string.settings), tint = colors.appBarIcon)
-                }
+                TerminalOverflowMenu(onSettings, enabled = sessionsActive, tint = colors.appBarIcon)
             }
             if (progress > 0f) ReorderableSessionTabs(sessions, activeSessionId, tabsActive, onReorder,
                 Modifier.weight(1f).fillMaxWidth().graphicsLayer { alpha = progress }, scroll = tabScroll) { session, itemModifier, dragging, lifted ->
@@ -285,7 +285,7 @@ private fun SessionToolTab(
     )
     val sessionTitle = session.title.ifBlank { stringResource(R.string.shell_default_title) }
     val stateLabel = sessionStateLabel(session.state)
-    val renameLabel = stringResource(R.string.rename_session_description, sessionTitle)
+    val menuLabel = stringResource(R.string.workspace_session_menu, sessionTitle)
     val selectSession = {
         haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
         onSelect(session.id)
@@ -297,7 +297,7 @@ private fun SessionToolTab(
         indication = null,
         enabled = enabled,
         hapticFeedbackEnabled = false,
-        onLongClickLabel = renameLabel,
+        onLongClickLabel = menuLabel,
         onLongClick = if (session.pendingLaunch) null else ({
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
             onRename(session)
@@ -343,7 +343,7 @@ private fun SessionToolTab(
                 shape = CircleShape,
                 enabled = enabled && !session.pendingLaunch,
             ) {
-                Icon(painterResource(R.drawable.ic_toolbar_edit), renameLabel)
+                Icon(painterResource(R.drawable.ic_material_symbol_more_vert_24), menuLabel)
             }
             if (!horizontal || selected) IconButton(
                 onClick = {

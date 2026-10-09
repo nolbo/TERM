@@ -8,7 +8,7 @@ class SettingsSearchTest {
     @Test fun avfCategoriesAndNestedSearchResultsRequirePrivileges() {
         val unprivileged = visibleSettingsSearchEntries(false)
         assertFalse(unprivileged.any { it.target.screen == "avf" })
-        assertEquals(listOf("environments", "profiles", "language", "terminal", "rootless", "native", "diagnostics", "updates", "about"),
+        assertEquals(listOf("environments", "profiles", "workspaces", "shared-folders", "local-services", "backups", "language", "terminal", "rootless", "native", "diagnostics", "updates", "about"),
             unprivileged.filter { it.path.isEmpty() }.map { it.target.screen })
         assertEquals(settingsSearchEntries, visibleSettingsSearchEntries(true))
         assertTrue(visibleSettingsSearchEntries(true).any { it.target.screen == "avf" && it.path.isNotEmpty() })
@@ -44,6 +44,11 @@ class SettingsSearchTest {
         assertEquals(SettingsSearchTarget("profiles"), target(R.string.profile_directory))
         assertEquals(SettingsSearchTarget("profiles"), target(R.string.profile_list))
         assertEquals(SettingsSearchTarget("environments"), target(R.string.storage_title))
+        assertEquals(SettingsSearchTarget("local-services"), target(R.string.local_services_title))
+        assertEquals(SettingsSearchTarget("backups"), target(R.string.backup_title))
+        assertEquals(SettingsSearchTarget("backups"), target(R.string.backup_import))
+        assertEquals(SettingsSearchTarget("environments"), target(R.string.backup_create))
+        assertTrue(visibleSettingsSearchEntries(false).any { it.target.screen == "local-services" })
         assertEquals(SettingsSearchTarget("rootless-dns"), target(R.string.userspace_dns))
         assertEquals(SettingsSearchTarget("rootless", 2), target(R.string.userspace_proot))
         assertEquals(SettingsSearchTarget("rootless-info"), target(R.string.userspace_runtime_info))
@@ -56,7 +61,7 @@ class SettingsSearchTest {
     }
 
     @Test fun homeIncludesEnvironmentsAndResultKeysAreUnique() {
-        assertEquals(listOf("environments", "profiles", "language", "terminal", "rootless", "avf", "native", "diagnostics", "updates", "about"),
+        assertEquals(listOf("environments", "profiles", "workspaces", "shared-folders", "local-services", "backups", "language", "terminal", "rootless", "avf", "native", "diagnostics", "updates", "about"),
             settingsSearchEntries.filter { it.path.isEmpty() }.map { it.target.screen })
         val keys = settingsSearchEntries.map { it.target.screen to it.title }
         assertEquals(keys.size, keys.toSet().size)

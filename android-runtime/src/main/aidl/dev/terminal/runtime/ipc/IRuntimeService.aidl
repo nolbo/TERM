@@ -3,6 +3,7 @@ package dev.terminal.runtime.ipc;
 import dev.terminal.runtime.ipc.IRuntimeStateListener;
 import dev.terminal.runtime.ipc.ITerminalStateListener;
 import dev.terminal.runtime.ipc.IAvfImageInitializationCallback;
+import dev.terminal.runtime.ipc.ILocalServicesListener;
 
 interface IRuntimeService {
     String getStorageJson();
@@ -69,4 +70,24 @@ interface IRuntimeService {
     void initializeAvfImage(String storageId, String requestId, IAvfImageInitializationCallback callback);
     void cancelAvfImageInitialization(String requestId);
     void setSessionNotificationFocus(@nullable String sessionId, IRuntimeStateListener listener);
+    String getLocalServicesJson();
+    String saveLocalService(String registrationJson);
+    String deleteLocalService(String serviceId);
+    String updateLocalServiceForwarding(String serviceId, int hostPort, String applicationProtocol);
+    void registerLocalServicesListener(ILocalServicesListener listener);
+    void unregisterLocalServicesListener(ILocalServicesListener listener);
+    String startEnvironmentBackup(String requestId, String requestJson, in char[] password);
+    String getEnvironmentBackupsJson();
+    boolean cancelEnvironmentBackup(String operationId);
+    String getWorkspacesJson();
+    String saveWorkspace(String workspaceJson);
+    String deleteWorkspace(String workspaceId);
+    String selectWorkspace(String filter);
+    String moveSessionToWorkspace(String sessionId, @nullable String workspaceId);
+    void createSessionInWorkspace(String launchSpecJson, String requestId, @nullable String workspaceId, boolean installationConsent, int rows, int cols);
+    String getSharedFoldersJson();
+    String saveSharedFolder(String folderJson);
+    String deleteSharedFolder(String folderId);
+    String startSharedFolderOperation(String requestId, String requestJson);
+    boolean cancelSharedFolderOperation(String requestId);
 }

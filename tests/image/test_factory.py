@@ -97,8 +97,9 @@ class ImageFactoryTests(unittest.TestCase):
                 if unit.exists():
                     (binaries / (name + ".service")).write_bytes(unit.read_bytes())
             (binaries / "droid-apt-init.service").write_bytes((REPO / "guest/droid-sessiond/droid-apt-init.service").read_bytes())
+            (binaries / "droid-file-transfer.service").write_bytes((REPO / "guest/droid-agent/droid-file-transfer.service").read_bytes())
             subprocess.run(["sh", str(REPO / "image/scripts/install-droid-guest.sh"), str(root), str(binaries)], check=True)
-            for name in ["droid-sessiond", "droid-agent", "droid-port-agent", "droid-apt-init"]:
+            for name in ["droid-sessiond", "droid-agent", "droid-port-agent", "droid-apt-init", "droid-file-transfer"]:
                 unit = root / f"etc/systemd/system/{name}.service"
                 executable = next(line.split("=", 1)[1].split()[0] for line in unit.read_text().splitlines() if line.startswith("ExecStart="))
                 self.assertTrue((root / executable.lstrip("/")).is_file())
@@ -107,6 +108,10 @@ class ImageFactoryTests(unittest.TestCase):
             self.assertIn("User=droid\n", session_unit)
             self.assertIn("NoNewPrivileges=no\n", session_unit)
             self.assertIn("--apt-initializer", (root / "etc/systemd/system/droid-apt-init.service").read_text())
+            transfer_unit = (root / "etc/systemd/system/droid-file-transfer.service").read_text()
+            self.assertIn("User=droid\n", transfer_unit)
+            self.assertIn("--file-transfer", transfer_unit)
+            self.assertIn("ProtectSystem=strict\n", transfer_unit)
 
     def test_smoke_requires_user_setup_success_on_each_boot(self):
         boots = [b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"]

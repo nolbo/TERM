@@ -95,10 +95,15 @@ class AvfBackend(
     override suspend fun connectGuestPortAgent(): Result<GuestConnection> = driver.connectGuestPortAgent()
 
     override suspend fun openGuestPortForward(port: Int): Result<GuestByteStream> = driver.openGuestPortForward(port)
+    override suspend fun openGuestTcpForward(address: String, port: Int): Result<GuestByteStream> = driver.openGuestTcpForward(address, port)
+    override suspend fun openGuestFileTransfer(): Result<GuestByteStream> = driver.openGuestFileTransfer()
 }
 
 /** Implemented in the AOSP/system-SDK deployment module in the next spike. */
 interface AvfPlatformDriver {
+    suspend fun openGuestFileTransfer(): Result<GuestByteStream> = Result.failure(UnsupportedOperationException("Guest file transfer is unavailable"))
+    suspend fun openGuestTcpForward(address: String, port: Int): Result<GuestByteStream> = Result.failure(
+        UnsupportedOperationException("Guest TCP proxy is unavailable"))
     /** True only if the latest successful start booted a stopped VM, not a reconnect. */
     val startedNewVm: Boolean get() = false
     suspend fun connectImageInitializer(): Result<GuestConnection> = Result.failure(

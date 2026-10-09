@@ -7,3 +7,4 @@ description = "Guest-side Android capability bridge agent"
 
 [dependencies]
 nix = { version = "0.29", features = ["fs"] }
+sha2 = "=0.10.9"

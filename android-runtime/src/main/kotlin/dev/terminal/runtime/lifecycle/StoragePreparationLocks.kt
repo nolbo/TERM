@@ -39,6 +39,20 @@ internal class StoragePreparationLocks {
         block()
     }
 
+    /** One admission for all legacy Workspace users; no nested admission/global-migration deadlock. */
+    suspend fun <T> withStorages(resolve: () -> List<Pair<SessionRuntime, String>>, block: suspend () -> T): T {
+        admission.withLock {
+            synchronized(monitor) { if (active++ == 0) drained = CompletableDeferred() }
+        }
+        try {
+            val selected = resolve().distinct().sortedWith(compareBy({ it.first.wireName }, { it.second }))
+                .map { locks.computeIfAbsent(it) { Mutex() } }
+            suspend fun take(index: Int): T = if (index == selected.size) block()
+                else selected[index].withLock { take(index + 1) }
+            return take(0)
+        } finally { synchronized(monitor) { if (--active == 0) drained.complete(Unit) } }
+    }
+
     /** Opportunistic maintenance must not queue behind an installation and close admission. */
     suspend fun tryWithAll(block: suspend () -> Unit): Boolean {
         if (!admission.tryLock()) return false
