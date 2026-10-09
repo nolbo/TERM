@@ -2,7 +2,9 @@ package dev.terminal.app
 
 import android.content.Intent
 import android.graphics.Rect
+import android.os.Bundle
 import android.os.SystemClock
+import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.view.accessibility.AccessibilityNodeInfo
@@ -313,14 +315,87 @@ class HotkeyLayoutEditorTest {
         }
     }
 
-    @Test fun draftPlacementSurvivesRecreationAndCancelDoesNotPersistIt() = withEditor { scenario ->
+    @Test fun floatingToolbarRestoresTheLatestSaveAfterRecreation() = withEditor { scenario ->
+        val restoreLabel = context.getString(R.string.hotkey_restore_saved)
+        val restore = awaitLabel(restoreLabel)
+        val add = awaitLabel(context.getString(R.string.hotkey_add))
+        val saveButton = awaitLabel(context.getString(R.string.save))
+        assertTrue(restore.right <= add.left && add.right <= saveButton.left)
+        assertEquals(restore.centerY(), saveButton.centerY())
+        assertTrue(findNode(context.getString(R.string.save))?.text.isNullOrEmpty())
+        assertNull("The page must no longer offer Cancel", findNode(context.getString(R.string.cancel)))
+
+        val a = keyBounds(0, "A")
+        drag(a, a.exactCenterX(), a.exactCenterY() + 44 * density * 2)
+        assertEquals(initial, readHotkeyLayout(preferences()))
+        tap(awaitLabel(restoreLabel))
+        awaitCondition("Restore did not return the entire draft to its saved placement") { keyBounds(0, "A") == a }
+        assertEquals(initial, readHotkeyLayout(preferences()))
+
+        drag(a, a.exactCenterX(), a.exactCenterY() + 44 * density * 2)
+        save()
+        val saved = readHotkeyLayout(preferences())
+        assertEquals(HotkeyBounds(0f, 2f), saved.keys[0].bounds)
+        scenario.onActivity { assertFalse("Saving must keep the editor open", it.isFinishing) }
+
+        val moved = keyBounds(0, "A")
+        drag(moved, moved.exactCenterX(), moved.exactCenterY() + 44 * density)
+        scenario.recreate()
+        scrollToPreview()
+        tap(awaitLabel(restoreLabel))
+        awaitCondition("Restore must use the latest saved layout after recreation") {
+            abs(keyBounds(0, "A").top - keyBounds(1, "B").top - 88 * density) <= 2
+        }
+        save()
+        assertEquals(saved, readHotkeyLayout(preferences()))
+    }
+
+    @Test fun floatingToolbarAddsOnlyToTheDraftAndRestoresAllEditedSettings() = withEditor { _ ->
+        tap(awaitLabel(context.getString(R.string.hotkey_add)))
+        awaitLabel(context.getString(R.string.hotkey_name))
+        val nameField = findNode { it.isEditable } ?: error("Missing hotkey name field")
+        assertTrue(nameField.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "New key")
+        }))
+        save()
+        awaitLabel(context.getString(R.string.hotkey_edit_description, 3, "New key", "CTRL+C"))
+        assertEquals(initial, readHotkeyLayout(preferences()))
+        val columns = findNode(context.getString(R.string.hotkey_columns)) ?: error("Missing canvas columns slider")
+        assertTrue(columns.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id, Bundle().apply {
+            putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, 6f)
+        }))
+        val font = findNode(context.getString(R.string.hotkey_font_size)) ?: error("Missing font size slider")
+        assertTrue(font.performAction(AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.id, Bundle().apply {
+            putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, 20f)
+        }))
+        awaitLabel("${context.getString(R.string.hotkey_columns)}: 6")
+        awaitLabel("${context.getString(R.string.hotkey_font_size)}: 20")
+        tap(awaitLabel(context.getString(R.string.hotkey_restore_saved)))
+        awaitCondition("Restore did not discard the new key") {
+            findNode(context.getString(R.string.hotkey_edit_description, 3, "New key", "CTRL+C")) == null
+        }
+        save()
+        assertEquals("Restore must include canvas columns and font size", initial, readHotkeyLayout(preferences()))
+
+        tap(awaitLabel(context.getString(R.string.hotkey_add)))
+        awaitLabel(context.getString(R.string.hotkey_name))
+        assertTrue(requireNotNull(findNode { it.isEditable }).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
+            putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "Saved key")
+        }))
+        save()
+        awaitLabel(context.getString(R.string.hotkey_edit_description, 3, "Saved key", "CTRL+C"))
+        save()
+        assertEquals(listOf("A", "B", "Saved key"), readHotkeyLayout(preferences()).keys.map { it.name })
+    }
+
+    @Test fun draftPlacementSurvivesRecreationAndBackDoesNotPersistIt() = withEditor { scenario ->
         val a = keyBounds(0, "A")
         drag(a, a.exactCenterX(), a.exactCenterY() + 44 * density * 2.5f)
         scenario.recreate()
         scrollToPreview()
         assertTrue(keyBounds(0, "A").top > keyBounds(1, "B").bottom + 40 * density)
         assertEquals(initial, readHotkeyLayout(preferences()))
-        tap(awaitLabel(context.getString(R.string.cancel)))
+        instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
         tap(awaitLabel(context.getString(R.string.confirm)))
         assertEquals(initial, readHotkeyLayout(preferences()))
     }
@@ -423,11 +498,14 @@ class HotkeyLayoutEditorTest {
 
     private fun findLabel(label: String): Rect? = findNode(label)?.let { node -> Rect().also(node::getBoundsInScreen) }
 
-    private fun findNode(label: String): AccessibilityNodeInfo? {
+    private fun findNode(label: String): AccessibilityNodeInfo? = findNode {
+        it.text?.toString() == label || it.contentDescription?.toString() == label
+    }
+
+    private fun findNode(predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
         fun visit(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
             node.refresh()
-            if (node.text?.toString() == label || node.contentDescription?.toString() == label)
-                return node
+            if (predicate(node)) return node
             for (index in 0 until node.childCount) node.getChild(index)?.let { visit(it)?.let { found -> return found } }
             return null
         }

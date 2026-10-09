@@ -28,6 +28,7 @@ import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import dev.terminal.app.ui.FloatingToolbarAction
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.SettingsExpansionContent
 import dev.terminal.app.ui.SettingsExpansionIcon
@@ -188,50 +189,55 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
     val update: (HotkeyLayout) -> Unit = { draft = serializeHotkeyLayout(it) }
     val leave = { if (draft != saved) discardVisible = true else onBack() }
     androidx.activity.compose.BackHandler(onBack = leave)
-    SettingsPageScaffold(stringResource(R.string.settings_hotkeys_title), leave) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding)) {
-            Column(Modifier.weight(1f).onGloballyPositioned { viewport = it }.verticalScroll(scrollState).padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                Text(stringResource(R.string.settings_hotkeys_description), style = MaterialTheme.typography.bodyLarge)
-                Card(shape = MaterialTheme.shapes.extraLarge) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val minimumColumns = kotlin.math.ceil(hotkeyBounds(layout).maxOf { it.right }).toInt().coerceAtLeast(2)
-                        HotkeySizeControl(R.string.hotkey_columns, layout.columns, minimumColumns..10) {
-                            update(resizeHotkeyCanvas(layout, it))
-                        }
-                        Text(stringResource(R.string.hotkey_canvas_support), style = MaterialTheme.typography.bodySmall)
-                        HotkeySizeControl(R.string.hotkey_font_size, layout.fontSize, 10..24) { update(layout.copy(fontSize = it)) }
+    SettingsPageScaffold(
+        stringResource(R.string.settings_hotkeys_title), leave,
+        floatingActionButtonPosition = FabPosition.Center,
+        floatingActionButton = {
+            HorizontalFloatingToolbar(expanded = true) {
+                FloatingToolbarAction(stringResource(R.string.hotkey_restore_saved), R.drawable.ic_material_symbol_undo_24,
+                    enabled = draft != saved, onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        draft = saved
+                    })
+                FloatingToolbarAction(stringResource(R.string.hotkey_add), R.drawable.ic_material_symbol_add_24,
+                    enabled = layout.keys.size < MAX_HOTKEYS, onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        editingIndex = layout.keys.size
+                    })
+                FloatingToolbarAction(stringResource(R.string.save), R.drawable.ic_material_symbol_save_24,
+                    enabled = true, onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        preferences.edit().putString(KEY_HOTKEYS, draft).apply()
+                        saved = draft
+                    })
+            }
+        },
+    ) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).onGloballyPositioned { viewport = it }.verticalScroll(scrollState)
+            .padding(start = 16.dp, end = 16.dp, top = 16.dp,
+                bottom = FloatingToolbarDefaults.ContainerSize + FloatingToolbarDefaults.ScreenOffset * 2),
+            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(stringResource(R.string.settings_hotkeys_description), style = MaterialTheme.typography.bodyLarge)
+            Card(shape = MaterialTheme.shapes.extraLarge) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val minimumColumns = kotlin.math.ceil(hotkeyBounds(layout).maxOf { it.right }).toInt().coerceAtLeast(2)
+                    HotkeySizeControl(R.string.hotkey_columns, layout.columns, minimumColumns..10) {
+                        update(resizeHotkeyCanvas(layout, it))
                     }
-                }
-                Text(stringResource(R.string.hotkey_preview), style = MaterialTheme.typography.titleMedium)
-                Text(stringResource(R.string.hotkey_preview_support), style = MaterialTheme.typography.bodyMedium)
-                EditableHotkeyPreview(
-                    layout = layout, scrollState = scrollState,
-                    viewportBounds = { viewport?.takeIf { it.isAttached }?.boundsInRoot() },
-                    onChange = update,
-                    onEdit = { editingIndex = it },
-                )
-                Button(onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                    editingIndex = layout.keys.size
-                }, enabled = layout.keys.size < MAX_HOTKEYS,
-                    shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth()) {
-                    Text(stringResource(R.string.hotkey_add))
-                }
-                TextButton(onClick = { resetVisible = true }, shapes = ButtonDefaults.shapes()) {
-                    Text(stringResource(R.string.hotkey_reset))
+                    Text(stringResource(R.string.hotkey_canvas_support), style = MaterialTheme.typography.bodySmall)
+                    HotkeySizeControl(R.string.hotkey_font_size, layout.fontSize, 10..24) { update(layout.copy(fontSize = it)) }
                 }
             }
-            Row(Modifier.fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                OutlinedButton(onClick = leave, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) {
-                    Text(stringResource(R.string.cancel))
-                }
-                Button(onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
-                    preferences.edit().putString(KEY_HOTKEYS, draft).apply()
-                    saved = draft
-                    onBack()
-                }, shapes = ButtonDefaults.shapes(), modifier = Modifier.weight(1f)) { Text(stringResource(R.string.save)) }
+            Text(stringResource(R.string.hotkey_preview), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(R.string.hotkey_preview_support), style = MaterialTheme.typography.bodyMedium)
+            EditableHotkeyPreview(
+                layout = layout, scrollState = scrollState,
+                viewportBounds = { viewport?.takeIf { it.isAttached }?.boundsInRoot() },
+                onChange = update,
+                onEdit = { editingIndex = it },
+            )
+            TextButton(onClick = { resetVisible = true }, shapes = ButtonDefaults.shapes()) {
+                Text(stringResource(R.string.hotkey_reset))
             }
         }
     }
