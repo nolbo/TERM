@@ -417,7 +417,7 @@ private fun HistoryCommandOutput(output: String?, enabled: Boolean, canCopyComma
                 colors = ButtonDefaults.textButtonColors(contentColor = colors.foreground,
                     disabledContentColor = colors.foreground.copy(alpha = 0.38f)),
                 contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.heightIn(min = 48.dp)) {
-                Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), null, Modifier.size(24.dp))
+                Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(commandLabel)
             }
@@ -425,11 +425,12 @@ private fun HistoryCommandOutput(output: String?, enabled: Boolean, canCopyComma
                 colors = ButtonDefaults.textButtonColors(contentColor = colors.foreground,
                     disabledContentColor = colors.foreground.copy(alpha = 0.38f)),
                 contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.heightIn(min = 48.dp)) {
-                Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), null, Modifier.size(24.dp))
+                Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), null, Modifier.size(18.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(outputLabel)
             }
         }
+        Spacer(Modifier.height(8.dp))
         Surface(color = colors.container, contentColor = colors.onContainer.copy(alpha = if (enabled) 1f else 0.38f),
             shape = MaterialTheme.shapes.medium) {
             SelectionContainer(Modifier.fillMaxWidth().heightIn(max = 200.dp)
