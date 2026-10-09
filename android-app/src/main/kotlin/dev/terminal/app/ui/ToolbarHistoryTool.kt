@@ -373,6 +373,9 @@ private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enable
                             fontFamily = LocalTerminalMonospaceFontFamily.current, style = MaterialTheme.typography.labelSmall)
                     }
                 }
+                HistoryCopyButton(stringResource(R.string.history_copy_command),
+                    enabled = enabled && inputPreview != null, foreground = foreground,
+                    onCopy = { command.marker.commandInputText })
                 IconButton(onClick = onToggleOutput, enabled = enabled,
                     shapes = IconButtonDefaults.shapes(),
                     colors = IconButtonDefaults.iconButtonColors(contentColor = foreground,
@@ -389,56 +392,53 @@ private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enable
         }
         SettingsExpansionContent(outputExpanded) {
             val output = remember(command.marker, historyRevision) { command.marker.outputText }
-            HistoryCommandOutput(output, enabled, inputPreview != null, graphColor, last,
-                onCopyCommand = { command.marker.commandInputText }, onCopyOutput = { command.marker.outputText })
+            HistoryCommandOutput(output, enabled, graphColor, last, onCopyOutput = { command.marker.outputText })
         }
     }
 }
 
 @Composable
-private fun HistoryCommandOutput(output: String?, enabled: Boolean, canCopyCommand: Boolean, graphColor: Color, last: Boolean,
-    onCopyCommand: () -> String?, onCopyOutput: () -> String?) {
-    val colors = LocalToolbarColors.current
+private fun HistoryCopyButton(label: String, enabled: Boolean, foreground: Color, onCopy: () -> String?) {
     val context = LocalContext.current
-    val commandLabel = stringResource(R.string.history_copy_command)
-    val outputLabel = stringResource(R.string.history_copy_output)
-    fun copy(label: String, value: String?) {
-        if (!value.isNullOrEmpty()) context.getSystemService(ClipboardManager::class.java)
-            .setPrimaryClip(ClipData.newPlainText(label, value))
+    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+        tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
+        IconButton(onClick = {
+            val value = onCopy()
+            if (!value.isNullOrEmpty()) context.getSystemService(ClipboardManager::class.java)
+                .setPrimaryClip(ClipData.newPlainText(label, value))
+        }, enabled = enabled, shapes = IconButtonDefaults.shapes(),
+            colors = IconButtonDefaults.iconButtonColors(contentColor = foreground,
+                disabledContentColor = foreground.copy(alpha = 0.38f)), modifier = Modifier.size(48.dp)) {
+            Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), label, Modifier.size(18.dp))
+        }
     }
+}
+
+@Composable
+private fun HistoryCommandOutput(output: String?, enabled: Boolean, graphColor: Color, last: Boolean,
+    onCopyOutput: () -> String?) {
+    val colors = LocalToolbarColors.current
     Column(Modifier.fillMaxWidth().drawBehind {
         if (!last) {
             val x = 24.dp.toPx()
             drawLine(graphColor, Offset(x, 0f), Offset(x, size.height), strokeWidth = 2.dp.toPx())
         }
     }.padding(start = 60.dp, end = 12.dp, bottom = 8.dp)) {
-        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            TextButton(onClick = { copy(commandLabel, onCopyCommand()) }, enabled = enabled && canCopyCommand,
-                colors = ButtonDefaults.textButtonColors(contentColor = colors.foreground,
-                    disabledContentColor = colors.foreground.copy(alpha = 0.38f)),
-                contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.heightIn(min = 48.dp)) {
-                Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(commandLabel)
-            }
-            TextButton(onClick = { copy(outputLabel, onCopyOutput()) }, enabled = enabled && !output.isNullOrEmpty(),
-                colors = ButtonDefaults.textButtonColors(contentColor = colors.foreground,
-                    disabledContentColor = colors.foreground.copy(alpha = 0.38f)),
-                contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.heightIn(min = 48.dp)) {
-                Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), null, Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(outputLabel)
-            }
-        }
-        Spacer(Modifier.height(8.dp))
         Surface(color = colors.container, contentColor = colors.onContainer.copy(alpha = if (enabled) 1f else 0.38f),
             shape = MaterialTheme.shapes.medium) {
-            SelectionContainer(Modifier.fillMaxWidth().heightIn(max = 200.dp)
-                .verticalScroll(rememberScrollState()).padding(12.dp)) {
-                Text(output?.ifEmpty { stringResource(R.string.history_output_empty) }
-                    ?: stringResource(R.string.history_output_unavailable),
-                    modifier = Modifier.fillMaxWidth(),
-                    fontFamily = LocalTerminalMonospaceFontFamily.current, style = MaterialTheme.typography.bodySmall)
+            Box(Modifier.fillMaxWidth().heightIn(min = 56.dp, max = 200.dp)) {
+                SelectionContainer(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
+                    .padding(start = 12.dp, top = 12.dp, end = 60.dp, bottom = 12.dp)) {
+                    Text(output?.ifEmpty { stringResource(R.string.history_output_empty) }
+                        ?: stringResource(R.string.history_output_unavailable),
+                        modifier = Modifier.fillMaxWidth(),
+                        fontFamily = LocalTerminalMonospaceFontFamily.current, style = MaterialTheme.typography.bodySmall)
+                }
+                Box(Modifier.align(Alignment.TopEnd).padding(4.dp)) {
+                    HistoryCopyButton(stringResource(R.string.history_copy_output),
+                        enabled = enabled && !output.isNullOrEmpty(), foreground = colors.onContainer,
+                        onCopy = onCopyOutput)
+                }
             }
         }
     }
