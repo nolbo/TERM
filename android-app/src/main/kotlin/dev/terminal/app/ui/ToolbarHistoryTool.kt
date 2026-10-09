@@ -13,6 +13,7 @@ import androidx.compose.animation.core.updateTransition
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -431,7 +432,7 @@ private fun HistoryCommandOutput(output: String?, enabled: Boolean, graphColor: 
     var touching by remember { mutableStateOf(false) }
     val scrolling = outputScroll.isScrollInProgress
     val copyTimeout = LocalAccessibilityManager.current?.calculateRecommendedTimeoutMillis(
-        originalTimeoutMillis = 2_000, containsIcons = true, containsText = false, containsControls = true) ?: 2_000L
+        originalTimeoutMillis = 5_000, containsIcons = true, containsText = false, containsControls = true) ?: 5_000L
     val revealLabel = stringResource(R.string.history_output_show_actions)
     LaunchedEffect(interaction, touching, scrolling, enabled, copyTimeout) {
         if (!enabled) {
@@ -483,9 +484,12 @@ private fun HistoryCommandOutput(output: String?, enabled: Boolean, graphColor: 
                     androidx.compose.animation.AnimatedVisibility(copyVisible,
                         enter = fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()),
                         exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec())) {
-                        HistoryCopyButton(stringResource(R.string.history_copy_output),
-                            enabled = enabled && !output.isNullOrEmpty(), foreground = colors.onContainer,
-                            onCopy = onCopyOutput, container = colors.container)
+                        Surface(shape = CircleShape, color = colors.foreground, contentColor = colors.background,
+                            border = BorderStroke(1.dp, colors.divider), shadowElevation = 6.dp) {
+                            HistoryCopyButton(stringResource(R.string.history_copy_output),
+                                enabled = enabled && !output.isNullOrEmpty(), foreground = colors.background,
+                                onCopy = onCopyOutput, container = colors.foreground)
+                        }
                     }
                 }
             }

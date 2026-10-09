@@ -397,9 +397,10 @@ class ToolbarHistoryToolTest {
             scenario.onActivity { originalRow = view.topRow }
             tapOutput("running-output-0")
             description(R.string.history_copy_output)
-            SystemClock.sleep(1_100)
+            SystemClock.sleep(3_000)
+            description(R.string.history_copy_output)
             tapOutput("running-output-0")
-            SystemClock.sleep(1_100)
+            SystemClock.sleep(3_000)
             description(R.string.history_copy_output)
             assertEquals(before, Rect().also { text("running-output-0").getBoundsInScreen(it) })
             val deadline = SystemClock.uptimeMillis() + 5_000
