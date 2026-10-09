@@ -111,7 +111,6 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("hotkeys", R.string.hotkey_name, R.string.hotkey_name_support, hotkeys)
     entry("hotkeys", R.string.hotkey_shortcut, R.string.hotkey_shortcut_support, hotkeys)
     entry("hotkeys", R.string.hotkey_span, null, hotkeys)
-    entry("hotkeys", R.string.hotkey_reset, R.string.hotkey_reset_support, hotkeys)
     entry("palette", R.string.palette_foreground, null, palette, section = 0)
     entry("palette", R.string.palette_background, null, palette, section = 0)
     entry("palette", R.string.palette_cursor, null, palette, section = 0)

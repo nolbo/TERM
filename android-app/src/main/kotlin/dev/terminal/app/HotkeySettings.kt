@@ -182,7 +182,6 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
     var draft by rememberSaveable { mutableStateOf(saved) }
     val layout = remember(draft) { parseHotkeyLayout(draft) }
     var editingIndex by rememberSaveable { mutableIntStateOf(-1) }
-    var resetVisible by rememberSaveable { mutableStateOf(false) }
     var discardVisible by rememberSaveable { mutableStateOf(false) }
     val scrollState = rememberScrollState()
     var viewport by remember { mutableStateOf<LayoutCoordinates?>(null) }
@@ -235,9 +234,6 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
                 onChange = update,
                 onEdit = { editingIndex = it },
             )
-            TextButton(onClick = { resetVisible = true }, shapes = ButtonDefaults.shapes()) {
-                Text(stringResource(R.string.hotkey_reset))
-            }
         }
     }
     if (editingIndex >= 0) {
@@ -253,12 +249,6 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
             onDismiss = { editingIndex = -1 },
         )
     }
-    if (resetVisible) AlertDialog(
-        onDismissRequest = { resetVisible = false }, title = { Text(stringResource(R.string.hotkey_reset)) },
-        text = { Text(stringResource(R.string.hotkey_reset_support)) },
-        confirmButton = { TextButton(onClick = { update(HotkeyLayout(enabled = layout.enabled)); resetVisible = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.confirm)) } },
-        dismissButton = { TextButton(onClick = { resetVisible = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } },
-    )
     if (discardVisible) AlertDialog(
         onDismissRequest = { discardVisible = false }, title = { Text(stringResource(R.string.hotkey_discard)) },
         confirmButton = { TextButton(onClick = onBack, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.confirm)) } },
