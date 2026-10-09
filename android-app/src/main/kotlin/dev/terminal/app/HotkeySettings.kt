@@ -229,7 +229,6 @@ internal fun HotkeySettings(preferences: SharedPreferences, onBack: () -> Unit) 
                 }
             }
             Text(stringResource(R.string.hotkey_preview), style = MaterialTheme.typography.titleMedium)
-            Text(stringResource(R.string.hotkey_preview_support), style = MaterialTheme.typography.bodyMedium)
             EditableHotkeyPreview(
                 layout = layout, scrollState = scrollState,
                 viewportBounds = { viewport?.takeIf { it.isAttached }?.boundsInRoot() },
