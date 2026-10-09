@@ -6,7 +6,8 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-data class WorkspaceLaunch(val id: String, val name: String, val profileId: String, val directory: String = "") {
+data class WorkspaceLaunch(val id: String, val name: String, val profileId: String, val directory: String = "",
+    val startWithWorkspace: Boolean = false) {
     init {
         uuid(id); label(name)
         require(profileId.isNotBlank() && profileId.length <= 128)
@@ -18,9 +19,10 @@ data class WorkspaceLaunch(val id: String, val name: String, val profileId: Stri
         return resolve(if (directory.isEmpty()) profile else profile.copy(workingDirectory = directory))
     }
     fun json() = JSONObject().put("id", id).put("name", name).put("profileId", profileId).put("directory", directory)
+        .put("startWithWorkspace", startWithWorkspace)
     companion object {
         fun parse(value: JSONObject) = WorkspaceLaunch(value.getString("id"), value.getString("name"),
-            value.getString("profileId"), value.optString("directory"))
+            value.getString("profileId"), value.optString("directory"), value.optBoolean("startWithWorkspace"))
     }
 }
 
@@ -46,6 +48,10 @@ class WorkspaceRegistry(private val read: () -> String?, private val write: (Str
             UNASSIGNED -> sessionId !in memberships
             else -> memberships[sessionId] == selected
         }
+        /** Conservatively reuse any existing or pending member instead of creating replacement sessions. */
+        fun startupLaunches(pendingWorkspaceIds: Set<String> = emptySet()): List<WorkspaceLaunch> =
+            if (selected in pendingWorkspaceIds || selected in memberships.values) emptyList()
+            else workspaces.firstOrNull { it.id == selected }?.launches.orEmpty().filter { it.startWithWorkspace }
         companion object {
             fun parse(encoded: String): State {
                 require(encoded.toByteArray().size <= 512 * 1024)

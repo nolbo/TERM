@@ -16,6 +16,10 @@
     <string name="workspace_edit_summary">프로필과 선택적 작업 디렉터리를 관리합니다.</string>
     <string name="workspace_promote">저장하면 영구 Workspace로 전환됩니다.</string>
     <string name="workspace_launches">실행 구성</string>
+    <string name="workspace_startup_launches">시작 시 실행</string>
+    <string name="workspace_startup_launches_summary">세션이 없는 Workspace를 열 때 선택한 실행 구성을 순서대로 시작합니다. 여러 개를 선택할 수 있습니다.</string>
+    <string name="workspace_startup_none">선택 없음</string>
+    <string name="workspace_startup_count">%1$d개 선택</string>
     <string name="workspace_add_launch">실행 구성 추가</string>
     <string name="workspace_run">%1$s 실행</string>
     <string name="workspace_directory">작업 디렉터리 (선택)</string>

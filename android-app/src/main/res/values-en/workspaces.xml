@@ -16,6 +16,10 @@
     <string name="workspace_edit_summary">Manage profile references and optional working directories.</string>
     <string name="workspace_promote">Save to make this workspace permanent.</string>
     <string name="workspace_launches">Launch configurations</string>
+    <string name="workspace_startup_launches">Run on workspace start</string>
+    <string name="workspace_startup_launches_summary">Start the selected configurations in order when opening a Workspace with no sessions. You can select more than one.</string>
+    <string name="workspace_startup_none">None selected</string>
+    <string name="workspace_startup_count">%1$d selected</string>
     <string name="workspace_add_launch">Add launch configuration</string>
     <string name="workspace_run">Run %1$s</string>
     <string name="workspace_directory">Working directory (optional)</string>

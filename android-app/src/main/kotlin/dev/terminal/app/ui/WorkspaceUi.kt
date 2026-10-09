@@ -150,6 +150,9 @@ private fun WorkspaceEditor(encoded: String, profiles: List<SessionProfile>, sav
             OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.workspace_name)) }, singleLine = true)
             if (original.getBoolean("temporary")) Text(stringResource(R.string.workspace_promote))
             Text(stringResource(R.string.workspace_launches), style = MaterialTheme.typography.labelLarge)
+            WorkspaceStartupLaunchesSetting(rows, profiles, enabled = !saving) { updated ->
+                launches = org.json.JSONArray(updated.map { it.json() }).toString()
+            }
             rows.forEach { launch ->
                 Row {
                     TextButton(onClick = { editingLaunch = launch.json().toString() }, modifier = Modifier.weight(1f)) { Text(launch.name) }
@@ -180,7 +183,8 @@ private fun WorkspaceLaunchEditor(encoded: String, profiles: List<SessionProfile
             OutlinedTextField(directory, { directory = it }, label = { Text(stringResource(R.string.workspace_directory)) }, singleLine = true)
             Text(stringResource(R.string.workspace_directory_summary), style = MaterialTheme.typography.bodySmall)
         }
-    }, confirmButton = { TextButton(onClick = { onSave(WorkspaceLaunch(original?.id ?: UUID.randomUUID().toString(), name.trim(), profileId, directory)) },
+    }, confirmButton = { TextButton(onClick = { onSave(WorkspaceLaunch(original?.id ?: UUID.randomUUID().toString(), name.trim(), profileId, directory,
+            startWithWorkspace = original?.startWithWorkspace ?: false)) },
         enabled = validWorkspaceName(name) && profiles.any { it.id == profileId } && (directory.isEmpty() || directory.startsWith('/')) && directory.length <= 4096 && directory.none(Char::isISOControl)) { Text(stringResource(R.string.save)) } },
         dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } })
 }

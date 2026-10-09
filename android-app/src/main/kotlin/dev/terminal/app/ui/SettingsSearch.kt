@@ -41,6 +41,7 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("workspaces", R.string.workspaces_title, R.string.workspaces_summary, icon = R.drawable.ic_material_symbol_layers_24)
     entry("shared-folders", R.string.shared_folders_title, R.string.shared_folders_summary, icon = R.drawable.ic_material_symbol_save_24)
     entry("workspaces", R.string.workspace_launches, R.string.workspace_directory_summary, listOf(R.string.workspaces_title))
+    entry("workspaces", R.string.workspace_startup_launches, R.string.workspace_startup_launches_summary, listOf(R.string.workspaces_title, R.string.workspace_launches), icon = R.drawable.ic_material_symbol_layers_24)
     entry("shared-folders", R.string.shared_legacy_title, R.string.shared_legacy_summary, listOf(R.string.shared_folders_title))
     entry("local-services", R.string.local_services_title, R.string.local_services_summary, icon = R.drawable.ic_material_symbol_lan_24)
     entry("backups", R.string.backup_title, R.string.backup_summary, icon = R.drawable.ic_material_symbol_save_24)

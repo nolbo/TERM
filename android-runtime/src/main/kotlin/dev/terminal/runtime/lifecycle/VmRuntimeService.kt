@@ -333,7 +333,11 @@ class VmRuntimeService : Service() {
         override fun getWorkspacesJson(): String {
             enforceHostToolUi()
             val snapshot = workspaces.snapshot()
-            return snapshot.copy(memberships = snapshot.memberships + workspaceLaunches.entries.filter { pendingAvfLaunches.containsRequest(it.key) }.associate { "avf-launch:${it.key}" to it.value }
+            // All accepted creation requests occupy their Workspace, including Native/Rootless
+            // preparation before a real session ID exists. This projection is never persisted.
+            return snapshot.copy(memberships = snapshot.memberships + workspaceLaunches.entries.associate {
+                (if (pendingAvfLaunches.containsRequest(it.key)) "avf-launch:${it.key}" else "workspace-launch:${it.key}") to it.value
+            }
                 .filterValues { id -> snapshot.workspaces.any { it.id == id } }).json().toString()
         }
         override fun saveWorkspace(workspaceJson: String): String {

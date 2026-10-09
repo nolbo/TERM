@@ -117,6 +117,31 @@ class MainActivity : TerminalActivity() {
     private var workspaceSessionMenu by mutableStateOf<SessionUi?>(null)
     private val pendingLaunchWorkspaces = mutableMapOf<String, String?>()
     private var selectedLaunchWorkspace: String? = null
+    private data class WorkspaceStartupLaunch(val workspaceId: String, val spec: dev.terminal.runtime.session.SessionLaunchSpec)
+    private var workspaceStartupQueue by mutableStateOf(emptyList<WorkspaceStartupLaunch>())
+    private var workspaceStartupConnected by mutableStateOf(false)
+    private var initialWorkspaceStartupPending = true
+
+    private fun queueWorkspaceStartups(state: dev.terminal.runtime.workspace.WorkspaceRegistry.State) {
+        val pending = workspaceStartupQueue.mapTo(mutableSetOf()) { it.workspaceId }
+        unconfirmedAvfLaunches.mapNotNullTo(pending) { pendingLaunchWorkspaces[it.launchRequestId] }
+        if (profileLaunchToCheck != null || profileInstallToConfirm != null || profileInstallationToLaunch != null || rootlessInstallInFlight) {
+            selectedLaunchWorkspace?.let(pending::add)
+        }
+        val launches = state.startupLaunches(pending)
+        if (launches.isEmpty()) return
+        refreshProfiles()
+        val store = SessionProfiles(this)
+        val requests = launches.mapNotNull { launch ->
+            val profile = profiles.firstOrNull { it.id == launch.profileId }
+            if (profile == null) {
+                feedbackMessage = getString(R.string.workspace_profile_missing)
+                null
+            } else runCatching { WorkspaceStartupLaunch(state.selected, launch.resolve(profile, store::resolve)) }
+                .onFailure { feedbackMessage = it.message }.getOrNull()
+        }
+        workspaceStartupQueue = workspaceStartupQueue + requests
+    }
     private fun workspaceIncludes(session: SessionUi): Boolean {
         val pendingWorkspace = if (session.pendingLaunch) pendingLaunchWorkspaces[session.launchRequestId] else null
         return if (pendingWorkspace != null) when (workspaceState.selected) {
@@ -139,8 +164,14 @@ class MainActivity : TerminalActivity() {
         }
     }
     private fun selectWorkspaceFilter(filter: String) {
+        val entering = workspaceState.selected != filter
         getSharedPreferences("workspace-selections", MODE_PRIVATE).edit().putString(workspaceState.selected, activeSessionId).apply()
-        workspaceMutation { it.selectWorkspace(filter) }
+        workspaceMutation { service ->
+            service.selectWorkspace(filter).also { error ->
+                if (error.isEmpty() && entering) queueWorkspaceStartups(
+                    dev.terminal.runtime.workspace.WorkspaceRegistry.State.parse(service.workspacesJson))
+            }
+        }
     }
     private fun selectVisibleWorkspaceSession() {
         val visible = sessions.filter(::workspaceIncludes)
@@ -179,8 +210,11 @@ class MainActivity : TerminalActivity() {
     private fun selectProfile(profile: dev.terminal.runtime.session.SessionProfile) {
         selectLaunchSpec(SessionProfiles(this).resolve(profile))
     }
-    private fun selectLaunchSpec(spec: dev.terminal.runtime.session.SessionLaunchSpec) {
-        selectedLaunchWorkspace = workspaceState.selected.takeUnless { it in setOf("all", "unassigned") }
+    private fun selectLaunchSpec(spec: dev.terminal.runtime.session.SessionLaunchSpec,
+        workspaceId: String? = workspaceState.selected.takeUnless { it in setOf("all", "unassigned") },
+        workspaceStartup: Boolean = false) {
+        if (!workspaceStartup) workspaceStartupQueue = emptyList()
+        selectedLaunchWorkspace = workspaceId
         selectedLaunchSpec = spec
         sessionProfilePickerVisible = false
         newSessionSheetVisible = false
@@ -275,7 +309,7 @@ class MainActivity : TerminalActivity() {
     private var activityResumed = false
     private var toolbarInputActive by mutableStateOf(false)
     private var rootlessInstallRuntime by mutableStateOf("ROOTLESS")
-    private var rootlessInstallInFlight = false
+    private var rootlessInstallInFlight by mutableStateOf(false)
     private var rootlessSessionsBeforeInstall = emptySet<String>()
     private var displayedSessionId: String? = null
     private var terminalView: TerminalView? = null
@@ -394,6 +428,7 @@ class MainActivity : TerminalActivity() {
             runtimeRetry.reset()
             runtime = IRuntimeService.Stub.asInterface(service)
             bound = true
+            workspaceStartupConnected = true
             runCatching {
                 val connected = checkNotNull(runtime)
                 refreshWorkspaces()
@@ -417,6 +452,10 @@ class MainActivity : TerminalActivity() {
                 connected.startRuntime()
                 submitPendingAvfLaunches()
                 handleLaunchIntent(intent)
+                if (initialWorkspaceStartupPending) {
+                    initialWorkspaceStartupPending = false
+                    queueWorkspaceStartups(dev.terminal.runtime.workspace.WorkspaceRegistry.State.parse(connected.workspacesJson))
+                }
             }.onFailure { handleRuntimeDisconnect() }
         }
 
@@ -430,6 +469,8 @@ class MainActivity : TerminalActivity() {
         activeSessionId?.let { outState.putString("active-session", it) }
         selectedLaunchSpec?.let { outState.putString("pending-profile-launch", it.toJson().toString()) }
         rootlessLaunchSpec?.let { outState.putString("pending-rootless-profile-launch", it.toJson().toString()) }
+        outState.putBoolean("rootless-launch-in-flight", rootlessInstallInFlight)
+        outState.putStringArrayList("rootless-sessions-before-install", ArrayList(rootlessSessionsBeforeInstall))
         profileLaunchToCheck?.let { outState.putString("profile-installation-check", it.toJson().toString()) }
         profileInstallToConfirm?.let { outState.putString("profile-installation-confirm", it.toJson().toString()) }
         profileInstallationToLaunch?.let { outState.putString("profile-installation-approved", it.toJson().toString()) }
@@ -444,6 +485,12 @@ class MainActivity : TerminalActivity() {
         outState.putStringArrayList("submitted-avf-launches", ArrayList(submittedAvfLaunches))
         outState.putStringArrayList("installation-approved-avf-launches", ArrayList(installationApprovedAvfLaunches))
         outState.putString("launch-workspace", selectedLaunchWorkspace)
+        outState.putBoolean("workspace-startup-pending", initialWorkspaceStartupPending)
+        outState.putString("workspace-startup-queue", org.json.JSONArray().apply {
+            workspaceStartupQueue.forEach { launch ->
+                put(org.json.JSONObject().put("workspaceId", launch.workspaceId).put("spec", launch.spec.toJson()))
+            }
+        }.toString())
         super.onSaveInstanceState(outState)
     }
 
@@ -479,12 +526,25 @@ class MainActivity : TerminalActivity() {
         activeSessionId = savedInstanceState?.getString("active-session")
             ?: getSharedPreferences("terminal-ui-state", MODE_PRIVATE).getString("active-session", null)
         selectedLaunchWorkspace = savedInstanceState?.getString("launch-workspace")
+        initialWorkspaceStartupPending = savedInstanceState?.getBoolean("workspace-startup-pending", false)
+            ?: (!intent.hasExtra("workspace-launch") && notificationSessionId == null)
+        workspaceStartupQueue = savedInstanceState?.getString("workspace-startup-queue")?.let { encoded ->
+            org.json.JSONArray(encoded).let { array ->
+                List(array.length()) { index ->
+                    val launch = array.getJSONObject(index)
+                    WorkspaceStartupLaunch(launch.getString("workspaceId"),
+                        dev.terminal.runtime.session.SessionLaunchSpec.fromJson(launch.getJSONObject("spec").toString()))
+                }
+            }
+        }.orEmpty()
         selectedLaunchSpec = savedInstanceState?.getString("pending-profile-launch")?.let {
             dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it)
         }
         rootlessLaunchSpec = savedInstanceState?.getString("pending-rootless-profile-launch")?.let {
             dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it)
         }
+        rootlessInstallInFlight = savedInstanceState?.getBoolean("rootless-launch-in-flight", false) ?: false
+        rootlessSessionsBeforeInstall = savedInstanceState?.getStringArrayList("rootless-sessions-before-install")?.toSet().orEmpty()
         profileLaunchToCheck = savedInstanceState?.getString("profile-installation-check")?.let {
             dev.terminal.runtime.session.SessionLaunchSpec.fromJson(it)
         }
@@ -599,6 +659,7 @@ class MainActivity : TerminalActivity() {
         bindingGeneration++
         bindingRequested = false
         bound = false
+        workspaceStartupConnected = false
         runtime = null
         listener = null
         runtimeAttachment.reset()
@@ -626,6 +687,7 @@ class MainActivity : TerminalActivity() {
         displayedSessionId = null
         bindingRequested = false
         bound = false
+        workspaceStartupConnected = false
         runtime = null
         listener = null
         super.onDestroy()
@@ -695,6 +757,18 @@ class MainActivity : TerminalActivity() {
             profileInstallationToLaunch = null
             if (spec.runtime.wireName in rootlessRuntimeIds) showRootlessProfilePreparation(spec, installationApproved = true)
             else createSession(spec, installationApproved = true)
+        }
+        LaunchedEffect(workspaceStartupQueue, workspaceStartupConnected, profileLaunchToCheck,
+            profileInstallToConfirm, profileInstallationToLaunch, rootlessInstallInFlight, avfLaunchFailure) {
+            if (!workspaceStartupConnected || workspaceStartupQueue.isEmpty() || profileLaunchToCheck != null ||
+                profileInstallToConfirm != null || profileInstallationToLaunch != null || rootlessInstallInFlight ||
+                avfLaunchFailure != null) return@LaunchedEffect
+            val launch = workspaceStartupQueue.first()
+            safeRuntimeCall { service ->
+                val state = dev.terminal.runtime.workspace.WorkspaceRegistry.State.parse(service.workspacesJson)
+                workspaceStartupQueue = workspaceStartupQueue.drop(1)
+                if (state.workspaces.any { it.id == launch.workspaceId }) selectLaunchSpec(launch.spec, launch.workspaceId, workspaceStartup = true)
+            }
         }
         Scaffold(
             containerColor = screenBackgroundColor,
@@ -1524,6 +1598,7 @@ class MainActivity : TerminalActivity() {
         bindingGeneration++
         bindingRequested = false
         bound = false
+        workspaceStartupConnected = false
         runtime = null
         listener = null
         runtimeAttachment.reset()
