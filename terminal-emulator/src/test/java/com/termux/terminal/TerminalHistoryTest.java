@@ -252,10 +252,12 @@ public class TerminalHistoryTest extends TerminalTestCase {
         assertTrue(marker.isRunning());
         enterString("running output\r\n");
         assertTrue(marker.matchesOutput("running output"));
+        assertEquals("running output", marker.getOutputText());
         enterString("\033]133;D;1\007\033]133;A\007~ $ ");
         assertTrue(marker.isFailed());
         assertTrue(marker.matchesOutput("running output"));
         assertFalse(marker.matchesOutput("~ $"));
+        assertEquals("running output", marker.getOutputText());
         assertEquals(1, markers().size());
     }
 
@@ -280,5 +282,42 @@ public class TerminalHistoryTest extends TerminalTestCase {
         assertTrue(marker.matchesCommand("input-value"));
         assertFalse(marker.matchesOutput("input-value"));
         assertTrue(marker.matchesOutput("actual-output"));
+        assertEquals("actual-output", marker.getOutputText());
+    }
+
+    public void testCommandContentFollowsBoundariesReflowCheckpointAndTrim() throws Exception {
+        mTerminal = new TerminalEmulator(mOutput, 18, 6, 1, 1, 100, null);
+        enterString("\033]133;A\007custom prompt $ printf result\r\n\033]133;C\007\033[31mfirst line\033[0m\r\n\r\nsecond 😀\r\n\033]133;D;0\007\033]133;A\007$ next prompt");
+        CommandMarker marker = markers().get(0);
+        String expected = "first line\n\nsecond 😀";
+        assertEquals("printf result", marker.getCommandInputText());
+        assertEquals(expected, marker.getOutputText());
+        resize(7, 6);
+        assertEquals("printf result", marker.getCommandInputText());
+        assertEquals(expected, marker.getOutputText());
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        TerminalCheckpoint.write(mTerminal, bytes);
+        mTerminal.restoreState(TerminalCheckpoint.read(new ByteArrayInputStream(bytes.toByteArray())));
+        marker = markers().get(0);
+        assertEquals(expected, marker.getOutputText());
+        assertEquals("printf result", marker.getCommandInputText());
+        for (int i = 0; i < 120; i++) enterString("trim\r\n");
+        assertTrue(markers().isEmpty());
+        assertNull(marker.getCommandInputText());
+        assertNull(marker.getOutputText());
+    }
+
+    public void testCopyContentIsNotLimitedToTheCommandDisplayPreview() {
+        mTerminal = new TerminalEmulator(mOutput, 40, 6, 1, 1, 1000, null);
+        StringBuilder input = new StringBuilder(), output = new StringBuilder();
+        for (int i = 0; i < 5000; i++) input.append('x');
+        for (int i = 0; i < 6500; i++) output.append('y');
+        enterString("\033]133;A\007$ \033]133;B\007" + input + "\r\n\033]133;C\007" + output + "\r\n\033]133;D;0\007\033]133;A\007$ next");
+        CommandMarker marker = markers().get(0);
+        assertTrue(marker.getCommandText().endsWith("…"));
+        assertEquals(input.toString(), marker.getCommandInputText());
+        assertEquals(output.toString(), marker.getOutputText());
+        enterString("\033]133;B\007true\r\n\033]133;C\007\033]133;D;0\007");
+        assertEquals("", markers().get(1).getOutputText());
     }
 }

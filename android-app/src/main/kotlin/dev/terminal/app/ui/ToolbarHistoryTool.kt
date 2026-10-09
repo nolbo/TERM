@@ -3,6 +3,8 @@
 
 package dev.terminal.app.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloat
@@ -17,20 +19,25 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -65,6 +72,7 @@ private data class HistoryToolSnapshot(
     val searchIndex: Int = -1,
     val query: String = "",
     val scope: HistorySearchScope = HistorySearchScope.Commands,
+    val historyRevision: Long = -1,
 )
 
 @Composable
@@ -75,6 +83,7 @@ internal fun ToolbarHistoryTool(active: Boolean, onReturnToTerminal: () -> Unit,
     var searchScope by rememberSaveable { mutableStateOf(HistorySearchScope.Commands) }
     var menu by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<CommandMarker?>(null) }
+    var expandedCommands by remember { mutableStateOf(emptySet<CommandMarker>()) }
     var snapshot by remember { mutableStateOf(HistoryToolSnapshot()) }
     var refresh by remember { mutableIntStateOf(0) }
     val currentTerminal by rememberUpdatedState(terminal)
@@ -124,11 +133,15 @@ internal fun ToolbarHistoryTool(active: Boolean, onReturnToTerminal: () -> Unit,
                 oldest = -(emulator?.screen?.activeTranscriptRows ?: 0),
                 available = emulator != null && !emulator.isHistoryViewportOwnedByApplication,
                 attached = emulator != null, searchCount = view?.historySearchMatches?.size ?: 0,
-                searchIndex = view?.historySearchIndex ?: -1, query = query, scope = searchScope)
+                searchIndex = view?.historySearchIndex ?: -1, query = query, scope = searchScope,
+                historyRevision = history?.revision ?: -1)
             delay(200)
         }
     }
     val ready = active && snapshot.available && snapshot.query == query && snapshot.scope == searchScope
+    LaunchedEffect(snapshot.commands) {
+        expandedCommands = expandedCommands.intersect(snapshot.commands.map { it.marker }.toSet())
+    }
     val current = currentHistoryCommand(snapshot.commands, snapshot.row, selected)
     val previous = commandHistoryTarget(snapshot.commands, snapshot.row, false, current)
     val next = commandHistoryTarget(snapshot.commands, snapshot.row, true, current)
@@ -268,6 +281,11 @@ internal fun ToolbarHistoryTool(active: Boolean, onReturnToTerminal: () -> Unit,
             }, contentPadding = PaddingValues(bottom = 8.dp)) {
                 itemsIndexed(snapshot.commands.asReversed(), key = { _, item -> item.marker.anchor }) { index, command ->
                     HistoryCommandRow(command, current === command.marker, ready && expanded,
+                        outputExpanded = command.marker in expandedCommands, historyRevision = snapshot.historyRevision,
+                        onToggleOutput = {
+                            expandedCommands = if (command.marker in expandedCommands) expandedCommands - command.marker
+                                else expandedCommands + command.marker
+                        },
                         first = index == 0, last = index == snapshot.commands.lastIndex,
                         modifier = Modifier.animateItem(
                             fadeInSpec = MaterialTheme.motionScheme.fastEffectsSpec(),
@@ -303,6 +321,7 @@ private fun HistoryNavigationButton(edge: Boolean, next: Boolean, enabled: Boole
 
 @Composable
 private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enabled: Boolean,
+    outputExpanded: Boolean, historyRevision: Long, onToggleOutput: () -> Unit,
     first: Boolean, last: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val colors = LocalToolbarColors.current
     val baseForeground by animateColorAsState(if (selected) colors.checkedContainer else colors.unselectedTabContent,
@@ -315,39 +334,110 @@ private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enable
         HistoryCommandStatus.Completed -> command.exitCode?.let { stringResource(R.string.history_completed_code, it) }
             ?: stringResource(R.string.history_completed)
     }
-    val commandText = command.marker.commandText ?: stringResource(R.string.history_command_unavailable)
-    Surface(onClick, enabled = enabled, shape = MaterialTheme.shapes.extraLarge,
-        color = Color.Transparent, contentColor = foreground,
-        modifier = modifier.fillMaxWidth().semantics { this.selected = selected; stateDescription = status }) {
-        Row(Modifier.height(IntrinsicSize.Min).heightIn(min = 48.dp),
-            verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.width(48.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
-                Canvas(Modifier.fillMaxSize()) {
-                    val x = size.width / 2
-                    val gap = 14.dp.toPx()
-                    if (!first) drawLine(graphColor, Offset(x, 0f),
-                        Offset(x, center.y - gap), strokeWidth = 2.dp.toPx())
-                    if (!last) drawLine(graphColor, Offset(x, center.y + gap),
-                        Offset(x, size.height), strokeWidth = 2.dp.toPx())
+    val inputPreview = command.marker.commandText
+    val commandText = inputPreview ?: stringResource(R.string.history_command_unavailable)
+    val expansionLabel = stringResource(if (outputExpanded) R.string.history_output_collapse else R.string.history_output_expand,
+        commandText)
+    val expansionState = stringResource(if (outputExpanded) R.string.history_output_expanded else R.string.history_output_collapsed)
+    Column(modifier.fillMaxWidth()) {
+        Surface(onClick, enabled = enabled, shape = MaterialTheme.shapes.extraLarge,
+            color = Color.Transparent, contentColor = foreground,
+            modifier = Modifier.fillMaxWidth().semantics { this.selected = selected; stateDescription = status }) {
+            Row(Modifier.height(IntrinsicSize.Min).heightIn(min = 48.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.width(48.dp).fillMaxHeight(), contentAlignment = Alignment.Center) {
+                    Canvas(Modifier.fillMaxSize()) {
+                        val x = size.width / 2
+                        val gap = 14.dp.toPx()
+                        if (!first) drawLine(graphColor, Offset(x, 0f),
+                            Offset(x, center.y - gap), strokeWidth = 2.dp.toPx())
+                        if (!last) drawLine(graphColor, Offset(x, center.y + gap),
+                            Offset(x, size.height), strokeWidth = 2.dp.toPx())
+                    }
+                    TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
+                        tooltip = { PlainTooltip { Text(status) } }, state = rememberTooltipState()) {
+                        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+                            Icon(painterResource(when (command.status) {
+                                HistoryCommandStatus.Running -> R.drawable.ic_material_symbol_play_arrow_24
+                                HistoryCommandStatus.Completed -> R.drawable.ic_material_symbol_check_circle_24
+                                HistoryCommandStatus.Failed -> R.drawable.ic_material_symbol_block_24
+                            }), null, Modifier.size(24.dp))
+                        }
+                    }
                 }
-                TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
-                    tooltip = { PlainTooltip { Text(status) } }, state = rememberTooltipState()) {
-                    Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
-                        Icon(painterResource(when (command.status) {
-                            HistoryCommandStatus.Running -> R.drawable.ic_material_symbol_play_arrow_24
-                            HistoryCommandStatus.Completed -> R.drawable.ic_material_symbol_check_circle_24
-                            HistoryCommandStatus.Failed -> R.drawable.ic_material_symbol_block_24
-                        }), null, Modifier.size(24.dp))
+                Column(Modifier.weight(1f).padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)) {
+                    Text(commandText, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                        fontFamily = LocalTerminalMonospaceFontFamily.current, style = MaterialTheme.typography.bodySmall)
+                    command.exitCode?.let { code ->
+                        Text(stringResource(R.string.history_exit_code, code),
+                            fontFamily = LocalTerminalMonospaceFontFamily.current, style = MaterialTheme.typography.labelSmall)
+                    }
+                }
+                IconButton(onClick = onToggleOutput, enabled = enabled,
+                    shapes = IconButtonDefaults.shapes(),
+                    colors = IconButtonDefaults.iconButtonColors(contentColor = foreground,
+                        disabledContentColor = foreground),
+                    modifier = Modifier.size(48.dp)) {
+                    Box(Modifier.semantics {
+                        contentDescription = expansionLabel
+                        stateDescription = expansionState
+                    }) {
+                        SettingsExpansionIcon(outputExpanded)
                     }
                 }
             }
-            Column(Modifier.weight(1f).padding(start = 12.dp, end = 16.dp, top = 8.dp, bottom = 8.dp)) {
-                Text(commandText, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        }
+        SettingsExpansionContent(outputExpanded) {
+            val output = remember(command.marker, historyRevision) { command.marker.outputText }
+            HistoryCommandOutput(output, enabled, inputPreview != null, graphColor, last,
+                onCopyCommand = { command.marker.commandInputText }, onCopyOutput = { command.marker.outputText })
+        }
+    }
+}
+
+@Composable
+private fun HistoryCommandOutput(output: String?, enabled: Boolean, canCopyCommand: Boolean, graphColor: Color, last: Boolean,
+    onCopyCommand: () -> String?, onCopyOutput: () -> String?) {
+    val colors = LocalToolbarColors.current
+    val context = LocalContext.current
+    val commandLabel = stringResource(R.string.history_copy_command)
+    val outputLabel = stringResource(R.string.history_copy_output)
+    fun copy(label: String, value: String?) {
+        if (!value.isNullOrEmpty()) context.getSystemService(ClipboardManager::class.java)
+            .setPrimaryClip(ClipData.newPlainText(label, value))
+    }
+    Column(Modifier.fillMaxWidth().drawBehind {
+        if (!last) {
+            val x = 24.dp.toPx()
+            drawLine(graphColor, Offset(x, 0f), Offset(x, size.height), strokeWidth = 2.dp.toPx())
+        }
+    }.padding(start = 60.dp, end = 12.dp, bottom = 8.dp)) {
+        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            TextButton(onClick = { copy(commandLabel, onCopyCommand()) }, enabled = enabled && canCopyCommand,
+                colors = ButtonDefaults.textButtonColors(contentColor = colors.foreground,
+                    disabledContentColor = colors.foreground.copy(alpha = 0.38f)),
+                contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.heightIn(min = 48.dp)) {
+                Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), null, Modifier.size(24.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(commandLabel)
+            }
+            TextButton(onClick = { copy(outputLabel, onCopyOutput()) }, enabled = enabled && !output.isNullOrEmpty(),
+                colors = ButtonDefaults.textButtonColors(contentColor = colors.foreground,
+                    disabledContentColor = colors.foreground.copy(alpha = 0.38f)),
+                contentPadding = PaddingValues(horizontal = 8.dp), modifier = Modifier.heightIn(min = 48.dp)) {
+                Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), null, Modifier.size(24.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(outputLabel)
+            }
+        }
+        Surface(color = colors.container, contentColor = colors.onContainer.copy(alpha = if (enabled) 1f else 0.38f),
+            shape = MaterialTheme.shapes.medium) {
+            SelectionContainer(Modifier.fillMaxWidth().heightIn(max = 200.dp)
+                .verticalScroll(rememberScrollState()).padding(12.dp)) {
+                Text(output?.ifEmpty { stringResource(R.string.history_output_empty) }
+                    ?: stringResource(R.string.history_output_unavailable),
+                    modifier = Modifier.fillMaxWidth(),
                     fontFamily = LocalTerminalMonospaceFontFamily.current, style = MaterialTheme.typography.bodySmall)
-                command.exitCode?.let { code ->
-                    Text(stringResource(R.string.history_exit_code, code),
-                        fontFamily = LocalTerminalMonospaceFontFamily.current, style = MaterialTheme.typography.labelSmall)
-                }
             }
         }
     }

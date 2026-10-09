@@ -1,5 +1,7 @@
 package dev.terminal.app
 
+import android.content.ClipboardManager
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.graphics.Rect
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -8,6 +10,7 @@ import android.os.SystemClock
 import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.accessibility.AccessibilityNodeInfo
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.compose.setContent
@@ -43,6 +46,7 @@ class ToolbarHistoryToolTest {
             return null
         }
         return visit(instrumentation.uiAutomation.rootInActiveWindow)
+            ?: instrumentation.uiAutomation.windows.firstNotNullOfOrNull { visit(it.root) }
     }
     private fun node(predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo {
         val deadline = SystemClock.elapsedRealtime() + 5000
@@ -322,6 +326,104 @@ class ToolbarHistoryToolTest {
         assertEquals(label(R.string.history_completed), row("sleep 9").stateDescription?.toString())
         assertFalse(hasCode(row("sleep 9")))
     }
+
+    private fun outputToggle(command: String, expanded: Boolean = false) = node {
+        it.contentDescription?.toString() == context.getString(
+            if (expanded) R.string.history_output_collapse else R.string.history_output_expand, command)
+    }
+
+    @Test fun accordionTogglesWithoutJumpingAndCopiesCommandOrWholeOutput() =
+        withTool(ToolbarSheetMode.Expanded) { scenario, view, writes ->
+            var originalRow = 0
+            scenario.onActivity { originalRow = view.topRow }
+            assertNull(find { it.text?.toString() == label(R.string.history_copy_command) })
+            click(outputToggle("sleep 9"))
+            assertEquals(label(R.string.history_output_expanded), outputToggle("sleep 9", true).stateDescription?.toString())
+            text("running-output-0")
+            scenario.onActivity { assertEquals(originalRow, view.topRow) }
+            click(text(label(R.string.history_copy_command)))
+            scenario.onActivity {
+                assertEquals("sleep 9", it.getSystemService(ClipboardManager::class.java).primaryClip!!.getItemAt(0).text.toString())
+            }
+            click(text(label(R.string.history_copy_output)))
+            scenario.onActivity {
+                assertEquals((0 until 40).joinToString("\n") { "running-output-$it" },
+                    it.getSystemService(ClipboardManager::class.java).primaryClip!!.getItemAt(0).text.toString())
+            }
+            click(outputToggle("sleep 9", true))
+            assertEquals(label(R.string.history_output_collapsed), outputToggle("sleep 9").stateDescription?.toString())
+            assertNull(find { it.text?.toString()?.contains("running-output-0") == true })
+            click(text("false"))
+            scenario.onActivity {
+                assertEquals(view.mEmulator.history.markers[1].anchor.row!!.coerceAtMost(0), view.topRow)
+            }
+            assertEquals(0, writes.size())
+        }
+
+    @Test fun outputLongPressSelectsTextWithoutJumpingOrOpeningKeyboard() =
+        withTool(ToolbarSheetMode.Expanded) { scenario, view, writes ->
+            val automation = instrumentation.uiAutomation
+            val serviceInfo = automation.serviceInfo
+            val previousFlags = serviceInfo.flags
+            serviceInfo.flags = previousFlags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            automation.serviceInfo = serviceInfo
+            try {
+                click(outputToggle("sleep 9"))
+                val bounds = Rect().also { text("running-output-0").getBoundsInScreen(it) }
+                val density = context.resources.displayMetrics.density
+                val start = SystemClock.uptimeMillis()
+                fun touch(action: Int) {
+                    val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action,
+                        bounds.left + 16 * density, bounds.top + 8 * density, 0)
+                    event.source = InputDevice.SOURCE_TOUCHSCREEN
+                    try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, false)) } finally { event.recycle() }
+                }
+                var originalRow = 0
+                scenario.onActivity { originalRow = view.topRow }
+                touch(MotionEvent.ACTION_DOWN)
+                SystemClock.sleep(ViewConfiguration.getLongPressTimeout().toLong() + 150)
+                touch(MotionEvent.ACTION_UP)
+                settle()
+                click(text(context.getString(android.R.string.copy)))
+                scenario.onActivity {
+                    val copied = it.getSystemService(ClipboardManager::class.java).primaryClip!!.getItemAt(0).text.toString()
+                    assertTrue(copied.isNotEmpty())
+                    assertTrue("running-output-0".contains(copied))
+                    assertEquals(originalRow, view.topRow)
+                }
+                assertFalse(keyboardVisible(scenario))
+                assertEquals(0, writes.size())
+            } finally {
+                serviceInfo.flags = previousFlags
+                automation.serviceInfo = serviceInfo
+            }
+        }
+
+    @Test fun expandedOutputRefreshesWhileRunningAndDisappearsWithTrim() =
+        withTool(ToolbarSheetMode.Expanded) { scenario, view, writes ->
+            click(outputToggle("sleep 9"))
+            scenario.onActivity { append(view, "streamed-tail\r\n") }
+            text("streamed-tail")
+            scenario.onActivity { append(view, "\u001b]133;D;0\u0007\u001b]133;A\u0007$ next prompt") }
+            settle()
+            click(text(label(R.string.history_copy_output)))
+            scenario.onActivity {
+                val copied = it.getSystemService(ClipboardManager::class.java).primaryClip!!.getItemAt(0).text.toString()
+                assertTrue(copied.endsWith("streamed-tail"))
+                assertFalse(copied.contains("next prompt"))
+                append(view, (0 until 1200).joinToString("") { "trim-$it\r\n" })
+            }
+            text(label(R.string.history_empty))
+            assertNull(find { it.text?.toString()?.contains("running-output-0") == true })
+            assertNull(find { it.text?.toString() == label(R.string.history_copy_output) })
+            scenario.onActivity { append(view, "\u001b]133;A\u0007$ \u001b]133;B\u0007true\r\n\u001b]133;C\u0007\u001b]133;D;0\u0007") }
+            click(outputToggle("true"))
+            text(label(R.string.history_output_empty))
+            var copyButton = text(label(R.string.history_copy_output))
+            while (!copyButton.isClickable && copyButton.parent != null) copyButton = copyButton.parent
+            assertFalse(copyButton.isEnabled)
+            assertEquals(0, writes.size())
+        }
 
     @Test fun expandedTimelineStaysCompleteWhileSearchMovesThroughTerminalCells() = withTool(ToolbarSheetMode.Expanded) { scenario, view, writes ->
         text("echo needle"); text("false"); text("sleep 9")

@@ -563,7 +563,7 @@
     <string name="hotkey_taller">키 높이 한 칸 늘리기</string>
     <string name="hotkey_shorter">키 높이 한 칸 줄이기</string>
     <string name="toolbar_history">명령 기록</string>
-    <string name="toolbar_history_description">실제 터미널 화면과 보관 중인 기록에서 명령과 출력을 검색하고 일치한 글자를 강조합니다. 검색 중 위·아래 버튼은 이전·다음 일치 항목으로 이동합니다. 검색어가 없으면 명령 사이를 이동하고 첫·마지막 명령에서는 기록의 맨 위·맨 아래로 이동합니다. 툴바를 펼치면 상태 도트로 연결된 전체 명령 목록이 나타납니다. 행을 누르면 해당 명령으로 이동합니다. 명령 범위와 그래프는 셸 통합 경계를 사용하며 일반 출력은 셸 통합 없이도 검색합니다. 기록이 지워지면 관련 항목도 제거됩니다. TUI가 화면을 제어하는 동안 검색 이동은 비활성화됩니다.</string>
+    <string name="toolbar_history_description">실제 터미널 화면과 보관 중인 기록에서 명령과 출력을 검색하고 일치한 글자를 강조합니다. 검색 중 위·아래 버튼은 이전·다음 일치 항목으로 이동합니다. 검색어가 없으면 명령 사이를 이동하고 첫·마지막 명령에서는 기록의 맨 위·맨 아래로 이동합니다. 툴바를 펼치면 상태 도트로 연결된 전체 명령 목록이 나타납니다. 행을 누르면 해당 명령으로 이동합니다. 오른쪽 꺾쇠로 출력을 펼치고 접으며, 펼친 출력은 길게 눌러 선택할 수 있습니다. 명령 복사·출력 복사 버튼은 보관 중인 해당 내용을 복사합니다. 명령 범위와 그래프는 셸 통합 경계를 사용하며 일반 출력은 셸 통합 없이도 검색합니다. 기록이 지워지면 관련 항목도 제거됩니다. TUI가 화면을 제어하는 동안 검색 이동은 비활성화됩니다.</string>
     <string name="history_scope_commands">명령</string>
     <string name="history_scope_output">출력</string>
     <string name="history_scope_all">명령과 출력</string>
@@ -588,4 +588,12 @@
     <string name="history_completed_code">완료 · 종료 코드 %1$d</string>
     <string name="history_exit_code">종료 코드 %1$d</string>
     <string name="history_command_unavailable">명령 내용 없음</string>
+    <string name="history_output_expand">명령 출력 펼치기: %1$s</string>
+    <string name="history_output_collapse">명령 출력 접기: %1$s</string>
+    <string name="history_output_expanded">펼쳐짐</string>
+    <string name="history_output_collapsed">접힘</string>
+    <string name="history_copy_command">명령 복사</string>
+    <string name="history_copy_output">출력 복사</string>
+    <string name="history_output_unavailable">보관된 출력이 없습니다.</string>
+    <string name="history_output_empty">출력이 없습니다.</string>
 </resources>

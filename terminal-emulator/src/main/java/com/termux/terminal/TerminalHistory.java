@@ -125,9 +125,13 @@ public final class TerminalHistory implements java.io.Serializable {
 
     private String readRange(HistoryAnchor first, HistoryAnchor last, int limit) {
         if (first == null || last == null) return null;
-        Integer start = first.getRow(), end = last.getRow();
-        if (start == null || end == null) return null;
-        int endColumn = last.getColumn();
+        Integer end = last.getRow();
+        return end == null ? null : readRange(first, end, last.getColumn(), limit);
+    }
+
+    private String readRange(HistoryAnchor first, int end, int endColumn, int limit) {
+        Integer start = first == null ? null : first.getRow();
+        if (start == null) return null;
         if (endColumn == 0) { end--; endColumn = buffer.mColumns; }
         if (end < start || end == start && endColumn <= first.getColumn()) return "";
         StringBuilder result = new StringBuilder();
@@ -140,8 +144,16 @@ public final class TerminalHistory implements java.io.Serializable {
     }
 
     String commandText(CommandMarker marker) {
+        return commandText(marker, 4096);
+    }
+
+    String commandInputText(CommandMarker marker) {
+        return commandText(marker, Integer.MAX_VALUE);
+    }
+
+    private String commandText(CommandMarker marker, int limit) {
         if (!markers.containsKey(marker.anchor) || marker.inputStart == null || marker.inputEnd == null) return null;
-        String input = readRange(marker.inputStart, marker.inputEnd, 4096);
+        String input = readRange(marker.inputStart, marker.inputEnd, limit);
         if (input == null) return null;
         if (marker.inputIncludesPrompt) {
             Matcher promptEnd = PROMPT_END.matcher(input);
@@ -149,6 +161,17 @@ public final class TerminalHistory implements java.io.Serializable {
             input = input.substring(promptEnd.end());
         }
         return input.trim().isEmpty() ? null : input.trim();
+    }
+
+    String outputText(CommandMarker marker) {
+        if (!markers.containsKey(marker.anchor) || marker.inputEnd == null) return null;
+        if (!marker.isRunning()) return readRange(marker.inputEnd, marker.outputEnd, Integer.MAX_VALUE);
+        String output = readRange(marker.inputEnd, buffer.mScreenRows - 1, buffer.mColumns, Integer.MAX_VALUE);
+        if (output == null) return null;
+        // The running range includes unused screen rows; do not display them as output.
+        int end = output.length();
+        while (end > 0 && output.charAt(end - 1) == '\n') end--;
+        return output.substring(0, end);
     }
 
     /** Case-insensitive literal search streams retained cells, including soft-wrap boundaries. */

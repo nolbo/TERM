@@ -26,6 +26,10 @@ public final class CommandMarker implements java.io.Serializable {
     public boolean isFailed() { return !running && exitCode != null && exitCode != 0; }
     /** A bounded display preview, or null when the input is no longer retained. */
     public String getCommandText() { return anchor.history.commandText(this); }
+    /** Full retained input for copying, without the prompt or the display preview limit. */
+    public String getCommandInputText() { return anchor.history.commandInputText(this); }
+    /** Plain text from retained output cells, or null when its boundaries are no longer available. */
+    public String getOutputText() { return anchor.history.outputText(this); }
     public boolean matchesCommand(String query) { return anchor.history.matches(this, query, false); }
     public boolean matchesOutput(String query) { return anchor.history.matches(this, query, true); }
 
