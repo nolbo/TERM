@@ -4,6 +4,7 @@ package dev.terminal.app.ui
 
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -12,6 +13,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.R
@@ -59,30 +64,78 @@ internal fun workspaceFilterName(state: WorkspaceRegistry.State): String = when 
 }
 
 @Composable
-internal fun SessionWorkspaceMenu(title: String, onRename: () -> Unit, onMove: () -> Unit, onDismiss: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(title) }, text = {
-        Column {
-            TextButton(onClick = onRename, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.rename_session_action)) }
-            TextButton(onClick = onMove, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.workspace_move)) }
+internal fun SessionWorkspaceMenu(expanded: Boolean, onRename: () -> Unit, onMove: () -> Unit, onDismiss: () -> Unit) {
+    DropdownMenuPopup(expanded, onDismiss) {
+        DropdownMenuGroup(shapes = MenuDefaults.groupShape(0, 1),
+            modifier = Modifier.verticalScroll(rememberScrollState())) {
+            DropdownMenuItem(shape = MenuDefaults.leadingItemShape,
+                text = { Text(stringResource(R.string.rename_session_action)) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_toolbar_edit), null,
+                    modifier = Modifier.size(MenuDefaults.LeadingIconSize)) }, onClick = onRename)
+            DropdownMenuItem(shape = MenuDefaults.trailingItemShape,
+                text = { Text(stringResource(R.string.workspace_move)) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_material_symbol_layers_24), null,
+                    modifier = Modifier.size(MenuDefaults.LeadingIconSize)) }, onClick = onMove)
         }
-    }, confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.close)) } })
+    }
 }
 
 @Composable
-internal fun WorkspaceMoveDialog(state: WorkspaceRegistry.State, sessionId: String, onMove: (String?) -> Unit,
-    onCreate: (String) -> Unit, onDismiss: () -> Unit) {
-    var creating by rememberSaveable { mutableStateOf(false) }
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.workspace_move)) }, text = {
-        Column(Modifier.verticalScroll(rememberScrollState())) {
-            TextButton(onClick = { onMove(null) }, modifier = Modifier.fillMaxWidth()) { Text(stringResource(R.string.workspace_unassigned)) }
-            state.workspaces.forEach { workspace ->
-                ListItem(onClick = { onMove(workspace.id) }, shapes = terminalListItemShapes(),
-                    trailingContent = { RadioButton(selected = state.memberships[sessionId] == workspace.id, onClick = null) }) { Text(workspace.name) }
+internal fun WorkspaceMoveDialog(state: WorkspaceRegistry.State, sessionId: String, sessionTitle: String,
+    onMove: (String?) -> Unit, onCreate: (String) -> Unit, onDismiss: () -> Unit) {
+    val current = state.memberships[sessionId]
+    var destination by rememberSaveable(sessionId) { mutableStateOf(current) }
+    var creating by rememberSaveable(sessionId) { mutableStateOf(false) }
+    val scroll = rememberScrollState()
+    val validDestination = destination == null || state.workspaces.any { it.id == destination }
+    if (creating) {
+        WorkspaceNameDialog(R.string.workspace_create_temporary,
+            onSave = { creating = false; onCreate(it) }, onDismiss = { creating = false })
+        return
+    }
+    AlertDialog(onDismissRequest = onDismiss,
+        icon = { Icon(painterResource(R.drawable.ic_material_symbol_layers_24), null) },
+        title = { Text(stringResource(R.string.workspace_move)) }, text = {
+        Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+            Text(stringResource(R.string.workspace_move_description, sessionTitle))
+            Column(Modifier.weight(1f, fill = false).verticalScroll(scroll).selectableGroup()) {
+                SettingsGroup {
+                    WorkspaceMoveChoice(stringResource(R.string.workspace_unassigned), destination == null,
+                        onSelect = { destination = null },
+                        icon = { Icon(painterResource(R.drawable.ic_material_symbol_layers_24), null) })
+                    state.workspaces.forEach { workspace ->
+                        WorkspaceMoveChoice(workspace.name, destination == workspace.id,
+                            temporary = workspace.temporary, onSelect = { destination = workspace.id },
+                            icon = { Icon(painterResource(R.drawable.ic_material_symbol_layers_24), null) })
+                    }
+                }
             }
-            TextButton(onClick = { creating = true }) { Text(stringResource(R.string.workspace_create_temporary)) }
+            SettingsGroup {
+                ListItem(onClick = { creating = true }, shapes = terminalListItemShapes(),
+                    colors = terminalSettingsListItemColors(), verticalAlignment = Alignment.CenterVertically,
+                    leadingContent = { Icon(painterResource(R.drawable.ic_material_symbol_add_24), null) }) {
+                    Text(stringResource(R.string.workspace_create_temporary))
+                }
+            }
         }
-    }, confirmButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } })
-    if (creating) WorkspaceNameDialog(R.string.workspace_create_temporary, onSave = onCreate, onDismiss = { creating = false })
+    }, confirmButton = {
+        Button(onClick = { onMove(destination) }, enabled = validDestination && destination != current,
+            shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.workspace_move_action)) }
+    }, dismissButton = {
+        TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) }
+    })
+}
+
+@Composable
+private fun WorkspaceMoveChoice(name: String, selected: Boolean, onSelect: () -> Unit,
+    icon: @Composable () -> Unit, temporary: Boolean = false) {
+    ListItem(onClick = onSelect, shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(),
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.fillMaxWidth().semantics { role = Role.RadioButton; this.selected = selected },
+        leadingContent = icon, trailingContent = { RadioButton(selected, onClick = null) },
+        supportingContent = if (temporary) ({ Text(stringResource(R.string.workspace_temporary)) }) else null) {
+        Text(name)
+    }
 }
 
 @Composable

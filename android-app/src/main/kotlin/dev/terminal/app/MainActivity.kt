@@ -114,7 +114,6 @@ class MainActivity : TerminalActivity() {
     private var sessions by mutableStateOf(emptyList<SessionUi>())
     private var workspaceState by mutableStateOf(dev.terminal.runtime.workspace.WorkspaceRegistry.State())
     private var workspaceMoveSession by mutableStateOf<SessionUi?>(null)
-    private var workspaceSessionMenu by mutableStateOf<SessionUi?>(null)
     private val pendingLaunchWorkspaces = mutableMapOf<String, String?>()
     private var selectedLaunchWorkspace: String? = null
     private data class WorkspaceStartupLaunch(val workspaceId: String, val spec: dev.terminal.runtime.session.SessionLaunchSpec)
@@ -467,6 +466,10 @@ class MainActivity : TerminalActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("terminal-toolbar-mode", toolbarSheetMode.name)
         activeSessionId?.let { outState.putString("active-session", it) }
+        workspaceMoveSession?.let {
+            outState.putString("workspace-move-session", it.id)
+            outState.putString("workspace-move-title", it.title)
+        }
         selectedLaunchSpec?.let { outState.putString("pending-profile-launch", it.toJson().toString()) }
         rootlessLaunchSpec?.let { outState.putString("pending-rootless-profile-launch", it.toJson().toString()) }
         outState.putBoolean("rootless-launch-in-flight", rootlessInstallInFlight)
@@ -523,6 +526,9 @@ class MainActivity : TerminalActivity() {
         } ?: if (savedInstanceState?.getBoolean("terminal-extra-keys-visible", true) == false)
             ToolbarSheetMode.Hidden else ToolbarSheetMode.Default
         notificationSessionId = savedInstanceState?.getString("notification-target")
+        workspaceMoveSession = savedInstanceState?.getString("workspace-move-session")?.let { id ->
+            SessionUi(id, "", savedInstanceState.getString("workspace-move-title").orEmpty(), "UNKNOWN")
+        }
         activeSessionId = savedInstanceState?.getString("active-session")
             ?: getSharedPreferences("terminal-ui-state", MODE_PRIVATE).getString("active-session", null)
         selectedLaunchWorkspace = savedInstanceState?.getString("launch-workspace")
@@ -870,7 +876,8 @@ class MainActivity : TerminalActivity() {
                                             attach(id)
                                             if (sessions.none { it.id == id && it.pendingLaunch }) requestTerminalKeyboard()
                                         },
-                                        onRename = { workspaceSessionMenu = it }, onTerminate = {
+                                        onRename = { pendingRename = it },
+                                        onMove = { workspaceMoveSession = it }, onTerminate = {
                                             if (it.pendingLaunch || terminalPreferences().getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false)) {
                                                 terminate(it.id)
                                             } else {
@@ -1023,14 +1030,8 @@ class MainActivity : TerminalActivity() {
                 onDismiss = { pendingRename = null },
             )
         }
-        workspaceSessionMenu?.let { session ->
-            dev.terminal.app.ui.SessionWorkspaceMenu(session.title,
-                onRename = { workspaceSessionMenu = null; pendingRename = session },
-                onMove = { workspaceSessionMenu = null; workspaceMoveSession = session },
-                onDismiss = { workspaceSessionMenu = null })
-        }
         workspaceMoveSession?.let { session ->
-            dev.terminal.app.ui.WorkspaceMoveDialog(workspaceState, session.id,
+            dev.terminal.app.ui.WorkspaceMoveDialog(workspaceState, session.id, session.title,
                 onMove = { id -> workspaceMutation { it.moveSessionToWorkspace(session.id, id) }; workspaceMoveSession = null },
                 onCreate = { name ->
                     val workspace = dev.terminal.runtime.workspace.Workspace(UUID.randomUUID().toString(), name, true)
@@ -1122,6 +1123,7 @@ class MainActivity : TerminalActivity() {
         terminatingSessionIds = tabUpdate.pendingTerminationIds
         val ids = updated.mapTo(mutableSetOf()) { it.id }
         pendingRename = pendingRename?.let { pending -> updated.firstOrNull { it.id == pending.id } }
+        workspaceMoveSession = workspaceMoveSession?.let { pending -> updated.firstOrNull { it.id == pending.id } }
         sessionExitCodes.keys.retainAll(ids)
         updated.forEach { it.exitCode?.let { code -> sessionExitCodes[it.id] = code } }
 

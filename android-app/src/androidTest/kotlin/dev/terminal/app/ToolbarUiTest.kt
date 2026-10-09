@@ -236,12 +236,15 @@ class ToolbarUiTest {
             assertNull(find { it.contentDescription?.toString() ==
                 context.getString(R.string.workspace_session_menu, "Second shell") })
             click(description(context.getString(R.string.workspace_session_menu, "First shell")))
+            assertNull("Opening the menu must not rename the session", renamed)
+            click(text(label(R.string.rename_session_action)))
             assertEquals("first", renamed)
             click(tabText("Second shell"))
             assertEquals("second", selected.value)
             assertNull(find { it.contentDescription?.toString() ==
                 context.getString(R.string.workspace_session_menu, "First shell") })
             click(description(context.getString(R.string.workspace_session_menu, "Second shell")))
+            click(text(label(R.string.rename_session_action)))
             assertEquals("second", renamed)
             renamed = null
             click(description(context.getString(R.string.terminate_session_description, "Second shell")))
@@ -679,8 +682,10 @@ class ToolbarUiTest {
             assertNull(find { it.contentDescription?.toString() ==
                 context.getString(R.string.workspace_session_menu, "Pinned work") })
             drag(title.exactCenterX(), title.exactCenterY(), 0f, 0f, longPress = true)
-            assertEquals("Long press opens the selected session menu", "second", renamed)
+            assertNull("Long press opens a menu before performing an action", renamed)
             assertEquals("Long press must not switch tabs", "second", selected.value)
+            click(text(label(R.string.rename_session_action)))
+            assertEquals("second", renamed)
             click(description(context.getString(R.string.terminate_session_description, "Pinned work")))
             assertEquals("second", terminated)
             click(description(label(R.string.new_session)))
@@ -709,7 +714,8 @@ class ToolbarUiTest {
             assertNull(find { it.contentDescription?.toString() ==
                 context.getString(R.string.terminate_session_description, "First shell") })
             drag(firstTab.exactCenterX(), firstTab.exactCenterY(), 0f, 0f, longPress = true)
-            assertEquals("Long press also edits an inactive tab", "first", renamed)
+            click(text(label(R.string.rename_session_action)))
+            assertEquals("The menu can rename an inactive tab", "first", renamed)
             assertEquals("Editing an inactive tab must not select it", "second", selected.value)
             click(tabText("First shell"))
             assertEquals("Default tabs can switch sessions", "first", selected.value)

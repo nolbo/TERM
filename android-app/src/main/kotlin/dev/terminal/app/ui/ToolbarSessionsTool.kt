@@ -79,6 +79,7 @@ internal fun ToolbarSessionsTool(
     onSelectWorkspace: (String) -> Unit = {},
     onCreateWorkspace: (String) -> Unit = {},
     onLaunchWorkspace: (dev.terminal.runtime.workspace.WorkspaceLaunch) -> Unit = {},
+    onMove: (SessionUi) -> Unit = {},
 ) {
     val haptics = LocalTerminalHaptics.current
     // Keep each list's position when switching between the default and expanded headers.
@@ -199,7 +200,7 @@ internal fun ToolbarSessionsTool(
                                     val selected = session.id == activeSessionId
                                     Box(Modifier.widthIn(max = 220.dp).height(48.dp)) {
                                         SessionToolTab(session, selected, sessionsActive && progress == 0f,
-                                            terminatingSessionIds, onSelect, onRename, onTerminate, colors, horizontal = true)
+                                            terminatingSessionIds, onSelect, onRename, onMove, onTerminate, colors, horizontal = true)
                                         if (index > 0 && !selected && sessions[index - 1].id != activeSessionId) {
                                             VerticalDivider(Modifier.align(Alignment.CenterStart).height(24.dp),
                                                 thickness = 1.dp, color = colors.divider)
@@ -226,7 +227,7 @@ internal fun ToolbarSessionsTool(
             if (progress > 0f) ReorderableSessionTabs(sessions, activeSessionId, tabsActive, onReorder,
                 Modifier.weight(1f).fillMaxWidth().graphicsLayer { alpha = progress }, scroll = tabScroll) { session, itemModifier, dragging, lifted ->
                 SessionToolTab(session, session.id == activeSessionId, tabsActive && !dragging,
-                    terminatingSessionIds, onSelect, onRename, onTerminate, colors, itemModifier, lifted)
+                    terminatingSessionIds, onSelect, onRename, onMove, onTerminate, colors, itemModifier, lifted)
             }
         }
     }
@@ -268,6 +269,7 @@ private fun SessionToolTab(
     terminatingSessionIds: Set<String>,
     onSelect: (String) -> Unit,
     onRename: (SessionUi) -> Unit,
+    onMove: (SessionUi) -> Unit,
     onTerminate: (SessionUi) -> Unit,
     colors: TerminalChromeColors,
     itemModifier: Modifier = Modifier,
@@ -286,6 +288,8 @@ private fun SessionToolTab(
     val sessionTitle = session.title.ifBlank { stringResource(R.string.shell_default_title) }
     val stateLabel = sessionStateLabel(session.state)
     val menuLabel = stringResource(R.string.workspace_session_menu, sessionTitle)
+    var menuExpanded by remember(session.id) { mutableStateOf(false) }
+    val menuEnabled = enabled && !session.pendingLaunch && session.id !in terminatingSessionIds
     val selectSession = {
         haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
         onSelect(session.id)
@@ -298,9 +302,9 @@ private fun SessionToolTab(
         enabled = enabled,
         hapticFeedbackEnabled = false,
         onLongClickLabel = menuLabel,
-        onLongClick = if (session.pendingLaunch) null else ({
+        onLongClick = if (!menuEnabled) null else ({
             haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-            onRename(session)
+            menuExpanded = true
         }),
         onClick = selectSession,
     ) else Modifier
@@ -317,33 +321,49 @@ private fun SessionToolTab(
         interactionSource = tabInteractionSource,
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Row(Modifier.weight(1f).heightIn(min = if (horizontal) 48.dp else 40.dp)
-                .then(bodyGestures).padding(start = 12.dp, end = if (horizontal && !selected) 12.dp else 0.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                ProfileIcon(session.launchSpec?.icon ?: "auto", session.runtime,
-                    contentDescription = stringResource(runtimeTitleResource(session.runtime)),
-                    size = 20.dp, tint = if (selected) colors.accent else colors.unselectedTabContent)
-                Spacer(Modifier.width(8.dp))
-                Column {
-                    Text(sessionTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        style = MaterialTheme.typography.labelMedium)
-                    session.subtitle?.let { subtitle ->
-                        Text(subtitle.ifBlank { stringResource(R.string.shell_default_title) },
-                            maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 14.sp),
-                            color = (if (selected) colors.onContainer else colors.unselectedTabContent).copy(alpha = 0.75f))
+            Box(Modifier.weight(1f)) {
+                Row(Modifier.fillMaxWidth().heightIn(min = if (horizontal) 48.dp else 40.dp)
+                    .then(bodyGestures).padding(start = 12.dp, end = if (horizontal && !selected) 12.dp else 0.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    ProfileIcon(session.launchSpec?.icon ?: "auto", session.runtime,
+                        contentDescription = stringResource(runtimeTitleResource(session.runtime)),
+                        size = 20.dp, tint = if (selected) colors.accent else colors.unselectedTabContent)
+                    Spacer(Modifier.width(8.dp))
+                    Column {
+                        Text(sessionTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.labelMedium)
+                        session.subtitle?.let { subtitle ->
+                            Text(subtitle.ifBlank { stringResource(R.string.shell_default_title) },
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 14.sp),
+                                color = (if (selected) colors.onContainer else colors.unselectedTabContent).copy(alpha = 0.75f))
+                        }
                     }
                 }
+                if (horizontal) SessionWorkspaceMenu(
+                    expanded = menuExpanded && menuEnabled,
+                    onRename = { menuExpanded = false; onRename(session) },
+                    onMove = { menuExpanded = false; onMove(session) },
+                    onDismiss = { menuExpanded = false },
+                )
             }
-            if (selected && !horizontal) IconButton(
-                onClick = {
-                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                    onRename(session)
-                },
-                shape = CircleShape,
-                enabled = enabled && !session.pendingLaunch,
-            ) {
-                Icon(painterResource(R.drawable.ic_material_symbol_more_vert_24), menuLabel)
+            if (selected && !horizontal) Box {
+                IconButton(
+                    onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        menuExpanded = true
+                    },
+                    shape = CircleShape,
+                    enabled = menuEnabled,
+                ) {
+                    Icon(painterResource(R.drawable.ic_material_symbol_more_vert_24), menuLabel)
+                }
+                SessionWorkspaceMenu(
+                    expanded = menuExpanded && menuEnabled,
+                    onRename = { menuExpanded = false; onRename(session) },
+                    onMove = { menuExpanded = false; onMove(session) },
+                    onDismiss = { menuExpanded = false },
+                )
             }
             if (!horizontal || selected) IconButton(
                 onClick = {

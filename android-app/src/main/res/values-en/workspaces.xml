@@ -53,4 +53,6 @@
     <string name="shared_cancelled">Cancelled</string>
     <string name="shared_interrupted">Interrupted · originals preserved · retry explicitly</string>
     <string name="shared_failed">Failed</string>
+    <string name="workspace_move_description">Choose a workspace for the %1$s session.</string>
+    <string name="workspace_move_action">Move</string>
 </resources>

@@ -53,4 +53,6 @@
     <string name="shared_cancelled">취소됨</string>
     <string name="shared_interrupted">중단됨 · 원본 보존 · 다시 실행하세요</string>
     <string name="shared_failed">실패</string>
+    <string name="workspace_move_description">%1$s 세션을 이동할 워크스페이스를 선택하세요.</string>
+    <string name="workspace_move_action">이동</string>
 </resources>
