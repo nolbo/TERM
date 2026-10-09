@@ -75,9 +75,20 @@ class WorkspaceRegistry(private val read: () -> String?, private val write: (Str
         val state = snapshot()
         val previous = state.workspaces.firstOrNull { it.id == workspace.id }
         require(previous == null || !workspace.temporary || previous.temporary) { "Permanent workspace cannot become temporary" }
-        val rows = state.workspaces.filterNot { it.id == workspace.id } + workspace
+        val rows = if (previous == null) state.workspaces + workspace
+            else state.workspaces.map { if (it.id == workspace.id) workspace else it }
         require(rows.size <= 128) { "Workspace limit reached" }
         persist(state.copy(workspaces = rows))
+    }
+    /** Ignore deleted IDs and append groups created since the UI took its snapshot. */
+    @Synchronized fun reorder(ids: List<String>) {
+        require(ids.size <= 128 && ids.distinct().size == ids.size) { "Invalid workspace order" }
+        ids.forEach(::uuid)
+        val state = snapshot()
+        val byId = state.workspaces.associateBy { it.id }
+        val requested = ids.toSet()
+        val rows = ids.mapNotNull(byId::get) + state.workspaces.filterNot { it.id in requested }
+        if (rows != state.workspaces) persist(state.copy(workspaces = rows))
     }
     @Synchronized fun createTemporary(name: String): String = UUID.randomUUID().toString().also { save(Workspace(it, name, true)) }
     @Synchronized fun select(id: String) {

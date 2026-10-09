@@ -356,6 +356,16 @@ class VmRuntimeService : Service() {
             enforceHostToolUi()
             return runCatching { workspaces.delete(workspaceId); "" }.exceptionOrNull()?.userMessage().orEmpty()
         }
+        override fun reorderWorkspaces(workspaceIdsJson: String): String {
+            enforceHostToolUi()
+            return runCatching {
+                require(workspaceIdsJson.toByteArray().size <= 16 * 1024) { "Workspace order is too large" }
+                val ids = JSONArray(workspaceIdsJson)
+                require(ids.length() <= 128) { "Workspace limit reached" }
+                workspaces.reorder(List(ids.length()) { ids.getString(it) })
+                ""
+            }.exceptionOrNull()?.userMessage().orEmpty()
+        }
         override fun selectWorkspace(filter: String): String {
             enforceHostToolUi()
             return runCatching {

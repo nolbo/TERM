@@ -474,6 +474,8 @@ This is independent of the guest wire protocol and grants no guest capability.
 
 ## Workspace and Shared Folder host APIs
 
+The app-private `reorderWorkspaces(workspaceIdsJson)` operation is appended to the existing host API and enforces the same application UID and verified main UI process. Its JSON array is limited to 16 KiB and 128 unique canonical Workspace UUIDs. The registry updates only the saved Workspace array order under its single-writer lock, ignores IDs deleted since the UI snapshot and retains newly added groups after requested destinations. Invalid input leaves the last readable state intact; memberships, selection, Workspace launch configuration and backend lifecycles are unchanged.
+
 App-only AIDL appends Workspace snapshot/save/delete/filter/membership operations and `createSessionInWorkspace`, preserving previous transaction order. All enforce application UID and verified main UI process. Workspace IDs are canonical UUIDs, membership has at most one value per session, and the reserved filters are `all`/`unassigned`. Launch uses the existing bounded `SessionLaunchSpec` plus a request UUID, optional Workspace UUID and explicit installation-consent bit. Workspace metadata never changes an Environment/Profile identity or invokes terminate/stop. New Shared Folder APIs accept validated folder UUID/name/Environment references, bounded operation JSON and cancellation by request UUID. Snapshots include host-only paths and persisted operation state; no host path enters guest messages.
 
 ## Explicit guest file copies (TFT1)

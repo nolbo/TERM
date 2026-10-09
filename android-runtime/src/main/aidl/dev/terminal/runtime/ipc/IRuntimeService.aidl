@@ -90,4 +90,5 @@ interface IRuntimeService {
     String deleteSharedFolder(String folderId);
     String startSharedFolderOperation(String requestId, String requestJson);
     boolean cancelSharedFolderOperation(String requestId);
+    String reorderWorkspaces(String workspaceIdsJson);
 }

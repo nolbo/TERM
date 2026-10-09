@@ -3,6 +3,15 @@
 package dev.terminal.app.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.semantics.contentDescription
+import dev.terminal.app.SettingsReorderList
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
@@ -150,19 +159,41 @@ internal fun WorkspaceNameDialog(title: Int, initial: String = "", onSave: (Stri
 
 @Composable
 internal fun WorkspacesScreen(state: WorkspaceRegistry.State?, profiles: List<SessionProfile>, error: String?, saving: Boolean,
-    onBack: () -> Unit, onSave: (Workspace, () -> Unit) -> Unit, onDelete: (String, () -> Unit) -> Unit, onRun: (Workspace, WorkspaceLaunch) -> Unit) {
+    onBack: () -> Unit, onSave: (Workspace, () -> Unit) -> Unit, onDelete: (String, () -> Unit) -> Unit, onRun: (Workspace, WorkspaceLaunch) -> Unit,
+    onReorder: (List<String>) -> Unit = {}, connected: Boolean = true) {
     var draft by rememberSaveable { mutableStateOf<String?>(null) }
     var deleting by rememberSaveable { mutableStateOf<String?>(null) }
-    SettingsPageScaffold(stringResource(R.string.workspaces_title), onBack) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            Text(stringResource(R.string.workspaces_summary), style = MaterialTheme.typography.bodyMedium)
+    var editing by rememberSaveable { mutableStateOf(false) }
+    val scroll = rememberScrollState()
+    var viewport by remember { mutableStateOf<Rect?>(null) }
+    val enabled = connected && !saving
+    val effects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
+    val editLabel = stringResource(if (editing) R.string.toolbar_done else R.string.toolbar_edit)
+    SettingsPageScaffold(stringResource(R.string.workspaces_title), onBack, floatingActionButton = {
+        if (state?.workspaces?.isNotEmpty() == true) ExtendedFloatingActionButton(onClick = { if (enabled) editing = !editing },
+            modifier = Modifier.semantics { contentDescription = editLabel },
+            icon = {
+                AnimatedContent(editing, transitionSpec = { fadeIn(effects) togetherWith fadeOut(effects) }, label = "workspaceEditIcon") { edit ->
+                    Icon(painterResource(if (edit) R.drawable.ic_material_symbol_check_circle_24 else R.drawable.ic_toolbar_edit), null)
+                }
+            }, text = { Text(editLabel) })
+    }) { padding ->
+        Column(Modifier.fillMaxSize().padding(padding).onGloballyPositioned { viewport = it.boundsInRoot() }.verticalScroll(scroll).padding(horizontal = 16.dp, vertical = 8.dp).padding(bottom = 100.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            Text(stringResource(if (editing) R.string.workspaces_edit_summary else R.string.workspaces_summary), style = MaterialTheme.typography.bodyMedium)
             error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
             if (state == null) LinearProgressIndicator(Modifier.fillMaxWidth()) else {
                 SettingsGroup {
                     ListItem(onClick = { draft = JSONObject().put("id", UUID.randomUUID().toString()).put("name", "").put("temporary", false).put("launches", org.json.JSONArray()).toString() },
                         enabled = !saving, shapes = terminalListItemShapes()) { Text(stringResource(R.string.workspace_create)) }
                 }
-                state.workspaces.forEach { workspace ->
+                if (editing) {
+                    SettingsReorderList(state.workspaces, editing, scroll, { viewport }, onReorder,
+                        onEdit = { draft = it.json().toString() }, itemId = { it.id }, itemName = { it.name }, enabled = enabled,
+                        leadingIcon = { Icon(painterResource(R.drawable.ic_material_symbol_layers_24), null) },
+                        supportingContent = { workspace ->
+                            Text(stringResource(if (workspace.temporary) R.string.workspace_promote else R.string.workspace_edit_summary))
+                        })
+                } else state.workspaces.forEach { workspace ->
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(workspace.name, Modifier.padding(start = 16.dp), style = MaterialTheme.typography.labelLarge)
                         SettingsGroup {

@@ -9,6 +9,48 @@ class WorkspaceRegistryTest {
     private var encoded: String? = null
     private fun registry() = WorkspaceRegistry({ encoded }, { encoded = it })
     private fun permanent() = Workspace(UUID.randomUUID().toString(), "Project", false)
+    @Test fun reorderedGroupsSurviveRecreationEditingAndPromotionWithoutChangingSessionState() {
+        val registry = registry()
+        val one = permanent().copy(launches = listOf(WorkspaceLaunch(UUID.randomUUID().toString(), "Shell", "profile", startWithWorkspace = true)))
+        val two = permanent()
+        registry.save(one); registry.save(two)
+        val temporary = registry.createTemporary("Temporary")
+        registry.move("native:one", one.id); registry.select(temporary)
+        val before = registry.snapshot()
+        registry.reorder(listOf(temporary, two.id, one.id))
+        assertEquals(before.copy(workspaces = listOf(before.workspaces.last(), two, one)), registry().snapshot())
+
+        val renamed = one.copy(name = "Renamed")
+        registry().save(renamed)
+        registry().save(Workspace(temporary, "Promoted", false))
+        val added = permanent()
+        registry().save(added)
+        val restored = registry().snapshot()
+        assertEquals(listOf(temporary, two.id, one.id, added.id), restored.workspaces.map { it.id })
+        assertEquals(renamed, restored.workspaces[2])
+        assertFalse(restored.workspaces.first().temporary)
+        assertEquals(before.memberships, restored.memberships)
+        assertEquals(before.selected, restored.selected)
+    }
+    @Test fun staleOrderIgnoresDeletedGroupsAndRetainsNewGroups() {
+        val registry = registry(); val one = permanent(); val two = permanent(); val added = permanent()
+        registry.save(one); registry.save(two)
+        val requested = listOf(two.id, one.id)
+        registry.delete(one.id); registry.save(added)
+        registry.reorder(requested)
+        assertEquals(listOf(two, added), registry().snapshot().workspaces)
+        registry.reorder(listOf(added.id, two.id))
+        registry.delete(added.id)
+        assertEquals(listOf(two), registry().snapshot().workspaces)
+    }
+    @Test fun malformedOrOversizedOrderCannotReplaceSavedMetadata() {
+        val registry = registry(); val workspace = permanent(); registry.save(workspace)
+        val previous = encoded
+        listOf(listOf(workspace.id, workspace.id), listOf("../workspace"), List(129) { UUID.randomUUID().toString() }).forEach { order ->
+            assertTrue(runCatching { registry.reorder(order) }.isFailure)
+            assertEquals(previous, encoded)
+        }
+    }
     @Test fun membershipsAndFilterSurviveRegistryRecreationAndDeletionOnlyUnassigns() {
         val registry = registry()
         val workspace = permanent()

@@ -26,6 +26,8 @@ class WorkspacesActivity : TerminalActivity() {
         super.onCreate(savedInstanceState)
         val profiles = SessionProfiles(this).all()
         compose { WorkspacesScreen(state, profiles, error, saving, { finish() },
+            connected = runtime != null,
+            onReorder = { ids -> mutate({}) { it.reorderWorkspaces(org.json.JSONArray(ids).toString()) } },
             onSave = { workspace, done -> mutate(done) { it.saveWorkspace(workspace.json().toString()) } },
             onDelete = { id, done -> mutate(done) { it.deleteWorkspace(id) } },
             onRun = { workspace, launch ->

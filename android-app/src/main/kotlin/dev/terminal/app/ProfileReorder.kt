@@ -34,15 +34,34 @@ import dev.terminal.runtime.session.SessionProfile
 import dev.terminal.runtime.session.SessionRuntime
 import kotlin.math.roundToInt
 
-/** Stable composition and measured slots support multiline profiles without losing a drag. */
 @Composable
 internal fun ProfileReorderList(profiles: List<SessionProfile>, editing: Boolean,
     installedImages: Map<String, Boolean>, scroll: ScrollState, viewport: () -> Rect?,
     onReorder: (List<String>) -> Unit, onEdit: (SessionProfile) -> Unit) {
+    SettingsReorderList(profiles, editing, scroll, viewport, onReorder, onEdit,
+        itemId = { it.id }, itemName = { it.name },
+        leadingIcon = { ProfileIcon(it.icon, it.runtime.wireName) },
+        supportingContent = { profile ->
+            val detail = stringResource(runtimeTitleResource(profile.runtime.wireName)) + " · " + profile.shell
+            Text(detail + if (profile.runtime == SessionRuntime.AVF) "\n" + stringResource(R.string.avf_profile_image_status,
+                stringResource(when (installedImages[profile.storageId]) {
+                    true -> R.string.avf_image_installed
+                    false -> R.string.avf_image_not_installed
+                    null -> R.string.avf_image_checking
+                })) else "")
+        })
+}
+
+/** Stable composition and measured slots support multiline settings rows without losing a drag. */
+@Composable
+internal fun <T> SettingsReorderList(items: List<T>, editing: Boolean,
+    scroll: ScrollState, viewport: () -> Rect?, onReorder: (List<String>) -> Unit, onEdit: (T) -> Unit,
+    itemId: (T) -> String, itemName: (T) -> String, leadingIcon: @Composable (T) -> Unit,
+    supportingContent: @Composable (T) -> Unit, enabled: Boolean = true) {
     val density = LocalDensity.current
     val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val effects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()
-    val ids = profiles.map { it.id }
+    val ids = items.map(itemId)
     val currentIds by rememberUpdatedState(ids)
     val update by rememberUpdatedState(onReorder)
     val visibleBounds by rememberUpdatedState(viewport)
@@ -68,7 +87,7 @@ internal fun ProfileReorderList(profiles: List<SessionProfile>, editing: Boolean
         val target = profileDropTarget(remaining.map(::rowHeight), pointer - gridTop - grabOffset, spacing)
         if (target != items.indexOf(id)) preview = remaining.toMutableList().apply { add(target, id) }
     }
-    LaunchedEffect(editing, ids) { cancel() }
+    LaunchedEffect(editing, enabled, ids) { cancel() }
     LaunchedEffect(dragging) {
         if (dragging == null) return@LaunchedEffect
         var previous = withFrameNanos { it }
@@ -92,8 +111,8 @@ internal fun ProfileReorderList(profiles: List<SessionProfile>, editing: Boolean
     Box(Modifier.fillMaxWidth().height(with(density) { totalHeight.toDp() })
         .onGloballyPositioned { gridTop = it.localToRoot(Offset.Zero).y }
         .semantics { isTraversalGroup = true }) {
-        profiles.forEach { profile -> key(profile.id) {
-            val id = profile.id
+        items.forEach { item -> key(itemId(item)) {
+            val id = itemId(item)
             val index = order.indexOf(id)
             val lifted = dragging == id
             val position by animateFloatAsState(slots.getValue(id), spatial, label = "profileRowPosition")
@@ -117,10 +136,10 @@ internal fun ProfileReorderList(profiles: List<SessionProfile>, editing: Boolean
                 MaterialTheme.motionScheme.defaultSpatialSpec(), label = "profileBottomCorners")
             val shape = RoundedCornerShape(topStart = topRadius.coerceIn(4.dp, 28.dp), topEnd = topRadius.coerceIn(4.dp, 28.dp),
                 bottomStart = bottomRadius.coerceIn(4.dp, 28.dp), bottomEnd = bottomRadius.coerceIn(4.dp, 28.dp))
-            val moveLabel = stringResource(R.string.toolbar_move, profile.name)
+            val moveLabel = stringResource(R.string.toolbar_move, itemName(item))
             val upLabel = stringResource(R.string.toolbar_move_up)
             val downLabel = stringResource(R.string.toolbar_move_down)
-            ListItem(onClick = { if (!editing) onEdit(profile) },
+            ListItem(onClick = { if (!editing) onEdit(item) }, enabled = enabled,
                 modifier = Modifier.fillMaxWidth().wrapContentHeight(unbounded = true)
                     .offset { IntOffset(0, top.roundToInt()) }.zIndex(if (lifted) 1f else 0f)
                     .onGloballyPositioned { heights[id] = it.size.height.toFloat() }
@@ -140,8 +159,8 @@ internal fun ProfileReorderList(profiles: List<SessionProfile>, editing: Boolean
                                 var origin by remember { mutableFloatStateOf(0f) }
                                 Box(Modifier.size(48.dp).graphicsLayer { alpha = editAlpha }
                                     .onGloballyPositioned { origin = it.localToRoot(Offset.Zero).y }
-                                    .pointerInput(id, editing) {
-                                        if (!editing) return@pointerInput
+                                    .pointerInput(id, editing, enabled) {
+                                        if (!editing || !enabled) return@pointerInput
                                         detectDragGestures(onDragStart = { local ->
                                             preview = currentIds
                                             pointer = origin + local.y
@@ -156,7 +175,7 @@ internal fun ProfileReorderList(profiles: List<SessionProfile>, editing: Boolean
                                         })
                                     }.semantics {
                                         contentDescription = moveLabel
-                                        customActions = if (!editing || dragging != null) emptyList() else buildList {
+                                        customActions = if (!editing || !enabled || dragging != null) emptyList() else buildList {
                                             if (index > 0) add(CustomAccessibilityAction(upLabel) {
                                                 update(ids.toMutableList().apply { add(index - 1, removeAt(index)) }); true
                                             })
@@ -169,22 +188,14 @@ internal fun ProfileReorderList(profiles: List<SessionProfile>, editing: Boolean
                                 }
                             }
                         }
-                        ProfileIcon(profile.icon, profile.runtime.wireName)
+                        leadingIcon(item)
                     }
                 },
-                supportingContent = {
-                    val detail = stringResource(runtimeTitleResource(profile.runtime.wireName)) + " · " + profile.shell
-                    Text(detail + if (profile.runtime == SessionRuntime.AVF) "\n" + stringResource(R.string.avf_profile_image_status,
-                        stringResource(when (installedImages[profile.storageId]) {
-                            true -> R.string.avf_image_installed
-                            false -> R.string.avf_image_not_installed
-                            null -> R.string.avf_image_checking
-                        })) else "")
-                },
+                supportingContent = { supportingContent(item) },
                 trailingContent = {
                     Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null,
                         Modifier.graphicsLayer { alpha = 1f - editAlpha })
-                }) { Text(profile.name) }
+                }) { Text(itemName(item)) }
         } }
     }
 }
