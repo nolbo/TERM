@@ -594,6 +594,7 @@
     <string name="history_output_collapsed">접힘</string>
     <string name="history_copy_command">명령 복사</string>
     <string name="history_copy_output">출력 복사</string>
+    <string name="history_output_show_actions">출력 복사 버튼 표시</string>
     <string name="history_output_unavailable">보관된 출력이 없습니다.</string>
     <string name="history_output_empty">출력이 없습니다.</string>
 </resources>

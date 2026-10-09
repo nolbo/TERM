@@ -14,6 +14,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -36,6 +38,9 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalAccessibilityManager
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -398,7 +403,8 @@ private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enable
 }
 
 @Composable
-private fun HistoryCopyButton(label: String, enabled: Boolean, foreground: Color, onCopy: () -> String?) {
+private fun HistoryCopyButton(label: String, enabled: Boolean, foreground: Color, onCopy: () -> String?,
+    container: Color = Color.Transparent) {
     val context = LocalContext.current
     TooltipBox(positionProvider = TooltipDefaults.rememberTooltipPositionProvider(TooltipAnchorPosition.Above),
         tooltip = { PlainTooltip { Text(label) } }, state = rememberTooltipState()) {
@@ -407,7 +413,8 @@ private fun HistoryCopyButton(label: String, enabled: Boolean, foreground: Color
             if (!value.isNullOrEmpty()) context.getSystemService(ClipboardManager::class.java)
                 .setPrimaryClip(ClipData.newPlainText(label, value))
         }, enabled = enabled, shapes = IconButtonDefaults.shapes(),
-            colors = IconButtonDefaults.iconButtonColors(contentColor = foreground,
+            colors = IconButtonDefaults.iconButtonColors(containerColor = container, contentColor = foreground,
+                disabledContainerColor = container,
                 disabledContentColor = foreground.copy(alpha = 0.38f)), modifier = Modifier.size(48.dp)) {
             Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), label, Modifier.size(18.dp))
         }
@@ -418,6 +425,26 @@ private fun HistoryCopyButton(label: String, enabled: Boolean, foreground: Color
 private fun HistoryCommandOutput(output: String?, enabled: Boolean, graphColor: Color, last: Boolean,
     onCopyOutput: () -> String?) {
     val colors = LocalToolbarColors.current
+    val outputScroll = rememberScrollState()
+    var copyVisible by remember { mutableStateOf(false) }
+    var interaction by remember { mutableIntStateOf(0) }
+    var touching by remember { mutableStateOf(false) }
+    val scrolling = outputScroll.isScrollInProgress
+    val copyTimeout = LocalAccessibilityManager.current?.calculateRecommendedTimeoutMillis(
+        originalTimeoutMillis = 2_000, containsIcons = true, containsText = false, containsControls = true) ?: 2_000L
+    val revealLabel = stringResource(R.string.history_output_show_actions)
+    LaunchedEffect(interaction, touching, scrolling, enabled, copyTimeout) {
+        if (!enabled) {
+            copyVisible = false
+            interaction = 0
+        } else if (interaction > 0 || scrolling) {
+            copyVisible = true
+            if (!touching && !scrolling) {
+                delay(copyTimeout)
+                copyVisible = false
+            }
+        }
+    }
     Column(Modifier.fillMaxWidth().drawBehind {
         if (!last) {
             val x = 24.dp.toPx()
@@ -426,18 +453,40 @@ private fun HistoryCommandOutput(output: String?, enabled: Boolean, graphColor: 
     }.padding(start = 60.dp, end = 12.dp, bottom = 8.dp)) {
         Surface(color = colors.container, contentColor = colors.onContainer.copy(alpha = if (enabled) 1f else 0.38f),
             shape = MaterialTheme.shapes.medium) {
-            Box(Modifier.fillMaxWidth().heightIn(min = 56.dp, max = 200.dp)) {
-                SelectionContainer(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())
-                    .padding(start = 12.dp, top = 12.dp, end = 60.dp, bottom = 12.dp)) {
+            Box(Modifier.fillMaxWidth().heightIn(min = 56.dp, max = 200.dp)
+                .semantics {
+                    if (enabled) onClick(label = revealLabel) { interaction++; true }
+                }.pointerInput(enabled) {
+                    if (!enabled) return@pointerInput
+                    // Observe the initial pass without consuming selection, scrolling, or button input.
+                    awaitEachGesture {
+                        awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+                        interaction++
+                        touching = true
+                        try {
+                            do {
+                                val event = awaitPointerEvent(PointerEventPass.Initial)
+                            } while (event.changes.any { it.pressed })
+                        } finally {
+                            touching = false
+                            interaction++
+                        }
+                    }
+                }) {
+                SelectionContainer(Modifier.fillMaxWidth().verticalScroll(outputScroll).padding(12.dp)) {
                     Text(output?.ifEmpty { stringResource(R.string.history_output_empty) }
                         ?: stringResource(R.string.history_output_unavailable),
                         modifier = Modifier.fillMaxWidth(),
                         fontFamily = LocalTerminalMonospaceFontFamily.current, style = MaterialTheme.typography.bodySmall)
                 }
                 Box(Modifier.align(Alignment.TopEnd).padding(4.dp)) {
-                    HistoryCopyButton(stringResource(R.string.history_copy_output),
-                        enabled = enabled && !output.isNullOrEmpty(), foreground = colors.onContainer,
-                        onCopy = onCopyOutput)
+                    androidx.compose.animation.AnimatedVisibility(copyVisible,
+                        enter = fadeIn(MaterialTheme.motionScheme.fastEffectsSpec()),
+                        exit = fadeOut(MaterialTheme.motionScheme.fastEffectsSpec())) {
+                        HistoryCopyButton(stringResource(R.string.history_copy_output),
+                            enabled = enabled && !output.isNullOrEmpty(), foreground = colors.onContainer,
+                            onCopy = onCopyOutput, container = colors.container)
+                    }
                 }
             }
         }

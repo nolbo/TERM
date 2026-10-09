@@ -332,6 +332,19 @@ class ToolbarHistoryToolTest {
             if (expanded) R.string.history_output_collapse else R.string.history_output_expand, command)
     }
 
+    private fun tapOutput(value: String) {
+        val bounds = Rect().also { text(value).getBoundsInScreen(it) }
+        val density = context.resources.displayMetrics.density
+        val start = SystemClock.uptimeMillis()
+        for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+            val event = MotionEvent.obtain(start, SystemClock.uptimeMillis(), action,
+                bounds.left + 16 * density, bounds.top + 8 * density, 0)
+            event.source = InputDevice.SOURCE_TOUCHSCREEN
+            try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+        }
+        settle()
+    }
+
     @Test fun accordionTogglesWithoutJumpingAndCopiesCommandOrWholeOutput() =
         withTool(ToolbarSheetMode.Expanded) { scenario, view, writes ->
             var originalRow = 0
@@ -350,9 +363,12 @@ class ToolbarHistoryToolTest {
             click(outputToggle("sleep 9"))
             assertEquals(label(R.string.history_output_expanded), outputToggle("sleep 9", true).stateDescription?.toString())
             val outputBounds = Rect().also { text("running-output-0").getBoundsInScreen(it) }
+            assertNull(find { it.contentDescription?.toString() == label(R.string.history_copy_output) })
+            tapOutput("running-output-0")
             val outputCopyBounds = Rect().also { description(R.string.history_copy_output).getBoundsInScreen(it) }
             assertTrue(outputCopyBounds.top >= toggleBounds.bottom)
-            assertTrue(outputBounds.right <= outputCopyBounds.left)
+            assertTrue(outputBounds.contains(outputCopyBounds.centerX(), outputCopyBounds.centerY()))
+            assertEquals(outputBounds, Rect().also { text("running-output-0").getBoundsInScreen(it) })
             scenario.onActivity { assertEquals(originalRow, view.topRow) }
             click(description(R.string.history_copy_output))
             scenario.onActivity {
@@ -369,6 +385,36 @@ class ToolbarHistoryToolTest {
             scenario.onActivity {
                 assertEquals(view.mEmulator.history.markers[1].anchor.row!!.coerceAtMost(0), view.topRow)
             }
+            assertEquals(0, writes.size())
+        }
+
+    @Test fun outputCopyOverlayAppearsTemporarilyOnTapAndScrollWithoutReservingTextSpace() =
+        withTool(ToolbarSheetMode.Expanded) { scenario, view, writes ->
+            click(outputToggle("sleep 9"))
+            assertNull(find { it.contentDescription?.toString() == label(R.string.history_copy_output) })
+            val before = Rect().also { text("running-output-0").getBoundsInScreen(it) }
+            var originalRow = 0
+            scenario.onActivity { originalRow = view.topRow }
+            tapOutput("running-output-0")
+            description(R.string.history_copy_output)
+            SystemClock.sleep(1_100)
+            tapOutput("running-output-0")
+            SystemClock.sleep(1_100)
+            description(R.string.history_copy_output)
+            assertEquals(before, Rect().also { text("running-output-0").getBoundsInScreen(it) })
+            val deadline = SystemClock.uptimeMillis() + 5_000
+            while (find { it.contentDescription?.toString() == label(R.string.history_copy_output) } != null &&
+                SystemClock.uptimeMillis() < deadline) SystemClock.sleep(100)
+            assertNull(find { it.contentDescription?.toString() == label(R.string.history_copy_output) })
+            assertEquals(before, Rect().also { text("running-output-0").getBoundsInScreen(it) })
+            var scrollable = text("running-output-0")
+            while (!scrollable.isScrollable && scrollable.parent != null) scrollable = scrollable.parent
+            assertTrue(scrollable.isScrollable)
+            assertTrue(scrollable.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD))
+            settle()
+            description(R.string.history_copy_output)
+            scenario.onActivity { assertEquals(originalRow, view.topRow) }
+            assertFalse(keyboardVisible(scenario))
             assertEquals(0, writes.size())
         }
 
@@ -418,6 +464,7 @@ class ToolbarHistoryToolTest {
             text("streamed-tail")
             scenario.onActivity { append(view, "\u001b]133;D;0\u0007\u001b]133;A\u0007$ next prompt") }
             settle()
+            tapOutput("running-output-0")
             click(description(R.string.history_copy_output))
             scenario.onActivity {
                 val copied = it.getSystemService(ClipboardManager::class.java).primaryClip!!.getItemAt(0).text.toString()
@@ -431,6 +478,7 @@ class ToolbarHistoryToolTest {
             scenario.onActivity { append(view, "\u001b]133;A\u0007$ \u001b]133;B\u0007true\r\n\u001b]133;C\u0007\u001b]133;D;0\u0007") }
             click(outputToggle("true"))
             text(label(R.string.history_output_empty))
+            tapOutput(label(R.string.history_output_empty))
             var copyButton = description(R.string.history_copy_output)
             while (!copyButton.isClickable && copyButton.parent != null) copyButton = copyButton.parent
             assertFalse(copyButton.isEnabled)
