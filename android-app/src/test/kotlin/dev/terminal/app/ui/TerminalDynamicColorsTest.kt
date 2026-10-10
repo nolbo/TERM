@@ -86,6 +86,28 @@ class TerminalDynamicColorsTest {
         assertSame(terminalDynamicColors(background), terminalDynamicColors(background))
     }
 
+    @Test fun modalContentAndActionsRemainReadableOnGeneratedSurfaces() {
+        val samples = mutableListOf(Color(0xFF301B26), Color(0xFF163025), Color(0xFFF0E0D0))
+        for (r in 0..255 step 85) for (g in 0..255 step 85) for (b in 0..255 step 85)
+            samples += Color(r, g, b)
+        for (gray in 0..255 step 17) samples += Color(gray, gray, gray)
+        for (background in samples) {
+            val scheme = requireNotNull(terminalDynamicColors(background).colorScheme)
+            listOf(
+                scheme.onSurface to scheme.surfaceContainerHigh,
+                scheme.onSurfaceVariant to scheme.surfaceContainerHigh,
+                scheme.primary to scheme.surfaceContainerHigh,
+                scheme.onSurface to scheme.surfaceContainerHighest,
+                scheme.onSurfaceVariant to scheme.surfaceContainerHighest,
+                scheme.primary to scheme.surfaceContainerHighest,
+                scheme.onPrimary to scheme.primary,
+            ).forEach { (foreground, surface) ->
+                assertTrue("Modal loses contrast for $background: $foreground on $surface",
+                    colorContrast(foreground, surface) >= 4.5f)
+            }
+        }
+    }
+
     @Test fun paletteTransitionsCarryAllMaterialRolesOnTheSameClock() {
         val from = terminalDynamicColors(Color(0xFF123456))
         val to = terminalDynamicColors(Color(0xFFF0E0D0))

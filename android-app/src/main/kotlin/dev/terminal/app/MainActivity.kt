@@ -711,6 +711,14 @@ class MainActivity : TerminalActivity() {
 
     @Composable
     private fun TerminalScreen() {
+        val dynamicScheme = terminalChromeColors.colorScheme.takeIf { activeSessionId != null }
+        MaterialTheme(colorScheme = dynamicScheme ?: MaterialTheme.colorScheme) {
+            TerminalScreenContent()
+        }
+    }
+
+    @Composable
+    private fun TerminalScreenContent() {
         val edgeToEdgeTerminal = activeSessionId != null
         val topInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top)
         val terminalTopInset = if (edgeToEdgeTerminal) topInsets.getTop(LocalDensity.current) else 0
