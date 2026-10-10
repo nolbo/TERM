@@ -83,6 +83,12 @@ class WorkspaceAndSharingDeviceTest {
                     scenario.onActivity { connected = runtimeField.get(it) != null }
                     connected
                 }
+                tapUi { it.contentDescription?.toString() == context.getString(R.string.workspace_selector,
+                    context.getString(R.string.workspace_unassigned)) }
+                tapUi { it.text?.toString() == workspace.name }
+                await("The Workspace is explicitly selected") {
+                    WorkspaceRegistry.State.parse(runtime.workspacesJson).selected == workspace.id
+                }
                 val newLabel = context.getString(R.string.new_session)
                 tapUi { it.contentDescription?.toString() == newLabel || it.text?.toString() == newLabel }
                 await("Current Workspace category appears in New session") {

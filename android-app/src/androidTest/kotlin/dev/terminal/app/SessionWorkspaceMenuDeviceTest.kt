@@ -122,6 +122,9 @@ class SessionWorkspaceMenuDeviceTest {
                 }
                 val movingId = rows(runtime).single { it.getString("id") in owned && it.getString("title") == movingTitle }.getString("id")
                 ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                    description(context.getString(R.string.workspace_selector, label(R.string.workspace_unassigned)))
+                    tap(source.name)
+                    await("The source Workspace is explicitly selected") { state(runtime).selected == source.id }
                     node { it.actionList.any { action -> action.label?.toString() == label(R.string.toolbar_default) } }?.let { handle ->
                         assertTrue(handle.performAction(handle.actionList.first { it.label?.toString() == label(R.string.toolbar_default) }.id))
                     }

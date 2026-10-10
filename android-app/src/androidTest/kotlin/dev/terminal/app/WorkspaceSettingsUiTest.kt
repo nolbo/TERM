@@ -245,6 +245,9 @@ class WorkspaceSettingsUiTest {
                 assertTrue(suggested.startsWith(label(R.string.workspace_default_name)))
                 assertTrue(workspaces(runtime).none { it.name == suggested })
                 click(text(label(R.string.cancel)))
+                await("Cancelled name dialog closes before reopening the field") {
+                    find { it.className?.toString() == "android.widget.EditText" } == null
+                }
                 changeName(name)
                 assertTrue(workspaces(runtime).none { it.name == name })
                 click(action(R.string.back))

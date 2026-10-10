@@ -41,6 +41,24 @@ class WorkspaceLaunchTitleDeviceTest {
         return visit(instrumentation.uiAutomation.rootInActiveWindow)
     }
 
+    private fun tap(predicate: (AccessibilityNodeInfo) -> Boolean) {
+        var target: AccessibilityNodeInfo? = null
+        await("Workspace entry is ready") {
+            instrumentation.waitForIdleSync()
+            instrumentation.uiAutomation.clearCache()
+            fun visit(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+                if (node == null) return null
+                if (node.isVisibleToUser && predicate(node)) return node
+                for (index in 0 until node.childCount) visit(node.getChild(index))?.let { return it }
+                return null
+            }
+            target = visit(instrumentation.uiAutomation.rootInActiveWindow)
+            while (target != null && !target!!.isClickable) target = target!!.parent
+            target?.isEnabled == true
+        }
+        assertTrue(target!!.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+    }
+
     @Test fun automaticAndManualLaunchesHaveCustomTitlesThatSurviveShellChangesAndRecreation() {
         val ready = CountDownLatch(1)
         lateinit var runtime: IRuntimeService
@@ -69,6 +87,9 @@ class WorkspaceLaunchTitleDeviceTest {
             assertEquals("", runtime.selectWorkspace(workspace.id))
             try {
                 ActivityScenario.launch(MainActivity::class.java).use {
+                    tap { it.contentDescription?.toString() == context.getString(R.string.workspace_selector,
+                        context.getString(R.string.workspace_unassigned)) }
+                    tap { it.text?.toString() == workspace.name }
                     await("Automatic launch starts with its custom name") {
                         members().singleOrNull()?.let { it.optString("title") == automatic.name && it.optBoolean("explicitTitle") } == true
                     }

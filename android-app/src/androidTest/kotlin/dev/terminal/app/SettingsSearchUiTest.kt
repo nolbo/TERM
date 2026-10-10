@@ -85,7 +85,7 @@ class SettingsSearchUiTest {
                 screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
             }
             try {
-                val last = rows[3]
+                val last = rows[4]
                 val surface = screenshot.getPixel(first.right - inset, first.centerY())
                 val gap = screenshot.getPixel(first.centerX(), (first.bottom + adjacent.top) / 2)
                 assertNotEquals("Gaps expose the page background; rows=$rows bitmap=${screenshot.width}x${screenshot.height}", surface, gap)
