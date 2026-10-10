@@ -113,8 +113,7 @@ class RootlessSessionController(
             usbBroker?.clientFile, usbEnvironment,
             accelerationLibrary = if (dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION)
                 File(proot.parentFile, "libproot-faststat.so") else null,
-            nssBindings = cache?.bindings.orEmpty(), resolverFile = resolver, shares = shares,
-            shareHostPaths = pinnedShares.map { "/proc/${android.os.Process.myPid()}/fd/${it.fd}" })
+            nssBindings = cache?.bindings.orEmpty(), resolverFile = resolver, shares = shares)
         } catch (error: Exception) { pinnedShares.forEach { it.close() }; usbBroker?.unregister(id); throw error }
         val (process, descriptor) = try { synchronized(this) {
             check(!cacheClosed) { "Rootless controller closed" }
@@ -248,7 +247,6 @@ internal fun buildRootlessLaunchSpec(
     nssBindings: List<String> = emptyList(),
     resolverFile: File? = null,
     shares: List<dev.terminal.runtime.storage.SharedFolderBinding> = emptyList(),
-    shareHostPaths: List<String> = emptyList(),
 ): RootlessLaunchSpec {
     check(!RootlessNativeMigration.pending(layout.root.parentFile.toPath())) {
         "중단된 가속 형식 이전이 있습니다. 설정에서 해당 배포판의 이전을 다시 실행해 복구하세요"
@@ -270,12 +268,12 @@ internal fun buildRootlessLaunchSpec(
         addAll(listOf("-b", "/dev", "-b", "/proc", "-b", "/sys"))
         addAll(listOf("-b", "${File(layout.tmp, "graphics-shm").absolutePath}:/dev/shm"))
         addAll(listOf("-b", "${layout.home.absolutePath}:/root"))
-        require(shareHostPaths.isEmpty() || shareHostPaths.size == shares.size)
-        shares.forEachIndexed { index, binding ->
+        shares.forEach { binding ->
             require(binding.directory.isDirectory && binding.directory.absoluteFile == binding.directory.canonicalFile) { "Unsafe Shared Directory binding" }
-            val hostPath = shareHostPaths.getOrNull(index) ?: binding.directory.absolutePath
-            if (shareHostPaths.isNotEmpty()) require(hostPath.matches(Regex("/proc/[0-9]+/fd/[0-9]+")))
-            addAll(listOf("-b", "$hostPath:${binding.folder.guestPath}"))
+            // PRoot canonicalizes bind sources. A release owner's /proc/PID/fd is
+            // inaccessible to its children; use the validated, stable UUID path.
+            // The controller still retains the directory FD for session lifetime.
+            addAll(listOf("-b", "${binding.directory.absolutePath}:${binding.folder.guestPath}"))
         }
         resolverFile?.let { addAll(listOf("-b", "${it.absolutePath}:/etc/resolv.conf")) }
         sharedStorage?.let { addAll(listOf("-b", "${it.absolutePath}:/sdcard")) }

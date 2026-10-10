@@ -17,9 +17,28 @@ class RootlessLaunchSpecTest {
         val initial = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"), "/bin/sh", "/workspace", emptyMap())
         assertFalse(initial.arguments.any { it.endsWith(":/workspace") || it.contains("term-shares") })
         assertEquals("/workspace", initial.guestCwd) // Users can create and use their own ordinary directory.
-        val shared = buildRootlessLaunchSpec(layout, File("/proot"), File("/loader"), "/bin/sh", "/root", emptyMap(), shares = listOf(binding))
-        assertTrue(shared.arguments.contains("${directory.path}:/mnt/term-shares/Code"))
-        assertFalse(shared.arguments.contains(directory.parentFile.absolutePath))
+        RootlessDistribution.entries.forEach { distribution ->
+            val shared = buildRootlessLaunchSpec(
+                RootlessDebianLayout(File(temporary.root, "shares/${distribution.directory}"), distribution),
+                File("/proot"), File("/loader"), "/bin/sh", "/root", emptyMap(), shares = listOf(binding),
+            )
+            assertTrue(shared.arguments.toList().windowed(2).contains(listOf("-b", "${directory.path}:/mnt/term-shares/Code")))
+            assertFalse(shared.arguments.contains(directory.parentFile.absolutePath))
+        }
+    }
+
+    @Test fun symbolicLinkSharedDirectoryIsRejectedInsteadOfBindingItsTarget() {
+        val directory = temporary.newFolder("shared-target")
+        val link = java.nio.file.Files.createSymbolicLink(File(temporary.root, "shared-link").toPath(), directory.toPath()).toFile()
+        val folder = dev.terminal.runtime.storage.SharedFolder(java.util.UUID.randomUUID().toString(), "Code", emptySet())
+        val result = runCatching {
+            buildRootlessLaunchSpec(
+                RootlessDebianLayout(File(temporary.root, "shares/debian")), File("/proot"), File("/loader"),
+                "/bin/sh", "/root", emptyMap(), shares = listOf(dev.terminal.runtime.storage.SharedFolderBinding(folder, link)),
+            )
+        }
+        assertTrue(result.exceptionOrNull() is IllegalArgumentException)
+        assertEquals("Unsafe Shared Directory binding", result.exceptionOrNull()?.message)
     }
     @Test fun globalDnsBindAppliesToEveryDistributionWithoutChangingItsRootfs() {
         val resolver = temporary.newFile("resolver").apply { writeText("nameserver 192.0.2.53\n") }
