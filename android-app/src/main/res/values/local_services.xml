@@ -2,8 +2,7 @@
 <resources>
     <string name="local_services_no_avf_link">연결된 AVF 포트 에이전트가 없습니다. 실행환경을 자동으로 시작하지 않습니다.</string>
     <string name="local_services_avf_links">AVF 에이전트: 연결됨 %1$d · 연결 중 %2$d · 끊김 %3$d</string>
-    <string name="terminal_more">더보기</string>
-    <string name="local_services_title">Local Services</string>
+    <string name="local_services_title">로컬 서비스</string>
     <string name="local_services_summary">로컬 서비스 등록, 접속 주소 및 포트 전달 관리</string>
     <string name="local_services_description">실행환경의 로컬 서비스를 확인하고 접속 주소와 포트 전달을 관리합니다.</string>
     <string name="local_services_all">전체</string>

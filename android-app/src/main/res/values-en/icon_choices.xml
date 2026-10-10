@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="icon_choice_auto">Default icon (automatic)</string>
+    <string name="icon_choice_cloud">Cloud</string>
+    <string name="icon_choice_code">Code</string>
+    <string name="icon_choice_rocket">Rocket</string>
+    <string name="icon_choice_science">Science</string>
+    <string name="icon_choice_palette">Palette</string>
+    <string name="icon_choice_tools">Tools</string>
+    <string name="icon_choice_folder">Folder</string>
+    <string name="icon_choice_game">Game</string>
+    <string name="icon_choice_book">Book</string>
+    <string name="icon_choice_paw">Paw</string>
+    <string name="icon_choice_globe">Globe</string>
+    <string name="icon_choice_star">Star</string>
+    <string name="icon_choice_lightning">Lightning</string>
+    <string name="icon_choice_lightbulb">Light bulb</string>
+</resources>

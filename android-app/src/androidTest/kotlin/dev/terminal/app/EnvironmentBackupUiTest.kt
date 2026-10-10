@@ -43,17 +43,21 @@ class EnvironmentBackupUiTest {
         error("Backup action is not clickable")
     }
 
-    @Test fun settingsEntryOpensBackupScreenAndStandaloneSafPickerAcrossRecreation() {
-        ActivityScenario.launch(SettingsActivity::class.java).use { scenario ->
-            click(await { it.text?.toString() == context.getString(R.string.backup_title) })
+    @Test fun environmentSettingsOpenBackupImportAndStandaloneSafPickerAcrossRecreation() {
+        ActivityScenario.launch(SettingsActivity::class.java).use {
+            click(await { it.text?.toString() == context.getString(R.string.storage_title) })
+            await { it.text?.toString() == context.getString(R.string.storage_summary) }
+            click(await { it.text?.toString() == context.getString(R.string.backup_import) })
             val source = await { it.text?.toString() == context.getString(R.string.backup_choose_source) }
-            assertFalse("Opening the backup category must not start restoring", find {
+            assertFalse("Opening backup import must not start restoring", find {
                 it.text?.toString() == context.getString(R.string.backup_phase_extracting)
             } != null)
             click(source)
             await { it.packageName?.toString() == "com.android.documentsui" }
             instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
             await { it.text?.toString() == context.getString(R.string.backup_choose_source) }
+            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
+            await { it.text?.toString() == context.getString(R.string.backup_import_summary) }
         }
         ActivityScenario.launch<EnvironmentBackupActivity>(Intent(context, EnvironmentBackupActivity::class.java)).use { scenario ->
             await { it.text?.toString() == context.getString(R.string.backup_choose_source) }

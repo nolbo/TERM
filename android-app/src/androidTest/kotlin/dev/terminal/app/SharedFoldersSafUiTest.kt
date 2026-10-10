@@ -2,7 +2,6 @@ package dev.terminal.app
 
 import android.os.Bundle
 import android.os.SystemClock
-import android.graphics.Rect
 import android.provider.DocumentsContract
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ActivityScenario
@@ -37,7 +36,10 @@ class SharedFoldersSafUiTest {
         while (SystemClock.elapsedRealtime() < deadline) {
             instrumentation.waitForIdleSync()
             find(predicate)?.let { return it }
-            if (scroll) find { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD)
+            if (scroll && find { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) == true) {
+                // Compose's animated scroll outlives main-loop idle.
+                instrumentation.uiAutomation.waitForIdle(100, 3_000)
+            }
             SystemClock.sleep(50)
         }
         throw AssertionError("Shared Folder/SAF element missing")
@@ -50,6 +52,10 @@ class SharedFoldersSafUiTest {
         }
         error("Element is not clickable")
     }
+    private fun containsText(node: AccessibilityNodeInfo, text: String): Boolean {
+        if (node.text?.toString()?.contains(text) == true) return true
+        return (0 until node.childCount).any { node.getChild(it)?.let { child -> containsText(child, text) } == true }
+    }
     @Test fun safReturnSubmitsExportAfterServiceReconnectionAndPreservesOriginal() {
         val id = UUID.randomUUID().toString()
         val source = File(context.filesDir.canonicalFile, "retained-workspaces/ROOTLESS-$id")
@@ -60,22 +66,10 @@ class SharedFoldersSafUiTest {
         try {
             ActivityScenario.launch(SharedFoldersActivity::class.java).use { scenario ->
                 scenario.recreate()
-                fun isSource(node: AccessibilityNodeInfo) = node.text?.toString()?.contains("Retained /workspace · ROOTLESS-$id") == true
-                await(scroll = true, predicate = ::isSource)
-                var button: AccessibilityNodeInfo? = null
-                val navigationDeadline = SystemClock.elapsedRealtime() + 15_000
-                while (button == null && SystemClock.elapsedRealtime() < navigationDeadline) {
-                    find(::isSource)?.let { label ->
-                        val sourceBounds = Rect().also(label::getBoundsInScreen)
-                        button = find { node ->
-                            val bounds = Rect().also(node::getBoundsInScreen)
-                            node.text?.toString() == context.getString(R.string.shared_legacy_export) &&
-                                bounds.top >= sourceBounds.bottom && bounds.top - sourceBounds.bottom < 100 * context.resources.displayMetrics.density
-                        }
-                    }
-                    if (button == null) { find { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); SystemClock.sleep(50) }
-                }
-                click(checkNotNull(button))
+                // Both actions now identify their source in the same navigation row.
+                // Select the export row itself rather than a button below an import label.
+                click(await(scroll = true) { node -> node.isClickable && containsText(node, "ROOTLESS-$id") &&
+                    containsText(node, context.getString(R.string.shared_legacy_export)) })
                 val field = await { it.packageName?.toString() == "com.android.documentsui" && it.className?.toString() == "android.widget.EditText" }
                 assertTrue(field.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
                     putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, name)

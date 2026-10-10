@@ -1,5 +1,6 @@
 package dev.terminal.runtime.session
 
+import dev.terminal.runtime.workspace.WorkspaceIcon
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -19,6 +20,11 @@ class SessionProfileTest {
         val expected = listOf("native", "debian", "ubuntu", "arch", "avf")
         assertEquals(expected, SessionRuntime.entries.map { SessionProfileIcon.resolve("auto", it) })
         assertEquals("keyboard", SessionProfileIcon.resolve("keyboard", SessionRuntime.AVF))
+        assertEquals(SessionProfileIcon.builtIns, WorkspaceIcon.builtIns)
+        SessionProfileIcon.builtIns.forEach { icon ->
+            val spec = profile().copy(icon = icon).resolve()
+            assertEquals(icon, SessionLaunchSpec.fromJson(spec.toJson().toString()).icon)
+        }
         for (bad in listOf("../icon.png", "image:../file:mask", "file:///secret", "https://example.com/icon", "unknown")) {
             assertTrue(runCatching { profile().copy(icon = bad).resolve() }.isFailure)
         }

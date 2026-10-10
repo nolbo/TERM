@@ -1,9 +1,10 @@
 package dev.terminal.runtime.session
 
+import dev.terminal.runtime.icon.BuiltInIcon
+
 /** Stable, path-free icon identities. Image bytes belong to the app, never to Binder payloads. */
 object SessionProfileIcon {
-    val builtIns = listOf("native", "rootless", "debian", "ubuntu", "arch", "avf",
-        "terminal", "keyboard", "settings", "memory", "search", "download", "check")
+    val builtIns = BuiltInIcon.ids
     private val imagePattern = Regex("image:[0-9a-f]{64}:(mask|color)")
     fun validate(value: String) {
         require(value == "auto" || value in builtIns || isImage(value)) { "Invalid profile icon" }

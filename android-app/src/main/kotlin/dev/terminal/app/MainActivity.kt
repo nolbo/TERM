@@ -44,6 +44,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -119,7 +120,14 @@ class MainActivity : TerminalActivity() {
     private data class WorkspaceStartupLaunch(val workspaceId: String, val spec: dev.terminal.runtime.session.SessionLaunchSpec)
     private var workspaceStartupQueue by mutableStateOf(emptyList<WorkspaceStartupLaunch>())
     private var workspaceStartupConnected by mutableStateOf(false)
-    private var initialWorkspaceStartupPending = true
+    private var initialWorkspaceSelectionPending = true
+
+    private fun applyInitialWorkspaceSelection(service: IRuntimeService) {
+        if (!initialWorkspaceSelectionPending) return
+        val error = service.selectWorkspace(dev.terminal.runtime.workspace.WorkspaceRegistry.UNASSIGNED)
+        if (error.isEmpty()) initialWorkspaceSelectionPending = false
+        else feedbackMessage = error
+    }
 
     private fun queueWorkspaceStartups(state: dev.terminal.runtime.workspace.WorkspaceRegistry.State) {
         val pending = workspaceStartupQueue.mapTo(mutableSetOf()) { it.workspaceId }
@@ -141,13 +149,23 @@ class MainActivity : TerminalActivity() {
         }
         workspaceStartupQueue = workspaceStartupQueue + requests
     }
-    private fun workspaceIncludes(session: SessionUi): Boolean {
+    private fun runWorkspaceStartups() {
+        if (!workspaceSessionStateKnown) return
+        safeRuntimeCall { service ->
+            val state = dev.terminal.runtime.workspace.WorkspaceRegistry.State.parse(service.workspacesJson)
+            if (state.workspaces.none { it.id == state.selected && !it.temporary } ||
+                sessions.any { workspaceIncludes(it, state) }) return@safeRuntimeCall
+            queueWorkspaceStartups(state)
+        }
+    }
+    private fun workspaceIncludes(session: SessionUi): Boolean = workspaceIncludes(session, workspaceState)
+    private fun workspaceIncludes(session: SessionUi, state: dev.terminal.runtime.workspace.WorkspaceRegistry.State): Boolean {
         val pendingWorkspace = if (session.pendingLaunch) pendingLaunchWorkspaces[session.launchRequestId] else null
-        return if (pendingWorkspace != null) when (workspaceState.selected) {
+        return if (pendingWorkspace != null) when (state.selected) {
             "all" -> true
             "unassigned" -> false
-            else -> workspaceState.selected == pendingWorkspace
-        } else workspaceState.includes(session.id)
+            else -> state.selected == pendingWorkspace
+        } else state.includes(session.id)
     }
     private fun refreshWorkspaces() {
         runtime?.let { service -> runCatching {
@@ -209,6 +227,12 @@ class MainActivity : TerminalActivity() {
     private fun selectProfile(profile: dev.terminal.runtime.session.SessionProfile) {
         selectLaunchSpec(SessionProfiles(this).resolve(profile))
     }
+    private fun selectWorkspaceLaunch(launch: dev.terminal.runtime.workspace.WorkspaceLaunch) {
+        val profile = profiles.firstOrNull { it.id == launch.profileId }
+        if (profile == null) { feedbackMessage = getString(R.string.workspace_profile_missing); return }
+        runCatching { selectLaunchSpec(launch.resolve(profile, SessionProfiles(this)::resolve)) }
+            .onFailure { feedbackMessage = it.message }
+    }
     private fun selectLaunchSpec(spec: dev.terminal.runtime.session.SessionLaunchSpec,
         workspaceId: String? = workspaceState.selected.takeUnless { it in setOf("all", "unassigned") },
         workspaceStartup: Boolean = false) {
@@ -263,6 +287,8 @@ class MainActivity : TerminalActivity() {
     private var avfLaunchFailure by mutableStateOf<String?>(null)
     private var pendingRename by mutableStateOf<SessionUi?>(null)
     private var pendingTermination by mutableStateOf<SessionUi?>(null)
+    private data class WorkspaceTerminationRequest(val filter: String, val name: String, val sessionIds: List<String>)
+    private var pendingWorkspaceTermination by mutableStateOf<WorkspaceTerminationRequest?>(null)
     private var terminatingSessionIds by mutableStateOf(emptySet<String>())
     private var rootlessVisible by mutableStateOf(false)
     private var rootlessRunning by mutableStateOf(false)
@@ -315,6 +341,7 @@ class MainActivity : TerminalActivity() {
     private var keyboardRequested = false
     private var bindingGeneration = 0L
     private var lastSessionRevision = -1L
+    private var workspaceSessionStateKnown by mutableStateOf(false)
     private var listener: IRuntimeStateListener? = null
     private val runtimeAttachment = RuntimeSessionAttachment()
     private val mainHandler by lazy { Handler(mainLooper) }
@@ -430,6 +457,7 @@ class MainActivity : TerminalActivity() {
             workspaceStartupConnected = true
             runCatching {
                 val connected = checkNotNull(runtime)
+                applyInitialWorkspaceSelection(connected)
                 refreshWorkspaces()
                 val currentListener = checkNotNull(listener)
                 val notificationTarget = notificationSessionId
@@ -451,10 +479,6 @@ class MainActivity : TerminalActivity() {
                 connected.startRuntime()
                 submitPendingAvfLaunches()
                 handleLaunchIntent(intent)
-                if (initialWorkspaceStartupPending) {
-                    initialWorkspaceStartupPending = false
-                    queueWorkspaceStartups(dev.terminal.runtime.workspace.WorkspaceRegistry.State.parse(connected.workspacesJson))
-                }
             }.onFailure { handleRuntimeDisconnect() }
         }
 
@@ -488,7 +512,7 @@ class MainActivity : TerminalActivity() {
         outState.putStringArrayList("submitted-avf-launches", ArrayList(submittedAvfLaunches))
         outState.putStringArrayList("installation-approved-avf-launches", ArrayList(installationApprovedAvfLaunches))
         outState.putString("launch-workspace", selectedLaunchWorkspace)
-        outState.putBoolean("workspace-startup-pending", initialWorkspaceStartupPending)
+        outState.putBoolean("workspace-selection-pending", initialWorkspaceSelectionPending)
         outState.putString("workspace-startup-queue", org.json.JSONArray().apply {
             workspaceStartupQueue.forEach { launch ->
                 put(org.json.JSONObject().put("workspaceId", launch.workspaceId).put("spec", launch.spec.toJson()))
@@ -532,8 +556,10 @@ class MainActivity : TerminalActivity() {
         activeSessionId = savedInstanceState?.getString("active-session")
             ?: getSharedPreferences("terminal-ui-state", MODE_PRIVATE).getString("active-session", null)
         selectedLaunchWorkspace = savedInstanceState?.getString("launch-workspace")
-        initialWorkspaceStartupPending = savedInstanceState?.getBoolean("workspace-startup-pending", false)
-            ?: (!intent.hasExtra("workspace-launch") && notificationSessionId == null)
+        initialWorkspaceSelectionPending = savedInstanceState?.getBoolean("workspace-selection-pending", false)
+            ?: (!intent.hasExtra("workspace-launch") &&
+                !intent.hasExtra(dev.terminal.runtime.notifications.SessionNotificationSettings.EXTRA_SESSION_ID) &&
+                notificationSessionId == null)
         workspaceStartupQueue = savedInstanceState?.getString("workspace-startup-queue")?.let { encoded ->
             org.json.JSONArray(encoded).let { array ->
                 List(array.length()) { index ->
@@ -601,6 +627,13 @@ class MainActivity : TerminalActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        initialWorkspaceSelectionPending = !intent.hasExtra("workspace-launch") &&
+            !intent.hasExtra(dev.terminal.runtime.notifications.SessionNotificationSettings.EXTRA_SESSION_ID)
+        if (initialWorkspaceSelectionPending) safeRuntimeCall { service ->
+            applyInitialWorkspaceSelection(service)
+            refreshWorkspaces()
+            selectVisibleWorkspaceSession()
+        }
         handleLaunchIntent(intent)
     }
 
@@ -712,6 +745,7 @@ class MainActivity : TerminalActivity() {
         val visibleSessions = sessions.filter(::workspaceIncludes).map { session ->
             sessionWithDisplayTitles(session, applicationTerminalTitles[session.id])
         }
+        val showToolbar = sessions.isNotEmpty() || workspaceState.workspaces.isNotEmpty()
         val snackbarHost = remember { SnackbarHostState() }
         LaunchedEffect(feedbackMessage) {
             feedbackMessage?.let {
@@ -788,7 +822,8 @@ class MainActivity : TerminalActivity() {
                     if (activeSessionId == null) {
                         Box(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(topInsets)) {
                             TerminalEmptyState(runtimeMessage, ::showNewSessionSheet,
-                                onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) })
+                                onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
+                                showActions = !showToolbar)
                         }
                     } else if (sessions.firstOrNull { it.id == activeSessionId }?.pendingLaunch == true) {
                         val loadingSession = sessions.first { it.id == activeSessionId }
@@ -828,10 +863,10 @@ class MainActivity : TerminalActivity() {
                                 .padding(terminalPaddingDp.dp),
                         )
                     }
-                    if (sessions.isNotEmpty() || workspaceState.workspaces.isNotEmpty()) {
+                    if (showToolbar) {
                         val toolbarSessionId = activeSessionId
                         TerminalToolbar(
-                            config = toolbarConfig.visibleConfig(),
+                            config = toolbarConfig.visibleConfig(sessionsOnly = visibleSessions.isEmpty()),
                             mode = toolbarSheetMode,
                             onModeChange = {
                                 toolbarSheetMode = it
@@ -839,7 +874,7 @@ class MainActivity : TerminalActivity() {
                             },
                             maxHeight = toolbarMaxHeight,
                             colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,
-                            pageNavigationEnabled = !sessionProfilePickerVisible,
+                            pageNavigationEnabled = visibleSessions.isNotEmpty() && !sessionProfilePickerVisible,
                         ) { tool, interactive ->
                             // Session navigation keeps its scroll position across tab switches.
                             androidx.compose.runtime.key(if (tool == SESSIONS_TOOL) SESSIONS_TOOL else toolbarSessionId, tool) {
@@ -894,11 +929,11 @@ class MainActivity : TerminalActivity() {
                                             val workspace = dev.terminal.runtime.workspace.Workspace(UUID.randomUUID().toString(), name, true)
                                             workspaceMutation { service -> service.saveWorkspace(workspace.json().toString()).ifEmpty { service.selectWorkspace(workspace.id) } }
                                         },
-                                        onLaunchWorkspace = { launch ->
-                                            profiles.firstOrNull { it.id == launch.profileId }?.let { profile ->
-                                                selectLaunchSpec(launch.resolve(profile, SessionProfiles(this@MainActivity)::resolve))
-                                            } ?: run { feedbackMessage = getString(R.string.workspace_profile_missing) }
-                                        },
+                                        onLaunchWorkspace = ::selectWorkspaceLaunch,
+                                        onCloseWorkspaceSessions = ::requestWorkspaceSessionTermination,
+                                        onDeleteEmptyTemporaryWorkspace = ::deleteEmptyTemporaryWorkspace,
+                                        workspaceSessionStateKnown = runtime != null && workspaceSessionStateKnown,
+                                        onRunWorkspaceStartups = ::runWorkspaceStartups,
                                     )
                                     MEMORY_TOOL -> ToolbarMemoryTool(active, visibleSessions, toolbarMemoryInterval,
                                         onSelectSession = { id ->
@@ -962,6 +997,8 @@ class MainActivity : TerminalActivity() {
                 onDismiss = { newSessionSheetVisible = false },
                 environmentNames = profileEnvironmentNames,
                 installationStatuses = profileInstallationStatuses,
+                workspace = workspaceState.workspaces.firstOrNull { it.id == workspaceState.selected },
+                onSelectWorkspaceLaunch = ::selectWorkspaceLaunch,
             )
         }
         profileInstallToConfirm?.let { spec ->
@@ -1018,6 +1055,26 @@ class MainActivity : TerminalActivity() {
                     }
                 },
                 dismissButton = { TextButton(onClick = { pendingTermination = null }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } },
+            )
+        }
+        pendingWorkspaceTermination?.let { request ->
+            AlertDialog(
+                onDismissRequest = { pendingWorkspaceTermination = null },
+                title = { Text(stringResource(R.string.workspace_close_sessions_title)) },
+                text = { Text(stringResource(R.string.workspace_close_sessions_message, request.name)) },
+                confirmButton = {
+                    Button(onClick = {
+                        pendingWorkspaceTermination = null
+                        terminateWorkspaceSessions(request)
+                    }, shapes = ButtonDefaults.shapes()) {
+                        Text(stringResource(R.string.workspace_close_sessions))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { pendingWorkspaceTermination = null }, shapes = ButtonDefaults.shapes()) {
+                        Text(stringResource(R.string.cancel))
+                    }
+                },
             )
         }
         pendingRename?.let { session ->
@@ -1087,6 +1144,7 @@ class MainActivity : TerminalActivity() {
         if (revision < lastSessionRevision) return
         lastSessionRevision = revision
         runtimeSessionRows = parseSessions(json)
+        workspaceSessionStateKnown = true
         refreshWorkspaces()
         val acknowledged = runtimeSessionRows.mapNotNull { it.launchRequestId }.toSet()
         unconfirmedAvfLaunches = unconfirmedAvfLaunches.filter { it.launchRequestId !in acknowledged }
@@ -1110,7 +1168,8 @@ class MainActivity : TerminalActivity() {
         notificationSessionId?.let { requested ->
             if (updated.any { it.id == requested }) {
                 if (!workspaceState.includes(requested)) {
-                    runtime?.selectWorkspace(dev.terminal.runtime.workspace.WorkspaceRegistry.ALL)
+                    runtime?.selectWorkspace(workspaceState.memberships[requested]
+                        ?: dev.terminal.runtime.workspace.WorkspaceRegistry.UNASSIGNED)
                     refreshWorkspaces()
                 }
                 activeSessionId = requested
@@ -1332,6 +1391,45 @@ class MainActivity : TerminalActivity() {
         }
     }
 
+    private fun deleteEmptyTemporaryWorkspace(id: String) {
+        if (runtime == null || !workspaceSessionStateKnown) return
+        val target = workspaceState.copy(selected = id)
+        if (sessions.any { workspaceIncludes(it, target) }) return
+        workspaceMutation { it.deleteEmptyTemporaryWorkspace(id) }
+    }
+
+    private fun requestWorkspaceSessionTermination() {
+        val targets = sessions.filter(::workspaceIncludes).filter {
+            it.id !in terminatingSessionIds && (!it.pendingLaunch || it.launchError != null)
+        }
+        if (targets.isEmpty()) return
+        val filter = workspaceState.selected
+        val name = when (filter) {
+            "all" -> getString(R.string.workspace_all)
+            "unassigned" -> getString(R.string.workspace_unassigned)
+            else -> workspaceState.workspaces.firstOrNull { it.id == filter }?.name.orEmpty()
+        }
+        val request = WorkspaceTerminationRequest(filter, name, targets.map { it.id })
+        if (targets.all { it.pendingLaunch } || terminalPreferences().getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false)) {
+            terminateWorkspaceSessions(request)
+        } else {
+            pendingWorkspaceTermination = request
+        }
+    }
+
+    private fun terminateWorkspaceSessions(request: WorkspaceTerminationRequest) {
+        safeRuntimeCall { service ->
+            // Keep the clicked IDs, and exclude sessions moved out of the group while confirming.
+            val state = dev.terminal.runtime.workspace.WorkspaceRegistry.State.parse(service.workspacesJson)
+                .copy(selected = request.filter)
+            request.sessionIds.forEach { id ->
+                sessions.firstOrNull { it.id == id }?.let { session ->
+                    if (workspaceIncludes(session, state)) terminate(id)
+                }
+            }
+        }
+    }
+
     private fun terminate(id: String) {
         if (id in terminatingSessionIds || sessions.none { it.id == id }) return
         val pending = sessions.firstOrNull { it.id == id && it.pendingLaunch }
@@ -1541,7 +1639,7 @@ class MainActivity : TerminalActivity() {
 
     private fun handleLaunchIntent(intent: Intent) {
         intent.getStringExtra("workspace-launch")?.let { encoded ->
-            val filter = intent.getStringExtra("workspace-id") ?: "all"
+            val filter = intent.getStringExtra("workspace-id") ?: dev.terminal.runtime.workspace.WorkspaceRegistry.UNASSIGNED
             safeRuntimeCall { service ->
                 intent.removeExtra("workspace-launch")
                 val error = service.selectWorkspace(filter)
@@ -1555,7 +1653,9 @@ class MainActivity : TerminalActivity() {
         intent.getStringExtra(dev.terminal.runtime.notifications.SessionNotificationSettings.EXTRA_SESSION_ID)?.let { id ->
             notificationSessionId = id
             if (sessions.any { it.id == id }) {
-                if (!workspaceState.includes(id)) workspaceMutation { it.selectWorkspace(dev.terminal.runtime.workspace.WorkspaceRegistry.ALL) }
+                if (!workspaceState.includes(id)) workspaceMutation {
+                    it.selectWorkspace(workspaceState.memberships[id] ?: dev.terminal.runtime.workspace.WorkspaceRegistry.UNASSIGNED)
+                }
                 notificationSessionId = null
                 activeSessionId = id
                 attach(id)
@@ -1602,6 +1702,7 @@ class MainActivity : TerminalActivity() {
         bound = false
         workspaceStartupConnected = false
         runtime = null
+        workspaceSessionStateKnown = false
         listener = null
         runtimeAttachment.reset()
         runtimeMessage = getString(R.string.runtime_reconnecting_prompt)
@@ -1619,6 +1720,7 @@ class MainActivity : TerminalActivity() {
         val generation = ++bindingGeneration
         listener = createRuntimeListener(generation)
         lastSessionRevision = -1L
+        workspaceSessionStateKnown = false
         bindingRequested = runCatching {
             bindService(Intent(this, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE)
         }.getOrDefault(false)

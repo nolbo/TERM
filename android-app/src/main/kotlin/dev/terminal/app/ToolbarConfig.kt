@@ -48,9 +48,9 @@ internal fun ToolbarConfig.addTool(id: String): ToolbarConfig =
 internal fun ToolbarConfig.removeTool(id: String): ToolbarConfig =
     if (toolbarTools.any { it.id == id && !it.removable }) this else copy(tools = tools - id)
 
-/** Navigation remains reachable when optional tools are disabled. */
-internal fun ToolbarConfig.visibleConfig(): ToolbarConfig = copy(enabled = true,
-    tools = if (!enabled) listOf(SESSIONS_TOOL)
+/** Navigation remains reachable; empty Workspace restrictions never change saved tools. */
+internal fun ToolbarConfig.visibleConfig(sessionsOnly: Boolean = false): ToolbarConfig = copy(enabled = true,
+    tools = if (sessionsOnly || !enabled) listOf(SESSIONS_TOOL)
         else if (SESSIONS_TOOL in tools) tools else listOf(SESSIONS_TOOL) + tools)
 
 internal fun ToolbarConfig.moveTool(from: Int, to: Int): ToolbarConfig =

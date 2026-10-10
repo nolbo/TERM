@@ -52,8 +52,8 @@ class SharedFoldersActivity : TerminalActivity() {
         exportSource = savedInstanceState?.getString("export-source")
         pendingExportRequest = savedInstanceState?.getString("pending-export")
         compose { SharedFoldersScreen(snapshot, error, saving, { finish() },
-            onSave = { folder, done -> mutate(done) { it.saveSharedFolder(folder.json().toString()) } },
-            onDelete = { id, done -> mutate(done) { it.deleteSharedFolder(id) } },
+            onCreate = { startActivity(Intent(this, SharedFolderCreateActivity::class.java)) },
+            onEdit = { folder -> startActivity(SharedFolderEditActivity.intent(this, folder.id)) },
             onOperation = { request, done -> mutate(done) { it.startSharedFolderOperation(UUID.randomUUID().toString(), request.toString()) } },
             onExport = { id -> exportSource = id; exportPicker.launch("TERM-legacy-workspace.zip") },
             onCancel = { id -> mutate { it.cancelSharedFolderOperation(id); "" } }) }

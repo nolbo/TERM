@@ -54,7 +54,8 @@ class SettingsSearchUiTest {
             waitFor { it.text?.toString() == context.getString(R.string.storage_title) }
             SystemClock.sleep(1000)
             instrumentation.waitForIdleSync()
-            val labels = listOf(R.string.storage_title, R.string.profiles, R.string.local_services_title, R.string.backup_title,
+            val labels = listOf(R.string.storage_title, R.string.profiles, R.string.workspaces_title,
+                R.string.shared_folders_title, R.string.local_services_title,
                 R.string.settings_language_title, R.string.settings_terminal_title)
             val rows = labels.map { label ->
                 var node = waitFor { it.text?.toString() == context.getString(label) }
@@ -62,17 +63,29 @@ class SettingsSearchUiTest {
                 Rect().also { node.getBoundsInScreen(it) }
             }
             val density = context.resources.displayMetrics.density
-            assertEquals("Storage and profiles share a group", 2f * density, (rows[1].top - rows[0].bottom).toFloat(), 1f)
-            assertEquals("Local Services shares the environment group", 2f * density, (rows[2].top - rows[1].bottom).toFloat(), 1f)
-            assertEquals("Backups share the environment group", 2f * density, (rows[3].top - rows[2].bottom).toFloat(), 1f)
-            assertEquals("Related groups stay separate", 16f * density, (rows[4].top - rows[3].bottom).toFloat(), 1f)
-            assertEquals("Language and terminal share a group", 2f * density, (rows[5].top - rows[4].bottom).toFloat(), 1f)
-            val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+            for (index in 1..2) {
+                assertEquals("Environment categories share a group", 2f * density,
+                    (rows[index].top - rows[index - 1].bottom).toFloat(), 1f)
+            }
+            assertEquals("Shared directories start a separate group", 16f * density, (rows[3].top - rows[2].bottom).toFloat(), 1f)
+            assertEquals("Shared directories and Local Services share a group", 2f * density, (rows[4].top - rows[3].bottom).toFloat(), 1f)
+            assertEquals("Local Services is above app language", 16f * density, (rows[5].top - rows[4].bottom).toFloat(), 1f)
+            assertEquals("Language and terminal share a group", 2f * density, (rows[6].top - rows[5].bottom).toFloat(), 1f)
+            val first = rows[0]
+            val adjacent = rows[1]
+            val inset = (2f * density).toInt()
+            val deadline = SystemClock.elapsedRealtime() + 5000
+            var screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+            // Accessibility rows can precede presentation of the new window's frame.
+            while (screenshot.getPixel(first.right - inset, first.centerY()) ==
+                screenshot.getPixel(first.centerX(), (first.bottom + adjacent.top) / 2) &&
+                SystemClock.elapsedRealtime() < deadline) {
+                screenshot.recycle()
+                SystemClock.sleep(250)
+                screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+            }
             try {
-                val first = rows[0]
-                val adjacent = rows[1]
                 val last = rows[3]
-                val inset = (2f * density).toInt()
                 val surface = screenshot.getPixel(first.right - inset, first.centerY())
                 val gap = screenshot.getPixel(first.centerX(), (first.bottom + adjacent.top) / 2)
                 assertNotEquals("Gaps expose the page background; rows=$rows bitmap=${screenshot.width}x${screenshot.height}", surface, gap)
@@ -80,7 +93,7 @@ class SettingsSearchUiTest {
                 assertEquals("Adjacent bottom corners stay small", surface, screenshot.getPixel(first.left + inset, first.bottom - inset))
                 assertEquals("Adjacent top corners stay small", surface, screenshot.getPixel(adjacent.left + inset, adjacent.top + inset))
                 assertEquals("Outer bottom corners remain rounded", gap, screenshot.getPixel(last.left + inset, last.bottom - inset))
-                val language = rows[4]
+                val language = rows[5]
                 for (x in (20f * density).toInt()..(36f * density).toInt()) {
                     for (y in -(8f * density).toInt()..(8f * density).toInt()) {
                         assertEquals("Category trailing area has no arrow", surface,

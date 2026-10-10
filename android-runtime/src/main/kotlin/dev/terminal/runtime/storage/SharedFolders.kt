@@ -38,7 +38,7 @@ class SharedFolderRegistry(private val files: File, private val read: () -> Stri
             require(rows.map { it.id }.distinct().size == rows.size && rows.map { it.name }.distinct().size == rows.size)
         }
     }
-    @Synchronized fun requireFolder(id: String) = all().firstOrNull { it.id == id } ?: error("Shared Folder not found")
+    @Synchronized fun requireFolder(id: String) = all().firstOrNull { it.id == id } ?: error("Shared Directory not found")
     @Synchronized fun disconnectEnvironment(id: EnvironmentId) {
         val rows = all()
         if (rows.any { id in it.environments }) write(JSONArray(rows.map { it.copy(environments = it.environments - id).json() }).toString())
@@ -50,10 +50,10 @@ class SharedFolderRegistry(private val files: File, private val read: () -> Stri
     }
     private fun encodedWith(folder: SharedFolder): String {
         val rows = all()
-        require(rows.none { it.id != folder.id && it.name == folder.name }) { "Shared Folder name already exists" }
-        require(rows.any { it.id == folder.id } || rows.size < 128) { "Shared Folder limit reached" }
+        require(rows.none { it.id != folder.id && it.name == folder.name }) { "Shared Directory name already exists" }
+        require(rows.any { it.id == folder.id } || rows.size < 128) { "Shared Directory limit reached" }
         val encoded = JSONArray(rows.filterNot { it.id == folder.id }.plus(folder).map { it.json() }).toString()
-        require(encoded.toByteArray().size <= 128 * 1024) { "Shared Folder settings limit reached" }
+        require(encoded.toByteArray().size <= 128 * 1024) { "Shared Directory settings limit reached" }
         return encoded
     }
     /** Serialize validation/publication with rename, connection edits and data deletion. */
@@ -65,7 +65,7 @@ class SharedFolderRegistry(private val files: File, private val read: () -> Stri
     }
     @Synchronized fun <T> withConnection(id: String, environment: EnvironmentId, block: (SharedFolder) -> T): T {
         val folder = requireFolder(id)
-        require(environment in folder.environments) { "Shared Folder permission was revoked" }
+        require(environment in folder.environments) { "Shared Directory permission was revoked" }
         return block(folder)
     }
     /** Caller has proved all owners idle and excluded creation and transfers. */
@@ -85,7 +85,7 @@ class SharedFolderRegistry(private val files: File, private val read: () -> Stri
         .map { SharedFolderBinding(it, directory(it)) }
     private fun ensureDirectory(path: File) {
         if (Files.notExists(path.toPath(), NOFOLLOW_LINKS)) Files.createDirectory(path.toPath())
-        require(Files.isDirectory(path.toPath(), NOFOLLOW_LINKS) && path.canonicalFile == path.absoluteFile) { "Unsafe Shared Folder root" }
+        require(Files.isDirectory(path.toPath(), NOFOLLOW_LINKS) && path.canonicalFile == path.absoluteFile) { "Unsafe Shared Directory root" }
     }
 }
 

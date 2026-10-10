@@ -2,6 +2,7 @@ package dev.terminal.app
 
 import android.content.*
 import android.os.*
+import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -41,6 +42,74 @@ class WorkspaceAndSharingDeviceTest {
     private fun rows(runtime: IRuntimeService) = JSONArray(runtime.sessionsJson).let { a -> List(a.length()) { a.getJSONObject(it) } }
     private fun spec(runtime: SessionRuntime): SessionLaunchSpec = SessionProfiles(context).let { profiles -> profiles.resolve(profiles.all().first { it.runtime == runtime }) }
 
+    private fun uiNode(predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        instrumentation.waitForIdleSync()
+        instrumentation.uiAutomation.clearCache()
+        fun visit(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+            if (node == null) return null
+            if (node.isVisibleToUser && predicate(node)) return node
+            for (index in 0 until node.childCount) visit(node.getChild(index))?.let { return it }
+            return null
+        }
+        return visit(instrumentation.uiAutomation.rootInActiveWindow)
+    }
+    private fun tapUi(predicate: (AccessibilityNodeInfo) -> Boolean) {
+        var target: AccessibilityNodeInfo? = null
+        await("Session menu control is ready") {
+            target = uiNode(predicate)
+            while (target != null && !target!!.isClickable) target = target!!.parent
+            target?.isEnabled == true
+        }
+        assertTrue(target!!.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+    }
+
+    @Test fun newSessionWorkspaceConfigurationUsesTheExistingLaunchPathAndCwdWithoutEditingItsProfile() = withRuntime { runtime ->
+        val profiles = SessionProfiles(context)
+        val profile = profiles.all().first { it.runtime == SessionRuntime.NATIVE }
+        val original = WorkspaceRegistry.State.parse(runtime.workspacesJson)
+        val before = rows(runtime).mapTo(mutableSetOf()) { it.getString("id") }
+        val directory = File(context.filesDir, "workspace-launch-ui-${UUID.randomUUID()}").apply { assertTrue(mkdir()) }
+        val launch = WorkspaceLaunch(UUID.randomUUID().toString(), "Native workspace launch", profile.id, directory.path)
+        val workspace = Workspace(UUID.randomUUID().toString(), "Launch menu fixture", false, listOf(launch), "terminal")
+        var owned: String? = null
+        try {
+            assertEquals("", runtime.saveWorkspace(workspace.json().toString()))
+            assertEquals("", runtime.selectWorkspace(workspace.id))
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val runtimeField = MainActivity::class.java.getDeclaredField("runtime").apply { isAccessible = true }
+                await("Main Activity connects to the existing runtime owner") {
+                    var connected = false
+                    scenario.onActivity { connected = runtimeField.get(it) != null }
+                    connected
+                }
+                val newLabel = context.getString(R.string.new_session)
+                tapUi { it.contentDescription?.toString() == newLabel || it.text?.toString() == newLabel }
+                await("Current Workspace category appears in New session") {
+                    uiNode { it.text?.toString() == context.getString(R.string.workspace_new_session_group, workspace.name) } != null
+                }
+                assertEquals("Opening the menu cannot create a session", before, rows(runtime).mapTo(mutableSetOf()) { it.getString("id") })
+                tapUi { it.text?.toString() == launch.name }
+                await("Workspace launch creates one Native session") {
+                    rows(runtime).any { it.getString("id") !in before && it.getString("state") == "RUNNING" }
+                }
+                val id = rows(runtime).single { it.getString("id") !in before }.getString("id").also { owned = it }
+                assertEquals(workspace.id, WorkspaceRegistry.State.parse(runtime.workspacesJson).memberships[id])
+                assertEquals(profile, profiles.find(profile.id))
+                runtime.writeSessionInput(id, "printf workspace-launch > cwd-proof.txt\n".toByteArray())
+                await("The launched shell uses the Workspace cwd override") {
+                    File(directory, "cwd-proof.txt").takeIf { it.isFile }?.readText() == "workspace-launch"
+                }
+                assertEquals(before + id, rows(runtime).mapTo(mutableSetOf()) { it.getString("id") })
+            }
+        } finally {
+            owned?.let { runtime.terminateSession(it) }
+            runtime.selectWorkspace(original.selected)
+            runtime.deleteWorkspace(workspace.id)
+            directory.deleteRecursively()
+        }
+    }
+
     @Test fun workspaceSwitchDeleteMoveAndRecreationKeepTheSameNativeProcess() = withRuntime { runtime ->
         ActivityScenario.launch(MainActivity::class.java).use { main ->
             val original = WorkspaceRegistry.State.parse(runtime.workspacesJson)
@@ -74,6 +143,9 @@ class WorkspaceAndSharingDeviceTest {
                 assertFalse(WorkspaceRegistry.State.parse(runtime.workspacesJson).memberships.containsKey(id))
                 assertEquals("", runtime.moveSessionToWorkspace(id, empty.id))
                 ActivityScenario.launch(WorkspacesActivity::class.java).use { it.recreate() }
+                ActivityScenario.launch<WorkspaceEditActivity>(WorkspaceEditActivity.intent(context, empty.id)).use { it.recreate() }
+                val draft = WorkspaceLaunch(UUID.randomUUID().toString(), "Lifecycle", SessionProfiles(context).all().first().id)
+                ActivityScenario.launch<WorkspaceLaunchEditActivity>(WorkspaceLaunchEditActivity.intent(context, draft.json().toString())).use { it.recreate() }
                 ActivityScenario.launch(SharedFoldersActivity::class.java).use { it.recreate() }
                 assertEquals(empty.id, WorkspaceRegistry.State.parse(runtime.workspacesJson).memberships[id])
                 runtime.writeSessionInput(id, "printf 'after:%s\\n' \"\$TERM_WORKSPACE_TEST\"\n".toByteArray())

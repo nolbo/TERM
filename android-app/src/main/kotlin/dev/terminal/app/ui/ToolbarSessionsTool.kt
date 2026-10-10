@@ -15,7 +15,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ScrollState
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -79,7 +78,11 @@ internal fun ToolbarSessionsTool(
     onSelectWorkspace: (String) -> Unit = {},
     onCreateWorkspace: (String) -> Unit = {},
     onLaunchWorkspace: (dev.terminal.runtime.workspace.WorkspaceLaunch) -> Unit = {},
+    onCloseWorkspaceSessions: () -> Unit = {},
     onMove: (SessionUi) -> Unit = {},
+    onDeleteEmptyTemporaryWorkspace: (String) -> Unit = {},
+    workspaceSessionStateKnown: Boolean = false,
+    onRunWorkspaceStartups: () -> Unit = {},
 ) {
     val haptics = LocalTerminalHaptics.current
     // Keep each list's position when switching between the default and expanded headers.
@@ -133,8 +136,16 @@ internal fun ToolbarSessionsTool(
                         Modifier.weight(1f).fillMaxWidth()) {
                         LazyColumn(Modifier.fillMaxSize(), state = profileScroll,
                             contentPadding = PaddingValues(bottom = 8.dp)) {
+                            val workspace = workspaceState.workspaces.firstOrNull { it.id == workspaceState.selected }
+                            workspaceLaunchItems(workspace, profiles, profileInstallationStatuses,
+                                enabled = active && profilePickerVisible, accent = colors.accent,
+                                foreground = colors.foreground, supporting = colors.unselectedTabContent,
+                                onSelect = { launch ->
+                                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                                    onLaunchWorkspace(launch)
+                                })
                             item {
-                                Text(stringResource(R.string.select_profile),
+                                Text(stringResource(if (workspace?.launches?.isNotEmpty() == true) R.string.profiles else R.string.select_profile),
                                     Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
                                     style = MaterialTheme.typography.labelLarge, color = colors.foreground)
                             }
@@ -177,15 +188,25 @@ internal fun ToolbarSessionsTool(
         Column(Modifier.fillMaxSize().offset { sessionOffset.value }.graphicsLayer { alpha = sessionAlpha.value }) {
             val progress = (expansionProgress ?: if (sessionPageVisible) progressState.value else preparedProgress).coerceIn(0f, 1f)
             val tabsActive = sessionsActive && progress == 1f
+            val showWorkspaceName = progress == 1f || sessions.isEmpty()
+            val selectedWorkspace = workspaceState.workspaces.firstOrNull { it.id == workspaceState.selected }
+            val emptyPermanentWorkspace = selectedWorkspace?.takeIf { !it.temporary && sessions.isEmpty() }
+            val emptyTemporaryWorkspace = selectedWorkspace
+                ?.takeIf { it.temporary && workspaceSessionStateKnown && sessions.isEmpty() &&
+                    it.id !in workspaceState.memberships.values }
             // Use the sheet's spatial motion directly; a second animation would lag behind dragging.
             val headerHeight = ToolbarHotkeyViewportHeight + (48.dp - ToolbarHotkeyViewportHeight) * progress
             val headerPadding = 4.dp + 4.dp * progress
             Row(Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = headerPadding),
                 verticalAlignment = Alignment.CenterVertically) {
-                WorkspaceSelector(workspaceState, sessionsActive, onSelectWorkspace, onCreateWorkspace, onLaunchWorkspace, colors.appBarIcon)
-                Box(Modifier.weight(1f), contentAlignment = Alignment.CenterStart) {
+                Row(Modifier.weight(1f).height(48.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    WorkspaceSelector(workspaceState, sessionsActive, onSelectWorkspace, onCreateWorkspace,
+                        colors.appBarIcon,
+                        showName = showWorkspaceName,
+                        modifier = if (showWorkspaceName) Modifier.weight(1f) else Modifier)
                     if (progress < 1f && sessions.isNotEmpty()) {
-                        Box(Modifier.fillMaxWidth().height(48.dp).clipToBounds().graphicsLayer { alpha = 1f - progress }) {
+                        Box(Modifier.weight(1f).height(48.dp).clipToBounds().graphicsLayer { alpha = 1f - progress }) {
                             PrimaryScrollableTabRow(
                                 selectedTabIndex = sessions.indexOfFirst { it.id == activeSessionId }.coerceAtLeast(0),
                                 scrollState = headerTabScroll,
@@ -214,48 +235,39 @@ internal fun ToolbarSessionsTool(
                                 Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(20.dp))
                         }
                     }
-                    if (progress > 0f) {
-                        SessionToolSummary(sessions, colors,
-                            Modifier.fillMaxWidth().padding(horizontal = 8.dp).graphicsLayer { alpha = progress })
+                    if (emptyPermanentWorkspace != null) IconButton(onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                        onRunWorkspaceStartups()
+                    }, enabled = sessionsActive && workspaceSessionStateKnown && workspaceState.startupLaunches().isNotEmpty(),
+                        shapes = IconButtonDefaults.shapes()) {
+                        Icon(painterResource(R.drawable.ic_material_symbol_play_arrow_24),
+                            stringResource(R.string.workspace_run_default_sessions), tint = colors.appBarIcon)
+                    }
+                    else if (progress == 1f && (sessions.isNotEmpty() || emptyTemporaryWorkspace != null)) IconButton(onClick = {
+                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                        if (emptyTemporaryWorkspace != null) onDeleteEmptyTemporaryWorkspace(emptyTemporaryWorkspace.id)
+                        else onCloseWorkspaceSessions()
+                    }, enabled = tabsActive && (emptyTemporaryWorkspace != null || sessions.any {
+                        it.id !in terminatingSessionIds && (!it.pendingLaunch || it.launchError != null)
+                    }), shapes = IconButtonDefaults.shapes()) {
+                        Icon(painterResource(if (emptyTemporaryWorkspace != null) R.drawable.ic_material_symbol_delete_24
+                            else R.drawable.ic_material_symbol_close_24),
+                            if (emptyTemporaryWorkspace != null)
+                                stringResource(R.string.workspace_delete_temporary_description, emptyTemporaryWorkspace.name)
+                            else stringResource(R.string.workspace_close_sessions_description, workspaceFilterName(workspaceState)),
+                            tint = colors.appBarIcon)
                     }
                 }
                 IconButton(onClick = onNew, enabled = sessionsActive, shapes = IconButtonDefaults.shapes()) {
                     Icon(painterResource(R.drawable.ic_material_symbol_add_24), stringResource(R.string.new_session), tint = colors.appBarIcon)
                 }
-                TerminalOverflowMenu(onSettings, enabled = sessionsActive, tint = colors.appBarIcon)
+                TerminalSettingsButton(onSettings, enabled = sessionsActive, tint = colors.appBarIcon)
             }
+            Spacer(Modifier.height(8.dp * progress))
             if (progress > 0f) ReorderableSessionTabs(sessions, activeSessionId, tabsActive, onReorder,
                 Modifier.weight(1f).fillMaxWidth().graphicsLayer { alpha = progress }, scroll = tabScroll) { session, itemModifier, dragging, lifted ->
                 SessionToolTab(session, session.id == activeSessionId, tabsActive && !dragging,
                     terminatingSessionIds, onSelect, onRename, onMove, onTerminate, colors, itemModifier, lifted)
-            }
-        }
-    }
-}
-
-private val sessionSummaryStates = listOf("RUNNING", "PREPARING", "CREATED", "EXITED", "LAUNCH_FAILED", "UNKNOWN")
-
-@Composable
-private fun SessionToolSummary(sessions: List<SessionUi>, colors: TerminalChromeColors, modifier: Modifier) {
-    val counts = remember(sessions) {
-        sessions.groupingBy { if (it.state in sessionSummaryStates) it.state else "UNKNOWN" }.eachCount()
-    }
-    Column(modifier) {
-        Text(stringResource(R.string.toolbar_session_count, sessions.size),
-            maxLines = 1, overflow = TextOverflow.Ellipsis,
-            style = MaterialTheme.typography.titleMedium, color = colors.foreground)
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), verticalAlignment = Alignment.CenterVertically) {
-            var first = true
-            sessionSummaryStates.forEach { state ->
-                counts[state]?.let { count ->
-                    if (!first) Text(" · ", style = MaterialTheme.typography.bodySmall,
-                        color = colors.foreground.copy(alpha = 0.75f))
-                    Text(stringResource(R.string.toolbar_session_state_count, sessionStateLabel(state), count),
-                        maxLines = 1,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = colors.foreground.copy(alpha = 0.75f))
-                    first = false
-                }
             }
         }
     }

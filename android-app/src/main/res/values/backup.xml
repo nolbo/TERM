@@ -3,6 +3,7 @@
     <string name="backup_summary">환경 데이터를 파일로 저장하고 새 실행환경으로 복원합니다</string>
     <string name="backup_create">백업 만들기</string>
     <string name="backup_import">백업 가져오기</string>
+    <string name="backup_import_summary">백업 파일에서 새 실행환경을 만듭니다</string>
     <string name="backup_sensitive">백업에는 비밀번호, SSH 키, 토큰과 개인 파일이 포함될 수 있습니다. 안전한 위치에 보관하고 신뢰할 수 있는 백업만 가져오세요.</string>
     <string name="backup_contents">포함할 데이터</string>
     <string name="backup_type">백업 유형</string>
@@ -14,10 +15,10 @@
     <string name="backup_profiles">프로필 포함</string>
     <string name="backup_profiles_summary">이 실행환경에 연결된 셸, 시작 명령, 환경 변수와 표시 설정을 저장합니다.</string>
     <string name="backup_workspace">기존 작업 폴더 포함</string>
-    <string name="backup_workspace_private">이 실행환경에 남은 기존 작업 폴더입니다. 논리적 Workspace와 Shared Folders는 포함하지 않습니다.</string>
+    <string name="backup_workspace_private">이 실행환경에 남은 기존 작업 폴더입니다. 논리적 워크스페이스와 공유 디렉토리는 포함하지 않습니다.</string>
     <string name="backup_workspace_shared">여러 기존 실행환경이 공유하는 Legacy 작업 폴더입니다. 기본적으로 제외합니다.</string>
     <string name="backup_shared_consent">공유 데이터 포함에 동의</string>
-    <string name="backup_shared_warning">다른 실행환경의 프로젝트도 포함될 수 있습니다. 공유 폴더를 사용하는 모든 실행환경을 먼저 중지하세요.</string>
+    <string name="backup_shared_warning">다른 실행환경의 프로젝트도 포함될 수 있습니다. 공유 디렉토리를 사용하는 모든 실행환경을 먼저 중지하세요.</string>
     <string name="backup_idle_required">백업 전 대상의 세션과 파일을 쓰는 프로세스를 종료하고 Userspace Linux 실행환경을 중지하세요. 백업이 세션이나 프로세스를 대신 종료하지 않습니다.</string>
     <string name="backup_security">보호</string>
     <string name="backup_encrypt">비밀번호로 암호화</string>

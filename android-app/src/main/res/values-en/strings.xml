@@ -125,7 +125,7 @@
     <string name="profile_icon">Profile icon</string>
     <string name="profile_icon_auto">Match runtime</string>
     <string name="profile_icon_import">Add image</string>
-    <string name="profile_icon_help">Monochrome PNG/WebP images with a transparent background and identical RGB values in all visible pixels follow tab and menu colors. Alpha may vary for smooth edges. Multicolor images or images with opaque backgrounds keep their original colors. PNG, WebP or JPEG; up to 8 MiB, 16 megapixels and 8192px per side. Transparent margins are trimmed and proportions preserved to fit the icon area. Imported images are copied into the app.</string>
+    <string name="profile_icon_help">Choose a profile icon. The automatic icon follows the execution environment. Previously added monochrome images with transparent backgrounds follow tab and menu colors. Multicolor images or images with opaque backgrounds keep their original colors.</string>
     <string name="profile_icon_import_error">Could not add the image. Check its format, size and read access. Fully transparent images cannot be used.</string>
     <string name="profile_icon_tintable">Custom · adaptive color</string>
     <string name="profile_icon_original">Custom · original color</string>

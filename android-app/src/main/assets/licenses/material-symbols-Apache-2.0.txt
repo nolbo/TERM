@@ -4,7 +4,9 @@ Source: https://github.com/google/material-design-icons
 Variant: Material Symbols Rounded, 24 px, default unfilled style
 Assets: add, arrow_back, arrow_downward, arrow_upward, block, check_circle,
 chevron_right, close, content_copy, delete, download, memory,
-refresh, settings, terminal, text_format
+refresh, settings, terminal, team_dashboard, text_format, auto_awesome, cloud, code,
+rocket_launch, science, palette, construction, folder, sports_esports,
+menu_book, pets, public, star, bolt, lightbulb, folder_data
 
 The source assets are licensed under the Apache License, Version 2.0:
 Apache License

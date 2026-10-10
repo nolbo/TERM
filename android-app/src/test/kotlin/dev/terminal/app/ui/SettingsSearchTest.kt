@@ -8,7 +8,7 @@ class SettingsSearchTest {
     @Test fun avfCategoriesAndNestedSearchResultsRequirePrivileges() {
         val unprivileged = visibleSettingsSearchEntries(false)
         assertFalse(unprivileged.any { it.target.screen == "avf" })
-        assertEquals(listOf("environments", "profiles", "workspaces", "shared-folders", "local-services", "backups", "language", "terminal", "rootless", "native", "diagnostics", "updates", "about"),
+        assertEquals(listOf("environments", "profiles", "workspaces", "shared-folders", "local-services", "language", "terminal", "rootless", "native", "diagnostics", "updates", "about"),
             unprivileged.filter { it.path.isEmpty() }.map { it.target.screen })
         assertEquals(settingsSearchEntries, visibleSettingsSearchEntries(true))
         assertTrue(visibleSettingsSearchEntries(true).any { it.target.screen == "avf" && it.path.isNotEmpty() })
@@ -61,7 +61,7 @@ class SettingsSearchTest {
     }
 
     @Test fun homeIncludesEnvironmentsAndResultKeysAreUnique() {
-        assertEquals(listOf("environments", "profiles", "workspaces", "shared-folders", "local-services", "backups", "language", "terminal", "rootless", "avf", "native", "diagnostics", "updates", "about"),
+        assertEquals(listOf("environments", "profiles", "workspaces", "shared-folders", "local-services", "language", "terminal", "rootless", "avf", "native", "diagnostics", "updates", "about"),
             settingsSearchEntries.filter { it.path.isEmpty() }.map { it.target.screen })
         val keys = settingsSearchEntries.map { it.target.screen to it.title }
         assertEquals(keys.size, keys.toSet().size)
@@ -73,5 +73,14 @@ class SettingsSearchTest {
             R.string.diagnostics_title, R.string.crash_reports_title) }.all { it.target.screen == "diagnostics" })
         assertTrue(settingsSearchEntries.filter { it.title == R.string.forwarded_ports_title }.all { it.target.screen == "avf" })
         assertFalse(visibleSettingsSearchEntries(false).any { it.title == R.string.forwarded_ports_title })
+    }
+
+    @Test fun backupsAreNestedUnderEnvironmentsAndImportOpensASeparateFileFlow() {
+        val backups = settingsSearchEntries.filter { it.title in listOf(R.string.backup_title, R.string.backup_import, R.string.backup_create) }
+        assertTrue(backups.all { it.path.first() == R.string.storage_title })
+        val imported = backups.single { it.title == R.string.backup_import }
+        assertEquals(listOf(R.string.storage_title, R.string.backup_title), imported.path)
+        assertEquals(SettingsSearchTarget("backups"), imported.target)
+        assertEquals(R.string.backup_import_summary, imported.summary)
     }
 }

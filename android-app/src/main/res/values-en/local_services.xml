@@ -2,7 +2,6 @@
 <resources>
     <string name="local_services_no_avf_link">No AVF port agent is connected. Environments are not started automatically.</string>
     <string name="local_services_avf_links">AVF agents: %1$d connected · %2$d connecting · %3$d disconnected</string>
-    <string name="terminal_more">More options</string>
     <string name="local_services_title">Local Services</string>
     <string name="local_services_summary">Register local services and manage ports, addresses and forwarding</string>
     <string name="local_services_description">View local services, access addresses and port forwarding across environments.</string>

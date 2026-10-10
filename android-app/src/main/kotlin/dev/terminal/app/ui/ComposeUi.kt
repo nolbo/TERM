@@ -438,15 +438,24 @@ fun NewSessionSheet(profiles: List<dev.terminal.runtime.session.SessionProfile>,
     onSelectProfile: (dev.terminal.runtime.session.SessionProfile) -> Unit,
     onAddProfile: () -> Unit, onDismiss: () -> Unit,
     environmentNames: Map<dev.terminal.runtime.session.EnvironmentId, String> = emptyMap(),
-    installationStatuses: Map<dev.terminal.runtime.session.EnvironmentId, ProfileInstallationStatus> = emptyMap()) {
+    installationStatuses: Map<dev.terminal.runtime.session.EnvironmentId, ProfileInstallationStatus> = emptyMap(),
+    workspace: dev.terminal.runtime.workspace.Workspace? = null,
+    onSelectWorkspaceLaunch: (dev.terminal.runtime.workspace.WorkspaceLaunch) -> Unit = {}) {
     val sheetState = rememberBottomSheetState(
         initialValue = SheetValue.Hidden,
         enabledValues = setOf(SheetValue.Hidden, SheetValue.Expanded),
     )
     val scope = rememberCoroutineScope()
     val haptics = LocalTerminalHaptics.current
+    val foreground = MaterialTheme.colorScheme.onSurface
+    val supporting = MaterialTheme.colorScheme.onSurfaceVariant
     SessionBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
         LazyColumn(Modifier.fillMaxWidth(), contentPadding = PaddingValues(bottom = 24.dp)) {
+            workspaceLaunchItems(workspace, profiles, installationStatuses, accent = TerminalStatusBlue,
+                foreground = foreground, supporting = supporting, largeHeading = true, onSelect = { launch ->
+                    haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+                    scope.launch { sheetState.hide(); onSelectWorkspaceLaunch(launch) }
+                })
             item {
                 Text(stringResource(R.string.profiles),
                     modifier = Modifier.padding(horizontal = 24.dp, vertical = 8.dp),
@@ -654,6 +663,7 @@ fun TerminalEmptyState(
     runtimeMessage: String,
     onNewSession: () -> Unit,
     onSettings: () -> Unit,
+    showActions: Boolean = true,
 ) {
     val haptics = LocalTerminalHaptics.current
     Box(Modifier.fillMaxSize()) {
@@ -673,14 +683,16 @@ fun TerminalEmptyState(
                 Spacer(Modifier.height(8.dp))
                 Text(runtimeMessage, color = TerminalStatusBlue, style = MaterialTheme.typography.bodySmall)
             }
-            Spacer(Modifier.height(20.dp))
-            Button(onClick = onNewSession, shapes = ButtonDefaults.shapes(), modifier = Modifier.heightIn(min = 48.dp)) {
-                Icon(painterResource(R.drawable.ic_material_symbol_add_24), contentDescription = null)
-                Spacer(Modifier.width(8.dp))
-                Text(stringResource(R.string.new_session))
+            if (showActions) {
+                Spacer(Modifier.height(20.dp))
+                Button(onClick = onNewSession, shapes = ButtonDefaults.shapes(), modifier = Modifier.heightIn(min = 48.dp)) {
+                    Icon(painterResource(R.drawable.ic_material_symbol_add_24), contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
+                    Text(stringResource(R.string.new_session))
+                }
             }
         }
-        TerminalOverflowMenu(onSettings, Modifier.align(Alignment.TopEnd).padding(8.dp))
+        if (showActions) TerminalSettingsButton(onSettings, Modifier.align(Alignment.TopEnd).padding(8.dp))
     }
 }
 
@@ -783,7 +795,8 @@ internal fun SettingsOverview(onBack: () -> Unit, onOpen: (SettingsSearchTarget)
                     )
                 }
             } else if (query.isBlank()) {
-                val groups = listOf(listOf("environments", "profiles", "workspaces", "shared-folders", "local-services", "backups"), listOf("language", "terminal"),
+                val groups = listOf(listOf("environments", "profiles", "workspaces"),
+                    listOf("shared-folders", "local-services"), listOf("language", "terminal"),
                     listOf("rootless", "avf", "native"), listOf("diagnostics", "updates", "about"))
                     .map { screens -> visibleRows.filter { it.entry.target.screen in screens } }
                     .filter { it.isNotEmpty() }
@@ -847,10 +860,22 @@ internal fun DiagnosticsAndReportsScreen(
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
             item {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
                     Text(stringResource(R.string.settings_diagnostics_description), Modifier.padding(horizontal = 4.dp),
                         style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    RefreshInformationButton(onRefresh, Modifier.align(Alignment.End))
+                    SettingsGroup {
+                        ListItem(onClick = onRefresh, enabled = !reportsLoading,
+                            leadingContent = {
+                                if (reportsLoading) LoadingIndicator(Modifier.size(24.dp))
+                                else Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), null)
+                            },
+                            supportingContent = { Text(stringResource(R.string.diagnostics_refresh_summary)) },
+                            verticalAlignment = Alignment.CenterVertically,
+                            shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(),
+                            modifier = Modifier.fillMaxWidth()) {
+                            Text(stringResource(if (reportsLoading) R.string.diagnostics_refreshing else R.string.refresh))
+                        }
+                    }
                 }
             }
             item {

@@ -250,6 +250,18 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                             }
                         }
                     } }
+                    if (selectedKey == null) item(key = "backup-restore") {
+                        EnvironmentSection(R.string.backup_title) {
+                            ListItem(onClick = {
+                                startActivity(Intent(this@EnvironmentScreenActivity, EnvironmentBackupActivity::class.java))
+                            }, supportingContent = { Text(stringResource(R.string.backup_import_summary)) },
+                                trailingContent = { EnvironmentChevron() }, verticalAlignment = Alignment.CenterVertically,
+                                shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(),
+                                modifier = Modifier.fillMaxWidth()) {
+                                Text(stringResource(R.string.backup_import))
+                            }
+                        }
+                    }
                     if (entries == null) item(key = "loading") {
                         EnvironmentSection(R.string.storage_title) {
                             ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors(),
@@ -277,8 +289,8 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                         } }
                         if (detail.environment.runtime != EnvironmentRuntime.AVF) item(key = "backup") {
                             EnvironmentSection(R.string.backup_title) {
-                                EnvironmentActionSetting(R.string.backup_create, R.drawable.ic_material_symbol_save_24,
-                                    runtime != null && operating == null && deleting == null,
+                                EnvironmentActionSetting(R.string.backup_create, icon = null,
+                                    enabled = runtime != null && operating == null && deleting == null,
                                     supporting = R.string.backup_summary) {
                                     startActivity(EnvironmentBackupActivity.createIntent(this@EnvironmentScreenActivity, detail.id))
                                 }

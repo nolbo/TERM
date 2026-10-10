@@ -12,44 +12,36 @@ import dev.terminal.runtime.lifecycle.VmRuntimeService
 import dev.terminal.runtime.workspace.*
 import kotlinx.coroutines.*
 
-class WorkspacesActivity : TerminalActivity() {
-    private var state by mutableStateOf<WorkspaceRegistry.State?>(null)
-    private var error by mutableStateOf<String?>(null)
-    private var saving by mutableStateOf(false)
+/** Settings bind to runtime-owned metadata. Stopping an Activity only detaches this client. */
+abstract class WorkspaceSettingsActivity : TerminalActivity() {
+    protected var state by mutableStateOf<WorkspaceRegistry.State?>(null)
+        private set
+    protected var error by mutableStateOf<String?>(null)
+    protected var saving by mutableStateOf(false)
+        private set
+    protected var connected by mutableStateOf(false)
+        private set
     private var runtime: IRuntimeService? = null
     private var bound = false
     private val connection = object : ServiceConnection {
-        override fun onServiceConnected(name: ComponentName, binder: IBinder) { runtime = IRuntimeService.Stub.asInterface(binder); refresh() }
-        override fun onServiceDisconnected(name: ComponentName) { runtime = null; error = getString(R.string.runtime_disconnected) }
-    }
-    override fun onCreate(savedInstanceState: Bundle?) {
-        super.onCreate(savedInstanceState)
-        val profiles = SessionProfiles(this).all()
-        compose { WorkspacesScreen(state, profiles, error, saving, { finish() },
-            connected = runtime != null,
-            onReorder = { ids -> mutate({}) { it.reorderWorkspaces(org.json.JSONArray(ids).toString()) } },
-            onSave = { workspace, done -> mutate(done) { it.saveWorkspace(workspace.json().toString()) } },
-            onDelete = { id, done -> mutate(done) { it.deleteWorkspace(id) } },
-            onRun = { workspace, launch ->
-                runCatching {
-                    val profile = profiles.first { it.id == launch.profileId }
-                    val spec = launch.resolve(profile, SessionProfiles(this)::resolve)
-                    startActivity(Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP)
-                        .putExtra("workspace-launch", spec.toJson().toString()).putExtra("workspace-id", workspace.id))
-                }.onFailure { error = it.message }
-            }) }
+        override fun onServiceConnected(name: ComponentName, binder: IBinder) {
+            runtime = IRuntimeService.Stub.asInterface(binder); connected = true; refresh()
+        }
+        override fun onServiceDisconnected(name: ComponentName) {
+            runtime = null; connected = false; error = getString(R.string.runtime_disconnected)
+        }
     }
     override fun onStart() { super.onStart(); bound = bindService(Intent(this, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE) }
-    override fun onStop() { runtime = null; if (bound) unbindService(connection); bound = false; super.onStop() }
-    private fun refresh() {
+    override fun onStop() { runtime = null; connected = false; if (bound) unbindService(connection); bound = false; super.onStop() }
+    protected fun refresh() {
         val service = runtime ?: return
         lifecycleScope.launch {
             val result = withContext(Dispatchers.IO) { runCatching { WorkspaceRegistry.State.parse(service.workspacesJson) } }
             if (runtime === service) { state = result.getOrNull(); error = result.exceptionOrNull()?.message }
         }
     }
-    private fun mutate(done: () -> Unit, action: (IRuntimeService) -> String) {
-        val service = runtime ?: return
+    protected fun mutate(done: () -> Unit, action: (IRuntimeService) -> String) {
+        val service = runtime ?: run { error = getString(R.string.runtime_disconnected); return }
         if (saving) return
         saving = true
         lifecycleScope.launch {
@@ -57,7 +49,16 @@ class WorkspacesActivity : TerminalActivity() {
             error = failure.takeIf(String::isNotEmpty)
             if (failure.isEmpty()) done()
             saving = false
-            refresh()
         }
+    }
+}
+
+class WorkspacesActivity : WorkspaceSettingsActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        compose { WorkspacesScreen(state, error, connected, { finish() },
+            onCreate = { startActivity(WorkspaceEditActivity.intent(this)) },
+            onEdit = { startActivity(WorkspaceEditActivity.intent(this, it.id)) }, saving = saving,
+            onReorder = { ids -> mutate({ refresh() }) { it.reorderWorkspaces(org.json.JSONArray(ids).toString()) } }) }
     }
 }

@@ -143,7 +143,7 @@ class WorkspaceStartupDeviceTest {
         } finally { assertEquals("", runtime.deleteWorkspace(workspace.id)) }
     }
 
-    @Test fun openingStartsOnlySelectedConfigurationsAndRecreationAndReentryReuseSessions() = withRuntime { runtime ->
+    @Test fun openingDefaultsToUnassignedAndExplicitWorkspaceEntryStartsAndReusesSelectedConfigurations() = withRuntime { runtime ->
         val before = state(runtime)
         val workspace = fixture().let { original -> original.copy(launches = original.launches.mapIndexed { index, launch ->
             launch.copy(startWithWorkspace = index != 1)
@@ -152,8 +152,16 @@ class WorkspaceStartupDeviceTest {
         val owned = mutableSetOf<String>()
         assertEquals("", runtime.saveWorkspace(workspace.json().toString()))
         assertEquals("", runtime.selectWorkspace(workspace.id))
+        val existingIds = rows(runtime).mapTo(mutableSetOf()) { it.getString("id") }
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                await("Ordinary launch defaults to unassigned instead of the saved Workspace") {
+                    state(runtime).selected == WorkspaceRegistry.UNASSIGNED
+                }
+                assertEquals("Opening the console must not create sessions", existingIds,
+                    rows(runtime).mapTo(mutableSetOf()) { it.getString("id") })
+                tap { it.contentDescription?.toString() == context.getString(R.string.workspace_selector, context.getString(R.string.workspace_unassigned)) }
+                text(workspace.name)
                 await("Both selected configurations start in their Workspace") {
                     owned += rows(runtime).filter { state(runtime).memberships[it.getString("id")] == workspace.id }.map { it.getString("id") }
                     owned.size == 2
@@ -161,9 +169,9 @@ class WorkspaceStartupDeviceTest {
                 assertEquals(profile, SessionProfiles(context).find(workspace.launches.first().profileId))
                 scenario.recreate()
                 tap { it.contentDescription?.toString() == context.getString(R.string.workspace_selector, workspace.name) }
-                text(context.getString(R.string.workspace_all))
-                await("All sessions filter is selected") { state(runtime).selected == WorkspaceRegistry.ALL }
-                tap { it.contentDescription?.toString() == context.getString(R.string.workspace_selector, context.getString(R.string.workspace_all)) }
+                text(context.getString(R.string.workspace_unassigned))
+                await("Unassigned sessions filter is selected") { state(runtime).selected == WorkspaceRegistry.UNASSIGNED }
+                tap { it.contentDescription?.toString() == context.getString(R.string.workspace_selector, context.getString(R.string.workspace_unassigned)) }
                 text(workspace.name)
                 await("Occupied Workspace is selected again") { state(runtime).selected == workspace.id }
                 instrumentation.waitForIdleSync()
@@ -172,6 +180,37 @@ class WorkspaceStartupDeviceTest {
                 assertEquals(2, ids.size)
                 val launches = rows(runtime).filter { it.getString("id") in owned }.map { it.getJSONObject("launchSpec") }
                 assertTrue(launches.all { it.getString("cwd") == context.filesDir.path })
+                val previousSessionIds = owned.toSet()
+                previousSessionIds.forEach { runtime.terminateSession(it) }
+                val runDescription = context.getString(R.string.workspace_run_default_sessions)
+                await("An empty permanent Workspace offers default sessions") {
+                    rows(runtime).none { it.getString("id") in previousSessionIds } && node {
+                        it.contentDescription?.toString() == runDescription && it.isEnabled
+                    } != null
+                }
+                owned.clear()
+                tap { it.contentDescription?.toString() == runDescription }
+                await("Run default sessions restarts both selected configurations") {
+                    owned += rows(runtime).filter { state(runtime).memberships[it.getString("id")] == workspace.id }.map { it.getString("id") }
+                    owned.size == 2
+                }
+                assertTrue(owned.none { it in previousSessionIds })
+                assertEquals(workspace.launches.filter { it.startWithWorkspace }.map { it.name }.toSet(),
+                    rows(runtime).filter { it.getString("id") in owned }.map { it.getString("title") }.toSet())
+                assertEquals(profile, SessionProfiles(context).find(workspace.launches.first().profileId))
+                assertEquals("Other Workspace and unassigned sessions remain running", existingIds,
+                    rows(runtime).filter { it.getString("id") !in owned }.mapTo(mutableSetOf()) { it.getString("id") })
+                scenario.onActivity { activity ->
+                    activity.startActivity(Intent(activity.intent)
+                        .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
+                }
+                await("Launching the existing console also defaults to unassigned") {
+                    state(runtime).selected == WorkspaceRegistry.UNASSIGNED && node {
+                        it.contentDescription?.toString() == context.getString(R.string.workspace_selector, context.getString(R.string.workspace_unassigned))
+                    } != null
+                }
+                assertEquals("Defaulting the filter preserves Workspace sessions", owned,
+                    rows(runtime).filter { state(runtime).memberships[it.getString("id")] == workspace.id }.mapTo(mutableSetOf()) { it.getString("id") })
             }
         } finally {
             // Recheck ownership so even a failed startup assertion cannot leak test sessions.

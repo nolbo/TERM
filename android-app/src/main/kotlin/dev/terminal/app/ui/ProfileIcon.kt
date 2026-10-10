@@ -29,6 +29,12 @@ import kotlinx.coroutines.withContext
 private val iconCache = LruCache<String, ImageBitmap>(64)
 
 internal fun profileIconDrawable(id: String): Int = when (id) {
+    "auto" -> R.drawable.ic_material_symbol_auto_awesome_24
+    "team_dashboard" -> R.drawable.ic_material_symbol_team_dashboard_24
+    "folder_shared" -> R.drawable.ic_material_symbol_folder_shared_24
+    "layers" -> R.drawable.ic_material_symbol_layers_24
+    "deployed_code" -> R.drawable.ic_material_symbol_deployed_code_24
+    "lan" -> R.drawable.ic_material_symbol_lan_24
     "native" -> R.drawable.ic_runtime_native
     "rootless" -> R.drawable.ic_runtime_rootless_group
     "debian" -> R.drawable.ic_runtime_debian
@@ -40,6 +46,20 @@ internal fun profileIconDrawable(id: String): Int = when (id) {
     "search" -> R.drawable.ic_material_symbol_search_24
     "download" -> R.drawable.ic_material_symbol_download_24
     "check" -> R.drawable.ic_material_symbol_check_circle_24
+    "cloud" -> R.drawable.ic_material_symbol_cloud_24
+    "code" -> R.drawable.ic_material_symbol_code_24
+    "rocket_launch" -> R.drawable.ic_material_symbol_rocket_launch_24
+    "science" -> R.drawable.ic_material_symbol_science_24
+    "palette" -> R.drawable.ic_material_symbol_palette_24
+    "construction" -> R.drawable.ic_material_symbol_construction_24
+    "folder" -> R.drawable.ic_material_symbol_folder_24
+    "sports_esports" -> R.drawable.ic_material_symbol_sports_esports_24
+    "menu_book" -> R.drawable.ic_material_symbol_menu_book_24
+    "pets" -> R.drawable.ic_material_symbol_pets_24
+    "public" -> R.drawable.ic_material_symbol_public_24
+    "star" -> R.drawable.ic_material_symbol_star_24
+    "bolt" -> R.drawable.ic_material_symbol_bolt_24
+    "lightbulb" -> R.drawable.ic_material_symbol_lightbulb_24
     else -> R.drawable.ic_material_symbol_terminal_24
 }
 

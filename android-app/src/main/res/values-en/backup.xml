@@ -3,6 +3,7 @@
     <string name="backup_summary">Save environment data to a file and restore it as a new environment</string>
     <string name="backup_create">Create backup</string>
     <string name="backup_import">Import backup</string>
+    <string name="backup_import_summary">Create a new environment from a backup file</string>
     <string name="backup_sensitive">Backups may contain passwords, SSH keys, tokens and private files. Store them securely and import only backups you trust.</string>
     <string name="backup_contents">Included data</string>
     <string name="backup_type">Backup type</string>
@@ -17,7 +18,7 @@
     <string name="backup_workspace_private">The private working folder for this environment. Available when the folder exists.</string>
     <string name="backup_workspace_shared">A legacy working folder shared by several environments. Excluded by default.</string>
     <string name="backup_shared_consent">Include shared data</string>
-    <string name="backup_shared_warning">Projects belonging to other environments may be included. Stop all environments that use this shared folder first.</string>
+    <string name="backup_shared_warning">Projects belonging to other environments may be included. Stop all environments that use this shared directory first.</string>
     <string name="backup_idle_required">Close sessions and processes writing environment files, and stop Userspace Linux before backup. Backup never terminates sessions or processes for you.</string>
     <string name="backup_security">Protection</string>
     <string name="backup_encrypt">Encrypt with a password</string>

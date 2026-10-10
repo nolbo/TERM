@@ -23,14 +23,14 @@ import dev.terminal.app.ui.terminalSettingsListItemColors
     Column(Modifier.fillMaxWidth().padding(top = 20.dp)) { ProfileSection(title, content) }
 }
 
-@Composable internal fun EnvironmentActionSetting(title: Int, icon: Int, enabled: Boolean,
+@Composable internal fun EnvironmentActionSetting(title: Int, icon: Int?, enabled: Boolean,
     supporting: Int? = null, destructive: Boolean = false, onClick: () -> Unit) {
     ListItem(onClick = onClick, enabled = enabled,
         supportingContent = supporting?.let { { Text(stringResource(it)) } },
-        leadingContent = {
-            Icon(painterResource(icon), contentDescription = null,
+        leadingContent = icon?.let { iconResource -> {
+            Icon(painterResource(iconResource), contentDescription = null,
                 tint = if (destructive && enabled) MaterialTheme.colorScheme.error else LocalContentColor.current)
-        },
+        } },
         verticalAlignment = Alignment.CenterVertically,
         shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(),
         modifier = Modifier.fillMaxWidth()) {

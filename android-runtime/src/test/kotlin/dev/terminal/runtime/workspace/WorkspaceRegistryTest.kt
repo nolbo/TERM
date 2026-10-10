@@ -3,6 +3,7 @@ package dev.terminal.runtime.workspace
 import dev.terminal.runtime.session.*
 import org.junit.Assert.*
 import org.junit.Test
+import org.json.JSONObject
 import java.util.UUID
 
 class WorkspaceRegistryTest {
@@ -61,19 +62,33 @@ class WorkspaceRegistryTest {
         assertEquals(WorkspaceRegistry.UNASSIGNED, registry().snapshot().selected)
         assertTrue(registry().snapshot().memberships.isEmpty())
     }
-    @Test fun everySessionHasAtMostOneWorkspaceAndBothGlobalFiltersAlwaysWork() {
+    @Test fun everySessionHasAtMostOneWorkspaceAndUnassignedFilterAlwaysWorks() {
         val registry = registry(); val one = permanent(); val two = permanent()
         registry.save(one); registry.save(two); registry.move("s", one.id); registry.move("s", two.id)
         assertEquals(mapOf("s" to two.id), registry.snapshot().memberships)
-        registry.select(WorkspaceRegistry.ALL); assertTrue(registry.snapshot().includes("s")); assertTrue(registry.snapshot().includes("other"))
+        registry.select(two.id); assertTrue(registry.snapshot().includes("s")); assertFalse(registry.snapshot().includes("other"))
         registry.select(WorkspaceRegistry.UNASSIGNED); assertFalse(registry.snapshot().includes("s")); assertTrue(registry.snapshot().includes("other"))
         registry.move("s", null); assertTrue(registry.snapshot().includes("s"))
+    }
+    @Test fun defaultAndLegacyAllSelectionUseUnassignedWithoutChangingWorkspaceData() {
+        val registry = registry()
+        assertEquals(WorkspaceRegistry.UNASSIGNED, registry.snapshot().selected)
+        val workspace = permanent()
+        registry.save(workspace); registry.move("s", workspace.id)
+        val previous = registry.snapshot()
+        encoded = previous.copy(selected = WorkspaceRegistry.ALL).json().toString()
+        val restored = registry().snapshot()
+        assertEquals(previous, restored)
+        assertFalse(restored.includes("s")); assertTrue(restored.includes("other"))
+        registry().select(WorkspaceRegistry.ALL)
+        assertEquals(WorkspaceRegistry.UNASSIGNED, JSONObject(checkNotNull(encoded)).getString("selected"))
+        assertEquals(previous, registry().snapshot())
     }
     @Test fun temporaryCollectionRequiresEmptyUnselectedAndAuthoritativeState() {
         val registry = registry(); val id = registry.createTemporary("Temporary")
         registry.move("s", id); registry.reconcile(setOf("s")); assertEquals(1, registry.snapshot().workspaces.size)
         registry.select(id); registry.reconcile(emptySet()); assertEquals(1, registry.snapshot().workspaces.size)
-        registry.select(WorkspaceRegistry.ALL); registry.reconcile(null); assertEquals(1, registry.snapshot().workspaces.size)
+        registry.select(WorkspaceRegistry.UNASSIGNED); registry.reconcile(null); assertEquals(1, registry.snapshot().workspaces.size)
         registry.reconcile(emptySet(), setOf(id)); assertEquals(1, registry.snapshot().workspaces.size)
         registry.reconcile(emptySet()); assertTrue(registry.snapshot().workspaces.isEmpty())
     }
@@ -82,6 +97,36 @@ class WorkspaceRegistryTest {
         registry.move("s", id); registry.save(Workspace(id, "Permanent", false)); registry.reconcile(setOf("s"))
         assertEquals(id, registry.snapshot().memberships["s"])
         registry.reconcile(emptySet()); assertEquals(id, registry.snapshot().workspaces.single().id)
+    }
+    @Test fun emptyTemporaryDeletionKeepsOtherGroupsAndSessionsAndReturnsToUnassigned() {
+        val registry = registry()
+        val permanent = permanent().copy(launches = listOf(WorkspaceLaunch(UUID.randomUUID().toString(), "Shell", "profile")))
+        registry.save(permanent); registry.move("other-session", permanent.id)
+        val id = registry.createTemporary("Empty temporary")
+        registry.select(id)
+        registry.deleteEmptyTemporary(id, setOf("other-session"))
+        val restored = registry().snapshot()
+        assertEquals(listOf(permanent), restored.workspaces)
+        assertEquals(mapOf("other-session" to permanent.id), restored.memberships)
+        assertEquals(WorkspaceRegistry.UNASSIGNED, restored.selected)
+    }
+    @Test fun emptyTemporaryDeletionRejectsUnknownPendingOccupiedAndPromotedGroups() {
+        val registry = registry()
+        val id = registry.createTemporary("Temporary")
+        registry.select(id)
+        fun unchanged(action: () -> Unit) {
+            val previous = encoded
+            assertTrue(runCatching(action).isFailure)
+            assertEquals(previous, encoded)
+        }
+        unchanged { registry.deleteEmptyTemporary(id, null) }
+        unchanged { registry.deleteEmptyTemporary(id, emptySet(), setOf(id)) }
+        registry.move("new-session", id)
+        unchanged { registry.deleteEmptyTemporary(id, emptySet()) }
+        registry.move("new-session", null)
+        registry.save(Workspace(id, "Promoted", false,
+            listOf(WorkspaceLaunch(UUID.randomUUID().toString(), "Saved launch", "profile"))))
+        unchanged { registry.deleteEmptyTemporary(id, emptySet()) }
     }
     @Test fun launchOverridesCwdWithoutMutatingProfileOrEnvironmentReferences() {
         val environment = Environment.create(SessionRuntime.ROOTLESS, "Debian")
@@ -99,6 +144,40 @@ class WorkspaceRegistryTest {
         assertTrue(runCatching { registry.move("s", UUID.randomUUID().toString()) }.isFailure)
         assertTrue(runCatching { registry.select("../../bad") }.isFailure)
         assertEquals(previous, encoded)
+    }
+    @Test fun oldMetadataGetsTheDefaultIconWithoutChangingIdsLaunchesMembershipsOrFilter() {
+        val workspace = permanent().copy(launches = listOf(WorkspaceLaunch(UUID.randomUUID().toString(), "Shell", "profile", "/tmp")))
+        val old = WorkspaceRegistry.State(listOf(workspace), mapOf("native:one" to workspace.id), workspace.id).json()
+        old.getJSONArray("workspaces").getJSONObject(0).remove("icon")
+        encoded = old.toString()
+        val state = registry().snapshot()
+        assertEquals(workspace, state.workspaces.single())
+        assertEquals(WorkspaceIcon.DEFAULT, state.workspaces.single().icon)
+        assertEquals(mapOf("native:one" to workspace.id), state.memberships)
+        assertEquals(workspace.id, state.selected)
+        registry().save(workspace.copy(name = "Renamed"))
+        assertEquals(WorkspaceIcon.DEFAULT, registry().snapshot().workspaces.single().icon)
+    }
+    @Test fun iconEditsSurviveRecreationAndKeepLaunchesMembershipsAndSelection() {
+        val registry = registry()
+        val workspace = permanent().copy(launches = listOf(WorkspaceLaunch(UUID.randomUUID().toString(), "Shell", "profile")))
+        registry.save(workspace); registry.move("native:one", workspace.id); registry.select(workspace.id)
+        WorkspaceIcon.builtIns.forEach { icon ->
+            registry.save(workspace.copy(icon = icon))
+            val restored = registry().snapshot()
+            assertEquals(workspace.copy(icon = icon), restored.workspaces.single())
+            assertEquals(mapOf("native:one" to workspace.id), restored.memberships)
+            assertEquals(workspace.id, restored.selected)
+        }
+    }
+    @Test fun iconMetadataRejectsPathsCustomImagesAndUnknownSymbolsWithoutReplacingSavedState() {
+        val registry = registry(); val workspace = permanent(); registry.save(workspace)
+        val previous = encoded
+        listOf("../terminal", "/data/private/file", "image:${"a".repeat(64)}:mask", "unknown", "").forEach { icon ->
+            val json = JSONObject(workspace.json().toString()).put("icon", icon)
+            assertTrue(runCatching { registry.save(Workspace.parse(json)) }.isFailure)
+            assertEquals(previous, encoded)
+        }
     }
     @Test fun oversizedLaunchSettingsCannotReplaceReadableState() {
         val registry = registry()

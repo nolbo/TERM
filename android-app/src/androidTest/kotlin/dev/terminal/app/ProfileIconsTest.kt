@@ -84,11 +84,12 @@ class ProfileIconsTest {
         fun find(predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo? {
             fun walk(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
                 if (node == null) return null
-                if (predicate(node)) return node
+                if (node.isVisibleToUser && predicate(node)) return node
                 for (i in 0 until node.childCount) walk(node.getChild(i))?.let { return it }
                 return null
             }
             instrumentation.waitForIdleSync()
+            instrumentation.uiAutomation.clearCache()
             return walk(instrumentation.uiAutomation.rootInActiveWindow)
         }
         fun await(check: () -> Boolean) {
@@ -97,17 +98,31 @@ class ProfileIconsTest {
         }
         fun click(label: Int) {
             await {
-                var node = find { it.text?.toString() == context.getString(label) }
+                var node = find { it.text?.toString() == context.getString(label) ||
+                    it.contentDescription?.toString() == context.getString(label) }
                 while (node != null && !node.isClickable) node = node.parent
                 node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true
             }
         }
         fun chooseKeyboard() {
+            await { find { it.text?.toString() == context.getString(R.string.confirm) } != null }
             await {
-                if (find { it.text?.toString() == context.getString(R.string.profile_icon_keyboard) } != null) true
+                if (find { it.contentDescription?.toString() == context.getString(R.string.profile_icon_keyboard) } != null) true
                 else { find { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
             }
+            assertNull(find { it.text?.toString() == context.getString(R.string.profile_icon_keyboard) })
             click(R.string.profile_icon_keyboard)
+        }
+        fun assertNoImageImportAction() {
+            await { find { it.text?.toString() == context.getString(R.string.confirm) } != null }
+            for (attempt in 0 until 20) {
+                if (find { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) != true) break
+                instrumentation.waitForIdleSync()
+                SystemClock.sleep(50)
+            }
+            assertNull(find { it.text?.toString() == context.getString(R.string.profile_icon_import) })
+            assertNull(find { it.text?.toString() == context.getString(R.string.save) })
+            assertNotNull(find { it.text?.toString() == context.getString(R.string.confirm) })
         }
         try {
             store.save(profile)
@@ -118,10 +133,13 @@ class ProfileIconsTest {
                 assertEquals("auto", store.find(profile.id)?.icon)
                 click(R.string.profile_icon); chooseKeyboard()
                 activity.recreate()
-                click(R.string.save)
+                assertNoImageImportAction()
+                click(R.string.confirm)
                 await { find { it.text?.toString() == context.getString(R.string.cancel) } == null }
+                assertEquals("auto", store.find(profile.id)?.icon)
                 await {
-                    if (find { it.text?.toString() == context.getString(R.string.profile_save) } != null) true
+                    if (find { it.text?.toString() == context.getString(R.string.profile_save) ||
+                        it.contentDescription?.toString() == context.getString(R.string.profile_save) } != null) true
                     else { find { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
                 }
                 click(R.string.profile_save)

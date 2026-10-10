@@ -272,7 +272,7 @@ internal fun buildRootlessLaunchSpec(
         addAll(listOf("-b", "${layout.home.absolutePath}:/root"))
         require(shareHostPaths.isEmpty() || shareHostPaths.size == shares.size)
         shares.forEachIndexed { index, binding ->
-            require(binding.directory.isDirectory && binding.directory.absoluteFile == binding.directory.canonicalFile) { "Unsafe Shared Folder binding" }
+            require(binding.directory.isDirectory && binding.directory.absoluteFile == binding.directory.canonicalFile) { "Unsafe Shared Directory binding" }
             val hostPath = shareHostPaths.getOrNull(index) ?: binding.directory.absolutePath
             if (shareHostPaths.isNotEmpty()) require(hostPath.matches(Regex("/proc/[0-9]+/fd/[0-9]+")))
             addAll(listOf("-b", "$hostPath:${binding.folder.guestPath}"))

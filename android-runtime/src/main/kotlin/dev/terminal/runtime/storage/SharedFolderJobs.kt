@@ -66,7 +66,7 @@ class SharedFolderJobs(
         val imported = if (mode == "IMPORT_LEGACY") SharedFolder(UUID.randomUUID().toString(), request.getString("name"), emptySet()) else null
         if (mode == "TO_VM" || mode == "FROM_VM") {
             val folder = folders.requireFolder(requireNotNull(folderId))
-            require(EnvironmentId(request.getString("environmentId")) in folder.environments) { "Shared Folder is not connected to this VM" }
+            require(EnvironmentId(request.getString("environmentId")) in folder.environments) { "Shared Directory is not connected to this VM" }
             SharedRelativePath.components(request.getString("path"))
         } else require(sources().any { it.id == request.getString("sourceId") }) { "Legacy workspace not found" }
         records[id] = JSONObject().put("id", id).put("mode", mode).put("state", "RUNNING").put("bytes", 0).put("error", JSONObject.NULL)
@@ -121,7 +121,7 @@ class SharedFolderJobs(
     private suspend fun transfer(id: String, request: JSONObject, mode: String, progress: (Long) -> Unit) {
         val folderId = request.getString("folderId")
         val environment = EnvironmentId(request.getString("environmentId"))
-        fun authorize() = folders.requireFolder(folderId).also { require(environment in it.environments) { "Shared Folder permission was revoked" } }
+        fun authorize() = folders.requireFolder(folderId).also { require(environment in it.environments) { "Shared Directory permission was revoked" } }
         val folder = authorize()
         val parts = SharedRelativePath.components(request.getString("path"))
         val job = currentCoroutineContext()
@@ -183,7 +183,7 @@ class SharedFolderJobs(
     }
 
     private suspend fun importLegacy(id: String, source: LegacyWorkspaces.Source, folder: SharedFolder, progress: (Long) -> Unit) {
-        require(folders.all().none { it.name == folder.name }) { "Shared Folder name already exists" }
+        require(folders.all().none { it.name == folder.name }) { "Shared Directory name already exists" }
         if (!folders.root.exists()) require(folders.root.mkdir())
         val job = currentCoroutineContext()
         ScopedDirectory.open(folders.root).use { parent ->

@@ -49,9 +49,11 @@ internal fun WorkspaceStartupLaunchesSetting(launches: List<WorkspaceLaunch>, pr
                         Checkbox(checked = checked, onCheckedChange = null, enabled = enabled && (profile != null || checked))
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
-                            Text(launch.name)
-                            Text(profile?.name ?: stringResource(R.string.workspace_profile_missing),
-                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(workspaceLaunchName(launch, profile))
+                            if (launch.name.isNotBlank() || profile == null) {
+                                Text(profile?.name ?: stringResource(R.string.workspace_profile_missing),
+                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                         }
                     }
                 }

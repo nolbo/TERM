@@ -65,7 +65,7 @@ retry. Interrupted or corrupt
 app-owned installs are replaced on the next explicitly approved installation; no file
 picker, ADB, root, or app-data reset is required. `RootlessSessionController`
 starts an APK-packaged, allow-listed PRoot and loader, binds only `/dev`,
-`/proc`, `/sys`, the rootless home by default, plus explicitly connected Shared Folders at `/mnt/term-shares/<name>` for each new session, and owns the
+`/proc`, `/sys`, the rootless home by default, plus explicitly connected shared directories at `/mnt/term-shares/<name>` for each new session, and owns the
 resulting PTY across UI detach.
 
 Channel CI builds now package the pinned accelerated engine (including local rename)
@@ -97,7 +97,7 @@ and [emulated acceleration and validation](ROOTLESS_EMULATED_ACCELERATION.md).
 
 Ubuntu 24.04 LTS and Arch Linux ARM have separate `files/rootless/ubuntu` and
 `files/rootless/archlinux` roots, homes, temporary files and download caches.
-Debian/Ubuntu validate apt; Arch validates pacman. No workspace data directory is shared by default; Shared Folders require explicit Environment connections. The new-session menu explicitly selects each distribution; Environment settings
+Debian/Ubuntu validate apt; Arch validates pacman. No workspace data directory is shared by default; shared directories require explicit Environment connections. The new-session menu explicitly selects each distribution; Environment settings
 show each instance's installation and runtime state; Userspace Linux settings contain only global DNS policy, engine status and runtime information, with limitations shown as a small note below the settings. Existing Debian storage
 and `ROOTLESS` session identities are preserved. See
 [ROOTLESS_DISTRIBUTIONS.md](ROOTLESS_DISTRIBUTIONS.md) for the pinned catalog and
@@ -198,7 +198,7 @@ limited information queries and unpairing. It does not expose unchanged Linux
 
 ## Shared state
 
-Logical Workspaces group sessions without owning files. Independent Shared Folders provide explicit Native/Rootless direct access; AVF uses verified file copies through its guest agent, without live mounts. Optionally, users can open
+Logical Workspaces group sessions without owning files. Independent shared directories provide explicit Native/Rootless direct access; AVF uses verified file copies through its guest agent, without live mounts. Optionally, users can open
 **내부저장소 접근 설정** in the common terminal settings and enable Android's
 all-files access. The OS grant is off by default and shared by both local
 runtimes; AVF gets no new bind. Native uses `/sdcard` (normally
@@ -250,6 +250,6 @@ Stopping an idle AVF environment affects only that VM and its connection. A vsoc
 
 The common dashboard requires neither a session nor AVF privileges. Native and all Userspace Linux distributions use explicit persistent registrations on the shared Android network; registration and logical Environment association never prove a listener, owning process or successful response. No separate proxy is created for these runtimes. AVF owners each have their own event-driven 40502 report connection and loopback forwarding state. New images add address-aware snapshots and a TCP proxy on 40504; older images remain discoverable with forwarding unavailable. Explicit host-port mappings are persisted independently from transient observations. Disconnect/stop closes only that Environment's host listeners, and Activity navigation/recreation cannot stop sessions or forwarding. General listener enumeration, CLI registration, service control and health checks are deferred.
 
-Shared Folder settings apply to new Native/Rootless sessions only. Native receives a JSON name-to-host-path map in `TERM_SHARED_FOLDERS`; Rootless uses `/mnt/term-shares/<name>`. Existing sessions keep their original bindings, including older sessions launched with `/workspace`. Environment and logical Workspace deletion preserve Shared Folder data. Existing UUID workspace directories remain at their original paths after Environment deletion; unresolved symlinks/emulated links and interrupted conversion journals block deletion. Regular-file legacy imports/ZIP exports preserve sources; use Full environment backup for link semantics.
+Shared directory settings apply to new Native/Rootless sessions only. Native receives a JSON name-to-host-path map in `TERM_SHARED_FOLDERS`; Rootless uses `/mnt/term-shares/<name>`. Existing sessions keep their original bindings, including older sessions launched with `/workspace`. Environment and logical Workspace deletion preserve shared directory data. Existing UUID workspace directories remain at their original paths after Environment deletion; unresolved symlinks/emulated links and interrupted conversion journals block deletion. Regular-file legacy imports/ZIP exports preserve sources; use Full environment backup for link semantics.
 
 New AVF images include `droid-file-transfer.service` on host-CID-only vsock 40505, running as `droid` with a fixed transfer root under its home. A running VM and explicit folder/Environment connection are required; transfer never boots a VM. Each file is a separate copy, at most 64 MiB with a two-minute host deadline. Old images without the endpoint report unavailable; no fallback pretends to mount or synchronize files. Cancellation and connection loss preserve existing destination files, although a verified copy committed just before a lost acknowledgement may exist and must be inspected before retry. Live virtiofs remains unsupported.

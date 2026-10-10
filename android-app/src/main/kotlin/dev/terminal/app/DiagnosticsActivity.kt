@@ -34,7 +34,7 @@ class DiagnosticsActivity : RuntimeInformationActivity() {
         super.onCreate(savedInstanceState)
         compose { DiagnosticsAndReportsScreen(
             { finish() }, diagnostics, diagnosticsUnavailable, reports, reportsLoading, reportsError,
-            { render(); loadReports() },
+            { if (!reportsLoading) { render(); loadReports() } },
             { report -> startActivity(CrashReportActivity.intent(this, report.id)) },
             intent.getIntExtra(SettingsDetailActivity.EXTRA_SECTION_INDEX, 0),
         ) }

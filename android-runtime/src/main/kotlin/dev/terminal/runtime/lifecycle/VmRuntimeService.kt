@@ -224,7 +224,7 @@ class VmRuntimeService : Service() {
     private val sharedFolders by lazy {
         val preferences = getSharedPreferences("shared-folders", MODE_PRIVATE)
         dev.terminal.runtime.storage.SharedFolderRegistry(filesDir.canonicalFile, { preferences.getString("folders", null) },
-            { check(preferences.edit().putString("folders", it).commit()) { "Shared Folder save failed" } })
+            { check(preferences.edit().putString("folders", it).commit()) { "Shared Directory save failed" } })
     }
     private fun legacyWorkspaceSources() = dev.terminal.runtime.storage.LegacyWorkspaces.sources(filesDir,
         environmentRegistry.transaction(storageDefaults()) { all() })
@@ -316,10 +316,10 @@ class VmRuntimeService : Service() {
         override fun deleteSharedFolder(folderId: String): String {
             enforceHostToolUi()
             return runCatching { synchronized(sharedFolderManagement) {
-                check(!sharedFolderJobs.hasActive()) { "Finish or cancel file operations before deleting a Shared Folder" }
+                check(!sharedFolderJobs.hasActive()) { "Finish or cancel file operations before deleting a Shared Directory" }
                 kotlinx.coroutines.runBlocking(Dispatchers.IO) { preparationLocks.withAll {
                     val registry = ensureSessionRegistry() ?: error("Cannot verify sessions")
-                    check(registry.verifiedWorkspaceSessions(workspaces.snapshot().memberships.keys)?.isEmpty() == true) { "Close all sessions before deleting Shared Folder data" }
+                    check(registry.verifiedWorkspaceSessions(workspaces.snapshot().memberships.keys)?.isEmpty() == true) { "Close all sessions before deleting Shared Directory data" }
                     dev.terminal.runtime.backup.EnvironmentWriterProbe(android.os.Process.myUid(), android.os.Process.myPid())
                         .verify(listOf(sharedFolders.directory(sharedFolders.requireFolder(folderId)).toPath()))
                     sharedFolders.delete(folderId)
@@ -363,6 +363,17 @@ class VmRuntimeService : Service() {
                 val ids = JSONArray(workspaceIdsJson)
                 require(ids.length() <= 128) { "Workspace limit reached" }
                 workspaces.reorder(List(ids.length()) { ids.getString(it) })
+                ""
+            }.exceptionOrNull()?.userMessage().orEmpty()
+        }
+        override fun deleteEmptyTemporaryWorkspace(workspaceId: String): String {
+            enforceHostToolUi()
+            return runCatching {
+                kotlinx.coroutines.runBlocking(Dispatchers.IO) {
+                    val registry = sessionClient as? UnifiedSessionRegistry ?: error("Cannot verify sessions")
+                    val liveIds = registry.verifiedWorkspaceSessions(workspaces.snapshot().memberships.keys)
+                    workspaces.deleteEmptyTemporary(workspaceId, liveIds, workspaceLaunches.values.toSet())
+                }
                 ""
             }.exceptionOrNull()?.userMessage().orEmpty()
         }

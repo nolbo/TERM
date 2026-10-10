@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="icon_choice_auto">기본 아이콘 (자동)</string>
+    <string name="icon_choice_cloud">구름</string>
+    <string name="icon_choice_code">코드</string>
+    <string name="icon_choice_rocket">로켓</string>
+    <string name="icon_choice_science">과학</string>
+    <string name="icon_choice_palette">팔레트</string>
+    <string name="icon_choice_tools">도구</string>
+    <string name="icon_choice_folder">폴더</string>
+    <string name="icon_choice_game">게임</string>
+    <string name="icon_choice_book">책</string>
+    <string name="icon_choice_paw">발자국</string>
+    <string name="icon_choice_globe">지구</string>
+    <string name="icon_choice_star">별</string>
+    <string name="icon_choice_lightning">번개</string>
+    <string name="icon_choice_lightbulb">전구</string>
+</resources>

@@ -24,6 +24,33 @@ class WorkspaceLaunchTitleTest {
         assertEquals("한".repeat(128), launch("한".repeat(128)).resolve(profile) { it.resolve() }.tabTitle)
     }
 
+    @Test fun unnamedLaunchUsesTheProfileTitleAndKeepsTheDirectoryOverride() {
+        listOf("", "   ").forEach { name ->
+            val spec = launch(name, "/project").resolve(profile) { it.resolve() }
+            assertNull(spec.tabTitle)
+            assertEquals(profile.name, spec.profileName)
+            assertEquals(profile.id, spec.profileId)
+            assertEquals(profile.copy(workingDirectory = "/project"), spec.toProfile())
+            assertEquals(spec, SessionLaunchSpec.fromJson(spec.toJson().toString()))
+            assertEquals("/home", profile.workingDirectory)
+        }
+    }
+
+    @Test fun optionalNamesSurviveRegistryRecreationWithoutWeakeningNameLimits() {
+        val unnamed = launch("").copy(startWithWorkspace = true)
+        var encoded: String? = null
+        fun registry() = WorkspaceRegistry({ encoded }, { encoded = it })
+        val workspace = Workspace(UUID.randomUUID().toString(), "Workspace", false, listOf(unnamed))
+        registry().save(workspace)
+        registry().select(workspace.id)
+        assertEquals(workspace, registry().snapshot().workspaces.single())
+        assertEquals(listOf(unnamed), registry().snapshot().startupLaunches())
+        assertEquals(unnamed, WorkspaceLaunch.parse(unnamed.json().apply { remove("name") }))
+        assertThrows(IllegalArgumentException::class.java) { workspace.copy(name = "") }
+        assertThrows(IllegalArgumentException::class.java) { launch("a".repeat(129)) }
+        assertThrows(IllegalArgumentException::class.java) { launch("line\nbreak") }
+    }
+
     @Test fun launchSnapshotsRoundTripTheCustomTitleAndAcceptOlderRequests() {
         val spec = launch().resolve(profile) { it.resolve() }
         val restored = SessionLaunchSpec.fromJson(spec.toJson().toString())

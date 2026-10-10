@@ -33,6 +33,10 @@ import org.json.JSONArray
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
+import dev.terminal.runtime.workspace.Workspace
+import dev.terminal.runtime.workspace.WorkspaceLaunch
+import dev.terminal.runtime.workspace.WorkspaceRegistry
+import java.util.UUID
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 
@@ -188,6 +192,308 @@ class ToolbarUiTest {
         settle()
     }
 
+    @Test fun expandedEmptyWorkspacesHideCloseAllAndKeepTemporaryDeletion() {
+        val permanent = Workspace(UUID.randomUUID().toString(), "Empty permanent", false)
+        val temporary = Workspace(UUID.randomUUID().toString(), "Empty temporary", true)
+        val state = mutableStateOf(WorkspaceRegistry.State(listOf(permanent, temporary), selected = permanent.id))
+        val tabs = mutableStateOf(emptyList<SessionUi>())
+        val expansion = mutableStateOf(1f)
+        var deletedWorkspace: String? = null
+        var closeClicks = 0
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+                        ToolbarSessionsTool(sessions = tabs.value, activeSessionId = "fixture", active = true,
+                            terminatingSessionIds = emptySet(), profiles = emptyList(), onSelectProfile = {},
+                            onAddProfile = {}, profilePickerVisible = false, onSelect = {}, onRename = {},
+                            onTerminate = {}, onNew = {}, onDismissProfilePicker = {}, onSettings = {},
+                            expansionProgress = expansion.value, workspaceState = state.value, workspaceSessionStateKnown = true,
+                            onCloseWorkspaceSessions = { closeClicks++ },
+                            onDeleteEmptyTemporaryWorkspace = { deletedWorkspace = it })
+                    }
+                } }
+            } }
+            fun assertNoClose(name: String) {
+                assertNull("Empty expanded filters hide close all", find { it.contentDescription?.toString() ==
+                    context.getString(R.string.workspace_close_sessions_description, name) })
+            }
+            settle()
+            text(permanent.name)
+            assertNoClose(permanent.name)
+            val runDescription = label(R.string.workspace_run_default_sessions)
+            description(runDescription)
+            scenario.onActivity { expansion.value = 0f }
+            settle()
+            description(runDescription)
+            scenario.onActivity {
+                expansion.value = 1f
+                state.value = state.value.copy(selected = WorkspaceRegistry.UNASSIGNED)
+            }
+            settle()
+            description(context.getString(R.string.workspace_selector, label(R.string.workspace_unassigned)))
+            assertNull("Unassigned filters never display a header name", find { it.text?.toString() == label(R.string.workspace_unassigned) })
+            assertNoClose(label(R.string.workspace_unassigned))
+            assertNull("Unassigned filters have no Workspace startup action", find { it.contentDescription?.toString() == runDescription })
+            scenario.onActivity { state.value = state.value.copy(selected = temporary.id) }
+            settle()
+            assertNoClose(temporary.name)
+            assertNull("Temporary Workspaces have no startup action", find { it.contentDescription?.toString() == runDescription })
+            val deleteDescription = context.getString(R.string.workspace_delete_temporary_description, temporary.name)
+            click(description(deleteDescription))
+            settle()
+            assertEquals(temporary.id, deletedWorkspace)
+            assertEquals(0, closeClicks)
+            scenario.onActivity { state.value = state.value.copy(memberships = mapOf("workspace-launch:pending" to temporary.id)) }
+            settle()
+            assertNoClose(temporary.name)
+            assertNull("Pending launches cannot offer deletion", find { it.contentDescription?.toString() == deleteDescription })
+            scenario.onActivity {
+                tabs.value = listOf(SessionUi("fixture", "NATIVE", "Existing shell", "RUNNING"))
+                state.value = state.value.copy(memberships = mapOf("fixture" to temporary.id))
+            }
+            settle()
+            assertNull(find { it.contentDescription?.toString() == deleteDescription })
+            click(description(context.getString(R.string.workspace_close_sessions_description, temporary.name)))
+            settle()
+            assertEquals(1, closeClicks)
+        }
+    }
+
+    @Test fun workspaceMenuStaysAboveItsButtonInCompactAndExpandedToolbars() {
+        val workspace = Workspace(UUID.randomUUID().toString(), "Anchor workspace", false)
+        val state = mutableStateOf(WorkspaceRegistry.State(listOf(workspace), selected = WorkspaceRegistry.UNASSIGNED))
+        val tabs = mutableStateOf(emptyList<SessionUi>())
+        val expansion = mutableFloatStateOf(0f)
+        val density = context.resources.displayMetrics.density
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+                        Box(Modifier.align(androidx.compose.ui.Alignment.BottomCenter).fillMaxWidth().height(224.dp)) {
+                            ToolbarSessionsTool(sessions = tabs.value, activeSessionId = "fixture", active = true,
+                                terminatingSessionIds = emptySet(), profiles = emptyList(), onSelectProfile = {},
+                                onAddProfile = {}, profilePickerVisible = false, onSelect = {}, onRename = {},
+                                onTerminate = {}, onNew = {}, onDismissProfilePicker = {}, onSettings = {},
+                                expansionProgress = expansion.floatValue, workspaceState = state.value,
+                                onSelectWorkspace = { state.value = state.value.copy(selected = it) })
+                        }
+                    }
+                } }
+            } }
+            for ((occupied, progress, selection) in listOf(
+                Triple(true, 0f, WorkspaceRegistry.UNASSIGNED),
+                Triple(false, 0f, WorkspaceRegistry.UNASSIGNED),
+                Triple(false, 0f, workspace.id),
+                Triple(false, 1f, WorkspaceRegistry.UNASSIGNED))) {
+                scenario.onActivity {
+                    tabs.value = if (occupied) listOf(SessionUi("fixture", "NATIVE", "Existing shell", "RUNNING")) else emptyList()
+                    expansion.floatValue = progress
+                    state.value = state.value.copy(selected = selection)
+                }
+                settle()
+                val name = if (selection == workspace.id) workspace.name else label(R.string.workspace_unassigned)
+                val anchor = description(context.getString(R.string.workspace_selector, name))
+                val anchorBounds = bounds(anchor)
+                if (selection == WorkspaceRegistry.UNASSIGNED) {
+                    assertNull("Unassigned headers remain icon-only", find { it.text?.toString() == name })
+                }
+                click(anchor)
+                text(label(R.string.workspace_create_temporary))
+                val menuBounds = bounds(requireNotNull(instrumentation.uiAutomation.rootInActiveWindow))
+                assertTrue("Menu must touch its button vertically: anchor=$anchorBounds menu=$menuBounds",
+                    kotlin.math.abs(menuBounds.bottom - anchorBounds.top) <= 16 * density)
+                assertTrue("Menu must align with its button horizontally: anchor=$anchorBounds menu=$menuBounds",
+                    kotlin.math.abs(menuBounds.left - anchorBounds.left) <= 16 * density)
+                click(text(label(R.string.workspace_unassigned)))
+            }
+        }
+    }
+
+    @Test fun workspaceSelectorShowsItsNameWhenExpandedOrEmptyAndNewSessionGroupsOnlyTheSelectedWorkspaceLaunches() {
+        val profile = SessionProfiles(context).builtIns().first().copy(name = "Menu profile")
+        val firstLaunch = WorkspaceLaunch(UUID.randomUUID().toString(), "First workspace launch", profile.id)
+        val secondLaunch = WorkspaceLaunch(UUID.randomUUID().toString(), "Second workspace launch", profile.id, "/tmp")
+        val missing = WorkspaceLaunch(UUID.randomUUID().toString(), "Removed profile launch", "removed-profile")
+        val first = Workspace(UUID.randomUUID().toString(), "First workspace", false, listOf(firstLaunch))
+        val second = Workspace(UUID.randomUUID().toString(), "Second workspace", false, listOf(secondLaunch, missing), "lan")
+        val state = mutableStateOf(WorkspaceRegistry.State(listOf(first, second), selected = first.id))
+        val picking = mutableStateOf(false)
+        val expansion = mutableFloatStateOf(0f)
+        var selectedLaunch: WorkspaceLaunch? = null
+        var selectedProfile: dev.terminal.runtime.session.SessionProfile? = null
+        var closeWorkspaceClicks = 0
+        val fixtureTabs = mutableStateOf(listOf(SessionUi("fixture", "NATIVE", "Existing shell", "RUNNING")))
+        val sessionStateKnown = mutableStateOf(true)
+        var deletedWorkspace: String? = null
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Box(Modifier.fillMaxSize().safeDrawingPadding()) {
+                        ToolbarSessionsTool(fixtureTabs.value,
+                            "fixture", true, emptySet(), listOf(profile),
+                            { selectedProfile = it; picking.value = false }, {}, picking.value,
+                            {}, {}, {}, { picking.value = true }, { picking.value = false }, {},
+                            expansionProgress = expansion.floatValue, workspaceState = state.value,
+                            onSelectWorkspace = { state.value = state.value.copy(selected = it) },
+                            onLaunchWorkspace = { selectedLaunch = it; picking.value = false },
+                            onCloseWorkspaceSessions = { closeWorkspaceClicks++ },
+                            onDeleteEmptyTemporaryWorkspace = { deletedWorkspace = it },
+                            workspaceSessionStateKnown = sessionStateKnown.value)
+                    }
+                } }
+            } }
+            settle()
+            fun selector(name: String) = description(context.getString(R.string.workspace_selector, name))
+            assertNull("The header must not render the workspace name", find { it.text?.toString() == first.name })
+            val selectorBounds = bounds(selector(first.name))
+            assertNull(find { it.contentDescription?.toString() ==
+                context.getString(R.string.workspace_close_sessions_description, first.name) })
+            assertTrue("Selector uses a compact icon touch target", selectorBounds.width() <= 52 * context.resources.displayMetrics.density)
+            assertTrue("Selector precedes the session tabs", selectorBounds.right <= bounds(tabText("Existing shell")).left)
+            scenario.onActivity { expansion.floatValue = 1f }
+            settle()
+            text(first.name)
+            assertTrue("Expanded selector stays on the left", bounds(selector(first.name)).right <= bounds(description(label(R.string.new_session))).left)
+            val closeWorkspace = description(context.getString(R.string.workspace_close_sessions_description, first.name))
+            val closeBounds = bounds(closeWorkspace)
+            assertTrue("Workspace name precedes close all", bounds(selector(first.name)).right <= closeBounds.left)
+            assertEquals("Close all immediately precedes the new-session button",
+                48f * context.resources.displayMetrics.density,
+                bounds(description(label(R.string.new_session))).exactCenterX() - closeBounds.exactCenterX(), 1f)
+            click(closeWorkspace)
+            assertEquals(1, closeWorkspaceClicks)
+            click(selector(first.name))
+            assertNull("All sessions must not be offered", find { it.text?.toString() == label(R.string.workspace_all) })
+            text(label(R.string.workspace_unassigned))
+            assertNull(find { it.text?.toString() in setOf(firstLaunch.name, context.getString(R.string.workspace_run, firstLaunch.name)) })
+            click(text(second.name))
+            assertEquals(second.id, state.value.selected)
+            assertNull("Switching a workspace never launches a session", selectedLaunch)
+            text(second.name)
+            click(description(label(R.string.new_session)))
+            val heading = text(context.getString(R.string.workspace_new_session_group, second.name))
+            val launchRow = text(secondLaunch.name)
+            val profilesHeading = text(label(R.string.profiles))
+            assertTrue(bounds(heading).bottom <= bounds(launchRow).top)
+            assertTrue(bounds(launchRow).bottom <= bounds(profilesHeading).top)
+            assertNull(find { it.text?.toString() == firstLaunch.name })
+            text(label(R.string.workspace_profile_missing))
+            click(text(missing.name))
+            assertNull("A removed Profile cannot be launched", selectedLaunch)
+            click(text(secondLaunch.name))
+            assertEquals(secondLaunch, selectedLaunch)
+            assertNull(selectedProfile)
+            click(selector(second.name))
+            click(text(label(R.string.workspace_unassigned)))
+            assertEquals(WorkspaceRegistry.UNASSIGNED, state.value.selected)
+            click(description(label(R.string.new_session)))
+            text(label(R.string.select_profile))
+            text(profile.name)
+            assertNull(find { it.text?.toString() in setOf(firstLaunch.name, secondLaunch.name, missing.name) })
+            click(description(label(R.string.back)))
+            val temporary = Workspace(UUID.randomUUID().toString(), "Empty temporary", true)
+            val deleteDescription = context.getString(R.string.workspace_delete_temporary_description, temporary.name)
+            scenario.onActivity {
+                state.value = WorkspaceRegistry.State(listOf(temporary), selected = temporary.id)
+                fixtureTabs.value = emptyList()
+            }
+            settle()
+            assertNull(find { it.contentDescription?.toString() ==
+                context.getString(R.string.workspace_close_sessions_description, temporary.name) })
+            click(description(deleteDescription))
+            assertEquals(temporary.id, deletedWorkspace)
+            assertEquals(1, closeWorkspaceClicks)
+            scenario.onActivity {
+                state.value = state.value.copy(memberships = mapOf("workspace-launch:pending" to temporary.id))
+            }
+            settle()
+            assertNull("Pending launches cannot offer deletion", find { it.contentDescription?.toString() == deleteDescription })
+            assertNull("Empty Workspaces with pending launches hide close all", find { it.contentDescription?.toString() ==
+                context.getString(R.string.workspace_close_sessions_description, temporary.name) })
+            scenario.onActivity {
+                state.value = state.value.copy(memberships = emptyMap())
+                sessionStateKnown.value = false
+            }
+            settle()
+            assertNull("Unknown session state cannot offer deletion", find { it.contentDescription?.toString() == deleteDescription })
+            assertNull("Empty Workspaces with unknown state hide close all", find { it.contentDescription?.toString() ==
+                context.getString(R.string.workspace_close_sessions_description, temporary.name) })
+            scenario.onActivity {
+                sessionStateKnown.value = true
+                fixtureTabs.value = listOf(SessionUi("fixture", "NATIVE", "Existing shell", "RUNNING"))
+                state.value = state.value.copy(memberships = mapOf("fixture" to temporary.id))
+            }
+            settle()
+            assertNull(find { it.contentDescription?.toString() == deleteDescription })
+            click(description(context.getString(R.string.workspace_close_sessions_description, temporary.name)))
+            assertEquals(2, closeWorkspaceClicks)
+            scenario.onActivity {
+                fixtureTabs.value = emptyList()
+                state.value = WorkspaceRegistry.State(listOf(first), selected = first.id)
+            }
+            settle()
+            assertNull("Permanent Workspaces cannot offer deletion", find { it.contentDescription?.toString() ==
+                context.getString(R.string.workspace_delete_temporary_description, first.name) })
+            assertNull("Expanded empty permanent Workspaces hide close all", find { it.contentDescription?.toString() ==
+                context.getString(R.string.workspace_close_sessions_description, first.name) })
+            scenario.onActivity { state.value = state.value.copy(selected = WorkspaceRegistry.UNASSIGNED) }
+            settle()
+            selector(label(R.string.workspace_unassigned))
+            assertNull("Expanded unassigned filters remain icon-only", find { it.text?.toString() == label(R.string.workspace_unassigned) })
+            assertNull("Expanded empty unassigned filters hide close all", find { it.contentDescription?.toString() ==
+                context.getString(R.string.workspace_close_sessions_description, label(R.string.workspace_unassigned)) })
+            scenario.onActivity { state.value = state.value.copy(selected = first.id) }
+            scenario.onActivity { expansion.floatValue = 0f }
+            settle()
+            text(first.name)
+            assertNull("Close all remains exclusive to the expanded header", find { it.contentDescription?.toString() ==
+                context.getString(R.string.workspace_close_sessions_description, first.name) })
+            scenario.onActivity { state.value = state.value.copy(selected = WorkspaceRegistry.UNASSIGNED) }
+            settle()
+            selector(label(R.string.workspace_unassigned))
+            assertNull("Empty unassigned filters remain icon-only", find { it.text?.toString() == label(R.string.workspace_unassigned) })
+            description(label(R.string.new_session))
+            scenario.onActivity { fixtureTabs.value = listOf(SessionUi("fixture", "NATIVE", "Existing shell", "RUNNING")) }
+            settle()
+            assertNull("Compact populated filters use only the workspace icon", find { it.text?.toString() == label(R.string.workspace_unassigned) })
+            tabText("Existing shell")
+        }
+    }
+
+    @Test fun newSessionSheetAddsAWorkspaceCategoryAndPreservesTheOrdinaryProfilePath() {
+        val profile = SessionProfiles(context).builtIns().first().copy(name = "Sheet profile")
+        val launch = WorkspaceLaunch(UUID.randomUUID().toString(), "Sheet workspace launch", profile.id)
+        val workspace = mutableStateOf<Workspace?>(Workspace(UUID.randomUUID().toString(), "Sheet workspace", false, listOf(launch)))
+        val visible = mutableStateOf(true)
+        var selectedLaunch: WorkspaceLaunch? = null
+        var selectedProfile: dev.terminal.runtime.session.SessionProfile? = null
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    if (visible.value) NewSessionSheet(listOf(profile),
+                        { selectedProfile = it; visible.value = false }, {}, { visible.value = false },
+                        workspace = workspace.value, onSelectWorkspaceLaunch = { selectedLaunch = it; visible.value = false })
+                } }
+            } }
+            settle()
+            val heading = text(context.getString(R.string.workspace_new_session_group, workspace.value!!.name))
+            assertTrue(bounds(heading).bottom <= bounds(text(launch.name)).top)
+            assertTrue(bounds(text(launch.name)).bottom <= bounds(text(label(R.string.profiles))).top)
+            click(text(launch.name))
+            assertEquals(launch, selectedLaunch)
+            assertNull(selectedProfile)
+            assertFalse(visible.value)
+            scenario.onActivity { workspace.value = null; visible.value = true }
+            settle()
+            assertNull(find { it.text?.toString() == launch.name })
+            text(label(R.string.profiles))
+            click(text(profile.name))
+            assertEquals(profile, selectedProfile)
+            assertFalse(visible.value)
+        }
+    }
+
     @Test fun sessionToolHasTopActionsVerticalTabsAndKeepsMandatoryNavigation() {
         val selected = mutableStateOf("first")
         var renamed: String? = null
@@ -214,19 +520,9 @@ class ToolbarUiTest {
             assertTrue("Tabs form a vertical list", second.top > first.bottom)
             assertEquals(first.left, second.left)
             assertTrue(bounds(description(label(R.string.new_session))).bottom <= first.top)
-            assertTrue(bounds(description(label(R.string.terminal_more))).bottom <= first.top)
+            assertTrue(bounds(description(label(R.string.settings))).bottom <= first.top)
             click(description(label(R.string.new_session)))
-            click(description(label(R.string.terminal_more)))
-            val monitor = instrumentation.addMonitor(LocalServicesActivity::class.java.name, null, false)
-            try {
-                click(text(label(R.string.local_services_title)))
-                val dashboard = monitor.waitForActivityWithTimeout(5000)
-                assertNotNull(dashboard)
-                instrumentation.runOnMainSync { dashboard.finish() }
-                settle()
-            } finally { instrumentation.removeMonitor(monitor) }
-            click(description(label(R.string.terminal_more)))
-            click(text(label(R.string.settings)))
+            click(description(label(R.string.settings)))
             assertEquals(1, newClicks)
             assertEquals(1, settingsClicks)
             description(context.getString(R.string.terminate_session_description, "First shell"))
@@ -641,7 +937,7 @@ class ToolbarUiTest {
         }
     }
 
-    @Test fun defaultSessionToolShowsHorizontalTabsAndExpandsToSessionCounts() {
+    @Test fun defaultSessionToolShowsHorizontalTabsAndExpandsToVerticalTabs() {
         val mode = mutableStateOf(ToolbarSheetMode.Default)
         val selected = mutableStateOf("second")
         val sessions = mutableStateOf(listOf(
@@ -673,7 +969,7 @@ class ToolbarUiTest {
             val title = bounds(tabText("Pinned work"))
             val subtitle = bounds(tabText("Original shell"))
             val newButton = bounds(description(label(R.string.new_session)))
-            val settingsButton = bounds(description(label(R.string.terminal_more)))
+            val settingsButton = bounds(description(label(R.string.settings)))
             val density = context.resources.displayMetrics.density
             assertTrue("Horizontal tabs use the header's left side", maxOf(title.right, subtitle.right) <= newButton.left)
             assertEquals(newButton.centerY(), settingsButton.centerY())
@@ -689,17 +985,7 @@ class ToolbarUiTest {
             click(description(context.getString(R.string.terminate_session_description, "Pinned work")))
             assertEquals("second", terminated)
             click(description(label(R.string.new_session)))
-            click(description(label(R.string.terminal_more)))
-            val monitor = instrumentation.addMonitor(LocalServicesActivity::class.java.name, null, false)
-            try {
-                click(text(label(R.string.local_services_title)))
-                val dashboard = monitor.waitForActivityWithTimeout(5000)
-                assertNotNull(dashboard)
-                instrumentation.runOnMainSync { dashboard.finish() }
-                settle()
-            } finally { instrumentation.removeMonitor(monitor) }
-            click(description(label(R.string.terminal_more)))
-            click(text(label(R.string.settings)))
+            click(description(label(R.string.settings)))
             assertEquals(1, newClicks)
             assertEquals(1, settingsClicks)
             scenario.onActivity { sessions.value = sessions.value.map {
@@ -720,8 +1006,9 @@ class ToolbarUiTest {
             click(tabText("First shell"))
             assertEquals("Default tabs can switch sessions", "first", selected.value)
             action(label(R.string.toolbar_expand))
-            text(context.getString(R.string.toolbar_session_count, 2))
-            text(context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_running), 2))
+            assertNull(find { it.text?.toString() == context.getString(R.string.toolbar_session_count, 2) })
+            assertNull(find { it.text?.toString() ==
+                context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_running), 2) })
             tabText("First shell")
             tabText("Pinned work")
             click(tabText("Pinned work"))
@@ -785,7 +1072,7 @@ class ToolbarUiTest {
         }
     }
 
-    @Test fun expandedSessionHeaderCountsEachStateAndUpdatesWithTheSessionList() {
+    @Test fun expandedSessionHeaderOmitsCountsAndKeepsSessionSelection() {
         val selected = mutableStateOf("first")
         val sessions = mutableStateOf(listOf(
             SessionUi("first", "NATIVE", "First shell", "RUNNING"),
@@ -802,13 +1089,13 @@ class ToolbarUiTest {
                 } }
             } }
             settle()
-            text(context.getString(R.string.toolbar_session_count, 3))
-            text(context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_running), 2))
-            text(context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_exited), 1))
+            assertNull(find { it.text?.toString() == context.getString(R.string.toolbar_session_count, 3) })
+            assertNull(find { it.text?.toString() ==
+                context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_running), 2) })
+            assertNull(find { it.text?.toString() ==
+                context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_exited), 1) })
             click(tabText("Exited shell"))
             assertEquals("third", selected.value)
-            text(context.getString(R.string.toolbar_session_count, 3))
-            text(context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_running), 2))
             for ((state, resource) in listOf(
                 "PREPARING" to R.string.avf_session_preparing_state,
                 "CREATED" to R.string.session_state_created,
@@ -822,15 +1109,17 @@ class ToolbarUiTest {
                         SessionUi("second", "NATIVE", "Second shell", if (state == "FUTURE_STATE") "OTHER_STATE" else state),
                     )
                 }
-                text(context.getString(R.string.toolbar_session_count, 2))
-                text(context.getString(R.string.toolbar_session_state_count, label(resource), 2))
+                settle()
+                tabText("First shell")
+                tabText("Second shell")
+                assertNull(find { it.text?.toString() == context.getString(R.string.toolbar_session_count, 2) })
                 assertNull(find { it.text?.toString() ==
-                    context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_running), 2) })
+                    context.getString(R.string.toolbar_session_state_count, label(resource), 2) })
             }
             scenario.onActivity { sessions.value = emptyList() }
-            text(context.getString(R.string.toolbar_session_count, 0))
-            assertNull(find { it.text?.toString() ==
-                context.getString(R.string.toolbar_session_state_count, label(R.string.session_state_unknown), 2) })
+            settle()
+            assertNull(find { it.text?.toString() == context.getString(R.string.toolbar_session_count, 0) })
+            assertNull(find { it.text?.toString() == "First shell" || it.text?.toString() == "Second shell" })
         }
     }
 
@@ -975,6 +1264,49 @@ class ToolbarUiTest {
                 assertEquals("The handle must stay in place on $destination", initialHandle, bounds(handle()))
                 assertEquals("Every tool must use the same viewport", initialViewport, bounds(text("$destination viewport")))
             }
+        }
+    }
+
+    @Test fun emptyWorkspaceForcesSessionsToolAndRestoresPagingWhenOccupied() {
+        val sessionsEmpty = mutableStateOf(false)
+        val mode = mutableStateOf(ToolbarSheetMode.Default)
+        val savedConfig = ToolbarConfig(tools = listOf(SESSIONS_TOOL, MEMORY_TOOL))
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Column(Modifier.fillMaxSize()) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(savedConfig.visibleConfig(sessionsOnly = sessionsEmpty.value),
+                            mode.value, { mode.value = it }, 400.dp, TerminalChromeColors(Color.Black),
+                            pageNavigationEnabled = !sessionsEmpty.value) { id, _ ->
+                            Text("$id page", Modifier.fillMaxSize())
+                        }
+                    }
+                } }
+            } }
+            settle()
+            val page = bounds(text("$SESSIONS_TOOL page"))
+            fun nextTool() = swipe(page.left + page.width() * 0.8f,
+                page.exactCenterY(), -page.width() * 0.65f)
+            nextTool()
+            text("$MEMORY_TOOL page")
+            scenario.onActivity { sessionsEmpty.value = true }
+            settle()
+            text("$SESSIONS_TOOL page")
+            for (size in listOf(R.string.toolbar_default, R.string.toolbar_expand)) {
+                action(label(size))
+                nextTool()
+                assertNull("An empty Workspace must not expose other tools",
+                    find { it.text?.toString() == "$MEMORY_TOOL page" })
+                text("$SESSIONS_TOOL page")
+            }
+            assertEquals("The restriction preserves the saved tool list",
+                listOf(SESSIONS_TOOL, MEMORY_TOOL), savedConfig.tools)
+            action(label(R.string.toolbar_default))
+            scenario.onActivity { sessionsEmpty.value = false }
+            settle()
+            nextTool()
+            text("$MEMORY_TOOL page")
         }
     }
 

@@ -136,13 +136,14 @@ class EnvironmentBackupActivity : TerminalActivity() {
                         else {
                             ProfileSection(R.string.backup_contents) {
                                 BackupInfo(R.string.storage_name, row.name)
-                                if (!running) SettingsChoiceRow(stringResource(R.string.backup_type), null,
+                                val typeSummary = stringResource(if (full) R.string.backup_full_summary else R.string.backup_data_summary)
+                                if (!running) SettingsChoiceRow(stringResource(R.string.backup_type), typeSummary,
                                     buildList {
                                         add(SettingsChoice(stringResource(R.string.backup_data), "DATA"))
                                         if (row.environment.runtime == EnvironmentRuntime.ROOTLESS) add(SettingsChoice(stringResource(R.string.backup_full), "FULL"))
                                     }, if (full) "FULL" else "DATA", onChange = { full = it == "FULL" })
-                                else BackupInfo(R.string.backup_type, stringResource(if (full) R.string.backup_full else R.string.backup_data))
-                                BackupInfo(R.string.backup_home, stringResource(if (full) R.string.backup_full_summary else R.string.backup_data_summary))
+                                else BackupInfo(R.string.backup_type,
+                                    stringResource(if (full) R.string.backup_full else R.string.backup_data) + "\n" + typeSummary)
                                 BackupToggle(R.string.backup_profiles, R.string.backup_profiles_summary, profiles, !running) { profiles = it }
                                 BackupToggle(R.string.backup_workspace, if (legacyWorkspace) R.string.backup_workspace_shared else R.string.backup_workspace_private,
                                     workspace, !running && workspaceAvailable) { workspace = it; sharedConsent = false }
@@ -158,22 +159,10 @@ class EnvironmentBackupActivity : TerminalActivity() {
                                 }
                             }
                             ProfileSection(R.string.backup_location) {
-                                EnvironmentActionSetting(R.string.backup_choose_destination, R.drawable.ic_material_symbol_save_24, !running) {
+                                EnvironmentActionSetting(R.string.backup_choose_destination, icon = null, enabled = !running) {
                                     chooseFile(create = true, title = "TERM-${row.name.replace(Regex("[^\\p{L}\\p{N} _-]"), "_").take(64)}.termbackup")
                                 }
                                 selectedUri?.let { BackupInfo(R.string.backup_selected_file, selectedName.ifBlank { getString(R.string.backup_file) }) }
-                                EnvironmentActionSetting(R.string.backup_start, R.drawable.ic_material_symbol_save_24,
-                                    runtime != null && !running && selectedUri != null && (!workspace || !legacyWorkspace || sharedConsent) &&
-                                        (!encrypted || password.length in 8..1024 && password == confirmation),
-                                    onClick = {
-                                        adopted = true
-                                        submit(JSONObject().put("operation", "EXPORT").put("uri", selectedUri).put("environmentId", row.id)
-                                            .put("kind", if (full) "FULL" else "DATA").put("profiles", profiles)
-                                            .put("defaultProfiles", JSONArray(SessionProfiles(this@EnvironmentBackupActivity).all()
-                                                .filter { it.builtIn && it.environmentId == row.environment.id }.map { it.resolve(row.environment).toJson() }))
-                                            .put("workspace", if (!workspace) "NONE" else if (legacyWorkspace) "LEGACY_SHARED" else "ENVIRONMENT"),
-                                            if (encrypted) password else "")
-                                    })
                             }
                         }
                     } else {
@@ -257,6 +246,19 @@ class EnvironmentBackupActivity : TerminalActivity() {
                         }
                     }
                     Text(stringResource(R.string.backup_scope), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (environmentId != null && row != null) Button(onClick = {
+                        adopted = true
+                        submit(JSONObject().put("operation", "EXPORT").put("uri", selectedUri).put("environmentId", row.id)
+                            .put("kind", if (full) "FULL" else "DATA").put("profiles", profiles)
+                            .put("defaultProfiles", JSONArray(SessionProfiles(this@EnvironmentBackupActivity).all()
+                                .filter { it.builtIn && it.environmentId == row.environment.id }.map { it.resolve(row.environment).toJson() }))
+                            .put("workspace", if (!workspace) "NONE" else if (legacyWorkspace) "LEGACY_SHARED" else "ENVIRONMENT"),
+                            if (encrypted) password else "")
+                    }, enabled = runtime != null && !running && selectedUri != null && (!workspace || !legacyWorkspace || sharedConsent) &&
+                        (!encrypted || password.length in 8..1024 && password == confirmation),
+                        modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
+                        Text(stringResource(R.string.backup_start))
+                    }
                 }
             }
         }

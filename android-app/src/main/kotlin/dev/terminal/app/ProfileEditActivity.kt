@@ -300,28 +300,7 @@ class ProfileEditActivity : TerminalActivity() {
 
 @Composable private fun ProfileField(label: Int, value: String, singleLine: Boolean = true,
     hint: Int? = null, change: (String) -> Unit) {
-    var visible by rememberSaveable { mutableStateOf(false) }
-    var draft by rememberSaveable { mutableStateOf(value) }
-    ListItem(onClick = { draft = value; visible = true },
-        supportingContent = { Text(value.ifBlank { stringResource(R.string.profile_not_set) },
-            maxLines = 2, overflow = TextOverflow.Ellipsis) },
-        verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes(),
-        colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth(),
-    ) { Text(stringResource(label)) }
-    if (visible) AlertDialog(onDismissRequest = { visible = false }, title = { Text(stringResource(label)) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                OutlinedTextField(draft, { draft = it }, label = { Text(stringResource(label)) },
-                    singleLine = singleLine, modifier = Modifier.fillMaxWidth())
-                hint?.let { Text(stringResource(it), style = MaterialTheme.typography.bodySmall) }
-            }
-        },
-        confirmButton = { Button(onClick = { change(draft); visible = false }, shapes = ButtonDefaults.shapes()) {
-            Text(stringResource(R.string.save))
-        } },
-        dismissButton = { TextButton(onClick = { visible = false }, shapes = ButtonDefaults.shapes()) {
-            Text(stringResource(R.string.cancel))
-        } })
+    dev.terminal.app.ui.SettingsTextRow(label, value, singleLine, hint, onChange = change)
 }
 
 internal fun parseProfileArguments(value: String): List<String> {

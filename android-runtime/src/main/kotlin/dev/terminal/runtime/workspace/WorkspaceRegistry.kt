@@ -9,38 +9,42 @@ import java.util.UUID
 data class WorkspaceLaunch(val id: String, val name: String, val profileId: String, val directory: String = "",
     val startWithWorkspace: Boolean = false) {
     init {
-        uuid(id); label(name)
+        uuid(id); label(name, allowBlank = true)
         require(profileId.isNotBlank() && profileId.length <= 128)
         require(directory.isEmpty() || directory.startsWith('/'))
         require(directory.length <= 4096 && directory.none(Char::isISOControl))
     }
     fun resolve(profile: SessionProfile, resolve: (SessionProfile) -> SessionLaunchSpec): SessionLaunchSpec {
         require(profile.id == profileId) { "Profile was removed" }
-        return resolve(if (directory.isEmpty()) profile else profile.copy(workingDirectory = directory)).withTabTitle(name)
+        val spec = resolve(if (directory.isEmpty()) profile else profile.copy(workingDirectory = directory))
+        return if (name.isBlank()) spec else spec.withTabTitle(name)
     }
     fun json() = JSONObject().put("id", id).put("name", name).put("profileId", profileId).put("directory", directory)
         .put("startWithWorkspace", startWithWorkspace)
     companion object {
-        fun parse(value: JSONObject) = WorkspaceLaunch(value.getString("id"), value.getString("name"),
+        fun parse(value: JSONObject) = WorkspaceLaunch(value.getString("id"), value.optString("name"),
             value.getString("profileId"), value.optString("directory"), value.optBoolean("startWithWorkspace"))
     }
 }
 
-data class Workspace(val id: String, val name: String, val temporary: Boolean, val launches: List<WorkspaceLaunch> = emptyList()) {
-    init { uuid(id); label(name); require(launches.size <= 64 && launches.map { it.id }.distinct().size == launches.size); require(!temporary || launches.isEmpty()) }
-    fun json() = JSONObject().put("id", id).put("name", name).put("temporary", temporary).put("launches", JSONArray(launches.map { it.json() }))
+data class Workspace(val id: String, val name: String, val temporary: Boolean, val launches: List<WorkspaceLaunch> = emptyList(),
+    val icon: String = WorkspaceIcon.DEFAULT) {
+    init { uuid(id); label(name); WorkspaceIcon.validate(icon); require(launches.size <= 64 && launches.map { it.id }.distinct().size == launches.size); require(!temporary || launches.isEmpty()) }
+    fun json() = JSONObject().put("id", id).put("name", name).put("temporary", temporary).put("icon", icon)
+        .put("launches", JSONArray(launches.map { it.json() }))
     companion object {
         fun parse(value: JSONObject): Workspace {
             val launches = value.optJSONArray("launches") ?: JSONArray()
             return Workspace(value.getString("id"), value.getString("name"), value.getBoolean("temporary"),
-                List(launches.length()) { WorkspaceLaunch.parse(launches.getJSONObject(it)) })
+                List(launches.length()) { WorkspaceLaunch.parse(launches.getJSONObject(it)) },
+                value.optString("icon", WorkspaceIcon.DEFAULT))
         }
     }
 }
 
 /** Single runtime-process writer. This registry cannot access a controller or any filesystem owner. */
 class WorkspaceRegistry(private val read: () -> String?, private val write: (String) -> Unit) {
-    data class State(val workspaces: List<Workspace> = emptyList(), val memberships: Map<String, String> = emptyMap(), val selected: String = ALL) {
+    data class State(val workspaces: List<Workspace> = emptyList(), val memberships: Map<String, String> = emptyMap(), val selected: String = UNASSIGNED) {
         fun json() = JSONObject().put("version", 1).put("workspaces", JSONArray(workspaces.map { it.json() }))
             .put("memberships", JSONObject(memberships)).put("selected", selected)
         fun includes(sessionId: String): Boolean = when (selected) {
@@ -66,7 +70,8 @@ class WorkspaceRegistry(private val read: () -> String?, private val write: (Str
                 require(memberships.size <= 4096 && memberships.all { (session, workspace) -> session.length in 1..256 && workspace in ids })
                 val selected = json.getString("selected")
                 require(selected in setOf(ALL, UNASSIGNED) || selected in ids)
-                return State(workspaces, memberships, selected)
+                // Retire the old global filter without changing any group or session membership.
+                return State(workspaces, memberships, if (selected == ALL) UNASSIGNED else selected)
             }
         }
     }
@@ -94,7 +99,7 @@ class WorkspaceRegistry(private val read: () -> String?, private val write: (Str
     @Synchronized fun select(id: String) {
         val state = snapshot()
         require(id in setOf(ALL, UNASSIGNED) || state.workspaces.any { it.id == id }) { "Workspace not found" }
-        persist(state.copy(selected = id))
+        persist(state.copy(selected = if (id == ALL) UNASSIGNED else id))
     }
     @Synchronized fun move(sessionId: String, workspaceId: String?) {
         require(sessionId.length in 1..256)
@@ -106,6 +111,16 @@ class WorkspaceRegistry(private val read: () -> String?, private val write: (Str
         val state = snapshot()
         persist(state.copy(workspaces = state.workspaces.filterNot { it.id == id },
             memberships = state.memberships.filterValues { it != id }, selected = if (state.selected == id) UNASSIGNED else state.selected))
+    }
+    /** Explicit toolbar deletion must not remove a promoted, occupied or unverifiable group. */
+    @Synchronized fun deleteEmptyTemporary(id: String, liveIds: Set<String>?, pendingWorkspaceIds: Set<String> = emptySet()) {
+        uuid(id)
+        check(liveIds != null) { "Cannot verify sessions" }
+        val state = snapshot()
+        val workspace = state.workspaces.firstOrNull { it.id == id } ?: return
+        check(workspace.temporary) { "Workspace is no longer temporary" }
+        check(id !in state.memberships.values && id !in pendingWorkspaceIds) { "Workspace has sessions or pending launches" }
+        delete(id)
     }
     /** Null means the owner could not establish actual session state. Never collect from a UI cache. */
     @Synchronized fun reconcile(liveIds: Set<String>?, pendingWorkspaceIds: Set<String> = emptySet()) {
@@ -126,4 +141,8 @@ class WorkspaceRegistry(private val read: () -> String?, private val write: (Str
 }
 
 private fun uuid(value: String) { require(UUID.fromString(value).toString() == value) { "Invalid workspace ID" } }
-private fun label(value: String) { require(value.isNotBlank() && value.length <= 128 && value.none(Char::isISOControl)) { "Name must contain 1–128 printable characters" } }
+private fun label(value: String, allowBlank: Boolean = false) {
+    require((allowBlank || value.isNotBlank()) && value.length <= 128 && value.none(Char::isISOControl)) {
+        if (allowBlank) "Name must contain at most 128 printable characters" else "Name must contain 1–128 printable characters"
+    }
+}

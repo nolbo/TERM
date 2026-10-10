@@ -13,8 +13,8 @@
     <string name="environment_vm_identity">VM ID</string>
     <string name="environment_disks">Persistent disks</string>
     <string name="environment_delete_protected">Remove connected profiles and active sessions first. Deletion is blocked during installation, management, or legacy adoption, or when the runtime cannot be verified stopped.</string>
-    <string name="environment_delete_rootless_confirm">Permanently delete execution environment %1$s and its installed distribution? The distribution image, installation cache, packages, home and settings will be deleted. Existing /workspace data and Shared Folders are preserved. Deleted environment data cannot be recovered.</string>
-    <string name="environment_delete_avf_confirm">Permanently delete execution environment %1$s and its Debian image? After verifying that the VM is stopped, the image, packages, home, settings, persistent VM state and file copies inside the VM will be deleted. Host Shared Folders are preserved. Deleted VM data cannot be recovered.</string>
+    <string name="environment_delete_rootless_confirm">Permanently delete execution environment %1$s and its installed distribution? The distribution image, installation cache, packages, home and settings will be deleted. Existing /workspace data and shared directories are preserved. Deleted environment data cannot be recovered.</string>
+    <string name="environment_delete_avf_confirm">Permanently delete execution environment %1$s and its Debian image? After verifying that the VM is stopped, the image, packages, home, settings, persistent VM state and file copies inside the VM will be deleted. Host shared directories are preserved. Deleted VM data cannot be recovered.</string>
     <string name="environment_engine_status">Execution engine support</string>
     <string name="environment_instances_support">Manage execution environment names, storage, installation, and runtime state.</string>
     <string name="rootless_engine_supported">ARM64 PRoot engine · no additional Android permissions</string>
@@ -27,6 +27,6 @@
     <string name="environment_distribution_remove">Remove distribution</string>
     <string name="environment_debian_remove">Remove Debian</string>
     <string name="environment_distribution_remove_message">Delete this execution environment’s distribution image and the packages and files inside it. Home data and the working directory are preserved by default. The execution environment and its profiles remain available for reinstalling later. Deleted data cannot be recovered.</string>
-    <string name="environment_debian_remove_message">Delete this execution environment’s Debian image, including the VM’s home, installed packages, and configuration. The execution environment, its profiles, and shared-folder files remain available for reinstalling Debian later. Deleted data cannot be recovered.</string>
+    <string name="environment_debian_remove_message">Delete this execution environment’s Debian image, including the VM’s home, installed packages, and configuration. The execution environment, its profiles, and shared-directory files remain available for reinstalling Debian later. Deleted data cannot be recovered.</string>
     <string name="environment_software_protected">Removal is blocked while sessions or installation/management tasks are active, or runtime safety cannot be verified.</string>
 </resources>
