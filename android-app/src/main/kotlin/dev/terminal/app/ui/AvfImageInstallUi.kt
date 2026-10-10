@@ -2,20 +2,11 @@
 
 package dev.terminal.app.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.unit.dp
 import dev.terminal.app.R
 import dev.terminal.runtime.image.AvfImageInstallPhase
 import dev.terminal.runtime.image.AvfImageInstallSnapshot
@@ -38,95 +29,64 @@ private fun phaseTitle(phase: AvfImageInstallPhase) = when (phase) {
 /** The dialog and settings render the same persisted snapshot, without owning its work. */
 @Composable
 internal fun AvfImageInstallCard(snapshot: AvfImageInstallSnapshot, modifier: Modifier = Modifier,
-    onCancel: (suspend (String) -> Unit)? = null) {
+    onCancel: (suspend (String) -> Unit)? = null, showTitle: Boolean = true) {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     var cancelling by remember(snapshot.workId) { mutableStateOf(false) }
     var cancelError by remember(snapshot.workId) { mutableStateOf<String?>(null) }
-    Card(modifier.fillMaxWidth(),
-        shape = if (LocalSettingsGroup.current) SettingsItemShape else MaterialTheme.shapes.extraLarge,
-        colors = if (LocalSettingsGroup.current)
-            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-        else CardDefaults.cardColors()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(stringResource(R.string.avf_install_title), style = MaterialTheme.typography.titleMedium)
-            val stateTitle = when (snapshot.state) {
-                AvfImageInstallState.WAITING -> R.string.avf_install_waiting
-                AvfImageInstallState.RETRYING -> R.string.avf_install_retrying
-                AvfImageInstallState.FAILED -> R.string.avf_install_failed
-                AvfImageInstallState.CANCELLED -> R.string.avf_install_cancelled
-                else -> phaseTitle(snapshot.phase)
-            }
-            Text(stringResource(stateTitle), color = if (snapshot.state == AvfImageInstallState.FAILED)
-                MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
-            if (snapshot.phase == AvfImageInstallPhase.DOWNLOAD && snapshot.artifactIndex in 1..5) {
-                val artifact = listOf(R.string.avf_install_kernel, R.string.avf_install_initrd,
-                    R.string.avf_install_system, R.string.avf_install_home, R.string.avf_install_config)[snapshot.artifactIndex - 1]
-                Text(stringResource(R.string.avf_install_artifact, stringResource(artifact), snapshot.artifactIndex),
-                    style = MaterialTheme.typography.bodySmall)
-            }
-            val started = snapshot.startedAtElapsedMs
-            val updated = snapshot.updatedAtElapsedMs
-            if (started != null && updated != null) {
-                RootlessProgressIndicator(RootlessProgressUi(snapshot.phase.name, "AVF", "",
-                    snapshot.fraction, snapshot.downloadedBytes, snapshot.totalBytes, started, updated,
-                    if (snapshot.active) null else updated), running = snapshot.active)
-            } else if (snapshot.active) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
-            for (phase in AvfImageInstallPhase.entries) {
-                val complete = snapshot.state == AvfImageInstallState.SUCCEEDED || phase.ordinal < snapshot.phase.ordinal
-                val current = phase == snapshot.phase && snapshot.state == AvfImageInstallState.RUNNING
-                val failed = phase == snapshot.phase && snapshot.state == AvfImageInstallState.FAILED
-                val color = when {
-                    failed -> MaterialTheme.colorScheme.error
-                    complete || current -> MaterialTheme.colorScheme.primary
-                    else -> MaterialTheme.colorScheme.onSurfaceVariant
-                }
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Box(Modifier.size(24.dp).clip(CircleShape).background(color.copy(alpha = .15f)),
-                        contentAlignment = Alignment.Center) {
-                        Text(if (complete) "✓" else if (failed) "!" else (phase.ordinal + 1).toString(), color = color,
-                            style = MaterialTheme.typography.labelMedium)
-                    }
-                    Text(stringResource(phaseTitle(phase)), color = color,
-                        style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-                    Text(stringResource(when {
-                        complete -> R.string.avf_install_step_done
-                        failed -> R.string.avf_install_step_stopped
-                        current -> R.string.avf_install_step_running
-                        else -> R.string.avf_install_step_pending
-                    }), color = color, style = MaterialTheme.typography.labelSmall)
-                }
-            }
-            snapshot.error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-            Text(stringResource(if (snapshot.active) R.string.avf_install_background_note
-                else if (snapshot.state == AvfImageInstallState.SUCCEEDED) R.string.avf_install_complete_note
-                else if (snapshot.state == AvfImageInstallState.CANCELLED) R.string.avf_install_cancelled_note
-                else R.string.avf_install_retry_note), style = MaterialTheme.typography.bodySmall)
-            if (snapshot.phase == AvfImageInstallPhase.DOWNLOAD) {
-                Text(stringResource(R.string.avf_install_download_note), style = MaterialTheme.typography.bodySmall)
-            }
-            if (snapshot.active) {
-                OutlinedButton(onClick = {
-                    cancelling = true
-                    cancelError = null
-                    scope.launch {
-                        try {
-                            if (onCancel != null) onCancel(snapshot.workId)
-                            else RuntimeSetupCoordinator(context).cancelImageInstallation(snapshot.workId)
-                        } catch (cancelled: CancellationException) {
-                            throw cancelled
-                        } catch (error: Exception) {
-                            cancelling = false
-                            cancelError = error.message
-                        }
-                    }
-                }, enabled = !cancelling, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
-                    Text(stringResource(if (cancelling) R.string.install_cancelling else R.string.install_cancel))
-                }
-            }
-            cancelError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
-        }
+    val stateTitle = when (snapshot.state) {
+        AvfImageInstallState.WAITING -> R.string.avf_install_waiting
+        AvfImageInstallState.RETRYING -> R.string.avf_install_retrying
+        AvfImageInstallState.FAILED -> R.string.avf_install_failed
+        AvfImageInstallState.CANCELLED -> R.string.avf_install_cancelled
+        else -> phaseTitle(snapshot.phase)
     }
+    val downloading = snapshot.phase == AvfImageInstallPhase.DOWNLOAD
+    val artifact = if (downloading && snapshot.artifactIndex in 1..5) {
+        val label = listOf(R.string.avf_install_kernel, R.string.avf_install_initrd,
+            R.string.avf_install_system, R.string.avf_install_home, R.string.avf_install_config)[snapshot.artifactIndex - 1]
+        stringResource(R.string.avf_install_artifact, stringResource(label), snapshot.artifactIndex)
+    } else null
+    val started = snapshot.startedAtElapsedMs
+    val updated = snapshot.updatedAtElapsedMs
+    val progress = if (started != null && updated != null) RootlessProgressUi(snapshot.phase.name, "AVF", "",
+        snapshot.fraction, snapshot.downloadedBytes.takeIf { downloading }, snapshot.totalBytes.takeIf { downloading },
+        started, updated, if (snapshot.active) null else updated) else null
+    InstallationProgressCard(
+        title = if (showTitle) stringResource(R.string.avf_install_title) else null,
+        status = stringResource(if (snapshot.active && cancelling) R.string.install_cancelling else stateTitle),
+        detail = artifact,
+        active = snapshot.active,
+        progress = progress,
+        steps = installationSteps(AvfImageInstallPhase.entries.map(::phaseTitle), snapshot.phase.ordinal,
+            active = snapshot.state == AvfImageInstallState.RUNNING,
+            succeeded = snapshot.state == AvfImageInstallState.SUCCEEDED,
+            failed = snapshot.state == AvfImageInstallState.FAILED),
+        note = stringResource(if (snapshot.active) R.string.install_background_note
+            else if (snapshot.state == AvfImageInstallState.SUCCEEDED) R.string.avf_install_complete_note
+            else if (snapshot.state == AvfImageInstallState.CANCELLED) R.string.avf_install_cancelled_note
+            else R.string.avf_install_retry_note),
+        progressNote = if (downloading) stringResource(R.string.avf_install_download_note) else null,
+        error = snapshot.error ?: stringResource(R.string.avf_install_failed).takeIf { snapshot.state == AvfImageInstallState.FAILED },
+        cancelling = cancelling,
+        cancelError = cancelError,
+        onCancel = {
+            cancelling = true
+            cancelError = null
+            scope.launch {
+                try {
+                    if (onCancel != null) onCancel(snapshot.workId)
+                    else RuntimeSetupCoordinator(context).cancelImageInstallation(snapshot.workId)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    cancelling = false
+                    cancelError = error.message
+                }
+            }
+        },
+        modifier = modifier,
+    )
 }
 
 @Composable
@@ -141,12 +101,8 @@ internal fun AvfImageInstallationUi(snapshots: List<AvfImageInstallSnapshot>) {
             dismissedIds = (dismissedIds + snapshot.workId).distinct()
             visibleId = null
         }
-        AlertDialog(
-            onDismissRequest = ::dismiss,
-            title = { Text(stringResource(R.string.avf_install_title)) },
-            text = { Column(Modifier.verticalScroll(rememberScrollState())) { AvfImageInstallCard(snapshot) } },
-            confirmButton = {},
-            dismissButton = { TextButton(onClick = ::dismiss) { Text(stringResource(R.string.close)) } },
-        )
+        InstallationProgressDialog(title = stringResource(R.string.avf_install_title), onDismiss = ::dismiss) {
+            AvfImageInstallCard(snapshot, showTitle = false)
+        }
     }
 }

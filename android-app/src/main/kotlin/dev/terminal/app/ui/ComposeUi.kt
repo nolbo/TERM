@@ -707,37 +707,13 @@ fun RootlessSetupDialog(
     cancelled: Boolean = false,
     onDismiss: () -> Unit,
 ) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(runtimeTitleResource(runtimeType))) },
-        text = {
-            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(R.string.rootless_setup_description))
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.extraLarge,
-                ) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Text(status, style = MaterialTheme.typography.titleMedium)
-                        Text(error ?: detail, color = if (error == null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.error)
-                        if (progress != null) RootlessProgressIndicator(progress, running)
-                        else if (running) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
-                    }
-                }
-                Text(stringResource(R.string.rootless_install_note), style = MaterialTheme.typography.bodySmall)
-            }
-        },
-        confirmButton = {
-            if (running && onCancelInstall != null) {
-                TextButton(onClick = onCancelInstall, enabled = !cancelling, shapes = ButtonDefaults.shapes()) {
-                    Text(stringResource(if (cancelling) R.string.install_cancelling else R.string.install_cancel))
-                }
-            } else if (error != null || cancelled || progress?.phase == "CANCELLED") {
-                Button(onClick = onRetry, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.retry)) }
-            }
-        },
-        dismissButton = { TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.close)) } },
-    )
+    InstallationProgressDialog(
+        title = stringResource(R.string.rootless_installation_title, stringResource(runtimeTitleResource(runtimeType))),
+        onDismiss = onDismiss,
+    ) {
+        RootlessInstallCard(title = null, status = status, detail = detail, running = running, progress = progress,
+            error = error, onCancelInstall = onCancelInstall, cancelling = cancelling, cancelled = cancelled, onRetry = onRetry)
+    }
 }
 
 @Composable

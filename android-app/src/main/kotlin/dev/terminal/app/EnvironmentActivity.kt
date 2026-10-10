@@ -360,25 +360,23 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                         Text(stringResource(R.string.cancel))
                     } })
             }
-            imageInstallTarget?.let { row -> AlertDialog(onDismissRequest = { imageInstallTargetId = null },
-                title = { Text(stringResource(R.string.avf_image_install_confirm_title)) },
-                text = { Text(stringResource(R.string.avf_image_install_confirm_message, row.name)) },
-                confirmButton = { TextButton(onClick = {
+            imageInstallTarget?.let { row -> dev.terminal.app.ui.InstallationConfirmationDialog(
+                title = stringResource(R.string.avf_image_install_confirm_title),
+                message = stringResource(R.string.avf_image_install_confirm_message, row.name),
+                onInstall = {
                     imageInstallTargetId = null
                     installingImage = row
-                }) { Text(stringResource(R.string.avf_image_install)) } },
-                dismissButton = { TextButton(onClick = { imageInstallTargetId = null }) { Text(stringResource(R.string.avf_image_install_later)) } }) }
+                },
+                onDismiss = { imageInstallTargetId = null },
+                installLabel = stringResource(R.string.avf_image_install),
+                dismissLabel = stringResource(R.string.avf_image_install_later)) }
             entries?.firstOrNull { it.id == installRootlessTargetId }?.let { row ->
-                AlertDialog(onDismissRequest = { installRootlessTargetId = null },
-                    title = { Text(stringResource(R.string.environment_distribution_install)) },
-                    text = { Column {
-                        Text(row.name)
-                        Text(stringResource(R.string.rootless_install_note), style = MaterialTheme.typography.bodySmall)
-                    } },
-                    confirmButton = { TextButton(onClick = { installRootlessTargetId = null; operating = row to "INSTALL" }) {
-                        Text(stringResource(R.string.environment_distribution_install))
-                    } },
-                    dismissButton = { TextButton(onClick = { installRootlessTargetId = null }) { Text(stringResource(R.string.cancel)) } })
+                dev.terminal.app.ui.InstallationConfirmationDialog(
+                    title = stringResource(R.string.environment_distribution_install),
+                    message = row.name + "\n\n" + stringResource(R.string.rootless_install_note),
+                    onInstall = { installRootlessTargetId = null; operating = row to "INSTALL" },
+                    onDismiss = { installRootlessTargetId = null },
+                    installLabel = stringResource(R.string.environment_distribution_install))
             }
             entries?.firstOrNull { it.id == removeSoftwareTargetId }?.let { row ->
                 val rootless = row.environment.runtime == EnvironmentRuntime.ROOTLESS

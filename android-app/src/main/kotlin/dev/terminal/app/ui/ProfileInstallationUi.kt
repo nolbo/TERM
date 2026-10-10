@@ -5,10 +5,8 @@ import android.graphics.Paint
 import android.graphics.Path as AndroidPath
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -139,13 +137,12 @@ fun ProfileSupportingContent(
 fun ProfileInstallationDialog(spec: SessionLaunchSpec, onInstall: () -> Unit, onDismiss: () -> Unit) {
     val software = stringResource(if (spec.runtime == SessionRuntime.AVF) R.string.profile_avf_image
         else runtimeTitleResource(spec.runtime.wireName))
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.profile_installation_title)) },
-        text = { Text(stringResource(R.string.profile_installation_question,
+    InstallationConfirmationDialog(
+        title = stringResource(R.string.profile_installation_title),
+        message = stringResource(R.string.profile_installation_question,
             spec.executionEnvironment?.name ?: spec.profileName, software) +
-            if (spec.runtime == SessionRuntime.AVF) "\n\n" + stringResource(R.string.avf_install_initialization_consent) else "") },
-        confirmButton = { TextButton(onClick = onInstall) { Text(stringResource(R.string.install)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } },
+            if (spec.runtime == SessionRuntime.AVF) "\n\n" + stringResource(R.string.avf_install_initialization_consent) else "",
+        onInstall = onInstall,
+        onDismiss = onDismiss,
     )
 }

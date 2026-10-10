@@ -1,13 +1,11 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package dev.terminal.app
 
-import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.unit.dp
-import dev.terminal.app.ui.RootlessProgressIndicator
+import dev.terminal.app.ui.RootlessInstallCard
 import dev.terminal.app.ui.parseRootlessProgress
 import dev.terminal.app.ui.settingsItemSurface
 import dev.terminal.app.ui.terminalSettingsListItemColors
@@ -26,35 +24,27 @@ import org.json.JSONObject
                 else -> R.string.avf_image_not_installed
             })) }) { Text(stringResource(R.string.environment_software_status)) }
         if (status != null) {
-            ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors(),
-                supportingContent = { Text(status.optString("detail")) }) {
-                Text(stringResource(when (state) {
-                    "READY" -> R.string.rootless_ready
-                    "CHECKING" -> R.string.rootless_checking
-                    "ENVIRONMENT_REQUIRED" -> R.string.rootless_environment_required
-                    "ERROR" -> R.string.rootless_install_failed
-                    "CANCELLED" -> R.string.install_cancelled
-                    else -> R.string.avf_image_not_installed
-                }))
-            }
+            val statusLabel = stringResource(when (state) {
+                "READY" -> R.string.rootless_ready
+                "CHECKING" -> R.string.rootless_checking
+                "ENVIRONMENT_REQUIRED" -> R.string.rootless_environment_required
+                "ERROR" -> R.string.rootless_install_failed
+                "CANCELLED" -> R.string.install_cancelled
+                else -> R.string.avf_image_not_installed
+            })
             val progress = parseRootlessProgress(status)
-            if (progress != null && (busy || state == "ERROR" || state == "CANCELLED")) {
-                Column(Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(progress.label, style = MaterialTheme.typography.titleSmall)
-                    RootlessProgressIndicator(progress, busy)
-                }
-            } else if (busy) {
-                Column(Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp)) {
-                    LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+            if (busy || state == "ERROR" || state == "CANCELLED") {
+                RootlessInstallCard(title = stringResource(R.string.environment_distribution_installation),
+                    status = progress?.label ?: statusLabel, detail = status.optString("detail"), running = busy,
+                    progress = progress, error = status.optString("detail").takeIf { state == "ERROR" },
+                    onCancelInstall = onCancelInstall.takeIf { status.optBoolean("canCancel") || status.optBoolean("cancelling") },
+                    cancelling = cancelling || status.optBoolean("cancelling"), cancelled = state == "CANCELLED")
+            } else {
+                ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors(),
+                    supportingContent = { Text(status.optString("detail")) }) {
+                    Text(statusLabel)
                 }
             }
-        }
-        if (status?.optBoolean("canCancel") == true || status?.optBoolean("cancelling") == true) {
-            EnvironmentActionSetting(if (cancelling || status.optBoolean("cancelling"))
-                R.string.install_cancelling else R.string.install_cancel,
-                R.drawable.ic_material_symbol_close_24,
-                enabled = !cancelling && !status.optBoolean("cancelling"), onClick = onCancelInstall)
         }
         EnvironmentActionSetting(
             title = when {

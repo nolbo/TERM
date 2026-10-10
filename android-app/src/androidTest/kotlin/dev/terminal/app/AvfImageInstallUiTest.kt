@@ -14,6 +14,9 @@ import androidx.test.platform.app.InstrumentationRegistry
 import dev.terminal.app.ui.AvfImageInstallCard
 import dev.terminal.app.ui.AvfImageInstallationUi
 import dev.terminal.app.ui.DroidTheme
+import dev.terminal.app.ui.InstallationConfirmationDialog
+import dev.terminal.app.ui.RootlessProgressUi
+import dev.terminal.app.ui.RootlessSetupDialog
 import dev.terminal.runtime.image.AvfImageInstallPhase
 import dev.terminal.runtime.image.AvfImageInstallSnapshot
 import dev.terminal.runtime.image.AvfImageInstallState
@@ -58,6 +61,79 @@ class AvfImageInstallUiTest {
         error: String? = null): AvfImageInstallSnapshot {
         val now = SystemClock.elapsedRealtime()
         return AvfImageInstallSnapshot("fixture-job", "legacy", state, phase, 3, 40L * 1024 * 1024, total, now - 5000, now, error)
+    }
+
+    @Test fun commonConfirmationRetainsButtonsAndDispatchesOnlyTheChosenAction() {
+        val installs = java.util.concurrent.atomic.AtomicInteger()
+        val dismissals = java.util.concurrent.atomic.AtomicInteger()
+        fun click(text: String) {
+            waitFor(text)
+            var node = find(instrumentation.uiAutomation.rootInActiveWindow, text)
+            while (node != null && !node.isClickable) node = node.parent
+            assertTrue(node?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true)
+            instrumentation.waitForIdleSync()
+        }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            val descriptions = listOf(
+                R.string.environment_distribution_install to R.string.rootless_install_note,
+                R.string.avf_image_install_confirm_title to R.string.avf_install_initialization_consent,
+            )
+            descriptions.forEachIndexed { index, (title, message) ->
+                fun render() = scenario.onActivity { activity -> activity.setContent {
+                    DroidTheme { InstallationConfirmationDialog(label(title), label(message),
+                        onInstall = { installs.incrementAndGet() }, onDismiss = { dismissals.incrementAndGet() },
+                        installLabel = label(R.string.install), dismissLabel = label(R.string.cancel)) }
+                } }
+                render()
+                click(label(R.string.cancel))
+                assertEquals(index, installs.get())
+                assertEquals(index + 1, dismissals.get())
+                scenario.recreate()
+                render()
+                waitFor(label(title))
+                assertEquals(index, installs.get())
+                click(label(R.string.install))
+                assertEquals(index + 1, installs.get())
+                assertEquals(index + 1, dismissals.get())
+            }
+        }
+    }
+
+    @Test fun userspaceDialogRetainsMeasuredStagesAndStopsElapsedTimeOnCompletion() {
+        val now = SystemClock.elapsedRealtime()
+        val recording = RootlessProgressUi("DOWNLOAD", label(R.string.install_stage_distribution_download),
+            "Debian ARM64", .4f, 40L * 1024 * 1024, 100L * 1024 * 1024, now - 5000, now, null)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            fun render(progress: RootlessProgressUi = recording, running: Boolean = true) = scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { RootlessSetupDialog("ROOTLESS", progress.label, progress.detail, running, null,
+                    onRetry = {}, progress = progress, onCancelInstall = {}, onDismiss = {}) }
+            } }
+            render()
+            waitFor(context.getString(R.string.rootless_stage_percent, 40), contains = true)
+            waitFor(label(R.string.install_cancel))
+            scenario.recreate()
+            render()
+            waitFor(context.getString(R.string.rootless_stage_percent, 40), contains = true)
+            waitFor(label(R.string.install_stage_distribution_download))
+            waitFor(label(R.string.close))
+            SystemClock.sleep(1000)
+            instrumentation.waitForIdleSync()
+            val screenshot = instrumentation.uiAutomation.takeScreenshot()
+            java.io.File(context.externalCacheDir, "userspace-install-fixture.png").outputStream().use {
+                assertTrue(screenshot.compress(Bitmap.CompressFormat.PNG, 100, it))
+            }
+            screenshot.recycle()
+            if (InstrumentationRegistry.getArguments().getString("preview") == "true") SystemClock.sleep(20_000)
+            val finished = SystemClock.elapsedRealtime()
+            val seconds = (finished - recording.startedAtElapsedMs) / 1000
+            render(recording.copy(phase = "READY", label = label(R.string.rootless_ready), fraction = null,
+                completedBytes = null, totalBytes = null, updatedAtElapsedMs = finished, finishedAtElapsedMs = finished), running = false)
+            val elapsed = context.getString(R.string.rootless_elapsed, seconds / 60, seconds % 60)
+            waitFor(elapsed)
+            waitForGone(label(R.string.install_cancel))
+            SystemClock.sleep(1200)
+            waitFor(elapsed)
+        }
     }
 
     @Test fun dialogShowsMeasuredDownloadAndStaysDismissedWithoutProgressButton() {
