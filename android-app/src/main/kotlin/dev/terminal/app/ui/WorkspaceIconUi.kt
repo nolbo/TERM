@@ -59,4 +59,3 @@ internal fun WorkspaceIconSetting(icon: String, enabled: Boolean, onChange: (Str
         } },
     )
 }
-
