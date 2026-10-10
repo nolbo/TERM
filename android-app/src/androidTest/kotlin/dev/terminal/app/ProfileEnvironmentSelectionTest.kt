@@ -1,5 +1,6 @@
 package dev.terminal.app
 
+import android.accessibilityservice.AccessibilityService
 import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
@@ -21,6 +22,29 @@ import java.util.UUID
 class ProfileEnvironmentSelectionTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
+
+    @Test fun creationShowsNativeStorageAccessAndOpensAndroidPermissionSettings() {
+        val store = SessionProfiles(context)
+        val original = store.environments().map { it.id }.toSet()
+        val osGrant = android.os.Environment.isExternalStorageManager()
+        ActivityScenario.launch(ProfileEditActivity::class.java).use { activity ->
+            fun storageRow() = scrollTo(context.getString(R.string.environment_storage_access), clickable = true)
+            assertTrue(storageRow().isCheckable)
+            assertEquals(osGrant, storageRow().isChecked)
+            val permissionRow = scrollTo(context.getString(R.string.environment_storage_android_permission), clickable = true)
+            assertFalse(permissionRow.isCheckable)
+            assertTrue(storageRow().performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            await { instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == "com.android.settings" }
+            assertTrue(instrumentation.uiAutomation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK))
+            await { instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == context.packageName }
+            assertEquals(osGrant, storageRow().isChecked)
+            activity.recreate()
+            assertTrue(storageRow().isCheckable)
+            assertEquals(osGrant, storageRow().isChecked)
+        }
+        assertEquals(osGrant, android.os.Environment.isExternalStorageManager())
+        assertEquals(original, store.environments().map { it.id }.toSet())
+    }
 
     @Test fun storageAccessCreationDraftSurvivesRecreationAndCommitsOnlyOnSave() = withEnvironments { store, _ ->
         val name = "Storage choice ${UUID.randomUUID()}"
@@ -74,8 +98,10 @@ class ProfileEnvironmentSelectionTest {
         val native = fixtures.single { it.second.sessionRuntime == SessionRuntime.NATIVE }.second
         ActivityScenario.launch<EnvironmentDetailActivity>(EnvironmentDetailActivity.intent(context, native.id.value)).use {
             val row = scrollTo(context.getString(R.string.environment_storage_access), clickable = true)
-            assertFalse(row.isCheckable)
+            assertTrue(row.isCheckable)
+            assertEquals(osGrant, row.isChecked)
             scrollTo(context.getString(if (osGrant) R.string.environment_storage_native_enabled else R.string.environment_storage_native_disabled))
+            assertFalse(scrollTo(context.getString(R.string.environment_storage_android_permission), clickable = true).isCheckable)
         }
         assertEquals(osGrant, android.os.Environment.isExternalStorageManager())
         assertTrue(fixtures.all { !store.environments().single { row -> row.id == it.second.id }.internalStorageAccess })

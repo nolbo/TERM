@@ -360,5 +360,5 @@
     <string name="environment_storage_native_enabled">Enabled · uses the common Android permission. Tap to open permission settings. Access cannot be blocked separately for each Native environment. Revoking permission may stop sharing VMs and running sessions.</string>
     <string name="environment_storage_native_disabled">Disabled · tap to configure the common Android permission. Access cannot be blocked separately for each Native environment. This permission is shared by all app environments.</string>
     <string name="environment_storage_os_enabled">Allowed · a common app permission. Tap to change it in Android Settings. Revoking it may stop VMs sharing internal storage and running sessions.</string>
-    <string name="environment_storage_os_disabled">Not allowed · enabling the environment option alone does not connect storage. Tap to allow all-files access in Android Settings.</string>
+    <string name="environment_storage_os_disabled">Not allowed · a common app permission. Tap to allow all-files access in Android Settings.</string>
 </resources>

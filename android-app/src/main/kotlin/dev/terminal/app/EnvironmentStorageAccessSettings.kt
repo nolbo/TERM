@@ -26,24 +26,29 @@ import dev.terminal.runtime.session.EnvironmentRuntime
 /** Same permission controls for an existing Environment and an unsaved creation draft. */
 @Composable internal fun EnvironmentStorageAccessSettings(runtime: EnvironmentRuntime, allowed: Boolean,
     osGranted: Boolean, editable: Boolean, onChange: (Boolean) -> Unit, onOpenSettings: () -> Unit) {
-    if (runtime != EnvironmentRuntime.NATIVE) ListItem(
-        onClick = { onChange(!allowed) }, enabled = editable,
-        supportingContent = { Text(stringResource(if (runtime == EnvironmentRuntime.AVF)
-            R.string.environment_storage_avf_support else R.string.environment_storage_rootless_support)) },
-        trailingContent = { Switch(checked = allowed, onCheckedChange = null, enabled = editable) },
+    val native = runtime == EnvironmentRuntime.NATIVE
+    // Native access follows the real app-wide grant, so changing it requires Android Settings.
+    val checked = if (native) osGranted else allowed
+    val enabled = native || editable
+    ListItem(
+        onClick = { if (native) onOpenSettings() else onChange(!allowed) }, enabled = enabled,
+        supportingContent = { Text(stringResource(when {
+            native -> if (osGranted) R.string.environment_storage_native_enabled else R.string.environment_storage_native_disabled
+            runtime == EnvironmentRuntime.AVF -> R.string.environment_storage_avf_support
+            else -> R.string.environment_storage_rootless_support
+        })) },
+        trailingContent = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },
         verticalAlignment = Alignment.CenterVertically,
         shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(),
         modifier = Modifier.fillMaxWidth().semantics {
             role = Role.Switch
-            toggleableState = if (allowed) ToggleableState.On else ToggleableState.Off
+            toggleableState = if (checked) ToggleableState.On else ToggleableState.Off
         },
     ) { Text(stringResource(R.string.environment_storage_access)) }
     EnvironmentActionSetting(
-        title = if (runtime == EnvironmentRuntime.NATIVE) R.string.environment_storage_access else R.string.environment_storage_android_permission,
+        title = R.string.environment_storage_android_permission,
         icon = null, enabled = true, navigation = true,
-        supporting = if (runtime == EnvironmentRuntime.NATIVE) {
-            if (osGranted) R.string.environment_storage_native_enabled else R.string.environment_storage_native_disabled
-        } else if (osGranted) R.string.environment_storage_os_enabled else R.string.environment_storage_os_disabled,
+        supporting = if (osGranted) R.string.environment_storage_os_enabled else R.string.environment_storage_os_disabled,
         onClick = onOpenSettings,
     )
 }
