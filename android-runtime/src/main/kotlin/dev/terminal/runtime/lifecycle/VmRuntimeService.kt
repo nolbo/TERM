@@ -560,6 +560,13 @@ class VmRuntimeService : Service() {
                 ""
             }.exceptionOrNull()?.userMessage().orEmpty()
         }
+        override fun setEnvironmentInternalStorageAccess(environmentId: String, enabled: Boolean): String {
+            enforceHostToolUi()
+            return runCatching {
+                environmentRegistry.transaction(storageDefaults()) { setInternalStorageAccess(EnvironmentId(environmentId), enabled) }
+                ""
+            }.exceptionOrNull()?.userMessage().orEmpty()
+        }
         override fun deleteEnvironment(environmentId: String): String {
             enforceHostToolUi()
             return runCatching { kotlinx.coroutines.runBlocking(Dispatchers.IO) {
@@ -1177,6 +1184,7 @@ class VmRuntimeService : Service() {
         }, usbBroker::unregister)
         rootlessBackends = RootlessDistribution.entries.associate { distribution ->
             distribution.runtime to RootlessDebianBackend(applicationContext, distribution = distribution, usbBroker = usbBroker,
+                internalStorageAccess = { environmentForStorage(distribution.runtime, defaultStorageId(distribution.runtime)).internalStorageAccess },
                 sharedFolders = { sharedFolders.bindings(environmentForStorage(distribution.runtime, defaultStorageId(distribution.runtime)).id) }) { phase, detail ->
                 Log.i(TAG, "rootless distribution=${distribution.directory} phase=${phase.name}")
                 broadcast { it.onRootlessProgress(distribution.runtime.wireName, phase.displayName, detail) }
@@ -1272,6 +1280,7 @@ class VmRuntimeService : Service() {
             enableNetwork = preferences.getBoolean(KEY_AVF_NETWORK, true),
             sharedDirectory = sharedDirectory.absolutePath,
             sharedFolders = sharedFolders.exports(environmentForStorage(SessionRuntime.AVF, storageId).id),
+            enableInternalStorage = environmentForStorage(SessionRuntime.AVF, storageId).internalStorageAccess,
         )
         backend.prepare(config).getOrThrow()
         backend.start().getOrThrow()
@@ -1505,6 +1514,7 @@ class VmRuntimeService : Service() {
             distribution = RootlessDistribution.entries.first { it.runtime == environment.sessionRuntime },
             usbBroker = usbBroker,
             storageRoot = dev.terminal.runtime.session.SessionStorage.root(filesDir, environment.sessionRuntime, environment.storage.id),
+            internalStorageAccess = { environmentRegistry.transaction(storageDefaults()) { requireEnvironment(environment.id).internalStorageAccess } },
             sharedFolders = { sharedFolders.bindings(environment.id) }) { phase, detail ->
             broadcast { it.onRootlessProgress("${environment.sessionRuntime.wireName}:${environment.storage.id}", phase.displayName, detail) }
         }
@@ -1835,6 +1845,9 @@ class VmRuntimeService : Service() {
                 enableNetwork = preferences.getBoolean(KEY_AVF_NETWORK, true),
                 sharedDirectory = if (spec.runtime == SessionRuntime.AVF) sharedDirectories.provision(spec.storageId).getOrThrow().path else null,
                 sharedFolders = if (spec.runtime == SessionRuntime.AVF) sharedFolders.exports(executionEnvironment.id) else emptyList(),
+                enableInternalStorage = environmentRegistry.transaction(storageDefaults()) {
+                    requireEnvironment(executionEnvironment.id).internalStorageAccess
+                },
             )).getOrThrow()
             owner.start().getOrThrow()
             startedEnvironmentBackends.add(key)

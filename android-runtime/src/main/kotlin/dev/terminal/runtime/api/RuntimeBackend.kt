@@ -51,6 +51,8 @@ data class RuntimeConfig(
     val sharedDirectory: String? = null,
     /** Explicit host-selected folder snapshot; never the app-private or shared-folder parent. */
     val sharedFolders: List<SharedDirectoryExport> = emptyList(),
+    /** Host-resolved environment policy; the OS grant remains an additional requirement. */
+    val enableInternalStorage: Boolean = false,
 )
 
 data class SharedDirectoryExport(val id: String, val name: String, val directory: String)

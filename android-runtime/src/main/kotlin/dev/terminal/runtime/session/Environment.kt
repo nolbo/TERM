@@ -39,6 +39,8 @@ data class Environment(
     val storage: EnvironmentStorage,
     val runtimeMetadata: EnvironmentRuntimeMetadata,
     val createdAt: Long,
+    /** Host-owned export choice. Native still uses the app-wide Android permission. */
+    val internalStorageAccess: Boolean = false,
 ) {
     init {
         require(name.isNotBlank() && name.length <= StorageRegistry.MAX_NAME_LENGTH && name.none { it.isISOControl() }) { "Invalid environment name" }
@@ -66,6 +68,7 @@ data class Environment(
     fun toJson() = JSONObject().put("id", id.value).put("name", name).put("runtime", runtime.name)
         .put("distribution", distribution?.name ?: JSONObject.NULL).put("storageId", storage.id)
         .put("runtimeMetadata", runtimeMetadata.toJson()).put("createdAt", createdAt)
+        .put("internalStorageAccess", internalStorageAccess)
 
     companion object {
         fun fromJson(json: JSONObject): Environment {
@@ -75,12 +78,14 @@ data class Environment(
                 json.optString("distribution").takeIf { !json.isNull("distribution") }?.let(EnvironmentDistribution::valueOf),
                 EnvironmentStorage(json.getString("storageId")),
                 EnvironmentRuntimeMetadata(metadata.optString("rootfsLayout").takeIf(String::isNotEmpty),
-                    metadata.optString("vmInstanceId").takeIf(String::isNotEmpty)), json.getLong("createdAt"))
+                    metadata.optString("vmInstanceId").takeIf(String::isNotEmpty)), json.getLong("createdAt"),
+                if (json.has("internalStorageAccess")) json.get("internalStorageAccess").also { require(it is Boolean) } as Boolean
+                else true) // Existing records retain their common-permission behavior.
         }
 
         fun create(runtime: SessionRuntime, name: String, storageId: String = UUID.randomUUID().toString(),
             id: EnvironmentId = EnvironmentId.create(), vmInstanceId: String = storageId,
-            createdAt: Long = System.currentTimeMillis()): Environment = Environment(id, name,
+            createdAt: Long = System.currentTimeMillis(), internalStorageAccess: Boolean = false): Environment = Environment(id, name,
             when (runtime) {
                 SessionRuntime.NATIVE -> EnvironmentRuntime.NATIVE
                 SessionRuntime.AVF -> EnvironmentRuntime.AVF
@@ -94,7 +99,7 @@ data class Environment(
                 SessionRuntime.NATIVE -> EnvironmentRuntimeMetadata()
                 SessionRuntime.AVF -> EnvironmentRuntimeMetadata(vmInstanceId = vmInstanceId)
                 else -> EnvironmentRuntimeMetadata(rootfsLayout = "rootfs")
-            }, createdAt)
+            }, createdAt, internalStorageAccess)
 
         internal fun migrationId(key: StorageRegistry.Key) = EnvironmentId(UUID.nameUUIDFromBytes(
             "terminal:environment:${key.runtime.wireName}:${key.storageId}".toByteArray(Charsets.UTF_8)).toString())

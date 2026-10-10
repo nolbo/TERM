@@ -37,6 +37,8 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
         add(SettingsSearchEntry(title, summary, path, SettingsSearchTarget(screen, section), icon))
     }
     entry("environments", R.string.storage_title, R.string.settings_environments_summary, icon = R.drawable.ic_material_symbol_deployed_code_24)
+    entry("environments", R.string.environment_storage_access, R.string.environment_storage_rootless_support,
+        listOf(R.string.storage_title, R.string.environment_permissions), icon = R.drawable.ic_material_symbol_deployed_code_24)
     entry("profiles", R.string.profiles, R.string.settings_profiles_summary, icon = R.drawable.ic_material_symbol_layers_24)
     entry("workspaces", R.string.workspaces_title, R.string.settings_workspaces_summary, icon = R.drawable.ic_material_symbol_team_dashboard_24)
     entry("shared-folders", R.string.shared_folders_title, R.string.settings_shared_folders_summary, icon = R.drawable.ic_material_symbol_folder_data_24)

@@ -19,10 +19,10 @@ class EnvironmentBackupTest {
         val source: TermBackupArchive.Source, val kind: BackupKind, val workspace: BackupWorkspace)
 
     private fun fixture(runtime: SessionRuntime = SessionRuntime.NATIVE, full: Boolean = false,
-        workspace: Boolean = false, emulated: Boolean = false): Fixture {
+        workspace: Boolean = false, emulated: Boolean = false, internalStorageAccess: Boolean = false): Fixture {
         val files = temporary.newFolder()
         val registry = EnvironmentRegistry(files)
-        val environment = Environment.create(runtime, "Development")
+        val environment = Environment.create(runtime, "Development", internalStorageAccess = internalStorageAccess)
         registry.transaction { save(SessionProfile("source-profile", "Shell", runtime,
             if (runtime == SessionRuntime.NATIVE) "/system/bin/sh" else "/bin/sh", environmentId = environment.id), environment) }
         val root = registry.storage.root(environment.storageKey).toPath()
@@ -160,6 +160,16 @@ class EnvironmentBackupTest {
         Files.createSymbolicLink(fixture.source.roots.getValue("workspace").resolve("alias"), intermediate)
         assertTrue(runCatching { backup(fixture) }.isFailure)
         assertEquals("workspace", Files.readString(fixture.source.roots.getValue("workspace").resolve("project/main")))
+    }
+
+    @Test fun restoredEnvironmentsDoNotInheritTheSourcesInternalStorageGrant() {
+        val fixture = fixture(SessionRuntime.ROOTLESS, internalStorageAccess = true)
+        val restored = restore(fixture, backup(fixture))
+        assertFalse(restored.internalStorageAccess)
+        fixture.registry.transaction {
+            assertFalse(requireEnvironment(restored.id).internalStorageAccess)
+            assertTrue(requireEnvironment(fixture.environment.id).internalStorageAccess)
+        }
     }
 
     @Test fun rootlessDataRestoresAreUninstalledAndRetainHomeLinkPolicy() {

@@ -108,6 +108,11 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
     private var imageInstallations by mutableStateOf(emptyList<dev.terminal.runtime.image.AvfImageInstallSnapshot>())
     private var installingImage by mutableStateOf<EnvironmentItem?>(null)
     private var binding = false
+    private var storagePermissionGranted by mutableStateOf(false)
+    override fun onResume() {
+        super.onResume()
+        storagePermissionGranted = android.os.Environment.isExternalStorageManager()
+    }
     private val connection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName, binder: IBinder) { runtime = IRuntimeService.Stub.asInterface(binder) }
         override fun onServiceDisconnected(name: ComponentName) { runtime = null }
@@ -141,6 +146,7 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
             val imageInstallTarget = entries?.firstOrNull { it.id == imageInstallTargetId }
             var requestImageConfirmation by rememberSaveable { mutableStateOf(intent.getBooleanExtra(ProfileEditActivity.EXTRA_CONFIRM_IMAGE_INSTALL, false)) }
             var renaming by remember { mutableStateOf<Pair<EnvironmentItem, String>?>(null) }
+            var changingStorageAccess by remember { mutableStateOf<Pair<EnvironmentItem, Boolean>?>(null) }
             var error by remember { mutableStateOf<String?>(null) }
             var revision by remember { mutableIntStateOf(0) }
             val measurement = remember { Semaphore(1) }
@@ -183,6 +189,18 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                     } else error = result
                 }.onFailure { error = it.message }
                 renaming = null
+            }
+            LaunchedEffect(changingStorageAccess) {
+                val (row, enabled) = changingStorageAccess ?: return@LaunchedEffect
+                runStorageOperation { withContext(Dispatchers.IO) {
+                    (runtime ?: error(getString(R.string.storage_unavailable))).setEnvironmentInternalStorageAccess(row.id, enabled)
+                } }.onSuccess { result ->
+                    if (result.isEmpty()) {
+                        entries = entries?.map { if (it.key == row.key) it.copy(environment = it.environment.copy(internalStorageAccess = enabled)) else it }
+                        revision++
+                    } else error = result
+                }.onFailure { error = it.message }
+                changingStorageAccess = null
             }
             LaunchedEffect(operating) {
                 val (row, operation) = operating ?: return@LaunchedEffect
@@ -287,6 +305,14 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                                 EnvironmentInfoRow(R.string.environment_disks, "system.img · home.img · config.img")
                             }
                         } }
+                        item(key = "permissions") {
+                            EnvironmentSection(R.string.environment_permissions) {
+                                EnvironmentStorageAccessSettings(detail.environment.runtime, detail.environment.internalStorageAccess,
+                                    storagePermissionGranted, runtime != null && changingStorageAccess == null && operating == null && deleting == null,
+                                    onChange = { changingStorageAccess = detail to it },
+                                    onOpenSettings = { openInternalStorageSettings(this@EnvironmentScreenActivity) })
+                            }
+                        }
                         if (detail.environment.runtime != EnvironmentRuntime.AVF) item(key = "backup") {
                             EnvironmentSection(R.string.backup_title) {
                                 EnvironmentActionSetting(R.string.backup_create, icon = null,

@@ -352,10 +352,10 @@
     <string name="diagnostics_hint">실행 오류가 발생하면 위 상태와 상세 내용을 확인하세요.</string>
     <string name="section_shared_storage">공유 내부저장소</string>
     <string name="shared_storage_access">내부저장소 접근 설정</string>
-    <string name="shared_storage_enabled">사용 중 · 눌러 Android 설정에서 모든 파일 접근을 끌 수 있습니다. Native·Userspace Linux와 지원 비보호 AVF VM에 공통으로 적용됩니다.</string>
-    <string name="shared_storage_disabled">사용 안 함 · 눌러 Android 설정에서 모든 파일 접근을 허용하세요. Native·Userspace Linux와 지원 비보호 AVF VM에 공통으로 적용됩니다.</string>
+    <string name="shared_storage_enabled">사용 중 · 눌러 Android 공통 권한을 끌 수 있습니다. Native에 적용되며 Userspace Linux·AVF는 환경별 내부저장소 접근 선택도 필요합니다.</string>
+    <string name="shared_storage_disabled">사용 안 함 · 눌러 Android 공통 권한을 허용하세요. Userspace Linux·AVF는 환경별 내부저장소 접근 선택도 필요합니다.</string>
     <string name="shared_storage_usage">접근 범위와 적용 시점</string>
-    <string name="shared_storage_usage_support">허용 후 새 로컬 세션 또는 지원 이미지의 다음 비보호 AVF VM 부팅부터 /sdcard로 공유 파일을 읽고 쓸 수 있습니다. 다른 앱의 비공개 데이터와 Android/data 등 보호 경로는 제외됩니다. 권한을 끄면 내부저장소를 공유하는 AVF VM을 중지하며 Android가 앱과 다른 실행 중인 세션도 종료할 수 있으므로 먼저 작업을 저장하세요.</string>
+    <string name="shared_storage_usage_support">Native와 내부저장소 접근을 켠 Userspace Linux 새 세션 또는 지원 비보호 AVF VM의 다음 부팅부터 /sdcard로 공유 파일을 읽고 쓸 수 있습니다. 다른 앱의 비공개 데이터와 Android/data 등 보호 경로는 제외됩니다. 권한을 끄면 내부저장소를 공유하는 AVF VM을 중지하며 Android가 앱과 다른 실행 중인 세션도 종료할 수 있으므로 먼저 작업을 저장하세요.</string>
     <string name="shared_storage_settings_unavailable">이 기기에서 모든 파일 접근 설정을 열 수 없습니다.</string>
     <string name="settings_hotkeys_title">터미널 단축키</string>
     <string name="settings_hotkeys_summary">그리드 배치, 키 크기와 단축키 조합</string>
@@ -593,4 +593,13 @@
     <string name="history_copy_command">명령 복사</string>
     <string name="history_output_unavailable">보관된 출력이 없습니다.</string>
     <string name="history_output_empty">출력이 없습니다.</string>
+    <string name="environment_permissions">권한</string>
+    <string name="environment_storage_access">내부저장소 접근</string>
+    <string name="environment_storage_android_permission">Android 모든 파일 접근</string>
+    <string name="environment_storage_rootless_support">이 환경의 새 세션에서 /sdcard를 연결합니다. Android 모든 파일 접근 권한도 필요합니다. 기존 세션에는 다음 세션부터 반영되며 파일 접근을 격리하는 기능은 아닙니다.</string>
+    <string name="environment_storage_avf_support">지원 이미지의 비보호 VM에서 /sdcard를 공유합니다. Android 모든 파일 접근 권한도 필요하며 다음 VM 부팅부터 반영됩니다. 실행 중 공유를 해제하려면 VM을 중지하세요.</string>
+    <string name="environment_storage_native_enabled">사용 중 · Android 공통 권한으로 접근합니다. 눌러 권한 설정을 여세요. Native 환경별로 접근을 차단할 수는 없습니다. 권한 해제 시 공유 VM과 실행 중인 세션이 종료될 수 있습니다.</string>
+    <string name="environment_storage_native_disabled">사용 안 함 · 눌러 Android 공통 권한을 설정하세요. Native 환경별로 접근을 차단할 수는 없습니다. 이 권한은 앱의 모든 실행환경에 공통입니다.</string>
+    <string name="environment_storage_os_enabled">허용됨 · 앱 공통 권한입니다. 눌러 Android 설정에서 변경하세요. 권한 해제 시 내부저장소를 공유하는 VM과 실행 중인 세션이 종료될 수 있습니다.</string>
+    <string name="environment_storage_os_disabled">허용되지 않음 · 환경 옵션만 켜서는 저장소가 연결되지 않습니다. 눌러 Android 설정에서 모든 파일 접근을 허용하세요.</string>
 </resources>

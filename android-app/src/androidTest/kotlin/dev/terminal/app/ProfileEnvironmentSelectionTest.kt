@@ -22,6 +22,65 @@ class ProfileEnvironmentSelectionTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
 
+    @Test fun storageAccessCreationDraftSurvivesRecreationAndCommitsOnlyOnSave() = withEnvironments { store, _ ->
+        val name = "Storage choice ${UUID.randomUUID()}"
+        val original = store.environments().map { it.id }.toSet()
+        try {
+            ActivityScenario.launch(ProfileEditActivity::class.java).use { activity ->
+                setField(R.string.profile_name, name)
+                choose(R.string.profile_runtime, context.getString(R.string.runtime_rootless_title))
+                fun storageRow() = scrollTo(context.getString(R.string.environment_storage_access), clickable = true)
+                assertTrue(storageRow().isCheckable)
+                assertFalse(storageRow().isChecked)
+                assertTrue(storageRow().performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                settle()
+                assertTrue(storageRow().isChecked)
+                assertEquals(original, store.environments().map { it.id }.toSet())
+                activity.recreate()
+                assertTrue(storageRow().isChecked)
+                choose(R.string.profile_storage, context.getString(R.string.profile_storage_existing))
+                choose(R.string.profile_storage, context.getString(R.string.profile_storage_new))
+                assertTrue(storageRow().isChecked)
+                click(R.string.profile_save)
+                await { store.all().any { it.name == name } }
+            }
+            val saved = store.all().single { it.name == name }
+            val environment = store.environments().single { it.id == saved.environmentId }
+            assertTrue(environment.internalStorageAccess)
+            assertEquals(original + environment.id, store.environments().map { it.id }.toSet())
+        } finally {
+            val owned = store.all().filter { it.name == name }
+            owned.forEach { store.delete(it.id) }
+            EnvironmentRegistry(context.filesDir).transaction(store.builtIns()) {
+                owned.mapNotNull { it.environmentId }.forEach { delete(it) }
+            }
+        }
+    }
+
+    @Test fun environmentPermissionOptionsPersistIndependentlyAndNativeShowsTheActualCommonGrant() = withEnvironments { store, fixtures ->
+        val osGrant = android.os.Environment.isExternalStorageManager()
+        for (environment in fixtures.map { it.second }.filter { it.sessionRuntime in setOf(SessionRuntime.ROOTLESS, SessionRuntime.AVF) }) {
+            ActivityScenario.launch<EnvironmentDetailActivity>(EnvironmentDetailActivity.intent(context, environment.id.value)).use { activity ->
+                fun storageRow() = scrollTo(context.getString(R.string.environment_storage_access), clickable = true)
+                assertFalse(storageRow().isChecked)
+                assertTrue(storageRow().performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                await { store.environments().single { it.id == environment.id }.internalStorageAccess }
+                activity.recreate()
+                assertTrue(storageRow().isChecked)
+                assertTrue(storageRow().performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                await { !store.environments().single { it.id == environment.id }.internalStorageAccess }
+            }
+        }
+        val native = fixtures.single { it.second.sessionRuntime == SessionRuntime.NATIVE }.second
+        ActivityScenario.launch<EnvironmentDetailActivity>(EnvironmentDetailActivity.intent(context, native.id.value)).use {
+            val row = scrollTo(context.getString(R.string.environment_storage_access), clickable = true)
+            assertFalse(row.isCheckable)
+            scrollTo(context.getString(if (osGrant) R.string.environment_storage_native_enabled else R.string.environment_storage_native_disabled))
+        }
+        assertEquals(osGrant, android.os.Environment.isExternalStorageManager())
+        assertTrue(fixtures.all { !store.environments().single { row -> row.id == it.second.id }.internalStorageAccess })
+    }
+
     @Test fun creationListsAllEnvironmentsAndAdoptsTheSelectedRuntimeAndDistribution() = withEnvironments { store, fixtures ->
         val originalEnvironments = store.environments().map { it.id }.toSet()
         val name = "Existing environment profile ${UUID.randomUUID()}"

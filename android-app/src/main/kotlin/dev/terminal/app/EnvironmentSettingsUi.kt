@@ -24,9 +24,10 @@ import dev.terminal.app.ui.terminalSettingsListItemColors
 }
 
 @Composable internal fun EnvironmentActionSetting(title: Int, icon: Int?, enabled: Boolean,
-    supporting: Int? = null, destructive: Boolean = false, onClick: () -> Unit) {
+    supporting: Int? = null, destructive: Boolean = false, navigation: Boolean = false, onClick: () -> Unit) {
     ListItem(onClick = onClick, enabled = enabled,
         supportingContent = supporting?.let { { Text(stringResource(it)) } },
+        trailingContent = if (navigation) { { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) } } else null,
         leadingContent = icon?.let { iconResource -> {
             Icon(painterResource(iconResource), contentDescription = null,
                 tint = if (destructive && enabled) MaterialTheme.colorScheme.error else LocalContentColor.current)

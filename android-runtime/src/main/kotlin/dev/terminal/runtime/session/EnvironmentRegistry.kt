@@ -51,7 +51,8 @@ class EnvironmentRegistry(val storage: StorageRegistry) {
                         check(!isDeleted(id)) { "Environment has been deleted" }
                         val name = persistence.name(key) ?: defaultName(linked?.name ?: key.runtime.wireName, names)
                         val environment = Environment.create(key.runtime, name, key.storageId, id,
-                            vmInstanceId = if (key.runtime == SessionRuntime.AVF && originalKey.storageId == "legacy") "default" else key.storageId)
+                            vmInstanceId = if (key.runtime == SessionRuntime.AVF && originalKey.storageId == "legacy") "default" else key.storageId,
+                            internalStorageAccess = true)
                         put(environment)
                         byStorage[key] = environment
                         names += name
@@ -98,8 +99,10 @@ class EnvironmentRegistry(val storage: StorageRegistry) {
                 persistence.canonicalKey(snapshot.storageKey) == environment.storageKey && snapshot.runtimeMetadata == environment.runtimeMetadata) {
                 "Environment snapshot is incompatible"
             }
-            return if (snapshot.storage == environment.storage) spec
-                else SessionLaunchSpec(spec.toProfile(), snapshot.copy(storage = environment.storage), spec.tabTitle)
+            // Mutable host permissions are never authorized by a caller's launch snapshot.
+            return if (snapshot.storage == environment.storage && snapshot.internalStorageAccess == environment.internalStorageAccess) spec
+                else SessionLaunchSpec(spec.toProfile(), snapshot.copy(storage = environment.storage,
+                    internalStorageAccess = environment.internalStorageAccess), spec.tabTitle)
         }
 
         /** Fresh environment + profile commit together; no rootfs, home or disk files are copied. */
@@ -180,6 +183,13 @@ class EnvironmentRegistry(val storage: StorageRegistry) {
         fun rename(id: EnvironmentId, name: String) {
             val environment = requireEnvironment(id)
             put(environment.copy(name = name.trim()))
+            persistence.persist()
+        }
+
+        fun setInternalStorageAccess(id: EnvironmentId, enabled: Boolean) {
+            val environment = requireEnvironment(id)
+            require(environment.runtime != EnvironmentRuntime.NATIVE) { "Native 내부저장소 접근은 Android 공통 권한에서 변경하세요." }
+            put(environment.copy(internalStorageAccess = enabled))
             persistence.persist()
         }
 

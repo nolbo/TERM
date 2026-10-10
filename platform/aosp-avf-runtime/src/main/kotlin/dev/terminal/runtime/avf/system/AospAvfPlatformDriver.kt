@@ -117,7 +117,7 @@ class AospAvfPlatformDriver(
                     // stopped instances so boot parameters also reach installed guests.
                     releaseSharedBoot(vm)
                     releaseStoppedShares(config.instanceId)
-                    val storage = if (supportsAndroidStorage && storageGranted && !config.protectedVm)
+                    val storage = if (config.enableInternalStorage && supportsAndroidStorage && storageGranted && !config.protectedVm)
                         android.os.Environment.getExternalStorageDirectory().canonicalFile else null
                     stagedShares = if (supportsVirtiofs)
                         AvfSharedDirectories.create(appContext.filesDir.canonicalFile, config.sharedFolders, storage) else null

@@ -44,9 +44,11 @@ import dev.terminal.runtime.session.EnvironmentRegistry
 class ProfileEditActivity : TerminalActivity() {
     private var hasAvfPrivileges by mutableStateOf(false)
     private var environmentRevision by mutableIntStateOf(0)
+    private var storagePermissionGranted by mutableStateOf(false)
     override fun onResume() {
         super.onResume()
         hasAvfPrivileges = SessionProfiles(this).hasAvfPrivileges()
+        storagePermissionGranted = android.os.Environment.isExternalStorageManager()
         environmentRevision++
     }
 
@@ -80,6 +82,7 @@ class ProfileEditActivity : TerminalActivity() {
             var freshEnvironmentId by rememberSaveable { mutableStateOf(java.util.UUID.randomUUID().toString()) }
             var selectedEnvironmentId by rememberSaveable { mutableStateOf(initial.environmentId?.value.orEmpty()) }
             var freshStorageName by rememberSaveable { mutableStateOf("") }
+            var freshInternalStorageAccess by rememberSaveable { mutableStateOf(false) }
             var environments by remember { mutableStateOf(emptyList<Environment>()) }
             val scope = rememberCoroutineScope()
             var saving by remember { mutableStateOf(false) }
@@ -130,7 +133,8 @@ class ProfileEditActivity : TerminalActivity() {
                             if (fresh) null else selectedEnvironmentId.takeIf(String::isNotEmpty)?.let(::EnvironmentId))
                         withContext(Dispatchers.IO) {
                             if (fresh) store.save(profile, Environment.create(profile.runtime,
-                                freshStorageName.ifBlank { EnvironmentRegistry.defaultName(name) }, freshStorageId, EnvironmentId(freshEnvironmentId)))
+                                freshStorageName.ifBlank { EnvironmentRegistry.defaultName(name) }, freshStorageId, EnvironmentId(freshEnvironmentId),
+                                internalStorageAccess = freshInternalStorageAccess))
                             else { store.save(profile); requireNotNull(store.find(profile.id)) }
                         }
                     }.onSuccess { profile ->
@@ -235,6 +239,15 @@ class ProfileEditActivity : TerminalActivity() {
                     }
                     Text(stringResource(R.string.profile_storage_hint), modifier = Modifier.padding(horizontal = 16.dp),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    if (storageChoice == "fresh") ProfileSection(R.string.environment_permissions) {
+                        EnvironmentStorageAccessSettings(
+                            if (runtime == SessionRuntime.NATIVE.wireName) dev.terminal.runtime.session.EnvironmentRuntime.NATIVE
+                            else if (runtime == SessionRuntime.AVF.wireName) dev.terminal.runtime.session.EnvironmentRuntime.AVF
+                            else dev.terminal.runtime.session.EnvironmentRuntime.ROOTLESS,
+                            freshInternalStorageAccess, storagePermissionGranted, !saving,
+                            onChange = { freshInternalStorageAccess = it; dirty = true },
+                            onOpenSettings = { openInternalStorageSettings(this@ProfileEditActivity) })
+                    }
                     ProfileSection(R.string.profile_launch) {
                         ProfileField(R.string.profile_shell, shell) { shell = it; dirty = true }
                         ProfileField(R.string.profile_arguments, arguments, false, R.string.profile_arguments_hint) { arguments = it; dirty = true }

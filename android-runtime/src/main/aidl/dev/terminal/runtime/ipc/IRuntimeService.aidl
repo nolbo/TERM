@@ -92,4 +92,5 @@ interface IRuntimeService {
     boolean cancelSharedFolderOperation(String requestId);
     String reorderWorkspaces(String workspaceIdsJson);
     String deleteEmptyTemporaryWorkspace(String workspaceId);
+    String setEnvironmentInternalStorageAccess(String environmentId, boolean enabled);
 }

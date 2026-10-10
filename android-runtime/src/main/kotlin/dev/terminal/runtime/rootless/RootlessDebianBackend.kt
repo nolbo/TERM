@@ -25,6 +25,7 @@ class RootlessDebianBackend(
     private val distribution: RootlessDistribution = RootlessDistribution.DEBIAN,
     private val usbBroker: dev.terminal.runtime.usb.UsbBroker? = null,
     storageRoot: File? = null,
+    private val internalStorageAccess: () -> Boolean = { false },
     private val sharedFolders: () -> List<dev.terminal.runtime.storage.SharedFolderBinding> = { emptyList() },
     reporter: RootlessProgressReporter = RootlessProgressReporter.NONE,
 ) : RuntimeBackend {
@@ -157,8 +158,8 @@ class RootlessDebianBackend(
             sharedFolders = sharedFolders,
             cacheDirectory = appContext.cacheDir, resolverFile = { dns.resolverFile(layout) }, sharedStorage = {
             // Query at session creation, including after returning from system settings.
-            // This UID-wide OS grant is also the Native shell's access boundary.
-            if (Environment.isExternalStorageManager()) Environment.getExternalStorageDirectory() else null
+            // The host-owned choice controls the bind, independently of guest launch variables.
+            if (internalStorageAccess() && Environment.isExternalStorageManager()) Environment.getExternalStorageDirectory() else null
         })
         state.value = RuntimeState.Ready
     }.onFailure { state.value = RuntimeState.Failed(it.message ?: "${distribution.displayName} startup failed") }
