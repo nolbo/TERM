@@ -68,15 +68,14 @@ class TerminalTuiBackgroundTest {
         assertEquals(fallback, terminalChromeBackground(emulator, true))
     }
 
-    @Test fun wholeDisplayBackgroundSurvivesDiffCoveringEveryRow() {
+    @Test fun wholeDisplayRepaintUpdatesBackgroundWithoutAnotherErase() {
         val emulator = emulator()
         emulator.output("\u001b[?1049h\u001b[48;2;18;52;86m\u001b[2J")
         emulator.fillRows(1, 24, "48;2;33;58;43")
-        assertEquals(0xFF123456.toInt(), terminalChromeBackground(emulator, true))
+        assertEquals(0xFF213A2B.toInt(), terminalChromeBackground(emulator, true))
         emulator.output("\u001b[0m\u001b[H\u001b[J")
         emulator.fillRows(1, 24, "48;2;33;58;43")
-        assertEquals(emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND],
-            terminalChromeBackground(emulator, true))
+        assertEquals(0xFF213A2B.toInt(), terminalChromeBackground(emulator, true))
     }
 
     @Test fun oscDeclarationWinsEvenWhenEqualToDefaultsAndQueryDoesNotDeclare() {
@@ -93,7 +92,7 @@ class TerminalTuiBackgroundTest {
         assertEquals(emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_FOREGROUND],
             terminalChromeBackground(emulator, true))
         emulator.output("\u001b[?5l\u001b]111\u0007")
-        assertEquals(0xFF123456.toInt(), terminalChromeBackground(emulator, true))
+        assertEquals(0xFF213A2B.toInt(), terminalChromeBackground(emulator, true))
     }
 
     @Test fun cellPaintedThemeRequiresAgreementAcrossRowsAndIncludesScreenEdges() {
@@ -121,11 +120,13 @@ class TerminalTuiBackgroundTest {
     @Test fun backgroundEvidenceSurvivesCheckpointAndResetsForNextApplication() {
         val emulator = emulator()
         emulator.output("\u001b[?1049h\u001b[48;2;18;52;86m\u001b[2J")
-        emulator.fillRows(1, 24, "42")
+        emulator.fillRows(2, 23, "42")
         val bytes = ByteArrayOutputStream().also { TerminalCheckpoint.write(emulator, it) }.toByteArray()
         val mirror = this.emulator()
         mirror.restoreState(TerminalCheckpoint.read(ByteArrayInputStream(bytes)))
         assertEquals(0xFF123456.toInt(), terminalChromeBackground(mirror, true))
+        mirror.fillRows(1, 24, "48;2;240;224;208")
+        assertEquals(0xFFF0E0D0.toInt(), terminalChromeBackground(mirror, true))
         mirror.output("\u001b[?1049l\u001b[0m\u001b[?1049h")
         assertEquals(mirror.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND],
             terminalChromeBackground(mirror, true))
@@ -142,30 +143,57 @@ class TerminalTuiBackgroundTest {
             val backend = RemoteTerminalBackend(write = {}, resize = { _, _ -> })
             val session = TerminalSession("", "/", emptyArray(), emptyArray(), 1000,
                 TerminalCallbacks {}, backend)
-            val view = TerminalView(instrumentation.targetContext, null).apply { setTextSize(20) }
+            val view = TerminalView(instrumentation.targetContext, null).apply {
+                setTerminalViewClient(TerminalInputCallbacks())
+                setTextSize(20)
+                layout(0, 0, 1500, 1000)
+            }
+            val bitmap = Bitmap.createBitmap(1500, 1000, Bitmap.Config.ARGB_8888)
             var background = 0
-            val transition = TerminalPaletteTransition(followTuiBackground = { true }) {
+            var followTuiBackground = true
+            val transition = TerminalPaletteTransition(followTuiBackground = { followTuiBackground }) {
                 background = it.background.toArgb()
             }
+            fun assertBackground(expected: Int) {
+                assertEquals(expected, background)
+                assertEquals(background, (view.background as ColorDrawable).color)
+                view.draw(Canvas(bitmap))
+                assertEquals(background, bitmap.getPixel(1499, 999))
+            }
             try {
-                session.updateSize(80, 24, 10, 20)
                 view.attachSession(session)
+                session.updateSize(80, 24, 10, 20)
                 val emulator = requireNotNull(session.emulator)
                 emulator.output("\u001b[?1049h\u001b[48;2;18;52;86m\u001b[2J")
                 transition.show(view, animate = false)
-                emulator.fillRows(1, 24, "42")
+                emulator.fillRows(1, 23, "42")
                 transition.update(view)
-                assertEquals(0xFF123456.toInt(), background)
-                assertEquals(background, (view.background as ColorDrawable).color)
-                emulator.output("\u001b[?2026h\u001b]11;#ABCDEF\u0007")
+                assertBackground(0xFF123456.toInt())
+                emulator.output("\u001b[?2026h")
+                emulator.fillRows(1, 24, "48;2;171;205;239")
                 transition.update(view)
-                assertEquals(0xFF123456.toInt(), background)
+                assertBackground(0xFF123456.toInt())
                 emulator.output("\u001b[?2026l")
                 transition.update(view)
-                assertEquals(0xFFABCDEF.toInt(), background)
-                assertEquals(background, (view.background as ColorDrawable).color)
+                assertBackground(0xFFABCDEF.toInt())
+                emulator.fillRows(1, 24, "0")
+                transition.update(view)
+                val fallback = emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND]
+                assertBackground(fallback)
+                emulator.fillRows(1, 24, "48;2;171;205;239")
+                transition.update(view)
+                assertBackground(0xFFABCDEF.toInt())
+                followTuiBackground = false
+                transition.update(view)
+                assertBackground(fallback)
+                followTuiBackground = true
+                transition.update(view)
+                emulator.output("\u001b[?1049l")
+                transition.update(view)
+                assertBackground(fallback)
             } finally {
                 transition.cancel()
+                bitmap.recycle()
                 backend.close()
             }
         }

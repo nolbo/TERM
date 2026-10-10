@@ -16,18 +16,20 @@ internal fun terminalChromeBackground(
     if (emulator.mColors.isBackgroundColorSet) return if (emulator.isReverseVideo)
         palette[TextStyle.COLOR_INDEX_FOREGROUND] else fallback
 
-    // A full display erase supplies a stable canvas background. Local diff/status line fills
-    // cannot replace it, even if they subsequently cover all the visible cells.
-    emulator.screen.lastFullScreenClearStyle?.let { style ->
-        return resolveTuiBackground(style, emulator.isReverseVideo, palette)
+    // Keep an erase background while it remains visible. A theme can repaint every cell
+    // without another display erase, so an absent erase color is only a fallback.
+    val eraseBackground = emulator.screen.lastFullScreenClearStyle?.let { style ->
+        resolveTuiBackground(style, emulator.isReverseVideo, palette)
     }
+    val inferredFallback = eraseBackground ?: fallback
 
-    // Some TUIs paint cells without erasing the display. Require agreement across the screen,
+    // Cell-painted themes require agreement across the screen,
     // preserving SGR's default-background identity instead of treating every RGB as equivalent.
     val rows = minOf(emulator.mRows, 32)
     val columns = minOf(emulator.mColumns, 32)
     val counts = linkedMapOf<Int, Int>()
     val rowCoverage = mutableMapOf<Int, Int>()
+    var hasDefaultBackground = false
     for (y in 0 until rows) {
         val row = sampleTuiCoordinate(y, rows, emulator.mRows)
         val rowColors = mutableSetOf<Int>()
@@ -35,19 +37,21 @@ internal fun terminalChromeBackground(
             val column = sampleTuiCoordinate(x, columns, emulator.mColumns)
             val style = emulator.screen.getStyleAt(row, column)
             if (tuiBackgroundColorIndex(style, emulator.isReverseVideo) == TextStyle.COLOR_INDEX_BACKGROUND)
-                return fallback
+                hasDefaultBackground = true
             val color = resolveTuiBackground(style, emulator.isReverseVideo, palette)
+            if (color == eraseBackground) return color
             counts[color] = (counts[color] ?: 0) + 1
             rowColors += color
         }
         // Count presence once per sampled row, rather than giving long colored lines extra weight.
         rowColors.forEach { color -> rowCoverage[color] = (rowCoverage[color] ?: 0) + 1 }
     }
-    val candidate = counts.maxByOrNull { it.value } ?: return fallback
+    val candidate = counts.maxByOrNull { it.value } ?: return inferredFallback
     return candidate.key.takeIf {
-        candidate.value * 5 >= rows * columns * 4 &&
+        (!hasDefaultBackground || it == fallback) &&
+            candidate.value * 5 >= rows * columns * 4 &&
             (rowCoverage[it] ?: 0) >= maxOf(1, rows - 2)
-    } ?: fallback
+    } ?: inferredFallback
 }
 
 private fun sampleTuiCoordinate(sample: Int, count: Int, size: Int): Int =

@@ -171,13 +171,16 @@ UI and settings may be reorganized when architecture or clarity requires it.
 Active application screens use the shared Jetpack Compose Material 3 system in
 docs/DESIGN_SYSTEM.md. Settings and general application chrome use the deliberate
 dark color scheme. Terminal-screen chrome follows the active session palette with
-readable contrast. An opt-in appearance setting follows an explicit OSC background
-or the style used to erase the whole alternate display. Without that evidence it
-uses bounded, conservative cell inference and falls back to the session palette
-for mixed or default-colored screens. OSC declarations and whole-display erase
-styles survive terminal checkpoints; local highlighted lines do not replace the
-erase style. This is renderer-only and does not change session ownership or the
-palette exposed to terminal applications.
+readable contrast. An opt-in appearance setting prioritizes an explicit OSC background.
+Otherwise, it retains the whole-display erase background while that color remains
+visible in bounded screen samples. Once absent, a consistent cell-painted theme,
+including a return to the default background, can replace it on the next output
+frame without another whole-display erase. Mixed screens or a default-colored gutter
+fall back to the erase background, or the session palette when no erase hint exists.
+OSC declarations and whole-display erase styles survive terminal checkpoints;
+renderer inference never rewrites them. A uniform full-screen highlight cannot be
+distinguished from a theme repaint using cell colors alone. This is renderer-only
+and does not change session ownership or the palette exposed to terminal applications.
 
 The UI renders state and sends typed commands. It never becomes the hidden
 owner of a process, PTY, VM, package operation, or capability grant.
