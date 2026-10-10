@@ -659,40 +659,23 @@ fun RenameSessionDialog(
 }
 
 @Composable
-fun TerminalEmptyState(
-    runtimeMessage: String,
-    onNewSession: () -> Unit,
-    onSettings: () -> Unit,
-    showActions: Boolean = true,
-) {
-    val haptics = LocalTerminalHaptics.current
-    Box(Modifier.fillMaxSize()) {
-        Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
-        ) {
-            Text(stringResource(R.string.empty_terminal_title), style = MaterialTheme.typography.headlineSmall)
+fun TerminalEmptyState(runtimeMessage: String) {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(stringResource(R.string.empty_terminal_title), style = MaterialTheme.typography.headlineSmall)
+        Spacer(Modifier.height(8.dp))
+        Text(
+            stringResource(R.string.empty_terminal_message),
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        if (runtimeMessage.isNotBlank()) {
             Spacer(Modifier.height(8.dp))
-            Text(
-                stringResource(R.string.empty_terminal_message),
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.bodyMedium,
-            )
-            if (runtimeMessage.isNotBlank()) {
-                Spacer(Modifier.height(8.dp))
-                Text(runtimeMessage, color = TerminalStatusBlue, style = MaterialTheme.typography.bodySmall)
-            }
-            if (showActions) {
-                Spacer(Modifier.height(20.dp))
-                Button(onClick = onNewSession, shapes = ButtonDefaults.shapes(), modifier = Modifier.heightIn(min = 48.dp)) {
-                    Icon(painterResource(R.drawable.ic_material_symbol_add_24), contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.new_session))
-                }
-            }
+            Text(runtimeMessage, color = TerminalStatusBlue, style = MaterialTheme.typography.bodySmall)
         }
-        if (showActions) TerminalSettingsButton(onSettings, Modifier.align(Alignment.TopEnd).padding(8.dp))
     }
 }
 

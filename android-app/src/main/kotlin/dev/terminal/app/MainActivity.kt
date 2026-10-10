@@ -66,7 +66,6 @@ import dev.terminal.app.ui.ToolbarMemoryTool
 import dev.terminal.app.ui.ToolbarCommandsTool
 import dev.terminal.app.ui.ToolbarHistoryTool
 import androidx.compose.foundation.layout.BoxWithConstraints
-import dev.terminal.app.ui.NewSessionSheet
 import dev.terminal.app.ui.RootlessSetupDialog
 import dev.terminal.app.ui.RootlessProgressUi
 import dev.terminal.app.ui.RenameSessionDialog
@@ -213,7 +212,6 @@ class MainActivity : TerminalActivity() {
     private var selectedLaunchSpec: dev.terminal.runtime.session.SessionLaunchSpec? = null
     private fun addProfile() {
         sessionProfilePickerVisible = false
-        newSessionSheetVisible = false
         startActivity(Intent(this, ProfileEditActivity::class.java))
     }
     private fun selectProfile(profile: dev.terminal.runtime.session.SessionProfile) {
@@ -232,7 +230,6 @@ class MainActivity : TerminalActivity() {
         selectedLaunchWorkspace = workspaceId
         selectedLaunchSpec = spec
         sessionProfilePickerVisible = false
-        newSessionSheetVisible = false
         profileInstallToConfirm = null
         profileLaunchToCheck = null
         profileLaunchCheckRevision += 1
@@ -274,7 +271,6 @@ class MainActivity : TerminalActivity() {
     private var feedbackMessage by mutableStateOf<String?>(null)
     private var sessionProfilePickerVisible by mutableStateOf(false)
     private var sessionProfilePickerReturnMode = ToolbarSheetMode.Default
-    private var newSessionSheetVisible by mutableStateOf(false)
     private var unavailableChoice by mutableStateOf<RuntimeChoiceUi?>(null)
     private var avfLaunchFailure by mutableStateOf<String?>(null)
     private var pendingRename by mutableStateOf<SessionUi?>(null)
@@ -726,7 +722,6 @@ class MainActivity : TerminalActivity() {
         val visibleSessions = sessions.filter(::workspaceIncludes).map { session ->
             sessionWithDisplayTitles(session, applicationTerminalTitles[session.id])
         }
-        val showToolbar = sessions.isNotEmpty() || workspaceState.workspaces.isNotEmpty()
         val snackbarHost = remember { SnackbarHostState() }
         LaunchedEffect(feedbackMessage) {
             feedbackMessage?.let {
@@ -734,9 +729,8 @@ class MainActivity : TerminalActivity() {
                 feedbackMessage = null
             }
         }
-        val profileMenuVisible = sessionProfilePickerVisible || newSessionSheetVisible
-        LaunchedEffect(profileMenuVisible, profiles) {
-            if (!profileMenuVisible) return@LaunchedEffect
+        LaunchedEffect(sessionProfilePickerVisible, profiles) {
+            if (!sessionProfilePickerVisible) return@LaunchedEffect
             val environmentIds = profiles.filter { it.runtime != dev.terminal.runtime.session.SessionRuntime.NATIVE }
                 .mapNotNull { it.environmentId }.distinct()
             while (isActive) {
@@ -802,9 +796,7 @@ class MainActivity : TerminalActivity() {
                     dev.terminal.app.ui.AvfImageInstallationUi(avfImageInstallations)
                     if (activeSessionId == null) {
                         Box(Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(topInsets)) {
-                            TerminalEmptyState(runtimeMessage, ::showNewSessionSheet,
-                                onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
-                                showActions = !showToolbar)
+                            TerminalEmptyState(runtimeMessage)
                         }
                     } else if (sessions.firstOrNull { it.id == activeSessionId }?.pendingLaunch == true) {
                         val loadingSession = sessions.first { it.id == activeSessionId }
@@ -844,115 +836,113 @@ class MainActivity : TerminalActivity() {
                                 .padding(terminalPaddingDp.dp),
                         )
                     }
-                    if (showToolbar) {
-                        val toolbarSessionId = activeSessionId
-                        TerminalToolbar(
-                            config = toolbarConfig.visibleConfig(sessionsOnly = visibleSessions.isEmpty()),
-                            mode = toolbarSheetMode,
-                            onModeChange = {
-                                toolbarSheetMode = it
-                                if (it == ToolbarSheetMode.Hidden) sessionProfilePickerVisible = false
-                            },
-                            maxHeight = toolbarMaxHeight,
-                            colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,
-                            pageNavigationEnabled = visibleSessions.isNotEmpty() && !sessionProfilePickerVisible,
-                        ) { tool, interactive ->
-                            // Session navigation keeps its scroll position across tab switches.
-                            androidx.compose.runtime.key(if (tool == SESSIONS_TOOL) SESSIONS_TOOL else toolbarSessionId, tool) {
-                                val active = toolbarInputActive && interactive
-                                val selected = visibleSessions.firstOrNull { it.id == toolbarSessionId }
-                                val canSend = active && selected?.state == "RUNNING"
-                                val sendText: (String, Boolean) -> Unit = { text, execute ->
-                                    if (activeSessionId == toolbarSessionId && toolbarInputActive &&
-                                        toolbarConfig.enabled && tool in toolbarConfig.tools &&
-                                        toolbarSheetMode != ToolbarSheetMode.Hidden && text.length <= MAX_TOOLBAR_TEXT &&
-                                        selected?.state == "RUNNING") {
-                                        terminalView?.pasteText(text)
-                                        if (execute) {
-                                            terminalInputCallbacks.consumeLatchedModifiers()
-                                            terminalView?.inputCodePoint(13, false, false)
-                                        }
+                    val toolbarSessionId = activeSessionId
+                    TerminalToolbar(
+                        config = toolbarConfig.visibleConfig(sessionsOnly = visibleSessions.isEmpty()),
+                        mode = toolbarSheetMode,
+                        onModeChange = {
+                            toolbarSheetMode = it
+                            if (it == ToolbarSheetMode.Hidden) sessionProfilePickerVisible = false
+                        },
+                        maxHeight = toolbarMaxHeight,
+                        colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,
+                        pageNavigationEnabled = visibleSessions.isNotEmpty() && !sessionProfilePickerVisible,
+                    ) { tool, interactive ->
+                        // Session navigation keeps its scroll position across tab switches.
+                        androidx.compose.runtime.key(if (tool == SESSIONS_TOOL) SESSIONS_TOOL else toolbarSessionId, tool) {
+                            val active = toolbarInputActive && interactive
+                            val selected = visibleSessions.firstOrNull { it.id == toolbarSessionId }
+                            val canSend = active && selected?.state == "RUNNING"
+                            val sendText: (String, Boolean) -> Unit = { text, execute ->
+                                if (activeSessionId == toolbarSessionId && toolbarInputActive &&
+                                    toolbarConfig.enabled && tool in toolbarConfig.tools &&
+                                    toolbarSheetMode != ToolbarSheetMode.Hidden && text.length <= MAX_TOOLBAR_TEXT &&
+                                    selected?.state == "RUNNING") {
+                                    terminalView?.pasteText(text)
+                                    if (execute) {
+                                        terminalInputCallbacks.consumeLatchedModifiers()
+                                        terminalView?.inputCodePoint(13, false, false)
                                     }
                                 }
-                                when (tool) {
-                                    SESSIONS_TOOL -> ToolbarSessionsTool(
-                                        sessions = visibleSessions, activeSessionId = activeSessionId, active = active,
-                                        terminatingSessionIds = terminatingSessionIds, profiles = profiles,
-                                        onSelectProfile = { profile ->
-                                            selectProfile(profile)
-                                            toolbarSheetMode = sessionProfilePickerReturnMode
-                                        }, onAddProfile = {
-                                            toolbarSheetMode = ToolbarSheetMode.Hidden
-                                            addProfile()
-                                        },
-                                        profileEnvironmentNames = profileEnvironmentNames,
-                                        profileInstallationStatuses = profileInstallationStatuses,
-                                        profilePickerVisible = sessionProfilePickerVisible,
-                                        onSelect = { id ->
-                                            attach(id)
-                                            if (sessions.none { it.id == id && it.pendingLaunch }) requestTerminalKeyboard()
-                                        },
-                                        onRename = { pendingRename = it },
-                                        onMove = { workspaceMoveSession = it }, onTerminate = {
-                                            if (it.pendingLaunch || terminalPreferences().getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false)) {
-                                                terminate(it.id)
-                                            } else {
-                                                pendingTermination = it
-                                            }
-                                        },
-                                        onNew = ::showSessionProfilePicker,
-                                        onDismissProfilePicker = { sessionProfilePickerVisible = false },
-                                        onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
-                                        onReorder = ::reorderSessionTabs,
-                                        workspaceState = workspaceState,
-                                        onSelectWorkspace = ::selectWorkspaceFilter,
-                                        onCreateWorkspace = { name ->
-                                            val workspace = dev.terminal.runtime.workspace.Workspace(UUID.randomUUID().toString(), name, true)
-                                            workspaceMutation { service -> service.saveWorkspace(workspace.json().toString()).ifEmpty { service.selectWorkspace(workspace.id) } }
-                                        },
-                                        onLaunchWorkspace = ::selectWorkspaceLaunch,
-                                        onCloseWorkspaceSessions = ::requestWorkspaceSessionTermination,
-                                        onDeleteEmptyTemporaryWorkspace = ::deleteEmptyTemporaryWorkspace,
-                                        workspaceSessionStateKnown = runtime != null && workspaceSessionStateKnown,
-                                        onRunWorkspaceStartups = ::runWorkspaceStartups,
-                                    )
-                                    MEMORY_TOOL -> ToolbarMemoryTool(active, visibleSessions, toolbarMemoryInterval,
-                                        onSelectSession = { id ->
-                                            attach(id)
-                                            if (sessions.none { it.id == id && it.pendingLaunch }) requestTerminalKeyboard()
-                                        }, sections = toolbarMemorySections) {
-                                        runtime?.sessionMemoryJson?.let { raw ->
-                                            org.json.JSONObject(raw).apply {
-                                                if (toolbarMemorySections.app) put("appMemory", combineAppMemory(
-                                                    dev.terminal.runtime.session.currentAppProcessMemory(),
-                                                    optJSONObject("runtimeAppMemory")) ?: org.json.JSONObject.NULL)
-                                            }.toString()
+                            }
+                            when (tool) {
+                                SESSIONS_TOOL -> ToolbarSessionsTool(
+                                    sessions = visibleSessions, activeSessionId = activeSessionId, active = active,
+                                    terminatingSessionIds = terminatingSessionIds, profiles = profiles,
+                                    onSelectProfile = { profile ->
+                                        selectProfile(profile)
+                                        toolbarSheetMode = sessionProfilePickerReturnMode
+                                    }, onAddProfile = {
+                                        toolbarSheetMode = ToolbarSheetMode.Hidden
+                                        addProfile()
+                                    },
+                                    profileEnvironmentNames = profileEnvironmentNames,
+                                    profileInstallationStatuses = profileInstallationStatuses,
+                                    profilePickerVisible = sessionProfilePickerVisible,
+                                    onSelect = { id ->
+                                        attach(id)
+                                        if (sessions.none { it.id == id && it.pendingLaunch }) requestTerminalKeyboard()
+                                    },
+                                    onRename = { pendingRename = it },
+                                    onMove = { workspaceMoveSession = it }, onTerminate = {
+                                        if (it.pendingLaunch || terminalPreferences().getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false)) {
+                                            terminate(it.id)
+                                        } else {
+                                            pendingTermination = it
                                         }
+                                    },
+                                    onNew = ::showSessionProfilePicker,
+                                    onDismissProfilePicker = { sessionProfilePickerVisible = false },
+                                    onSettings = { startActivity(Intent(this@MainActivity, SettingsActivity::class.java)) },
+                                    onReorder = ::reorderSessionTabs,
+                                    workspaceState = workspaceState,
+                                    onSelectWorkspace = ::selectWorkspaceFilter,
+                                    onCreateWorkspace = { name ->
+                                        val workspace = dev.terminal.runtime.workspace.Workspace(UUID.randomUUID().toString(), name, true)
+                                        workspaceMutation { service -> service.saveWorkspace(workspace.json().toString()).ifEmpty { service.selectWorkspace(workspace.id) } }
+                                    },
+                                    onLaunchWorkspace = ::selectWorkspaceLaunch,
+                                    onCloseWorkspaceSessions = ::requestWorkspaceSessionTermination,
+                                    onDeleteEmptyTemporaryWorkspace = ::deleteEmptyTemporaryWorkspace,
+                                    workspaceSessionStateKnown = runtime != null && workspaceSessionStateKnown,
+                                    onRunWorkspaceStartups = ::runWorkspaceStartups,
+                                )
+                                MEMORY_TOOL -> ToolbarMemoryTool(active, visibleSessions, toolbarMemoryInterval,
+                                    onSelectSession = { id ->
+                                        attach(id)
+                                        if (sessions.none { it.id == id && it.pendingLaunch }) requestTerminalKeyboard()
+                                    }, sections = toolbarMemorySections) {
+                                    runtime?.sessionMemoryJson?.let { raw ->
+                                        org.json.JSONObject(raw).apply {
+                                            if (toolbarMemorySections.app) put("appMemory", combineAppMemory(
+                                                dev.terminal.runtime.session.currentAppProcessMemory(),
+                                                optJSONObject("runtimeAppMemory")) ?: org.json.JSONObject.NULL)
+                                        }.toString()
                                     }
-                                    COMMANDS_TOOL -> ToolbarCommandsTool(toolbarCommands, canSend, selected?.title.orEmpty(),
-                                        onSend = sendText, onSave = { command ->
-                                            val preferences = terminalPreferences()
-                                            toolbarCommands = readToolbarCommands(preferences).map {
-                                                if (it.id == command.id) command else it
-                                            }
-                                            preferences.edit().putString(KEY_TOOLBAR_COMMANDS,
-                                                serializeToolbarCommands(toolbarCommands)).apply()
-                                        })
-                                    HISTORY_TOOL -> ToolbarHistoryTool(active, onReturnToTerminal = ::requestTerminalKeyboard, terminal = {
-                                        terminalView?.takeIf {
-                                            activeSessionId == toolbarSessionId &&
-                                                it.currentSession === toolbarSessionId?.let(terminalSessions::get)
+                                }
+                                COMMANDS_TOOL -> ToolbarCommandsTool(toolbarCommands, canSend, selected?.title.orEmpty(),
+                                    onSend = sendText, onSave = { command ->
+                                        val preferences = terminalPreferences()
+                                        toolbarCommands = readToolbarCommands(preferences).map {
+                                            if (it.id == command.id) command else it
                                         }
+                                        preferences.edit().putString(KEY_TOOLBAR_COMMANDS,
+                                            serializeToolbarCommands(toolbarCommands)).apply()
                                     })
-                                    HOTKEY_TOOL -> ToolbarHotkeys(
-                                        layout = hotkeyLayout, control = controlPressed, alt = altPressed, shift = shiftPressed,
-                                        colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,
-                                        enabled = toolbarInputActive && interactive && selected?.pendingLaunch != true,
-                                        onKey = { key ->
-                                            if (activeSessionId == toolbarSessionId) sendToolbarKey(key)
-                                        },
-                                    )
-                                }
+                                HISTORY_TOOL -> ToolbarHistoryTool(active, onReturnToTerminal = ::requestTerminalKeyboard, terminal = {
+                                    terminalView?.takeIf {
+                                        activeSessionId == toolbarSessionId &&
+                                            it.currentSession === toolbarSessionId?.let(terminalSessions::get)
+                                    }
+                                })
+                                HOTKEY_TOOL -> ToolbarHotkeys(
+                                    layout = hotkeyLayout, control = controlPressed, alt = altPressed, shift = shiftPressed,
+                                    colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,
+                                    enabled = toolbarInputActive && interactive && selected?.pendingLaunch != true,
+                                    onKey = { key ->
+                                        if (activeSessionId == toolbarSessionId) sendToolbarKey(key)
+                                    },
+                                )
                             }
                         }
                     }
@@ -970,18 +960,6 @@ class MainActivity : TerminalActivity() {
             }
         } }
 
-        if (newSessionSheetVisible) {
-            NewSessionSheet(
-                profiles = profiles,
-                onSelectProfile = ::selectProfile,
-                onAddProfile = ::addProfile,
-                onDismiss = { newSessionSheetVisible = false },
-                environmentNames = profileEnvironmentNames,
-                installationStatuses = profileInstallationStatuses,
-                workspace = workspaceState.workspaces.firstOrNull { it.id == workspaceState.selected },
-                onSelectWorkspaceLaunch = ::selectWorkspaceLaunch,
-            )
-        }
         profileInstallToConfirm?.let { spec ->
             ProfileInstallationDialog(spec, ::approveProfileInstallation, onDismiss = { profileInstallToConfirm = null })
         }
@@ -1468,7 +1446,6 @@ class MainActivity : TerminalActivity() {
     private fun showSessionProfilePicker() {
         if (!refreshRuntimeChoicesForNewSession()) return
         sessionProfilePickerReturnMode = toolbarSheetMode
-        newSessionSheetVisible = false
         sessionProfilePickerVisible = true
         terminalView?.let { view ->
             getSystemService(InputMethodManager::class.java).hideSoftInputFromWindow(view.windowToken, 0)
@@ -1476,15 +1453,8 @@ class MainActivity : TerminalActivity() {
         toolbarSheetMode = ToolbarSheetMode.Expanded
     }
 
-    private fun showNewSessionSheet() {
-        if (!refreshRuntimeChoicesForNewSession()) return
-        sessionProfilePickerVisible = false
-        newSessionSheetVisible = true
-    }
-
     private fun selectRuntime(choice: RuntimeChoiceUi) {
         sessionProfilePickerVisible = false
-        newSessionSheetVisible = false
         if (choice.id in rootlessRuntimeIds && choice.state == "CHECKING") {
             rootlessLaunchSpec = selectedLaunchSpec
             rootlessInstallRuntime = choice.id

@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -42,17 +43,15 @@ class TerminalSettingsButtonUiTest {
                     }
                     activity.setContent {
                         DroidTheme { TerminalHapticFeedbackProvider {
-                            if (mode == null) {
-                                TerminalEmptyState("", {}, openSettings)
-                            } else {
-                                Column(Modifier.fillMaxSize()) {
-                                    Spacer(Modifier.weight(1f))
-                                    TerminalToolbar(ToolbarConfig(tools = listOf(SESSIONS_TOOL)), mode,
-                                        {}, 400.dp, TerminalChromeColors(Color.Black)) { _, active ->
-                                        ToolbarSessionsTool(listOf(SessionUi("fixture", "NATIVE", "Shell", "RUNNING")),
-                                            "fixture", active, emptySet(), emptyList(), {}, {}, false,
-                                            {}, {}, {}, {}, {}, openSettings)
-                                    }
+                            Column(Modifier.fillMaxSize()) {
+                                if (mode == null) Box(Modifier.weight(1f)) { TerminalEmptyState("") }
+                                else Spacer(Modifier.weight(1f))
+                                TerminalToolbar(ToolbarConfig(tools = listOf(SESSIONS_TOOL)), mode ?: ToolbarSheetMode.Default,
+                                    {}, 400.dp, TerminalChromeColors(Color.Black)) { _, active ->
+                                    ToolbarSessionsTool(
+                                        if (mode == null) emptyList() else listOf(SessionUi("fixture", "NATIVE", "Shell", "RUNNING")),
+                                        if (mode == null) null else "fixture", active, emptySet(), emptyList(), {}, {}, false,
+                                        {}, {}, {}, {}, {}, openSettings)
                                 }
                             }
                         } }

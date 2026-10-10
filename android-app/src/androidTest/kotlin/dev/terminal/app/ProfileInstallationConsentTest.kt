@@ -176,7 +176,7 @@ class ProfileInstallationConsentTest {
         }
     }
 
-    @Test fun bothNewSessionMenusShowEnvironmentInstallationStatesAndRefreshThem() {
+    @Test fun newSessionPickerShowsEnvironmentInstallationStatesAndRefreshesThem() {
         val fixtures = listOf(SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.AVF).map(::fixture)
         val requests = CopyOnWriteArrayList<Pair<String, SessionLaunchSpec>>()
         val statuses = java.util.concurrent.ConcurrentHashMap(fixtures.mapIndexed { index, (environment, _) ->
@@ -206,31 +206,27 @@ class ProfileInstallationConsentTest {
                 scenario.onActivity { MainActivity::class.java.getDeclaredMethod("attach", String::class.java)
                     .apply { isAccessible = true }.invoke(it, nativeSessionId) }
                 scenario.onActivity { runtimeField.set(it, proxy(original, { id -> statuses[id] ?: "{}" }, requests)) }
-                for (menu in listOf("showNewSessionSheet", "showSessionProfilePicker")) {
-                    scenario.onActivity {
-                        MainActivity::class.java.getDeclaredMethod(menu).apply { isAccessible = true }.invoke(it)
-                        state<List<SessionProfile>>(it, "profiles").value = fixtures.map { pair -> pair.second }
+                scenario.onActivity {
+                    MainActivity::class.java.getDeclaredMethod("showSessionProfilePicker").apply { isAccessible = true }.invoke(it)
+                    state<List<SessionProfile>>(it, "profiles").value = fixtures.map { pair -> pair.second }
+                }
+                for (label in listOf(R.string.profile_installation_installed, R.string.profile_installation_missing, R.string.profile_installation_installing)) {
+                    await("The profile picker must announce ${context.getString(label)}") {
+                        if (findNode { it.stateDescription?.toString() == context.getString(label) } != null) true
+                        else { findNode { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
                     }
-                    for (label in listOf(R.string.profile_installation_installed, R.string.profile_installation_missing, R.string.profile_installation_installing)) {
-                        await("Menu $menu must announce ${context.getString(label)}") {
-                            if (findNode { it.stateDescription?.toString() == context.getString(label) } != null) true
-                            else { findNode { it.isScrollable }?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
-                        }
-                        assertNull("Installation status must not add a text line", find(context.getString(label)))
-                    }
-                    statuses[fixtures[1].first.id.value] = """{"installed":true,"available":true}"""
-                    await("Visible menu must refresh installation state") {
-                        var refreshed = false
-                        scenario.onActivity { refreshed = state<Map<EnvironmentId, ProfileInstallationStatus>>(it, "profileInstallationStatuses")
-                            .value[fixtures[1].first.id]?.state == ProfileInstallationState.INSTALLED }
-                        refreshed
-                    }
-                    assertTrue("Opening a menu must not install or launch", requests.isEmpty())
-                    scenario.onActivity {
-                        state<Boolean>(it, "newSessionSheetVisible").value = false
-                        state<Boolean>(it, "sessionProfilePickerVisible").value = false
-                    }
-                    statuses[fixtures[1].first.id.value] = """{"installed":false,"busy":false}"""
+                    assertNull("Installation status must not add a text line", find(context.getString(label)))
+                }
+                statuses[fixtures[1].first.id.value] = """{"installed":true,"available":true}"""
+                await("Visible menu must refresh installation state") {
+                    var refreshed = false
+                    scenario.onActivity { refreshed = state<Map<EnvironmentId, ProfileInstallationStatus>>(it, "profileInstallationStatuses")
+                        .value[fixtures[1].first.id]?.state == ProfileInstallationState.INSTALLED }
+                    refreshed
+                }
+                assertTrue("Opening a menu must not install or launch", requests.isEmpty())
+                scenario.onActivity {
+                    state<Boolean>(it, "sessionProfilePickerVisible").value = false
                 }
                 runtimeFieldReset(scenario, original)
             }
