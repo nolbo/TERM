@@ -120,14 +120,6 @@ class MainActivity : TerminalActivity() {
     private data class WorkspaceStartupLaunch(val workspaceId: String, val spec: dev.terminal.runtime.session.SessionLaunchSpec)
     private var workspaceStartupQueue by mutableStateOf(emptyList<WorkspaceStartupLaunch>())
     private var workspaceStartupConnected by mutableStateOf(false)
-    private var initialWorkspaceSelectionPending = true
-
-    private fun applyInitialWorkspaceSelection(service: IRuntimeService) {
-        if (!initialWorkspaceSelectionPending) return
-        val error = service.selectWorkspace(dev.terminal.runtime.workspace.WorkspaceRegistry.UNASSIGNED)
-        if (error.isEmpty()) initialWorkspaceSelectionPending = false
-        else feedbackMessage = error
-    }
 
     private fun queueWorkspaceStartups(state: dev.terminal.runtime.workspace.WorkspaceRegistry.State) {
         val pending = workspaceStartupQueue.mapTo(mutableSetOf()) { it.workspaceId }
@@ -457,7 +449,8 @@ class MainActivity : TerminalActivity() {
             workspaceStartupConnected = true
             runCatching {
                 val connected = checkNotNull(runtime)
-                applyInitialWorkspaceSelection(connected)
+                // The runtime registry retains the selected Workspace across UI lifetime.
+                // Read it before listener replay; ordinary app entry must not reset it.
                 refreshWorkspaces()
                 val currentListener = checkNotNull(listener)
                 val notificationTarget = notificationSessionId
@@ -512,7 +505,6 @@ class MainActivity : TerminalActivity() {
         outState.putStringArrayList("submitted-avf-launches", ArrayList(submittedAvfLaunches))
         outState.putStringArrayList("installation-approved-avf-launches", ArrayList(installationApprovedAvfLaunches))
         outState.putString("launch-workspace", selectedLaunchWorkspace)
-        outState.putBoolean("workspace-selection-pending", initialWorkspaceSelectionPending)
         outState.putString("workspace-startup-queue", org.json.JSONArray().apply {
             workspaceStartupQueue.forEach { launch ->
                 put(org.json.JSONObject().put("workspaceId", launch.workspaceId).put("spec", launch.spec.toJson()))
@@ -556,10 +548,6 @@ class MainActivity : TerminalActivity() {
         activeSessionId = savedInstanceState?.getString("active-session")
             ?: getSharedPreferences("terminal-ui-state", MODE_PRIVATE).getString("active-session", null)
         selectedLaunchWorkspace = savedInstanceState?.getString("launch-workspace")
-        initialWorkspaceSelectionPending = savedInstanceState?.getBoolean("workspace-selection-pending", false)
-            ?: (!intent.hasExtra("workspace-launch") &&
-                !intent.hasExtra(dev.terminal.runtime.notifications.SessionNotificationSettings.EXTRA_SESSION_ID) &&
-                notificationSessionId == null)
         workspaceStartupQueue = savedInstanceState?.getString("workspace-startup-queue")?.let { encoded ->
             org.json.JSONArray(encoded).let { array ->
                 List(array.length()) { index ->
@@ -627,13 +615,6 @@ class MainActivity : TerminalActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        initialWorkspaceSelectionPending = !intent.hasExtra("workspace-launch") &&
-            !intent.hasExtra(dev.terminal.runtime.notifications.SessionNotificationSettings.EXTRA_SESSION_ID)
-        if (initialWorkspaceSelectionPending) safeRuntimeCall { service ->
-            applyInitialWorkspaceSelection(service)
-            refreshWorkspaces()
-            selectVisibleWorkspaceSession()
-        }
         handleLaunchIntent(intent)
     }
 

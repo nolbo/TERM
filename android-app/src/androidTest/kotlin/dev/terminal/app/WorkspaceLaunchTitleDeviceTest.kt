@@ -84,7 +84,7 @@ class WorkspaceLaunchTitleDeviceTest {
                 WorkspaceRegistry.State.parse(runtime.workspacesJson).memberships[it.getString("id")] == workspace.id
             }.also { members -> owned += members.map { it.getString("id") } }
             assertEquals("", runtime.saveWorkspace(workspace.json().toString()))
-            assertEquals("", runtime.selectWorkspace(workspace.id))
+            assertEquals("", runtime.selectWorkspace(WorkspaceRegistry.UNASSIGNED))
             try {
                 ActivityScenario.launch(MainActivity::class.java).use {
                     tap { it.contentDescription?.toString() == context.getString(R.string.workspace_selector,

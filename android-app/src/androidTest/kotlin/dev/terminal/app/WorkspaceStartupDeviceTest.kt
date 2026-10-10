@@ -143,7 +143,7 @@ class WorkspaceStartupDeviceTest {
         } finally { assertEquals("", runtime.deleteWorkspace(workspace.id)) }
     }
 
-    @Test fun openingDefaultsToUnassignedAndExplicitWorkspaceEntryStartsAndReusesSelectedConfigurations() = withRuntime { runtime ->
+    @Test fun openingRestoresWorkspaceAndExplicitWorkspaceEntryStartsAndReusesSelectedConfigurations() = withRuntime { runtime ->
         val before = state(runtime)
         val workspace = fixture().let { original -> original.copy(launches = original.launches.mapIndexed { index, launch ->
             launch.copy(startWithWorkspace = index != 1)
@@ -155,11 +155,16 @@ class WorkspaceStartupDeviceTest {
         val existingIds = rows(runtime).mapTo(mutableSetOf()) { it.getString("id") }
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                await("Ordinary launch defaults to unassigned instead of the saved Workspace") {
-                    state(runtime).selected == WorkspaceRegistry.UNASSIGNED
+                await("Ordinary launch restores the saved Workspace without starting sessions") {
+                    state(runtime).selected == workspace.id && node {
+                        it.contentDescription?.toString() == context.getString(R.string.workspace_selector, workspace.name)
+                    } != null
                 }
                 assertEquals("Opening the console must not create sessions", existingIds,
                     rows(runtime).mapTo(mutableSetOf()) { it.getString("id") })
+                tap { it.contentDescription?.toString() == context.getString(R.string.workspace_selector, workspace.name) }
+                text(context.getString(R.string.workspace_unassigned))
+                await("Unassigned filter is explicitly selected") { state(runtime).selected == WorkspaceRegistry.UNASSIGNED }
                 tap { it.contentDescription?.toString() == context.getString(R.string.workspace_selector, context.getString(R.string.workspace_unassigned)) }
                 text(workspace.name)
                 await("Both selected configurations start in their Workspace") {
@@ -204,12 +209,12 @@ class WorkspaceStartupDeviceTest {
                     activity.startActivity(Intent(activity.intent)
                         .setFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP))
                 }
-                await("Launching the existing console also defaults to unassigned") {
-                    state(runtime).selected == WorkspaceRegistry.UNASSIGNED && node {
-                        it.contentDescription?.toString() == context.getString(R.string.workspace_selector, context.getString(R.string.workspace_unassigned))
+                await("Launching the existing console preserves the selected Workspace") {
+                    state(runtime).selected == workspace.id && node {
+                        it.contentDescription?.toString() == context.getString(R.string.workspace_selector, workspace.name)
                     } != null
                 }
-                assertEquals("Defaulting the filter preserves Workspace sessions", owned,
+                assertEquals("Launcher re-entry preserves Workspace sessions", owned,
                     rows(runtime).filter { state(runtime).memberships[it.getString("id")] == workspace.id }.mapTo(mutableSetOf()) { it.getString("id") })
             }
         } finally {

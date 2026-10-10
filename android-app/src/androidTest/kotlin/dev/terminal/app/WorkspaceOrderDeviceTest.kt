@@ -138,9 +138,8 @@ class WorkspaceOrderDeviceTest {
                 }
                 ActivityScenario.launch(MainActivity::class.java).use {
                     var selector: AccessibilityNodeInfo? = null
-                    await("Ordinary launch shows the unassigned Workspace selector") {
-                        selector = description(context.getString(R.string.workspace_selector,
-                            label(R.string.workspace_unassigned))); selector != null
+                    await("Ordinary launch restores the selected Workspace") {
+                        selector = description(context.getString(R.string.workspace_selector, first.name)); selector != null
                     }
                     click(selector!!)
                     await("The requested Workspace is available") { text(first.name) != null }

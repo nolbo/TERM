@@ -75,7 +75,7 @@ class WorkspaceAndSharingDeviceTest {
         var owned: String? = null
         try {
             assertEquals("", runtime.saveWorkspace(workspace.json().toString()))
-            assertEquals("", runtime.selectWorkspace(workspace.id))
+            assertEquals("", runtime.selectWorkspace(WorkspaceRegistry.UNASSIGNED))
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 val runtimeField = MainActivity::class.java.getDeclaredField("runtime").apply { isAccessible = true }
                 await("Main Activity connects to the existing runtime owner") {

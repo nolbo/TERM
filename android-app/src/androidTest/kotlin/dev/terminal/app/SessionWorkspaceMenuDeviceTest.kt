@@ -121,6 +121,7 @@ class SessionWorkspaceMenuDeviceTest {
                     owned.size == 2
                 }
                 val movingId = rows(runtime).single { it.getString("id") in owned && it.getString("title") == movingTitle }.getString("id")
+                assertEquals("", runtime.selectWorkspace(WorkspaceRegistry.UNASSIGNED))
                 ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                     description(context.getString(R.string.workspace_selector, label(R.string.workspace_unassigned)))
                     tap(source.name)
