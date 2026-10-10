@@ -374,8 +374,14 @@ intermediate default-size resize. Unchanged text size and font settings reuse
 the renderer and loaded fonts; changing the custom font list, order or style
 reloads fonts. Bundled Google Sans Code is the default and final built-in
 fallback; legacy built-in font selections are ignored. Each view owns its cache
-lifetime, so a new view loads fonts again (including changes to the contents of
-an existing font URI).
+lifetime, so a new view loads fonts again. Custom font documents are validated
+and copied atomically to app-private persistent storage before new selections
+are saved. Legacy URI-only selections are copied on their first successful load
+without changing their order or style. These copies survive app updates and
+source deletion or loss of provider access; selecting a source again refreshes
+its copy and invalidates loaded font caches. Failed loads are not cached as
+complete, so a later appearance application retries unavailable entries. A
+stored copy is removed only after its URI is absent from both style lists.
 Selecting a cached tab still attaches that exact session to the runtime
 transport, while closing a background tab leaves the active attachment
 unchanged. UI unbinding detaches only the session actually attached to that

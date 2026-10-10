@@ -79,10 +79,15 @@ class SettingsDetailActivity : TerminalActivity() {
     private val customFontPicker = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         uri ?: return@registerForActivityResult
         runCatching { contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        if (runCatching { CustomTerminalFontStore(this).import(uri) }.isFailure) {
+            Toast.makeText(this, R.string.custom_font_import_error, Toast.LENGTH_LONG).show()
+            return@registerForActivityResult
+        }
         val name = DocumentFile.fromSingleUri(this, uri)?.name ?: uri.lastPathSegment ?: uri.toString()
         customFonts = (customFonts + CustomTerminalFont(uri.toString(), name, pendingCustomFontStyle))
             .distinctBy { it.uri to it.style }
         saveCustomTerminalFonts(terminalPreferences, customFonts)
+        TerminalAppearance.invalidateCustomFonts()
     }
 
     private val listener = object : IRuntimeStateListener.Stub() {
@@ -615,6 +620,7 @@ class SettingsDetailActivity : TerminalActivity() {
     private fun removeCustomFont(font: CustomTerminalFont) {
         updateCustomFonts(customFonts.filterNot { it.uri == font.uri && it.style == font.style })
         if (customFonts.any { it.uri == font.uri }) return
+        CustomTerminalFontStore(this).remove(font.uri)
         runCatching {
             contentResolver.releasePersistableUriPermission(Uri.parse(font.uri), Intent.FLAG_GRANT_READ_URI_PERMISSION)
         }

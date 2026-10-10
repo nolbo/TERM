@@ -4,9 +4,7 @@ import android.content.SharedPreferences
 import android.content.Context
 import android.graphics.Color
 import android.graphics.Typeface
-import android.graphics.fonts.Font
 import android.graphics.fonts.FontFamily
-import android.net.Uri
 import android.util.TypedValue
 import com.termux.view.TerminalFontFamily
 import java.util.Properties
@@ -67,8 +65,10 @@ object TerminalAppearance {
         )
         val fonts = customTerminalFonts(preferences)
         if (appliedFonts[terminalView] != fonts) {
-            terminalView.setTypefaceFamily(fontFamily(preferences, terminalView.context))
-            appliedFonts[terminalView] = fonts
+            val loaded = loadFontFamily(fonts, terminalView.context)
+            terminalView.setTypefaceFamily(loaded.family)
+            // A temporary provider failure must not pin the fallback to this view forever.
+            if (loaded.complete) appliedFonts[terminalView] = fonts else appliedFonts.remove(terminalView)
         }
         terminalView.setForceFixedWidth(true)
         terminalView.setNaturalWideGlyphRendering(true)
@@ -109,6 +109,10 @@ object TerminalAppearance {
 
     private const val ANSI_COLOR_COUNT = 16
 
+    internal fun invalidateCustomFonts() {
+        appliedFonts.clear()
+    }
+
     /**
      * Use custom fonts in list order according to their actual cmap coverage. The first usable
      * custom face also supplies the terminal cell metrics, and bundled Google Sans Code is the
@@ -117,25 +121,31 @@ object TerminalAppearance {
     internal fun fontFamily(
         preferences: SharedPreferences,
         context: Context,
-    ): TerminalFontFamily {
-        val customFaces = customTerminalFonts(preferences).mapNotNull { font ->
+    ): TerminalFontFamily = loadFontFamily(customTerminalFonts(preferences), context).family
+
+    private data class LoadedFontFamily(val family: TerminalFontFamily, val complete: Boolean)
+
+    private fun loadFontFamily(fonts: List<CustomTerminalFont>, context: Context): LoadedFontFamily {
+        val store = CustomTerminalFontStore(context)
+        val customFaces = fonts.mapNotNull { font ->
             runCatching {
-                context.contentResolver.openFileDescriptor(Uri.parse(font.uri), "r")?.use { descriptor ->
-                    val androidFont = Font.Builder(descriptor).build()
-                    val ranges = OpenTypeCmap.codePointRanges(androidFont.buffer, androidFont.ttcIndex)
-                    if (ranges.isEmpty()) return@use null
-                    val family = FontFamily.Builder(androidFont).build()
-                    val typeface = Typeface.CustomFallbackBuilder(family)
-                        .setSystemFallback("monospace")
-                        .build()
-                    font.style to TerminalFontFamily.FontFace(typeface, ranges)
-                }
+                val androidFont = store.load(font.uri)
+                val ranges = OpenTypeCmap.codePointRanges(androidFont.buffer, androidFont.ttcIndex)
+                if (ranges.isEmpty()) return@runCatching null
+                val family = FontFamily.Builder(androidFont).build()
+                val typeface = Typeface.CustomFallbackBuilder(family)
+                    .setSystemFallback("monospace")
+                    .build()
+                font.style to TerminalFontFamily.FontFace(typeface, ranges)
             }.getOrNull()
         }
-        return TerminalFontFamily(
-            customFaces.filter { it.first == CustomTerminalFontStyle.REGULAR }.map { it.second },
-            customFaces.filter { it.first == CustomTerminalFontStyle.ITALIC }.map { it.second },
-            BundledFonts.googleSansCode(context),
+        return LoadedFontFamily(
+            TerminalFontFamily(
+                customFaces.filter { it.first == CustomTerminalFontStyle.REGULAR }.map { it.second },
+                customFaces.filter { it.first == CustomTerminalFontStyle.ITALIC }.map { it.second },
+                BundledFonts.googleSansCode(context),
+            ),
+            complete = customFaces.size == fonts.size,
         )
     }
 

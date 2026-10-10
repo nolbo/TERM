@@ -1,4 +1,5 @@
 <resources>
+    <string name="custom_font_import_error">Could not add the font. Check its format and read access.</string>
     <string name="profile_installation_checking">Checking installation</string>
     <string name="profile_installation_installed">Installed</string>
     <string name="profile_installation_missing">Not installed</string>
