@@ -22,6 +22,10 @@ import dev.terminal.app.ui.terminalSettingsListItemColors
 import dev.terminal.app.ui.terminalListItemShapes
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.ui.FloatingToolbarAction
 import dev.terminal.app.ui.SettingsPageScaffold
@@ -91,6 +95,15 @@ class ProfileEditActivity : TerminalActivity() {
             var deleting by rememberSaveable { mutableStateOf(false) }
             val editing = source != null && initial.id == source.id
             val back = { if (dirty) discard = true else finish() }
+            val updateRuntime: (SessionRuntime) -> Unit = { option ->
+                val old = store.builtIns().first { it.runtime.wireName == runtime }
+                val new = store.builtIns().first { it.runtime == option }
+                if (shell == old.shell) shell = new.shell
+                if (cwd == old.workingDirectory) cwd = new.workingDirectory
+                if (arguments == JSONArray(old.shellArguments).toString()) arguments = JSONArray(new.shellArguments).toString()
+                runtime = option.wireName
+                dirty = true
+            }
             val selectRuntime: (SessionRuntime) -> Unit = { option ->
                 if (runtime != option.wireName) {
                     freshStorageId = java.util.UUID.randomUUID().toString()
@@ -99,13 +112,12 @@ class ProfileEditActivity : TerminalActivity() {
                     selectedEnvironmentId = ""
                     freshEnvironmentId = java.util.UUID.randomUUID().toString()
                 }
-                val old = store.builtIns().first { it.runtime.wireName == runtime }
-                val new = store.builtIns().first { it.runtime == option }
-                if (shell == old.shell) shell = new.shell
-                if (cwd == old.workingDirectory) cwd = new.workingDirectory
-                if (arguments == JSONArray(old.shellArguments).toString()) arguments = JSONArray(new.shellArguments).toString()
-                runtime = option.wireName
-                dirty = true
+                updateRuntime(option)
+            }
+            val selectEnvironment: (Environment) -> Unit = { selected ->
+                updateRuntime(selected.sessionRuntime)
+                selectedEnvironmentId = selected.id.value
+                storageId = selected.storage.id
             }
             val rootless = runtime in listOf("ROOTLESS", "ROOTLESS_UBUNTU", "ROOTLESS_ARCH")
             val saveProfile: () -> Unit = {
@@ -162,12 +174,9 @@ class ProfileEditActivity : TerminalActivity() {
                     }
                     ProfileSection(R.string.profile_storage) {
                         val current = environments.firstOrNull { it.id.value == initial.environmentId?.value }
-                        val targets = environments.filter { it.sessionRuntime.wireName == runtime }
-                            .filterNot { editing && it.id == current?.id }
-                            .filter { it.sessionRuntime != SessionRuntime.AVF || hasAvfPrivileges }
-                            .sortedBy { it.name }
+                        val targets = environments.sortedBy { it.name }
                         val choices = buildList {
-                            if (editing && current?.sessionRuntime?.wireName == runtime)
+                            if (editing && current != null)
                                 add(SettingsChoice(stringResource(R.string.profile_storage_current), "keep"))
                             add(SettingsChoice(stringResource(R.string.profile_storage_new), "fresh"))
                             add(SettingsChoice(stringResource(R.string.profile_storage_existing), "existing"))
@@ -175,7 +184,7 @@ class ProfileEditActivity : TerminalActivity() {
                         SettingsChoiceRow(stringResource(R.string.profile_storage), null, choices, storageChoice) { selected ->
                             storageChoice = selected
                             when (selected) {
-                                "keep" -> { selectedEnvironmentId = current?.id?.value.orEmpty(); storageId = current?.storage?.id.orEmpty() }
+                                "keep" -> current?.let(selectEnvironment)
                                 "fresh" -> { selectedEnvironmentId = ""; storageId = freshStorageId }
                                 else -> { selectedEnvironmentId = ""; storageId = "" }
                             }
@@ -210,14 +219,14 @@ class ProfileEditActivity : TerminalActivity() {
                         } else if (storageChoice == "existing") Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(SettingsItemSpacing)) {
                             targets.forEach { target ->
                                 ProfileEnvironmentRow(target.name, environmentDescription(target), selectedEnvironmentId == target.id.value) {
-                                    selectedEnvironmentId = target.id.value; storageId = target.storage.id; dirty = true
+                                    selectEnvironment(target)
                                 }
                             }
                             if (targets.isEmpty()) ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors()) {
                                 Text(stringResource(R.string.profile_storage_empty), color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                         }
-                        environments.firstOrNull { it.id.value == selectedEnvironmentId }?.let { selected ->
+                        if (storageChoice == "keep") environments.firstOrNull { it.id.value == selectedEnvironmentId }?.let { selected ->
                             ListItem(onClick = { startActivity(EnvironmentDetailActivity.intent(this@ProfileEditActivity, selected.id.value)) },
                                 supportingContent = { Text(environmentDescription(selected)) }, shapes = terminalListItemShapes(),
                                 colors = terminalSettingsListItemColors()) { Text(selected.name) }
@@ -287,7 +296,10 @@ class ProfileEditActivity : TerminalActivity() {
     ListItem(onClick = onClick, supportingContent = supporting?.let { { Text(it, style = MaterialTheme.typography.bodySmall) } },
         trailingContent = { RadioButton(selected = selected, onClick = null) },
         verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes(),
-        colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth()) { Text(title) }
+        colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth().semantics {
+            role = Role.RadioButton
+            this.selected = selected
+        }) { Text(title) }
 }
 
 @Composable internal fun ProfileSection(title: Int, content: @Composable ColumnScope.() -> Unit) {
