@@ -18,10 +18,10 @@ import dev.terminal.app.R
 
 internal data class SettingsChoice(val label: String, val value: String)
 
-/** Shared by language, terminal type and profile choices. Changes apply only on Save. */
+/** Shared by language, terminal type and profile choices. Changes apply only on confirmation. */
 @Composable
 internal fun SettingsChoiceRow(title: String, supporting: String?, choices: List<SettingsChoice>,
-    selected: String, selectedLabel: String? = null, onChange: (String) -> Unit) {
+    selected: String, selectedLabel: String? = null, confirmLabel: Int = R.string.save, onChange: (String) -> Unit) {
     var draft by rememberSaveable(selected) { mutableStateOf(selected) }
     var visible by rememberSaveable { mutableStateOf(false) }
     val label = choices.firstOrNull { it.value == selected }?.label ?: selectedLabel.orEmpty()
@@ -52,7 +52,7 @@ internal fun SettingsChoiceRow(title: String, supporting: String?, choices: List
         },
         confirmButton = { Button(onClick = { onChange(draft); visible = false },
             enabled = choices.any { it.value == draft }, shapes = ButtonDefaults.shapes()) {
-            Text(stringResource(R.string.save))
+            Text(stringResource(confirmLabel))
         } },
         dismissButton = { TextButton(onClick = { visible = false }, shapes = ButtonDefaults.shapes()) {
             Text(stringResource(R.string.cancel))

@@ -162,7 +162,7 @@ class ProfileEnvironmentSelectionTest {
     private fun choose(title: Int, option: String) {
         click(title)
         click(option)
-        click(R.string.save)
+        click(if (title == R.string.profile_storage) R.string.confirm else R.string.save)
     }
 
     private fun setField(title: Int, value: String) {

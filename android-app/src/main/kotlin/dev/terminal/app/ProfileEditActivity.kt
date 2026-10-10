@@ -181,7 +181,8 @@ class ProfileEditActivity : TerminalActivity() {
                             add(SettingsChoice(stringResource(R.string.profile_storage_new), "fresh"))
                             add(SettingsChoice(stringResource(R.string.profile_storage_existing), "existing"))
                         }
-                        SettingsChoiceRow(stringResource(R.string.profile_storage), null, choices, storageChoice) { selected ->
+                        SettingsChoiceRow(stringResource(R.string.profile_storage), null, choices, storageChoice,
+                            confirmLabel = R.string.confirm) { selected ->
                             storageChoice = selected
                             when (selected) {
                                 "keep" -> current?.let(selectEnvironment)
