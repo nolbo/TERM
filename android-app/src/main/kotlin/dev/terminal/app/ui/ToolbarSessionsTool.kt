@@ -330,9 +330,9 @@ private fun SessionToolTab(
         onClick = selectSession,
         modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp).height(48.dp)
             .then(itemModifier).clip(RoundedCornerShape(cornerRadius))
-            .background(if (selected || lifted) colors.container else Color.Transparent)
+            .background(if (selected) colors.selectedTabContainer else if (lifted) colors.container else Color.Transparent)
             .semantics { stateDescription = stateLabel },
-        selectedContentColor = colors.accent,
+        selectedContentColor = colors.selectedTabContent,
         unselectedContentColor = colors.unselectedTabContent,
         interactionSource = tabInteractionSource,
     ) {
@@ -343,7 +343,7 @@ private fun SessionToolTab(
                     verticalAlignment = Alignment.CenterVertically) {
                     ProfileIcon(session.launchSpec?.icon ?: "auto", session.runtime,
                         contentDescription = stringResource(runtimeTitleResource(session.runtime)),
-                        size = 20.dp, tint = if (selected) colors.accent else colors.unselectedTabContent)
+                        size = 20.dp, tint = if (selected) colors.selectedTabContent else colors.unselectedTabContent)
                     Spacer(Modifier.width(8.dp))
                     Column {
                         Text(sessionTitle, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -352,7 +352,8 @@ private fun SessionToolTab(
                             Text(subtitle.ifBlank { stringResource(R.string.shell_default_title) },
                                 maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, lineHeight = 14.sp),
-                                color = (if (selected) colors.onContainer else colors.unselectedTabContent).copy(alpha = 0.75f))
+                                color = (if (selected) colors.selectedTabSupporting else colors.unselectedTabContent)
+                                    .copy(alpha = if (colors.colorScheme != null) 1f else 0.75f))
                         }
                     }
                 }

@@ -7,6 +7,7 @@ import androidx.compose.ui.graphics.toArgb
 import com.termux.terminal.TextStyle
 import com.termux.view.TerminalView
 import dev.terminal.app.ui.TerminalChromeColors
+import dev.terminal.app.ui.terminalDynamicColors
 
 /** One clock for the canvas and chrome. Interrupted transitions resume at the visible frame. */
 internal class TerminalPaletteTransition(
@@ -35,13 +36,15 @@ internal class TerminalPaletteTransition(
                 lerp(Color(start[index]), Color(target[index]), fraction).toArgb()
             }
             frame = current
-            val targetChrome = TerminalChromeColors(Color(terminalChromeBackground(
+            val followsTui = followTuiBackground() && emulator.isAlternateBufferActive
+            val background = Color(terminalChromeBackground(
                 emulator, followTuiBackground(), target,
-            )))
+            ))
+            val targetChrome = if (followsTui) terminalDynamicColors(background) else TerminalChromeColors(background)
             chrome = fromChrome.interpolate(targetChrome, fraction)
             view.setPaletteOverride(if (fraction < 1f) current else null)
             val canvasBackground = requireNotNull(chrome).background.toArgb()
-                .takeIf { followTuiBackground() && emulator.isAlternateBufferActive }
+                .takeIf { followsTui }
             view.setCanvasBackgroundOverride(canvasBackground)
             view.setBackgroundColor(canvasBackground ?: current[TextStyle.COLOR_INDEX_BACKGROUND])
             publish(requireNotNull(chrome))

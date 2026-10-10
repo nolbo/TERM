@@ -181,6 +181,11 @@ OSC declarations and whole-display erase styles survive terminal checkpoints;
 renderer inference never rewrites them. A uniform full-screen highlight cannot be
 distinguished from a theme repaint using cell colors alone. This is renderer-only
 and does not change session ownership or the palette exposed to terminal applications.
+While this option is enabled in the alternate screen, terminal-toolbar chrome uses
+Material Color Utilities' Expressive dynamic roles seeded by the inferred background.
+The toolbar scopes its generated Material color scheme to its descendants, retaining
+the exact canvas background and readable role contrast; settings keep the app scheme.
+Disabling the option or leaving the alternate screen restores the existing chrome.
 
 The UI renders state and sends typed commands. It never becomes the hidden
 owner of a process, PTY, VM, package operation, or capability grant.

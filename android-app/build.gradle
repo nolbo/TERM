@@ -145,6 +145,8 @@ dependencies {
     implementation 'androidx.compose.ui:ui'
     implementation 'androidx.compose.foundation:foundation'
     implementation 'androidx.compose.material3:material3:1.5.0-alpha27'
+    // Pure Material Color Utilities; keep the existing Compose/Expressive theme runtime.
+    implementation 'com.materialkolor:material-color-utilities:4.0.1'
     implementation 'androidx.activity:activity-compose:1.13.0'
     implementation 'io.noties.markwon:core:4.6.2'
     testImplementation 'junit:junit:4.13.2'

@@ -13,6 +13,7 @@ import com.termux.terminal.TerminalCheckpoint
 import com.termux.terminal.TerminalOutput
 import com.termux.terminal.TerminalSession
 import com.termux.terminal.TextStyle
+import dev.terminal.app.ui.TerminalChromeColors
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import org.junit.Assert.*
@@ -150,9 +151,11 @@ class TerminalTuiBackgroundTest {
             }
             val bitmap = Bitmap.createBitmap(1500, 1000, Bitmap.Config.ARGB_8888)
             var background = 0
+            var chrome: TerminalChromeColors? = null
             var followTuiBackground = true
             val transition = TerminalPaletteTransition(followTuiBackground = { followTuiBackground }) {
                 background = it.background.toArgb()
+                chrome = it
             }
             fun assertBackground(expected: Int) {
                 assertEquals(expected, background)
@@ -169,13 +172,18 @@ class TerminalTuiBackgroundTest {
                 emulator.fillRows(1, 23, "42")
                 transition.update(view)
                 assertBackground(0xFF123456.toInt())
+                val originalAccent = requireNotNull(chrome).accent
+                assertNotNull(requireNotNull(chrome).colorScheme)
                 emulator.output("\u001b[?2026h")
                 emulator.fillRows(1, 24, "48;2;171;205;239")
                 transition.update(view)
                 assertBackground(0xFF123456.toInt())
+                assertEquals(originalAccent, requireNotNull(chrome).accent)
                 emulator.output("\u001b[?2026l")
                 transition.update(view)
                 assertBackground(0xFFABCDEF.toInt())
+                assertNotEquals(originalAccent, requireNotNull(chrome).accent)
+                assertEquals(background, requireNotNull(requireNotNull(chrome).colorScheme).surface.toArgb())
                 emulator.fillRows(1, 24, "0")
                 transition.update(view)
                 val fallback = emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND]
@@ -186,11 +194,14 @@ class TerminalTuiBackgroundTest {
                 followTuiBackground = false
                 transition.update(view)
                 assertBackground(fallback)
+                assertNull(requireNotNull(chrome).colorScheme)
                 followTuiBackground = true
                 transition.update(view)
+                assertNotNull(requireNotNull(chrome).colorScheme)
                 emulator.output("\u001b[?1049l")
                 transition.update(view)
                 assertBackground(fallback)
+                assertNull(requireNotNull(chrome).colorScheme)
             } finally {
                 transition.cancel()
                 bitmap.recycle()

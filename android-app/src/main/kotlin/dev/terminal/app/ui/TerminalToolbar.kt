@@ -123,48 +123,50 @@ internal fun TerminalToolbar(
     val defaultLabel = stringResource(R.string.toolbar_default)
     val hideLabel = stringResource(R.string.toolbar_hide)
     fun settle(target: ToolbarSheetMode) { scope.launch { state.animateTo(target, motion) } }
-    Column(Modifier.fillMaxWidth().background(colors.background).navigationBarsPadding()) {
-        Surface(color = colors.background, contentColor = colors.foreground,
-            shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
-            modifier = Modifier.fillMaxWidth().then(sheetHeight).clipToBounds()) {
-            Column {
-                Box(Modifier.fillMaxWidth().height(hidden)
-                    .anchoredDraggable(state, Orientation.Vertical,
-                        flingBehavior = AnchoredDraggableDefaults.flingBehavior(state, animationSpec = motion))
-                    .clickable(interactionSource = remember { HandleInteractionSource() },
-                        indication = ripple(enableHoverIndication = false)) {
-                        settle(when (state.settledValue) {
-                            ToolbarSheetMode.Hidden -> ToolbarSheetMode.Default
-                            ToolbarSheetMode.Default -> ToolbarSheetMode.Expanded
-                            ToolbarSheetMode.Expanded -> ToolbarSheetMode.Hidden
-                        })
-                    }.semantics {
-                        contentDescription = handleLabel
-                        stateDescription = modeLabel
-                        customActions = listOf(
-                            CustomAccessibilityAction(expandLabel) { settle(ToolbarSheetMode.Expanded); true },
-                            CustomAccessibilityAction(defaultLabel) { settle(ToolbarSheetMode.Default); true },
-                            CustomAccessibilityAction(hideLabel) { settle(ToolbarSheetMode.Hidden); true },
-                        )
-                    }, contentAlignment = Alignment.Center) {
-                    ToolbarPageHandle(pager, tools.size,
-                        visible = tools.size > 1 && pager.isScrollInProgress && contentVisible,
-                        colors = colors)
-                }
-                if (contentVisible) {
-                    if (config.tools.isEmpty()) {
-                        Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
-                            Text(stringResource(R.string.toolbar_empty), style = MaterialTheme.typography.bodyMedium)
-                        }
-                    } else {
-                        CompositionLocalProvider(
-                            LocalToolbarColors provides colors,
-                            LocalToolbarExpansionProgress provides expansionProgress,
-                            LocalToolbarExpandedContentHeight provides
-                                if (mode == ToolbarSheetMode.Expanded) (expanded - hidden) else null,
-                        ) {
-                            ToolbarPages(config.tools, pager, state.settledValue != ToolbarSheetMode.Hidden,
-                                pageNavigationEnabled, content = content)
+    MaterialTheme(colorScheme = colors.colorScheme ?: MaterialTheme.colorScheme) {
+        Column(Modifier.fillMaxWidth().background(colors.background).navigationBarsPadding()) {
+            Surface(color = colors.background, contentColor = colors.foreground,
+                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+                modifier = Modifier.fillMaxWidth().then(sheetHeight).clipToBounds()) {
+                Column {
+                    Box(Modifier.fillMaxWidth().height(hidden)
+                        .anchoredDraggable(state, Orientation.Vertical,
+                            flingBehavior = AnchoredDraggableDefaults.flingBehavior(state, animationSpec = motion))
+                        .clickable(interactionSource = remember { HandleInteractionSource() },
+                            indication = ripple(enableHoverIndication = false)) {
+                            settle(when (state.settledValue) {
+                                ToolbarSheetMode.Hidden -> ToolbarSheetMode.Default
+                                ToolbarSheetMode.Default -> ToolbarSheetMode.Expanded
+                                ToolbarSheetMode.Expanded -> ToolbarSheetMode.Hidden
+                            })
+                        }.semantics {
+                            contentDescription = handleLabel
+                            stateDescription = modeLabel
+                            customActions = listOf(
+                                CustomAccessibilityAction(expandLabel) { settle(ToolbarSheetMode.Expanded); true },
+                                CustomAccessibilityAction(defaultLabel) { settle(ToolbarSheetMode.Default); true },
+                                CustomAccessibilityAction(hideLabel) { settle(ToolbarSheetMode.Hidden); true },
+                            )
+                        }, contentAlignment = Alignment.Center) {
+                        ToolbarPageHandle(pager, tools.size,
+                            visible = tools.size > 1 && pager.isScrollInProgress && contentVisible,
+                            colors = colors)
+                    }
+                    if (contentVisible) {
+                        if (config.tools.isEmpty()) {
+                            Box(Modifier.fillMaxSize().padding(16.dp), contentAlignment = Alignment.Center) {
+                                Text(stringResource(R.string.toolbar_empty), style = MaterialTheme.typography.bodyMedium)
+                            }
+                        } else {
+                            CompositionLocalProvider(
+                                LocalToolbarColors provides colors,
+                                LocalToolbarExpansionProgress provides expansionProgress,
+                                LocalToolbarExpandedContentHeight provides
+                                    if (mode == ToolbarSheetMode.Expanded) (expanded - hidden) else null,
+                            ) {
+                                ToolbarPages(config.tools, pager, state.settledValue != ToolbarSheetMode.Hidden,
+                                    pageNavigationEnabled, content = content)
+                            }
                         }
                     }
                 }

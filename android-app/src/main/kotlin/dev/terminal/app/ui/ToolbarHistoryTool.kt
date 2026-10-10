@@ -220,7 +220,7 @@ internal fun ToolbarHistoryTool(active: Boolean, onReturnToTerminal: () -> Unit,
                 val scopeLabel = stringResource(R.string.history_scope, stringResource(searchScope.title))
                 val menuLabel = stringResource(R.string.history_scope_choose)
                 val buttonColors = ButtonDefaults.filledTonalButtonColors(
-                    containerColor = colors.container, contentColor = colors.onContainer,
+                    containerColor = colors.buttonContainer, contentColor = colors.onButtonContainer,
                     disabledContainerColor = colors.container,
                     disabledContentColor = colors.onContainer.copy(alpha = 0.38f))
                 val menuRotation by animateFloatAsState(if (menu) 180f else 0f,
