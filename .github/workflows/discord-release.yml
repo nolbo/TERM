@@ -88,6 +88,14 @@ jobs:
               method="POST"
           )
 
-          with urllib.request.urlopen(request, timeout=20) as response:
-              print(f"Discord notification sent: {response.status}")
+          import urllib.error
+
+          try:
+              with urllib.request.urlopen(request, timeout=20) as response:
+                print(f"Discord notification sent: {response.status}")
+
+          except urllib.error.HTTPError as e:
+              print(f"Discord HTTP status: {e.code}")
+              print(f"Discord error: {e.read().decode('utf-8')}")
+          raise
           PY
