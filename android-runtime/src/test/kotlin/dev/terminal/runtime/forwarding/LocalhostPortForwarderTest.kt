@@ -3,6 +3,7 @@ package dev.terminal.runtime.forwarding
 import dev.terminal.runtime.api.GuestByteStream
 import org.junit.Assert.*
 import org.junit.Test
+import java.net.BindException
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -42,7 +43,15 @@ class LocalhostPortForwarderTest {
             ServerSocket(candidate, 16, loopback).use { assertEquals(candidate, it.localPort) }
             assertTrue(runCatching { ServerSocket(oldPort, 16, loopback).close() }.isFailure)
         } finally { forwarder.close() }
-        ServerSocket(oldPort, 16, loopback).close()
+        // Closing the socket wakes the accept thread; its final OS reference can outlive close().
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+        while (true) {
+            try { ServerSocket(oldPort, 16, loopback).use { }; break }
+            catch (failure: BindException) {
+                if (System.nanoTime() >= deadline) throw failure
+                Thread.sleep(10)
+            }
+        }
     }
     @Test fun proxyUsesGuestTargetAndSupportsRequestHalfCloseAndResourceCleanup() {
         val guestServer = ServerSocket(0, 16, loopback)
