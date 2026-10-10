@@ -1,28 +1,28 @@
 <resources>
     <string name="backup_title">백업 및 복원</string>
-    <string name="backup_summary">환경 데이터를 파일로 저장하고 새 실행환경으로 복원합니다</string>
+    <string name="backup_summary">환경 데이터를 파일로 백업하고 새 환경으로 복원합니다</string>
     <string name="backup_create">백업 만들기</string>
     <string name="backup_import">백업 가져오기</string>
     <string name="backup_import_summary">백업 파일에서 새 실행환경을 만듭니다</string>
-    <string name="backup_sensitive">백업에는 비밀번호, SSH 키, 토큰과 개인 파일이 포함될 수 있습니다. 안전한 위치에 보관하고 신뢰할 수 있는 백업만 가져오세요.</string>
+    <string name="backup_sensitive">비밀번호·SSH 키·토큰·개인 파일이 포함될 수 있습니다. 안전하게 보관하고 신뢰하는 백업만 가져오세요.</string>
     <string name="backup_contents">포함할 데이터</string>
     <string name="backup_type">백업 유형</string>
     <string name="backup_data">데이터 백업</string>
     <string name="backup_full">전체 실행환경 백업</string>
     <string name="backup_home">홈 및 설정</string>
-    <string name="backup_data_summary">사용자 홈과 홈 안의 설정 파일을 포함합니다. Linux 배포판과 패키지는 포함하지 않습니다.</string>
+    <string name="backup_data_summary">홈·홈 안의 설정 파일만 포함하며 배포판·패키지는 제외합니다.</string>
     <string name="backup_full_summary">배포판 파일, 패키지 데이터베이스, 사용자 홈과 설정 파일을 포함합니다.</string>
     <string name="backup_profiles">프로필 포함</string>
-    <string name="backup_profiles_summary">이 실행환경에 연결된 셸, 시작 명령, 환경 변수와 표시 설정을 저장합니다.</string>
+    <string name="backup_profiles_summary">연결된 프로필의 셸·시작 명령·환경 변수·표시 설정을 저장합니다.</string>
     <string name="backup_workspace">기존 작업 폴더 포함</string>
     <string name="backup_workspace_private">이 실행환경에 남은 기존 작업 폴더입니다. 논리적 워크스페이스와 공유 디렉토리는 포함하지 않습니다.</string>
     <string name="backup_workspace_shared">여러 기존 실행환경이 공유하는 Legacy 작업 폴더입니다. 기본적으로 제외합니다.</string>
     <string name="backup_shared_consent">공유 데이터 포함에 동의</string>
-    <string name="backup_shared_warning">다른 실행환경의 프로젝트도 포함될 수 있습니다. 공유 디렉토리를 사용하는 모든 실행환경을 먼저 중지하세요.</string>
-    <string name="backup_idle_required">백업 전 대상의 세션과 파일을 쓰는 프로세스를 종료하고 Userspace Linux 실행환경을 중지하세요. 백업이 세션이나 프로세스를 대신 종료하지 않습니다.</string>
+    <string name="backup_shared_warning">다른 환경의 프로젝트도 포함될 수 있습니다. 공유 디렉토리를 사용하는 모든 환경을 먼저 중지하세요.</string>
+    <string name="backup_idle_required">백업 전 세션·파일 쓰기 프로세스를 종료하고 Userspace Linux를 중지하세요. 백업이 대신 종료하지 않습니다.</string>
     <string name="backup_security">보호</string>
     <string name="backup_encrypt">비밀번호로 암호화</string>
-    <string name="backup_encrypt_summary">8자 이상을 사용하세요. 비밀번호는 저장되지 않으며 분실하면 복원할 수 없습니다. 화면 재생성 후에는 다시 입력하세요.</string>
+    <string name="backup_encrypt_summary">8자 이상 입력하세요. 비밀번호는 저장되지 않아 화면 재생성 시 재입력해야 하며 분실하면 복원할 수 없습니다.</string>
     <string name="backup_password">비밀번호</string>
     <string name="backup_password_confirm">비밀번호 확인</string>
     <string name="backup_password_optional">비밀번호 (암호화한 백업만)</string>
@@ -42,11 +42,11 @@
     <string name="backup_workspace_legacy">Legacy 공유 작업 폴더의 복사본</string>
     <string name="backup_new_name">새 실행환경 이름</string>
     <string name="backup_import_profiles">프로필 가져오기</string>
-    <string name="backup_import_profiles_summary">새 프로필 ID를 만들고 참조를 복원된 실행환경에 연결합니다. 사용자 이미지 아이콘은 기본 아이콘으로 표시합니다.</string>
+    <string name="backup_import_profiles_summary">새 ID로 프로필을 가져와 복원 환경에 연결합니다. 사용자 이미지 아이콘은 기본 아이콘을 사용합니다.</string>
     <string name="backup_trusted">신뢰할 수 있는 백업입니다</string>
     <string name="backup_trusted_summary">가져온 셸과 시작 명령은 나중에 이 환경을 실행하면 동작합니다.</string>
     <string name="backup_restore_new">새 실행환경으로 복원</string>
-    <string name="backup_preview_note">전체 무결성은 복원 중 검사합니다. 기존 실행환경은 덮어쓰지 않습니다. Rootless 데이터 백업은 복원 후 배포판 설치가 필요하며, 가져온 공유 작업 폴더는 새 환경 전용 복사본이 됩니다.</string>
+    <string name="backup_preview_note">복원 중 무결성을 검사하며 기존 환경은 덮어쓰지 않습니다. Rootless 데이터 복원 후에는 배포판 설치가 필요하며 가져온 공유 작업 폴더는 새 환경 전용 사본입니다.</string>
     <string name="backup_open_environments">실행환경에서 백업 만들기</string>
     <string name="backup_result">진행 및 결과</string>
     <string name="backup_open_restored">복원된 실행환경 열기</string>
@@ -64,5 +64,5 @@
     <string name="backup_phase_cancelling">취소 중</string>
     <string name="backup_phase_interrupted">프로세스 종료로 중단됨 — 다시 시도하세요</string>
     <string name="backup_phase_failed">실패 — 원인을 확인하고 다시 시도하세요</string>
-    <string name="backup_scope">임시 파일, 다운로드 캐시, 실행 중인 프로세스, 세션과 스크롤백은 포함하지 않습니다. AVF 디스크, 기존 환경 덮어쓰기와 자동 백업은 지원하지 않습니다. 작업 중 화면을 닫아도 계속되며 취소는 명시적으로 요청해야 합니다.</string>
+    <string name="backup_scope">임시 파일·다운로드 캐시·프로세스·세션·스크롤백은 제외합니다. AVF 디스크·기존 환경 덮어쓰기·자동 백업은 미지원입니다. 화면을 닫아도 계속되며 취소는 직접 요청하세요.</string>
 </resources>

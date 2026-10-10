@@ -2,11 +2,11 @@
     <string name="update_channel_label">Update channel</string>
     <string name="update_channel_main">Stable release</string>
     <string name="update_channel_dev">Development release</string>
-    <string name="update_dev_warning">Development releases include the latest origin/dev changes and may be unstable. Save terminal work before installing.</string>
-    <string name="update_channel_older">This channel’s published version is older than the installed app. Wait for a newer release. Uninstalling to downgrade can lose app data.</string>
+    <string name="update_dev_warning">Development releases include recent changes and may be unstable. Save work before installing.</string>
+    <string name="update_channel_older">This channel has an older version. Wait for a newer release; uninstalling to downgrade may lose data.</string>
     <string name="app_updates">App updates</string>
     <string name="update_settings_summary">Check and install updates</string>
-    <string name="update_description">Check for a new app version and download it. Installation proceeds in Android’s confirmation screen.</string>
+    <string name="update_description">Check and download updates; install through Android confirmation.</string>
     <string name="update_installed_version">Installed version · %1$s</string>
     <string name="update_idle">Check whether a new version is available.</string>
     <string name="update_idle_title">Check for an update</string>
@@ -22,7 +22,7 @@
     <string name="update_failed_title">Unable to proceed with the update</string>
     <string name="update_download_before_install">You can install the update once the download finishes.</string>
     <string name="update_save_work">Save your terminal work before installing.</string>
-    <string name="update_debug_manual">TERM Debug is a separate app. To update it, install a new debug APK signed with the same debug key. Stable and development channel updates do not apply.</string>
+    <string name="update_debug_manual">Update the separate TERM Debug app manually with an APK signed by the same debug key. Stable/dev channels do not apply.</string>
     <string name="update_check">Check for updates</string>
     <string name="update_checking">Checking for a new version…</string>
     <string name="update_no_release">No updates have been published yet.</string>
@@ -31,18 +31,18 @@
     <string name="update_download">Download update</string>
     <string name="update_downloading">Downloading and verifying the update…</string>
     <string name="update_ready">Ready to install · %1$s</string>
-    <string name="update_download_lifetime">Downloading continues while the app process is alive, even after you close this screen. Download again if the app process exits.</string>
+    <string name="update_download_lifetime">Downloads continue after closing this screen; download again if the app process exits.</string>
     <string name="update_network_error">Could not reach the update server. Check your internet connection and try again.</string>
     <string name="update_invalid_manifest">The release information is invalid; this update cannot be used.</string>
     <string name="update_invalid_apk">The downloaded APK failed integrity or app identity verification. Installation was blocked.</string>
-    <string name="update_wrong_signature">The update and installed app have different signing keys. Debug builds can only use updates signed with the same key.</string>
+    <string name="update_wrong_signature">Different signing keys prevent installation. Debug APKs also need the same key.</string>
     <string name="update_incompatible">This update does not support your Android version.</string>
     <string name="update_non_forward">The release history does not match the installed app. An automatic update cannot replace this version.</string>
     <string name="update_cache_missing">The downloaded file was removed. Download the update again.</string>
     <string name="update_allow_install">Allow this app to install unknown apps, then return and tap Install again.</string>
     <string name="update_installer_missing">Could not open the Android installer.</string>
     <string name="update_install_title">Update the app?</string>
-    <string name="update_install_warning">Android may stop the app and runtime processes during installation, interrupting live terminal sessions. Save your work before continuing. App data and Linux files are retained.</string>
+    <string name="update_install_warning">Save work: Android may stop the app/runtime and interrupt sessions during installation. App data and Linux files are kept.</string>
     <string name="update_release_notes">Release notes</string>
-    <string name="update_release_notes_unavailable">Could not load release notes for this version. Check for updates again to retry. You can still download the update.</string>
+    <string name="update_release_notes_unavailable">Release notes unavailable. Check for updates to retry; downloads remain available.</string>
 </resources>

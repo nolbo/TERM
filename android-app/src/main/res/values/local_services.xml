@@ -3,8 +3,8 @@
     <string name="local_services_no_avf_link">연결된 AVF 포트 에이전트가 없습니다. 실행환경을 자동으로 시작하지 않습니다.</string>
     <string name="local_services_avf_links">AVF 에이전트: 연결됨 %1$d · 연결 중 %2$d · 끊김 %3$d</string>
     <string name="local_services_title">로컬 서비스</string>
-    <string name="local_services_summary">로컬 서비스 등록, 접속 주소 및 포트 전달 관리</string>
-    <string name="local_services_description">실행환경의 로컬 서비스를 확인하고 접속 주소와 포트 전달을 관리합니다.</string>
+    <string name="local_services_summary">로컬 서비스 등록, 접속 주소와 포트 전달</string>
+    <string name="local_services_description">로컬 서비스의 접속 주소·포트 전달을 관리합니다.</string>
     <string name="local_services_all">전체</string>
     <string name="local_services_native">Native</string>
     <string name="local_services_rootless">Userspace Linux</string>
@@ -13,8 +13,8 @@
     <string name="local_services_register">서비스 등록</string>
     <string name="local_services_unavailable">서비스 정보를 조회할 수 없습니다. 런타임 연결 후 새로고침하세요.</string>
     <string name="local_services_empty">서비스 없음</string>
-    <string name="local_services_empty_hint">Native·Userspace Linux 서비스는 직접 등록하세요. AVF 서비스는 실행 중인 VM의 에이전트가 보고합니다.</string>
-    <string name="local_services_limitations">등록이나 발견은 접속 성공을 뜻하지 않습니다. 전달 활성은 Android의 로컬 프록시가 열렸다는 뜻입니다. 공유 Android 네트워크 항목은 전체 필터에 표시합니다. 이 화면과 새로고침은 실행환경이나 세션을 시작·중지하지 않습니다.</string>
+    <string name="local_services_empty_hint">Native·Userspace Linux는 직접 등록하고 실행 중 AVF 서비스는 에이전트가 보고합니다.</string>
+    <string name="local_services_limitations">등록·발견은 접속 성공을 보장하지 않으며 전달 활성은 Android 로컬 프록시가 열렸다는 뜻입니다. 공통 네트워크 항목은 전체 필터에 표시합니다. 조회·새로고침은 환경·세션을 시작·중지하지 않습니다.</string>
     <string name="local_services_environment">실행환경</string>
     <string name="local_services_environment_id">실행환경 ID</string>
     <string name="local_services_environment_unavailable">실행환경을 확인할 수 없음</string>
@@ -34,8 +34,8 @@
     <string name="local_services_attempted_port">변경을 시도한 Android 포트</string>
     <string name="local_services_identity">서비스 ID</string>
     <string name="local_services_session">소유 세션</string>
-    <string name="local_services_manual_hint">등록은 실제 리스너 실행이나 실행환경의 소유 관계를 증명하지 않습니다. 실행환경 선택은 논리적 연결입니다. Native와 Userspace Linux는 Android 네트워크를 공유합니다.</string>
-    <string name="local_services_forward_hint">127.0.0.1에만 전달합니다. 전달 활성은 게스트 서비스의 정상 응답을 보장하지 않습니다. 변경 실패 시 기존 전달을 유지합니다.</string>
+    <string name="local_services_manual_hint">등록은 실행·소유 관계를 보장하지 않으며 환경 선택은 논리적 연결입니다. Native·Userspace Linux는 Android 네트워크를 공유합니다.</string>
+    <string name="local_services_forward_hint">127.0.0.1로만 전달하며 게스트 응답은 보장하지 않습니다. 변경 실패 시 기존 전달을 유지합니다.</string>
     <string name="local_services_copy_address">Android 접속 주소 복사</string>
     <string name="local_services_copy_port">Android 포트 복사</string>
     <string name="local_services_open_browser">브라우저 열기</string>

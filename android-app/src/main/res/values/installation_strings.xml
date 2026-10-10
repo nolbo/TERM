@@ -13,7 +13,7 @@
     <string name="install_stage_environment_verify">기본 환경 동작 검증</string>
     <string name="install_stage_distribution_complete">배포판 설치 완료</string>
     <string name="rootless_installation_title">%1$s 배포판 설치</string>
-    <string name="install_background_note">화면을 닫아도 설치는 계속됩니다. 해당 실행환경 상세에서 진행 상황을 확인할 수 있습니다.</string>
+    <string name="install_background_note">화면을 닫아도 설치는 계속됩니다. 진행 상황은 실행환경 상세에서 확인하세요.</string>
     <string name="rootless_install_complete_note">배포판이 준비되었습니다. 해당 프로필로 세션을 열 수 있습니다.</string>
     <string name="rootless_install_cancelled_note">해당 실행환경 상세에서 배포판 설치를 다시 요청할 수 있습니다.</string>
 </resources>

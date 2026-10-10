@@ -1,7 +1,7 @@
 <resources>
     <string name="usb_title">USB devices</string>
     <string name="usb_summary">Manage Native iPhone and Userspace Linux USB access</string>
-    <string name="usb_help">Native and Userspace Linux support terminal-usb list, iphone and tooling commands. Userspace Linux also provides serial, adb, mtp and raw (Python 3 required). Approve requests here, then rerun the command. Enter tool account/2FA only in Host tool inputs. For mounted storage, choose a folder below.</string>
+    <string name="usb_help">Native/Userspace Linux: terminal-usb list, iphone, tooling. Userspace Linux also supports serial/adb/mtp/raw (Python 3 required). Approve here and rerun. Account/2FA: Host tool inputs only. Choose folders under Removable storage.</string>
     <string name="usb_connecting">Connecting to USB service…</string>
     <string name="usb_unsupported">This Android device does not support USB Host.</string>
     <string name="usb_no_devices">No USB devices are connected.</string>
@@ -11,7 +11,7 @@
     <string name="usb_deny">Deny</string>
     <string name="usb_revoke">Revoke all USB access for this session</string>
     <string name="usb_cdc">CDC ACM serial · control/data interfaces</string>
-    <string name="usb_serial_driver">USB serial driver · selected port; interface -1 means exclusive device access. Initialization may reset the device or change control lines</string>
+    <string name="usb_serial_driver">USB serial on the selected port; interface -1 is exclusive device access. Initialization may reset or change control lines</string>
     <string name="usb_raw">Raw USB · selected interface</string>
     <string name="usb_iphone_pair">iPhone · establish trust and pairing</string>
     <string name="usb_iphone_info">iPhone · read name, model and OS information</string>
@@ -19,15 +19,15 @@
     <string name="usb_iphone_list">iPhone AFC · list the displayed directory</string>
     <string name="usb_iphone_get">iPhone AFC · download the displayed file (up to 64 MiB)</string>
     <string name="usb_iphone_put">iPhone AFC · upload new files to TerminalImports (up to 64 MiB)</string>
-    <string name="usb_iphone_confirmation">Allow only the selected iPhone operation. Interface -1 means device-level access; the USB configuration may change. Pairing requires unlocking and trusting this app on the iPhone. Unpairing removes this app’s pairing. Android manages credentials without sending them to Userspace Linux. Session exit, unplugging or revocation cancels access. Other iPhone operations require separate approval.</string>
+    <string name="usb_iphone_confirmation">Only this iPhone operation is approved; others need separate approval. Interface -1 is device-level access and may change configuration. Pairing needs unlock/Trust; unpairing removes this app’s pairing. Credentials stay on Android. Access ends on session exit, unplugging or revocation.</string>
     <string name="usb_request_label">%1$s\nSession: %2$s\nUSB %3$s · interface %4$d\n%5$s</string>
-    <string name="usb_confirmation">Programs in this session can read data and send commands through the selected USB interfaces. Commands may change data or settings on the connected device. Access lasts until session exit, disconnection or revocation. Raw access does not restrict command semantics.</string>
+    <string name="usb_confirmation">This session can read/send commands on selected USB interfaces. Device data/settings may change; Raw commands are unrestricted. Access ends on session exit, disconnect or revocation.</string>
     <string name="usb_add_storage">Choose removable storage folder</string>
     <string name="usb_storage_picker_unavailable">The Android folder picker is unavailable on this device.</string>
     <string name="usb_storage_read_grant">Read files in the selected folder</string>
     <string name="usb_storage_write_grant">Read and upload new files in the selected folder</string>
     <string name="usb_configuration_grant">Change device-wide USB configuration</string>
-    <string name="usb_storage_help">Select a folder on an Android-mounted USB drive or SD card. Linux access still requires a separate session approval. No disk mounting, formatting, deletion or overwrite is exposed.</string>
+    <string name="usb_storage_help">Choose an Android-mounted USB/SD folder; approve Linux sessions separately. No mounting, formatting, deletion or overwrites.</string>
     <string name="usb_storage_unavailable">Unavailable — reconnect and approve the session again</string>
     <string name="usb_storage_writable">Available · read and new-file upload</string>
     <string name="usb_storage_readonly">Available · read only</string>
@@ -35,6 +35,6 @@
     <string name="usb_connection_active">Connection active</string>
     <string name="usb_grant_idle">Approved · no active connection</string>
     <string name="usb_diagnostics">USB diagnostics (no credentials or payloads)</string>
-    <string name="usb_configuration_confirmation">This device-wide change may interrupt every interface. Existing grants and the attachment ID are invalidated after the attempt, even if it fails. List devices and approve access again.</string>
-    <string name="usb_storage_confirmation">Allow this terminal session to access only this selected removable-storage folder. A write grant allows new files; interrupted uploads may leave partial files. Removing access does not delete files.</string>
+    <string name="usb_configuration_confirmation">Changing configuration may affect all interfaces. Even a failed attempt invalidates grants/attachment ID; list devices and approve again.</string>
+    <string name="usb_storage_confirmation">Allow only this folder for this session. Writes create new files; interruptions may leave partial files. Revoking access keeps files.</string>
 </resources>

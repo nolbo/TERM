@@ -9,7 +9,7 @@
     <string name="userspace_dns_android">Use Android network settings</string>
     <string name="userspace_dns_custom">Custom</string>
     <string name="userspace_dns_servers">DNS servers</string>
-    <string name="userspace_dns_support">Applies to new sessions and installation or repair in all Userspace Linux environments. Android mode reads the current network DNS servers at launch; Android Private DNS encryption does not apply.</string>
+    <string name="userspace_dns_support">Applies to all new Userspace Linux sessions and install/repair work. Android mode uses network DNS at launch; Private DNS encryption does not apply.</string>
     <string name="userspace_dns_input_help">Add IPv4 or IPv6 addresses one at a time, up to 3 servers.</string>
     <string name="userspace_dns_add_server">Add DNS server</string>
     <string name="userspace_dns_add">Add</string>
@@ -33,12 +33,12 @@
     <string name="userspace_checking">Checking</string>
     <string name="userspace_info_unavailable">Unable to verify</string>
     <string name="userspace_runtime_info">Runtime information</string>
-    <string name="userspace_runtime_info_support">Shows the PRoot engine configuration in the installed APK. TERM manages engine internals automatically. View environment-specific configuration in that Environment.</string>
+    <string name="userspace_runtime_info_support">PRoot engine configuration in this APK. Internals are managed automatically; view environment settings in Environments.</string>
     <string name="userspace_loader">Loader</string>
     <string name="userspace_acceleration_profile">Acceleration profile</string>
     <string name="userspace_faststat">Faststat</string>
     <string name="userspace_abi">ABI</string>
     <string name="userspace_storage_links">Storage link strategy</string>
     <string name="userspace_environment_automatic">Selected automatically per environment</string>
-    <string name="userspace_limitations_note">PRoot does not provide real root privileges, Linux namespaces, cgroups, kernel mounts or a full systemd boot. Syscall and filesystem translation adds performance overhead. Features requiring a real Linux kernel may need AVF.</string>
+    <string name="userspace_limitations_note">PRoot lacks real root, Linux namespaces, cgroups, kernel mounts and full systemd boot. Syscall/file translation adds overhead; real-kernel features may need AVF.</string>
 </resources>

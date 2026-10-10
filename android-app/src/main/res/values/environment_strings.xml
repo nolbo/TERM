@@ -13,8 +13,8 @@
     <string name="environment_vm_identity">VM ID</string>
     <string name="environment_disks">영속 디스크</string>
     <string name="environment_delete_protected">연결된 프로필·활성 세션을 먼저 제거하세요. 설치·관리 작업이나 이전 데이터 연결이 진행 중이거나 런타임 중지를 확인할 수 없으면 삭제할 수 없습니다.</string>
-    <string name="environment_delete_rootless_confirm">실행환경 %1$s와 설치된 배포판을 영구 삭제할까요? 배포판 이미지, 설치 캐시, 패키지, 홈 및 설정이 삭제됩니다. 기존 /workspace 데이터와 공유 디렉토리는 보존됩니다. 삭제한 환경 데이터는 복구할 수 없습니다.</string>
-    <string name="environment_delete_avf_confirm">실행환경 %1$s와 Debian 이미지를 영구 삭제할까요? VM이 중지되었음을 확인한 뒤 이미지, 패키지, 홈, 설정, VM 영속 상태와 VM 안의 파일 사본을 삭제합니다. 호스트의 공유 디렉토리는 보존됩니다. 삭제한 VM 데이터는 복구할 수 없습니다.</string>
+    <string name="environment_delete_rootless_confirm">%1$s 실행환경의 배포판 이미지·설치 캐시·패키지·홈·설정을 삭제할까요? 복구할 수 없습니다. 기존 /workspace와 공유 디렉토리는 보존됩니다.</string>
+    <string name="environment_delete_avf_confirm">%1$s 실행환경을 삭제할까요? VM 중지 확인 후 Debian 이미지·패키지·홈·설정·영속 상태·VM 안의 사본을 삭제하며 복구할 수 없습니다. 호스트 공유 디렉토리는 보존됩니다.</string>
     <string name="environment_engine_status">실행 엔진 지원 상태</string>
     <string name="environment_instances_support">실행환경의 이름, 저장 공간, 설치 및 실행 상태를 관리합니다.</string>
     <string name="rootless_engine_supported">ARM64 PRoot 실행 엔진 · 추가 Android 권한 없음</string>
@@ -26,7 +26,7 @@
     <string name="environment_distribution_install">배포판 설치</string>
     <string name="environment_distribution_remove">배포판 제거</string>
     <string name="environment_debian_remove">Debian 제거</string>
-    <string name="environment_distribution_remove_message">이 실행환경의 배포판 이미지와 이미지 안의 패키지·파일을 삭제합니다. 기본적으로 홈 데이터와 작업 폴더는 보존합니다. 실행환경과 연결된 프로필은 유지되며 나중에 다시 설치할 수 있습니다. 삭제한 데이터는 복구할 수 없습니다.</string>
-    <string name="environment_debian_remove_message">이 실행환경의 Debian 이미지와 VM 내부 홈, 설치한 패키지·설정을 삭제합니다. 실행환경과 연결된 프로필, 공유 디렉토리의 파일은 유지되며 나중에 Debian을 다시 설치할 수 있습니다. 삭제한 데이터는 복구할 수 없습니다.</string>
+    <string name="environment_distribution_remove_message">배포판 이미지와 내부 패키지·파일을 삭제하며 복구할 수 없습니다. 홈·작업 폴더는 기본적으로 보존합니다. 실행환경·프로필은 유지되어 재설치할 수 있습니다.</string>
+    <string name="environment_debian_remove_message">Debian 이미지와 VM 내부 홈·패키지·설정을 삭제하며 복구할 수 없습니다. 실행환경·프로필·공유 파일은 유지되어 재설치할 수 있습니다.</string>
     <string name="environment_software_protected">활성 세션이나 설치·관리 작업이 있거나 런타임 상태를 안전하게 확인할 수 없으면 제거할 수 없습니다.</string>
 </resources>

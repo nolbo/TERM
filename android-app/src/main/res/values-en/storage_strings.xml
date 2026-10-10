@@ -17,7 +17,7 @@
     <string name="storage_count_value">%1$d</string>
     <string name="storage_deletion">Deletion availability</string>
     <string name="storage_name_hint">Renaming preserves profile, session, and data identities.</string>
-    <string name="storage_summary">Execution Environments retain files, packages, and runtime state. Multiple profiles and sessions can use the same execution environment.</string>
+    <string name="storage_summary">Store files, packages and runtime state; share between profiles and sessions.</string>
     <string name="storage_loading">Loading execution environments…</string>
     <string name="storage_unavailable">Execution Environment information is unavailable.</string>
     <string name="storage_used">Execution Environments in use</string>

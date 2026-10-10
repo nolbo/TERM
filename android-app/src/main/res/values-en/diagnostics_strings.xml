@@ -2,8 +2,8 @@
 <resources>
     <string name="settings_diagnostics_title">Diagnostics and reports</string>
     <string name="settings_diagnostics_summary">Runtime status and crash history</string>
-    <string name="settings_diagnostics_description">Check runtime status and open saved crash reports to read and copy them.</string>
-    <string name="diagnostics_refresh_summary">Reload runtime diagnostics and saved crash reports.</string>
+    <string name="settings_diagnostics_description">Check runtime status; view and copy saved crash reports.</string>
+    <string name="diagnostics_refresh_summary">Refresh diagnostics and saved crash reports.</string>
     <string name="diagnostics_refreshing">Refreshing…</string>
     <string name="diagnostics_state_title">Runtime state</string>
     <string name="diagnostics_detail_title">Detail</string>

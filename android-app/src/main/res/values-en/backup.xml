@@ -1,28 +1,28 @@
 <resources>
     <string name="backup_title">Backup and restore</string>
-    <string name="backup_summary">Save environment data to a file and restore it as a new environment</string>
+    <string name="backup_summary">Back up environment data to a file; restore as a new environment</string>
     <string name="backup_create">Create backup</string>
     <string name="backup_import">Import backup</string>
     <string name="backup_import_summary">Create a new environment from a backup file</string>
-    <string name="backup_sensitive">Backups may contain passwords, SSH keys, tokens and private files. Store them securely and import only backups you trust.</string>
+    <string name="backup_sensitive">May contain passwords, SSH keys, tokens and private files. Store securely; import trusted backups only.</string>
     <string name="backup_contents">Included data</string>
     <string name="backup_type">Backup type</string>
     <string name="backup_data">Data backup</string>
     <string name="backup_full">Full environment backup</string>
     <string name="backup_home">Home and configuration</string>
-    <string name="backup_data_summary">Includes the user home and its configuration files. Linux distributions and packages are excluded.</string>
+    <string name="backup_data_summary">Includes home and its configuration files; excludes distributions and packages.</string>
     <string name="backup_full_summary">Includes distribution files, the package database, user home and configuration files.</string>
     <string name="backup_profiles">Include profiles</string>
-    <string name="backup_profiles_summary">Saves shell, startup command, environment variables and appearance settings for profiles linked to this environment.</string>
+    <string name="backup_profiles_summary">Save linked profiles with shell, startup command, environment variables and appearance.</string>
     <string name="backup_workspace">Include old data folder</string>
     <string name="backup_workspace_private">The private working folder for this environment. Available when the folder exists.</string>
     <string name="backup_workspace_shared">A legacy working folder shared by several environments. Excluded by default.</string>
     <string name="backup_shared_consent">Include shared data</string>
-    <string name="backup_shared_warning">Projects belonging to other environments may be included. Stop all environments that use this shared directory first.</string>
-    <string name="backup_idle_required">Close sessions and processes writing environment files, and stop Userspace Linux before backup. Backup never terminates sessions or processes for you.</string>
+    <string name="backup_shared_warning">May include other environments’ projects. Stop all environments using this shared directory first.</string>
+    <string name="backup_idle_required">Close sessions/file-writing processes and stop Userspace Linux first. Backup does not stop them for you.</string>
     <string name="backup_security">Protection</string>
     <string name="backup_encrypt">Encrypt with a password</string>
-    <string name="backup_encrypt_summary">Use at least 8 characters. Passwords are never saved and cannot be recovered. Reenter after screen recreation.</string>
+    <string name="backup_encrypt_summary">Use 8+ characters. Passwords are not saved; reenter after screen recreation. Lost passwords prevent restore.</string>
     <string name="backup_password">Password</string>
     <string name="backup_password_confirm">Confirm password</string>
     <string name="backup_password_optional">Password (encrypted backups only)</string>
@@ -42,11 +42,11 @@
     <string name="backup_workspace_legacy">Copy of a legacy shared workspace</string>
     <string name="backup_new_name">New environment name</string>
     <string name="backup_import_profiles">Import profiles</string>
-    <string name="backup_import_profiles_summary">Creates new profile IDs and links them to the restored environment. Custom image icons use the default icon.</string>
+    <string name="backup_import_profiles_summary">Import profiles with new IDs linked to the restored environment. Custom images use default icons.</string>
     <string name="backup_trusted">I trust this backup</string>
     <string name="backup_trusted_summary">Imported shells and startup commands run when you later launch this environment.</string>
     <string name="backup_restore_new">Restore as a new environment</string>
-    <string name="backup_preview_note">Full integrity is checked during restore. Existing environments are never overwritten. Rootless data restores require a distribution installation afterwards. Imported shared workspaces become private copies.</string>
+    <string name="backup_preview_note">Integrity is checked during restore; existing environments stay unchanged. Rootless data needs a distribution install. Imported shared workspaces become private copies.</string>
     <string name="backup_open_environments">Create backup from an environment</string>
     <string name="backup_result">Progress and result</string>
     <string name="backup_open_restored">Open restored environment</string>
@@ -64,5 +64,5 @@
     <string name="backup_phase_cancelling">Cancelling</string>
     <string name="backup_phase_interrupted">Interrupted by process exit — retry</string>
     <string name="backup_phase_failed">Failed — check the cause and retry</string>
-    <string name="backup_scope">Temporary files, download caches, running processes, sessions and scrollback are excluded. AVF disks, overwriting environments and automatic backups are not supported. Closing this screen keeps work running; cancellation requires an explicit action.</string>
+    <string name="backup_scope">Excludes temporary files, download caches, processes, sessions and scrollback. No AVF disks, environment overwrites or automatic backups. Work continues after closing; cancel explicitly.</string>
 </resources>

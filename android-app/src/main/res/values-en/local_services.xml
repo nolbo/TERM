@@ -3,8 +3,8 @@
     <string name="local_services_no_avf_link">No AVF port agent is connected. Environments are not started automatically.</string>
     <string name="local_services_avf_links">AVF agents: %1$d connected · %2$d connecting · %3$d disconnected</string>
     <string name="local_services_title">Local Services</string>
-    <string name="local_services_summary">Register local services and manage ports, addresses and forwarding</string>
-    <string name="local_services_description">View local services, access addresses and port forwarding across environments.</string>
+    <string name="local_services_summary">Register local services, addresses and forwarding</string>
+    <string name="local_services_description">Manage local service addresses and port forwarding.</string>
     <string name="local_services_all">All</string>
     <string name="local_services_native">Native</string>
     <string name="local_services_rootless">Userspace Linux</string>
@@ -13,8 +13,8 @@
     <string name="local_services_register">Register service</string>
     <string name="local_services_unavailable">Service information is unavailable. Refresh after the runtime reconnects.</string>
     <string name="local_services_empty">No services</string>
-    <string name="local_services_empty_hint">Register Native and Userspace Linux services manually. An agent reports services from running AVF VMs.</string>
-    <string name="local_services_limitations">Registration or discovery does not prove connectivity. Active forwarding means the Android loopback proxy is bound. Shared Android network entries appear under All. Opening or refreshing this screen never starts or stops environments or sessions.</string>
+    <string name="local_services_empty_hint">Register Native/Userspace Linux services manually; running AVF agents report services.</string>
+    <string name="local_services_limitations">Discovery/registration does not prove connectivity; active forwarding means the Android loopback proxy is bound. Shared-network entries appear under All. Viewing/refreshing never starts or stops environments/sessions.</string>
     <string name="local_services_environment">Environment</string>
     <string name="local_services_environment_id">Environment ID</string>
     <string name="local_services_environment_unavailable">Environment unavailable</string>
@@ -34,8 +34,8 @@
     <string name="local_services_attempted_port">Attempted Android port</string>
     <string name="local_services_identity">Service ID</string>
     <string name="local_services_session">Owning session</string>
-    <string name="local_services_manual_hint">Registration does not prove that a listener is running or belongs to an environment. The selected environment is a logical association. Native and Userspace Linux share the Android network.</string>
-    <string name="local_services_forward_hint">Forwarding binds only to 127.0.0.1. A bound proxy does not guarantee a guest response. Failed changes preserve the existing forwarding listener.</string>
+    <string name="local_services_manual_hint">Registration does not prove a running listener or ownership. Environments are logical associations; Native/Userspace Linux share Android networking.</string>
+    <string name="local_services_forward_hint">Forward to 127.0.0.1 only; guest responses are not guaranteed. Failed changes keep existing forwarding.</string>
     <string name="local_services_copy_address">Copy Android access address</string>
     <string name="local_services_copy_port">Copy Android port</string>
     <string name="local_services_open_browser">Open in browser</string>

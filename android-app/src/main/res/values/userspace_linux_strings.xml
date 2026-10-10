@@ -9,7 +9,7 @@
     <string name="userspace_dns_android">Android 네트워크 설정 사용</string>
     <string name="userspace_dns_custom">사용자 지정</string>
     <string name="userspace_dns_servers">DNS 서버</string>
-    <string name="userspace_dns_support">모든 Userspace Linux 실행환경의 새 세션과 설치·보완 작업에 적용합니다. Android 모드는 시작 시 현재 네트워크의 DNS 서버 목록을 사용하며 Android 비공개 DNS의 암호화 기능은 적용되지 않습니다.</string>
+    <string name="userspace_dns_support">새 Userspace Linux 세션과 설치·보완 작업에 공통 적용됩니다. Android 모드는 시작 시 네트워크 DNS를 사용하며 비공개 DNS 암호화는 적용되지 않습니다.</string>
     <string name="userspace_dns_input_help">IPv4 또는 IPv6 주소를 한 개씩, 최대 3개 추가할 수 있습니다.</string>
     <string name="userspace_dns_add_server">DNS 서버 추가</string>
     <string name="userspace_dns_add">추가</string>
@@ -33,12 +33,12 @@
     <string name="userspace_checking">확인 중</string>
     <string name="userspace_info_unavailable">확인할 수 없음</string>
     <string name="userspace_runtime_info">런타임 정보</string>
-    <string name="userspace_runtime_info_support">설치된 APK의 PRoot 실행 엔진 구성을 표시합니다. 내부 동작은 TERM이 자동으로 관리하며 실행환경별 구성은 해당 실행환경에서 확인합니다.</string>
+    <string name="userspace_runtime_info_support">APK의 PRoot 엔진 구성입니다. 내부 동작은 자동 관리하며 환경별 설정은 실행환경에서 확인하세요.</string>
     <string name="userspace_loader">Loader</string>
     <string name="userspace_acceleration_profile">가속 프로필</string>
     <string name="userspace_faststat">Faststat</string>
     <string name="userspace_abi">ABI</string>
     <string name="userspace_storage_links">스토리지 링크 방식</string>
     <string name="userspace_environment_automatic">환경별 자동 결정</string>
-    <string name="userspace_limitations_note">PRoot는 실제 root 권한, Linux namespace, cgroup, kernel mount 또는 완전한 systemd boot를 제공하지 않습니다. syscall·filesystem translation에 따른 성능 오버헤드가 있으며, 실제 Linux kernel이 필요한 기능은 AVF가 필요할 수 있습니다.</string>
+    <string name="userspace_limitations_note">PRoot는 실제 root 권한·Linux namespace·cgroup·커널 마운트·완전한 systemd 부팅을 지원하지 않습니다. 시스템 호출·파일 변환에 성능 비용이 있으며 실제 Linux 커널이 필요한 기능에는 AVF가 필요할 수 있습니다.</string>
 </resources>
