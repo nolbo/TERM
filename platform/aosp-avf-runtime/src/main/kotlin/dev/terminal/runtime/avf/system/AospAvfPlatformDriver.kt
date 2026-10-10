@@ -17,6 +17,7 @@ import dev.terminal.runtime.api.RuntimeConfig
 import dev.terminal.runtime.api.StopMode
 import dev.terminal.runtime.avf.AvfPlatformDriver
 import dev.terminal.runtime.avf.AvfPlatformEvent
+import dev.terminal.runtime.storage.AvfSharedDirectoryLeases
 import dev.terminal.runtime.vsock.ParcelFileDescriptorFrameTransport
 import dev.terminal.runtime.vsock.ParcelFileDescriptorByteStream
 import java.nio.file.Paths
@@ -52,7 +53,12 @@ class AospAvfPlatformDriver(
         private set
 
     private var prepared: RuntimeConfig? = null
+    private var supportsVirtiofs = false
     @Volatile private var machine: VirtualMachine? = null
+    private data class SharedBoot(val vm: VirtualMachine, val instanceId: String, val directories: AvfSharedDirectories)
+    private val sharedBoot = AtomicReference<SharedBoot?>()
+    private val activeBoot = AtomicReference<Any?>()
+    private val shareLeases = AvfSharedDirectoryLeases(appContext.filesDir)
     private val pendingSessionConnection = AtomicReference<GuestConnection?>()
     private val events = MutableSharedFlow<AvfPlatformEvent>(extraBufferCapacity = 4)
 
@@ -69,7 +75,13 @@ class AospAvfPlatformDriver(
             val verification = DebianImageInstaller.verifyForStartup(Paths.get(config.imageDirectory))
             Log.i(TAG, "image.verify duration_ms=${SystemClock.elapsedRealtime() - verificationStartedAt} ready=${verification is ImageVerification.Ready}")
             when (verification) {
-                is ImageVerification.Ready -> Unit
+                is ImageVerification.Ready -> {
+                    AvfSharedDirectories.validate(appContext.filesDir.canonicalFile, config.sharedFolders)
+                    supportsVirtiofs = verification.manifest.virtiofsVersion == 1
+                    require(!supportsVirtiofs || config.sharedFolders.isEmpty() || !config.protectedVm) {
+                        "virtiofs 공유 디렉토리는 비보호 AVF VM에서만 사용할 수 있습니다."
+                    }
+                }
                 is ImageVerification.Invalid -> error(verification.reason)
             }
             prepared = config
@@ -81,20 +93,34 @@ class AospAvfPlatformDriver(
         val bootStartedAt = SystemClock.elapsedRealtime()
         var nextMachine: VirtualMachine? = null
         var startedHere = false
+        var stagedShares: AvfSharedDirectories? = null
         try {
             check(prepared == config) { "Prepare the exact image configuration before starting" }
             check(pendingSessionConnection.get() == null) { "VM session connection is already prepared" }
-            val vm = machine ?: manager.getOrCreate(vmName(config), buildConfig(config))
+            // Do not provision or replace sharing artifacts while reconnecting to a live guest.
+            val vm = machine ?: manager.get(vmName(config)) ?: manager.getOrCreate(vmName(config), buildConfig(config))
             nextMachine = vm
             val boot = AvfGuestBoot()
-            vm.setCallback(Executor { it.run() }, callback(boot))
+            val token = Any()
+            activeBoot.set(token)
+            vm.setCallback(Executor { it.run() }, callback(boot, token, config.instanceId))
             machine = vm
             // A previous host/boot timeout may have left this persistent VM running.
             // Reconnect to it without restarting Linux or replacing its writable disks.
             if (vm.status == VirtualMachine.STATUS_STOPPED) {
                 // getOrCreate ignores the supplied config for an existing VM. Refresh
                 // stopped instances so boot parameters also reach installed guests.
-                requireAvfPlatformApi { vm.setConfig(buildConfig(config)) }
+                releaseSharedBoot(vm)
+                releaseStoppedShares(config.instanceId)
+                stagedShares = if (supportsVirtiofs) AvfSharedDirectories.create(appContext.filesDir.canonicalFile, config.sharedFolders) else null
+                requireAvfPlatformApi { vm.setConfig(buildConfig(config, stagedShares)) }
+                val shares = stagedShares
+                if (shares != null) {
+                    // Persist before run: a lost host owner must never make a live export deletable.
+                    shareLeases.record(config.instanceId, config.sharedFolders.map { it.id }, shares.artifact)
+                    sharedBoot.set(SharedBoot(vm, config.instanceId, shares))
+                    stagedShares = null
+                }
                 startedHere = true
                 vm.run()
             }
@@ -106,6 +132,7 @@ class AospAvfPlatformDriver(
             startedNewVm = startedHere
             Result.success(Unit)
         } catch (failure: Throwable) {
+            stagedShares?.let { runCatching { it.close() }.exceptionOrNull()?.let(failure::addSuppressed) }
             pendingSessionConnection.getAndSet(null)?.let { connection ->
                 runCatching { connection.close() }.exceptionOrNull()?.let(failure::addSuppressed)
             }
@@ -116,7 +143,10 @@ class AospAvfPlatformDriver(
                     if (vm.status != VirtualMachine.STATUS_STOPPED) vm.stop()
                     vm.status == VirtualMachine.STATUS_STOPPED
                 }.getOrElse { failure.addSuppressed(it); false }
-                if (stopped && machine === vm) machine = null
+                if (stopped) {
+                    releaseSharedBoot(vm)
+                    if (machine === vm) machine = null
+                }
             }
             if (failure is CancellationException) throw failure
             val reported = describeAvfNetworkFailure(failure)
@@ -127,12 +157,29 @@ class AospAvfPlatformDriver(
 
     override suspend fun stop(mode: StopMode): Result<Unit> = mutex.withLock {
         runCatching {
-            val activeMachine = machine ?: return@runCatching
+            val activeMachine = machine ?: prepared?.let { manager.get(vmName(it)) } ?: return@runCatching
             // AVF stop is immediate. A graceful guest shutdown RPC belongs to LifecycleService.
-            activeMachine.stop()
+            if (activeMachine.status != VirtualMachine.STATUS_STOPPED) activeMachine.stop()
+            check(activeMachine.status == VirtualMachine.STATUS_STOPPED) { "AVF stop could not be verified" }
+            releaseSharedBoot(activeMachine)
+            // Reconnected VMs have a persisted lease but no in-memory SharedBoot owner.
+            prepared?.let { releaseStoppedShares(it.instanceId) }
             pendingSessionConnection.getAndSet(null)?.close()
             machine = null
+            activeBoot.set(null)
             startedNewVm = false
+        }
+    }
+
+    override suspend fun verifyStoppedInstance(instanceId: String): Result<Unit> = mutex.withLock {
+        runCatching {
+            require(VM_NAME.matches(instanceId))
+            val persisted = manager.get("droid-$instanceId")
+            check(persisted == null || persisted.status == VirtualMachine.STATUS_STOPPED) {
+                "공유 디렉토리 데이터를 삭제하기 전에 AVF 실행환경을 중지하세요. 연결 해제만으로 기존 마운트는 사라지지 않습니다."
+            }
+            persisted?.let(::releaseSharedBoot)
+            releaseStoppedShares(instanceId)
         }
     }
 
@@ -146,6 +193,7 @@ class AospAvfPlatformDriver(
                 check(persisted.status == VirtualMachine.STATUS_STOPPED) { "AVF instance must be stopped before storage deletion" }
                 manager.delete(name)
             }
+            releaseStoppedShares(dev.terminal.runtime.session.SessionStorage.avfInstanceId(appContext.filesDir, instanceId))
             prepared = null
         }
     }
@@ -223,7 +271,7 @@ class AospAvfPlatformDriver(
         }
     }
 
-    private fun buildConfig(config: RuntimeConfig): VirtualMachineConfig = requireAvfPlatformApi {
+    private fun buildConfig(config: RuntimeConfig, shares: AvfSharedDirectories? = null): VirtualMachineConfig = requireAvfPlatformApi {
         val image = DebianImageLayout(Paths.get(config.imageDirectory))
         val customImage = VirtualMachineCustomImageConfig.Builder()
             .setName(vmName(config))
@@ -240,7 +288,16 @@ class AospAvfPlatformDriver(
             .addDisk(VirtualMachineCustomImageConfig.Disk.RODisk(image.systemImage.toString()))
             .addDisk(VirtualMachineCustomImageConfig.Disk.RWDisk(image.homeImage.toString()))
             .addDisk(VirtualMachineCustomImageConfig.Disk.RODisk(image.configImage.toString()))
-            .build()
+        if (shares != null) {
+            customImage.addParam(AvfSharedDirectories.BOOT_PARAM)
+            shares.exports.forEach { export ->
+                customImage.addSharedPath(VirtualMachineCustomImageConfig.SharedPath(
+                    export.directory.path, android.os.Process.myUid(), android.system.Os.getgid(),
+                    AvfSharedDirectories.GUEST_UID, AvfSharedDirectories.GUEST_GID, 7,
+                    export.tag, export.socket.name, true, export.socket.path,
+                ))
+            }
+        }
 
         VirtualMachineConfig.Builder(appContext)
             .setProtectedVm(config.protectedVm)
@@ -252,14 +309,14 @@ class AospAvfPlatformDriver(
                     VirtualMachineConfig.CPU_TOPOLOGY_MATCH_HOST
                 },
             )
-            .setCustomImageConfig(customImage)
+            .setCustomImageConfig(customImage.build())
             .setDebugLevel(VirtualMachineConfig.DEBUG_LEVEL_NONE)
             .setVmOutputCaptured(false)
             .setConnectVmConsole(false)
             .build()
     }
 
-    private fun callback(boot: AvfGuestBoot): VirtualMachineCallback {
+    private fun callback(boot: AvfGuestBoot, token: Any, instanceId: String): VirtualMachineCallback {
         val failureReported = AtomicBoolean(false)
         return object : VirtualMachineCallback {
             override fun onPayloadStarted(vm: VirtualMachine) = Unit
@@ -267,7 +324,8 @@ class AospAvfPlatformDriver(
             override fun onPayloadReady(vm: VirtualMachine) = Unit
 
             override fun onPayloadFinished(vm: VirtualMachine, exitCode: Int) {
-                markMachineStopped(vm)
+                if (activeBoot.get() !== token) return
+                markMachineStopped(vm, instanceId)
                 if (exitCode == 0) {
                     boot.fail(IllegalStateException("Guest exited during boot"))
                     events.tryEmit(AvfPlatformEvent.Stopped)
@@ -280,7 +338,8 @@ class AospAvfPlatformDriver(
             }
 
             override fun onError(vm: VirtualMachine, errorCode: Int, message: String) {
-                markMachineStopped(vm)
+                if (activeBoot.get() !== token) return
+                markMachineStopped(vm, instanceId)
                 val failure = IllegalStateException("AVF error $errorCode: $message")
                 boot.fail(failure)
                 failureReported.set(true)
@@ -288,18 +347,35 @@ class AospAvfPlatformDriver(
             }
 
             override fun onStopped(vm: VirtualMachine, reason: Int) {
-                markMachineStopped(vm)
+                if (activeBoot.get() !== token) return
+                markMachineStopped(vm, instanceId)
                 boot.fail(IllegalStateException("AVF stopped (reason $reason)"))
                 if (!failureReported.get()) events.tryEmit(AvfPlatformEvent.Stopped)
             }
         }
     }
 
-    private fun markMachineStopped(stoppedMachine: VirtualMachine) {
+    private fun markMachineStopped(stoppedMachine: VirtualMachine, instanceId: String) {
+        if (runCatching { stoppedMachine.status == VirtualMachine.STATUS_STOPPED }.getOrDefault(false)) {
+            releaseSharedBoot(stoppedMachine)
+            runCatching { releaseStoppedShares(instanceId) }
+                .onFailure { Log.w(TAG, "persisted virtiofs artifact cleanup failed", it) }
+        }
         if (machine === stoppedMachine) {
             machine = null
             pendingSessionConnection.getAndSet(null)?.let { runCatching { it.close() } }
         }
+    }
+
+    private fun releaseSharedBoot(vm: VirtualMachine) {
+        val owned = sharedBoot.get() ?: return
+        if (owned.vm !== vm || !sharedBoot.compareAndSet(owned, null)) return
+        runCatching { releaseStoppedShares(owned.instanceId); owned.directories.close() }
+            .onFailure { Log.w(TAG, "virtiofs artifact cleanup failed", it) }
+    }
+
+    private fun releaseStoppedShares(instanceId: String) {
+        shareLeases.release(instanceId)?.let { AvfSharedDirectories.cleanup(appContext.filesDir.canonicalFile, it) }
     }
 
     private fun vmName(config: RuntimeConfig): String = "droid-${config.instanceId}"

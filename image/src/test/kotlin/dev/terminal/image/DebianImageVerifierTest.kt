@@ -10,6 +10,18 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class DebianImageVerifierTest {
+    @Test fun virtiofsIsAnExplicitVerifiedImageFeatureAndLegacyImagesRemainUsable() {
+        val root = Files.createTempDirectory("debian-virtiofs")
+        try {
+            writeVerifiedImage(root)
+            assertEquals(0, (DebianImageVerifier.verify(root) as ImageVerification.Ready).manifest.virtiofsVersion)
+            Files.writeString(root.resolve("manifest.properties"), "\nvirtiofsVersion=1\n", java.nio.file.StandardOpenOption.APPEND)
+            assertEquals(1, (DebianImageVerifier.verify(root) as ImageVerification.Ready).manifest.virtiofsVersion)
+            Files.writeString(root.resolve("manifest.properties"), "\nvirtiofsVersion=2\n", java.nio.file.StandardOpenOption.APPEND)
+            assertTrue(DebianImageVerifier.verify(root) is ImageVerification.Invalid)
+            assertFalse(DebianImageVerifier.hasInstalledImage(root))
+        } finally { root.toFile().deleteRecursively() }
+    }
     @Test fun aptInitializationIsRecordedBeforeActivationAndDoesNotInvalidateWritableState() {
         val root = Files.createTempDirectory("debian-apt-init")
         try {

@@ -11,6 +11,21 @@ import java.util.UUID
 
 class SharedFoldersTest {
     @get:Rule val temporary = TemporaryFolder()
+    @Test fun avfBootSnapshotExportsOnlyExplicitConnectionsAndKeepsUuidPathsOnRename() {
+        var saved: String? = null
+        val registry = SharedFolderRegistry(temporary.newFolder(), { saved }, { saved = it })
+        val selected = EnvironmentId(UUID.randomUUID().toString())
+        val other = EnvironmentId(UUID.randomUUID().toString())
+        val folder = SharedFolder(UUID.randomUUID().toString(), "Code", setOf(selected))
+        registry.save(folder)
+        registry.save(SharedFolder(UUID.randomUUID().toString(), "Private", setOf(other)))
+        val before = registry.exports(selected).single()
+        registry.save(folder.copy(name = "Renamed", environments = emptySet()))
+        assertTrue(registry.exports(selected).isEmpty())
+        assertEquals(folder.name, before.name)
+        assertEquals(registry.directory(folder).path, before.directory)
+        assertEquals(1, registry.exports(other).size)
+    }
     @Test fun removingAnEnvironmentOnlyDisconnectsItsOwnReferencesAndRetainsData() {
         var saved: String? = null
         val registry = SharedFolderRegistry(temporary.newFolder(), { saved }, { saved = it })

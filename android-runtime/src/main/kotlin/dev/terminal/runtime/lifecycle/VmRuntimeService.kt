@@ -221,6 +221,10 @@ class VmRuntimeService : Service() {
     }
     private val workspaceLaunches = ConcurrentHashMap<String, String>()
     private val sharedFolderManagement = Any()
+    private val avfSharedDirectoryVerifier by lazy {
+        ((applicationContext as? RuntimeBackendProvider)?.createRuntimeBackend(applicationContext)
+            as? dev.terminal.runtime.avf.AvfBackend) ?: error("Cannot verify AVF shared directory users")
+    }
     private val sharedFolders by lazy {
         val preferences = getSharedPreferences("shared-folders", MODE_PRIVATE)
         dev.terminal.runtime.storage.SharedFolderRegistry(filesDir.canonicalFile, { preferences.getString("folders", null) },
@@ -320,6 +324,14 @@ class VmRuntimeService : Service() {
                 kotlinx.coroutines.runBlocking(Dispatchers.IO) { preparationLocks.withAll {
                     val registry = ensureSessionRegistry() ?: error("Cannot verify sessions")
                     check(registry.verifiedWorkspaceSessions(workspaces.snapshot().memberships.keys)?.isEmpty() == true) { "Close all sessions before deleting Shared Directory data" }
+                    val leases = dev.terminal.runtime.storage.AvfSharedDirectoryLeases(filesDir)
+                    val owners = leases.owners(folderId)
+                    if (owners.isNotEmpty()) {
+                        val avf = (backend as? dev.terminal.runtime.avf.AvfBackend)
+                            ?: environmentBackends.values.filterIsInstance<dev.terminal.runtime.avf.AvfBackend>().firstOrNull()
+                            ?: avfSharedDirectoryVerifier
+                        owners.forEach { avf.verifyStoppedInstance(it).getOrThrow() }
+                    }
                     dev.terminal.runtime.backup.EnvironmentWriterProbe(android.os.Process.myUid(), android.os.Process.myPid())
                         .verify(listOf(sharedFolders.directory(sharedFolders.requireFolder(folderId)).toPath()))
                     sharedFolders.delete(folderId)
@@ -1223,6 +1235,7 @@ class VmRuntimeService : Service() {
             protectedVm = preferences.getBoolean(KEY_AVF_PROTECTED, false),
             enableNetwork = preferences.getBoolean(KEY_AVF_NETWORK, true),
             sharedDirectory = sharedDirectory.absolutePath,
+            sharedFolders = sharedFolders.exports(environmentForStorage(SessionRuntime.AVF, storageId).id),
         )
         backend.prepare(config).getOrThrow()
         backend.start().getOrThrow()
@@ -1785,6 +1798,7 @@ class VmRuntimeService : Service() {
                 protectedVm = preferences.getBoolean(KEY_AVF_PROTECTED, false),
                 enableNetwork = preferences.getBoolean(KEY_AVF_NETWORK, true),
                 sharedDirectory = if (spec.runtime == SessionRuntime.AVF) sharedDirectories.provision(spec.storageId).getOrThrow().path else null,
+                sharedFolders = if (spec.runtime == SessionRuntime.AVF) sharedFolders.exports(executionEnvironment.id) else emptyList(),
             )).getOrThrow()
             owner.start().getOrThrow()
             startedEnvironmentBackends.add(key)

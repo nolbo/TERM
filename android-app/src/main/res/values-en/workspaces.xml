@@ -39,7 +39,7 @@
     <string name="workspace_delete">Delete workspace</string>
     <string name="workspace_delete_summary">Sessions become unassigned. Session processes, execution environments and files are preserved.</string>
     <string name="shared_folders_title">Shared Directory</string>
-    <string name="shared_folders_summary">Manage shared directories stored independently of execution environments. Native uses host paths; Userspace Linux uses /mnt/term-shares/&lt;name&gt;. Changes apply to new sessions.</string>
+    <string name="shared_folders_summary">Manage shared directories stored independently of execution environments. Native uses host paths; Userspace Linux and supported AVF images use /mnt/term-shares/&lt;name&gt;. Changes apply to new local sessions or the next AVF VM boot.</string>
     <string name="shared_folders_security">Connection settings provide convenience, not Android UID isolation. Native and Userspace Linux run under the same app UID.</string>
     <string name="shared_folder_create">Create shared directory</string>
     <string name="shared_folder_manage">Name and connected environments</string>
@@ -48,7 +48,8 @@
     <string name="shared_folder_name_rules">Use 1–64 ASCII letters, digits, underscores or hyphens, starting with a letter.</string>
     <string name="shared_folder_delete">Delete shared directory and data</string>
     <string name="shared_folder_delete_summary">Files in this shared directory will be deleted. This is separate from deleting an environment or workspace. Finish all sessions and file operations first.</string>
-    <string name="shared_avf_copy_summary">Transfers copies, without live sharing. Requires a running VM and the new file-transfer guest agent. Older images may lack support. Virtiofs mounts are unavailable.</string>
+    <string name="shared_avf_copy_summary">File transfers create separate copies inside the VM alongside direct sharing. Requires a running VM and an image with file-transfer support. Older images with that endpoint can still transfer copies.</string>
+    <string name="shared_avf_mount_summary">Direct sharing path. Requires a supported image and compatible device; applies on the next VM boot. Renaming or disconnecting does not change running mounts, so stop and start the VM to apply changes. Older unsupported images use file copies.</string>
     <string name="shared_to_vm">Copy shared-directory file into AVF</string>
     <string name="shared_from_vm">Copy AVF file into shared directory</string>
     <string name="shared_file_copy">Transfer a file copy</string>

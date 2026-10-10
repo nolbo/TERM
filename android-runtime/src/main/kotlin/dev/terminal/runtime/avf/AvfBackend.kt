@@ -85,6 +85,7 @@ class AvfBackend(
 
     /** Provider must verify a stopped persistent instance, including after host process restart. */
     suspend fun deleteStorage(instanceId: String): Result<Unit> = mutex.withLock { driver.deleteStorage(instanceId) }
+    suspend fun verifyStoppedInstance(instanceId: String): Result<Unit> = driver.verifyStoppedInstance(instanceId)
 
     override fun observeState(): StateFlow<RuntimeState> = state.asStateFlow()
 
@@ -101,6 +102,8 @@ class AvfBackend(
 
 /** Implemented in the AOSP/system-SDK deployment module in the next spike. */
 interface AvfPlatformDriver {
+    suspend fun verifyStoppedInstance(instanceId: String): Result<Unit> = Result.failure(
+        UnsupportedOperationException("AVF provider cannot verify persistent VM state"))
     suspend fun openGuestFileTransfer(): Result<GuestByteStream> = Result.failure(UnsupportedOperationException("Guest file transfer is unavailable"))
     suspend fun openGuestTcpForward(address: String, port: Int): Result<GuestByteStream> = Result.failure(
         UnsupportedOperationException("Guest TCP proxy is unavailable"))

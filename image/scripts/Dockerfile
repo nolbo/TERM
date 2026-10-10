@@ -22,6 +22,9 @@ COPY image/scripts/install-droid-guest.sh /payload/install-droid-guest.sh
 COPY image/scripts/configure-avf-guest.sh /payload/configure-avf-guest.sh
 COPY image/scripts/configure-avf-user.sh /payload/configure-avf-user.sh
 COPY image/scripts/configure-avf-network.sh /payload/configure-avf-network.sh
+COPY image/scripts/configure-avf-shares.sh /payload/configure-avf-shares.sh
+COPY image/scripts/mount-shared-directories.sh /payload/mount-shared-directories.sh
+COPY image/scripts/term-shares.service /payload/term-shares.service
 COPY image/scripts/initialize-avf-apt.sh /payload/initialize-avf-apt.sh
 COPY image/scripts/clean-avf-apt.sh /payload/clean-avf-apt.sh
 COPY image/scripts/term-virtio.network /payload/term-virtio.network

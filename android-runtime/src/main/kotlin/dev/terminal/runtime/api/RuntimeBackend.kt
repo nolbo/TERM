@@ -47,9 +47,13 @@ data class RuntimeConfig(
     val protectedVm: Boolean = false,
     /** Enables the AVF guest network device; host port forwarding remains a later layer. */
     val enableNetwork: Boolean = true,
-    /** Host-owned virtiofs export directory; guest mapping is product-driver controlled. */
+    /** Legacy per-VM host path. Never automatically exported to the guest. */
     val sharedDirectory: String? = null,
+    /** Explicit host-selected folder snapshot; never the app-private or shared-folder parent. */
+    val sharedFolders: List<SharedDirectoryExport> = emptyList(),
 )
+
+data class SharedDirectoryExport(val id: String, val name: String, val directory: String)
 
 enum class StopMode { GRACEFUL, FORCE }
 

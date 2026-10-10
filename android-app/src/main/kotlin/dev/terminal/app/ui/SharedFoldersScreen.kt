@@ -162,6 +162,13 @@ internal fun SharedFolderEditor(encoded: String, snapshot: SharedFoldersSnapshot
                             }
                         }
                         EnvironmentRuntime.AVF -> {
+                            Column(Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Text(environment.name, style = MaterialTheme.typography.bodyLarge)
+                                SelectionContainer { Text(persisted.guestPath, style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                                Text(stringResource(R.string.shared_avf_mount_summary), style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
                             if (onTransfer != null) listOf("TO_VM" to R.string.shared_to_vm, "FROM_VM" to R.string.shared_from_vm).forEach { (mode, label) ->
                                 SettingsNavigationRow(stringResource(label), environment.name, enabled = !saving && !dirty,
                                     onClick = { onTransfer(persisted, environment, mode) })

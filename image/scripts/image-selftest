@@ -25,6 +25,13 @@ for service in systemd-networkd systemd-resolved; do
   systemctl --root=/ is-enabled --quiet "$service.service"
 done
 echo TERM_AVF_NETWORK_CONFIG_OK
+modprobe virtiofs
+test "$(id -u droid)" -eq 1000
+test -x /usr/local/lib/droid/mount-shared-directories.sh
+systemctl --root=/ is-enabled --quiet term-shares.service
+grep -qx 'Requires=term-shares.service' /etc/systemd/system/droid-sessiond.service.d/shares.conf
+/usr/local/lib/droid/mount-shared-directories.sh
+echo TERM_AVF_VIRTIOFS_CONFIG_OK
 if [ -d /.droid/lower/var/lib/apt/lists ]; then
   if find /.droid/lower/var/lib/apt/lists -type f ! -name '*_Release' ! -name '*_Release.gpg' ! -name '*_InRelease' ! -name lock -print -quit | grep -q .; then
     echo 'Sealed image contains stale APT indexes' >&2

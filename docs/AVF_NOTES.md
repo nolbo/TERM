@@ -58,6 +58,12 @@ At the pinned AOSP ABI revision, [VirtualizationService ignores the requested TA
 
 Concurrent internet-connected VMs on such a product require platform TAP/bridge and tethering support. Existing VMs and requested network settings remain unchanged when creation fails. The current driver cannot supply distinct TAP names through the custom-image API; an APK-side VM rename or additional VM permission grant does not change the fixed-suffix service implementation. Vsock session access remains separate from the TAP device, but an offline workaround does not satisfy the requirement that both VMs have internet. Profiles sharing one storage use the same VM and do not request another TAP just to create another PTY. Successful multi-VM networking still requires validation on the target product; an unsupported emulator cannot establish it.
 
+## Live shared directories
+
+New producer manifests declare `virtiofsVersion=1`. The image supplies `term-shares.service`, a matching virtiofs kernel/module and a validated tag/name-table mounter. The driver adds independent app-domain `SharedPath` exports for connected shared-folder UUID directories plus a boot-local index, using the pinned AOSP ten-argument constructor and `addSharedPath`. The index's guest mount is read-only; user folders appear at `/mnt/term-shares/<name>` with `nodev,nosuid`. UUID tags stay below the 36-byte wire limit, so 64-character folder names remain supported. Boot configuration never exports legacy VM host paths, parent storage directories or Android all-files storage.
+
+Live sharing requires an authorized compatible custom-image API, app-domain platform crosvm execution and a non-protected VM. Unsupported APIs/SELinux policies remain errors; an AVF feature flag or the two VM permission grants alone do not establish working virtiofs. Old manifests omit the feature and retain file copies; unknown versions are rejected. Sharing snapshots change only after VM stop/start. Host-only leases survive service death and connection edits and require platform-proven VM idleness before folder data deletion. The source change does not rebuild, replace or publish existing images. Actual mount visibility, bidirectional writes, multi-VM isolation and server teardown need validation on a matching privileged target.
+
 ## Host vsock binding
 
 The AOSP `VirtualMachine` system API exposes `connectVsock(port)` as a

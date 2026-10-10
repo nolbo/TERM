@@ -47,8 +47,8 @@ the AOSP driver opens the requested non-privileged port and wraps its descriptor
 as `GuestByteStream`; `LocalhostPortForwarder` binds the corresponding host
 listener exclusively to `127.0.0.1`.
 
-The public runtime provisions one host-owned directory under
-`files/shared-vms/<vm-id>` for a future virtiofs export. It is deliberately not
-mounted by this first driver until the product supplies the matching AOSP
-virtiofs service/socket configuration and guest fstab entry. This prevents an
-incorrect claim that a regular directory is already visible in the guest.
+## Connected virtiofs directories
+
+Verified images declaring `virtiofsVersion=1` receive the Environment's explicitly connected shared-folder snapshot as independent app-domain `VirtualMachineCustomImageConfig.SharedPath` exports. The driver maps the app owner to guest UID/GID 1000 and supplies unique boot-local Unix sockets. It exports neither `files/shared-vms/<vm-id>`, the shared-folder parent, app-private storage nor `/sdcard`. A read-only guest index maps bounded UUID-based wire tags to validated names; the image's `term-shares.service` mounts the connected directories at `/mnt/term-shares/<name>` before sessiond starts. Direct sharing has ordinary filesystem behavior, separate from TFT1 copies and their limits.
+
+Only stopped VMs receive new configurations. Reconnecting a running VM preserves its current mounts and table; rename/disconnection requires VM stop/start, including revocation. Host-only persistent share leases protect data deletion after connection edits and owner death. Verified VM stop or storage deletion releases them; folder deletion queries persisted VM status even if no backend is attached. AOSP owns the virtiofs processes and vhost-user transport; matching `SharedPath`/`addSharedPath` APIs, custom-image permission/policy and platform crosvm execution must be available. API or SELinux denial is a platform error, never a silent successful mount. Protected VMs reject live exports. Older images skip the sharing ABI and retain explicit file transfers. Existing images and the approved catalog are not upgraded automatically.

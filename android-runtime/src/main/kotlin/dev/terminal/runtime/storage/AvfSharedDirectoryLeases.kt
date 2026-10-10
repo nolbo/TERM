@@ -1,0 +1,86 @@
+package dev.terminal.runtime.storage
+
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
+import java.nio.file.Files
+import java.nio.file.LinkOption.NOFOLLOW_LINKS
+import java.nio.file.StandardCopyOption.ATOMIC_MOVE
+import java.nio.file.StandardCopyOption.REPLACE_EXISTING
+import java.nio.file.StandardOpenOption.CREATE_NEW
+import java.security.MessageDigest
+import java.util.UUID
+
+/** Host-only boot snapshots survive owner death and connection edits. Guests never see this directory. */
+class AvfSharedDirectoryLeases(files: File) {
+    private val files = files.canonicalFile
+    fun record(instanceId: String, folderIds: List<String>, artifact: String? = null) = synchronized(LOCK) {
+        validateInstance(instanceId)
+        require(folderIds.size in 1..128 && folderIds.distinct().size == folderIds.size)
+        folderIds.forEach { require(UUID.fromString(it).toString() == it) }
+        require(artifact == null || ARTIFACT.matches(artifact))
+        val root = root(create = true)!!
+        val target = File(root, key(instanceId))
+        require(!Files.isSymbolicLink(target.toPath())) { "Unsafe AVF share lease" }
+        val temporary = File(root, ".${UUID.randomUUID()}")
+        try {
+            Files.write(temporary.toPath(), JSONObject().put("instanceId", instanceId)
+                .put("folders", JSONArray(folderIds)).put("artifact", artifact).toString().toByteArray(), CREATE_NEW)
+            Files.move(temporary.toPath(), target.toPath(), ATOMIC_MOVE, REPLACE_EXISTING)
+        } finally { Files.deleteIfExists(temporary.toPath()) }
+    }
+
+    fun owners(folderId: String): List<String> = synchronized(LOCK) {
+        require(UUID.fromString(folderId).toString() == folderId)
+        val root = root(create = false) ?: return@synchronized emptyList()
+        val entries = checkNotNull(root.listFiles()) { "Cannot read AVF share leases" }
+        require(entries.size <= 2048) { "AVF share lease limit exceeded" }
+        entries.filter { !it.name.startsWith('.') }.mapNotNull { file ->
+            require(Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS) && Files.size(file.toPath()) <= 16 * 1024) {
+                "Unsafe AVF share lease"
+            }
+            val json = JSONObject(file.readText())
+            val instanceId = json.getString("instanceId")
+            validateInstance(instanceId)
+            require(file.name == key(instanceId))
+            val ids = json.getJSONArray("folders")
+            require(ids.length() in 1..128)
+            val folders = List(ids.length()) { ids.getString(it).also { id -> require(UUID.fromString(id).toString() == id) } }
+            instanceId.takeIf { folderId in folders }
+        }
+    }
+
+    /** Only call after the platform proves this VM stopped or absent. */
+    fun release(instanceId: String): String? = synchronized(LOCK) {
+        validateInstance(instanceId)
+        val root = root(create = false) ?: return@synchronized null
+        val file = File(root, key(instanceId))
+        if (Files.notExists(file.toPath(), NOFOLLOW_LINKS)) return@synchronized null
+        require(Files.isRegularFile(file.toPath(), NOFOLLOW_LINKS) && Files.size(file.toPath()) <= 16 * 1024)
+        val json = JSONObject(file.readText())
+        require(json.getString("instanceId") == instanceId)
+        val artifact = if (json.has("artifact")) json.getString("artifact").also { require(ARTIFACT.matches(it)) } else null
+        Files.delete(file.toPath())
+        artifact
+    }
+
+    private fun root(create: Boolean): File? {
+        val root = File(files, "avf-share-leases")
+        if (Files.notExists(root.toPath(), NOFOLLOW_LINKS)) {
+            if (!create) return null
+            Files.createDirectory(root.toPath())
+        }
+        require(Files.isDirectory(root.toPath(), NOFOLLOW_LINKS) && root.canonicalFile == root.absoluteFile) {
+            "Unsafe AVF share lease root"
+        }
+        return root
+    }
+
+    private fun key(instanceId: String) = MessageDigest.getInstance("SHA-256").digest(instanceId.toByteArray())
+        .joinToString("") { "%02x".format(it) } + ".json"
+    private fun validateInstance(value: String) = require(Regex("[A-Za-z0-9._-]{1,64}").matches(value))
+    private companion object {
+        val LOCK = Any()
+        val ARTIFACT = Regex("v-[A-Za-z0-9_-]{1,64}")
+    }
+}

@@ -31,11 +31,14 @@ done
 test -n "$kernel"
 depmod -a "$kernel"
 modprobe --set-version "$kernel" --show-depends overlay >/dev/null
+modprobe --set-version "$kernel" --show-depends virtiofs >/dev/null
 rm -rf "$ramdisk"
 bash /tmp/term-avf/install-droid-guest.sh / /tmp/term-avf/bin
 install -m 0755 /tmp/term-avf/image-selftest /usr/local/lib/droid/image-selftest
 install -m 0755 /tmp/term-avf/image-user-selftest /usr/local/lib/droid/image-user-selftest
 sh /tmp/term-avf/configure-avf-user.sh /tmp/term-avf/droid.sudoers
+test "$(id -u droid)" -eq 1000
+sh /tmp/term-avf/configure-avf-shares.sh / /tmp/term-avf
 sh /tmp/term-avf/configure-avf-network.sh / /tmp/term-avf/term-virtio.network
 install -m 0755 /tmp/term-avf/initialize-avf-apt.sh /usr/local/lib/droid/initialize-avf-apt.sh
 command -v timeout flock >/dev/null
@@ -48,11 +51,11 @@ printf '[Service]\nGroup=droid\n' > /etc/systemd/system/droid-agent.service.d/ac
 # All package and home writes survive reboot while the distributed base stays RO.
 printf 'overlay / overlay defaults 0 0\n/dev/vdc /etc/droid-config ext4 ro,nodev,nosuid,noexec 0 0\n' > /etc/fstab
 install -D -m 0755 /tmp/term-avf/droid-overlay /etc/initramfs-tools/scripts/local-bottom/droid-overlay
-for module in overlay virtio_blk virtio_pci virtio_mmio ext4; do
+for module in overlay virtio_blk virtio_pci virtio_mmio ext4 virtiofs; do
   printf '%s\n' "$module" >> /etc/initramfs-tools/modules
 done
 mkinitramfs -c gzip -o /boot/term-initrd.img "$kernel"
-for service in droid-sessiond droid-agent droid-port-agent droid-apt-init droid-file-transfer; do
+for service in droid-sessiond droid-agent droid-port-agent droid-apt-init droid-file-transfer term-shares; do
   systemctl enable "$service.service"
   systemd-analyze verify "/etc/systemd/system/$service.service"
 done

@@ -100,6 +100,21 @@ class CatalogVerificationTests(unittest.TestCase):
                     with self.assertRaisesRegex(ValueError, 'APT initialization version'):
                         verifier.manifest(data, approved)
 
+    def test_legacy_and_virtiofs_manifest_versions_are_verified(self):
+        current = (self.root / 'manifest.properties').read_bytes()
+        for version in [None, b'1', b'2', b'0', b'invalid']:
+            with self.subTest(version=version):
+                data = current.replace(b'virtiofsVersion=1\n',
+                                       b'' if version is None else b'virtiofsVersion=' + version + b'\n')
+                approved = {'manifestSha256': verifier.digest(data)}
+                if version in (None, b'1'):
+                    verifier.manifest(data, approved)
+                else:
+                    with self.assertRaisesRegex(ValueError, 'virtiofs version'):
+                        verifier.manifest(data, approved)
+        legacy = current.replace(b'virtiofsVersion=1\n', b'').replace(b'aptInitializationVersion=1\n', b'')
+        verifier.manifest(legacy, {'manifestSha256': verifier.digest(legacy)})
+
     def test_private_mutable_or_injected_catalogs_are_rejected(self):
         original = (self.root / 'catalog.properties').read_bytes()
         invalid = [
