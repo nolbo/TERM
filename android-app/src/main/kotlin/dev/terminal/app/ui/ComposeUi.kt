@@ -210,6 +210,7 @@ fun SettingsPageScaffold(
     onBack: () -> Unit,
     floatingActionButton: @Composable () -> Unit = {},
     floatingActionButtonPosition: FabPosition = FabPosition.End,
+    snackbarHostState: SnackbarHostState? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val headerState = rememberTopAppBarState()
@@ -242,6 +243,7 @@ fun SettingsPageScaffold(
                 .nestedScroll(scrollBehavior.nestedScrollConnection),
             floatingActionButton = floatingActionButton,
             floatingActionButtonPosition = floatingActionButtonPosition,
+            snackbarHost = { if (snackbarHostState != null) SnackbarHost(snackbarHostState) },
             // Top space belongs to the two header stages, including the initial status-bar inset.
             contentWindowInsets = systemInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
             topBar = {
@@ -980,20 +982,34 @@ fun CrashScreen(onBack: () -> Unit, report: String, onCopy: () -> Unit, onClose:
     val snackbarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val copiedMessage = stringResource(R.string.copy_complete)
-    AppScaffold(stringResource(R.string.crash_report_title), onBack, snackbarHost) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(stringResource(R.string.crash_report_intro))
-            SelectionContainer(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState())) {
-                Text(report, fontFamily = LocalTerminalMonospaceFontFamily.current)
+    SettingsPageScaffold(
+        title = stringResource(R.string.crash_report_title),
+        onBack = onBack,
+        snackbarHostState = snackbarHost,
+        floatingActionButtonPosition = FabPosition.Center,
+        floatingActionButton = {
+            HorizontalFloatingToolbar(expanded = true) {
+                FloatingToolbarAction(stringResource(R.string.close), R.drawable.ic_material_symbol_close_24,
+                    enabled = true, onClick = onClose)
+                FloatingToolbarAction(stringResource(R.string.copy_error), R.drawable.ic_material_symbol_content_copy_24,
+                    enabled = canCopy, onClick = {
+                        onCopy()
+                        scope.launch { snackbarHost.showSnackbar(copiedMessage) }
+                    })
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onClose, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.close)) }
-                Spacer(Modifier.width(8.dp))
-                Button(onClick = { onCopy(); scope.launch { snackbarHost.showSnackbar(copiedMessage) } }, enabled = canCopy, shapes = ButtonDefaults.shapes()) {
-                    Icon(painterResource(R.drawable.ic_material_symbol_content_copy_24), null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(stringResource(R.string.copy_error))
-                }
+        },
+    ) { padding ->
+        Column(
+            Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState())
+                .padding(start = 16.dp, end = 16.dp, top = 8.dp,
+                    bottom = FloatingToolbarDefaults.ContainerSize + FloatingToolbarDefaults.ScreenOffset * 2),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
+        ) {
+            Text(stringResource(R.string.crash_report_intro), modifier = Modifier.padding(horizontal = 4.dp),
+                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            SelectionContainer(Modifier.fillMaxWidth()) {
+                Text(report, fontFamily = LocalTerminalMonospaceFontFamily.current,
+                    style = MaterialTheme.typography.bodySmall)
             }
         }
     }

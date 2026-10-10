@@ -84,14 +84,14 @@ class DiagnosticsAndReportsUiTest {
                 scenario.recreate()
                 click(waitFor(scroll = true) { it.text?.toString() == first.summary })
                 waitFor { it.text?.toString() == first.text }
-                click(waitFor { it.text?.toString() == context.getString(R.string.copy_error) })
+                click(waitFor { it.isEnabled && it.contentDescription?.toString() == context.getString(R.string.copy_error) })
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 assertEquals(first.text, clipboard.primaryClip?.getItemAt(0)?.text?.toString())
-                click(waitFor { it.text?.toString() == context.getString(R.string.close) })
+                click(waitFor { it.contentDescription?.toString() == context.getString(R.string.close) })
                 click(waitFor(scroll = true) { it.text?.toString() == second.summary })
                 waitFor { it.text?.toString() == second.text }
                 assertNull(find { it.text?.toString() == first.text })
-                click(waitFor { it.text?.toString() == context.getString(R.string.close) })
+                click(waitFor { it.contentDescription?.toString() == context.getString(R.string.close) })
                 assertEquals(first, CrashReportStore.from(context).read(first.id))
                 assertEquals(second, CrashReportStore.from(context).read(second.id))
             }
