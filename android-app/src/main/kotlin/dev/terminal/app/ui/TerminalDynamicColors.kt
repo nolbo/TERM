@@ -30,6 +30,10 @@ internal fun terminalDynamicColors(background: Color): TerminalChromeColors = sy
         // Material's standard surface tones differ from an arbitrary TUI background. Keep the
         // canvas exact and adjust foreground tones in the generated HCT palettes for contrast.
         val container = Color(source.surfaceContainerLow)
+        // A generated surface tone can coincide with the exact TUI canvas. Keep the neutral
+        // hue/chroma, but separate enabled controls from that canvas and pair their own text.
+        // Leave room for rendered color quantization while displaying at least 2:1 contrast.
+        val button = terminalRoleWithContrast(Color(source.surfaceContainerHigh), listOf(background), 2.2f)
         val foreground = terminalRoleForeground(Color(source.onSurface), background)
         val supporting = terminalRoleForeground(Color(source.onSurfaceVariant), background, container)
         val primary = terminalRoleForeground(Color(source.primary), background, container)
@@ -95,14 +99,18 @@ internal fun terminalDynamicColors(background: Color): TerminalChromeColors = sy
             unselectedTabContent = supporting,
             appBarIcon = supporting,
             colorScheme = scheme,
+            buttonContainer = button,
+            onButtonContainer = terminalRoleForeground(Color(source.onSurface), button),
         )
     }
 }
 
 /** Find the nearest readable tone while retaining the role's generated hue and chroma. */
-private fun terminalRoleForeground(color: Color, background: Color, container: Color = background): Color {
-    val backgrounds = listOf(background, container)
-    fun readable(candidate: Color) = backgrounds.all { colorContrast(candidate, it) >= 4.5f }
+private fun terminalRoleForeground(color: Color, background: Color, container: Color = background): Color =
+    terminalRoleWithContrast(color, listOf(background, container), 4.5f)
+
+private fun terminalRoleWithContrast(color: Color, backgrounds: List<Color>, minimumContrast: Float): Color {
+    fun readable(candidate: Color) = backgrounds.all { colorContrast(candidate, it) >= minimumContrast }
     if (readable(color)) return color
     val source = Hct.fromInt(color.toArgb())
     fun atTone(tone: Double) = Color(Hct.from(source.hue, source.chroma, tone).toInt())

@@ -31,6 +31,21 @@ class TerminalDynamicColorsTest {
         assertNotEquals(Color.Black, warm.foreground)
     }
 
+    @Test fun normalControlsRemainDistinctFromLightDarkAndMidtoneCanvases() {
+        val samples = mutableListOf(Color(0xFF301B26), Color(0xFF163025), Color(0xFFF0E0D0))
+        for (r in 0..255 step 85) for (g in 0..255 step 85) for (b in 0..255 step 85)
+            samples += Color(r, g, b)
+        for (gray in 0..255) samples += Color(gray, gray, gray)
+        for (background in samples) {
+            val colors = terminalDynamicColors(background)
+            val surfaceContrast = colorContrast(colors.buttonContainer, background)
+            assertTrue("Button blends into $background: surface contrast $surfaceContrast",
+                surfaceContrast >= 2f)
+            assertTrue("Button label loses contrast on $background",
+                colorContrast(colors.onButtonContainer, colors.buttonContainer) >= 4.5f)
+        }
+    }
+
     @Test fun generatedRolesKeepTheExactTuiBackground() {
         val background = Color(0xFF407840)
         val colors = terminalDynamicColors(background)

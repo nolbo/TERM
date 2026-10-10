@@ -1,5 +1,6 @@
 package dev.terminal.app
 
+import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
@@ -27,6 +28,7 @@ import dev.terminal.app.ui.TerminalToolbar
 import dev.terminal.app.ui.TerminalToolbarKey
 import dev.terminal.app.ui.ToolbarHotkeys
 import dev.terminal.app.ui.ToolbarHistoryTool
+import dev.terminal.app.ui.colorContrast
 import dev.terminal.app.ui.terminalDynamicColors
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
@@ -69,19 +71,19 @@ class TerminalDynamicColorsUiTest {
                 }
             }
             val warm = terminalDynamicColors(background.value)
-            assertButtonColor("CTRL: CTRL", warm.buttonContainer)
-            assertButtonColor("A: a", warm.buttonContainer)
+            assertButtonColor("CTRL: CTRL", warm.buttonContainer, warm.background)
+            assertButtonColor("A: a", warm.buttonContainer, warm.background)
             assertEquals(warm.colorScheme?.primary, toolbarScheme.get().primary)
             assertEquals(TerminalDarkColors, outsideScheme.get())
 
             assertTrue(button("CTRL: CTRL").performAction(AccessibilityNodeInfo.ACTION_CLICK))
-            assertButtonColor("CTRL: CTRL", warm.checkedContainer)
+            assertButtonColor("CTRL: CTRL", warm.checkedContainer, warm.background)
             assertTrue(button("CTRL: CTRL").isChecked)
 
             scenario.onActivity { background.value = Color(0xFF163025) }
             val cool = terminalDynamicColors(Color(0xFF163025))
-            assertButtonColor("A: a", cool.buttonContainer)
-            assertButtonColor("CTRL: CTRL", cool.checkedContainer)
+            assertButtonColor("A: a", cool.buttonContainer, cool.background)
+            assertButtonColor("CTRL: CTRL", cool.checkedContainer, cool.background)
             assertEquals(cool.colorScheme?.primary, toolbarScheme.get().primary)
             assertNotEquals(warm.buttonContainer, cool.buttonContainer)
             assertEquals(TerminalDarkColors, outsideScheme.get())
@@ -119,19 +121,20 @@ class TerminalDynamicColorsUiTest {
                     } }
                 }
             }
-            for ((index, sample) in listOf(Color(0xFF301B26), Color(0xFF163025), Color(0xFFF0E0D0)).withIndex()) {
+            for ((index, sample) in listOf(Color(0xFF301B26), Color(0xFF163025), Color(0xFF3D3D3D),
+                Color(0xFFF0E0D0)).withIndex()) {
                 scenario.onActivity { background.value = sample }
                 val colors = terminalDynamicColors(sample)
-                assertButtonColor(scopeDescription(), colors.buttonContainer)
-                assertButtonColor(scopeMenu, colors.buttonContainer)
+                assertButtonColor(scopeDescription(), colors.buttonContainer, sample)
+                assertButtonColor(scopeMenu, colors.buttonContainer, sample)
                 // Both halves still open the scope menu after changing the TUI palette.
                 assertTrue(button(if (index % 2 == 0) scopeDescription() else scopeMenu)
                     .performAction(AccessibilityNodeInfo.ACTION_CLICK))
                 val title = context.getString(if (index % 2 == 0) R.string.history_scope_output else R.string.history_scope_all)
                 assertTrue(clickableNode { it.text?.toString() == title }.performAction(AccessibilityNodeInfo.ACTION_CLICK))
                 scopeTitle = title
-                assertButtonColor(scopeDescription(), colors.buttonContainer)
-                assertButtonColor(scopeMenu, colors.buttonContainer)
+                assertButtonColor(scopeDescription(), colors.buttonContainer, sample)
+                assertButtonColor(scopeMenu, colors.buttonContainer, sample)
             }
             scenario.onActivity { dynamic.value = false }
             val legacy = TerminalChromeColors(background.value)
@@ -162,25 +165,43 @@ class TerminalDynamicColorsUiTest {
         error("Required dynamic-color control was not visible")
     }
 
-    private fun assertButtonColor(description: String, expected: Color) {
+    private fun assertButtonColor(description: String, expected: Color, background: Color? = null) {
+        fun matches(actual: Int, target: Int) = listOf(0, 8, 16).all { shift ->
+            // GPU color conversion shifts a channel by up to four levels on the device.
+            // The contrast requirement still uses the rendered pixels without a tolerance.
+            abs(((actual shr shift) and 255) - ((target shr shift) and 255)) <= 4
+        }
         val bounds = Rect()
         val target = expected.toArgb()
         val deadline = SystemClock.elapsedRealtime() + 5000
         var actual = 0
+        var canvas = 0
         while (SystemClock.elapsedRealtime() < deadline) {
             button(description).getBoundsInScreen(bounds)
             val screenshot = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
             try {
                 // Sample above the label and away from rounded edges, after color/morph motion.
                 actual = screenshot.getPixel(bounds.centerX(), bounds.top + bounds.height() / 4)
+                canvas = screenshot.getPixel(bounds.centerX(), screenshot.height / 2)
             } finally {
                 screenshot.recycle()
             }
-            if (listOf(0, 8, 16).all { shift ->
-                abs(((actual shr shift) and 255) - ((target shr shift) and 255)) <= 2
-            }) return
+            if (matches(actual, target) && (background == null ||
+                (matches(canvas, background.toArgb()) && colorContrast(Color(actual), Color(canvas)) >= 2f))) return
             SystemClock.sleep(100)
         }
-        assertEquals("Rendered $description container", target, actual)
+        instrumentation.uiAutomation.takeScreenshot()?.let { screenshot ->
+            try {
+                instrumentation.targetContext.cacheDir.resolve("terminal-controls-contrast-failure.png")
+                    .outputStream().use { screenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            } finally {
+                screenshot.recycle()
+            }
+        }
+        assertEquals("Rendered $description container at $bounds, canvas ${canvas.toUInt().toString(16)}", target, actual)
+        if (background != null) {
+            assertTrue("Rendered TUI canvas", matches(canvas, background.toArgb()))
+            assertTrue("Rendered $description blends into its canvas", colorContrast(Color(actual), Color(canvas)) >= 2f)
+        }
     }
 }
