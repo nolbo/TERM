@@ -229,6 +229,10 @@ internal fun ToolbarSessionsTool(
                                     }
                                 }
                             }
+                            ScrollEdgeFade(headerTabScroll.canScrollBackward,
+                                Brush.horizontalGradient(if (rtl) listOf(colors.background.copy(alpha = 0f), colors.background)
+                                    else listOf(colors.background, colors.background.copy(alpha = 0f))),
+                                Modifier.align(Alignment.CenterStart).fillMaxHeight().width(20.dp))
                             ScrollEdgeFade(headerTabScroll.canScrollForward,
                                 Brush.horizontalGradient(if (rtl) listOf(colors.background, colors.background.copy(alpha = 0f))
                                     else listOf(colors.background.copy(alpha = 0f), colors.background)),
