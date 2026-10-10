@@ -2,10 +2,25 @@ package dev.terminal.app.ui
 
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.toArgb
+import com.materialkolor.hct.Hct
+import kotlin.math.abs
 import org.junit.Assert.*
 import org.junit.Test
 
 class TerminalDynamicColorsTest {
+    @Test fun normalControlsStayInTheBackgroundColorFamily() {
+        for (background in listOf(Color(0xFF301B26), Color(0xFF163025), Color(0xFF1E2431),
+            Color(0xFFF0E0D0), Color(0xFF407840))) {
+            val source = Hct.fromInt(background.toArgb())
+            val button = Hct.fromInt(terminalDynamicColors(background).buttonContainer.toArgb())
+            val difference = abs(source.hue - button.hue)
+            assertTrue("Routine controls rotate away from $background: hue ${button.hue} versus ${source.hue}",
+                minOf(difference, 360 - difference) <= 15)
+            assertTrue("Routine controls should use subdued surface colors for $background", button.chroma <= 24)
+        }
+    }
+
     @Test fun coloredBackgroundsGenerateDifferentExpressiveRoles() {
         val warm = terminalDynamicColors(Color(0xFF301B26))
         val cool = terminalDynamicColors(Color(0xFF163025))

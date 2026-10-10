@@ -26,6 +26,7 @@ import dev.terminal.app.ui.TerminalHapticFeedbackProvider
 import dev.terminal.app.ui.TerminalToolbar
 import dev.terminal.app.ui.TerminalToolbarKey
 import dev.terminal.app.ui.ToolbarHotkeys
+import dev.terminal.app.ui.ToolbarHistoryTool
 import dev.terminal.app.ui.terminalDynamicColors
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
@@ -94,10 +95,58 @@ class TerminalDynamicColorsUiTest {
         }
     }
 
-    private fun button(description: String): AccessibilityNodeInfo {
+    @Test fun searchFilterButtonsShareTheSurfacePaletteAndKeepScopeSelection() {
+        val background = mutableStateOf(Color(0xFF301B26))
+        val dynamic = mutableStateOf(true)
+        val context = instrumentation.targetContext
+        val scopeMenu = context.getString(R.string.history_scope_choose)
+        var scopeTitle = context.getString(R.string.history_scope_commands)
+        fun scopeDescription() = context.getString(R.string.history_scope, scopeTitle)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity ->
+                activity.setContent {
+                    DroidTheme { TerminalHapticFeedbackProvider {
+                        val colors = if (dynamic.value) terminalDynamicColors(background.value)
+                            else TerminalChromeColors(background.value)
+                        Column(Modifier.fillMaxSize().background(colors.background)) {
+                            Spacer(Modifier.weight(1f))
+                            TerminalToolbar(ToolbarConfig(tools = listOf(HISTORY_TOOL)),
+                                ToolbarSheetMode.Default, {}, 400.dp, colors,
+                                animateModeChanges = false) { _, active ->
+                                ToolbarHistoryTool(active, onReturnToTerminal = {}, terminal = { null })
+                            }
+                        }
+                    } }
+                }
+            }
+            for ((index, sample) in listOf(Color(0xFF301B26), Color(0xFF163025), Color(0xFFF0E0D0)).withIndex()) {
+                scenario.onActivity { background.value = sample }
+                val colors = terminalDynamicColors(sample)
+                assertButtonColor(scopeDescription(), colors.buttonContainer)
+                assertButtonColor(scopeMenu, colors.buttonContainer)
+                // Both halves still open the scope menu after changing the TUI palette.
+                assertTrue(button(if (index % 2 == 0) scopeDescription() else scopeMenu)
+                    .performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                val title = context.getString(if (index % 2 == 0) R.string.history_scope_output else R.string.history_scope_all)
+                assertTrue(clickableNode { it.text?.toString() == title }.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                scopeTitle = title
+                assertButtonColor(scopeDescription(), colors.buttonContainer)
+                assertButtonColor(scopeMenu, colors.buttonContainer)
+            }
+            scenario.onActivity { dynamic.value = false }
+            val legacy = TerminalChromeColors(background.value)
+            assertButtonColor(scopeDescription(), legacy.buttonContainer)
+            assertButtonColor(scopeMenu, legacy.buttonContainer)
+        }
+    }
+
+    private fun button(description: String): AccessibilityNodeInfo =
+        clickableNode { it.contentDescription?.toString() == description }
+
+    private fun clickableNode(predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo {
         fun find(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
             node ?: return null
-            if (node.contentDescription?.toString() == description && node.isVisibleToUser) return node
+            if (predicate(node) && node.isVisibleToUser) return node
             for (index in 0 until node.childCount) find(node.getChild(index))?.let { return it }
             return null
         }
@@ -110,7 +159,7 @@ class TerminalDynamicColorsUiTest {
             if (node != null) return node
             SystemClock.sleep(100)
         }
-        error("Hotkey $description was not visible")
+        error("Required dynamic-color control was not visible")
     }
 
     private fun assertButtonColor(description: String, expected: Color) {
