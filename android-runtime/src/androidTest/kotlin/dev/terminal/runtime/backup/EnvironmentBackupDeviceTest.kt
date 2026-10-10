@@ -63,6 +63,9 @@ class EnvironmentBackupDeviceTest {
             val original = RootlessDebianLayout(registry.storage.root(environment.storageKey), workspaceRoot = File(registry.storage.root(environment.storageKey), "workspace"))
             layout = original
             original.createHostDirectories()
+            assertFalse("New environments do not automatically create legacy workspace data", original.workspace.exists())
+            assertTrue(original.workspace.mkdir())
+            File(original.workspace, "legacy.txt").writeText("legacy-preserved")
             if (InstrumentationRegistry.getArguments().getString("backupRealRootlessFormat") == "emulated") {
                 File(original.root, ".terminal-data-storage-format").writeText("emulated-hardlinks-1\n")
             }
@@ -104,6 +107,9 @@ class EnvironmentBackupDeviceTest {
                 "roundtrip-password".toCharArray(), "arm64-v8a", true) }
             val fresh = RootlessDebianLayout(registry.storage.root(restored.storageKey), workspaceRoot = File(registry.storage.root(restored.storageKey), "workspace"))
             fresh.createHostDirectories()
+            assertEquals("legacy-preserved", File(fresh.workspace, "legacy.txt").readText())
+            File(fresh.workspace, "legacy.txt").writeText("restored-change")
+            assertEquals("legacy-preserved", File(original.workspace, "legacy.txt").readText())
             val result = shell(fresh, """
                 set -eu
                 test "${'$'}(cat /usr/share/term-backup-fixture/value)" = package-preserved
