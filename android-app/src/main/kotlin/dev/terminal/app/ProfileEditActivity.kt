@@ -152,7 +152,7 @@ class ProfileEditActivity : TerminalActivity() {
                     Text(stringResource(R.string.profile_future_only), modifier = Modifier.padding(horizontal = 4.dp),
                         style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     ProfileSection(R.string.profile_identity) {
-                        ProfileField(R.string.profile_name, name) { name = it; dirty = true }
+                        ProfileField(R.string.profile_name, name, confirmLabel = R.string.confirm) { name = it; dirty = true }
                         dev.terminal.app.ui.ProfileIconSetting(icon, runtime) { icon = it; dirty = true }
                     }
                     ProfileSection(R.string.profile_palette) {
@@ -299,8 +299,8 @@ class ProfileEditActivity : TerminalActivity() {
 }
 
 @Composable private fun ProfileField(label: Int, value: String, singleLine: Boolean = true,
-    hint: Int? = null, change: (String) -> Unit) {
-    dev.terminal.app.ui.SettingsTextRow(label, value, singleLine, hint, onChange = change)
+    hint: Int? = null, confirmLabel: Int = R.string.save, change: (String) -> Unit) {
+    dev.terminal.app.ui.SettingsTextRow(label, value, singleLine, hint, confirmLabel = confirmLabel, onChange = change)
 }
 
 internal fun parseProfileArguments(value: String): List<String> {

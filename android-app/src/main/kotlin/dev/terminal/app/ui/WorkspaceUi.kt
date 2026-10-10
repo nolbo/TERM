@@ -331,7 +331,8 @@ private fun WorkspaceEditor(encoded: String, profiles: List<SessionProfile>, err
         onSave = { onSave(Workspace(original.getString("id"), name.trim(), false, rows, icon)) },
         onDelete = if (newItem) null else { { deleting = true } }) {
         ProfileSection(R.string.workspace_information) {
-            SettingsTextRow(R.string.workspace_name, name, enabled = !saving, valid = ::validWorkspaceName) { name = it }
+            SettingsTextRow(R.string.workspace_name, name, enabled = !saving, valid = ::validWorkspaceName,
+                confirmLabel = R.string.confirm) { name = it }
             WorkspaceIconSetting(icon, enabled = !saving) { icon = it }
         }
         if (original.getBoolean("temporary")) SettingsDescription(stringResource(R.string.workspace_promote))

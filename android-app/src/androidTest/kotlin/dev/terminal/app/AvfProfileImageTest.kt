@@ -156,7 +156,7 @@ class AvfProfileImageTest {
                 await { find { it.isEditable } != null }
                 assertTrue(requireNotNull(find { it.isEditable }).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,
                     Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "$prefix saved") }))
-                click(R.string.save)
+                click(R.string.confirm)
                 scrollTo(R.string.profile_save)
                 click(R.string.profile_save)
                 await { visible(label(R.string.avf_image_install_confirm_title)) }

@@ -115,7 +115,7 @@ class StorageManagerTest {
                 assertTrue(requireNotNull(find { it.isEditable }).performAction(
                     android.view.accessibility.AccessibilityNodeInfo.ACTION_SET_TEXT,
                     android.os.Bundle().apply { putCharSequence(android.view.accessibility.AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, profileName) }))
-                clickContaining(context.getString(R.string.save))
+                clickContaining(context.getString(R.string.confirm))
                 await { find { it.isEditable } == null }
                 await {
                     if (find { it.text?.toString() == context.getString(R.string.profile_storage) && it.parent?.isClickable == true } != null) true

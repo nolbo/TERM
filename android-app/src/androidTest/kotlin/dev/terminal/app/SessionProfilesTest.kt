@@ -65,7 +65,7 @@ class SessionProfilesTest {
                 click(R.string.profile_name); typeName()
                 activity.recreate()
                 await { find { it.isEditable && it.text?.toString() == name } != null }
-                click(R.string.save)
+                click(R.string.confirm)
                 await { find { it.isEditable } == null }
                 assertTrue(store.all().none { it.name == name })
                 activity.recreate()

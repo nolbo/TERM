@@ -96,7 +96,7 @@ class WorkspaceSettingsUiTest {
     private fun changeName(value: String, labelId: Int = R.string.workspace_name) {
         click(text(label(labelId)))
         input(value)
-        click(text(label(R.string.save)))
+        click(text(label(if (labelId == R.string.workspace_name) R.string.confirm else R.string.save)))
         await("Field dialog closes before the next page action") {
             find { it.className?.toString() == "android.widget.EditText" } == null
         }
