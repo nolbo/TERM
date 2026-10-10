@@ -1,0 +1,93 @@
+
+name: Discord Release Notification
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send Discord notification
+        env:
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ vars.DISCORD_CHANNEL_ID }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+
+          token = os.environ["DISCORD_BOT_TOKEN"]
+          channel_id = os.environ["DISCORD_CHANNEL_ID"]
+
+          if not token or not channel_id:
+              raise RuntimeError("Discord configuration is missing")
+
+          with open(os.environ["GITHUB_EVENT_PATH"], encoding="utf-8") as f:
+              event = json.load(f)
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          release = event.get("release")
+
+          if release:
+              name = release.get("name") or release["tag_name"]
+              tag = release["tag_name"]
+              notes = release.get("body") or "릴리즈 노트가 없습니다."
+              url = release["html_url"]
+              prerelease = release.get("prerelease", False)
+          else:
+              name = "[TEST] Discord 연결 테스트"
+              tag = "test"
+              notes = "GitHub Actions에서 보낸 테스트 알림입니다."
+              url = f"https://github.com/{repo}/releases"
+              prerelease = False
+
+          if prerelease:
+              name = f"[Pre-release] {name}"
+
+          payload = {
+              "allowed_mentions": {"parse": []},
+              "embeds": [{
+                  "title": name[:200],
+                  "url": url,
+                  "description": notes[:3500],
+                  "color": 5793266,
+                  "fields": [
+                      {
+                          "name": "Repository",
+                          "value": repo[:120],
+                          "inline": True
+                      },
+                      {
+                          "name": "Version",
+                          "value": tag[:100],
+                          "inline": True
+                      }
+                  ]
+              }]
+          }
+
+          endpoint = (
+              f"https://discord.com/api/v10/"
+              f"channels/{channel_id}/messages"
+          )
+
+          request = urllib.request.Request(
+              endpoint,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Authorization": f"Bot {token}",
+                  "Content-Type": "application/json"
+              },
+              method="POST"
+          )
+
+          with urllib.request.urlopen(request, timeout=20) as response:
+              print(f"Discord notification sent: {response.status}")
+          PY
