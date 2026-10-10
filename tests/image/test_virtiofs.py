@@ -9,7 +9,7 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 class VirtiofsGuestTests(unittest.TestCase):
-    def run_mounts(self, root, table, fail_tag="", cmdline="root=/dev/vda term.virtiofs=1"):
+    def run_mounts(self, root, table, fail_tag="", cmdline="root=/dev/vda term.virtiofs=1", android_storage=False):
         binaries = root / "bin"
         binaries.mkdir()
         helper = """#!/usr/bin/python3
@@ -29,13 +29,43 @@ if tool == 'mount' and sys.argv[-2] == os.environ.get('FAIL_TAG'):
         (index / "mounts").write_text(table)
         (root / "cmdline").write_text(cmdline)
         log = root / "calls"
-        result = subprocess.run(["sh", str(REPO / "image/scripts/mount-shared-directories.sh"),
-                                 str(root / "cmdline"), str(index), str(root / "shares")],
+        script = "mount-android-storage.sh" if android_storage else "mount-shared-directories.sh"
+        arguments = [str(root / "shares")] if android_storage else [str(index), str(root / "shares")]
+        result = subprocess.run(["sh", str(REPO / "image/scripts" / script), str(root / "cmdline"), *arguments],
                                 env={**os.environ, "PATH": str(binaries) + ":" + os.environ["PATH"],
                                      "TMPDIR": str(root), "MOUNT_LOG": str(log), "FAIL_TAG": fail_tag},
                                 capture_output=True, text=True, umask=0o077)
         calls = [json.loads(line) for line in log.read_text().splitlines()] if log.exists() else []
         return result, calls
+
+    def test_primary_android_storage_requires_its_exact_flag_and_has_a_fixed_safe_mount(self):
+        for cmdline, expected in [("root=/dev/vda", False), ("term.virtiofs=1", False),
+                                  ("term.android-storage=10", False), ("root=/dev/vda term.android-storage=1", True)]:
+            with self.subTest(cmdline=cmdline), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                result, calls = self.run_mounts(root, "", cmdline=cmdline, android_storage=True)
+                self.assertEqual(0, result.returncode, result.stderr)
+                if expected:
+                    self.assertEqual([["modprobe", "virtiofs"], ["mount", "-t", "virtiofs", "-o", "nodev,nosuid,noexec",
+                                                              "term-storage", str(root / "shares")]], calls)
+                    self.assertEqual(0o755, (root / "shares").stat().st_mode & 0o777)
+                else:
+                    self.assertEqual([], calls)
+
+    def test_android_storage_mount_failure_or_symlink_blocks_guest_start_without_following_data(self):
+        for symlink in [False, True]:
+            with self.subTest(symlink=symlink), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                outside = root / "outside"
+                outside.mkdir()
+                (outside / "keep").write_text("original")
+                if symlink:
+                    (root / "shares").symlink_to(outside, target_is_directory=True)
+                result, calls = self.run_mounts(root, "", cmdline="term.android-storage=1",
+                                                fail_tag="term-storage", android_storage=True)
+                self.assertNotEqual(0, result.returncode)
+                self.assertEqual("original", (outside / "keep").read_text())
+                self.assertFalse(symlink and any(call[0] == "mount" for call in calls))
 
     def test_long_names_mount_as_live_filesystems_with_safe_options(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -93,10 +123,12 @@ if tool == 'mount' and sys.argv[-2] == os.environ.get('FAIL_TAG'):
                             str(REPO / "image/scripts")], check=True)
             self.assertEqual("[Service]\nGroup=droid\n", (dropins / "access.conf").read_text())
             self.assertIn("Requires=term-shares.service", (dropins / "shares.conf").read_text())
+            self.assertIn("Requires=term-android-storage.service", (dropins / "android-storage.conf").read_text())
             script = root / "usr/local/lib/droid/mount-shared-directories.sh"
             self.assertEqual(0o755, script.stat().st_mode & 0o777)
             self.assertEqual((REPO / "image/scripts/mount-shared-directories.sh").read_bytes(), script.read_bytes())
             subprocess.run(["systemctl", f"--root={root}", "is-enabled", "--quiet", "term-shares.service"], check=True)
+            subprocess.run(["systemctl", f"--root={root}", "is-enabled", "--quiet", "term-android-storage.service"], check=True)
 
 
 if __name__ == "__main__":

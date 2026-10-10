@@ -73,3 +73,5 @@ Before publishing a usable product, install its signed APK on an AVF-capable pri
 The local image directory picker remains available by design. It is useful for
 offline and development installations, but it performs the same manifest and
 checksum validation before a VM can be started.
+
+New manifests additionally declare optional `androidStorageVersion=1`, which requires `virtiofsVersion=1`. The producer installs `mount-android-storage.sh` and `term-android-storage.service` as another required sessiond prerequisite. Both offline boots require `TERM_AVF_ANDROID_STORAGE_CONFIG_OK` to establish installed configuration and the no-export boot path; this is not a live Android storage I/O pass. Legacy manifests without the new marker remain usable and receive no primary-storage export. Current installed images and the approved catalog are unchanged until an authorized release.

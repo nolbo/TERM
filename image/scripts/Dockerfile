@@ -25,6 +25,8 @@ COPY image/scripts/configure-avf-network.sh /payload/configure-avf-network.sh
 COPY image/scripts/configure-avf-shares.sh /payload/configure-avf-shares.sh
 COPY image/scripts/mount-shared-directories.sh /payload/mount-shared-directories.sh
 COPY image/scripts/term-shares.service /payload/term-shares.service
+COPY image/scripts/mount-android-storage.sh /payload/mount-android-storage.sh
+COPY image/scripts/term-android-storage.service /payload/term-android-storage.service
 COPY image/scripts/initialize-avf-apt.sh /payload/initialize-avf-apt.sh
 COPY image/scripts/clean-avf-apt.sh /payload/clean-avf-apt.sh
 COPY image/scripts/term-virtio.network /payload/term-virtio.network

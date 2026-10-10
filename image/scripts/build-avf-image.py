@@ -61,7 +61,7 @@ def extract_source(archive, destination):
 
 
 def write_release(root, release_id, base_uri, source_url, source_sha):
-    manifest = "formatVersion=1\ndistribution=debian\narchitecture=arm64\naptInitializationVersion=1\nvirtiofsVersion=1\n"
+    manifest = "formatVersion=1\ndistribution=debian\narchitecture=arm64\naptInitializationVersion=1\nvirtiofsVersion=1\nandroidStorageVersion=1\n"
     for key, name in ARTIFACTS.items():
         artifact = root / name
         if artifact.is_symlink() or not artifact.is_file() or not 0 < artifact.stat().st_size <= MAX_BYTES:

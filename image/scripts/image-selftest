@@ -32,6 +32,11 @@ systemctl --root=/ is-enabled --quiet term-shares.service
 grep -qx 'Requires=term-shares.service' /etc/systemd/system/droid-sessiond.service.d/shares.conf
 /usr/local/lib/droid/mount-shared-directories.sh
 echo TERM_AVF_VIRTIOFS_CONFIG_OK
+test -x /usr/local/lib/droid/mount-android-storage.sh
+systemctl --root=/ is-enabled --quiet term-android-storage.service
+grep -qx 'Requires=term-android-storage.service' /etc/systemd/system/droid-sessiond.service.d/android-storage.conf
+/usr/local/lib/droid/mount-android-storage.sh
+echo TERM_AVF_ANDROID_STORAGE_CONFIG_OK
 if [ -d /.droid/lower/var/lib/apt/lists ]; then
   if find /.droid/lower/var/lib/apt/lists -type f ! -name '*_Release' ! -name '*_Release.gpg' ! -name '*_InRelease' ! -name lock -print -quit | grep -q .; then
     echo 'Sealed image contains stale APT indexes' >&2

@@ -15,3 +15,5 @@ echo '5a. 이름 변경·연결 해제와 Activity 재생성은 실행 중 마�
 echo '5b. 별도의 파일 가져오기/내보내기로 SHA-256·원본 보존·경로 탈출·취소를 확인한다. 사본은 /home/droid/term-transfers/<name>/<path>이며 복사의 64 MiB·2분 제한은 직접 공유에 적용되지 않는다. 이전 이미지의 파일 복사와 Native·Userspace Linux 접근이 유지되어야 한다.'
 echo '6. python -m http.server 8000 후 설정 > 진단에서 전달 포트와 127.0.0.1:8000을 확인한다.'
 echo '7. 최근 앱에서 태스크를 제거하고 sleep 600이 선택한 절전 정책에서 유지되는지 확인한다.'
+
+echo '8. androidStorageVersion=1 비보호 AVF 이미지와 기존 공통 모든 파일 접근 권한으로 다음 VM 부팅의 /sdcard 접근을 확인한다. Download에서 Native·Userspace Linux·AVF 양방향 읽기/쓰기, 두 AVF VM 동시 공유와 Android/data 보호 경로 차단을 확인한다. 실행 중 권한 허용은 마운트를 추가하지 않아야 한다. 권한 해제 시 내부저장소 공유 VM만 중지하고 폴더 전용 VM은 유지해야 한다. 열려 있던 파일 접근·부팅 중 해제·호스트 프로세스 종료 직후 해제와 재시작 복구·실패한 중지의 기록 유지도 확인한다. 이전 이미지·보호 VM·권한 거부는 /sdcard를 제공하지 않아야 하며 기존 공유 폴더와 사본 전송은 유지되어야 한다.'

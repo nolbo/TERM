@@ -10,6 +10,22 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class DebianImageVerifierTest {
+    @Test fun androidStorageRequiresItsOwnSupportedMarkerAndVirtiofs() {
+        for (features in listOf("", "virtiofsVersion=1\n", "androidStorageVersion=1\n", "virtiofsVersion=1\nandroidStorageVersion=1\n",
+            "virtiofsVersion=1\nandroidStorageVersion=2\n")) {
+            val root = Files.createTempDirectory("android-storage-feature")
+            try {
+                writeVerifiedImage(root)
+                Files.writeString(root.resolve("manifest.properties"), "\n$features", java.nio.file.StandardOpenOption.APPEND)
+                val verification = DebianImageVerifier.verify(root)
+                if (features.contains("androidStorageVersion") && features != "virtiofsVersion=1\nandroidStorageVersion=1\n") {
+                    assertTrue(verification is ImageVerification.Invalid)
+                    assertFalse(DebianImageVerifier.hasInstalledImage(root))
+                } else assertEquals(if (features.contains("androidStorageVersion")) 1 else 0,
+                    (verification as ImageVerification.Ready).manifest.androidStorageVersion)
+            } finally { root.toFile().deleteRecursively() }
+        }
+    }
     @Test fun virtiofsIsAnExplicitVerifiedImageFeatureAndLegacyImagesRemainUsable() {
         val root = Files.createTempDirectory("debian-virtiofs")
         try {

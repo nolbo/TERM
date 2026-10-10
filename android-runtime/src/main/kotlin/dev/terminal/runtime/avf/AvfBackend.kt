@@ -86,6 +86,11 @@ class AvfBackend(
     /** Provider must verify a stopped persistent instance, including after host process restart. */
     suspend fun deleteStorage(instanceId: String): Result<Unit> = mutex.withLock { driver.deleteStorage(instanceId) }
     suspend fun verifyStoppedInstance(instanceId: String): Result<Unit> = driver.verifyStoppedInstance(instanceId)
+    suspend fun revokeSharedStorage(): Result<Unit> = driver.revokeSharedStorage()
+    /** Called only after a provider proves the recorded instances stopped or absent. */
+    suspend fun confirmSharedStorageRevocation(instances: Set<String>) = mutex.withLock {
+        if (config?.instanceId in instances) state.value = RuntimeState.Stopped
+    }
 
     override fun observeState(): StateFlow<RuntimeState> = state.asStateFlow()
 
@@ -102,6 +107,8 @@ class AvfBackend(
 
 /** Implemented in the AOSP/system-SDK deployment module in the next spike. */
 interface AvfPlatformDriver {
+    suspend fun revokeSharedStorage(): Result<Unit> = Result.failure(
+        UnsupportedOperationException("AVF provider cannot revoke internal storage exports"))
     suspend fun verifyStoppedInstance(instanceId: String): Result<Unit> = Result.failure(
         UnsupportedOperationException("AVF provider cannot verify persistent VM state"))
     suspend fun openGuestFileTransfer(): Result<GuestByteStream> = Result.failure(UnsupportedOperationException("Guest file transfer is unavailable"))

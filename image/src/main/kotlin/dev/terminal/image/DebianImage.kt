@@ -18,6 +18,7 @@ data class DebianImageManifest(
     val configSha256: String,
     val aptInitializationVersion: Int = 0,
     val virtiofsVersion: Int = 0,
+    val androidStorageVersion: Int = 0,
 )
 
 data class DebianImageLayout(val root: Path) {
@@ -137,6 +138,10 @@ object DebianImageVerifier {
             } ?: 0,
             virtiofsVersion = getProperty("virtiofsVersion")?.let {
                 require(it == "1") { "Unsupported virtiofs version" }
+                1
+            } ?: 0,
+            androidStorageVersion = getProperty("androidStorageVersion")?.let {
+                require(it == "1" && getProperty("virtiofsVersion") == "1") { "Unsupported Android storage version" }
                 1
             } ?: 0,
         )

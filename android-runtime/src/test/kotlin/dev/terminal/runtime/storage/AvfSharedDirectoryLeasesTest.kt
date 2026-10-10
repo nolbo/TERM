@@ -11,6 +11,24 @@ import java.util.UUID
 class AvfSharedDirectoryLeasesTest {
     @get:Rule val temporary = TemporaryFolder()
 
+    @Test fun internalStorageBootsAreRecoverableEvenWithoutConnectedFoldersAndLegacyRecordsRemainValid() {
+        val files = temporary.newFolder()
+        val store = AvfSharedDirectoryLeases(files)
+        val folder = UUID.randomUUID().toString()
+        store.record("storage-only", emptyList(), "v-storage", androidStorage = true)
+        store.record("mixed", listOf(folder), "v-mixed", androidStorage = true)
+        store.record("folders-only", listOf(folder))
+        val legacy = File(files, "avf-share-leases").listFiles()!!.single { it.readText().contains("folders-only") }
+        val json = org.json.JSONObject(legacy.readText()).apply { remove("androidStorage") }
+        legacy.writeText(json.toString())
+        val restarted = AvfSharedDirectoryLeases(files)
+        assertEquals(setOf("storage-only", "mixed"), restarted.androidStorageOwners().toSet())
+        assertEquals(setOf("mixed", "folders-only"), restarted.owners(folder).toSet())
+        assertEquals("v-storage", restarted.release("storage-only"))
+        assertEquals(listOf("mixed"), restarted.androidStorageOwners())
+        assertTrue(runCatching { store.record("empty", emptyList()) }.isFailure)
+    }
+
     @Test fun liveVmUsageSurvivesOwnerRestartAndEnvironmentDisconnection() {
         val files = temporary.newFolder()
         val folderId = UUID.randomUUID().toString()

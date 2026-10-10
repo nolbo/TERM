@@ -88,7 +88,7 @@ class CatalogVerificationTests(unittest.TestCase):
             verifier.verify_directory(self.root)
 
     def test_legacy_manifest_remains_supported_and_unknown_initializer_is_rejected(self):
-        current = (self.root / 'manifest.properties').read_bytes()
+        current = (self.root / 'manifest.properties').read_bytes().replace(b'androidStorageVersion=1\n', b'')
         for version in [None, b'1', b'2', b'0', b'invalid']:
             with self.subTest(version=version):
                 data = current.replace(b'aptInitializationVersion=1\n',
@@ -101,7 +101,7 @@ class CatalogVerificationTests(unittest.TestCase):
                         verifier.manifest(data, approved)
 
     def test_legacy_and_virtiofs_manifest_versions_are_verified(self):
-        current = (self.root / 'manifest.properties').read_bytes()
+        current = (self.root / 'manifest.properties').read_bytes().replace(b'androidStorageVersion=1\n', b'')
         for version in [None, b'1', b'2', b'0', b'invalid']:
             with self.subTest(version=version):
                 data = current.replace(b'virtiofsVersion=1\n',
@@ -114,6 +114,21 @@ class CatalogVerificationTests(unittest.TestCase):
                         verifier.manifest(data, approved)
         legacy = current.replace(b'virtiofsVersion=1\n', b'').replace(b'aptInitializationVersion=1\n', b'')
         verifier.manifest(legacy, {'manifestSha256': verifier.digest(legacy)})
+
+    def test_android_storage_is_an_optional_supported_feature_with_a_virtiofs_dependency(self):
+        current = (self.root / 'manifest.properties').read_bytes()
+        for version in [None, b'1', b'2', b'0', b'invalid']:
+            with self.subTest(version=version):
+                data = current.replace(b'androidStorageVersion=1\n', b'' if version is None else b'androidStorageVersion=' + version + b'\n')
+                approved = {'manifestSha256': verifier.digest(data)}
+                if version in (None, b'1'):
+                    verifier.manifest(data, approved)
+                else:
+                    with self.assertRaisesRegex(ValueError, 'Android storage version'):
+                        verifier.manifest(data, approved)
+        missing_dependency = current.replace(b'virtiofsVersion=1\n', b'')
+        with self.assertRaisesRegex(ValueError, 'Android storage version'):
+            verifier.manifest(missing_dependency, {'manifestSha256': verifier.digest(missing_dependency)})
 
     def test_private_mutable_or_injected_catalogs_are_rejected(self):
         original = (self.root / 'catalog.properties').read_bytes()

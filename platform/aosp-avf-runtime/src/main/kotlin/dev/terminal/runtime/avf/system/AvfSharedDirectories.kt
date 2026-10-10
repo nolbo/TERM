@@ -17,6 +17,8 @@ internal class AvfSharedDirectories private constructor(
 ) : Closeable {
     data class Export(val directory: File, val tag: String, val socket: File)
     val artifact get() = root.name
+    val hasFolders get() = exports.any { it.tag == INDEX_TAG }
+    val hasAndroidStorage get() = exports.any { it.tag == ANDROID_STORAGE_TAG }
 
     override fun close() {
         cleanup(files, artifact)
@@ -25,6 +27,8 @@ internal class AvfSharedDirectories private constructor(
     companion object {
         const val INDEX_TAG = "term-shares"
         const val BOOT_PARAM = "term.virtiofs=1"
+        const val ANDROID_STORAGE_TAG = "term-storage"
+        const val ANDROID_STORAGE_PARAM = "term.android-storage=1"
         const val GUEST_UID = 1000
         const val GUEST_GID = 1000
 
@@ -34,7 +38,7 @@ internal class AvfSharedDirectories private constructor(
             if (Files.notExists(root.toPath(), NOFOLLOW_LINKS)) return
             require(Files.isDirectory(root.toPath(), NOFOLLOW_LINKS) && root.canonicalFile == root)
             // Remove only our own names. Never traverse guest-created entries or user folders.
-            for (number in 0..128) Files.deleteIfExists(File(root, "s$number").toPath())
+            for (number in 0..129) Files.deleteIfExists(File(root, "s$number").toPath())
             val index = File(root, "index")
             if (Files.isDirectory(index.toPath(), NOFOLLOW_LINKS)) Files.deleteIfExists(File(index, "mounts").toPath())
             index.delete()
@@ -52,9 +56,11 @@ internal class AvfSharedDirectories private constructor(
             }
         }
 
-        fun create(files: File, folders: List<SharedDirectoryExport>): AvfSharedDirectories? {
+        /** androidStorage must come from the Android-authorized primary volume, never RuntimeConfig/guest input. */
+        fun create(files: File, folders: List<SharedDirectoryExport>, androidStorage: File? = null): AvfSharedDirectories? {
             validate(files, folders)
-            if (folders.isEmpty()) return null
+            androidStorage?.let { require(it == it.absoluteFile && it.canonicalFile == it && Files.isDirectory(it.toPath(), NOFOLLOW_LINKS)) }
+            if (folders.isEmpty() && androidStorage == null) return null
             val parent = File(files, ".virtiofs")
             if (Files.notExists(parent.toPath(), NOFOLLOW_LINKS)) Files.createDirectory(parent.toPath())
             require(Files.isDirectory(parent.toPath(), NOFOLLOW_LINKS) && parent.canonicalFile == parent.absoluteFile) {
@@ -62,16 +68,20 @@ internal class AvfSharedDirectories private constructor(
             }
             val root = Files.createTempDirectory(parent.toPath(), "v-").toFile()
             val index = File(root, "index")
-            val exports = listOf(Export(index, INDEX_TAG, File(root, "s0"))) + folders.mapIndexed { number, folder ->
+            val directories = (if (folders.isEmpty()) emptyList() else listOf(index to INDEX_TAG)) + folders.map { folder ->
                 // The virtio-fs wire tag has only 36 bytes; folder names may contain 64 ASCII characters.
-                Export(File(folder.directory), "ts-" + folder.id.replace("-", ""), File(root, "s${number + 1}"))
+                File(folder.directory) to ("ts-" + folder.id.replace("-", ""))
             }
+            val exports = (directories + listOfNotNull(androidStorage?.let { it to ANDROID_STORAGE_TAG }))
+                .mapIndexed { number, (directory, tag) -> Export(directory, tag, File(root, "s$number")) }
             val plan = AvfSharedDirectories(files, root, exports)
             try {
                 require(exports.all { it.socket.path.toByteArray().size <= 107 }) { "virtiofs Unix socket path is too long" }
-                Files.createDirectory(index.toPath())
-                val table = "1\n" + folders.joinToString("") { "ts-${it.id.replace("-", "")}\t${it.name}\n" }
-                Files.write(File(index, "mounts").toPath(), table.toByteArray(Charsets.US_ASCII), CREATE_NEW)
+                if (folders.isNotEmpty()) {
+                    Files.createDirectory(index.toPath())
+                    val table = "1\n" + folders.joinToString("") { "ts-${it.id.replace("-", "")}\t${it.name}\n" }
+                    Files.write(File(index, "mounts").toPath(), table.toByteArray(Charsets.US_ASCII), CREATE_NEW)
+                }
                 return plan
             } catch (failure: Throwable) {
                 runCatching { plan.close() }.exceptionOrNull()?.let(failure::addSuppressed)

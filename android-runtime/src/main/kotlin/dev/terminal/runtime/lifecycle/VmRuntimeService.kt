@@ -225,6 +225,38 @@ class VmRuntimeService : Service() {
         ((applicationContext as? RuntimeBackendProvider)?.createRuntimeBackend(applicationContext)
             as? dev.terminal.runtime.avf.AvfBackend) ?: error("Cannot verify AVF shared directory users")
     }
+    private val sharedStorageAppOps by lazy { checkNotNull(getSystemService(android.app.AppOpsManager::class.java)) }
+    private val sharedStorageOp by lazy {
+        checkNotNull(android.app.AppOpsManager.permissionToOp(android.Manifest.permission.MANAGE_EXTERNAL_STORAGE))
+    }
+    private val sharedStorageWatcher = android.app.AppOpsManager.OnOpChangedListener { op, _ ->
+        if (op == sharedStorageOp && !destroying) checkAvfStoragePermission()
+    }
+
+    private fun checkAvfStoragePermission() {
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                if (android.os.Environment.isExternalStorageManager()) return@runCatching
+                val owners = dev.terminal.runtime.storage.AvfSharedDirectoryLeases(filesDir).androidStorageOwners()
+                if (owners.isEmpty()) return@runCatching
+                avfSharedDirectoryVerifier.revokeSharedStorage().getOrThrow()
+                // Stop first; do not wait behind a boot's sessiond handshake to revoke access.
+                preparationLocks.withAll {
+                    val stopped = owners.filter { avfSharedDirectoryVerifier.verifyStoppedInstance(it).isSuccess }.toSet()
+                    (backend as? dev.terminal.runtime.avf.AvfBackend)?.confirmSharedStorageRevocation(stopped)
+                    environmentRegistry.transaction(storageDefaults()) { all() }.forEach { environment ->
+                        if (environment.runtimeMetadata.vmInstanceId in stopped) {
+                            (environmentBackends[environment.id] as? dev.terminal.runtime.avf.AvfBackend)
+                                ?.confirmSharedStorageRevocation(stopped)
+                            clearEnvironmentStart(environment.id)
+                        }
+                    }
+                }
+                updateWakeState()
+                updateServiceLifetime()
+            }.onFailure { notifyOperationError("AVF 내부저장소 접근 해제", it.userMessage()) }
+        }
+    }
     private val sharedFolders by lazy {
         val preferences = getSharedPreferences("shared-folders", MODE_PRIVATE)
         dev.terminal.runtime.storage.SharedFolderRegistry(filesDir.canonicalFile, { preferences.getString("folders", null) },
@@ -1152,6 +1184,9 @@ class VmRuntimeService : Service() {
                 if (id != "legacy") broadcast { it.onRootlessProgress("${distribution.runtime.wireName}:$id", phase.displayName, detail) }
             }
         }
+        sharedStorageAppOps.startWatchingMode(sharedStorageOp, packageName, sharedStorageWatcher)
+        // Recover revoked exports even if Android killed :vmhost before its app-op callback.
+        checkAvfStoragePermission()
         scope.launch {
             backend.observeState().collect { state ->
                 latestState = state
@@ -1191,6 +1226,7 @@ class VmRuntimeService : Service() {
 
     override fun onDestroy() {
         destroying = true
+        sharedStorageAppOps.stopWatchingMode(sharedStorageWatcher)
         terminalOperations.close()
         usbBroker.close()
         stopForeground(STOP_FOREGROUND_REMOVE)

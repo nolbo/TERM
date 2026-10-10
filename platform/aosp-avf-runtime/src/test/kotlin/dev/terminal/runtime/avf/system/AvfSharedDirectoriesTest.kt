@@ -12,6 +12,33 @@ import java.util.UUID
 class AvfSharedDirectoriesTest {
     @get:Rule val temporary = TemporaryFolder()
 
+    @Test fun primaryStorageCanBeExportedAloneWithoutAnEmptyFolderIndexAndCleanupPreservesItsFiles() {
+        val files = temporary.newFolder()
+        val storage = temporary.newFolder()
+        val keep = File(storage, "photo").apply { writeText("original") }
+        AvfSharedDirectories.create(files, emptyList(), storage)!!.use { plan ->
+            assertFalse(plan.hasFolders)
+            assertTrue(plan.hasAndroidStorage)
+            assertEquals(AvfSharedDirectories.ANDROID_STORAGE_TAG, plan.exports.single().tag)
+            assertEquals(storage, plan.exports.single().directory)
+        }
+        assertEquals("original", keep.readText())
+    }
+
+    @Test fun storageAndMaximumFolderConnectionsHaveDistinctTagsAndAllSocketsAreCleaned() {
+        val files = temporary.newFolder()
+        val folders = (1..128).map { folder(files, "Folder$it") }
+        val storage = temporary.newFolder()
+        val plan = AvfSharedDirectories.create(files, folders, storage)!!
+        assertTrue(plan.hasFolders && plan.hasAndroidStorage)
+        assertEquals(130, plan.exports.size)
+        assertEquals(130, plan.exports.map { it.tag }.toSet().size)
+        val last = plan.exports.last().socket.apply { writeText("socket placeholder") }
+        plan.close()
+        assertFalse(last.exists())
+        assertTrue(storage.isDirectory)
+    }
+
     private fun folder(files: File, name: String): SharedDirectoryExport {
         val id = UUID.randomUUID().toString()
         val directory = File(files, "shared-folders/$id").apply { mkdirs() }

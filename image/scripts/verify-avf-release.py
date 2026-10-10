@@ -66,7 +66,7 @@ def manifest(data, approved):
         raise ValueError('Manifest differs from the pinned catalog hash')
     values = properties(data)
     required = {'formatVersion', 'distribution', 'architecture'} | {key + '.sha256' for key in ARTIFACTS}
-    optional = {'aptInitializationVersion', 'virtiofsVersion'}
+    optional = {'aptInitializationVersion', 'virtiofsVersion', 'androidStorageVersion'}
     if (not required <= set(values) or not set(values) <= required | optional
             or (values['formatVersion'], values['distribution'], values['architecture']) != ('1', 'debian', 'arm64')):
         raise ValueError('Expected Debian ARM64 image manifest v1')
@@ -74,6 +74,8 @@ def manifest(data, approved):
         raise ValueError('Unsupported APT initialization version')
     if 'virtiofsVersion' in values and values['virtiofsVersion'] != '1':
         raise ValueError('Unsupported virtiofs version')
+    if 'androidStorageVersion' in values and (values['androidStorageVersion'] != '1' or values.get('virtiofsVersion') != '1'):
+        raise ValueError('Unsupported Android storage version')
     if any(not re.fullmatch(r'[0-9a-f]{64}', values[key + '.sha256']) for key in ARTIFACTS):
         raise ValueError('Invalid artifact hash')
     return values

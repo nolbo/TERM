@@ -54,11 +54,14 @@ class AospAvfPlatformDriver(
 
     private var prepared: RuntimeConfig? = null
     private var supportsVirtiofs = false
+    private var supportsAndroidStorage = false
     @Volatile private var machine: VirtualMachine? = null
     private data class SharedBoot(val vm: VirtualMachine, val instanceId: String, val directories: AvfSharedDirectories)
     private val sharedBoot = AtomicReference<SharedBoot?>()
     private val activeBoot = AtomicReference<Any?>()
     private val shareLeases = AvfSharedDirectoryLeases(appContext.filesDir)
+    private val sharedStorage = AvfSharedStorageCoordinator(shareLeases,
+        android.os.Environment::isExternalStorageManager, ::stopStorageInstance)
     private val pendingSessionConnection = AtomicReference<GuestConnection?>()
     private val events = MutableSharedFlow<AvfPlatformEvent>(extraBufferCapacity = 4)
 
@@ -78,6 +81,7 @@ class AospAvfPlatformDriver(
                 is ImageVerification.Ready -> {
                     AvfSharedDirectories.validate(appContext.filesDir.canonicalFile, config.sharedFolders)
                     supportsVirtiofs = verification.manifest.virtiofsVersion == 1
+                    supportsAndroidStorage = verification.manifest.androidStorageVersion == 1
                     require(!supportsVirtiofs || config.sharedFolders.isEmpty() || !config.protectedVm) {
                         "virtiofs 공유 디렉토리는 비보호 AVF VM에서만 사용할 수 있습니다."
                     }
@@ -101,28 +105,35 @@ class AospAvfPlatformDriver(
             val vm = machine ?: manager.get(vmName(config)) ?: manager.getOrCreate(vmName(config), buildConfig(config))
             nextMachine = vm
             val boot = AvfGuestBoot()
-            val token = Any()
-            activeBoot.set(token)
-            vm.setCallback(Executor { it.run() }, callback(boot, token, config.instanceId))
-            machine = vm
-            // A previous host/boot timeout may have left this persistent VM running.
-            // Reconnect to it without restarting Linux or replacing its writable disks.
-            if (vm.status == VirtualMachine.STATUS_STOPPED) {
-                // getOrCreate ignores the supplied config for an existing VM. Refresh
-                // stopped instances so boot parameters also reach installed guests.
-                releaseSharedBoot(vm)
-                releaseStoppedShares(config.instanceId)
-                stagedShares = if (supportsVirtiofs) AvfSharedDirectories.create(appContext.filesDir.canonicalFile, config.sharedFolders) else null
-                requireAvfPlatformApi { vm.setConfig(buildConfig(config, stagedShares)) }
-                val shares = stagedShares
-                if (shares != null) {
-                    // Persist before run: a lost host owner must never make a live export deletable.
-                    shareLeases.record(config.instanceId, config.sharedFolders.map { it.id }, shares.artifact)
-                    sharedBoot.set(SharedBoot(vm, config.instanceId, shares))
-                    stagedShares = null
+            sharedStorage.boot(config.instanceId) { storageGranted ->
+                val token = Any()
+                activeBoot.set(token)
+                vm.setCallback(Executor { it.run() }, callback(boot, token, config.instanceId))
+                machine = vm
+                // A previous host/boot timeout may have left this persistent VM running.
+                // Reconnect to it without restarting Linux or replacing its writable disks.
+                if (vm.status == VirtualMachine.STATUS_STOPPED) {
+                    // getOrCreate ignores the supplied config for an existing VM. Refresh
+                    // stopped instances so boot parameters also reach installed guests.
+                    releaseSharedBoot(vm)
+                    releaseStoppedShares(config.instanceId)
+                    val storage = if (supportsAndroidStorage && storageGranted && !config.protectedVm)
+                        android.os.Environment.getExternalStorageDirectory().canonicalFile else null
+                    stagedShares = if (supportsVirtiofs)
+                        AvfSharedDirectories.create(appContext.filesDir.canonicalFile, config.sharedFolders, storage) else null
+                    requireAvfPlatformApi { vm.setConfig(buildConfig(config, stagedShares)) }
+                    val shares = stagedShares
+                    if (shares != null) {
+                        // Persist before run: a lost host owner must never make a live export deletable.
+                        if (shares.hasAndroidStorage) sharedStorage.requirePermission()
+                        shareLeases.record(config.instanceId, config.sharedFolders.map { it.id }, shares.artifact, shares.hasAndroidStorage)
+                        sharedBoot.set(SharedBoot(vm, config.instanceId, shares))
+                        stagedShares = null
+                    }
+                    startedHere = true
+                    if (shares?.hasAndroidStorage == true) sharedStorage.requirePermission()
+                    vm.run()
                 }
-                startedHere = true
-                vm.run()
             }
             pendingSessionConnection.set(boot.awaitSessiond(BOOT_TIMEOUT_MS, GUEST_CONNECT_RETRY_MS) {
                 ParcelFileDescriptorFrameTransport(vm.connectVsock(DROID_SESSIOND_PORT), GUEST_CID_UNAVAILABLE)
@@ -181,6 +192,18 @@ class AospAvfPlatformDriver(
             persisted?.let(::releaseSharedBoot)
             releaseStoppedShares(instanceId)
         }
+    }
+
+    override suspend fun revokeSharedStorage(): Result<Unit> = runCatching { sharedStorage.revoke(); Unit }
+
+    private fun stopStorageInstance(instanceId: String) {
+        val vm = manager.get("droid-$instanceId")
+        if (vm != null) {
+            if (vm.status != VirtualMachine.STATUS_STOPPED) vm.stop()
+            check(vm.status == VirtualMachine.STATUS_STOPPED) { "Cannot verify VM stopped after storage permission revocation" }
+            releaseSharedBoot(vm)
+        }
+        releaseStoppedShares(instanceId)
     }
 
     override suspend fun deleteStorage(instanceId: String): Result<Unit> = mutex.withLock {
@@ -289,7 +312,8 @@ class AospAvfPlatformDriver(
             .addDisk(VirtualMachineCustomImageConfig.Disk.RWDisk(image.homeImage.toString()))
             .addDisk(VirtualMachineCustomImageConfig.Disk.RODisk(image.configImage.toString()))
         if (shares != null) {
-            customImage.addParam(AvfSharedDirectories.BOOT_PARAM)
+            if (shares.hasFolders) customImage.addParam(AvfSharedDirectories.BOOT_PARAM)
+            if (shares.hasAndroidStorage) customImage.addParam(AvfSharedDirectories.ANDROID_STORAGE_PARAM)
             shares.exports.forEach { export ->
                 customImage.addSharedPath(VirtualMachineCustomImageConfig.SharedPath(
                     export.directory.path, android.os.Process.myUid(), android.system.Os.getgid(),
