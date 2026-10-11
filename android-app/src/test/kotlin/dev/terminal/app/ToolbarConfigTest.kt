@@ -10,11 +10,23 @@ class ToolbarConfigTest {
         assertEquals(listOf(SESSIONS_TOOL, HOTKEY_TOOL), config.removeTool(HISTORY_TOOL).tools)
     }
     @Test fun removedClipboardIsDroppedWithoutChangingOtherToolsOrEnabledState() {
-        val previous = ToolbarConfig(false, listOf(MEMORY_TOOL, "clipboard", HOTKEY_TOOL, COMMANDS_TOOL))
-        assertEquals(previous.copy(tools = listOf(SESSIONS_TOOL, MEMORY_TOOL, HOTKEY_TOOL, COMMANDS_TOOL)),
+        val previous = ToolbarConfig(false, listOf(MEMORY_TOOL, "clipboard", HOTKEY_TOOL, HISTORY_TOOL))
+        assertEquals(previous.copy(tools = listOf(SESSIONS_TOOL, MEMORY_TOOL, HOTKEY_TOOL, HISTORY_TOOL)),
             parseToolbarConfig(serializeToolbarConfig(previous)))
         assertEquals(ToolbarConfig(tools = listOf(SESSIONS_TOOL)),
             parseToolbarConfig(serializeToolbarConfig(ToolbarConfig(tools = listOf("clipboard")))))
+    }
+
+    @Test fun removedCommandSetsAreDroppedWithoutChangingRemainingOrderOrEnabledState() {
+        for (enabled in listOf(true, false)) {
+            val previous = ToolbarConfig(enabled, listOf(MEMORY_TOOL, "commands", HOTKEY_TOOL, "commands", HISTORY_TOOL, SESSIONS_TOOL))
+            val expected = ToolbarConfig(enabled, listOf(MEMORY_TOOL, HOTKEY_TOOL, HISTORY_TOOL, SESSIONS_TOOL))
+            val parsed = parseToolbarConfig(serializeToolbarConfig(previous))
+            assertEquals(expected, parsed)
+            assertEquals(expected, parseToolbarConfig(serializeToolbarConfig(parsed)))
+        }
+        assertEquals(ToolbarConfig(tools = listOf(SESSIONS_TOOL)),
+            parseToolbarConfig(serializeToolbarConfig(ToolbarConfig(tools = listOf("commands")))))
     }
 
     @Test fun legacyDisabledToolbarStaysDisabledAndKeepsItsTool() {

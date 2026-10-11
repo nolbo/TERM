@@ -63,7 +63,6 @@ import com.termux.view.TerminalView
 import dev.terminal.app.ui.TerminalToolbar
 import dev.terminal.app.ui.ToolbarHotkeys
 import dev.terminal.app.ui.ToolbarMemoryTool
-import dev.terminal.app.ui.ToolbarCommandsTool
 import dev.terminal.app.ui.ToolbarHistoryTool
 import androidx.compose.foundation.layout.BoxWithConstraints
 import dev.terminal.app.ui.RootlessSetupDialog
@@ -289,7 +288,6 @@ class MainActivity : TerminalActivity() {
     private var rootlessError by mutableStateOf<String?>(null)
     private var hotkeyLayout by mutableStateOf(HotkeyLayout())
     private var toolbarConfig by mutableStateOf(ToolbarConfig())
-    private var toolbarCommands by mutableStateOf(emptyList<ToolbarCommand>())
     private var toolbarMemoryInterval by mutableStateOf(5)
     private var toolbarMemorySections by mutableStateOf(MemoryToolSections())
     private var controlPressed by mutableStateOf(false)
@@ -632,7 +630,6 @@ class MainActivity : TerminalActivity() {
         followTuiBackground = preferences.getBoolean(TerminalAppearance.KEY_FOLLOW_TUI_BACKGROUND, false)
         hotkeyLayout = readHotkeyLayout(preferences)
         toolbarConfig = readToolbarConfig(preferences)
-        toolbarCommands = readToolbarCommands(preferences)
         toolbarMemoryInterval = preferences.getInt("toolbar-memory-interval", 5)
         toolbarMemorySections = readMemoryToolSections(preferences)
         refreshProfiles()
@@ -860,19 +857,6 @@ class MainActivity : TerminalActivity() {
                         androidx.compose.runtime.key(if (tool == SESSIONS_TOOL) SESSIONS_TOOL else toolbarSessionId, tool) {
                             val active = toolbarInputActive && interactive
                             val selected = visibleSessions.firstOrNull { it.id == toolbarSessionId }
-                            val canSend = active && selected?.state == "RUNNING"
-                            val sendText: (String, Boolean) -> Unit = { text, execute ->
-                                if (activeSessionId == toolbarSessionId && toolbarInputActive &&
-                                    toolbarConfig.enabled && tool in toolbarConfig.tools &&
-                                    toolbarSheetMode != ToolbarSheetMode.Hidden && text.length <= MAX_TOOLBAR_TEXT &&
-                                    selected?.state == "RUNNING") {
-                                    terminalView?.pasteText(text)
-                                    if (execute) {
-                                        terminalInputCallbacks.consumeLatchedModifiers()
-                                        terminalView?.inputCodePoint(13, false, false)
-                                    }
-                                }
-                            }
                             when (tool) {
                                 SESSIONS_TOOL -> ToolbarSessionsTool(
                                     sessions = visibleSessions, activeSessionId = activeSessionId, active = active,
@@ -928,10 +912,6 @@ class MainActivity : TerminalActivity() {
                                         }.toString()
                                     }
                                 }
-                                COMMANDS_TOOL -> ToolbarCommandsTool(toolbarCommands, canSend, selected?.title.orEmpty(),
-                                    onSend = sendText, onEdit = { command ->
-                                        startActivity(ToolbarCommandEditActivity.intent(this@MainActivity, command.id))
-                                    })
                                 HISTORY_TOOL -> ToolbarHistoryTool(active, onReturnToTerminal = ::requestTerminalKeyboard, terminal = {
                                     terminalView?.takeIf {
                                         activeSessionId == toolbarSessionId &&

@@ -129,7 +129,7 @@ class SettingsDetailActivity : TerminalActivity() {
             return
         }
         // Old task entries can still point to the removed tool's settings screen.
-        if (category == "toolbar-clipboard") intent.putExtra(EXTRA_CATEGORY, TOOLBAR)
+        if (category in listOf("toolbar-clipboard", "toolbar-commands")) intent.putExtra(EXTRA_CATEGORY, TOOLBAR)
         if (category == AVF && !SessionProfiles(this).hasAvfPrivileges()) {
             finish()
             return
@@ -141,18 +141,10 @@ class SettingsDetailActivity : TerminalActivity() {
                 TOOLBAR -> ToolbarSettings(terminalPreferences, { finish() }) { screen ->
                     startActivity(Intent(this, SettingsDetailActivity::class.java).putExtra(EXTRA_CATEGORY, screen))
                 }
-                "toolbar-sessions", "toolbar-memory", "toolbar-commands", "toolbar-history" ->
-                    dev.terminal.app.ui.ToolbarToolSettings(category, terminalPreferences, onBack = { finish() },
-                        onEditCommand = { startActivity(ToolbarCommandEditActivity.intent(this, it)) })
+                "toolbar-sessions", "toolbar-memory", "toolbar-history" ->
+                    dev.terminal.app.ui.ToolbarToolSettings(category, terminalPreferences, onBack = { finish() })
                 HOTKEYS -> HotkeySettings(terminalPreferences) { finish() }
                 else -> DetailScreen()
-            }
-        }
-        if (savedInstanceState == null && category == "toolbar-commands") {
-            intent.getStringExtra("toolbar-command-id")?.let { id ->
-                if (readToolbarCommands(terminalPreferences).any { it.id == id }) {
-                    startActivity(ToolbarCommandEditActivity.intent(this, id))
-                }
             }
         }
     }

@@ -1231,7 +1231,7 @@ class ToolbarUiTest {
     }
 
     @Test fun defaultHeightStaysFixedWhenPagingBetweenSessionsAndOtherTools() {
-        val tools = listOf(SESSIONS_TOOL, HOTKEY_TOOL, MEMORY_TOOL, COMMANDS_TOOL)
+        val tools = listOf(SESSIONS_TOOL, HOTKEY_TOOL, MEMORY_TOOL, HISTORY_TOOL)
         val mode = mutableStateOf(ToolbarSheetMode.Default)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
@@ -1507,45 +1507,44 @@ class ToolbarUiTest {
         }
     }
 
-    @Test fun memoryCardsSessionRowsAndCommandsFollowChangingToolbarColors() {
+    @Test fun memoryCardsAndSessionRowsFollowChangingToolbarColors() {
         val colors = mutableStateOf(TerminalChromeColors(Color(0xFF123456)))
-        val tool = mutableStateOf(MEMORY_TOOL)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 DroidTheme { TerminalHapticFeedbackProvider {
                     Column(Modifier.fillMaxSize()) {
                         Spacer(Modifier.weight(1f))
-                        TerminalToolbar(ToolbarConfig(tools = listOf(tool.value)), ToolbarSheetMode.Expanded,
-                            {}, 400.dp, colors.value) { id, active ->
-                            if (id == MEMORY_TOOL) {
-                                ToolbarMemoryTool(active, listOf(SessionUi("one", "NATIVE", "Color session", "RUNNING")),
-                                    30, {}) { """{"totalBytes":1048576,"availableBytes":524288,"sessions":{"one":1024}}""" }
-                            } else {
-                                ToolbarCommandsTool(listOf(ToolbarCommand("one", "Color command", "echo test")),
-                                    active, "Color session", { _, _ -> }, {})
-                            }
+                        TerminalToolbar(ToolbarConfig(tools = listOf(MEMORY_TOOL)), ToolbarSheetMode.Expanded,
+                            {}, 400.dp, colors.value) { _, active ->
+                            ToolbarMemoryTool(active, listOf(SessionUi("one", "NATIVE", "Color session", "RUNNING")),
+                                30, {}) { """{"totalBytes":1048576,"availableBytes":524288,"sessions":{"one":1024}}""" }
                         }
                     }
                 } }
             } }
             fun assertContainer(title: String) {
-                val area = bounds(text(title))
-                val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
-                try {
-                    // The blank inset inside each rounded container avoids text and progress pixels.
-                    val x = (16 * context.resources.displayMetrics.density).toInt()
-                    assertEquals(title, colors.value.container.toArgb(), screenshot.getPixel(x, area.centerY()))
-                } finally { screenshot.recycle() }
+                val expected = colors.value.container.toArgb()
+                val deadline = SystemClock.elapsedRealtime() + 8000
+                var actual: Int
+                // Enter/color transitions can continue after accessibility becomes idle.
+                do {
+                    val area = bounds(text(title))
+                    val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+                    actual = try {
+                        // Blank inset avoids text and progress pixels inside each rounded container.
+                        val x = (16 * context.resources.displayMetrics.density).toInt()
+                        screenshot.getPixel(x, area.centerY())
+                    } finally { screenshot.recycle() }
+                    if (actual != expected) SystemClock.sleep(250)
+                } while (actual != expected && SystemClock.elapsedRealtime() < deadline)
+                assertEquals(title, expected, actual)
             }
             for (background in listOf(Color(0xFF123456), Color(0xFFF0E0D0))) {
-                scenario.onActivity { colors.value = TerminalChromeColors(background); tool.value = MEMORY_TOOL }
+                scenario.onActivity { colors.value = TerminalChromeColors(background) }
                 settle()
                 assertContainer(label(R.string.toolbar_memory_device))
                 assertContainer(label(R.string.toolbar_memory_app))
                 assertContainer("Color session")
-                scenario.onActivity { tool.value = COMMANDS_TOOL }
-                settle()
-                assertContainer("Color command")
             }
         }
     }
@@ -1626,41 +1625,45 @@ class ToolbarUiTest {
         }
     }
 
-    @Test fun commandSendRequiresConfirmationAndCancelsWhenInactive() {
-        var sent: Pair<String, Boolean>? = null
-        val active = mutableStateOf(true)
-        val commands = listOf(ToolbarCommand("sample", "Sample", "echo first\necho second"))
-        var edited: ToolbarCommand? = null
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.onActivity { activity ->
-                activity.setContent { DroidTheme { TerminalHapticFeedbackProvider {
-                    Box(Modifier.padding(top = 32.dp)) {
-                        ToolbarCommandsTool(commands, active.value, "Test session", { text, execute -> sent = text to execute }, { edited = it })
-                    }
-                } } }
+    @Test fun removedCommandSetsAreAbsentFromToolbarSettingsAndSearch() {
+        val prefs = context.getSharedPreferences("removed-command-tool-test", 0)
+        val legacy = ToolbarConfig(false, listOf(MEMORY_TOOL, "commands", HISTORY_TOOL, SESSIONS_TOOL, HOTKEY_TOOL))
+        val expected = legacy.copy(tools = listOf(MEMORY_TOOL, HISTORY_TOOL, SESSIONS_TOOL, HOTKEY_TOOL))
+        prefs.edit().clear().putString(KEY_TOOLBAR, serializeToolbarConfig(legacy))
+            .putString("toolbar-commands-v1", "legacy command data").commit()
+        try {
+            assertEquals(expected, readToolbarConfig(prefs))
+            assertFalse(settingsSearchEntries.any { it.target.screen == "toolbar-commands" })
+            assertThrows(android.content.pm.PackageManager.NameNotFoundException::class.java) {
+                context.packageManager.getActivityInfo(ComponentName(context, "dev.terminal.app.ToolbarCommandEditActivity"), 0)
             }
-            settle()
-            click(description(context.getString(R.string.toolbar_command_edit_item, "Sample")))
-            assertEquals(commands.single(), edited)
-            assertNull(sent)
-            assertNull(find { it.text?.toString() == label(R.string.toolbar_run) })
-            // A compact preview is available before opening the full confirmation.
-            text("echo first\necho second")
-            click(text("Sample"))
-            text("echo first\necho second")
-            text(context.getString(R.string.toolbar_send_target, "Test session"))
-            assertNull(sent)
-            click(text(label(R.string.toolbar_run)))
-            assertEquals(commands.single().text to true, sent)
-            scenario.onActivity { sent = null }
-            click(text("Sample"))
-            scenario.onActivity { active.value = false }
-            settle()
-            assertNull(find { it.text?.toString() == label(R.string.toolbar_run) })
-            assertNull(sent)
-            scenario.onActivity { edited = null }
-            click(description(context.getString(R.string.toolbar_command_edit_item, "Sample")))
-            assertEquals("Editing remains available without an active session", commands.single(), edited)
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity -> activity.setContent {
+                    DroidTheme { TerminalHapticFeedbackProvider { ToolbarSettings(prefs, {}) {} } }
+                } }
+                settle()
+                text(label(R.string.toolbar_memory))
+                text(label(R.string.toolbar_history))
+                text(label(R.string.toolbar_sessions))
+                text(label(R.string.settings_hotkeys_title))
+                click(description(label(R.string.toolbar_edit)))
+                description(context.getString(R.string.toolbar_remove, label(R.string.toolbar_memory)))
+                assertNull(find {
+                    val value = it.text?.toString().orEmpty() + it.contentDescription?.toString().orEmpty()
+                    value.contains("명령어셋") || value.contains("Command sets")
+                })
+                assertEquals(expected, readToolbarConfig(prefs))
+                assertEquals("legacy command data", prefs.getString("toolbar-commands-v1", null))
+            }
+        } finally { prefs.edit().clear().commit() }
+    }
+
+    @Test fun retiredCommandSettingsDestinationOpensToolbarSettings() {
+        val intent = Intent(context, SettingsDetailActivity::class.java)
+            .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, "toolbar-commands")
+        ActivityScenario.launch<SettingsDetailActivity>(intent).use {
+            text(label(R.string.toolbar_settings))
+            description(label(R.string.toolbar_edit))
         }
     }
 

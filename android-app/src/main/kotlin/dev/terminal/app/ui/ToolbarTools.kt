@@ -10,7 +10,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -171,71 +170,8 @@ private val appMemoryAreas = listOf(
 private fun memorySize(bytes: Long) = String.format(java.util.Locale.getDefault(), "%.1f MiB", bytes / 1048576.0)
 
 @Composable
-internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean, target: String,
-    onSend: (String, Boolean) -> Unit, onEdit: (ToolbarCommand) -> Unit) {
-    val colors = LocalToolbarColors.current
-    var pending by remember { mutableStateOf<ToolbarCommand?>(null) }
-    LaunchedEffect(active) { if (!active) pending = null }
-    val scroll = rememberLazyListState()
-    ToolbarScrollEdges(scroll.canScrollBackward, scroll.canScrollForward, Modifier.fillMaxSize()) {
-        LazyColumn(Modifier.fillMaxSize(), state = scroll,
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            if (commands.isEmpty()) item {
-                Text(stringResource(R.string.toolbar_commands_empty), Modifier.padding(8.dp),
-                    style = MaterialTheme.typography.bodySmall, color = colors.foreground)
-            }
-            items(commands, key = { it.id }) { command ->
-                Surface(onClick = { pending = command }, enabled = active,
-                    shape = MaterialTheme.shapes.extraLarge, color = colors.container, contentColor = colors.onContainer) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
-                        .padding(start = 20.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text(command.name, style = MaterialTheme.typography.labelLarge,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(command.text, fontFamily = LocalTerminalMonospaceFontFamily.current,
-                                style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                color = colors.onContainer)
-                        }
-                        IconButton(onClick = { onEdit(command) }) {
-                            Icon(painterResource(R.drawable.ic_toolbar_edit),
-                                stringResource(R.string.toolbar_command_edit_item, command.name), Modifier.size(20.dp))
-                        }
-                    }
-                }
-            }
-        }
-    }
-    pending?.takeIf { active }?.let { command ->
-        ToolbarSendDialog(command.text, target, { pending = null }) {
-            onSend(command.text, true); pending = null
-        }
-    }
-}
-
-@Composable
-private fun ToolbarSendDialog(text: String, target: String, onDismiss: () -> Unit, onSend: () -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.toolbar_send_target, target)) },
-        text = { Column(Modifier.heightIn(max = 320.dp).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(stringResource(R.string.toolbar_execute_description))
-            SelectionContainer { Text(text, fontFamily = LocalTerminalMonospaceFontFamily.current) }
-        } },
-        confirmButton = { Button(onClick = onSend) { Text(stringResource(R.string.toolbar_run)) } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } })
-}
-
-@Composable
-internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences, onBack: () -> Unit,
-    onEditCommand: (String?) -> Unit = {}) {
+internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences, onBack: () -> Unit) {
     val tool = toolbarTools.first { it.settings == screen }
-    if (tool.id == COMMANDS_TOOL) {
-        ToolbarCommandsSettings(preferences, onBack, onEditCommand)
-        return
-    }
     var skipCloseConfirmation by remember {
         mutableStateOf(preferences.getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false))
     }

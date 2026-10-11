@@ -9,7 +9,6 @@ internal const val KEY_SKIP_SESSION_CLOSE_CONFIRMATION = "session-skip-close-con
 internal const val SESSIONS_TOOL = "sessions"
 internal const val HOTKEY_TOOL = "hotkeys"
 internal const val MEMORY_TOOL = "memory"
-internal const val COMMANDS_TOOL = "commands"
 internal const val HISTORY_TOOL = "history"
 
 /** Stable IDs are shared by persistence, settings destinations and pager content. */
@@ -18,7 +17,6 @@ internal val toolbarTools = listOf(
     ToolbarTool(SESSIONS_TOOL, R.string.toolbar_sessions, "toolbar-sessions", removable = false),
     ToolbarTool(HOTKEY_TOOL, R.string.settings_hotkeys_title, "hotkeys"),
     ToolbarTool(MEMORY_TOOL, R.string.toolbar_memory, "toolbar-memory"),
-    ToolbarTool(COMMANDS_TOOL, R.string.toolbar_commands, "toolbar-commands"),
     ToolbarTool(HISTORY_TOOL, R.string.toolbar_history, "toolbar-history"),
 )
 
