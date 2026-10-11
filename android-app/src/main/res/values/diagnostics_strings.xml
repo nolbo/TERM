@@ -69,11 +69,11 @@
     <string name="memory_device_total">전체 물리 메모리</string>
     <string name="memory_device_used">사용 중인 메모리</string>
     <string name="memory_device_available">사용 가능한 메모리</string>
-    <string name="memory_device_ratio">메모리 사용 비율 · %1$s</string>
-    <string name="memory_percentage_of_device">전체 물리 메모리 대비 %1$s</string>
-    <string name="memory_percentage_of_pss">PSS 합계 대비 %1$s</string>
+    <string name="memory_percentage_of_device">전체 물리 메모리 대비</string>
+    <string name="memory_percentage_of_pss">PSS 합계 대비</string>
+    <string name="memory_ratio_unknown">비율 확인 불가</string>
     <string name="memory_progress_description">%1$s: %2$s</string>
-    <string name="memory_progress_state">%1$s · %2$s</string>
+    <string name="memory_progress_state">%1$s · %2$s · %3$s</string>
     <string name="memory_app_total">TERM 앱 메모리 합계</string>
     <string name="memory_ui_process">Android UI 프로세스</string>
     <string name="memory_runtime_process">Runtime (:vmhost) 프로세스</string>

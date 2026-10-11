@@ -17,6 +17,7 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.*
 import dev.terminal.app.R
@@ -25,7 +26,8 @@ import dev.terminal.runtime.native.NativeCompatibility
 import dev.terminal.runtime.rootless.RootlessEngineInfo
 import org.json.JSONObject
 
-internal data class DiagnosticProgress(val fraction: Float?, val description: String, val accessibilityLabel: String)
+internal data class DiagnosticProgress(val fraction: Float?, val reference: String, val percentage: String,
+    val accessibilityLabel: String, val emphasized: Boolean = false)
 internal data class DiagnosticRow(val title: Int, val value: String, val detail: String? = null,
     val progress: DiagnosticProgress? = null)
 internal data class DiagnosticSection(val title: Int, val rows: List<DiagnosticRow>, val note: String? = null)
@@ -111,10 +113,22 @@ private fun DiagnosticPage(title: Int, description: Int, loading: Boolean, onBac
 @Composable
 private fun DiagnosticProgressRow(row: DiagnosticRow) {
     val progress = checkNotNull(row.progress)
-    val state = stringResource(R.string.memory_progress_state, row.value, progress.description)
+    val unknown = row.value == stringResource(R.string.diagnostics_unknown)
+    val state = stringResource(R.string.memory_progress_state, row.value, progress.reference, progress.percentage)
     ListItem(trailingContent = {
-        SelectionContainer { Text(row.value, Modifier.widthIn(max = 180.dp),
-            style = MaterialTheme.typography.labelLarge) }
+        Column(Modifier.widthIn(max = 180.dp), horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            SelectionContainer {
+                Text(row.value, style = when {
+                    unknown -> MaterialTheme.typography.bodyLarge
+                    progress.emphasized -> MaterialTheme.typography.titleLarge
+                    else -> MaterialTheme.typography.titleMedium
+                }, color = if (unknown) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onSurface,
+                    textAlign = TextAlign.End)
+            }
+            if (!unknown) Text(progress.percentage, style = MaterialTheme.typography.labelMedium,
+                color = if (progress.fraction == null) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary)
+        }
     }, verticalAlignment = Alignment.CenterVertically, colors = terminalSettingsListItemColors(),
         modifier = Modifier.fillMaxWidth().settingsItemSurface().clearAndSetSemantics {
             contentDescription = progress.accessibilityLabel
@@ -123,10 +137,11 @@ private fun DiagnosticProgressRow(row: DiagnosticRow) {
         }) {
         Column(Modifier.fillMaxWidth()) {
             Text(stringResource(row.title))
-            Text(progress.description, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall,
+            Text(progress.reference, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             progress.fraction?.let { fraction ->
-                LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+                LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
+                    .height(if (progress.emphasized) 6.dp else 4.dp))
             }
         }
     }
@@ -224,13 +239,14 @@ private fun memoryValue(bytes: Long?) = bytes?.let {
 } ?: stringResource(R.string.diagnostics_unknown)
 
 @Composable
-private fun memoryProgress(section: Int, title: Int, bytes: Long?, total: Long?, caption: Int): DiagnosticProgress {
+private fun memoryProgress(section: Int, title: Int, bytes: Long?, total: Long?, reference: Int,
+    emphasized: Boolean = false): DiagnosticProgress {
     val fraction = memoryRatio(bytes, total)
     val percent = fraction?.let {
         java.text.NumberFormat.getPercentInstance().apply { maximumFractionDigits = 1 }.format(it.toDouble())
-    } ?: stringResource(R.string.diagnostics_unknown)
-    return DiagnosticProgress(fraction, stringResource(caption, percent),
-        stringResource(R.string.memory_progress_description, stringResource(section), stringResource(title)))
+    } ?: stringResource(R.string.memory_ratio_unknown)
+    return DiagnosticProgress(fraction, stringResource(reference), percent,
+        stringResource(R.string.memory_progress_description, stringResource(section), stringResource(title)), emphasized)
 }
 
 @Composable
@@ -238,9 +254,9 @@ internal fun MemoryDiagnosticsScreen(snapshot: MemorySnapshot?, loading: Boolean
     val device = snapshot?.device
     fun bytes(process: JSONObject?, key: String) = process?.memoryBytes(key)
     val sections = mutableListOf(DiagnosticSection(R.string.memory_device, listOf(
-        DiagnosticRow(R.string.memory_device_total, memoryValue(device?.total)),
         DiagnosticRow(R.string.memory_device_used, memoryValue(device?.used), progress = memoryProgress(
-            R.string.memory_device, R.string.memory_device_used, device?.used, device?.total, R.string.memory_device_ratio)),
+            R.string.memory_device, R.string.memory_device_used, device?.used, device?.total, R.string.memory_percentage_of_device, emphasized = true)),
+        DiagnosticRow(R.string.memory_device_total, memoryValue(device?.total)),
         DiagnosticRow(R.string.memory_device_available, memoryValue(device?.available)),
     )))
     for ((title, process) in listOf(R.string.memory_app_total to snapshot?.app,
@@ -248,7 +264,7 @@ internal fun MemoryDiagnosticsScreen(snapshot: MemorySnapshot?, loading: Boolean
         val pss = process?.takeIf { it.optString("basis") == "pss" }
         val total = bytes(pss, "total")
         sections += DiagnosticSection(title, listOf(DiagnosticRow(R.string.memory_pss_total, memoryValue(total),
-            progress = memoryProgress(title, R.string.memory_pss_total, total, device?.total, R.string.memory_percentage_of_device))) +
+            progress = memoryProgress(title, R.string.memory_pss_total, total, device?.total, R.string.memory_percentage_of_device, emphasized = true))) +
             memoryAreas.map { (key, label) ->
                 val value = bytes(pss, key)
                 DiagnosticRow(label, memoryValue(value), progress = memoryProgress(
