@@ -78,7 +78,7 @@ class ToolbarCommandsSettingsUiTest {
             replaceInput("Cancelled name")
             click(label(R.string.cancel))
             node(commands.first().name)
-            rename("Renamed command")
+            rename(commands.first().name, "Renamed command")
             replaceInput("if true; then\n\tprintf '%s\\n' \"\$HOME\"\nfi # 한글🙂")
             focusInput()
             val scriptField = input()
@@ -104,7 +104,7 @@ class ToolbarCommandsSettingsUiTest {
         }
     }
 
-    @Test fun creationAppendsAndDeletionRequiresConfirmation() = withCommands(commands.reversed()) { prefs ->
+    @Test fun creationAppendsAndEditorOffersOnlyBackNameAndSave() = withCommands(commands.reversed()) { prefs ->
         val original = readToolbarCommands(prefs)
         ActivityScenario.launch<ToolbarCommandEditActivity>(ToolbarCommandEditActivity.intent(context)).use { activity ->
             assertFalse(clickable(node(label(R.string.save))).isEnabled)
@@ -137,13 +137,13 @@ class ToolbarCommandsSettingsUiTest {
         assertEquals("New command", added.name)
         assertEquals("echo new\npwd", added.text)
         ActivityScenario.launch<ToolbarCommandEditActivity>(ToolbarCommandEditActivity.intent(context, added.id)).use {
-            deleteFromMenu()
-            node(label(R.string.toolbar_command_delete))
-            click(label(R.string.cancel))
+            node(added.name)
+            node(label(R.string.back))
+            node(label(R.string.save))
+            assertNull(find { it.hasLabel(label(R.string.toolbar_command_editor_options)) })
+            assertNull(find { it.hasLabel(label(R.string.toolbar_command_rename)) })
+            assertNull(find { it.hasLabel(label(R.string.delete)) })
             assertEquals(original + added, readToolbarCommands(prefs))
-            deleteFromMenu()
-            click(label(R.string.toolbar_command_delete), button = true)
-            await { readToolbarCommands(prefs) == original }
         }
     }
 
@@ -170,6 +170,52 @@ class ToolbarCommandsSettingsUiTest {
             await { find { node -> node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD } } != null }
             assertTrue(clickable(node(label(R.string.save))).isVisibleToUser)
             assertEquals("Editing and scrolling do not persist a draft", commands, readToolbarCommands(prefs))
+        }
+    }
+
+    @Test fun editorHeaderFloatsAboveCodeAndRestoresAtTheTop() {
+        val long = commands.last().copy(text = (1..100).joinToString("\n") { "echo line_$it" })
+        withCommands(listOf(long)) { prefs ->
+            ActivityScenario.launch<ToolbarCommandEditActivity>(ToolbarCommandEditActivity.intent(context, long.id)).use { activity ->
+                node(long.name)
+                val initialTop = bounds(input()).top
+                val buttons = listOf(label(R.string.back), long.name, label(R.string.save))
+                val initialButtons = buttons.map { bounds(clickable(node(it))) }
+                val screen = bounds(requireNotNull(instrumentation.uiAutomation.rootInActiveWindow))
+                val start = Rect(screen.centerX() - 1, screen.height() * 3 / 4 - 1,
+                    screen.centerX() + 1, screen.height() * 3 / 4 + 1)
+                drag(start, screen.height() * 2f / 5)
+                await { bounds(input()).top < initialTop - 20 }
+                buttons.forEachIndexed { index, label ->
+                    assertEquals("Floating controls remain pinned", initialButtons[index], bounds(clickable(node(label))))
+                }
+                assertNull(find { it.hasLabel(label(R.string.toolbar_command_editor_options)) })
+                assertNull(find { it.hasLabel(label(R.string.delete)) })
+                // The transparent gap between capsules must still pass taps to the code below.
+                val gapX = (initialButtons[0].right + initialButtons[1].left) / 2f
+                val gapY = initialButtons[0].exactCenterY()
+                val now = SystemClock.uptimeMillis()
+                for (action in listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP)) {
+                    val event = MotionEvent.obtain(now, SystemClock.uptimeMillis(), action, gapX, gapY, 0)
+                    event.source = InputDevice.SOURCE_TOUCHSCREEN
+                    try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+                }
+                await { input().textSelectionStart > 0 }
+                assertEquals(listOf(long), readToolbarCommands(prefs))
+                settle()
+                instrumentation.uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+                settle()
+                activity.recreate()
+                node(long.name)
+                assertTrue("The restored header remains floating", bounds(input()).top < initialTop - 20)
+                val downStart = Rect(screen.centerX() - 1, screen.height() / 3 - 1,
+                    screen.centerX() + 1, screen.height() / 3 + 1)
+                repeat(3) { drag(downStart, screen.height() * 0.85f) }
+                await { bounds(input()).top >= initialTop - 2 }
+                buttons.forEachIndexed { index, label ->
+                    assertEquals(initialButtons[index], bounds(clickable(node(label))))
+                }
+            }
         }
     }
 
@@ -252,16 +298,11 @@ class ToolbarCommandsSettingsUiTest {
         assertTrue(input().performAction(AccessibilityNodeInfo.ACTION_FOCUS))
         settle()
     }
-    private fun rename(value: String) {
-        click(label(R.string.toolbar_command_editor_options))
-        click(label(R.string.toolbar_command_rename))
+    private fun rename(currentName: String, value: String) {
+        click(currentName)
         replaceInput(value)
         click(label(R.string.confirm))
         node(value)
-    }
-    private fun deleteFromMenu() {
-        click(label(R.string.toolbar_command_editor_options))
-        click(label(R.string.delete))
     }
     private fun move(command: ToolbarCommand, actionLabel: Int) {
         var handle: AccessibilityNodeInfo? = null

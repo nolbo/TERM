@@ -211,6 +211,8 @@ fun SettingsPageScaffold(
     floatingActionButton: @Composable () -> Unit = {},
     floatingActionButtonPosition: FabPosition = FabPosition.End,
     snackbarHostState: SnackbarHostState? = null,
+    floatingHeader: (@Composable (Float) -> Unit)? = null,
+    containerColor: Color = MaterialTheme.colorScheme.background,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val headerState = rememberTopAppBarState()
@@ -223,9 +225,9 @@ fun SettingsPageScaffold(
         label = "Settings small title fade",
     )
     val scrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
-        state = headerState, canScroll = { contentHeaderState.heightOffset == 0f })
+        state = headerState, canScroll = { floatingHeader == null && contentHeaderState.heightOffset == 0f })
     val contentScrollBehavior = TopAppBarDefaults.exitUntilCollapsedScrollBehavior(
-        state = contentHeaderState, canScroll = { headerState.collapsedFraction == 1f }, snapAnimationSpec = null)
+        state = contentHeaderState, canScroll = { floatingHeader != null || headerState.collapsedFraction == 1f }, snapAnimationSpec = null)
     val systemInsets = WindowInsets.systemBars.union(WindowInsets.displayCutout)
     val layoutDirection = LocalLayoutDirection.current
     val topInset = with(density) { systemInsets.getTop(this).toDp() }
@@ -235,7 +237,7 @@ fun SettingsPageScaffold(
         contentHeaderState.heightOffsetLimit = contentHeaderLimit
         contentHeaderState.heightOffset = contentHeaderState.heightOffset.coerceIn(contentHeaderLimit, 0f)
     }
-    Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
+    Box(Modifier.fillMaxSize().background(containerColor)
         .semantics { isTraversalGroup = true }) {
         Scaffold(
             // Content moves one pixel per scroll pixel; the title fades as the large bar collapses.
@@ -247,7 +249,7 @@ fun SettingsPageScaffold(
             // Top space belongs to the two header stages, including the initial status-bar inset.
             contentWindowInsets = systemInsets.only(WindowInsetsSides.Horizontal + WindowInsetsSides.Bottom),
             topBar = {
-                if (floatingFraction < 1f) LargeTopAppBar(
+                if (floatingHeader == null && floatingFraction < 1f) LargeTopAppBar(
                     // Material crossfades the large/small titles; extra scrolling fades the small title.
                     modifier = Modifier.graphicsLayer { alpha = 1f - floatingFraction },
                     title = { Text(title, maxLines = 2, overflow = TextOverflow.Ellipsis) },
@@ -274,15 +276,16 @@ fun SettingsPageScaffold(
                     ))
                     // Full-strength edge fade above content, below the transparent bar and its title.
                     Box(Modifier.fillMaxWidth().height(smallHeaderHeight).background(Brush.verticalGradient(
-                        0f to MaterialTheme.colorScheme.background,
-                        0.2f to MaterialTheme.colorScheme.background.copy(alpha = 0.9f),
-                        0.6f to MaterialTheme.colorScheme.background.copy(alpha = 0.38f),
+                        0f to containerColor,
+                        0.2f to containerColor.copy(alpha = 0.9f),
+                        0.6f to containerColor.copy(alpha = 0.38f),
                         1f to Color.Transparent,
                     )))
                 }
             },
         )
-        FilledIconButton(
+        if (floatingHeader != null) floatingHeader(contentHeaderState.collapsedFraction)
+        else FilledIconButton(
             onClick = onBack,
             modifier = Modifier.align(Alignment.TopStart)
                 .windowInsetsPadding(systemInsets.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))

@@ -1,4 +1,5 @@
 Sora Editor 0.24.6 (editor, language-textmate, oniguruma-native)
+The editor UI, input, line numbers and scrolling are implemented in Compose; Sora CodeEditor is not used. These libraries provide the TextMate parser, Oniguruma engine and required runtime utilities such as Logger. The editor artifact is included as an explicit runtime-only dependency for those utilities.
 Copyright (C) 2020-2026 Rosemoe
 License: GNU LGPL 2.1 or later. See Sora-Editor-LGPL-2.1.txt.
 Unmodified source and build instructions: https://github.com/Rosemoe/sora-editor/tree/0.24.6

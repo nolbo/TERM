@@ -1,25 +1,29 @@
 package dev.terminal.app
 
-import android.graphics.Paint
 import android.os.SystemClock
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.terminal.app.ui.DroidTheme
+import dev.terminal.app.ui.GoogleSansCodeFontFamily
 import dev.terminal.app.ui.LocalTerminalMonospaceFontFamily
-import dev.terminal.app.ui.ShellCodeEditor
 import dev.terminal.app.ui.ShellScriptEditor
+import dev.terminal.app.ui.ShellSyntaxTransformation
 import dev.terminal.app.ui.ShellTextMate
-import io.github.rosemoe.sora.lang.styling.TextStyle
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withContext
 import org.eclipse.tm4e.core.grammar.IStateStack
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.*
 import org.junit.Test
@@ -32,26 +36,14 @@ class ShellScriptEditorUiTest {
 
     @Test fun rendersHighlightedCodeWithGoogleSansCodeEvenWhenTheUserFontDiffers() {
         val script = "iW0@ \nif true; then\n\tprintf '%s\\n' \"\$HOME\"\nfi # 한글🙂"
-        withEditor(script) { editor, _ ->
-            onUi {
-                assertSame(BundledFonts.googleSansCode(context), editor.typefaceText)
-                assertSame(editor.typefaceText, editor.typefaceLineNumber)
-                assertEquals(14 * context.resources.displayMetrics.scaledDensity, editor.textSizePx, 0.5f)
-                assertEquals(script, editor.text.toString())
-                val paint = Paint().apply { typeface = editor.typefaceText; textSize = editor.textSizePx }
-                val width = paint.measureText("i")
-                for (char in "W0@ ") assertEquals(width, paint.measureText(char.toString()), 0.5f)
-            }
-            await {
-                val colors = mutableSetOf<Int>()
-                onUi {
-                    val reader = editor.styles?.spans?.read()
-                    if (reader != null) for (line in 0 until editor.lineCount) {
-                        reader.getSpansOnLine(line).forEach { colors.add(editor.colorScheme.getColor(TextStyle.getForegroundColorId(it.style))) }
-                    }
-                }
-                colors.size >= 6
-            }
+        withEditor(script) { editor ->
+            await { (editor.layout.get()?.layoutInput?.text?.spanStyles?.map { it.item.color }?.distinct()?.size ?: 0) >= 6 }
+            val layout = requireNotNull(editor.layout.get())
+            assertEquals(GoogleSansCodeFontFamily, layout.layoutInput.style.fontFamily)
+            assertEquals(script, layout.layoutInput.text.text)
+            assertEquals(script, editor.draft.get().text)
+            val width = layout.getBoundingBox(0).width
+            for (index in 1..4) assertEquals("Fixed-width code cells", width, layout.getBoundingBox(index).width, 0.5f)
         }
     }
 
@@ -99,60 +91,93 @@ class ShellScriptEditorUiTest {
         assertTrue(scopes(14, "if").any { it.startsWith("keyword.control") })
     }
 
-    @Test fun incrementalEditsAndUndoRecolorVariablesWithoutLosingTheDraft() {
+    @Test fun incrementalEditsRecolorVariablesWithoutChangingInputOffsets() {
         val initial = "echo \"\$HOME\""
-        withEditor(initial) { editor, draft ->
-            fun colorAtHome(): Int? {
-                var color: Int? = null
-                onUi {
-                    val span = editor.styles?.spans?.read()?.getSpansOnLine(0)?.lastOrNull { it.column <= 7 }
-                    if (span != null) color = editor.colorScheme.getColor(TextStyle.getForegroundColorId(span.style))
-                }
-                return color
+        withEditor(initial) { editor ->
+            // Color-only changes need not trigger a new TextLayoutResult. Check the painted glyphs.
+            await { highlightPixelCounts().first > 0 }
+            val initialStringPixels = highlightPixelCounts().second
+            val edited = TextFieldValue("echo '\$HOME'", TextRange(7, 10), TextRange(7, 10))
+            instrumentation.runOnMainSync { editor.edit.get().invoke(edited) }
+            await {
+                val (variablePixels, stringPixels) = highlightPixelCounts()
+                variablePixels == 0 && stringPixels > initialStringPixels
             }
-            await { colorAtHome() == 0xFFD8BDF8.toInt() }
-            onUi {
-                editor.text.beginBatchEdit()
-                try {
-                    editor.text.replace(5, 6, "'")
-                    editor.text.replace(11, 12, "'")
-                } finally { editor.text.endBatchEdit() }
+            assertEquals(edited, editor.draft.get())
+            val transformed = ShellSyntaxTransformation(editor.layout.get()!!.layoutInput.text)
+                .filter(androidx.compose.ui.text.AnnotatedString(edited.text))
+            for (offset in 0..edited.text.length) {
+                assertEquals(offset, transformed.offsetMapping.originalToTransformed(offset))
+                assertEquals(offset, transformed.offsetMapping.transformedToOriginal(offset))
             }
-            await { draft.get().text == "echo '\$HOME'" && colorAtHome() == 0xFFE6C384.toInt() }
-            onUi { assertTrue(editor.canUndo()); editor.undo() }
-            await { draft.get().text == initial && colorAtHome() == 0xFFD8BDF8.toInt() }
-            onUi { assertEquals(initial, editor.text.toString()) }
+            instrumentation.runOnMainSync { editor.edit.get().invoke(TextFieldValue(initial)) }
+            await { highlightPixelCounts().first > 0 }
+            assertEquals(initial, editor.draft.get().text)
         }
     }
 
-    private fun withEditor(script: String, test: (ShellCodeEditor, AtomicReference<TextFieldValue>) -> Unit) {
-        val editor = AtomicReference<ShellCodeEditor>()
-        val draft = AtomicReference(TextFieldValue(script))
-        val ready = CountDownLatch(1)
+    private fun highlightPixelCounts(): Pair<Int, Int> {
+        val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+        return try {
+            val pixels = IntArray(screenshot.width * screenshot.height)
+            screenshot.getPixels(pixels, 0, screenshot.width, 0, 0, screenshot.width, screenshot.height)
+            val variable = Color(0xFFD8BDF8).toArgb()
+            val string = Color(0xFFE6C384).toArgb()
+            pixels.count { it == variable } to pixels.count { it == string }
+        } finally { screenshot.recycle() }
+    }
+
+    @Test fun highlightingReusesStableLinesAndPropagatesChangedHeredocState() = runBlocking {
+        val highlighter = ShellTextMate.highlighter(context)
+        val script = "echo \"\$HOME\"\ncat <<'END'\n\$HOME # literal\nEND\necho done"
+        withContext(Dispatchers.Default) {
+            val first = highlighter.highlight(script)
+            assertEquals(5, first.analyzedLines)
+            assertEquals(first.text, highlighter.highlight(script).text)
+            assertEquals(0, highlighter.highlight(script).analyzedLines)
+            val edited = script.replace("<<'END'", "<<END")
+            val next = highlighter.highlight(edited)
+            assertTrue("Stable lines are reused", next.analyzedLines < 5)
+            val offset = edited.indexOf("HOME", edited.indexOf('\n') + 1)
+            assertEquals(Color(0xFFD8BDF8), next.text.spanStyles.last { it.start <= offset && it.end > offset }.item.color)
+            val fresh = ShellTextMate.highlighter(context).highlight(edited)
+            assertEquals("Incremental and full parsing agree", fresh.text, next.text)
+            val inserted = "echo inserted\n" + edited
+            assertEquals(ShellTextMate.highlighter(context).highlight(inserted).text, highlighter.highlight(inserted).text)
+        }
+    }
+
+    private class Editor {
+        val layout = AtomicReference<TextLayoutResult>()
+        val draft = AtomicReference<TextFieldValue>()
+        val edit = AtomicReference<(TextFieldValue) -> Unit>()
+    }
+
+    private fun withEditor(script: String, test: (Editor) -> Unit) {
+        val editor = Editor()
+        editor.draft.set(TextFieldValue(script))
         ActivityScenario.launch<ToolbarCommandEditActivity>(ToolbarCommandEditActivity.intent(context)).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 DroidTheme {
                     CompositionLocalProvider(LocalTerminalMonospaceFontFamily provides FontFamily.Serif) {
-                        var value by remember { mutableStateOf(draft.get()) }
-                        ShellScriptEditor(value, { value = it; draft.set(it) }, Modifier.fillMaxSize()) {
-                            editor.set(it); ready.countDown()
-                        }
+                        var value by remember { mutableStateOf(editor.draft.get()) }
+                        val change = { draft: TextFieldValue -> value = draft; editor.draft.set(draft) }
+                        editor.edit.set(change)
+                        ShellScriptEditor(value, change, Modifier.fillMaxSize()) { editor.layout.set(it) }
                     }
                 }
             } }
-            assertTrue("Native editor was created", ready.await(5, TimeUnit.SECONDS))
-            instrumentation.waitForIdleSync()
-            test(requireNotNull(editor.get()), draft)
+            await { editor.layout.get() != null }
+            test(editor)
         }
     }
 
-    private fun onUi(block: () -> Unit) = instrumentation.runOnMainSync(block)
-    private fun await(check: () -> Boolean) {
+    private fun await(details: () -> String = { "" }, check: () -> Boolean) {
         val deadline = SystemClock.elapsedRealtime() + 8000
         while (SystemClock.elapsedRealtime() < deadline) {
             if (check()) return
             SystemClock.sleep(100)
         }
-        error("Shell grammar/styles did not reach the expected state")
+        error("Shell grammar/styles did not reach the expected state. ${details()}")
     }
 }

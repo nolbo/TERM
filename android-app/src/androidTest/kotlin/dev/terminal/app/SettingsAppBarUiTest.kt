@@ -52,12 +52,12 @@ class SettingsAppBarUiTest {
     }
 
     private fun bounds(node: AccessibilityNodeInfo) = Rect().also(node::getBoundsInScreen)
-    private fun await(condition: () -> Boolean) {
-        val deadline = SystemClock.elapsedRealtime() + 5000
+    private fun await(timeoutMillis: Long = 5000, pollMillis: Long = 50, condition: () -> Boolean) {
+        val deadline = SystemClock.elapsedRealtime() + timeoutMillis
         while (!condition()) {
             check(SystemClock.elapsedRealtime() < deadline) { "Settings app bar did not reach the expected state" }
             instrumentation.waitForIdleSync()
-            SystemClock.sleep(50)
+            SystemClock.sleep(pollMillis)
         }
     }
     private fun back(): AccessibilityNodeInfo {
@@ -174,7 +174,13 @@ class SettingsAppBarUiTest {
             } }
             await { find { it.contentDescription?.toString() == instrumentation.targetContext.getString(R.string.back) } != null }
             await { find { it.contentDescription?.toString() == viewport } != null }
-            SystemClock.sleep(1000)
+            // Window enter transitions can continue after accessibility becomes idle.
+            await(timeoutMillis = 8000, pollMillis = 250) {
+                val titleNode = find { it.text?.toString() == title } ?: return@await false
+                val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
+                try { titleBrightness(screenshot, bounds(titleNode)) >= 0xE3 }
+                finally { screenshot.recycle() }
+            }
             instrumentation.waitForIdleSync()
             val initialBack = bounds(back())
             val initialViewport = bounds(checkNotNull(find { it.contentDescription?.toString() == viewport }))

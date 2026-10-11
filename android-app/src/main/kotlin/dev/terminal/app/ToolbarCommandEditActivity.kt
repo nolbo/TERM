@@ -17,7 +17,7 @@ class ToolbarCommandEditActivity : TerminalActivity() {
         val source = if (requestedId == null) ToolbarCommand(name = "", text = "")
             else readToolbarCommands(preferences).firstOrNull { it.id == requestedId } ?: run { finish(); return }
         compose {
-            ToolbarCommandEditor(source, newItem = requestedId == null, error = error, onBack = { finish() },
+            ToolbarCommandEditor(source, error = error, onBack = { finish() },
                 onSave = { draft ->
                     val commands = readToolbarCommands(preferences)
                     when {
@@ -30,10 +30,6 @@ class ToolbarCommandEditActivity : TerminalActivity() {
                             finish()
                         }
                     }
-                }, onDelete = {
-                    preferences.edit().putString(KEY_TOOLBAR_COMMANDS,
-                        serializeToolbarCommands(readToolbarCommands(preferences).filterNot { it.id == requestedId })).apply()
-                    finish()
                 })
         }
     }

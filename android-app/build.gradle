@@ -149,9 +149,11 @@ dependencies {
     implementation 'com.materialkolor:material-color-utilities:4.0.1'
     implementation 'androidx.activity:activity-compose:1.13.0'
     implementation 'io.noties.markwon:core:4.6.2'
-    implementation 'io.github.rosemoe:editor:0.24.6'
+    // TextMate/Oniguruma are used only for parsing; the editor UI is implemented in Compose.
     implementation 'io.github.rosemoe:language-textmate:0.24.6'
     implementation 'io.github.rosemoe:oniguruma-native:0.24.6'
+    // TextMate's registry requires runtime utilities such as Sora Logger.
+    runtimeOnly 'io.github.rosemoe:editor:0.24.6'
     testImplementation 'junit:junit:4.13.2'
     testImplementation 'org.json:json:20240303'
     androidTestImplementation 'androidx.test:core:1.7.0'
