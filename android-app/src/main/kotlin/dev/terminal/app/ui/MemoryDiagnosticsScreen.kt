@@ -1,7 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package dev.terminal.app.ui
 
-import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -12,10 +11,12 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -24,6 +25,7 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.MemorySnapshot
 import dev.terminal.app.R
@@ -176,7 +178,6 @@ private fun MemoryCompositionBar(section: Int, values: List<Long?>, total: Long?
     }.joinToString(" · ")
     val state = if (composition == null) unavailable else
         stringResource(R.string.memory_composition_bar_state, memoryValue(total), details) + difference?.let { " · $it" }.orEmpty()
-    val track = MaterialTheme.colorScheme.surfaceContainerHighest
     Column(Modifier.fillMaxWidth().clearAndSetSemantics {
         contentDescription = label
         stateDescription = state
@@ -187,23 +188,48 @@ private fun MemoryCompositionBar(section: Int, values: List<Long?>, total: Long?
         if (composition == null) Text(unavailable, style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)
         else {
-            Canvas(Modifier.fillMaxWidth().height(16.dp).clip(CircleShape).background(track)) {
-                var start = 0.0
-                composition.fractions.forEachIndexed { index, fraction ->
-                    if (fraction > 0.0) {
-                        drawRect(memoryAreaColors[index], Offset((size.width * start).toFloat(), 0f),
-                            Size((size.width * fraction).toFloat(), size.height))
-                        if (start > 0.0) drawLine(track,
-                            Offset((size.width * start).toFloat(), 0f), Offset((size.width * start).toFloat(), size.height),
-                            strokeWidth = 1.dp.toPx())
-                    }
-                    start += fraction
-                }
-            }
+            MemoryCompositionProgressIndicator(composition.fractions,
+                (1.0 - composition.difference.toDouble() / requireNotNull(total)).toFloat())
             difference?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
+}
+
+@Composable
+private fun MemoryCompositionProgressIndicator(fractions: List<Double>, progress: Float) {
+    val stopColor = ProgressIndicatorDefaults.linearColor
+    val first = fractions.indexOfFirst { it > 0.0 }
+    val last = fractions.indexOfLast { it > 0.0 }
+    // Material draws the default-height track, track gap and stop indicator. Only the
+    // transparent active portion is replaced with colored, independently rounded segments.
+    LinearProgressIndicator(progress = { progress }, color = Color.Transparent,
+        modifier = Modifier.fillMaxWidth().drawWithContent {
+            drawContent()
+            val halfGap = ProgressIndicatorDefaults.LinearIndicatorTrackGapSize.toPx() / 2f
+            val radius = if (ProgressIndicatorDefaults.LinearStrokeCap == StrokeCap.Round) size.height / 2f else 0f
+            var start = 0.0
+            fractions.forEachIndexed { index, fraction ->
+                val end = start + fraction
+                if (fraction > 0.0) {
+                    val width = (size.width * fraction).toFloat()
+                    // Keep small segments inside their measured allocation; reduce the gap
+                    // instead of expanding their width or hiding them behind a fixed gap.
+                    val inset = minOf(halfGap, width / 4f)
+                    val left = (size.width * start).toFloat() + if (index == first) 0f else inset
+                    val right = (size.width * end).toFloat() - if (index == last) 0f else inset
+                    drawRoundRect(memoryAreaColors[index],
+                        topLeft = Offset(if (layoutDirection == LayoutDirection.Rtl) size.width - right else left, 0f),
+                        size = Size((right - left).coerceAtLeast(0f), size.height), cornerRadius = CornerRadius(radius))
+                }
+                start = end
+            }
+        },
+        drawStopIndicator = {
+            ProgressIndicatorDefaults.drawStopIndicator(drawScope = this,
+                stopSize = ProgressIndicatorDefaults.LinearTrackStopIndicatorSize,
+                color = stopColor, strokeCap = ProgressIndicatorDefaults.LinearStrokeCap)
+        })
 }
 
 @Composable
