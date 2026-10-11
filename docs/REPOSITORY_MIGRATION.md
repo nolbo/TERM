@@ -72,3 +72,28 @@ provides one public source, build and release location, at the cost of publishin
 the original source history and retaining legacy tags whose targets describe the
 old distribution repository. Historical release metadata still identifies the
 original source revision, now reachable from `dev`.
+
+## Verification record
+
+The final [manual Android verification run #3](https://github.com/nolbo/TERM/actions/runs/38139642499)
+passed on `05c78e4a1971b873a7a055bc03f87e33d62a11d4`, with version code `1000073`.
+It ran `:android-app:assembleDebug`, `:android-app:testDebugUnitTest`,
+`:android-runtime:testDebugUnitTest`, `:image:test`, the USB host safety gate,
+37 Python image tests and 28 update tests, then built the signed release APK.
+The APK's certificate matched the existing key above and its embedded catalog
+matched `image/catalog-approved.properties` byte for byte. Publication and
+notification jobs were skipped for this manual verification.
+
+The first two runs passed builds/tests but failed the added certificate-output
+parser. The captured `V2 Signer:` output now has regression coverage alongside
+numbered and SDK-range signer labels. The final local update suite has 29 tests,
+including the Rootless tag/draft/request arrival race and rejection of a request
+for another source commit before signing. The extra test and this record change
+no app/runtime code, so the successful canonical build is retained.
+
+GitHub metadata comparison preserved all 47 existing releases, 341 assets and
+47 published tag targets. The additional migration tag preserves the source
+tag; all 48 local tags match TERM. The archived source backup ends at the same
+verified code commit `05c78e4a1971b873a7a055bc03f87e33d62a11d4`, with Actions disabled.
+Device/UI/privileged AVF checks were not repeated because runtime code and image
+contents did not change in this consolidation.

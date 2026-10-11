@@ -50,6 +50,9 @@ the event's checked-out `GITHUB_SHA`; it never labels older checked-out source
 with a newer queued revision. Other branches and PRs are verified, not published. Manual dispatch on `dev` or
 `main` also builds and verifies a signed APK, including the installed-app signing
 identity and exact approved AVF catalog, without publishing it.
+During the repository cutover, `main` retains the former distribution tree;
+manual verification currently uses `dev`. The first explicitly authorized
+stable promotion carries the unified source and workflows onto `main`.
 
 ## Publishing
 
