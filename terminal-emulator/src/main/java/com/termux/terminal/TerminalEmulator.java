@@ -679,6 +679,8 @@ public final class TerminalEmulator implements java.io.Serializable {
     public void append(byte[] buffer, int length) {
         for (int i = 0; i < length; i++)
             processByte(buffer[i]);
+        if (isHistoryViewportOwnedByApplication()) getHistory().cancelLineEditing();
+        else getHistory().lineEditingPromptVisible(mCursorRow, mCursorCol);
         if (length > 0) getHistory().textChanged();
     }
 
@@ -825,8 +827,10 @@ public final class TerminalEmulator implements java.io.Serializable {
             case 12: // Form feed (FF, \f).
                 if (mNewlineMode) carriageReturn();
                 doLinefeed();
-                if (b == 10 && mEscapeState == ESC_NONE && !isHistoryViewportOwnedByApplication())
+                if (b == 10 && mEscapeState == ESC_NONE && !isHistoryViewportOwnedByApplication()) {
+                    getHistory().lineEditingNewline(mCursorRow, mCursorCol);
                     getHistory().echoedInputSubmitted(mCursorRow, mCursorCol);
+                }
                 break;
             case 13: // Carriage return (CR, \r).
                 carriageReturn();
@@ -1566,12 +1570,15 @@ public final class TerminalEmulator implements java.io.Serializable {
                 break;
             }
             case 2004:
-                // Bracketed paste mode - setting bit is enough.
+                if (isHistoryViewportOwnedByApplication()) getHistory().cancelLineEditing();
+                else if (setting) getHistory().lineEditingStarted(mCursorRow, mCursorCol);
+                else getHistory().lineEditingFinished(mCursorRow, mCursorCol);
                 break;
             default:
                 unknownParameter(externalBit);
                 break;
         }
+        if (isHistoryViewportOwnedByApplication()) getHistory().cancelLineEditing();
     }
 
     private void switchScreen(boolean alternate, boolean restoreMainCursor) {

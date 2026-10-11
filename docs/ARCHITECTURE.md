@@ -526,6 +526,8 @@ transcript. PTY and VM ownership remains behind the runtime controllers. See
 
 Shell command history metadata belongs to the main terminal buffer, alongside retained cells. OSC 133 prompt/input/execution/completion boundaries attach logical cell anchors, start time and completion status; command strings are derived from retained cells rather than persisted in a second history. Trim invalidates anchors before ring-row reuse; resize/reflow remaps them. The anchor graph and pending shell boundaries travel in the same host-private checkpoint, so detached sessions continue recording independently of the optional command-history toolbar tool. The tool reads the UI mirror and performs local viewport jumps; it never owns runtime subscriptions or PTYs.
 
+For Bash shells reached through `su` or SSH without OSC hooks, command history also recognizes Readline's bracketed-paste enable/disable boundaries paired with a visible shell prompt and echoed submission newline. Plain output, hidden authentication input and application-owned screens do not create fallback markers. A following primary prompt ends the previous output range; default `> ` continuation prompts extend its input range. Explicit OSC boundaries take precedence. These fallback records have an unknown exit code unless an explicit completion frame supplies one; they do not change task notifications or wake-state detection. Shells with bracketed paste disabled or unrecognized custom prompts still require OSC integration.
+
 The shared emulator and view implement bounded SIXEL and kitty graphics,
 including animation, Unicode and relative placements. Runtime PTY owners resolve
 local media into direct image bytes before UI transport; rendering never opens

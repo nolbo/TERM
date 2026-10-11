@@ -285,6 +285,118 @@ public class TerminalHistoryTest extends TerminalTestCase {
         assertEquals("actual-output", marker.getOutputText());
     }
 
+    public void testSshWithoutRemoteHooksRecordsCommandsAndExcludesAuthentication() {
+        withTerminalSized(80, 10);
+        enterString("\033]133;A\007local $ \033]133;B\007ssh server\r\n\033]133;C\007Password: \r\nWelcome\r\n");
+        assertEquals(1, markers().size());
+        assertTrue(markers().get(0).isRunning());
+        enterString("\033[?2004hremote@server:~$ ");
+        CommandMarker ssh = markers().get(0);
+        assertFalse(ssh.isRunning());
+        assertNull(ssh.getExitCode());
+        assertEquals("Password:\nWelcome", ssh.getOutputText());
+        enterString("printf value\r\n\033[?2004l\rvalue\r\n\033[?2004hremote@server:~$ ");
+        assertEquals(2, markers().size());
+        CommandMarker remote = markers().get(1);
+        assertEquals("printf value", remote.getCommandText());
+        assertEquals("value", remote.getOutputText());
+        assertFalse(remote.isRunning());
+        assertNull(remote.getExitCode());
+        assertTrue(remote.matchesCommand("printf value"));
+        assertFalse(remote.matchesCommand("remote@server"));
+        assertEquals(1, TerminalSearch.find(mTerminal.getHistory(), "printf value", TerminalSearch.Scope.COMMANDS).size());
+        enterString("exit\r\n\033[?2004l\rexit\r\n\033]133;D;0\007\033]133;A\007local $ \033]133;B\007pwd\r\n\033]133;C\007/local\r\n\033]133;D;0\007");
+        assertEquals(4, markers().size());
+        assertEquals("exit", markers().get(2).getCommandText());
+        assertEquals("pwd", markers().get(3).getCommandText());
+        assertEquals(Integer.valueOf(0), markers().get(3).getExitCode());
+    }
+
+    public void testSuAndNestedSshKeepEachUsersCommandsSeparate() {
+        withTerminalSized(80, 12);
+        enterString("\033]133;A\007user $ \033]133;B\007su - root\r\n\033]133;C\007\033[?2004hroot@local:~# ");
+        enterString("whoami\r\n\033[?2004l\rroot\r\n\033[?2004hroot@local:~# ");
+        enterString("ssh remote\r\n\033[?2004l\r\033[?2004huser@remote:~$ ");
+        enterString("id\r\n\033[?2004l\ruid=1000\r\n\033[?2004huser@remote:~$ ");
+        assertEquals(4, markers().size());
+        assertEquals("su - root", markers().get(0).getCommandText());
+        assertEquals("whoami", markers().get(1).getCommandText());
+        assertEquals("root", markers().get(1).getOutputText());
+        assertEquals("ssh remote", markers().get(2).getCommandText());
+        assertEquals("id", markers().get(3).getCommandText());
+        assertEquals("uid=1000", markers().get(3).getOutputText());
+        assertNull(markers().get(3).getExitCode());
+    }
+
+    public void testReadlineFallbackNeverDuplicatesExplicitOscBoundaries() {
+        withTerminalSized(80, 8);
+        enterString("\033]133;A\007\033[?2004hcustom prompt → \033]133;B\007false\r\n\033[?2004l\r\033]133;C\007\033]133;D;1\007\033]133;A\007\033[?2004hcustom prompt → ");
+        assertEquals(1, markers().size());
+        assertEquals("false", markers().get(0).getCommandText());
+        assertTrue(markers().get(0).isFailed());
+        assertEquals(Integer.valueOf(1), markers().get(0).getExitCode());
+        // A late explicit prompt supersedes a pending fallback candidate as well.
+        enterString("\033]133;A\007$ \033]133;B\007echo explicit\r\n\033[?2004l\r\033]133;C\007\033]133;D;0\007");
+        assertEquals(2, markers().size());
+    }
+
+    public void testReadlineFallbackRejectsPlainOutputBlankInputAndCancelledEditing() {
+        withTerminalSized(80, 12);
+        enterString("root@host:~# output that looks like a command\r\nPassword: \r\n");
+        enterString("\033[?2004hPassword: \r\n\033[?2004l\r");
+        enterString("\033[?2004h$ \r\n\033[?2004l\r");
+        enterString("\033[?2004h$ cancelled^C\033[?2004l\r\033[?2004h\033[?2004l\r\r\n");
+        enterString("\033[?2004h>>> print('REPL input')\r\n\033[?2004l\rREPL output\r\n");
+        assertTrue(markers().isEmpty());
+        enterString("\033[?2004h$ echo real\r\n\033[?2004l\r");
+        assertEquals("echo real", markers().get(0).getCommandText());
+    }
+
+    public void testReadlineMultilinePasteAndContinuationWaitForSubmission() {
+        withTerminalSized(80, 10);
+        enterString("\033[?2004h$ printf 'first\r\nsecond'\r\n");
+        assertTrue(markers().isEmpty());
+        enterString("\033[?2004l\rfirst\r\nsecond\r\n\033[?2004h$ ");
+        assertEquals("printf 'first\nsecond'", markers().get(0).getCommandInputText());
+        assertEquals("first\nsecond", markers().get(0).getOutputText());
+        enterString("printf 'one\r\n\033[?2004l\r\033[?2004h> ");
+        assertTrue(markers().get(1).isRunning());
+        enterString("two'\r\n\033[?2004l\rone\r\ntwo\r\n\033[?2004h$ ");
+        assertEquals(2, markers().size());
+        assertTrue(markers().get(1).matchesCommand("two'"));
+        assertFalse(markers().get(1).matchesOutput("two'"));
+        assertEquals("one\ntwo", markers().get(1).getOutputText());
+    }
+
+    public void testReadlinePendingInputSurvivesChunkingCheckpointAndReflow() throws Exception {
+        mTerminal = new TerminalEmulator(mOutput, 30, 8, 1, 1, 100, null);
+        enterString("\033[?2004huser@host:~");
+        enterString("$ ");
+        enterString("printf 한😀wrapped-value");
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        TerminalCheckpoint.write(mTerminal, bytes);
+        mTerminal.restoreState(TerminalCheckpoint.read(new ByteArrayInputStream(bytes.toByteArray())));
+        resize(12, 8);
+        enterString("\r\n\033[?2004");
+        enterString("l\rresult\r\n\033[?2004huser@host:~$ ");
+        assertEquals(1, markers().size());
+        assertEquals("printf 한😀wrapped-value", markers().get(0).getCommandInputText());
+        assertEquals("result", markers().get(0).getOutputText());
+        assertFalse(markers().get(0).isRunning());
+    }
+
+    public void testReadlineFallbackIgnoresApplicationOwnedScreensAndEvictedCandidates() {
+        mTerminal = new TerminalEmulator(mOutput, 20, 4, 1, 1, 100, null);
+        enterString("\033[?2004h$ stale\033[?1049h\033[?2004h$ editor\r\n\033[?2004l\033[?1049l\r\n\033[?2004l");
+        assertTrue(markers().isEmpty());
+        enterString("\033[?1000h\033[?2004h$ mouse\r\n\033[?2004l\033[?1000l");
+        assertTrue(markers().isEmpty());
+        enterString("\033[?2004h$ old input\r\n");
+        for (int i = 0; i < 150; i++) enterString("scroll\r\n");
+        enterString("\033[?2004l");
+        assertTrue(markers().isEmpty());
+    }
+
     public void testCommandContentFollowsBoundariesReflowCheckpointAndTrim() throws Exception {
         mTerminal = new TerminalEmulator(mOutput, 18, 6, 1, 1, 100, null);
         enterString("\033]133;A\007custom prompt $ printf result\r\n\033]133;C\007\033[31mfirst line\033[0m\r\n\r\nsecond 😀\r\n\033]133;D;0\007\033]133;A\007$ next prompt");

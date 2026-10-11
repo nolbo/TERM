@@ -18,6 +18,9 @@ public final class TerminalHistory implements java.io.Serializable {
     private transient List<CommandMarker> snapshot;
     private long revision;
     private boolean echoedInput;
+    private HistoryAnchor lineEditingStart;
+    private HistoryAnchor lineEditingEnd;
+    private boolean inferredRunning;
 
     TerminalHistory(TerminalBuffer buffer) { this.buffer = buffer; }
 
@@ -36,6 +39,7 @@ public final class TerminalHistory implements java.io.Serializable {
     }
 
     void promptStarted(int row, int column) {
+        cancelLineEditing();
         commandCompleted(null, row, column);
         if (prompt != null) prompt.release();
         if (inputStart != null) inputStart.release();
@@ -45,6 +49,7 @@ public final class TerminalHistory implements java.io.Serializable {
 
     void commandInputStarted(int row, int column) {
         if (running != null) return;
+        cancelLineEditing();
         if (inputStart != null) inputStart.release();
         inputStart = at(row, column);
     }
@@ -77,8 +82,70 @@ public final class TerminalHistory implements java.io.Serializable {
         echoedInput = false;
     }
 
+    // Readline enables bracketed paste before PS1 and disables it after echoed Enter.
+    // This survives su/ssh without installing hooks in another user's or server's shell.
+    // Require both that editing boundary and a visible shell prompt; plain output is inert.
+    void lineEditingStarted(int row, int column) {
+        if (lineEditingStart != null) return;
+        if (prompt == null && inputStart == null) lineEditingStart = at(row, column);
+    }
+
+    void lineEditingNewline(int row, int column) {
+        if (lineEditingStart == null) return;
+        if (lineEditingEnd != null) lineEditingEnd.release();
+        lineEditingEnd = at(row, column);
+    }
+
+    void lineEditingPromptVisible(int row, int column) {
+        String text = lineEditingStart == null ? null : readRange(lineEditingStart, row, column, 4096);
+        if (text == null || isContinuationPrompt(text)) return;
+        // Selected text trims trailing blank cells, including the space after PS1's delimiter.
+        if (LINE_EDITING_PROMPT_END.matcher(text + " ").find()) {
+            Integer start = lineEditingStart.getRow();
+            if (start != null) commandCompleted(null, start, lineEditingStart.getColumn());
+        }
+    }
+
+    void lineEditingFinished(int row, int column) {
+        if (lineEditingStart == null) return;
+        String text = readRange(lineEditingStart, lineEditingEnd, 4096);
+        Integer end = lineEditingEnd == null ? null : lineEditingEnd.getRow();
+        // Mode resets without an echoed newline include cancelled input and password prompts.
+        if (text != null && end != null && end == row && lineEditingEnd.getColumn() == column) {
+            if (isContinuationPrompt(text)) {
+                if (running != null && inferredRunning) {
+                    running.inputEnd.release();
+                    running.inputEnd = at(row, column);
+                    changed();
+                }
+            } else {
+                Matcher delimiter = LINE_EDITING_PROMPT_END.matcher(text);
+                Integer start = lineEditingStart.getRow();
+                if (start != null && delimiter.find()) {
+                    commandCompleted(null, start, lineEditingStart.getColumn());
+                    if (!text.substring(delimiter.end()).trim().isEmpty()) {
+                        int startColumn = lineEditingStart.getColumn();
+                        promptStarted(start, startColumn);
+                        commandStarted(row, column);
+                        inferredRunning = true;
+                    }
+                }
+            }
+        }
+        cancelLineEditing();
+    }
+
+    private static boolean isContinuationPrompt(String text) { return text.equals(">") || text.startsWith("> "); }
+
+    void cancelLineEditing() {
+        if (lineEditingStart != null) lineEditingStart.release();
+        if (lineEditingEnd != null) lineEditingEnd.release();
+    }
+
     void commandStarted(int row, int column) {
         if (running != null) return; // Duplicate C frames must not create phantom commands.
+        cancelLineEditing();
+        inferredRunning = false;
         HistoryAnchor anchor = prompt;
         prompt = null;
         boolean includesPrompt = inputStart == null && anchor != null;
@@ -101,6 +168,7 @@ public final class TerminalHistory implements java.io.Serializable {
         if (row >= 0) running.outputEnd = at(row, column);
         running.complete(code);
         running = null;
+        inferredRunning = false;
         changed();
     }
 
@@ -110,6 +178,8 @@ public final class TerminalHistory implements java.io.Serializable {
         if (removed != null) removed.releaseInputAnchors();
         if (anchor == prompt) prompt = null;
         if (anchor == inputStart) inputStart = null;
+        if (anchor == lineEditingStart) lineEditingStart = null;
+        if (anchor == lineEditingEnd) lineEditingEnd = null;
         changed();
     }
 
@@ -118,10 +188,14 @@ public final class TerminalHistory implements java.io.Serializable {
             if (marker.anchor.getRow() == null) marker.anchor.release();
         if (prompt != null && prompt.getRow() == null) prompt.release();
         if (inputStart != null && inputStart.getRow() == null) inputStart.release();
+        if (lineEditingStart != null && lineEditingStart.getRow() == null) lineEditingStart.release();
+        if (lineEditingEnd != null && lineEditingEnd.getRow() == null) lineEditingEnd.release();
     }
 
     // Legacy A/C producers include PS1 in the range. Standard B frames provide an exact start.
     private static final Pattern PROMPT_END = Pattern.compile("[$#❯➜>]\\s+");
+    // A bare '>' is PS2, and '>>>' belongs to Readline REPLs rather than a Bash PS1.
+    private static final Pattern LINE_EDITING_PROMPT_END = Pattern.compile("[$#❯➜]\\s+");
 
     private String readRange(HistoryAnchor first, HistoryAnchor last, int limit) {
         if (first == null || last == null) return null;
