@@ -71,42 +71,23 @@ If a proposed implementation approach conflicts with the observed repository,
 Codex may use a stronger compatible approach, but it must explain the deviation
 and still satisfy the requested outcome.
 
-## 3. Release patch notes
+## 3. Release preparation
 
-App base-version decisions MUST follow `docs/VERSIONING.md`. Assess the complete
-unreleased scope, use the highest applicable increment, and record the reason.
-Build numbers and commits alone do not trigger a base-version increase.
+Release and prerelease preparation MUST follow `docs/RELEASING.md`, including
+`docs/VERSIONING.md` for app base versions and committed Korean patch notes for
+every released artifact.
 
-Every release, including prereleases, MUST have Korean patch notes in
-`docs/release-notes/<release-id>.md`. Use the actual version or release tag as the
-release ID, including any prerelease suffix. Create the directory when preparing
-the first release under this policy.
-
-When preparing a release, Codex MUST:
-
-1. review the changes since the preceding release of the same artifact, or the
-   included scope for an initial release;
-2. write the patch notes before completing release preparation or publishing;
-3. include the release ID, release date, and affected artifacts or runtimes;
-4. focus on user-visible additions, changes, removals, and fixed bugs, including
-   security changes when they affect users;
-5. document required upgrade or migration steps, compatibility changes, and
-   known limitations when applicable;
-6. keep build commands, CI results, commit selection, implementation details,
-   and other developer-facing information out of user-facing patch notes;
-   report validation separately in the task report or an internal release record;
-7. commit the patch notes with the task-owned release changes and include their
-   path in the final report.
-
-Write each patch-note paragraph and list item on one source line. Do not wrap
-sentences manually to fit a line-width limit or insert unnecessary hard breaks.
-Use line breaks only where the Markdown structure requires them.
-
-Patch notes MUST describe changes actually included in the release, not planned
-work or an unfiltered commit log. Preserve notes for previous releases; correct
-them only when needed for accuracy. A release task is incomplete without its
-patch notes. This requirement does not itself authorize tagging, pushing, or
-publishing; the Git policy and user-requested scope still apply.
+A direct user request to deploy or publish a release or prerelease includes
+required supporting-image work. Codex MUST assess the complete unreleased scope
+against the currently approved images. When an app release requires a new
+image, complete image production, verification, publication, default-catalog
+promotion and inclusion in the released APK under `docs/IMAGE_RELEASE.md`, without
+asking for separate image approval. An app release is incomplete if required image
+changes exist only in source or are absent from the APK's approved catalog.
+Reuse a verified candidate only when it includes all required image changes.
+Preserve installed environments and document image-transition requirements;
+this policy does not authorize overwriting existing user environments.
+Tagging, pushes, publication destinations and history remain subject to Section 10.
 
 ## 4. Context and usage-limit discipline
 
@@ -421,12 +402,14 @@ The worktree may contain user or previous-session changes.
 - Commit task-owned changes on `dev`. Do not develop or commit directly on
   `main`, or create another working branch, unless the user explicitly changes
   this policy. Merging or publishing `dev` still requires explicit authorization.
-- A direct user request to deploy or publish a prerelease explicitly authorizes
-  the required normal fast-forward push of release and supporting commits to
-  `origin/dev`, execution of the repository's signing/publication CI, and
-  publication to the configured prerelease distribution destination. Do not ask
-  for separate push or publication confirmation within that scope. This does
-  not authorize a `main` merge, stable release, or history rewrite.
+- A direct user request to deploy or publish a release or prerelease explicitly
+  authorizes the required normal fast-forward push of release and supporting
+  commits to `origin/dev`, execution of the repository's signing/publication CI,
+  and publication to the configured destination for the requested channel,
+  including required supporting images. Do not ask for separate push, image or
+  publication confirmation within that scope. A prerelease request does not
+  authorize stable publication. Neither request authorizes a `main` merge or
+  history rewrite.
 - Preserve unrelated changes.
 - Do not reset, checkout, clean, stash, or overwrite them.
 - Do not use destructive Git operations.
@@ -478,6 +461,7 @@ Read only the documents relevant to the task:
 | AVF platform and image constraints | docs/AVF_NOTES.md |
 | privileged deployment | docs/DEPLOYMENT.md |
 | image publication | docs/IMAGE_RELEASE.md |
+| release preparation and required image updates | docs/RELEASING.md |
 | app version promotion criteria | docs/VERSIONING.md |
 | per-release patch notes | `docs/release-notes/` (one `<release-id>.md` per release) |
 | UI composition and settings extension guidelines | docs/DESIGN.md |
@@ -503,7 +487,9 @@ A task is complete only when:
 - appropriate validation has passed or an evidenced limitation is stated;
 - the diff contains no accidental or unrelated changes;
 - relevant documentation is consistent;
-- for a release task, patch notes exist and match the released scope.
+- for a release task, patch notes exist and match the released scope;
+- for an app release task, required images are published and the released APK
+  embeds their verified approved catalog.
 
 These bullets are also a mandatory stop condition. When they are satisfied, stop
 inspecting, testing, researching, or improving unrelated code and write the final
