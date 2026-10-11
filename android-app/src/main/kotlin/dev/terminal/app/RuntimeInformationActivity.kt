@@ -11,6 +11,7 @@ import dev.terminal.runtime.lifecycle.VmRuntimeService
 
 /** Read-only screens bind while visible; leaving never stops a runtime or session. */
 abstract class RuntimeInformationActivity : TerminalActivity() {
+    protected open val createServiceOnBind: Boolean = true
     protected var runtime: IRuntimeService? = null
         private set
     private var bindingRequested = false
@@ -35,9 +36,15 @@ abstract class RuntimeInformationActivity : TerminalActivity() {
         super.onStart()
         if (isFinishing) return
         activityStarted = true
-        bindingRequested = runCatching {
-            bindService(Intent(this, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE)
-        }.getOrDefault(false)
+        // Android requires releasing the connection even when bindService returns false.
+        bindingRequested = true
+        runCatching {
+            bindService(Intent(this, VmRuntimeService::class.java), connection,
+                if (createServiceOnBind) Context.BIND_AUTO_CREATE else 0)
+        }.onFailure {
+            runCatching { unbindService(connection) }
+            bindingRequested = false
+        }
     }
 
     override fun onStop() {

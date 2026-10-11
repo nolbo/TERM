@@ -500,6 +500,7 @@ class ToolbarUiTest {
         var terminated: String? = null
         var newClicks = 0
         var settingsClicks = 0
+        var informationSession: String? = null
         val sessions = listOf(SessionUi("first", "NATIVE", "First shell", "RUNNING"),
             SessionUi("second", "ROOTLESS", "Second shell", "RUNNING"))
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -509,7 +510,7 @@ class ToolbarUiTest {
                         ToolbarSessionsTool(sessions, selected.value, true, emptySet(), emptyList(),
                             {}, {}, false, { selected.value = it }, { renamed = it.id },
                             { terminated = it.id }, { newClicks++ }, {}, { settingsClicks++ },
-                            TerminalChromeColors(Color.Black))
+                            TerminalChromeColors(Color.Black), onInfo = { informationSession = it.id })
                     }
                 } }
             } }
@@ -535,6 +536,10 @@ class ToolbarUiTest {
             assertNull("Opening the menu must not rename the session", renamed)
             click(text(label(R.string.rename_session_action)))
             assertEquals("first", renamed)
+            click(description(context.getString(R.string.workspace_session_menu, "First shell")))
+            click(text(label(R.string.session_info_title)))
+            assertEquals("first", informationSession)
+            assertEquals("first", selected.value)
             click(tabText("Second shell"))
             assertEquals("second", selected.value)
             assertNull(find { it.contentDescription?.toString() ==
@@ -1231,7 +1236,7 @@ class ToolbarUiTest {
     }
 
     @Test fun defaultHeightStaysFixedWhenPagingBetweenSessionsAndOtherTools() {
-        val tools = listOf(SESSIONS_TOOL, HOTKEY_TOOL, MEMORY_TOOL, HISTORY_TOOL)
+        val tools = listOf(SESSIONS_TOOL, HOTKEY_TOOL, HISTORY_TOOL)
         val mode = mutableStateOf(ToolbarSheetMode.Default)
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
@@ -1270,7 +1275,7 @@ class ToolbarUiTest {
     @Test fun emptyWorkspaceForcesSessionsToolAndRestoresPagingWhenOccupied() {
         val sessionsEmpty = mutableStateOf(false)
         val mode = mutableStateOf(ToolbarSheetMode.Default)
-        val savedConfig = ToolbarConfig(tools = listOf(SESSIONS_TOOL, MEMORY_TOOL))
+        val savedConfig = ToolbarConfig(tools = listOf(SESSIONS_TOOL, HISTORY_TOOL))
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 DroidTheme { TerminalHapticFeedbackProvider {
@@ -1289,7 +1294,7 @@ class ToolbarUiTest {
             fun nextTool() = swipe(page.left + page.width() * 0.8f,
                 page.exactCenterY(), -page.width() * 0.65f)
             nextTool()
-            text("$MEMORY_TOOL page")
+            text("$HISTORY_TOOL page")
             scenario.onActivity { sessionsEmpty.value = true }
             settle()
             text("$SESSIONS_TOOL page")
@@ -1297,16 +1302,16 @@ class ToolbarUiTest {
                 action(label(size))
                 nextTool()
                 assertNull("An empty Workspace must not expose other tools",
-                    find { it.text?.toString() == "$MEMORY_TOOL page" })
+                    find { it.text?.toString() == "$HISTORY_TOOL page" })
                 text("$SESSIONS_TOOL page")
             }
             assertEquals("The restriction preserves the saved tool list",
-                listOf(SESSIONS_TOOL, MEMORY_TOOL), savedConfig.tools)
+                listOf(SESSIONS_TOOL, HISTORY_TOOL), savedConfig.tools)
             action(label(R.string.toolbar_default))
             scenario.onActivity { sessionsEmpty.value = false }
             settle()
             nextTool()
-            text("$MEMORY_TOOL page")
+            text("$HISTORY_TOOL page")
         }
     }
 
@@ -1475,160 +1480,10 @@ class ToolbarUiTest {
         }
     }
 
-    @Test fun defaultMemoryToolbarUsesTwoKeyRowsAndScrollsToSession() {
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.onActivity { activity -> activity.setContent {
-                DroidTheme { TerminalHapticFeedbackProvider {
-                    Column(Modifier.fillMaxSize()) {
-                        Spacer(Modifier.weight(1f))
-                        TerminalToolbar(ToolbarConfig(tools = listOf(MEMORY_TOOL)), ToolbarSheetMode.Default,
-                            {}, 240.dp, TerminalChromeColors(Color.Black)) { _, active ->
-                            ToolbarMemoryTool(active, listOf(SessionUi("one", "NATIVE", "Visible session", "RUNNING")),
-                                30, {}, sections = MemoryToolSections(app = false)) { """{"totalBytes":1048576,"availableBytes":524288,"sessions":{"one":1024}}""" }
-                        }
-                    }
-                } }
-            } }
-            settle()
-            assertNull(find { it.text?.toString() == label(R.string.toolbar_memory) })
-            text(label(R.string.toolbar_memory_device))
-            val density = context.resources.displayMetrics.density
-            val handleBottom = bounds(handle()).bottom
-            val viewport = waitForNode("memory scroll viewport") { it.isScrollable }
-            assertEquals(92f * density, bounds(viewport).height().toFloat(), 1f)
-            assertTrue(bounds(viewport).bottom <= handleBottom + 92 * density + 1)
-            val area = bounds(viewport)
-            drag(area.exactCenterX(), area.bottom - 8 * density, 0f, -72 * density)
-            val session = text("Visible session")
-            var row = session
-            while (!row.isClickable && row.parent != null) row = row.parent
-            assertTrue(row.isClickable)
-            assertTrue("Session row is fully reachable by scrolling", bounds(row).height() >= 48 * density)
-        }
-    }
-
-    @Test fun memoryCardsAndSessionRowsFollowChangingToolbarColors() {
-        val colors = mutableStateOf(TerminalChromeColors(Color(0xFF123456)))
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.onActivity { activity -> activity.setContent {
-                DroidTheme { TerminalHapticFeedbackProvider {
-                    Column(Modifier.fillMaxSize()) {
-                        Spacer(Modifier.weight(1f))
-                        TerminalToolbar(ToolbarConfig(tools = listOf(MEMORY_TOOL)), ToolbarSheetMode.Expanded,
-                            {}, 400.dp, colors.value) { _, active ->
-                            ToolbarMemoryTool(active, listOf(SessionUi("one", "NATIVE", "Color session", "RUNNING")),
-                                30, {}) { """{"totalBytes":1048576,"availableBytes":524288,"sessions":{"one":1024}}""" }
-                        }
-                    }
-                } }
-            } }
-            fun assertContainer(title: String) {
-                val expected = colors.value.container.toArgb()
-                val deadline = SystemClock.elapsedRealtime() + 8000
-                var actual: Int
-                // Enter/color transitions can continue after accessibility becomes idle.
-                do {
-                    val area = bounds(text(title))
-                    val screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
-                    actual = try {
-                        // Blank inset avoids text and progress pixels inside each rounded container.
-                        val x = (16 * context.resources.displayMetrics.density).toInt()
-                        screenshot.getPixel(x, area.centerY())
-                    } finally { screenshot.recycle() }
-                    if (actual != expected) SystemClock.sleep(250)
-                } while (actual != expected && SystemClock.elapsedRealtime() < deadline)
-                assertEquals(title, expected, actual)
-            }
-            for (background in listOf(Color(0xFF123456), Color(0xFFF0E0D0))) {
-                scenario.onActivity { colors.value = TerminalChromeColors(background) }
-                settle()
-                assertContainer(label(R.string.toolbar_memory_device))
-                assertContainer(label(R.string.toolbar_memory_app))
-                assertContainer("Color session")
-            }
-        }
-    }
-
-    @Test fun memorySectionsSettingsPersistIndependently() {
-        val prefs = context.getSharedPreferences("memory-section-test", 0)
-        prefs.edit().clear().commit()
-        try {
-            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-                scenario.onActivity { activity -> activity.setContent {
-                    DroidTheme { TerminalHapticFeedbackProvider { ToolbarToolSettings("toolbar-memory", prefs, {}) } }
-                } }
-                settle()
-                assertEquals(MemoryToolSections(), readMemoryToolSections(prefs))
-                click(text(label(R.string.toolbar_memory_device)))
-                assertEquals(MemoryToolSections(device = false), readMemoryToolSections(prefs))
-                click(text(label(R.string.toolbar_memory_app)))
-                click(text(label(R.string.toolbar_memory_sessions)))
-                assertFalse(readMemoryToolSections(prefs).any)
-                scenario.recreate()
-                settle()
-                assertFalse(readMemoryToolSections(prefs).any)
-            }
-        } finally { prefs.edit().clear().commit() }
-    }
-
-    @Test fun appMemoryDetailsCanBeShownWithoutDeviceOrSessions() {
-        val sections = mutableStateOf(MemoryToolSections(device = false, sessions = false))
-        val loads = java.util.concurrent.atomic.AtomicInteger()
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.onActivity { activity -> activity.setContent {
-                DroidTheme { TerminalHapticFeedbackProvider {
-                    ToolbarMemoryTool(true, listOf(SessionUi("one", "NATIVE", "Hidden session", "RUNNING")),
-                        2, {}, sections = sections.value) {
-                        loads.incrementAndGet()
-                        """{"appMemory":{"total":1048576,"java-heap":524288,"native-heap":262144,"code":65536,"stack":65536,"graphics":0,"private-other":0,"system":131072}}"""
-                    }
-                } }
-            } }
-            settle()
-            text(label(R.string.toolbar_memory_app))
-            text(label(R.string.toolbar_memory_java))
-            text(label(R.string.toolbar_memory_shared))
-            assertNull(find { it.text?.toString() == "Hidden session" })
-            scenario.onActivity { sections.value = MemoryToolSections(false, false, false) }
-            settle()
-            text(label(R.string.toolbar_memory_none))
-            val count = loads.get()
-            SystemClock.sleep(2200)
-            assertEquals(count, loads.get())
-        }
-    }
-
-    @Test fun memoryRowsSelectSessionAndDisableWhenInactive() {
-        var selected: String? = null
-        val active = mutableStateOf(true)
-        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
-            scenario.onActivity { activity ->
-                activity.setContent { DroidTheme { TerminalHapticFeedbackProvider {
-                    ToolbarMemoryTool(active.value,
-                        listOf(SessionUi("first", "NATIVE", "First session", "RUNNING"),
-                            SessionUi("second", "AVF", "Second session", "RUNNING")), 30,
-                        onSelectSession = { selected = it }) {
-                        """{"totalBytes":1048576,"availableBytes":524288,"sessions":{"first":1024,"second":null}}"""
-                    }
-                } } }
-            }
-            settle()
-            assertNull(find { it.text?.toString() == label(R.string.toolbar_memory_caveat) })
-            click(text("Second session"))
-            assertEquals("second", selected)
-            click(text("First session"))
-            assertEquals("first", selected)
-            scenario.onActivity { active.value = false; selected = null }
-            settle()
-            click(text("Second session"))
-            assertNull(selected)
-        }
-    }
-
     @Test fun removedCommandSetsAreAbsentFromToolbarSettingsAndSearch() {
         val prefs = context.getSharedPreferences("removed-command-tool-test", 0)
-        val legacy = ToolbarConfig(false, listOf(MEMORY_TOOL, "commands", HISTORY_TOOL, SESSIONS_TOOL, HOTKEY_TOOL))
-        val expected = legacy.copy(tools = listOf(MEMORY_TOOL, HISTORY_TOOL, SESSIONS_TOOL, HOTKEY_TOOL))
+        val legacy = ToolbarConfig(false, listOf("memory", "commands", HISTORY_TOOL, SESSIONS_TOOL, HOTKEY_TOOL))
+        val expected = legacy.copy(tools = listOf(HISTORY_TOOL, SESSIONS_TOOL, HOTKEY_TOOL))
         prefs.edit().clear().putString(KEY_TOOLBAR, serializeToolbarConfig(legacy))
             .putString("toolbar-commands-v1", "legacy command data").commit()
         try {
@@ -1642,12 +1497,11 @@ class ToolbarUiTest {
                     DroidTheme { TerminalHapticFeedbackProvider { ToolbarSettings(prefs, {}) {} } }
                 } }
                 settle()
-                text(label(R.string.toolbar_memory))
                 text(label(R.string.toolbar_history))
                 text(label(R.string.toolbar_sessions))
                 text(label(R.string.settings_hotkeys_title))
                 click(description(label(R.string.toolbar_edit)))
-                description(context.getString(R.string.toolbar_remove, label(R.string.toolbar_memory)))
+                description(context.getString(R.string.toolbar_remove, label(R.string.toolbar_history)))
                 assertNull(find {
                     val value = it.text?.toString().orEmpty() + it.contentDescription?.toString().orEmpty()
                     value.contains("명령어셋") || value.contains("Command sets")

@@ -636,16 +636,15 @@ class VmRuntimeService : Service() {
             return runCatching { deleteEnvironment(environmentForStorage(requireNotNull(SessionRuntime.fromWireName(runtimeType)), storageId).id.value) }
                 .getOrElse { it.userMessage() }
         }
-        override fun getSessionMemoryJson(): String {
+        override fun getSessionMemoryJson(sessionId: String): String {
             enforceHostToolUi()
-            val info = android.app.ActivityManager.MemoryInfo()
-            (getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager).getMemoryInfo(info)
-            val measured = (sessionClient as? UnifiedSessionRegistry)?.sessionMemory().orEmpty()
-            return JSONObject().put("totalBytes", info.totalMem).put("availableBytes", info.availMem)
-                .put("runtimeAppMemory", dev.terminal.runtime.session.currentAppProcessMemory() ?: JSONObject.NULL)
-                .put("sessions", JSONObject().apply {
-                    measured.forEach { (id, bytes) -> put(id, bytes ?: JSONObject.NULL) }
-                }).toString()
+            val measured = (sessionClient as? UnifiedSessionRegistry)?.sessionMemory(sessionId)
+            return JSONObject().put("rssBytes", measured?.get(sessionId) ?: JSONObject.NULL).toString()
+        }
+
+        override fun getRuntimeAppMemoryJson(): String {
+            enforceHostToolUi()
+            return (dev.terminal.runtime.session.currentAppProcessMemory() ?: JSONObject()).toString()
         }
         override fun getUsbStateJson(): String = usbBroker.state()
         override fun getHostToolOperationsJson(): String { enforceHostToolUi(); return usbBroker.iphoneTools.hostState() }
@@ -1040,8 +1039,7 @@ class VmRuntimeService : Service() {
         override fun getUserspaceLinuxSettingsJson(): String {
             enforceHostToolUi()
             val policy = dev.terminal.runtime.rootless.RootlessDnsStore(applicationContext).policy()
-            return JSONObject().put("dnsMode", policy.mode).put("dnsServers", policy.servers.joinToString("\n"))
-                .put("engine", dev.terminal.runtime.rootless.RootlessEngineInfo.inspect(applicationContext).toJson()).toString()
+            return JSONObject().put("dnsMode", policy.mode).put("dnsServers", policy.servers.joinToString("\n")).toString()
         }
 
         override fun setUserspaceLinuxDns(mode: String, servers: String): String {

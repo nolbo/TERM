@@ -70,7 +70,7 @@ class NativeSessionController(
         )
         val transport = KittyGraphicsTransport(media)
         val argv = dev.terminal.runtime.session.SessionCommand.decode(env)
-        val command = argv?.first() ?: shell.takeIf { it.startsWith('/') && File(it).canExecute() } ?: "/system/bin/sh"
+        val command = argv?.first() ?: shell.takeIf { it.startsWith('/') && File(it).canExecute() } ?: DEFAULT_NATIVE_SHELL
         val loginShell = env["DROID_LOGIN_SHELL"]?.toBooleanStrictOrNull() ?: true
         require(cwd.isEmpty() || (cwd.startsWith('/') && File(cwd).isDirectory)) { "Working directory does not exist: $cwd" }
         val capabilities = hostEnvironment(id)

@@ -211,8 +211,8 @@ class UserspaceLinuxSettingsTest {
     }
 
     @Test fun runtimeInformationIsReadOnly() {
-        launch(UserspaceLinuxSettingsActivity.INFO).use {
-            waitFor { it.text?.toString() == context.getString(R.string.userspace_loader) }
+        ActivityScenario.launch(UserspaceLinuxDiagnosticsActivity::class.java).use {
+            waitFor(scroll = true) { it.text?.toString() == context.getString(R.string.userspace_loader) }
             assertNotNull(find { it.text?.toString() == context.getString(R.string.userspace_faststat) })
             assertNull(find { it.className == "android.widget.Switch" || it.isEditable })
         }

@@ -3,7 +3,6 @@ package dev.terminal.runtime.avf.system
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
-import android.system.virtualmachine.VirtualMachineCustomImageConfig
 import dev.terminal.runtime.api.RuntimeBackend
 import dev.terminal.runtime.avf.AvfBackend
 
@@ -21,7 +20,7 @@ object AospAvfRuntime {
         return requireAvfPlatformApi {
             // Configuration allocation is side-effect free: check access before the
             // runtime owner enqueues a multi-gigabyte image download or creates a VM.
-            VirtualMachineCustomImageConfig.Builder()
+            avfCustomImageBuilder()
             AvfBackend(AospAvfPlatformDriver(context))
         }
     }

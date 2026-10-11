@@ -62,7 +62,6 @@ import androidx.core.view.WindowInsetsCompat
 import com.termux.view.TerminalView
 import dev.terminal.app.ui.TerminalToolbar
 import dev.terminal.app.ui.ToolbarHotkeys
-import dev.terminal.app.ui.ToolbarMemoryTool
 import dev.terminal.app.ui.ToolbarHistoryTool
 import androidx.compose.foundation.layout.BoxWithConstraints
 import dev.terminal.app.ui.RootlessSetupDialog
@@ -287,8 +286,6 @@ class MainActivity : TerminalActivity() {
     private var rootlessError by mutableStateOf<String?>(null)
     private var hotkeyLayout by mutableStateOf(HotkeyLayout())
     private var toolbarConfig by mutableStateOf(ToolbarConfig())
-    private var toolbarMemoryInterval by mutableStateOf(5)
-    private var toolbarMemorySections by mutableStateOf(MemoryToolSections())
     private var controlPressed by mutableStateOf(false)
     private var altPressed by mutableStateOf(false)
     private var shiftPressed by mutableStateOf(false)
@@ -629,8 +626,6 @@ class MainActivity : TerminalActivity() {
         followTuiBackground = preferences.getBoolean(TerminalAppearance.KEY_FOLLOW_TUI_BACKGROUND, false)
         hotkeyLayout = readHotkeyLayout(preferences)
         toolbarConfig = readToolbarConfig(preferences)
-        toolbarMemoryInterval = preferences.getInt("toolbar-memory-interval", 5)
-        toolbarMemorySections = readMemoryToolSections(preferences)
         refreshProfiles()
         refreshWorkspaces()
         terminalPaddingDp = TerminalAppearance.paddingDp(preferences)
@@ -897,20 +892,8 @@ class MainActivity : TerminalActivity() {
                                     onDeleteEmptyTemporaryWorkspace = ::deleteEmptyTemporaryWorkspace,
                                     workspaceSessionStateKnown = runtime != null && workspaceSessionStateKnown,
                                     onRunWorkspaceStartups = ::runWorkspaceStartups,
+                                    onInfo = { startActivity(SessionInfoActivity.intent(this@MainActivity, it.id, it.title)) },
                                 )
-                                MEMORY_TOOL -> ToolbarMemoryTool(active, visibleSessions, toolbarMemoryInterval,
-                                    onSelectSession = { id ->
-                                        attach(id)
-                                        if (sessions.none { it.id == id && it.pendingLaunch }) requestTerminalKeyboard()
-                                    }, sections = toolbarMemorySections) {
-                                    runtime?.sessionMemoryJson?.let { raw ->
-                                        org.json.JSONObject(raw).apply {
-                                            if (toolbarMemorySections.app) put("appMemory", combineAppMemory(
-                                                dev.terminal.runtime.session.currentAppProcessMemory(),
-                                                optJSONObject("runtimeAppMemory")) ?: org.json.JSONObject.NULL)
-                                        }.toString()
-                                    }
-                                }
                                 HISTORY_TOOL -> ToolbarHistoryTool(active, onReturnToTerminal = ::requestTerminalKeyboard, terminal = {
                                     terminalView?.takeIf {
                                         activeSessionId == toolbarSessionId &&

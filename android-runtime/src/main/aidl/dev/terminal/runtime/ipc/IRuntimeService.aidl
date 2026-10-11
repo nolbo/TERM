@@ -53,7 +53,7 @@ interface IRuntimeService {
     void cancelHostToolOperation(String operationId);
     void migrateRootlessToNative(String runtimeType);
     void setSessionTaskNotifications(boolean enabled);
-    String getSessionMemoryJson();
+    String getSessionMemoryJson(String sessionId);
     String renameStorage(String runtimeType, String storageId, String name);
     String measureStorageUsageJson(String runtimeType, String storageId);
     void createSessionFromSpecWithRequestId(String launchSpecJson, String requestId, int rows, int cols);
@@ -93,4 +93,5 @@ interface IRuntimeService {
     String reorderWorkspaces(String workspaceIdsJson);
     String deleteEmptyTemporaryWorkspace(String workspaceId);
     String setEnvironmentInternalStorageAccess(String environmentId, boolean enabled);
+    String getRuntimeAppMemoryJson();
 }

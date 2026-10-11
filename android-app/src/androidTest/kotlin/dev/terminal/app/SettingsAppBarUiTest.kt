@@ -26,7 +26,7 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.terminal.app.ui.DroidTheme
-import dev.terminal.app.ui.DiagnosticsAndReportsScreen
+import dev.terminal.app.ui.NativeDiagnosticsScreen
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalHapticFeedbackProvider
 import org.junit.Assert.*
@@ -122,17 +122,10 @@ class SettingsAppBarUiTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 DroidTheme { TerminalHapticFeedbackProvider {
-                    DiagnosticsAndReportsScreen(
-                        onBack = {},
-                        diagnostics = RuntimeDiagnostics("READY", "Long diagnostic detail\n".repeat(100),
-                            "Fixture image", "BATTERY_OPTIMIZED", 1),
-                        diagnosticsUnavailable = false,
-                        reports = emptyList(),
-                        reportsLoading = false,
-                        reportsError = null,
-                        onRefresh = { refreshes++ },
-                        onOpenReport = {},
-                        sectionIndex = 0,
+                    NativeDiagnosticsScreen(
+                        info = dev.terminal.runtime.native.NativeCompatibility(true, true, "/system/bin/sh",
+                            backendError = "Long diagnostic detail\n".repeat(100)),
+                        loading = false, onBack = {}, onRefresh = { refreshes++ },
                     )
                 } }
             } }
@@ -145,7 +138,7 @@ class SettingsAppBarUiTest {
             val initialBack = bounds(back())
             val screen = bounds(instrumentation.uiAutomation.rootInActiveWindow)
             touch(screen.exactCenterX(), screen.height() * 0.8f, screen.height() * 0.25f)
-            assertNull(find { it.text?.toString() == context.getString(R.string.settings_diagnostics_title) })
+            assertNull(find { it.text?.toString() == context.getString(R.string.runtime_native_title) })
             assertEquals(initialBack, bounds(back()))
             assertNull("Refresh scrolls with the content", find { it.text?.toString() == context.getString(R.string.refresh) })
         }

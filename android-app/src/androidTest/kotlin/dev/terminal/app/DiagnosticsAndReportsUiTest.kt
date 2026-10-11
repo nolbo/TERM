@@ -49,7 +49,7 @@ class DiagnosticsAndReportsUiTest {
         assertTrue(requireNotNull(current).performAction(AccessibilityNodeInfo.ACTION_CLICK))
     }
 
-    @Test fun settingsSearchOpensCommonDiagnosticsWithoutForwardedPorts() {
+    @Test fun settingsSearchOpensMenuAndEachDestinationUsesAnIndependentActivity() {
         ActivityScenario.launch(SettingsActivity::class.java).use {
             val input = waitFor { it.isEditable }
             assertTrue(input.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
@@ -57,15 +57,80 @@ class DiagnosticsAndReportsUiTest {
                     context.getString(R.string.settings_diagnostics_title))
             }))
             click(waitFor { !it.isEditable && it.text?.toString() == context.getString(R.string.settings_diagnostics_title) })
-            listOf(R.string.diagnostics_state_title, R.string.diagnostics_detail_title,
-                R.string.diagnostics_image_title, R.string.wake_policy, R.string.diagnostics_sessions_title).forEach { title ->
-                val row = waitFor(scroll = true) { it.text?.toString() == context.getString(title) }
-                assertFalse("Diagnostic information has no click action", row.isClickable)
+            dev.terminal.app.ui.diagnosticMenu.forEach { (destination, title) ->
+                val activityClass = requireNotNull(diagnosticsDestination(destination))
+                val monitor = instrumentation.addMonitor(activityClass.name, null, false)
+                try {
+                    click(waitFor(scroll = true) { it.text?.toString() == context.getString(title) })
+                    val child = monitor.waitForActivityWithTimeout(5000)
+                    assertNotNull("Independent activity for $destination", child)
+                    assertEquals(activityClass, child.javaClass)
+                    instrumentation.runOnMainSync { (child as androidx.activity.ComponentActivity).onBackPressedDispatcher.onBackPressed() }
+                } finally { instrumentation.removeMonitor(monitor) }
+                waitFor { it.text?.toString() == context.getString(R.string.settings_diagnostics_title) }
             }
-            assertNull(find { it.text?.toString() in setOf(context.getString(R.string.diagnostics_ports),
-                context.getString(R.string.forwarded_ports_title)) })
-            waitFor(scroll = true) { it.text?.toString() == context.getString(R.string.crash_reports_title) }
+            assertNull(find { it.text?.toString() == context.getString(R.string.forwarded_ports_title) })
         }
+    }
+
+    @Test fun nativeAndUserspaceDiagnosticsReflectDeviceAndPackagedEngine() {
+        ActivityScenario.launch(NativeDiagnosticsActivity::class.java).use { scenario ->
+            val deadline = SystemClock.elapsedRealtime() + 5000
+            var info: dev.terminal.runtime.native.NativeCompatibility? = null
+            while (info == null && SystemClock.elapsedRealtime() < deadline) {
+                scenario.onActivity { info = it.information }; SystemClock.sleep(50)
+            }
+            val observed = requireNotNull(info)
+            assertEquals(java.io.File(dev.terminal.runtime.native.DEFAULT_NATIVE_SHELL).isFile,
+                observed.shellPath != null)
+            assertTrue(observed.backendAvailable == true)
+            assertTrue(observed.shellExecutable == true)
+            val row = waitFor { it.text?.toString() == context.getString(R.string.native_default_shell) }
+            assertFalse(row.isClickable)
+        }
+        val expected = dev.terminal.runtime.rootless.RootlessEngineInfo.inspect(context)
+        ActivityScenario.launch(UserspaceLinuxDiagnosticsActivity::class.java).use { scenario ->
+            val deadline = SystemClock.elapsedRealtime() + 5000
+            var info: dev.terminal.runtime.rootless.RootlessEngineInfo? = null
+            while (info == null && SystemClock.elapsedRealtime() < deadline) {
+                scenario.onActivity { info = it.information }; SystemClock.sleep(50)
+            }
+            assertEquals(expected, info)
+            waitFor { it.text?.toString() == context.getString(R.string.userspace_proot) }
+            assertNull(find { it.isEditable || it.className == "android.widget.Switch" })
+        }
+    }
+
+    @Test fun unsupportedAvfIsSafeAndDoesNotCreateRuntimeOrVmFiles() {
+        val processManager = context.getSystemService(android.app.ActivityManager::class.java)
+        fun vmhostRunning() = processManager.runningAppProcesses.orEmpty().any { it.processName == context.packageName + ":vmhost" }
+        fun artifacts() = listOf("vm", "shared-vms").associateWith { name ->
+            File(context.filesDir, name).listFiles()?.map { it.name }?.toSet().orEmpty()
+        }
+        val processBefore = vmhostRunning()
+        val filesBefore = artifacts()
+        ActivityScenario.launch(AvfLinuxDiagnosticsActivity::class.java).use { scenario ->
+            var info: dev.terminal.runtime.avf.system.AvfDiagnostics? = null
+            val deadline = SystemClock.elapsedRealtime() + 5000
+            while (info == null && SystemClock.elapsedRealtime() < deadline) {
+                scenario.onActivity { info = it.information }; SystemClock.sleep(50)
+            }
+            val result = requireNotNull(info)
+            assertEquals(7, result.checks.size)
+            val feature = context.packageManager.hasSystemFeature("android.software.virtualization_framework")
+            val check = result.checks.single { it.condition == dev.terminal.runtime.avf.system.AvfCondition.SYSTEM_FEATURE }
+            assertEquals(if (feature) dev.terminal.runtime.avf.system.AvfCheckStatus.SATISFIED
+                else dev.terminal.runtime.avf.system.AvfCheckStatus.UNSATISFIED, check.status)
+            if (!feature || !SessionProfiles(context).hasAvfPrivileges()) {
+                assertEquals(dev.terminal.runtime.avf.system.AvfCheckStatus.UNSATISFIED, result.status)
+                assertEquals(dev.terminal.runtime.avf.system.AvfCheckStatus.UNKNOWN,
+                    result.checks.single { it.condition == dev.terminal.runtime.avf.system.AvfCondition.CUSTOM_IMAGE_API }.status)
+            }
+            scenario.recreate()
+            waitFor { it.text?.toString() == context.getString(R.string.avf_overall) }
+        }
+        assertEquals(processBefore, vmhostRunning())
+        assertEquals(filesBefore, artifacts())
     }
 
     @Test fun reportsRetainIndependentDetailsAfterCopyCloseAndScreenRecreation() {
@@ -79,7 +144,7 @@ class DiagnosticsAndReportsUiTest {
             "First fixture $marker", timestamp + 1)
         val second = store.record("second fixture stack $marker", "Second fixture $marker", timestamp)
         try {
-            ActivityScenario.launch(DiagnosticsActivity::class.java).use { scenario ->
+            ActivityScenario.launch(CrashReportsActivity::class.java).use { scenario ->
                 waitFor(scroll = true) { it.text?.toString() == first.summary }
                 scenario.recreate()
                 click(waitFor(scroll = true) { it.text?.toString() == first.summary })

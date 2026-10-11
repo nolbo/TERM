@@ -65,10 +65,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.sp
 import androidx.core.view.WindowCompat
 import dev.terminal.app.R
-import dev.terminal.app.CrashReport
-import dev.terminal.app.CrashReportStore
 import dev.terminal.app.ProfileSection
-import dev.terminal.app.RuntimeDiagnostics
 import kotlinx.coroutines.launch
 
 internal val TerminalDarkColors = darkColorScheme(
@@ -822,128 +819,6 @@ private fun SettingsOverviewRow(destination: LocalizedSettingsEntry, onOpen: (Se
         colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         modifier = Modifier.fillMaxWidth().heightIn(min = 72.dp),
     ) { Text(destination.title) }
-}
-
-@Composable
-internal fun DiagnosticsAndReportsScreen(
-    onBack: () -> Unit,
-    diagnostics: RuntimeDiagnostics?,
-    diagnosticsUnavailable: Boolean,
-    reports: List<CrashReport>,
-    reportsLoading: Boolean,
-    reportsError: String?,
-    onRefresh: () -> Unit,
-    onOpenReport: (CrashReport) -> Unit,
-    sectionIndex: Int,
-) {
-    val listState = rememberLazyListState(initialFirstVisibleItemIndex = sectionIndex.coerceIn(0, 2))
-    val locale = androidx.compose.ui.platform.LocalConfiguration.current.locales[0]
-    SettingsPageScaffold(stringResource(R.string.settings_diagnostics_title), onBack) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), state = listState,
-            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)) {
-            item {
-                Column(verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                    Text(stringResource(R.string.settings_diagnostics_description), Modifier.padding(horizontal = 4.dp),
-                        style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    SettingsGroup {
-                        ListItem(onClick = onRefresh, enabled = !reportsLoading,
-                            leadingContent = {
-                                if (reportsLoading) LoadingIndicator(Modifier.size(24.dp))
-                                else Icon(painterResource(R.drawable.ic_material_symbol_refresh_24), null)
-                            },
-                            supportingContent = { Text(stringResource(R.string.diagnostics_refresh_summary)) },
-                            verticalAlignment = Alignment.CenterVertically,
-                            shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(),
-                            modifier = Modifier.fillMaxWidth()) {
-                            Text(stringResource(if (reportsLoading) R.string.diagnostics_refreshing else R.string.refresh))
-                        }
-                    }
-                }
-            }
-            item {
-                Column {
-                    ProfileSection(R.string.diagnostics_title) {
-                        if (diagnostics == null) {
-                            InformationMessage(stringResource(if (diagnosticsUnavailable)
-                                R.string.runtime_information_unavailable else R.string.diagnostics_connecting))
-                        } else {
-                            DiagnosticInformationRow(R.string.diagnostics_state_title, diagnosticStateText(diagnostics.state))
-                            DiagnosticInformationRow(R.string.diagnostics_detail_title, diagnostics.detail)
-                            DiagnosticInformationRow(R.string.diagnostics_image_title, diagnostics.imageStatus)
-                            DiagnosticInformationRow(R.string.wake_policy, diagnosticWakePolicyText(diagnostics.wakePolicy))
-                            DiagnosticInformationRow(R.string.diagnostics_sessions_title,
-                                stringResource(R.string.diagnostics_sessions_value, diagnostics.sessionCount))
-                        }
-                    }
-                    Text(stringResource(R.string.diagnostics_hint), Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-            item {
-                Column {
-                    ProfileSection(R.string.crash_reports_title) {
-                        when {
-                            reportsLoading -> InformationMessage(stringResource(R.string.crash_reports_loading))
-                            reportsError != null -> InformationMessage(reportsError)
-                            reports.isEmpty() -> InformationMessage(stringResource(R.string.crash_reports_empty))
-                            else -> reports.forEach { report ->
-                                val date = remember(report.createdAt, locale) {
-                                    java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM,
-                                        java.text.DateFormat.MEDIUM, locale).format(java.util.Date(report.createdAt))
-                                }
-                                ListItem(
-                                    onClick = { onOpenReport(report) },
-                                    supportingContent = { Text(date) },
-                                    trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
-                                    shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(),
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.fillMaxWidth(),
-                                ) { Text(report.summary.ifBlank { stringResource(R.string.crash_report_title) }) }
-                            }
-                        }
-                    }
-                    Text(stringResource(R.string.crash_reports_retention, CrashReportStore.MAX_REPORTS),
-                        Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun DiagnosticInformationRow(title: Int, value: String) {
-    ListItem(
-        supportingContent = { SelectionContainer {
-            Text(value.ifBlank { stringResource(R.string.diagnostics_value_empty) })
-        } },
-        verticalAlignment = Alignment.CenterVertically,
-        colors = terminalSettingsListItemColors(),
-        modifier = Modifier.fillMaxWidth().settingsItemSurface(),
-    ) { Text(stringResource(title)) }
-}
-
-@Composable
-private fun diagnosticStateText(state: String): String = when (state) {
-    "STOPPED" -> stringResource(R.string.environment_stopped)
-    "PREPARING" -> stringResource(R.string.diagnostics_state_preparing)
-    "BOOTING" -> stringResource(R.string.diagnostics_state_booting)
-    "READY" -> stringResource(R.string.diagnostics_state_ready)
-    "ACTIVE" -> stringResource(R.string.environment_active)
-    "IDLE" -> stringResource(R.string.diagnostics_state_idle)
-    "SUSPENDED" -> stringResource(R.string.environment_suspended)
-    "STOPPING" -> stringResource(R.string.diagnostics_state_stopping)
-    "FAILED" -> stringResource(R.string.diagnostics_state_failed)
-    else -> state
-}
-
-@Composable
-private fun diagnosticWakePolicyText(policy: String): String = when (policy) {
-    "BATTERY_OPTIMIZED" -> stringResource(R.string.wake_battery_optimized)
-    "KEEP_ACTIVE_WORK_RUNNING" -> stringResource(R.string.wake_keep_work)
-    "ALWAYS_AWAKE" -> stringResource(R.string.wake_always)
-    else -> policy
 }
 
 @Composable

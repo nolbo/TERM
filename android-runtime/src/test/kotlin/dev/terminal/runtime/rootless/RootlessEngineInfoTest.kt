@@ -18,6 +18,7 @@ class RootlessEngineInfoTest {
             fail("Unsupported executable must not run"); null
         }
         assertFalse(info.arm64)
+        assertEquals(listOf("x86_64"), info.abis)
         assertFalse(info.prootAvailable)
         assertFalse(info.loaderAvailable)
         assertFalse(info.acceleration)
@@ -30,6 +31,9 @@ class RootlessEngineInfoTest {
         assertTrue(active.prootAvailable)
         assertTrue(active.acceleration)
         assertTrue(active.faststat)
+        assertTrue("PROOT_FASTSTAT=2" in active.accelerationProfile)
+        assertEquals(listOf("arm64-v8a"), active.abis)
+        assertEquals(active, RootlessEngineInfo.fromJson(active.toJson()))
         assertEquals("5.1.107", active.prootVersion)
         assertFalse(RootlessEngineInfo.inspect(listOf("arm64-v8a"), loader, library, false) { null }.acceleration)
         assertFalse(RootlessEngineInfo.inspect(listOf("arm64-v8a"), loader, File("/missing"), true) { null }.faststat)
@@ -44,6 +48,7 @@ class RootlessEngineInfoTest {
         assertFalse(info.prootAvailable)
         assertFalse(info.loaderAvailable)
         assertFalse(info.acceleration)
+        assertTrue(info.accelerationProfile.isEmpty())
         assertNull(info.prootVersion)
     }
 }

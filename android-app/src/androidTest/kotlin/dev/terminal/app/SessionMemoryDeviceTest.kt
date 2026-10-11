@@ -19,7 +19,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
-class ToolbarMemoryDeviceTest {
+class SessionMemoryDeviceTest {
     @Test fun nativeSessionHasRealResidentMemoryAndDisappearsAfterTermination() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val connected = CountDownLatch(1)
@@ -39,28 +39,32 @@ class ToolbarMemoryDeviceTest {
             val previous = ids(service.sessionsJson)
             service.createSession("NATIVE", "/system/bin/sh", "/", 24, 80)
             await { owned = (ids(service.sessionsJson) - previous).singleOrNull(); owned != null }
-            val snapshot = JSONObject(service.sessionMemoryJson)
-            val runtimeMemory = snapshot.getJSONObject("runtimeAppMemory")
+            val runtimeMemory = JSONObject(service.runtimeAppMemoryJson)
             val uiMemory = requireNotNull(dev.terminal.runtime.session.currentAppProcessMemory())
             assertTrue(runtimeMemory.getLong("total") > 0)
-            assertTrue(uiMemory.getLong("total") > 0)
             val appMemory = requireNotNull(combineAppMemory(uiMemory, runtimeMemory))
             assertEquals(uiMemory.getLong("total") + runtimeMemory.getLong("total"), appMemory.getLong("total"))
-            assertTrue(appMemory.getLong("java-heap") >= 0)
-            assertTrue(appMemory.getLong("native-heap") >= 0)
-            assertTrue(snapshot.getLong("totalBytes") > 0)
-            assertTrue(snapshot.getLong("availableBytes") in 0..snapshot.getLong("totalBytes"))
-            assertTrue(snapshot.getJSONObject("sessions").getLong(requireNotNull(owned)) > 0)
+            assertTrue(JSONObject(service.getSessionMemoryJson(requireNotNull(owned))).getLong("rssBytes") > 0)
+            val before = ids(service.sessionsJson)
+            androidx.test.core.app.ActivityScenario.launch<SessionInfoActivity>(
+                SessionInfoActivity.intent(context, requireNotNull(owned), "RSS fixture")).use { scenario ->
+                var measured: Long? = null
+                await { scenario.onActivity { measured = it.rss }; measured != null }
+                assertTrue(requireNotNull(measured) > 0)
+                scenario.recreate()
+                await { scenario.onActivity { measured = it.rss }; measured != null }
+            }
+            assertEquals(before, ids(service.sessionsJson))
             service.terminateSession(owned)
             await { owned !in ids(service.sessionsJson) }
-            assertFalse(JSONObject(service.sessionMemoryJson).getJSONObject("sessions").has(owned))
+            assertTrue(JSONObject(service.getSessionMemoryJson(requireNotNull(owned))).isNull("rssBytes"))
             owned = null
             // Each new fork must capture its identity, including non-debuggable builds.
             repeat(20) {
                 service.createSession("NATIVE", "/system/bin/sh", "/", 24, 80)
                 await { owned = (ids(service.sessionsJson) - previous).singleOrNull(); owned != null }
                 assertTrue("New session RSS must be available",
-                    JSONObject(service.sessionMemoryJson).getJSONObject("sessions").optLong(requireNotNull(owned), 0) > 0)
+                    JSONObject(service.getSessionMemoryJson(requireNotNull(owned))).getLong("rssBytes") > 0)
                 service.terminateSession(owned)
                 await { owned !in ids(service.sessionsJson) }
                 owned = null

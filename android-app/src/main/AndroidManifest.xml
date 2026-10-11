@@ -75,6 +75,12 @@
         <activity android:name=".PaletteEditorActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".CrashReportActivity" android:exported="false" />
         <activity android:name=".DiagnosticsActivity" android:exported="false" />
+        <activity android:name=".NativeDiagnosticsActivity" android:exported="false" />
+        <activity android:name=".UserspaceLinuxDiagnosticsActivity" android:exported="false" />
+        <activity android:name=".AvfLinuxDiagnosticsActivity" android:exported="false" />
+        <activity android:name=".MemoryDiagnosticsActivity" android:exported="false" />
+        <activity android:name=".CrashReportsActivity" android:exported="false" />
+        <activity android:name=".SessionInfoActivity" android:exported="false" />
         <activity android:name=".LocalServicesActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".ForwardedPortsActivity" android:exported="false" />
         <activity android:name=".UsbDevicesActivity" android:exported="false" />

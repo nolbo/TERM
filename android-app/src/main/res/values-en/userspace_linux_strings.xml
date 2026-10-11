@@ -2,8 +2,6 @@
 <resources>
     <string name="settings_userspace_title">Userspace Linux</string>
     <string name="userspace_network">Network</string>
-    <string name="userspace_runtime">Runtime</string>
-    <string name="userspace_information">Information and diagnostics</string>
     <string name="userspace_dns">DNS</string>
     <string name="userspace_dns_mode">DNS mode</string>
     <string name="userspace_dns_android">Use Android network settings</string>
@@ -25,20 +23,15 @@
     <string name="userspace_acceleration">Acceleration</string>
     <string name="userspace_available">Available</string>
     <string name="userspace_unavailable">Unavailable</string>
-    <string name="userspace_unsupported">Unsupported</string>
-    <string name="userspace_arm64">ARM64</string>
     <string name="userspace_active">Active</string>
     <string name="userspace_inactive">Inactive</string>
-    <string name="userspace_normal">Ready</string>
     <string name="userspace_checking">Checking</string>
     <string name="userspace_info_unavailable">Unable to verify</string>
     <string name="userspace_runtime_info">Runtime information</string>
-    <string name="userspace_runtime_info_support">PRoot engine configuration in this APK. Internals are managed automatically; view environment settings in Environments.</string>
     <string name="userspace_loader">Loader</string>
     <string name="userspace_acceleration_profile">Acceleration profile</string>
     <string name="userspace_faststat">Faststat</string>
     <string name="userspace_abi">ABI</string>
     <string name="userspace_storage_links">Storage link strategy</string>
-    <string name="userspace_environment_automatic">Selected automatically per environment</string>
     <string name="userspace_limitations_note">PRoot lacks real root, Linux namespaces, cgroups, kernel mounts and full systemd boot. Syscall/file translation adds overhead; real-kernel features may need AVF.</string>
 </resources>

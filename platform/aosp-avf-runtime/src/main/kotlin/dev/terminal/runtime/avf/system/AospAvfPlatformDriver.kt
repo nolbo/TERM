@@ -45,7 +45,7 @@ class AospAvfPlatformDriver(
     context: Context,
 ) : AvfPlatformDriver {
     private val appContext = context.applicationContext
-    private val manager = checkNotNull(appContext.getSystemService(VirtualMachineManager::class.java)) {
+    private val manager = checkNotNull(avfVirtualMachineManager(appContext)) {
         "AVF VirtualMachineManager is unavailable on this device"
     }
     private val mutex = Mutex()

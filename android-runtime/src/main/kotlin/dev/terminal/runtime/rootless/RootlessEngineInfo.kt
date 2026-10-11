@@ -15,17 +15,22 @@ data class RootlessEngineInfo(
     val acceleration: Boolean,
     val faststat: Boolean,
     val prootVersion: String?,
+    val abis: List<String> = emptyList(),
+    val accelerationProfile: List<String> = emptyList(),
 ) {
     fun toJson() = JSONObject().put("arm64", arm64).put("prootAvailable", prootAvailable)
         .put("loaderAvailable", loaderAvailable).put("acceleration", acceleration).put("faststat", faststat)
         .put("prootVersion", prootVersion ?: JSONObject.NULL)
+        .put("abis", org.json.JSONArray(abis)).put("accelerationProfile", org.json.JSONArray(accelerationProfile))
 
     companion object {
         fun fromJson(json: JSONObject) = RootlessEngineInfo(json.getBoolean("arm64"), json.getBoolean("prootAvailable"),
             json.getBoolean("loaderAvailable"), json.getBoolean("acceleration"), json.getBoolean("faststat"),
-            json.optString("prootVersion").takeUnless { it.isBlank() || it == "null" })
+            json.optString("prootVersion").takeUnless { it.isBlank() || it == "null" },
+            json.optJSONArray("abis")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty(),
+            json.optJSONArray("accelerationProfile")?.let { a -> (0 until a.length()).map { a.getString(it) } }.orEmpty())
 
-        internal fun inspect(context: Context): RootlessEngineInfo = inspect(
+        fun inspect(context: Context): RootlessEngineInfo = inspect(
             android.os.Build.SUPPORTED_ABIS.toList(), ApkNativeExecutableLoader(context),
             File(context.applicationInfo.nativeLibraryDir, "libproot-faststat.so"),
             dev.terminal.runtime.BuildConfig.ROOTLESS_ACCELERATION,
@@ -40,7 +45,8 @@ data class RootlessEngineInfo(
             val acceleration = available && accelerationIncluded && library.isFile && library.canRead()
             val faststat = acceleration && RootlessAccelerationProfile(library).hostEnvironment.contains("PROOT_FASTSTAT=2")
             return RootlessEngineInfo(arm64, available, loaderAvailable, acceleration, faststat,
-                proot?.let { version(it) })
+                proot?.let { version(it) }, abis.toList(),
+                if (acceleration) RootlessAccelerationProfile(library).hostEnvironment.toList() else emptyList())
         }
 
         private fun probeVersion(proot: File): String? = runCatching {

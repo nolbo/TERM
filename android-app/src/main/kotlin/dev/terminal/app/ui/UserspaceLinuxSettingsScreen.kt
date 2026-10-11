@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -33,78 +32,27 @@ import androidx.compose.ui.unit.IntSize
 import dev.terminal.app.R
 import dev.terminal.app.UserspaceLinuxSettingsActivity
 import dev.terminal.runtime.rootless.RootlessDnsPolicy
-import dev.terminal.runtime.rootless.RootlessEngineInfo
 
 @Composable
-internal fun UserspaceLinuxSettingsScreen(screen: String, policy: RootlessDnsPolicy?, engine: RootlessEngineInfo?,
+internal fun UserspaceLinuxSettingsScreen(screen: String, policy: RootlessDnsPolicy?,
     unavailable: Boolean, saving: Boolean, saveFailed: Boolean, sectionIndex: Int,
     onBack: () -> Unit, onOpen: (String) -> Unit, onSave: (RootlessDnsPolicy) -> Unit) {
-    val title = when (screen) {
-        UserspaceLinuxSettingsActivity.DNS -> R.string.userspace_dns
-        UserspaceLinuxSettingsActivity.INFO -> R.string.userspace_runtime_info
-        else -> R.string.settings_userspace_title
-    }
+    val dns = screen == UserspaceLinuxSettingsActivity.DNS
     val unknown = stringResource(if (unavailable) R.string.userspace_info_unavailable else R.string.userspace_checking)
-    fun status(value: Boolean?, yes: Int, no: Int) = when (value) {
-        true -> yes
-        false -> no
-        null -> null
-    }
-    @Composable fun state(value: Boolean?, yes: Int, no: Int): String = status(value, yes, no)?.let { stringResource(it) } ?: unknown
-    SettingsPageScaffold(stringResource(title), onBack) { padding ->
+    SettingsPageScaffold(stringResource(if (dns) R.string.userspace_dns else R.string.settings_userspace_title), onBack) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding).imePadding(),
-            state = rememberLazyListState(initialFirstVisibleItemIndex = sectionIndex.coerceAtLeast(0)),
+            state = rememberLazyListState(initialFirstVisibleItemIndex = sectionIndex.coerceIn(0, 1)),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            item { Guidance(if (dns) R.string.userspace_dns_support else R.string.settings_rootless_description) }
             item {
-                Guidance(when (screen) {
-                    UserspaceLinuxSettingsActivity.DNS -> R.string.userspace_dns_support
-                    UserspaceLinuxSettingsActivity.INFO -> R.string.userspace_runtime_info_support
-                    else -> R.string.settings_rootless_description
-                })
-            }
-            when (screen) {
-                UserspaceLinuxSettingsActivity.DNS -> item {
+                if (dns) {
                     if (policy == null) Text(unknown, Modifier.padding(horizontal = 4.dp))
                     else DnsEditor(policy, saving, saveFailed, onBack, onSave)
-                }
-                UserspaceLinuxSettingsActivity.INFO -> item {
-                    EngineSection(R.string.userspace_runtime) {
-                        EngineValue(R.string.userspace_proot, if (engine == null) unknown
-                            else engine.prootVersion ?: stringResource(R.string.userspace_info_unavailable))
-                        EngineValue(R.string.userspace_loader, state(engine?.loaderAvailable, R.string.userspace_normal, R.string.userspace_unavailable))
-                        EngineValue(R.string.userspace_acceleration_profile, state(engine?.acceleration, R.string.userspace_active, R.string.userspace_inactive))
-                        EngineValue(R.string.userspace_faststat, state(engine?.faststat, R.string.userspace_active, R.string.userspace_inactive))
-                        EngineValue(R.string.userspace_abi, engine?.let {
-                            if (it.arm64) "arm64-v8a" else stringResource(R.string.userspace_unsupported)
-                        } ?: unknown)
-                        EngineValue(R.string.userspace_storage_links, stringResource(R.string.userspace_environment_automatic))
-                    }
-                }
-                else -> {
-                    item {
-                        EngineSection(R.string.userspace_network) {
-                            EngineLink(R.string.userspace_dns, policy?.let { stringResource(
-                                if (it.mode == RootlessDnsPolicy.ANDROID) R.string.userspace_dns_android else R.string.userspace_dns_custom)
-                            } ?: unknown) { onOpen(UserspaceLinuxSettingsActivity.DNS) }
-                        }
-                    }
-                    item {
-                        EngineSection(R.string.userspace_runtime) {
-                            EngineValue(R.string.userspace_proot, state(engine?.prootAvailable, R.string.userspace_available, R.string.userspace_unavailable))
-                            EngineValue(R.string.userspace_architecture, state(engine?.arm64, R.string.userspace_arm64, R.string.userspace_unsupported))
-                            EngineValue(R.string.userspace_acceleration, state(engine?.acceleration, R.string.userspace_active, R.string.userspace_inactive))
-                        }
-                    }
-                    item {
-                        EngineSection(R.string.userspace_information) {
-                            EngineLink(R.string.userspace_runtime_info) { onOpen(UserspaceLinuxSettingsActivity.INFO) }
-                        }
-                    }
-                    item {
-                        Text(stringResource(R.string.userspace_limitations_note), Modifier.padding(horizontal = 16.dp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
-                    }
+                } else EngineSection(R.string.userspace_network) {
+                    EngineLink(R.string.userspace_dns, policy?.let { stringResource(
+                        if (it.mode == RootlessDnsPolicy.ANDROID) R.string.userspace_dns_android else R.string.userspace_dns_custom)
+                    } ?: unknown) { onOpen(UserspaceLinuxSettingsActivity.DNS) }
                 }
             }
         }
@@ -119,14 +67,6 @@ private fun EngineSection(@StringRes title: Int, groupModifier: Modifier = Modif
             color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
         SettingsGroup(groupModifier, content = content)
     }
-}
-
-@Composable
-private fun EngineValue(@StringRes title: Int, value: String) {
-    ListItem(trailingContent = { SelectionContainer {
-        Text(value, Modifier.widthIn(max = 200.dp), style = MaterialTheme.typography.labelLarge)
-    } }, verticalAlignment = Alignment.CenterVertically, colors = terminalSettingsListItemColors(),
-        modifier = Modifier.fillMaxWidth().settingsItemSurface()) { Text(stringResource(title)) }
 }
 
 @Composable

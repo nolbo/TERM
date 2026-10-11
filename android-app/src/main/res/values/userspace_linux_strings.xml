@@ -2,8 +2,6 @@
 <resources>
     <string name="settings_userspace_title">Userspace Linux</string>
     <string name="userspace_network">네트워크</string>
-    <string name="userspace_runtime">런타임</string>
-    <string name="userspace_information">정보 및 진단</string>
     <string name="userspace_dns">DNS</string>
     <string name="userspace_dns_mode">DNS 사용 방식</string>
     <string name="userspace_dns_android">Android 네트워크 설정 사용</string>
@@ -25,20 +23,15 @@
     <string name="userspace_acceleration">가속</string>
     <string name="userspace_available">사용 가능</string>
     <string name="userspace_unavailable">사용할 수 없음</string>
-    <string name="userspace_unsupported">지원되지 않음</string>
-    <string name="userspace_arm64">ARM64</string>
     <string name="userspace_active">활성</string>
     <string name="userspace_inactive">비활성</string>
-    <string name="userspace_normal">정상</string>
     <string name="userspace_checking">확인 중</string>
     <string name="userspace_info_unavailable">확인할 수 없음</string>
     <string name="userspace_runtime_info">런타임 정보</string>
-    <string name="userspace_runtime_info_support">APK의 PRoot 엔진 구성입니다. 내부 동작은 자동 관리하며 환경별 설정은 실행환경에서 확인하세요.</string>
     <string name="userspace_loader">Loader</string>
     <string name="userspace_acceleration_profile">가속 프로필</string>
     <string name="userspace_faststat">Faststat</string>
     <string name="userspace_abi">ABI</string>
     <string name="userspace_storage_links">스토리지 링크 방식</string>
-    <string name="userspace_environment_automatic">환경별 자동 결정</string>
     <string name="userspace_limitations_note">PRoot는 실제 root 권한·Linux namespace·cgroup·커널 마운트·완전한 systemd 부팅을 지원하지 않습니다. 시스템 호출·파일 변환에 성능 비용이 있으며 실제 Linux 커널이 필요한 기능에는 AVF가 필요할 수 있습니다.</string>
 </resources>

@@ -83,6 +83,7 @@ internal fun ToolbarSessionsTool(
     onDeleteEmptyTemporaryWorkspace: (String) -> Unit = {},
     workspaceSessionStateKnown: Boolean = false,
     onRunWorkspaceStartups: () -> Unit = {},
+    onInfo: (SessionUi) -> Unit = {},
 ) {
     val haptics = LocalTerminalHaptics.current
     // Keep each list's position when switching between the default and expanded headers.
@@ -221,7 +222,7 @@ internal fun ToolbarSessionsTool(
                                     val selected = session.id == activeSessionId
                                     Box(Modifier.widthIn(max = 220.dp).height(48.dp)) {
                                         SessionToolTab(session, selected, sessionsActive && progress == 0f,
-                                            terminatingSessionIds, onSelect, onRename, onMove, onTerminate, colors, horizontal = true)
+                                            terminatingSessionIds, onSelect, onRename, onMove, onTerminate, colors, onInfo = onInfo, horizontal = true)
                                         if (index > 0 && !selected && sessions[index - 1].id != activeSessionId) {
                                             VerticalDivider(Modifier.align(Alignment.CenterStart).height(24.dp),
                                                 thickness = 1.dp, color = colors.divider)
@@ -271,7 +272,7 @@ internal fun ToolbarSessionsTool(
             if (progress > 0f) ReorderableSessionTabs(sessions, activeSessionId, tabsActive, onReorder,
                 Modifier.weight(1f).fillMaxWidth().graphicsLayer { alpha = progress }, scroll = tabScroll) { session, itemModifier, dragging, lifted ->
                 SessionToolTab(session, session.id == activeSessionId, tabsActive && !dragging,
-                    terminatingSessionIds, onSelect, onRename, onMove, onTerminate, colors, itemModifier, lifted)
+                    terminatingSessionIds, onSelect, onRename, onMove, onTerminate, colors, itemModifier, lifted, onInfo = onInfo)
             }
         }
     }
@@ -291,6 +292,7 @@ private fun SessionToolTab(
     itemModifier: Modifier = Modifier,
     lifted: Boolean = false,
     horizontal: Boolean = false,
+    onInfo: (SessionUi) -> Unit = {},
 ) {
     val haptics = LocalTerminalHaptics.current
     val tabInteractionSource = remember(session.id) { MutableInteractionSource() }
@@ -361,6 +363,7 @@ private fun SessionToolTab(
                     expanded = menuExpanded && menuEnabled,
                     onRename = { menuExpanded = false; onRename(session) },
                     onMove = { menuExpanded = false; onMove(session) },
+                    onInfo = { menuExpanded = false; onInfo(session) },
                     onDismiss = { menuExpanded = false },
                 )
             }
@@ -379,6 +382,7 @@ private fun SessionToolTab(
                     expanded = menuExpanded && menuEnabled,
                     onRename = { menuExpanded = false; onRename(session) },
                     onMove = { menuExpanded = false; onMove(session) },
+                    onInfo = { menuExpanded = false; onInfo(session) },
                     onDismiss = { menuExpanded = false },
                 )
             }

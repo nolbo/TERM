@@ -14,6 +14,8 @@ Custom-image configuration methods are hidden in AOSP and absent even from ordin
 
 After the device/permission checks, backend creation allocates a custom-image builder before requesting installation or creating a VM. A linkage error here rejects startup immediately and explains both an incompatible ABI and non-SDK policy denial, retaining the original error as its cause. AOSP's pinned `VirtualMachineCustomImageConfig.Builder` has a no-argument constructor; `No direct method <init>()V` alone does not prove a different constructor, since ART also reports blocked hidden methods as missing methods. ADB grants for the two VM permissions do not by themselves authorize these hidden APIs. Use the target framework's actual signatures and the app's hidden-API logcat entries to distinguish the two cases; see `DEPLOYMENT.md`.
 
+The AVF diagnostic Activity independently checks Android 15+, system feature, both actual permission grants, custom-image API access/signatures, VirtualMachineManager availability and the packaged driver ABI. It reuses the builder access and manager lookup used by startup without constructing a backend/driver or creating/running/altering a VM. Missing prerequisites leave API checks unknown; a missing permission never establishes API absence. Linkage/reflection errors remain unknown and explain both hidden API restrictions and possible ABI incompatibility. All seven verified conditions are needed for a satisfied overall result, which is not a VM boot certificate.
+
 ## Debian image contract
 
 The initial runtime accepts only a verified Debian ARM64 image directory:

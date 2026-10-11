@@ -120,6 +120,11 @@ class SettingsDetailActivity : TerminalActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        diagnosticsDestination(category)?.let { destination ->
+            startActivity(Intent(this, destination))
+            finish()
+            return
+        }
         if (UserspaceLinuxSettingsActivity.owns(category)) {
             startActivity(Intent(this, UserspaceLinuxSettingsActivity::class.java)
                 .putExtra(EXTRA_CATEGORY, category).putExtra(EXTRA_SECTION_INDEX, intent.getIntExtra(EXTRA_SECTION_INDEX, 0)))
@@ -127,7 +132,7 @@ class SettingsDetailActivity : TerminalActivity() {
             return
         }
         // Old task entries can still point to the removed tool's settings screen.
-        if (category in listOf("toolbar-clipboard", "toolbar-commands")) intent.putExtra(EXTRA_CATEGORY, TOOLBAR)
+        if (category in listOf("toolbar-clipboard", "toolbar-commands", "toolbar-memory")) intent.putExtra(EXTRA_CATEGORY, TOOLBAR)
         if (category == "native") {
             intent.putExtra(EXTRA_CATEGORY, TERMINAL).putExtra(EXTRA_SECTION_INDEX, 0)
         }
@@ -142,7 +147,7 @@ class SettingsDetailActivity : TerminalActivity() {
                 TOOLBAR -> ToolbarSettings(terminalPreferences, { finish() }) { screen ->
                     startActivity(Intent(this, SettingsDetailActivity::class.java).putExtra(EXTRA_CATEGORY, screen))
                 }
-                "toolbar-sessions", "toolbar-memory", "toolbar-history" ->
+                "toolbar-sessions", "toolbar-history" ->
                     dev.terminal.app.ui.ToolbarToolSettings(category, terminalPreferences, onBack = { finish() })
                 HOTKEYS -> HotkeySettings(terminalPreferences) { finish() }
                 else -> DetailScreen()

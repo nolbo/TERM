@@ -50,13 +50,12 @@ class SettingsSearchTest {
         assertEquals(SettingsSearchTarget("environments"), target(R.string.backup_create))
         assertTrue(visibleSettingsSearchEntries(false).any { it.target.screen == "local-services" })
         assertEquals(SettingsSearchTarget("rootless-dns"), target(R.string.userspace_dns))
-        assertEquals(SettingsSearchTarget("rootless", 2), target(R.string.userspace_proot))
-        assertEquals(SettingsSearchTarget("rootless-info"), target(R.string.userspace_runtime_info))
-        assertFalse(settingsSearchEntries.any { it.title == R.string.rootless_limitations || it.target.screen == "rootless-limitations" })
-        assertEquals(listOf(R.string.settings_userspace_title, R.string.userspace_information),
-            settingsSearchEntries.single { it.title == R.string.userspace_runtime_info }.path)
-        assertEquals(SettingsSearchTarget("diagnostics", 1), target(R.string.diagnostics_title))
-        assertEquals(SettingsSearchTarget("diagnostics", 2), target(R.string.crash_reports_title))
+        assertEquals(SettingsSearchTarget("diagnostics-userspace"), target(R.string.userspace_proot))
+        assertFalse(settingsSearchEntries.any { it.target.screen in setOf("rootless-info", "toolbar-memory") })
+        assertEquals(SettingsSearchTarget("crash-reports"), target(R.string.crash_reports_title))
+        assertEquals(SettingsSearchTarget("diagnostics-memory"), target(R.string.memory_diagnostics_title))
+        assertEquals(SettingsSearchTarget("diagnostics-avf"), target(R.string.avf_diagnostics_title))
+        assertTrue(visibleSettingsSearchEntries(false).any { it.target.screen == "diagnostics-avf" })
         assertEquals(SettingsSearchTarget("avf", 2), target(R.string.forwarded_ports_title))
     }
 
@@ -70,8 +69,8 @@ class SettingsSearchTest {
     }
 
     @Test fun diagnosticsAndPortsHaveOnlyTheirAssignedSettingsDestinations() {
-        assertTrue(settingsSearchEntries.filter { it.title in listOf(R.string.settings_diagnostics_title,
-            R.string.diagnostics_title, R.string.crash_reports_title) }.all { it.target.screen == "diagnostics" })
+        assertEquals("diagnostics", settingsSearchEntries.single { it.title == R.string.settings_diagnostics_title }.target.screen)
+        assertEquals("crash-reports", settingsSearchEntries.single { it.title == R.string.crash_reports_title }.target.screen)
         assertTrue(settingsSearchEntries.filter { it.title == R.string.forwarded_ports_title }.all { it.target.screen == "avf" })
         assertFalse(visibleSettingsSearchEntries(false).any { it.title == R.string.forwarded_ports_title })
     }

@@ -136,7 +136,8 @@ internal fun workspaceFilterName(state: WorkspaceRegistry.State): String = when 
 }
 
 @Composable
-internal fun SessionWorkspaceMenu(expanded: Boolean, onRename: () -> Unit, onMove: () -> Unit, onDismiss: () -> Unit) {
+internal fun SessionWorkspaceMenu(expanded: Boolean, onRename: () -> Unit, onMove: () -> Unit, onDismiss: () -> Unit,
+    onInfo: () -> Unit = {}) {
     DropdownMenuPopup(expanded, onDismiss) {
         DropdownMenuGroup(shapes = MenuDefaults.groupShape(0, 1),
             modifier = Modifier.verticalScroll(rememberScrollState())) {
@@ -144,10 +145,14 @@ internal fun SessionWorkspaceMenu(expanded: Boolean, onRename: () -> Unit, onMov
                 text = { Text(stringResource(R.string.rename_session_action)) },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_toolbar_edit), null,
                     modifier = Modifier.size(MenuDefaults.LeadingIconSize)) }, onClick = onRename)
-            DropdownMenuItem(shape = MenuDefaults.trailingItemShape,
+            DropdownMenuItem(shape = MenuDefaults.middleItemShape,
                 text = { Text(stringResource(R.string.workspace_move)) },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_material_symbol_layers_24), null,
                     modifier = Modifier.size(MenuDefaults.LeadingIconSize)) }, onClick = onMove)
+            DropdownMenuItem(shape = MenuDefaults.trailingItemShape,
+                text = { Text(stringResource(R.string.session_info_title)) },
+                leadingIcon = { Icon(painterResource(R.drawable.ic_app_info_24), null,
+                    modifier = Modifier.size(MenuDefaults.LeadingIconSize)) }, onClick = onInfo)
         }
     }
 }
