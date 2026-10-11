@@ -2,9 +2,11 @@
 
 **TERM** stands for **Terminal Environments with Runtime Multiplexing**.
 
-TERM is an Android Linux runtime with a Termux-like terminal UI and
-a real Debian ARM64 guest when deployed in an Android Virtualization Framework
-(AVF) capable system image.
+TERM is an Android Linux runtime based on
+[Termux](https://github.com/termux/termux-app). It uses and extends Termux's
+`terminal-emulator` and `terminal-view` libraries, and provides a real Debian
+ARM64 guest when deployed in an Android Virtualization Framework (AVF) capable
+system image.
 
 The project deliberately separates three lifetimes:
 
@@ -14,6 +16,14 @@ Android UI  !=  :vmhost runtime owner  !=  guest PTY/session daemon
 
 Closing the console or removing its task must only detach the UI; it must not
 terminate the VM or an existing guest shell.
+
+## License
+
+TERM is released under the GNU General Public License, version 3 only
+(`GPL-3.0-only`), the same repository license as Termux. See
+[LICENSE.md](LICENSE.md) for the license notice, full license text, and
+third-party exceptions. Third-party components retain their respective licenses
+and copyright notices.
 
 ## What is implemented
 

@@ -1,4 +1,10 @@
-The `termux/termux-app` repository is released under [GPLv3 only](https://www.gnu.org/licenses/gpl-3.0.html) license.
+TERM is released under the [GNU General Public License, version 3 only](https://www.gnu.org/licenses/gpl-3.0.html) (`GPL-3.0-only`).
+
+This project is based on [Termux](https://github.com/termux/termux-app), whose repository is also licensed under GPLv3 only.
+
+The full license text is included in [`TERM-GPL-3.0.txt`](android-app/src/main/assets/licenses/TERM-GPL-3.0.txt).
+
+Third-party components retain their respective licenses and copyright notices, including the exceptions below.
 
 ### Exceptions
 
