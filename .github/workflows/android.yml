@@ -143,21 +143,10 @@ jobs:
           unset TERMINAL_SIGNING_KEYSTORE_BASE64
           bash tools/build-release.sh --build-cache
           python3 tools/rootless/prepare-release-runtime.py --verify-apk android-app/build/outputs/apk/release/android-app-release.apk
-          python3 - <<'PY'
-          import os, pathlib, re, subprocess, zipfile
-          apk = pathlib.Path('android-app/build/outputs/apk/release/android-app-release.apk')
-          tools = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools'
-          signer = max(tools.glob('*/apksigner'), key=lambda path: tuple(int(part) for part in path.parent.name.split('.')))
-          result = subprocess.run([str(signer), 'verify', '--print-certs', str(apk)], check=True, capture_output=True, text=True)
-          certificates = re.findall(r'Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F]+)', result.stdout)
-          expected = '7f639e70cc1969415beab27cfb10db6d10bf553b1f956a2f9d68d55ebf3785ba'
-          if certificates != [expected]:
-              raise SystemExit('Release signing identity differs from the installed-app key')
-          with zipfile.ZipFile(apk) as archive:
-              if archive.read('dev/terminal/image/approved-debian.properties') != pathlib.Path('image/catalog-approved.properties').read_bytes():
-                  raise SystemExit('Signed APK does not contain the approved image catalog')
-          print(f'Release signing certificate verified: {expected}; approved AVF catalog verified')
-          PY
+          python3 tools/updates/verify-release-apk.py \
+            --apk android-app/build/outputs/apk/release/android-app-release.apk \
+            --catalog image/catalog-approved.properties \
+            --certificate-sha256 7f639e70cc1969415beab27cfb10db6d10bf553b1f956a2f9d68d55ebf3785ba
           mkdir -p android-app/build/update
           python3 tools/updates/create-manifest.py \
             --apk android-app/build/outputs/apk/release/android-app-release.apk \
