@@ -6,6 +6,7 @@ on:
     paths:
       - 'guest/**'
       - 'image/**'
+      - '!image/catalog-approved.properties'
       - 'tests/image/**'
       - 'tools/avf/**'
       - '.github/workflows/avf_image.yml'
@@ -43,6 +44,7 @@ jobs:
         env:
           AVF_RELEASE_ID: ${{ inputs.release_id }}
           AVF_PUBLISH: ${{ inputs.publish }}
+          GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
         run: |
           avf_release_id=${AVF_RELEASE_ID:-avf-debian-$GITHUB_SHA}
           python3 - "$avf_release_id" <<'PY'
@@ -54,6 +56,8 @@ jobs:
           git merge-base --is-ancestor "$GITHUB_SHA" origin/dev
           if [ "$AVF_PUBLISH" = true ]; then
             test -s "docs/release-notes/$avf_release_id.md"
+            test -n "$GH_TOKEN"
+            test "$(gh api repos/nolbo/TERM --jq '.private')" = false
           fi
       - name: Build image, guest services, disks and pinned catalog
         env:
@@ -80,7 +84,19 @@ jobs:
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f"release_id={approved['releaseId']}\nmanifest_sha256={approved['manifestSha256']}\n")
           PY
+      - name: Stage verified image assets in an unpublished release
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
+        run: |
+          # Draft assets carry the verified bytes between jobs without depending
+          # on Actions artifact storage. Duplicate release IDs fail closed.
+          gh release create "$AVF_RELEASE_ID" --repo nolbo/TERM --draft --prerelease --latest=false \
+            --title "AVF Debian $AVF_RELEASE_ID" --notes-file "docs/release-notes/$AVF_RELEASE_ID.md" \
+            image/build/approved/*.gz image/build/approved/*.properties \
+            image/build/approved/provenance.json image/build/approved/SHA256SUMS
       - uses: actions/upload-artifact@v4
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.publish) }}
         with:
           name: avf-debian-${{ steps.metadata.outputs.release_id }}
           compression-level: 0
@@ -91,6 +107,7 @@ jobs:
             image/build/approved/provenance.json
             image/build/approved/SHA256SUMS
       - uses: actions/upload-artifact@v4
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.publish) }}
         with:
           name: avf-catalog-${{ steps.metadata.outputs.release_id }}
           if-no-files-found: error
@@ -113,9 +130,20 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/download-artifact@v4
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.publish) }}
         with:
           name: avf-catalog-${{ needs.image.outputs.release_id }}
           path: image/build/approved
+      - name: Download factory metadata from the unpublished release
+        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        env:
+          GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
+          AVF_RELEASE_ID: ${{ needs.image.outputs.release_id }}
+        run: |
+          test "$(gh release view "$AVF_RELEASE_ID" --repo nolbo/TERM --json isDraft --jq '.isDraft')" = true
+          gh release download "$AVF_RELEASE_ID" --repo nolbo/TERM --dir image/build/approved \
+            --pattern catalog.properties --pattern manifest.properties \
+            --pattern provenance.json --pattern SHA256SUMS
       - name: Validate factory metadata from this source commit
         env:
           AVF_MANIFEST_SHA256: ${{ needs.image.outputs.manifest_sha256 }}
@@ -152,13 +180,15 @@ jobs:
         env:
           AVF_MANIFEST_SHA256: ${{ needs.image.outputs.manifest_sha256 }}
         run: |
-          ./gradlew :android-app:assembleDebug :android-runtime:testDebugUnitTest :image:test --build-cache --console=plain
+          ./gradlew :android-app:assembleDebug :android-runtime:testDebugUnitTest :image:test \
+            :terminal-emulator:testDebugUnitTest :terminal-view:testDebugUnitTest --build-cache --console=plain
           python3 tools/avf/verify-driver-apk.py android-app/build/outputs/apk/debug/android-app-debug.apk
           python3 tools/rootless/prepare-release-runtime.py --verify-apk android-app/build/outputs/apk/debug/android-app-debug.apk
           python3 image/scripts/verify-avf-release.py --directory image/build/approved --metadata-only \
             --expected-commit "$GITHUB_SHA" --expected-manifest-sha "$AVF_MANIFEST_SHA256" \
             --apk android-app/build/outputs/apk/debug/android-app-debug.apk
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: avf-debug-${{ needs.image.outputs.release_id }}
           compression-level: 0
@@ -178,10 +208,14 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
-      - uses: actions/download-artifact@v4
-        with:
-          name: avf-debian-${{ needs.image.outputs.release_id }}
-          path: image/build/approved
+      - name: Download the verified factory assets from the unpublished release
+        env:
+          GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
+          AVF_RELEASE_ID: ${{ needs.image.outputs.release_id }}
+        run: |
+          test "$(gh release view "$AVF_RELEASE_ID" --repo nolbo/TERM --json isDraft --jq '.isDraft')" = true
+          gh release download "$AVF_RELEASE_ID" --repo nolbo/TERM --dir image/build/approved \
+            --pattern '*.gz' --pattern '*.properties' --pattern provenance.json --pattern SHA256SUMS
       - name: Verify and publish immutable image assets to public TERM
         env:
           GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
@@ -196,16 +230,16 @@ jobs:
           test "$(gh api repos/nolbo/TERM --jq '.private')" = false
           python3 image/scripts/verify-avf-release.py --directory image/build/approved \
             --expected-commit "$GITHUB_SHA" --expected-manifest-sha "$AVF_MANIFEST_SHA256"
-          # TERM is a distribution repository; provenance records the shared dev source commit.
-          # Do not publish private source history or replace any existing release or asset.
-          gh release create "$AVF_RELEASE_ID" --repo nolbo/TERM --latest=false --prerelease \
-            --title "AVF Debian $AVF_RELEASE_ID" --notes-file "docs/release-notes/$AVF_RELEASE_ID.md" \
-            image/build/approved/*.gz image/build/approved/*.properties \
-            image/build/approved/provenance.json image/build/approved/SHA256SUMS
+          # Both factory and catalog-bearing APK gates have passed. Publish the
+          # existing draft without replacing any verified image bytes.
+          test "$(gh release view "$AVF_RELEASE_ID" --repo nolbo/TERM --json isDraft --jq '.isDraft')" = true
+          gh release edit "$AVF_RELEASE_ID" --repo nolbo/TERM --draft=false --prerelease --latest=false \
+            --notes-file "docs/release-notes/$AVF_RELEASE_ID.md"
           python3 image/scripts/verify-avf-release.py --directory image/build/approved --metadata-only \
             --expected-commit "$GITHUB_SHA" --expected-manifest-sha "$AVF_MANIFEST_SHA256" \
             --approve image/catalog-approved.properties
       - uses: actions/upload-artifact@v4
+        continue-on-error: true
         with:
           name: avf-approved-default-${{ needs.image.outputs.release_id }}
           if-no-files-found: error
