@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.R
@@ -21,12 +22,13 @@ import dev.terminal.app.R
 @Composable
 internal fun SettingsTextRow(label: Int, value: String, singleLine: Boolean = true, hint: Int? = null,
     enabled: Boolean = true, valid: (String) -> Boolean = { true }, confirmLabel: Int = R.string.save,
+    fontFamily: FontFamily? = null,
     onChange: (String) -> Unit) {
     var visible by rememberSaveable { mutableStateOf(false) }
     var draft by rememberSaveable { mutableStateOf(value) }
     ListItem(onClick = { draft = value; visible = true }, enabled = enabled,
         supportingContent = { Text(value.ifBlank { stringResource(R.string.profile_not_set) },
-            maxLines = 2, overflow = TextOverflow.Ellipsis) },
+            maxLines = 2, overflow = TextOverflow.Ellipsis, fontFamily = fontFamily) },
         verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes(),
         colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth(),
     ) { Text(stringResource(label)) }
@@ -34,7 +36,8 @@ internal fun SettingsTextRow(label: Int, value: String, singleLine: Boolean = tr
         text = {
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(draft, { draft = it }, label = { Text(stringResource(label)) },
-                    singleLine = singleLine, isError = !valid(draft), modifier = Modifier.fillMaxWidth())
+                    singleLine = singleLine, isError = !valid(draft), modifier = Modifier.fillMaxWidth(),
+                    textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = fontFamily))
                 hint?.let { Text(stringResource(it), style = MaterialTheme.typography.bodySmall) }
             }
         },

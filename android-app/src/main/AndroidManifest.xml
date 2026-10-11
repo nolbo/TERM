@@ -46,6 +46,7 @@
         <activity android:name=".WorkspacesActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".WorkspaceEditActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".WorkspaceLaunchEditActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name=".ToolbarCommandEditActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".SharedFoldersActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".SharedFolderCreateActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity android:name=".SharedFolderEditActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />

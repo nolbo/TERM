@@ -218,6 +218,12 @@
     <string name="toolbar_command_name">Name</string>
     <string name="toolbar_command_text">Commands</string>
     <string name="toolbar_command_delete">Delete command set</string>
+    <string name="toolbar_commands_list">Command sets</string>
+    <string name="toolbar_commands_none">No command sets yet.</string>
+    <string name="toolbar_commands_edit_summary">Drag the handles to reorder command sets. Changes are saved immediately.</string>
+    <string name="toolbar_commands_limit">You can add up to 64 command sets.</string>
+    <string name="toolbar_command_details">General</string>
+    <string name="toolbar_command_missing">This command set has been deleted.</string>
     <string name="toolbar_page_position">Tool %1$d of %2$d</string>
     <string name="toolbar_memory_app">App memory</string>
     <string name="toolbar_memory_java">Java heap</string>

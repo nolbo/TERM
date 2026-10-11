@@ -143,9 +143,16 @@ class SettingsDetailActivity : TerminalActivity() {
                 }
                 "toolbar-sessions", "toolbar-memory", "toolbar-commands", "toolbar-history" ->
                     dev.terminal.app.ui.ToolbarToolSettings(category, terminalPreferences, onBack = { finish() },
-                        initialCommandId = intent.getStringExtra("toolbar-command-id"))
+                        onEditCommand = { startActivity(ToolbarCommandEditActivity.intent(this, it)) })
                 HOTKEYS -> HotkeySettings(terminalPreferences) { finish() }
                 else -> DetailScreen()
+            }
+        }
+        if (savedInstanceState == null && category == "toolbar-commands") {
+            intent.getStringExtra("toolbar-command-id")?.let { id ->
+                if (readToolbarCommands(terminalPreferences).any { it.id == id }) {
+                    startActivity(ToolbarCommandEditActivity.intent(this, id))
+                }
             }
         }
     }

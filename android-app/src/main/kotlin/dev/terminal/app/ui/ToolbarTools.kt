@@ -237,23 +237,17 @@ private fun ToolbarSendDialog(text: String, target: String, onDismiss: () -> Uni
 
 @Composable
 internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences, onBack: () -> Unit,
-    initialCommandId: String? = null) {
+    onEditCommand: (String?) -> Unit = {}) {
     val tool = toolbarTools.first { it.settings == screen }
+    if (tool.id == COMMANDS_TOOL) {
+        ToolbarCommandsSettings(preferences, onBack, onEditCommand)
+        return
+    }
     var skipCloseConfirmation by remember {
         mutableStateOf(preferences.getBoolean(KEY_SKIP_SESSION_CLOSE_CONFIRMATION, false))
     }
     var refresh by remember { mutableIntStateOf(preferences.getInt("toolbar-memory-interval", 5)) }
     var memorySections by remember { mutableStateOf(readMemoryToolSections(preferences)) }
-    var commands by remember { mutableStateOf(readToolbarCommands(preferences)) }
-    val initialCommand = remember(initialCommandId) { commands.firstOrNull { it.id == initialCommandId } }
-    var editId by rememberSaveable { mutableStateOf(initialCommand?.id) }
-    var name by rememberSaveable { mutableStateOf(initialCommand?.name.orEmpty()) }
-    var text by rememberSaveable { mutableStateOf(initialCommand?.text.orEmpty()) }
-    var deleteId by rememberSaveable { mutableStateOf<String?>(null) }
-    fun saveCommands(value: List<ToolbarCommand>) {
-        preferences.edit().putString(KEY_TOOLBAR_COMMANDS, serializeToolbarCommands(value)).apply()
-        commands = value
-    }
     SettingsPageScaffold(stringResource(tool.title), onBack) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -311,37 +305,9 @@ internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                COMMANDS_TOOL -> {
-                    Text(stringResource(R.string.toolbar_commands_description))
-                    commands.forEach { command ->
-                        ListItem(onClick = { editId = command.id; name = command.name; text = command.text },
-                            supportingContent = { Text(command.text, fontFamily = LocalTerminalMonospaceFontFamily.current,
-                                style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis) },
-                            trailingContent = { IconButton(onClick = { deleteId = command.id }) {
-                                Icon(androidx.compose.ui.res.painterResource(R.drawable.ic_material_symbol_delete_24),
-                                    stringResource(R.string.toolbar_remove, command.name))
-                            } }, shapes = terminalListItemShapes()) { Text(command.name) }
-                    }
-                    Button(onClick = { editId = ""; name = ""; text = "" }, enabled = commands.size < 64) {
-                        Text(stringResource(R.string.toolbar_command_add))
-                    }
-                }
             }
         }
     }
-    editId?.let { id ->
-        val draft = ToolbarCommand(id = id.ifEmpty { "new" }, name = name, text = text)
-        ToolbarCommandEditDialog(draft, { name = it }, { text = it }, onDismiss = { editId = null }, onSave = {
-            saveCommands(if (id.isEmpty()) commands + ToolbarCommand(name = it.name, text = it.text)
-                else commands.map { command -> if (command.id == id) it else command })
-            editId = null
-        })
-    }
-    deleteId?.let { id -> AlertDialog(onDismissRequest = { deleteId = null },
-        title = { Text(stringResource(R.string.toolbar_command_delete)) },
-        text = { Text(commands.firstOrNull { it.id == id }?.name.orEmpty()) },
-        confirmButton = { TextButton(onClick = { saveCommands(commands.filterNot { it.id == id }); deleteId = null }) { Text(stringResource(R.string.toolbar_command_delete)) } },
-        dismissButton = { TextButton(onClick = { deleteId = null }) { Text(stringResource(R.string.cancel)) } }) }
 }
 
 @Composable
