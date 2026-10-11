@@ -1,10 +1,12 @@
 # TERM app updates
 
-## Source and distribution
+## Source and releases
 
-The application is **TERM**. Its public distribution repository is
-[nolbo/TERM](https://github.com/nolbo/TERM). The source repository can remain
-private: installed apps read only public release assets, with no GitHub token.
+The application is **TERM**. Source, verification, signing and releases share
+the public [nolbo/TERM](https://github.com/nolbo/TERM) repository. Installed apps
+read public release assets without a GitHub token. The default branch is `dev`;
+see [repository consolidation](REPOSITORY_MIGRATION.md) for the preserved history
+and former private source archive.
 
 There are two explicit channels: **main → stable** and **dev → development**.
 Both use application ID `dev.terminal.app` and the persistent release key.
@@ -21,11 +23,14 @@ describes product changes; Android installation ordering still uses the shared
 Independent branch commit counts can collide or make returning from dev to
 main impossible until main catches up. Commit timestamps also allow collisions
 and clock regressions. Published CI APKs therefore use
-`versionCode = 1000000 + GITHUB_RUN_NUMBER`, shared by both branches of the
-existing Android workflow. GitHub's [workflow run number](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)
+`versionCode = 1000000 + TERMINAL_VERSION_CODE_OFFSET + GITHUB_RUN_NUMBER`,
+shared by both branches of `android.yml`. The repository variable
+`TERMINAL_VERSION_CODE_OFFSET=70` preserves ordering after moving from
+`nolbo/terminal`, whose final published code was `1000070`.
+`tools/updates/version-code.py` validates the sequence and Android integer range. GitHub's [workflow run number](https://docs.github.com/en/actions/reference/workflows-and-actions/variables)
 increments on new executions and is retained by retries. The epoch exceeds
 legacy main commit-count codes. Do not reset/recreate this workflow or lower
-the epoch; any future sequence migration must exceed all published codes.
+the epoch or offset; any future sequence migration must exceed all published codes.
 
 The version name is `<base>+<main|dev>.<code>.<12-character source SHA>`.
 Legacy schema-1 main manifests without a channel remain readable, and legacy
@@ -42,7 +47,9 @@ supplied `TERMINAL_UPDATE_VERSION_CODE` must be a positive Android integer.
 Complete Git history is still required. No local count-based build is published
 automatically. For main/dev push events, CI pins the selected remote ref to
 the event's checked-out `GITHUB_SHA`; it never labels older checked-out source
-with a newer queued revision. Other branches and PRs are verified, not published.
+with a newer queued revision. Other branches and PRs are verified, not published. Manual dispatch on `dev` or
+`main` also builds and verifies a signed APK, including the installed-app signing
+identity and exact approved AVF catalog, without publishing it.
 
 ## Publishing
 
@@ -66,8 +73,10 @@ or library upgrade is needed for this runtime compatibility fix.
 
 `tools/updates/publish.sh` creates `main-<full source SHA>` stable releases and
 `dev-<full source SHA>` prereleases in the
-distribution repository. This is a distribution tag, not a Git object imported
-from the private source repository. Uploads remain drafts until complete;
+same repository. New commit-specific release tags target the exact source
+commit from `update.json`. Historical distribution tags and release assets keep
+their original targets and URLs; their source commits are now reachable through
+the imported history. Uploads remain drafts until complete;
 published APK/source assets are never overwritten. The channel build job is
 serialized through publication and compares codes so a slower old build cannot become latest.
 Dev prereleases always set `latest=false`, leaving stable `/releases/latest`
@@ -78,35 +87,26 @@ title/code. Retrying after a pointer upload failure preserves the published APK
 and completes only the pointer. First-pointer uploads stay drafts until ready.
 Only this discovery manifest is an exception to release asset immutability.
 
-The source repository needs these GitHub Actions secrets:
+The TERM repository needs these GitHub Actions secrets:
 
-- `TERMINAL_SIGNING_KEYSTORE_BASE64`: persistent PKCS12 keystore, alias `terminal`.
+- `TERMINAL_SIGNING_KEYSTORE_BASE64`: existing PKCS12 keystore, alias `terminal`.
 - `TERMINAL_SIGNING_STORE_PASSWORD`: its password.
-- `TERMINAL_UPDATES_TOKEN`: a fine-grained GitHub token restricted to **nolbo/TERM**,
-  repository permission **Contents: read and write** (metadata read is automatic).
 
-Create the publisher token in GitHub **Settings → Developer settings → Personal
-access tokens → Fine-grained tokens**, selecting **Only select repositories →
-TERM**. Do not reuse an unrestricted personal CLI token. See the
-[GitHub token creation documentation](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens).
-Register it through a local hidden prompt:
-
-```sh
-gh secret set TERMINAL_UPDATES_TOKEN --repo nolbo/terminal
-```
-
-The existing source repository `GITHUB_TOKEN` cannot publish to another
-repository. No publisher token is compiled into an APK, sent to the app, or
-included in artifacts. Missing publication credentials fail that job. Until
-the publisher is configured and these changes reach the respective branch, no
-new channel release is published. Repository creation alone does not publish an APK.
+App and image publication use the repository's short-lived `GITHUB_TOKEN`.
+Only publishing jobs grant `Contents: write`; AVF version-sequence lookup also
+requires `Actions: read`. A separate `TERMINAL_UPDATES_TOKEN` is no longer used.
+No token or signing credential is compiled into an APK or included in artifacts.
+The release certificate SHA-256 remains
+`7f639e70cc1969415beab27cfb10db6d10bf553b1f956a2f9d68d55ebf3785ba`;
+signed packaging rejects a different certificate.
 
 ### Publication time and cache policy
 
 Channel pushes check that signing/publication secrets and Korean channel notes
 exist before downloading toolchains or compiling. This checks presence only;
 the signing and publication steps still validate the credentials when used.
-The existing `android.yml` workflow and shared run-number sequence are preserved.
+The `android.yml` run-number sequence is shared by both channels; the migration
+offset preserves ordering across the old and new repositories.
 
 `gradle/actions/setup-gradle@v4` restores Gradle dependencies and local build-cache
 entries; the debug verification and signed release commands enable `--build-cache`.

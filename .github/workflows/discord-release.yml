@@ -1,0 +1,177 @@
+
+name: Discord Release Notification
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+    secrets:
+      DISCORD_BOT_TOKEN:
+        required: true
+      DISCORD_CHANNEL_ID:
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Send Discord notification
+        env:
+          TERM_RELEASE_TAG: ${{ inputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
+          DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+          DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
+
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.request
+          import urllib.error
+
+          # Discord configuration
+          token = os.environ.get("DISCORD_BOT_TOKEN")
+          channel_id = os.environ.get("DISCORD_CHANNEL_ID")
+
+          if not token or not channel_id:
+              raise RuntimeError(
+                  "Discord Bot Token or Channel ID is missing"
+              )
+
+          # GitHub event
+          with open(
+              os.environ["GITHUB_EVENT_PATH"],
+              encoding="utf-8"
+          ) as f:
+              event = json.load(f)
+
+          repo = os.environ["GITHUB_REPOSITORY"]
+          release = event.get("release")
+
+          # GITHUB_TOKEN publication uses an explicit reusable-workflow call.
+          requested_tag = os.environ.get("TERM_RELEASE_TAG")
+          if requested_tag:
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/releases/tags/{requested_tag}",
+                  headers={
+                      "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                      "Accept": "application/vnd.github+json",
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  release = json.load(response)
+              if release.get("draft") or release["tag_name"] != requested_tag:
+                  raise RuntimeError("Requested release is not published")
+
+          # Release information
+          if release:
+              name = (
+                  release.get("name")
+                  or release["tag_name"]
+              )
+              tag = release["tag_name"]
+              notes = (
+                  release.get("body")
+                  or "릴리즈 노트가 없습니다."
+              )
+              url = release["html_url"]
+              prerelease = release.get("prerelease", False)
+
+          else:
+              name = "[TEST] Discord 연결 테스트"
+              tag = "test"
+              notes = (
+                  "GitHub Actions에서 전송한 "
+                  "테스트 알림입니다."
+              )
+              url = (
+                  f"https://github.com/{repo}/releases"
+              )
+              prerelease = False
+
+          if prerelease:
+              name = f"[Pre-release] {name}"
+
+          # Discord embed
+          payload = {
+              "allowed_mentions": {
+                  "parse": []
+              },
+              "embeds": [
+                  {
+                      "title": name[:256],
+                      "url": url,
+                      "description": notes[:4000],
+                      "color": 0x5865F2,
+                      "fields": [
+                          {
+                              "name": "Repository",
+                              "value": repo[:1024],
+                              "inline": True
+                          },
+                          {
+                              "name": "Version",
+                              "value": tag[:1024],
+                              "inline": True
+                          }
+                      ]
+                  }
+              ]
+          }
+
+          # Discord API endpoint
+          endpoint = (
+              "https://discord.com/api/v10/"
+              f"channels/{channel_id}/messages"
+          )
+
+          # HTTP request
+          request = urllib.request.Request(
+              endpoint,
+              data=json.dumps(
+                  payload,
+                  ensure_ascii=False
+              ).encode("utf-8"),
+              headers={
+                  "Authorization": f"Bot {token}",
+                  "Content-Type": "application/json",
+                  "User-Agent": (
+                      f"DiscordBot "
+                      f"(https://github.com/{repo}, 1.0)"
+                  )
+              },
+              method="POST"
+          )
+
+          # Send notification
+          try:
+              with urllib.request.urlopen(
+                  request,
+                  timeout=20
+              ) as response:
+                  print(
+                      "Discord notification sent: "
+                      f"{response.status}"
+                  )
+
+          except urllib.error.HTTPError as e:
+              print(f"Discord HTTP status: {e.code}")
+              print(
+                  "Discord error: "
+                  f"{e.read().decode('utf-8', errors='replace')}"
+              )
+              raise SystemExit(1) from None
+
+          except urllib.error.URLError as e:
+              print(f"Discord connection error: {e.reason}")
+              raise SystemExit(1) from None
+          PY

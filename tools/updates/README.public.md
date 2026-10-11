@@ -2,13 +2,13 @@
 
 **Terminal Environments with Runtime Multiplexing**
 
-Public Android APK distribution for TERM. App versions follow the source
-main/development branches. The source commit and channel are recorded in each release's
-`update.json`; this repository's Git history contains distribution information.
+Public source and Android APK releases for TERM. App versions follow the
+main/development branches. Source commit and channel are recorded in each
+release’s `update.json`; source and previous distribution history are preserved
+in the default `dev` branch. See the root README for current build instructions.
 
 Download **TERM.apk** from [Releases](https://github.com/nolbo/TERM/releases).
-The first release will appear after the publisher is configured and a mainline
-build passes verification. The app also checks releases under **Settings →
+Stable and development releases are published after verification. The app also checks releases under **Settings →
 App updates**, without requiring a GitHub account.
 
 Stable updates follow **origin/main**. Development updates follow **origin/dev**

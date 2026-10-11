@@ -2,6 +2,11 @@
 
 **TERM** stands for **Terminal Environments with Runtime Multiplexing**.
 
+[nolbo/TERM](https://github.com/nolbo/TERM) is the public source and release
+repository. Download the stable APK from [Releases](https://github.com/nolbo/TERM/releases/latest),
+or choose a commit-specific development prerelease from [all releases](https://github.com/nolbo/TERM/releases).
+Development takes place on the default `dev` branch; stable promotion uses `main`.
+
 TERM is an Android Linux runtime based on
 [Termux](https://github.com/termux/termux-app). It uses and extends Termux's
 `terminal-emulator` and `terminal-view` libraries, and provides a real Debian
@@ -65,8 +70,9 @@ after 1.0 increment major. The current development baseline is `0.16.0`.
 `origin/main` advances provide stable updates; `origin/dev` advances provide
 development prereleases. Settings → App updates selects either channel, with
 the installed APK's channel as the initial default. Both use the same app ID
-and release signing key. CI uses `1000000 + GITHUB_RUN_NUMBER` as a shared Android
-`versionCode`, avoiding branch-count collisions; the name is
+and release signing key. CI uses `1000000 + TERMINAL_VERSION_CODE_OFFSET + GITHUB_RUN_NUMBER` as a shared
+Android `versionCode`. The TERM repository offset is `70`, carrying the previous
+repository’s last code `1000070` forward; the name is
 `<base>+<main|dev>.<code>.<12-character source SHA>`. An older channel cannot
 downgrade the installed app. Local builds default to the checked-out dev branch
 or main, identify that remote ref, and use its commit count unless
@@ -104,18 +110,19 @@ contents, then enter the password at the second command's hidden prompt:
 
 ```sh
 base64 -w 0 "$HOME/.local/share/terminal-signing/terminal-release.p12" \
-  | gh secret set TERMINAL_SIGNING_KEYSTORE_BASE64 --repo nolbo/terminal
-gh secret set TERMINAL_SIGNING_STORE_PASSWORD --repo nolbo/terminal
+  | gh secret set TERMINAL_SIGNING_KEYSTORE_BASE64 --repo nolbo/TERM
+gh secret set TERMINAL_SIGNING_STORE_PASSWORD --repo nolbo/TERM
 ```
 
 After verification, main/dev push builds publish the signed APK, integrity
 metadata and native corresponding-source bundles directly from the verified
-build directory to the public [TERM distribution repository](https://github.com/nolbo/TERM).
+build directory to this [TERM repository](https://github.com/nolbo/TERM).
 Channel build jobs are serialized through publication. Actions copies of the
 APKs and safety report are optional; artifact storage failures do not bypass
 verification or prevent publication.
-Cross-repository publishing requires a separate `TERMINAL_UPDATES_TOKEN` secret,
-restricted to that repository with `Contents: write`. Fork PRs and other
+Publication uses the job’s repository `GITHUB_TOKEN` with `Contents: write`;
+no cross-repository publisher token is required. Manual Android workflow runs
+verify the signed APK without publishing a release. Fork PRs and other
 branches other than main/dev do not receive signing or publication secrets.
 **Settings → App updates** checks the public release, downloads the APK, verifies
 its size, SHA-256, package/version and installed signing identity, and opens
@@ -138,8 +145,8 @@ build reports this clearly in its runtime state and diagnostics instead of
 claiming that a VM started.
 
 Automatic image setup accepts only a catalog-pinned, HTTPS-delivered AVF image
-bundle with a compiled-in manifest SHA-256. This source build intentionally
-ships with no release URL; see [docs/IMAGE_RELEASE.md](docs/IMAGE_RELEASE.md).
+bundle with a compiled-in manifest SHA-256. The default catalog pins the published
+`avf-debian-20261011` image; see [docs/IMAGE_RELEASE.md](docs/IMAGE_RELEASE.md).
 The directory picker remains available for a locally verified image.
 
 ## Documentation
@@ -150,6 +157,7 @@ The directory picker remains available for a locally verified image.
 - [AVF deployment notes](docs/AVF_NOTES.md)
 - [Privileged deployment](docs/DEPLOYMENT.md)
 - [Image release procedure](docs/IMAGE_RELEASE.md)
+- [Repository consolidation and history](docs/REPOSITORY_MIGRATION.md)
 - [사용 가이드 (한국어)](docs/USER_GUIDE.ko.md)
 
 On an AVF-enabled test device, use `tests/integration/acceptance.sh` for the

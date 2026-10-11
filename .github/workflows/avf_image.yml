@@ -27,10 +27,15 @@ permissions:
   contents: read
   actions: read
 
+env:
+  TERMINAL_VERSION_CODE_OFFSET: ${{ vars.TERMINAL_VERSION_CODE_OFFSET || '0' }}
+
 jobs:
   image:
     if: github.ref == 'refs/heads/dev'
     runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: write
     timeout-minutes: 90
     outputs:
       release_id: ${{ steps.metadata.outputs.release_id }}
@@ -44,7 +49,7 @@ jobs:
         env:
           AVF_RELEASE_ID: ${{ inputs.release_id }}
           AVF_PUBLISH: ${{ inputs.publish }}
-          GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           avf_release_id=${AVF_RELEASE_ID:-avf-debian-$GITHUB_SHA}
           python3 - "$avf_release_id" <<'PY'
@@ -55,6 +60,7 @@ jobs:
           git fetch --no-tags origin dev
           git merge-base --is-ancestor "$GITHUB_SHA" origin/dev
           if [ "$AVF_PUBLISH" = true ]; then
+            test "$GITHUB_REPOSITORY" = nolbo/TERM
             test -s "docs/release-notes/$avf_release_id.md"
             test -n "$GH_TOKEN"
             test "$(gh api repos/nolbo/TERM --jq '.private')" = false
@@ -68,7 +74,7 @@ jobs:
           if [ -n "$AVF_SOURCE_SHA256" ]; then
             avf_arguments+=(--source-sha256 "$AVF_SOURCE_SHA256")
           fi
-          # The source repository is private. Runtime downloads must use public TERM.
+          # Source and anonymous runtime downloads share the public TERM repository.
           python3 image/scripts/build-avf-image.py \
             --release-id "$AVF_RELEASE_ID" \
             --base-uri "https://github.com/nolbo/TERM/releases/download/$AVF_RELEASE_ID/" \
@@ -87,11 +93,12 @@ jobs:
       - name: Stage verified image assets in an unpublished release
         if: github.event_name == 'workflow_dispatch' && inputs.publish
         env:
-          GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           # Draft assets carry the verified bytes between jobs without depending
           # on Actions artifact storage. Duplicate release IDs fail closed.
           gh release create "$AVF_RELEASE_ID" --repo nolbo/TERM --draft --prerelease --latest=false \
+            --target "$GITHUB_SHA" \
             --title "AVF Debian $AVF_RELEASE_ID" --notes-file "docs/release-notes/$AVF_RELEASE_ID.md" \
             image/build/approved/*.gz image/build/approved/*.properties \
             image/build/approved/provenance.json image/build/approved/SHA256SUMS
@@ -137,7 +144,7 @@ jobs:
       - name: Download factory metadata from the unpublished release
         if: github.event_name == 'workflow_dispatch' && inputs.publish
         env:
-          GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           AVF_RELEASE_ID: ${{ needs.image.outputs.release_id }}
         run: |
           test "$(gh release view "$AVF_RELEASE_ID" --repo nolbo/TERM --json isDraft --jq '.isDraft')" = true
@@ -156,9 +163,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           # This is a review APK, not a new channel release. Do not create a second sequence.
-          terminal_android_sequence=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/android.yml/runs?per_page=5" --jq '[.workflow_runs[].run_number] | max')
+          terminal_android_sequence=$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/android.yml/runs?per_page=5" --jq '[.workflow_runs[].run_number] | max // 0')
           [[ "$terminal_android_sequence" =~ ^[0-9]+$ ]]
-          echo "TERMINAL_UPDATE_VERSION_CODE=$((1000000 + terminal_android_sequence))" >> "$GITHUB_ENV"
+          terminal_version_code=$(python3 tools/updates/version-code.py --run-number "$terminal_android_sequence")
+          echo "TERMINAL_UPDATE_VERSION_CODE=$terminal_version_code" >> "$GITHUB_ENV"
       - name: Use Maven AAPT2 on the CI host
         run: sed -i '/^android.aapt2FromMavenOverride=/d' gradle.properties
       - uses: actions/setup-java@v4
@@ -200,6 +208,8 @@ jobs:
     if: github.event_name == 'workflow_dispatch' && inputs.publish
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: write
     concurrency:
       group: avf-public-image-release
       cancel-in-progress: false
@@ -210,7 +220,7 @@ jobs:
           fetch-depth: 0
       - name: Download the verified factory assets from the unpublished release
         env:
-          GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           AVF_RELEASE_ID: ${{ needs.image.outputs.release_id }}
         run: |
           test "$(gh release view "$AVF_RELEASE_ID" --repo nolbo/TERM --json isDraft --jq '.isDraft')" = true
@@ -218,7 +228,7 @@ jobs:
             --pattern '*.gz' --pattern '*.properties' --pattern provenance.json --pattern SHA256SUMS
       - name: Verify and publish immutable image assets to public TERM
         env:
-          GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           AVF_RELEASE_ID: ${{ needs.image.outputs.release_id }}
           AVF_MANIFEST_SHA256: ${{ needs.image.outputs.manifest_sha256 }}
         run: |
@@ -244,3 +254,15 @@ jobs:
           name: avf-approved-default-${{ needs.image.outputs.release_id }}
           if-no-files-found: error
           path: image/catalog-approved.properties
+
+  notify-release:
+    needs: [image, publish]
+    if: github.repository == 'nolbo/TERM' && github.event_name == 'workflow_dispatch' && inputs.publish
+    permissions:
+      contents: read
+    uses: ./.github/workflows/discord-release.yml
+    with:
+      release_tag: ${{ needs.image.outputs.release_id }}
+    secrets:
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+      DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}

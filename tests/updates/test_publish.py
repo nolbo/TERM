@@ -73,6 +73,7 @@ class PublishTest(unittest.TestCase):
                 self.assertEqual(calls[-2][:2], ["release", "create"])
                 self.assertIn("--draft", calls[-2])
                 self.assertIn("--latest=true", calls[-1])
+                self.assertEqual(calls[-2][calls[-2].index("--target") + 1], "2" * 40)
 
     def test_late_older_release_does_not_replace_latest(self):
         result, calls = self.run_publisher(latest="0.1.0+main.33.333333333333")

@@ -7,14 +7,15 @@ terminal_sign_dir=$(mktemp -d)
 trap 'rm -rf -- "$terminal_sign_dir"' EXIT
 terminal_tag=${GITHUB_REF_NAME:?}
 [[ $terminal_tag =~ ^v0\.1\.0-rootless\.[0-9]+$ ]]
-terminal_code=$((1000000 + GITHUB_RUN_NUMBER))
+terminal_code=$(python3 "$(dirname "${BASH_SOURCE[0]}")/version-code.py" --run-number "$GITHUB_RUN_NUMBER")
 cd "$terminal_sign_dir"
-test "$(gh release view "$terminal_tag" --repo nolbo/TERM --json isDraft --jq .isDraft)" = true
 for attempt in $(seq 1 120); do
-    if gh release download "$terminal_tag" --repo nolbo/TERM --pattern signing-input.tar.gz --clobber 2>/dev/null; then break; fi
+    if [[ $(gh release view "$terminal_tag" --repo nolbo/TERM --json isDraft --jq .isDraft 2>/dev/null) == true ]] && \
+            gh release download "$terminal_tag" --repo nolbo/TERM --pattern signing-input.tar.gz --clobber 2>/dev/null; then break; fi
     sleep 10
 done
 test -f signing-input.tar.gz
+test "$(gh release view "$terminal_tag" --repo nolbo/TERM --json isDraft --jq .isDraft)" = true
 python3 - <<'PY'
 import tarfile, shutil
 with tarfile.open('signing-input.tar.gz', 'r:gz') as archive:

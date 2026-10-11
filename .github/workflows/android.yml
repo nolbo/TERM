@@ -3,14 +3,21 @@ name: Android verification
 on:
   push:
   pull_request:
+  # Manual runs verify packaging/signing without publishing a channel update.
+  workflow_dispatch:
 
 permissions:
   contents: read
+
+env:
+  TERMINAL_VERSION_CODE_OFFSET: ${{ vars.TERMINAL_VERSION_CODE_OFFSET || '0' }}
 
 jobs:
   build-and-unit-test:
     if: ${{ !startsWith(github.ref, 'refs/tags/v0.1.0-rootless.') }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     # Publish directly from the verified build directory without an Actions
     # artifact handoff. Serialize channel builds through publication.
     concurrency:
@@ -25,24 +32,24 @@ jobs:
         run: |
           echo "TERMINAL_NDK_VERSION=$(sed -n 's/^ndkVersion=//p' gradle.properties)" >> "$GITHUB_ENV"
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main +refs/heads/dev:refs/remotes/origin/dev
-          if [ "$GITHUB_EVENT_NAME" = push ] && { [ "$GITHUB_REF" = refs/heads/main ] || [ "$GITHUB_REF" = refs/heads/dev ]; }; then
+          if { [ "$GITHUB_EVENT_NAME" = push ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; } && { [ "$GITHUB_REF" = refs/heads/main ] || [ "$GITHUB_REF" = refs/heads/dev ]; }; then
             terminal_update_channel=${GITHUB_REF#refs/heads/}
             git update-ref "refs/remotes/origin/$terminal_update_channel" "$GITHUB_SHA"
             echo "TERMINAL_UPDATE_CHANNEL=$terminal_update_channel" >> "$GITHUB_ENV"
-            # Shared sequence across main/dev; retries retain their code. The
-            # epoch exceeds legacy commit-count versions without relying on clocks.
-            echo "TERMINAL_UPDATE_VERSION_CODE=$((1000000 + GITHUB_RUN_NUMBER))" >> "$GITHUB_ENV"
+            # The offset carries the previous repository's sequence forward.
+            terminal_version_code=$(python3 tools/updates/version-code.py --run-number "$GITHUB_RUN_NUMBER")
+            echo "TERMINAL_UPDATE_VERSION_CODE=$terminal_version_code" >> "$GITHUB_ENV"
           fi
       - name: Check channel publication inputs before building
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
         env:
           TERMINAL_SIGNING_KEYSTORE_BASE64: ${{ secrets.TERMINAL_SIGNING_KEYSTORE_BASE64 }}
           TERMINAL_SIGNING_STORE_PASSWORD: ${{ secrets.TERMINAL_SIGNING_STORE_PASSWORD }}
-          TERMINAL_UPDATES_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
         run: |
           set +x
-          if [ -z "$TERMINAL_SIGNING_KEYSTORE_BASE64" ] || [ -z "$TERMINAL_SIGNING_STORE_PASSWORD" ] || [ -z "$TERMINAL_UPDATES_TOKEN" ]; then
-            echo 'Configure the signing and TERM publication secrets before building a channel update.'
+          test "$GITHUB_REPOSITORY" = nolbo/TERM
+          if [ -z "$TERMINAL_SIGNING_KEYSTORE_BASE64" ] || [ -z "$TERMINAL_SIGNING_STORE_PASSWORD" ]; then
+            echo 'Configure the existing signing secrets before building a channel update.'
             exit 1
           fi
           test -s "docs/release-notes/${GITHUB_REF_NAME}-latest.md"
@@ -113,13 +120,13 @@ jobs:
       - name: Use JDK 21 for release lint
         # AGP 9.3's lint parser calls List.removeLast(), unavailable on JDK 17.
         # Verification above and explicit compilation toolchains remain on 17.
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '21'
       - name: Build signed channel update
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
         env:
           TERMINAL_SIGNING_KEYSTORE_BASE64: ${{ secrets.TERMINAL_SIGNING_KEYSTORE_BASE64 }}
           TERMINAL_SIGNING_STORE_PASSWORD: ${{ secrets.TERMINAL_SIGNING_STORE_PASSWORD }}
@@ -136,6 +143,21 @@ jobs:
           unset TERMINAL_SIGNING_KEYSTORE_BASE64
           bash tools/build-release.sh --build-cache
           python3 tools/rootless/prepare-release-runtime.py --verify-apk android-app/build/outputs/apk/release/android-app-release.apk
+          python3 - <<'PY'
+          import os, pathlib, re, subprocess, zipfile
+          apk = pathlib.Path('android-app/build/outputs/apk/release/android-app-release.apk')
+          tools = pathlib.Path(os.environ['ANDROID_HOME']) / 'build-tools'
+          signer = max(tools.glob('*/apksigner'), key=lambda path: tuple(int(part) for part in path.parent.name.split('.')))
+          result = subprocess.run([str(signer), 'verify', '--print-certs', str(apk)], check=True, capture_output=True, text=True)
+          certificates = re.findall(r'Signer #\d+ certificate SHA-256 digest: ([0-9a-fA-F]+)', result.stdout)
+          expected = '7f639e70cc1969415beab27cfb10db6d10bf553b1f956a2f9d68d55ebf3785ba'
+          if certificates != [expected]:
+              raise SystemExit('Release signing identity differs from the installed-app key')
+          with zipfile.ZipFile(apk) as archive:
+              if archive.read('dev/terminal/image/approved-debian.properties') != pathlib.Path('image/catalog-approved.properties').read_bytes():
+                  raise SystemExit('Signed APK does not contain the approved image catalog')
+          print(f'Release signing certificate verified: {expected}; approved AVF catalog verified')
+          PY
           mkdir -p android-app/build/update
           python3 tools/updates/create-manifest.py \
             --apk android-app/build/outputs/apk/release/android-app-release.apk \
@@ -172,12 +194,14 @@ jobs:
       - name: Publish verified update to TERM
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
         env:
-          GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: bash tools/updates/publish.sh android-app/build/update
 
   sign-rootless-prerelease:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v0.1.0-rootless.')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
@@ -186,7 +210,19 @@ jobs:
           java-version: '17'
       - name: Sign verified local candidate
         env:
-          GH_TOKEN: ${{ secrets.TERMINAL_UPDATES_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
           TERMINAL_SIGNING_KEYSTORE_BASE64: ${{ secrets.TERMINAL_SIGNING_KEYSTORE_BASE64 }}
           TERMINAL_SIGNING_STORE_PASSWORD: ${{ secrets.TERMINAL_SIGNING_STORE_PASSWORD }}
         run: bash tools/updates/sign-rootless-prerelease.sh
+
+  notify-release:
+    needs: build-and-unit-test
+    if: github.repository == 'nolbo/TERM' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    permissions:
+      contents: read
+    uses: ./.github/workflows/discord-release.yml
+    with:
+      release_tag: ${{ format('{0}-{1}', github.ref_name, github.sha) }}
+    secrets:
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+      DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}

@@ -4,7 +4,7 @@ set +x
 set -euo pipefail
 terminal_update_dir=${1:?Pass the signed update artifact directory}
 if [[ -z ${GH_TOKEN:-} ]]; then
-    echo 'Register TERMINAL_UPDATES_TOKEN with Contents: write access to nolbo/TERM.' >&2
+    echo 'Provide GH_TOKEN with Contents: write access to nolbo/TERM (CI uses its repository GITHUB_TOKEN).' >&2
     exit 1
 fi
 terminal_update_commit=$(jq -er '.commit' "$terminal_update_dir/update.json")
@@ -60,6 +60,7 @@ if terminal_is_draft=$(gh release view "$terminal_release_tag" --repo nolbo/TERM
     fi
 else
     gh release create "$terminal_release_tag" --repo nolbo/TERM --draft \
+        --target "$terminal_update_commit" \
         --prerelease="$terminal_prerelease" --latest=false \
         --title "$terminal_update_name" \
         "${terminal_notes_args[@]}" \
@@ -79,6 +80,7 @@ if [[ $terminal_update_channel == dev ]] && { (( terminal_update_code > terminal
         gh release upload dev-latest --repo nolbo/TERM "$terminal_update_dir/update.json" --clobber
     else
         gh release create dev-latest --repo nolbo/TERM --draft --prerelease --latest=false \
+            --target "$terminal_update_commit" \
             --title "$terminal_update_name" --notes 'Development channel discovery metadata. APK assets are in commit-specific prereleases.' \
             "$terminal_update_dir/update.json"
     fi

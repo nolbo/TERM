@@ -461,6 +461,7 @@ Read only the documents relevant to the task:
 | AVF platform and image constraints | docs/AVF_NOTES.md |
 | privileged deployment | docs/DEPLOYMENT.md |
 | image publication | docs/IMAGE_RELEASE.md |
+| repository consolidation and version-sequence migration | docs/REPOSITORY_MIGRATION.md |
 | release preparation and required image updates | docs/RELEASING.md |
 | app version promotion criteria | docs/VERSIONING.md |
 | per-release patch notes | `docs/release-notes/` (one `<release-id>.md` per release) |

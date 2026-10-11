@@ -1,0 +1,35 @@
+name: Migrate existing signing secrets
+
+on:
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  encrypt:
+    if: github.repository == 'nolbo/terminal' && github.ref == 'refs/heads/dev'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Seal existing credentials for TERM
+        env:
+          TERM_PUBLIC_KEY: "imT47ejmx4ZiH6QWwn7TeG93E1kEsvKfswrTRlhNAAA="
+          TERM_KEY_ID: "3380204578043523366"
+          TERMINAL_SIGNING_KEYSTORE_BASE64: ${{ secrets.TERMINAL_SIGNING_KEYSTORE_BASE64 }}
+          TERMINAL_SIGNING_STORE_PASSWORD: ${{ secrets.TERMINAL_SIGNING_STORE_PASSWORD }}
+        run: |
+          set +x
+          python3 -m venv "$RUNNER_TEMP/term-seal"
+          "$RUNNER_TEMP/term-seal/bin/pip" install --disable-pip-version-check PyNaCl==1.5.0
+          "$RUNNER_TEMP/term-seal/bin/python" - <<'PY'
+          import base64, json, os
+          from nacl import encoding, public
+          key = public.PublicKey(os.environ['TERM_PUBLIC_KEY'], encoding.Base64Encoder())
+          sealed = public.SealedBox(key)
+          for name in ('TERMINAL_SIGNING_KEYSTORE_BASE64', 'TERMINAL_SIGNING_STORE_PASSWORD'):
+              value = os.environ.pop(name, '')
+              if not value:
+                  raise SystemExit('Existing signing credential is absent')
+              encrypted = base64.b64encode(sealed.encrypt(value.encode())).decode()
+              record = dict(name=name, encrypted_value=encrypted, key_id=os.environ['TERM_KEY_ID'])
+              print('TERM_SEALED_SECRET=' + json.dumps(record, separators=(',', ':')))
+          PY

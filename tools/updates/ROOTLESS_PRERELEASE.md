@@ -7,7 +7,9 @@ All preparation and commits stay on `dev`; the source tag identifies that commit
 1. Complete the runtime checks and performance report, and commit Korean notes
    under `docs/release-notes/<tag>.md` before creating the source tag.
 2. Read the next run number for the existing Android verification workflow.
-   Its versionCode is `1000000 + run_number`. Verify the actual number when the
+   Its versionCode is `1000000 + TERMINAL_VERSION_CODE_OFFSET + run_number`
+   (`TERMINAL_VERSION_CODE_OFFSET=70` in TERM); compute it with
+   `python3 tools/updates/version-code.py --offset 70 --run-number <number>`. Verify the actual number when the
    tag run starts; concurrent workflow activity can change the expected number.
 3. Build with the pinned accelerated payload and these explicit inputs:
 
@@ -22,11 +24,13 @@ All preparation and commits stay on `dev`; the source tag identifies that commit
 
    Use the existing host JDK suitable for release lint (JDK 21 on the ARM64 host).
    The unsigned option is explicit; normal release tasks still require signing.
-4. Create a **draft** prerelease in `nolbo/TERM`, using the same tag name. Upload
+4. Push the corresponding source tag to `nolbo/TERM`, then create a **draft**
+   prerelease there with that existing tag. Upload
    `signing-input.tar.gz` with exactly two regular files at its root:
    `unsigned.apk` and `request.json`. The request contains `commit`, `tag`,
    integer `versionCode`, and `apkSha256`. Do not put credentials in the bundle.
-5. Push only the corresponding source tag to `nolbo/terminal`. The job checks
+5. The signing job waits up to 20 minutes for the draft and signing request.
+   The job checks
    the request against its event commit, tag and shared run sequence, checks APK
    package/version/alignment, then signs using the existing protected CI secrets.
    It uploads the signed APK, `SHA256SUMS` and `signing-verification.txt` into the
@@ -36,7 +40,9 @@ All preparation and commits stay on `dev`; the source tag identifies that commit
    archives and the performance report/raw measurements. Publish the draft with
    `--prerelease --latest=false` only after validation succeeds.
 
-Do not publish a GitHub Release in the source repository for this flow: that
-repository's old release-published workflows target a different artifact.
+Source and prerelease signing now share `nolbo/TERM`; do not reuse a historical
+distribution tag for a different source commit. The existing
+`v0.1.0-rootless.1` tag is preserved; its old source tag is available as
+`migration/source-v0.1.0-rootless.1`.
 A failed signing run leaves the draft unpublished. Correct the evidence or
 artifact and rerun the same workflow run; do not silently change the versionCode.
