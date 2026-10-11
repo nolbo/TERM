@@ -57,6 +57,11 @@ tasks.configureEach {
     if (!unsignedRelease && (name == 'packageRelease' || name == 'validateSigningRelease')) {
         dependsOn checkReleaseSigning
     }
+    if (name == 'packageDebug' || name == 'packageRelease') {
+        // Incremental Zipflinger updates retain deleted entries as empty ZIP records.
+        // Recreate only the APK so repeated builds cannot accumulate those holes.
+        outputs.upToDateWhen { false }
+    }
 }
 
 android {

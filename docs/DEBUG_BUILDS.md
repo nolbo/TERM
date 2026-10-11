@@ -3,6 +3,11 @@
 `./gradlew :android-app:assembleDebug --console=plain`으로 빌드한다.
 산출물은 `android-app/build/outputs/apk/debug/android-app-debug.apk`다.
 
+디버그와 배포용 APK는 패키징 단계만 매번 새로 수행한다. 증분 패키징에서
+교체·삭제한 ZIP 항목의 자리가 빈 영역으로 남아 APK 용량이 누적되는 것을
+방지한다. 컴파일 캐시는 재사용하므로 전체 `clean` 빌드는 필요하지 않다.
+서명과 ZIP 정렬에 필요한 공간은 Android 빌드 도구가 정상적으로 생성한다.
+
 | 항목 | 디버그 | 정식·프리릴리즈 (`release` 빌드) |
 | --- | --- | --- |
 | 앱 ID | `dev.terminal.app.debug` | `dev.terminal.app` |
