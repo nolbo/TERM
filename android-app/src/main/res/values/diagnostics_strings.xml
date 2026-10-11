@@ -3,6 +3,9 @@
     <string name="settings_diagnostics_title">진단 및 리포트</string>
     <string name="settings_diagnostics_summary">호환성, 엔진 구성, 메모리와 크래시 기록</string>
     <string name="settings_diagnostics_description">런타임 호환성과 엔진 구성, 장치·앱 메모리, 저장된 크래시 리포트를 확인합니다.</string>
+    <string name="diagnostics_category_runtime">런타임</string>
+    <string name="diagnostics_category_system">시스템</string>
+    <string name="diagnostics_category_reports">리포트</string>
     <string name="diagnostics_refreshing">새로고침 중…</string>
     <string name="crash_reports_title">크래시 리포트</string>
     <string name="crash_reports_summary">저장된 크래시 기록을 확인합니다.</string>

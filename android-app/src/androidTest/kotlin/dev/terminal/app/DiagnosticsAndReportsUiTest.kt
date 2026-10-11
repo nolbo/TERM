@@ -57,17 +57,29 @@ class DiagnosticsAndReportsUiTest {
                     context.getString(R.string.settings_diagnostics_title))
             }))
             click(waitFor { !it.isEditable && it.text?.toString() == context.getString(R.string.settings_diagnostics_title) })
-            dev.terminal.app.ui.diagnosticMenu.forEach { (destination, title) ->
-                val activityClass = requireNotNull(diagnosticsDestination(destination))
-                val monitor = instrumentation.addMonitor(activityClass.name, null, false)
-                try {
-                    click(waitFor(scroll = true) { it.text?.toString() == context.getString(title) })
-                    val child = monitor.waitForActivityWithTimeout(5000)
-                    assertNotNull("Independent activity for $destination", child)
-                    assertEquals(activityClass, child.javaClass)
-                    instrumentation.runOnMainSync { (child as androidx.activity.ComponentActivity).onBackPressedDispatcher.onBackPressed() }
-                } finally { instrumentation.removeMonitor(monitor) }
-                waitFor { it.text?.toString() == context.getString(R.string.settings_diagnostics_title) }
+            val categories = listOf(
+                R.string.diagnostics_category_runtime to listOf(
+                    NativeDiagnosticsActivity::class.java to R.string.runtime_native_title,
+                    UserspaceLinuxDiagnosticsActivity::class.java to R.string.settings_userspace_title,
+                    AvfLinuxDiagnosticsActivity::class.java to R.string.settings_avf_title,
+                ),
+                R.string.diagnostics_category_system to listOf(MemoryDiagnosticsActivity::class.java to R.string.memory_diagnostics_title),
+                R.string.diagnostics_category_reports to listOf(CrashReportsActivity::class.java to R.string.crash_reports_title),
+            )
+            categories.forEach { (category, entries) ->
+                val heading = waitFor(scroll = true) { it.text?.toString() == context.getString(category) }
+                assertFalse("Category heading is not a destination", heading.isClickable)
+                entries.forEach { (activityClass, title) ->
+                    val monitor = instrumentation.addMonitor(activityClass.name, null, false)
+                    try {
+                        click(waitFor(scroll = true) { it.text?.toString() == context.getString(title) })
+                        val child = monitor.waitForActivityWithTimeout(5000)
+                        assertNotNull("Independent activity for ${activityClass.simpleName}", child)
+                        assertEquals(activityClass, child.javaClass)
+                        instrumentation.runOnMainSync { (child as androidx.activity.ComponentActivity).onBackPressedDispatcher.onBackPressed() }
+                    } finally { instrumentation.removeMonitor(monitor) }
+                    waitFor { it.text?.toString() == context.getString(R.string.settings_diagnostics_title) }
+                }
             }
             assertNull(find { it.text?.toString() == context.getString(R.string.forwarded_ports_title) })
         }

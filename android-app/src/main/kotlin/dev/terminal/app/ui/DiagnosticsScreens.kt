@@ -22,12 +22,14 @@ import org.json.JSONObject
 
 internal data class DiagnosticRow(val title: Int, val value: String, val detail: String? = null)
 internal data class DiagnosticSection(val title: Int, val rows: List<DiagnosticRow>, val note: String? = null)
-internal val diagnosticMenu = listOf(
-    "diagnostics-native" to R.string.runtime_native_title,
-    "diagnostics-userspace" to R.string.settings_userspace_title,
-    "diagnostics-avf" to R.string.settings_avf_title,
-    "diagnostics-memory" to R.string.memory_diagnostics_title,
-    "crash-reports" to R.string.crash_reports_title,
+internal val diagnosticMenuCategories = listOf(
+    R.string.diagnostics_category_runtime to listOf(
+        "diagnostics-native" to R.string.runtime_native_title,
+        "diagnostics-userspace" to R.string.settings_userspace_title,
+        "diagnostics-avf" to R.string.settings_avf_title,
+    ),
+    R.string.diagnostics_category_system to listOf("diagnostics-memory" to R.string.memory_diagnostics_title),
+    R.string.diagnostics_category_reports to listOf("crash-reports" to R.string.crash_reports_title),
 )
 
 @Composable
@@ -36,12 +38,18 @@ internal fun DiagnosticsMenuScreen(onBack: () -> Unit, onOpen: (String) -> Unit)
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
             item { Guidance(R.string.settings_diagnostics_description) }
-            item { SettingsGroup {
-                diagnosticMenu.forEach { (destination, title) ->
-                    ListItem(onClick = { onOpen(destination) },
-                        trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
-                        verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes(),
-                        colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth()) { Text(stringResource(title)) }
+            diagnosticMenuCategories.forEach { (category, entries) -> item(key = category) {
+                Column(Modifier.fillMaxWidth()) {
+                    Text(stringResource(category), Modifier.padding(start = 16.dp, bottom = 8.dp),
+                        style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+                    SettingsGroup {
+                        entries.forEach { (destination, title) ->
+                            ListItem(onClick = { onOpen(destination) },
+                                trailingContent = { Icon(painterResource(R.drawable.ic_material_symbol_chevron_right_24), null) },
+                                verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes(),
+                                colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth()) { Text(stringResource(title)) }
+                        }
+                    }
                 }
             } }
         }

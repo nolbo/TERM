@@ -3,6 +3,9 @@
     <string name="settings_diagnostics_title">Diagnostics and reports</string>
     <string name="settings_diagnostics_summary">Compatibility, engine configuration, memory and crash records</string>
     <string name="settings_diagnostics_description">Inspect runtime compatibility, engine configuration, device and app memory, and saved crash reports.</string>
+    <string name="diagnostics_category_runtime">Runtimes</string>
+    <string name="diagnostics_category_system">System</string>
+    <string name="diagnostics_category_reports">Reports</string>
     <string name="diagnostics_refreshing">Refreshing…</string>
     <string name="crash_reports_title">Crash reports</string>
     <string name="crash_reports_summary">View saved crash history.</string>
