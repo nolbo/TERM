@@ -1,0 +1,14 @@
+{
+  "name": "Droid shell",
+  "colors": { "editor.background": "#13171B", "editor.foreground": "#E3E2E6" },
+  "tokenColors": [
+    { "settings": { "foreground": "#E3E2E6", "background": "#13171B" } },
+    { "scope": "comment", "settings": { "foreground": "#C5C6CC", "fontStyle": "italic" } },
+    { "scope": "keyword, storage", "settings": { "foreground": "#ADC6FF", "fontStyle": "bold" } },
+    { "scope": "string", "settings": { "foreground": "#E6C384" } },
+    { "scope": "constant.numeric, constant.language, constant.character.escape", "settings": { "foreground": "#F3BE9A" } },
+    { "scope": "variable, punctuation.definition.variable", "settings": { "foreground": "#D8BDF8" } },
+    { "scope": "support.function, entity.name.function, entity.name.command", "settings": { "foreground": "#B7CDE9" } },
+    { "scope": "keyword.operator", "settings": { "foreground": "#E3E2E6", "fontStyle": "" } }
+  ]
+}
