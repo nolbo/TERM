@@ -72,7 +72,7 @@ class SharedFolderRegistry(private val files: File, private val read: () -> Stri
     @Synchronized fun delete(id: String) {
         val folder = requireFolder(id)
         ScopedDirectory.open(directory(folder)).use { it.clear() }
-        ScopedDirectory.open(root).use { com.termux.terminal.ScopedFileAccess.unlink(it.fd, id, true) }
+        ScopedDirectory.open(root).use { dev.terminal.emulator.ScopedFileAccess.unlink(it.fd, id, true) }
         write(JSONArray(all().filterNot { it.id == id }.map { it.json() }).toString())
     }
     fun directory(folder: SharedFolder): File {

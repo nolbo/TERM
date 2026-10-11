@@ -1,6 +1,6 @@
 package dev.terminal.app
 
-import com.termux.terminal.TerminalSessionBackend
+import dev.terminal.emulator.TerminalSessionBackend
 import dev.terminal.app.ui.parseSessions
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals

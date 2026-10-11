@@ -1,7 +1,7 @@
 package dev.terminal.app
 
-import com.termux.terminal.TerminalEmulator
-import com.termux.terminal.TerminalOutput
+import dev.terminal.emulator.TerminalEmulator
+import dev.terminal.emulator.TerminalOutput
 import org.junit.Assert.*
 import org.junit.Test
 

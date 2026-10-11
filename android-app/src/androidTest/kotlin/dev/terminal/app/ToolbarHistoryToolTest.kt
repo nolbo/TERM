@@ -25,8 +25,8 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
-import com.termux.terminal.TerminalSession
-import com.termux.view.TerminalView
+import dev.terminal.emulator.TerminalSession
+import dev.terminal.view.TerminalView
 import dev.terminal.app.ui.*
 import org.junit.Assert.*
 import org.junit.Test
@@ -597,7 +597,7 @@ class ToolbarHistoryToolTest {
             assertSame(emulator, view.mEmulator)
             assertEquals(cells, emulator.screen.transcriptText)
             highlighted.recycle(); plain.recycle()
-            view.updateHistorySearch("needle", com.termux.terminal.TerminalSearch.Scope.COMMANDS)
+            view.updateHistorySearch("needle", dev.terminal.emulator.TerminalSearch.Scope.COMMANDS)
             activity.setContent { Box(Modifier.fillMaxSize()) }
         }
         settle()

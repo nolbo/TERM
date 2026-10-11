@@ -1,8 +1,8 @@
 package dev.terminal.runtime.session
 
 import android.view.KeyEvent
-import com.termux.terminal.KeyHandler
-import com.termux.terminal.KittyKeyboard
+import dev.terminal.emulator.KeyHandler
+import dev.terminal.emulator.KittyKeyboard
 
 internal object KittyRemoteKeys {
     fun encode(keys: List<String>, flags: Int): ByteArray {

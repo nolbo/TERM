@@ -2,7 +2,7 @@ package dev.terminal.app
 
 import android.os.SystemClock
 import android.view.KeyEvent
-import com.termux.view.TerminalView
+import dev.terminal.view.TerminalView
 
 internal fun dispatchHotkeyShortcut(view: TerminalView, callbacks: TerminalInputCallbacks, value: String) {
     var chord = parseHotkeyChord(value) ?: return

@@ -4,8 +4,8 @@ import android.content.Intent
 import android.os.SystemClock
 import android.view.MotionEvent
 import androidx.test.platform.app.InstrumentationRegistry
-import com.termux.terminal.TerminalSession
-import com.termux.view.TerminalView
+import dev.terminal.emulator.TerminalSession
+import dev.terminal.view.TerminalView
 import org.junit.Assert.*
 import org.junit.Test
 

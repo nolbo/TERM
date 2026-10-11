@@ -40,7 +40,11 @@ service through an immutable PendingIntent. It terminates the current sessions
 across registered runtimes, refreshes the authoritative list, and retains any
 session whose termination failed. The batch also works without a bound UI.
 
-`libtermux.so` is rebuilt from the checked-in JNI source for every supported
+Terminal classes use `dev.terminal.emulator` and the renderer uses
+`dev.terminal.view`. These internal names do not change the app ID, stored
+environment paths, or existing `termux-*` guest compatibility commands.
+
+`libterminal-jni.so` is rebuilt from `terminal-emulator/src/main/jni/terminal-jni.c` for every supported
 ABI and uses 16 KiB ELF segment alignment. On ARM64 Linux build hosts, where
 Google's NDK host executables are unavailable, the build uses the native Clang
 driver with the official NDK r28 sysroot and compiler runtime archives.

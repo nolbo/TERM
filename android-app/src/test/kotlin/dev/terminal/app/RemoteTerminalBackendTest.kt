@@ -1,6 +1,6 @@
 package dev.terminal.app
 
-import com.termux.terminal.TerminalSessionBackend
+import dev.terminal.emulator.TerminalSessionBackend
 import org.junit.Assert.assertEquals
 import org.junit.Test
 

@@ -2,7 +2,7 @@ apply plugin: 'com.android.library'
 apply plugin: 'maven-publish'
 
 android {
-    namespace "com.termux.view"
+    namespace "dev.terminal.view"
     enableKotlin = false
     compileSdkVersion project.properties.compileSdkVersion.toInteger()
 
@@ -49,7 +49,7 @@ afterEvaluate {
             // Creates a Maven publication called "release".
             release(MavenPublication) {
                 from components.release
-                groupId = 'com.termux'
+                groupId = 'dev.terminal'
                 artifactId = 'terminal-view'
                 version = '0.118.0'
                 artifact(sourceJar)

@@ -10,8 +10,8 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.termux.terminal.TerminalSession
-import com.termux.view.TerminalView
+import dev.terminal.emulator.TerminalSession
+import dev.terminal.view.TerminalView
 import dev.terminal.app.ui.DroidTheme
 import dev.terminal.app.ui.TerminalHapticFeedbackProvider
 import dev.terminal.app.ui.TerminalToolbar

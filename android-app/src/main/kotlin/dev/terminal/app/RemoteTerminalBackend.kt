@@ -1,6 +1,6 @@
 package dev.terminal.app
 
-import com.termux.terminal.TerminalSessionBackend
+import dev.terminal.emulator.TerminalSessionBackend
 
 class RemoteTerminalBackend(
     private val write: (ByteArray) -> Unit,
@@ -39,7 +39,7 @@ class RemoteTerminalBackend(
         cellWidth = cellWidthPixels; cellHeight = cellHeightPixels
         if (authoritative) onGeometry() else resize(columns, rows)
     }
-    fun checkpoint(state: com.termux.terminal.TerminalEmulator) {
+    fun checkpoint(state: dev.terminal.emulator.TerminalEmulator) {
         callback?.let { current ->
             // Every checkpoint is followed by the owner's current exit status, if any.
             running = true

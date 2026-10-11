@@ -9,9 +9,9 @@ import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
-import com.termux.terminal.TerminalSession
-import com.termux.terminal.TextStyle
-import com.termux.view.TerminalView
+import dev.terminal.emulator.TerminalSession
+import dev.terminal.emulator.TextStyle
+import dev.terminal.view.TerminalView
 import dev.terminal.app.ui.TerminalChromeColors
 import org.junit.Assert.*
 import org.junit.Test

@@ -6,11 +6,11 @@ import android.graphics.Color
 import android.graphics.Typeface
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.termux.terminal.GraphicsFileReader
-import com.termux.terminal.KittyPlaceholders
-import com.termux.terminal.TerminalEmulator
-import com.termux.terminal.TerminalOutput
-import com.termux.view.TerminalRenderer
+import dev.terminal.emulator.GraphicsFileReader
+import dev.terminal.emulator.KittyPlaceholders
+import dev.terminal.emulator.TerminalEmulator
+import dev.terminal.emulator.TerminalOutput
+import dev.terminal.view.TerminalRenderer
 import dev.terminal.protocol.SessionController
 import dev.terminal.protocol.SessionEvent
 import dev.terminal.runtime.native.ApkNativeExecutableLoader

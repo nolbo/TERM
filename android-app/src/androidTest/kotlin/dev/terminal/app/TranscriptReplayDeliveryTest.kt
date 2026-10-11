@@ -2,7 +2,7 @@ package dev.terminal.app
 
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.termux.terminal.TerminalSession
+import dev.terminal.emulator.TerminalSession
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith

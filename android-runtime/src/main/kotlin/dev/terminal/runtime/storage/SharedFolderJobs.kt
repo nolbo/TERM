@@ -4,7 +4,7 @@ import android.content.Context
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import android.system.Os
-import com.termux.terminal.ScopedFileAccess
+import dev.terminal.emulator.ScopedFileAccess
 import dev.terminal.protocol.FileTransfer
 import dev.terminal.runtime.api.GuestByteStream
 import dev.terminal.runtime.session.EnvironmentId

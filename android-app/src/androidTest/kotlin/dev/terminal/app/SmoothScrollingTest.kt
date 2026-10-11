@@ -8,8 +8,8 @@ import android.view.ViewGroup
 import android.widget.Scroller
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.core.app.ActivityScenario
-import com.termux.terminal.TerminalSession
-import com.termux.view.TerminalView
+import dev.terminal.emulator.TerminalSession
+import dev.terminal.view.TerminalView
 import org.junit.Assert.*
 import org.junit.Test
 

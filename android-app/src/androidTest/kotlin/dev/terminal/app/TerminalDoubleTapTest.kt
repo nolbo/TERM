@@ -3,8 +3,8 @@ package dev.terminal.app
 import android.view.MotionEvent
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.termux.terminal.TerminalSession
-import com.termux.view.TerminalView
+import dev.terminal.emulator.TerminalSession
+import dev.terminal.view.TerminalView
 import java.io.ByteArrayOutputStream
 import org.junit.Assert.assertTrue
 import org.junit.Test

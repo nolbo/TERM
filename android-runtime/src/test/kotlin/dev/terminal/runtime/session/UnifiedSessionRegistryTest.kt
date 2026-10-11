@@ -390,7 +390,7 @@ class UnifiedSessionRegistryTest {
             }
             var checkpointSeen = false
             registry.terminalStates.subscribe("rootless-ubuntu-live", object : RuntimeTerminalState.Sink {
-                override fun checkpoint(emulator: com.termux.terminal.TerminalEmulator, viewport: RuntimeTerminalState.Viewport?) {
+                override fun checkpoint(emulator: dev.terminal.emulator.TerminalEmulator, viewport: RuntimeTerminalState.Viewport?) {
                     checkpointSeen = true
                     assertTrue(emulator.screen.transcriptText.contains("UBUNTU KEPT"))
                 }
@@ -425,7 +425,7 @@ class UnifiedSessionRegistryTest {
             assertEquals(1, native.writeCount)
             assertFalse(native.closed)
             val checkpoint = object : RuntimeTerminalState.Sink {
-                override fun checkpoint(emulator: com.termux.terminal.TerminalEmulator, viewport: RuntimeTerminalState.Viewport?) {
+                override fun checkpoint(emulator: dev.terminal.emulator.TerminalEmulator, viewport: RuntimeTerminalState.Viewport?) {
                     assertTrue(emulator.screen.transcriptText.contains("KEPT"))
                 }
                 override fun output(bytes: ByteArray) = Unit

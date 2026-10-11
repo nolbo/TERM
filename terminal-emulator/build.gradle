@@ -2,10 +2,10 @@ apply plugin: 'com.android.library'
 apply plugin: 'maven-publish'
 
 def isArm64BuildHost = System.getProperty('os.arch').toLowerCase() in ['aarch64', 'arm64']
-def generatedJniDirectory = layout.buildDirectory.dir('generated/jniLibs')
+def generatedJniDirectory = layout.buildDirectory.dir('generated/terminalJniLibs')
 
 android {
-    namespace "com.termux.terminal"
+    namespace "dev.terminal.emulator"
     enableKotlin = false
     compileSdkVersion project.properties.compileSdkVersion.toInteger()
     ndkVersion project.properties.ndkVersion
@@ -71,9 +71,9 @@ if (isArm64BuildHost) {
         'x86_64': 'x86_64-linux-android',
     ]
     def nativeTasks = targets.collect { abi, target ->
-        tasks.register("compileTermuxJni${abi.replaceAll('[^A-Za-z0-9]', '').capitalize()}", Exec) {
-            def destination = generatedJniDirectory.map { it.dir(abi).file('libtermux.so') }
-            inputs.file('src/main/jni/termux.c')
+        tasks.register("compileTerminalJni${abi.replaceAll('[^A-Za-z0-9]', '').capitalize()}", Exec) {
+            def destination = generatedJniDirectory.map { it.dir(abi).file('libterminal-jni.so') }
+            inputs.file('src/main/jni/terminal-jni.c')
             outputs.file(destination)
             doFirst { destination.get().asFile.parentFile.mkdirs() }
             commandLine 'clang',
@@ -83,7 +83,7 @@ if (isArm64BuildHost) {
                 '-rtlib=compiler-rt', '-fPIC', '-shared',
                 '-Wl,-z,max-page-size=16384', '-Wl,-z,common-page-size=16384',
                 '-o', destination.get().asFile,
-                file('src/main/jni/termux.c')
+                file('src/main/jni/terminal-jni.c')
         }
     }
     tasks.named('preBuild').configure { dependsOn(nativeTasks) }
@@ -110,7 +110,7 @@ afterEvaluate {
             // Creates a Maven publication called "release".
             release(MavenPublication) {
                 from components.release
-                groupId = 'com.termux'
+                groupId = 'dev.terminal'
                 artifactId = 'terminal-emulator'
                 version = '0.118.0'
                 artifact(sourceJar)

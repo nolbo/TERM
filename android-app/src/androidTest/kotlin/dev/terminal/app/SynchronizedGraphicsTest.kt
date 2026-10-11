@@ -5,9 +5,9 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Typeface
 import androidx.test.ext.junit.runners.AndroidJUnit4
-import com.termux.terminal.TerminalEmulator
-import com.termux.terminal.TerminalOutput
-import com.termux.view.TerminalRenderer
+import dev.terminal.emulator.TerminalEmulator
+import dev.terminal.emulator.TerminalOutput
+import dev.terminal.view.TerminalRenderer
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith

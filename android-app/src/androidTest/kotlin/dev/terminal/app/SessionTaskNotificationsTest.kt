@@ -188,8 +188,8 @@ class SessionTaskNotificationsTest {
     }
 
     private fun selectedSession(id: String): Boolean {
-        fun terminal(view: android.view.View): com.termux.view.TerminalView? {
-            if (view is com.termux.view.TerminalView) return view
+        fun terminal(view: android.view.View): dev.terminal.view.TerminalView? {
+            if (view is dev.terminal.view.TerminalView) return view
             val group = view as? android.view.ViewGroup ?: return null
             return (0 until group.childCount).firstNotNullOfOrNull { terminal(group.getChildAt(it)) }
         }

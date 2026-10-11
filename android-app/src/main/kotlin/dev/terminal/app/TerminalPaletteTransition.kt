@@ -4,8 +4,8 @@ import android.animation.ValueAnimator
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.graphics.toArgb
-import com.termux.terminal.TextStyle
-import com.termux.view.TerminalView
+import dev.terminal.emulator.TextStyle
+import dev.terminal.view.TerminalView
 import dev.terminal.app.ui.TerminalChromeColors
 import dev.terminal.app.ui.terminalDynamicColors
 

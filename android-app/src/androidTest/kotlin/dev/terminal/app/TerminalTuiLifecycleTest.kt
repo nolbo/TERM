@@ -16,11 +16,11 @@ import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.compose.ui.graphics.toArgb
-import com.termux.terminal.TerminalEmulator
-import com.termux.terminal.TextStyle
-import com.termux.terminal.TerminalSession
-import com.termux.view.TerminalView
-import com.termux.view.TerminalRenderer
+import dev.terminal.emulator.TerminalEmulator
+import dev.terminal.emulator.TextStyle
+import dev.terminal.emulator.TerminalSession
+import dev.terminal.view.TerminalView
+import dev.terminal.view.TerminalRenderer
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.lifecycle.VmRuntimeService
 import java.util.concurrent.LinkedBlockingQueue

@@ -8,10 +8,10 @@ import android.content.ServiceConnection
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
-import com.termux.terminal.TerminalBuffer
-import com.termux.terminal.TerminalCheckpoint
-import com.termux.terminal.TerminalEmulator
-import com.termux.terminal.TerminalOutput
+import dev.terminal.emulator.TerminalBuffer
+import dev.terminal.emulator.TerminalCheckpoint
+import dev.terminal.emulator.TerminalEmulator
+import dev.terminal.emulator.TerminalOutput
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.lifecycle.VmRuntimeService
 import java.io.File
@@ -167,9 +167,9 @@ class TerminalProcessDeathProbe : BroadcastReceiver() {
         return "PASS viewport uiPid=${android.os.Process.myPid()} anchor preserved across UI death and background output"
     }
 
-    private fun currentView(store: TerminalSessionStore): com.termux.view.TerminalView {
+    private fun currentView(store: TerminalSessionStore): dev.terminal.view.TerminalView {
         val owner = TerminalSessionStore::class.java.getDeclaredField("observerOwner").apply { isAccessible = true }.get(store) as MainActivity
-        return MainActivity::class.java.getDeclaredField("terminalView").apply { isAccessible = true }.get(owner) as com.termux.view.TerminalView
+        return MainActivity::class.java.getDeclaredField("terminalView").apply { isAccessible = true }.get(owner) as dev.terminal.view.TerminalView
     }
 
     private fun writeProbeScript(runtime: IRuntimeService, id: String, script: String) {

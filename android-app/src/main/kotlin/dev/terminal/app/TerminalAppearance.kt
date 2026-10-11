@@ -6,7 +6,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.fonts.FontFamily
 import android.util.TypedValue
-import com.termux.view.TerminalFontFamily
+import dev.terminal.view.TerminalFontFamily
 import java.util.Properties
 import java.util.WeakHashMap
 import kotlin.math.roundToInt
@@ -46,14 +46,14 @@ object TerminalAppearance {
     }
 
     // Main-thread-only, per-view cache: it must not retain an Activity after destruction.
-    private val appliedFonts = WeakHashMap<com.termux.view.TerminalView, List<CustomTerminalFont>>()
+    private val appliedFonts = WeakHashMap<dev.terminal.view.TerminalView, List<CustomTerminalFont>>()
 
     fun paddingDp(preferences: SharedPreferences): Int =
         preferences.getInt(KEY_PADDING, DEFAULT_PADDING_DP).coerceIn(PADDING_RANGE)
 
     fun apply(
         preferences: SharedPreferences,
-        terminalView: com.termux.view.TerminalView,
+        terminalView: dev.terminal.view.TerminalView,
         fontSizeSp: Int = preferences.getInt(KEY_FONT_SIZE, DEFAULT_FONT_SIZE_SP),
         colors: PaletteColors = paletteColors(preferences),
         applyPalette: Boolean = true,

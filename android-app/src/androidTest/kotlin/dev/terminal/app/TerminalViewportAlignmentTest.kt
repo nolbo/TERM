@@ -4,9 +4,9 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.view.MotionEvent
 import androidx.test.platform.app.InstrumentationRegistry
-import com.termux.terminal.TerminalSession
-import com.termux.view.TerminalRenderer
-import com.termux.view.TerminalView
+import dev.terminal.emulator.TerminalSession
+import dev.terminal.view.TerminalRenderer
+import dev.terminal.view.TerminalView
 import org.junit.Assert.*
 import org.junit.Test
 

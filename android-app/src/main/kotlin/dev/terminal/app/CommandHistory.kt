@@ -1,8 +1,8 @@
 package dev.terminal.app
 
-import com.termux.terminal.CommandMarker
-import com.termux.terminal.TerminalEmulator
-import com.termux.terminal.TerminalSearch
+import dev.terminal.emulator.CommandMarker
+import dev.terminal.emulator.TerminalEmulator
+import dev.terminal.emulator.TerminalSearch
 
 internal enum class HistorySearchScope(val title: Int, val cells: TerminalSearch.Scope) {
     Commands(R.string.history_scope_commands, TerminalSearch.Scope.COMMANDS),

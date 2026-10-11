@@ -7,8 +7,8 @@ import android.graphics.Paint
 import android.graphics.Typeface
 import android.net.Uri
 import androidx.test.platform.app.InstrumentationRegistry
-import com.termux.view.TerminalFontFamily
-import com.termux.view.TerminalView
+import dev.terminal.view.TerminalFontFamily
+import dev.terminal.view.TerminalView
 import java.io.File
 import java.util.UUID
 import org.junit.Assert.assertArrayEquals

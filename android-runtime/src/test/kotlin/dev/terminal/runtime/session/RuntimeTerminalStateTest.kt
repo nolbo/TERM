@@ -1,8 +1,8 @@
 package dev.terminal.runtime.session
 
-import com.termux.terminal.TerminalCheckpoint
-import com.termux.terminal.TerminalEmulator
-import com.termux.terminal.TerminalOutput
+import dev.terminal.emulator.TerminalCheckpoint
+import dev.terminal.emulator.TerminalEmulator
+import dev.terminal.emulator.TerminalOutput
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import org.junit.Assert.*

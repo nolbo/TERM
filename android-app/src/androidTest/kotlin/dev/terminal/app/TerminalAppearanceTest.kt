@@ -3,9 +3,9 @@ package dev.terminal.app
 import android.content.Context
 import android.net.Uri
 import androidx.test.platform.app.InstrumentationRegistry
-import com.termux.terminal.TerminalSession
-import com.termux.view.TerminalView
-import com.termux.view.TerminalGlyphRenderOptions
+import dev.terminal.emulator.TerminalSession
+import dev.terminal.view.TerminalView
+import dev.terminal.view.TerminalGlyphRenderOptions
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame

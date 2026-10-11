@@ -8,7 +8,7 @@ import android.os.IBinder
 import android.os.SystemClock
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import com.termux.terminal.TerminalSession
+import dev.terminal.emulator.TerminalSession
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.ipc.IRuntimeStateListener
 import dev.terminal.runtime.lifecycle.VmRuntimeService

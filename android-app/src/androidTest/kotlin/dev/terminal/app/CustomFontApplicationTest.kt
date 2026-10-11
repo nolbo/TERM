@@ -10,7 +10,7 @@ import android.graphics.fonts.FontFamily
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import android.net.Uri
-import com.termux.view.TerminalFontFamily
+import dev.terminal.view.TerminalFontFamily
 import java.io.File
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertSame

@@ -47,9 +47,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import com.termux.terminal.CommandMarker
-import com.termux.terminal.TerminalHistory
-import com.termux.view.TerminalView
+import dev.terminal.emulator.CommandMarker
+import dev.terminal.emulator.TerminalHistory
+import dev.terminal.view.TerminalView
 import dev.terminal.app.*
 import dev.terminal.app.R
 import kotlinx.coroutines.delay

@@ -2,7 +2,7 @@ package dev.terminal.runtime.storage
 
 import android.os.ParcelFileDescriptor
 import android.system.Os
-import com.termux.terminal.ScopedFileAccess
+import dev.terminal.emulator.ScopedFileAccess
 import java.io.Closeable
 import java.io.File
 import java.io.InputStream

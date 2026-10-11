@@ -1,7 +1,7 @@
 package dev.terminal.app
 
-import com.termux.terminal.TerminalEmulator
-import com.termux.terminal.TextStyle
+import dev.terminal.emulator.TerminalEmulator
+import dev.terminal.emulator.TextStyle
 
 /** Renderer-only inference: never changes the palette exposed to the terminal application. */
 internal fun terminalChromeBackground(

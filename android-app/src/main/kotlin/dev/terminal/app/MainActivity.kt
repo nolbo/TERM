@@ -59,7 +59,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.documentfile.provider.DocumentFile
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
-import com.termux.view.TerminalView
+import dev.terminal.view.TerminalView
 import dev.terminal.app.ui.TerminalToolbar
 import dev.terminal.app.ui.ToolbarHotkeys
 import dev.terminal.app.ui.ToolbarHistoryTool

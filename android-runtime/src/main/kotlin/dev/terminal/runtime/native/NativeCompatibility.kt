@@ -11,7 +11,7 @@ data class NativeCompatibility(val backendAvailable: Boolean?, val shellExecutab
 fun inspectNativeCompatibility(): NativeCompatibility {
     val backend = runCatching {
         Class.forName("dev.terminal.runtime.native.NativeBackend", false, NativeCompatibility::class.java.classLoader)
-        System.loadLibrary("termux")
+        System.loadLibrary("terminal-jni")
         true
     }
     val shell = runCatching {

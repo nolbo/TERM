@@ -8,13 +8,13 @@ import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
 import android.os.ParcelFileDescriptor
-import com.termux.terminal.TerminalCheckpoint
+import dev.terminal.emulator.TerminalCheckpoint
 import dev.terminal.runtime.ipc.ITerminalStateListener
 import org.json.JSONObject
 import java.io.DataInputStream
 import java.util.Properties
-import com.termux.terminal.TerminalSession
-import com.termux.view.TerminalView
+import dev.terminal.emulator.TerminalSession
+import dev.terminal.view.TerminalView
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.ipc.IRuntimeStateListener
 import dev.terminal.runtime.lifecycle.VmRuntimeService

@@ -8,9 +8,9 @@ import android.os.IBinder
 import android.os.ParcelFileDescriptor
 import android.os.SystemClock
 import androidx.test.platform.app.InstrumentationRegistry
-import com.termux.terminal.TerminalCheckpoint
-import com.termux.terminal.TerminalEmulator
-import com.termux.terminal.TerminalOutput
+import dev.terminal.emulator.TerminalCheckpoint
+import dev.terminal.emulator.TerminalEmulator
+import dev.terminal.emulator.TerminalOutput
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.ipc.ITerminalStateListener
 import dev.terminal.runtime.lifecycle.VmRuntimeService

@@ -5,8 +5,8 @@ import android.view.InputDevice
 import android.view.MotionEvent
 import android.widget.Scroller
 import androidx.test.platform.app.InstrumentationRegistry
-import com.termux.terminal.TerminalSession
-import com.termux.view.TerminalView
+import dev.terminal.emulator.TerminalSession
+import dev.terminal.view.TerminalView
 import java.io.ByteArrayOutputStream
 import org.junit.Assert.*
 import org.junit.Test

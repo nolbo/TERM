@@ -21,7 +21,7 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.test.core.app.ActivityScenario
 import androidx.test.platform.app.InstrumentationRegistry
-import com.termux.view.TerminalView
+import dev.terminal.view.TerminalView
 import dev.terminal.app.ui.DroidTheme
 import dev.terminal.app.ui.LocalTerminalMonospaceFontFamily
 import org.junit.Assert.*

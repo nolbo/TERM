@@ -1,7 +1,7 @@
 package dev.terminal.runtime.session
 
-import com.termux.terminal.GraphicsFileReader
-import com.termux.terminal.KittyGraphicsTransport
+import dev.terminal.emulator.GraphicsFileReader
+import dev.terminal.emulator.KittyGraphicsTransport
 import java.io.File
 import java.io.IOException
 import java.nio.file.Files

@@ -7,9 +7,9 @@ import android.os.Looper
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
-import com.termux.terminal.TerminalSession
-import com.termux.terminal.TerminalSessionClient
-import com.termux.view.TerminalViewClient
+import dev.terminal.emulator.TerminalSession
+import dev.terminal.emulator.TerminalSessionClient
+import dev.terminal.view.TerminalViewClient
 
 /** Shared validation for OSC 8 destinations and automatically detected web URLs. */
 internal fun terminalLinkIntent(url: String): Intent? {
@@ -55,7 +55,7 @@ class TerminalInputCallbacks(
     override fun readShiftKey() = shiftPressed
     override fun readFnKey()=false
     // Returning false delegates UTF-8, Enter, Ctrl/Alt and IME composition to
-    // TerminalView's standard Termux/xterm input path.
+    // TerminalView's standard xterm input path.
     override fun onCodePoint(c:Int,ctrl:Boolean,s:TerminalSession):Boolean {
         consumeModifiersAfterDispatch()
         return false

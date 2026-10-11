@@ -849,7 +849,7 @@ class VmRuntimeService : Service() {
             try {
                 val registry = ensureSessionRegistry() ?: error("세션 런타임에 연결할 수 없습니다")
                 val sink = object : dev.terminal.runtime.session.RuntimeTerminalState.Sink {
-                    override fun checkpoint(emulator: com.termux.terminal.TerminalEmulator,
+                    override fun checkpoint(emulator: dev.terminal.emulator.TerminalEmulator,
                         viewport: dev.terminal.runtime.session.RuntimeTerminalState.Viewport?) {
                         val pipe = android.os.ParcelFileDescriptor.createReliablePipe()
                         val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
@@ -863,7 +863,7 @@ class VmRuntimeService : Service() {
                                     if (viewport != null) {
                                         out.writeInt(viewport.row); out.writeFloat(viewport.offset); out.writeLong(viewport.transcriptShift)
                                     }
-                                    com.termux.terminal.TerminalCheckpoint.write(emulator, out)
+                                    dev.terminal.emulator.TerminalCheckpoint.write(emulator, out)
                                 }
                             } catch (error: Throwable) {
                                 failure.set(error)

@@ -1,7 +1,6 @@
 rootProject.name = 'DroidTerminal'
 
-// The former Termux-derived modules remain in the repository only as historical
-// reference. The new product starts from these architecture-owned modules.
+// Build only the architecture-owned product modules.
 include ':android-app'
 include ':android-runtime'
 include ':android-bridge'

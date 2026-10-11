@@ -1,9 +1,9 @@
 package dev.terminal.runtime.rootless
 
 import android.util.Log
-import com.termux.terminal.PtyProcess
-import com.termux.terminal.TerminalReplayBuffer
-import com.termux.terminal.KittyGraphicsTransport
+import dev.terminal.emulator.PtyProcess
+import dev.terminal.emulator.TerminalReplayBuffer
+import dev.terminal.emulator.KittyGraphicsTransport
 import dev.terminal.runtime.session.GraphicsMediaResolver
 import dev.terminal.protocol.SessionConnectionState
 import dev.terminal.protocol.SessionController

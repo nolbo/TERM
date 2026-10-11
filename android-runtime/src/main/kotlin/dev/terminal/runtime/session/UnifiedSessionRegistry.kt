@@ -41,7 +41,7 @@ class UnifiedSessionRegistry(
     private data class Registration(val controller: SessionController, val jobs: List<Job>)
     private data class StorageKey(val runtime: SessionRuntime, val storageId: String = "legacy")
 
-    private val controlStreams = ConcurrentHashMap<String, com.termux.terminal.KittyControlStream>()
+    private val controlStreams = ConcurrentHashMap<String, dev.terminal.emulator.KittyControlStream>()
     private val keyboardFlags = ConcurrentHashMap<String, Int>()
     private val commands = kotlinx.coroutines.channels.Channel<Pair<String, String>>(64)
     init {
@@ -87,7 +87,7 @@ class UnifiedSessionRegistry(
                 }
                 owners.putIfAbsent(sessionId, key)
                 if (event is SessionEvent.Output && !event.replay) {
-                    val stream = controlStreams.getOrPut(sessionId) { com.termux.terminal.KittyControlStream() }
+                    val stream = controlStreams.getOrPut(sessionId) { dev.terminal.emulator.KittyControlStream() }
                     val parts = stream.accept(event.bytes)
                     keyboardFlags[sessionId] = stream.keyboard().flags()
                     for (part in parts) {

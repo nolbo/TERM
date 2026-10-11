@@ -7,9 +7,9 @@ import dev.terminal.protocol.SessionDescriptor
 import dev.terminal.protocol.SessionEvent
 import dev.terminal.protocol.SessionStatus
 import dev.terminal.runtime.session.pumpPtyOutput
-import com.termux.terminal.PtyProcess
-import com.termux.terminal.TerminalReplayBuffer
-import com.termux.terminal.KittyGraphicsTransport
+import dev.terminal.emulator.PtyProcess
+import dev.terminal.emulator.TerminalReplayBuffer
+import dev.terminal.emulator.KittyGraphicsTransport
 import dev.terminal.runtime.session.GraphicsMediaResolver
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -28,7 +28,7 @@ import java.io.File
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
-/** Persistent Termux-style PTY sessions, owned by the runtime process rather than the Activity. */
+/** Persistent PTY sessions, owned by the runtime process rather than the Activity. */
 class NativeSessionController(
     private val root: File,
     private val hostEnvironment: (String) -> Map<String, String> = { emptyMap() },

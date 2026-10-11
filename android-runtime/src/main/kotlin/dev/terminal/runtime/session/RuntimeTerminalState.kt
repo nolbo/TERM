@@ -1,7 +1,7 @@
 package dev.terminal.runtime.session
 
-import com.termux.terminal.TerminalEmulator
-import com.termux.terminal.TerminalOutput
+import dev.terminal.emulator.TerminalEmulator
+import dev.terminal.emulator.TerminalOutput
 import java.util.Properties
 import kotlinx.coroutines.sync.Mutex
 
