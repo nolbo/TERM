@@ -13,8 +13,8 @@ spec.loader.exec_module(module)
 class ReleaseApkTest(unittest.TestCase):
     digest = "a" * 64
 
-    def test_numbered_and_v31_sdk_range_signers_are_accepted(self):
-        for signer in ("Signer #1", "Signer (minSdkVersion=31, maxSdkVersion=32)",
+    def test_numbered_scheme_prefixed_and_sdk_range_signers_are_accepted(self):
+        for signer in ("Signer #1", "V2 Signer:", "Signer (minSdkVersion=31, maxSdkVersion=32)",
                        "Signer (minSdkVersion=33 (dev release=true), maxSdkVersion=2147483647)"):
             output = f"{signer} certificate SHA-256 digest: {self.digest}\n"
             with self.subTest(signer=signer):

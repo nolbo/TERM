@@ -10,9 +10,9 @@ import zipfile
 
 
 def verify_certificate(output, expected):
-    # apksigner uses numbered signers for v2/v3 and SDK ranges for v3.1.
+    # SDK tools emit numbered, SDK-range, or scheme-prefixed signer labels.
     certificates = re.findall(
-        r"^Signer(?: #\d+| \([^\n]+\)) certificate SHA-256 digest: ([0-9a-fA-F]{64})$",
+        r"^(?:Signer(?: #\d+| \([^\n]+\))|V2 Signer:) certificate SHA-256 digest: ([0-9a-fA-F]{64})$",
         output, re.MULTILINE,
     )
     if not certificates:
