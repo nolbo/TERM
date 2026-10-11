@@ -91,5 +91,4 @@
     <string name="session_memory_rss">Session memory (RSS)</string>
     <string name="session_memory_description">Measure the selected session shell and readable descendant process memory.</string>
     <string name="session_memory_caveat">RSS is an estimate that may count shared pages twice or omit detached daemons. AVF sessions, exited sessions and restricted environments show unknown. RSS is not added to app PSS.</string>
-    <string name="userspace_storage_link_policy">The saved storage format automatically selects native hardlinks or --link2symlink. Existing installations retain their format; this diagnostic does not inspect or change per-environment files.</string>
 </resources>

@@ -91,5 +91,4 @@
     <string name="session_memory_rss">세션 메모리 (RSS)</string>
     <string name="session_memory_description">선택한 세션의 셸과 접근 가능한 하위 프로세스 메모리를 측정합니다.</string>
     <string name="session_memory_caveat">RSS는 공유 페이지의 중복 합산·분리된 데몬 누락이 가능한 추정값입니다. AVF 세션, 종료된 세션, 접근 제한 환경에서는 확인 불가로 표시합니다. 앱 PSS와 합산하지 않습니다.</string>
-    <string name="userspace_storage_link_policy">저장 형식에 따라 native hardlinks 또는 --link2symlink를 자동 선택합니다. 기존 설치의 형식을 그대로 사용하며 이 진단은 환경별 파일을 검사하거나 변경하지 않습니다.</string>
 </resources>

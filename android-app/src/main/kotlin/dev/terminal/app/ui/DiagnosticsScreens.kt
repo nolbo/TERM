@@ -165,8 +165,7 @@ internal fun UserspaceLinuxDiagnosticsScreen(info: RootlessEngineInfo?, loading:
                 info?.accelerationProfile?.takeIf { it.isNotEmpty() }?.joinToString(", ")),
             DiagnosticRow(R.string.userspace_faststat, observed(info?.faststat, enabled, disabled)),
             DiagnosticRow(R.string.userspace_abi, info?.abis?.takeIf { it.isNotEmpty() }?.joinToString(", ") ?: unknown),
-            DiagnosticRow(R.string.userspace_storage_links, if (info == null) unknown else stringResource(R.string.userspace_storage_bind),
-                if (info == null) null else stringResource(R.string.userspace_storage_link_policy)),
+            DiagnosticRow(R.string.userspace_storage_links, if (info == null) unknown else stringResource(R.string.userspace_storage_bind)),
         ), stringResource(R.string.userspace_limitations_note))))
 }
 
