@@ -5,6 +5,7 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -22,6 +23,39 @@ class CrashReportStoreTest {
         assertEquals(listOf(second.id, first.id), reopened.reports().map { it.id })
         assertEquals(first, reopened.read(first.id))
         assertEquals(second, reopened.read(second.id))
+    }
+
+    @Test fun deletingOneReportPreservesOtherReportsAfterReopeningAndCanBeRepeated() {
+        val store = CrashReportStore(directory)
+        val first = store.record("first stack", "First", 100)
+        val second = store.record("second stack", "Second", 200)
+        store.delete(first.id)
+        store.delete(first.id)
+        val reopened = CrashReportStore(directory)
+        assertNull(reopened.read(first.id))
+        assertEquals(listOf(second), reopened.reports())
+        assertEquals(second, reopened.read(second.id))
+    }
+
+    @Test fun deletionRejectsInvalidIdsWithoutChangingFilesOutsideHistory() {
+        val store = CrashReportStore(directory)
+        val report = store.record("valid", "Valid", 1)
+        val outside = File(temporary.root, "outside.json").apply { writeText("outside") }
+        for (id in listOf("../outside", "", "not-a-report")) {
+            assertThrows(IllegalArgumentException::class.java) { store.delete(id) }
+        }
+        assertEquals("outside", outside.readText())
+        assertEquals(report, store.read(report.id))
+    }
+
+    @Test fun failedDeletionIsReportedAndPreservesOtherReports() {
+        val store = CrashReportStore(directory)
+        val report = store.record("valid", "Valid", 1)
+        val blocked = File(directory, "${UUID.randomUUID()}.json").apply { mkdir() }
+        val child = File(blocked, "blocked").apply { writeText("cannot remove directory") }
+        assertThrows(IOException::class.java) { store.delete(blocked.name.removeSuffix(".json")) }
+        assertTrue(child.isFile)
+        assertEquals(report, store.read(report.id))
     }
 
     @Test fun legacyImportIsIdempotentAndPreservesItsOriginalTimeAndStack() {

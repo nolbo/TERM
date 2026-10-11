@@ -43,6 +43,12 @@ internal class CrashReportStore(private val directory: File, private val retaine
         }.getOrNull()
     }
 
+    fun delete(id: String) {
+        require(REPORT_ID.matches(id)) { "Invalid crash report ID" }
+        val file = File(directory, "$id.json")
+        if (!file.delete() && file.exists()) throw IOException("Cannot delete crash report")
+    }
+
     fun importPending(context: Context): CrashReport? {
         val preferences = context.getSharedPreferences(PREFERENCES, Context.MODE_PRIVATE)
         val text = preferences.getString(KEY_REPORT, null) ?: return null

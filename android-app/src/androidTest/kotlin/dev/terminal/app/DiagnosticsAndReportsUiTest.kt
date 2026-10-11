@@ -145,7 +145,7 @@ class DiagnosticsAndReportsUiTest {
         assertEquals(filesBefore, artifacts())
     }
 
-    @Test fun reportsRetainIndependentDetailsAfterCopyCloseAndScreenRecreation() {
+    @Test fun reportsPreserveCopyAndBackWhileDeletionRefreshesTheList() {
         // Fixtures do not prune any reports already present on the target device.
         val directory = File(context.filesDir, "crash-reports")
         val store = CrashReportStore(directory, retainedReports = Int.MAX_VALUE)
@@ -161,21 +161,74 @@ class DiagnosticsAndReportsUiTest {
                 scenario.recreate()
                 click(waitFor(scroll = true) { it.text?.toString() == first.summary })
                 waitFor { it.text?.toString() == first.text }
+                assertNull(find { it.contentDescription?.toString() == context.getString(R.string.close) })
                 click(waitFor { it.isEnabled && it.contentDescription?.toString() == context.getString(R.string.copy_error) })
                 val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                 assertEquals(first.text, clipboard.primaryClip?.getItemAt(0)?.text?.toString())
-                click(waitFor { it.contentDescription?.toString() == context.getString(R.string.close) })
+                click(waitFor { it.contentDescription?.toString() == context.getString(R.string.back) })
                 click(waitFor(scroll = true) { it.text?.toString() == second.summary })
                 waitFor { it.text?.toString() == second.text }
                 assertNull(find { it.text?.toString() == first.text })
-                click(waitFor { it.contentDescription?.toString() == context.getString(R.string.close) })
+                click(waitFor { it.contentDescription?.toString() == context.getString(R.string.crash_report_delete) })
+                waitFor { it.text?.toString() == context.getString(R.string.crash_report_delete_confirmation) }
+                click(waitFor { it.text?.toString() == context.getString(android.R.string.cancel) })
+                assertEquals(second, store.read(second.id))
+                click(waitFor { it.contentDescription?.toString() == context.getString(R.string.crash_report_delete) })
+                click(waitFor { it.text?.toString() == context.getString(R.string.delete) })
+                waitFor(scroll = true) { it.text?.toString() == first.summary }
+                assertNull(find { it.text?.toString() == second.summary })
                 assertEquals(first, CrashReportStore.from(context).read(first.id))
-                assertEquals(second, CrashReportStore.from(context).read(second.id))
+                assertNull(CrashReportStore.from(context).read(second.id))
             }
         } finally {
             File(directory, "${first.id}.json").delete()
             File(directory, "${second.id}.json").delete()
         }
+    }
+
+    @Test fun reportDeletionConfirmationSurvivesRecreationAndCancellingPreservesTheReport() {
+        val directory = File(context.filesDir, "crash-reports")
+        val store = CrashReportStore(directory, retainedReports = Int.MAX_VALUE)
+        val report = store.record("recreation fixture ${UUID.randomUUID()}", "Deletion recreation fixture")
+        try {
+            ActivityScenario.launch<CrashReportActivity>(CrashReportActivity.intent(context, report.id)).use { scenario ->
+                waitFor { it.text?.toString() == report.text }
+                click(waitFor { it.contentDescription?.toString() == context.getString(R.string.crash_report_delete) })
+                waitFor { it.text?.toString() == context.getString(R.string.crash_report_delete_confirmation) }
+                scenario.recreate()
+                waitFor { it.text?.toString() == context.getString(R.string.crash_report_delete_confirmation) }
+                click(waitFor { it.text?.toString() == context.getString(android.R.string.cancel) })
+                waitFor { it.text?.toString() == report.text }
+                assertEquals(report, store.read(report.id))
+                click(waitFor { it.isEnabled && it.contentDescription?.toString() == context.getString(R.string.copy_error) })
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                assertEquals(report.text, clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+            }
+        } finally { File(directory, "${report.id}.json").delete() }
+    }
+
+    @Test fun failedReportDeletionKeepsTheDetailAndCopyAvailable() {
+        val directory = File(context.filesDir, "crash-reports")
+        val store = CrashReportStore(directory, retainedReports = Int.MAX_VALUE)
+        val report = store.record("failed deletion fixture ${UUID.randomUUID()}", "Failed deletion fixture")
+        val file = File(directory, "${report.id}.json")
+        val child = File(file, "blocked")
+        try {
+            ActivityScenario.launch<CrashReportActivity>(CrashReportActivity.intent(context, report.id)).use { scenario ->
+                waitFor { it.text?.toString() == report.text }
+                assertTrue(file.delete())
+                assertTrue(file.mkdir())
+                child.writeText("cannot remove directory")
+                click(waitFor { it.contentDescription?.toString() == context.getString(R.string.crash_report_delete) })
+                click(waitFor { it.text?.toString() == context.getString(R.string.delete) })
+                waitFor { it.text?.toString() == context.getString(R.string.crash_report_delete_failed) }
+                assertEquals(Lifecycle.State.RESUMED, scenario.state)
+                assertTrue(child.isFile)
+                click(waitFor { it.isEnabled && it.contentDescription?.toString() == context.getString(R.string.copy_error) })
+                val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                assertEquals(report.text, clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+            }
+        } finally { child.delete(); file.delete() }
     }
 
     @Test fun forwardedPortsRedirectWithoutRequiringAvfPrivileges() {

@@ -13,6 +13,9 @@
     <string name="crash_reports_empty">No saved crash reports.</string>
     <string name="crash_reports_loading">Loading reports…</string>
     <string name="crash_reports_unavailable">Could not load crash reports.</string>
+    <string name="crash_report_delete">Delete crash report</string>
+    <string name="crash_report_delete_confirmation">Delete this crash report? Deleted reports cannot be recovered.</string>
+    <string name="crash_report_delete_failed">Could not delete the crash report. Try again.</string>
     <string name="forwarded_ports_title">Forwarded ports</string>
     <string name="forwarded_ports_support">Local ports for AVF guest servers</string>
     <string name="forwarded_ports_description">View AVF Linux server TCP ports and copy their Android local addresses.</string>

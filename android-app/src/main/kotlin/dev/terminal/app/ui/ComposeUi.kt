@@ -837,10 +837,15 @@ private fun InformationMessage(text: String) {
 }
 
 @Composable
-fun CrashScreen(onBack: () -> Unit, report: String, onCopy: () -> Unit, onClose: () -> Unit, canCopy: Boolean = true) {
+fun CrashScreen(onBack: () -> Unit, report: String, onCopy: () -> Unit, onDelete: () -> Unit,
+    canCopy: Boolean = true, deleting: Boolean = false, deleteError: String? = null) {
     val snackbarHost = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val copiedMessage = stringResource(R.string.copy_complete)
+    var confirmDeletion by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(deleteError) {
+        deleteError?.let { snackbarHost.showSnackbar(it) }
+    }
     SettingsPageScaffold(
         title = stringResource(R.string.crash_report_title),
         onBack = onBack,
@@ -848,10 +853,10 @@ fun CrashScreen(onBack: () -> Unit, report: String, onCopy: () -> Unit, onClose:
         floatingActionButtonPosition = FabPosition.Center,
         floatingActionButton = {
             HorizontalFloatingToolbar(expanded = true) {
-                FloatingToolbarAction(stringResource(R.string.close), R.drawable.ic_material_symbol_close_24,
-                    enabled = true, onClick = onClose)
+                FloatingToolbarAction(stringResource(R.string.crash_report_delete), R.drawable.ic_material_symbol_delete_24,
+                    enabled = canCopy && !deleting, destructive = true, onClick = { confirmDeletion = true })
                 FloatingToolbarAction(stringResource(R.string.copy_error), R.drawable.ic_material_symbol_content_copy_24,
-                    enabled = canCopy, onClick = {
+                    enabled = canCopy && !deleting, onClick = {
                         onCopy()
                         scope.launch { snackbarHost.showSnackbar(copiedMessage) }
                     })
@@ -872,4 +877,14 @@ fun CrashScreen(onBack: () -> Unit, report: String, onCopy: () -> Unit, onClose:
             }
         }
     }
+    if (confirmDeletion) AlertDialog(onDismissRequest = { confirmDeletion = false },
+        title = { Text(stringResource(R.string.crash_report_delete)) },
+        text = { Text(stringResource(R.string.crash_report_delete_confirmation)) },
+        confirmButton = { TextButton(onClick = { confirmDeletion = false; onDelete() }, enabled = canCopy && !deleting,
+            shapes = ButtonDefaults.shapes()) {
+            Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error)
+        } },
+        dismissButton = { TextButton(onClick = { confirmDeletion = false }, shapes = ButtonDefaults.shapes()) {
+            Text(stringResource(android.R.string.cancel))
+        } })
 }
