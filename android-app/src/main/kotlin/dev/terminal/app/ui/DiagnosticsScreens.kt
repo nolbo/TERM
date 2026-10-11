@@ -112,19 +112,17 @@ private fun DiagnosticPage(title: Int, description: Int, loading: Boolean, onBac
 private fun DiagnosticProgressRow(row: DiagnosticRow) {
     val progress = checkNotNull(row.progress)
     val state = stringResource(R.string.memory_progress_state, row.value, progress.description)
-    ListItem(verticalAlignment = Alignment.CenterVertically, colors = terminalSettingsListItemColors(),
+    ListItem(trailingContent = {
+        SelectionContainer { Text(row.value, Modifier.widthIn(max = 180.dp),
+            style = MaterialTheme.typography.labelLarge) }
+    }, verticalAlignment = Alignment.CenterVertically, colors = terminalSettingsListItemColors(),
         modifier = Modifier.fillMaxWidth().settingsItemSurface().clearAndSetSemantics {
             contentDescription = progress.accessibilityLabel
             stateDescription = state
             progress.fraction?.let { progressBarRangeInfo = ProgressBarRangeInfo(it, 0f..1f) }
         }) {
         Column(Modifier.fillMaxWidth()) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(stringResource(row.title), Modifier.weight(1f))
-                SelectionContainer { Text(row.value, Modifier.widthIn(max = 180.dp),
-                    style = MaterialTheme.typography.labelLarge) }
-            }
+            Text(stringResource(row.title))
             Text(progress.description, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
             progress.fraction?.let { fraction ->
