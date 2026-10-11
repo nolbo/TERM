@@ -12,11 +12,13 @@ class SessionShellSelectionTest {
         assertEquals("/home/droid", sessionInitialDirectory("AVF"))
     }
 
-    @Test fun rootlessUsesInteractiveBashForTerminalKeyEditing() {
-        assertEquals("/bin/bash", sessionShell("ROOTLESS", "/system/bin/sh"))
+    @Test fun linuxGuestsUseInteractiveBashForTerminalKeyEditing() {
+        listOf("ROOTLESS", "ROOTLESS_UBUNTU", "ROOTLESS_ARCH", "AVF").forEach {
+            assertEquals("/bin/bash", sessionShell(it))
+        }
     }
 
-    @Test fun nativeKeepsTheConfiguredShell() {
-        assertEquals("/system/bin/mksh", sessionShell("NATIVE", "/system/bin/mksh"))
+    @Test fun nativeDefaultsToTheAndroidSystemShell() {
+        assertEquals("/system/bin/sh", sessionShell("NATIVE"))
     }
 }

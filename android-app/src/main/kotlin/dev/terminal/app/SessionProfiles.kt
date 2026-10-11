@@ -7,7 +7,6 @@ import dev.terminal.runtime.session.Environment
 import dev.terminal.runtime.session.EnvironmentRegistry
 import dev.terminal.runtime.session.SessionLaunchSpec
 import org.json.JSONArray
-import java.io.File
 import java.util.UUID
 
 /** Default profiles may be overridden or tombstoned without touching live sessions. */
@@ -37,8 +36,6 @@ class SessionProfiles(context: Context) {
     }
     fun find(id: String): SessionProfile? = all().firstOrNull { it.id == id }
     fun builtIns(): List<SessionProfile> {
-        val nativeShell = runtimePreferences.getString(SettingsDetailActivity.KEY_NATIVE_SHELL, "/system/bin/sh")
-            ?.takeIf { File(it).canExecute() } ?: "/system/bin/sh"
         return SessionRuntime.entries.map { runtime ->
             SessionProfile(SessionProfile.builtInId(runtime), when (runtime) {
                 SessionRuntime.NATIVE -> "Native"
@@ -46,7 +43,7 @@ class SessionProfiles(context: Context) {
                 SessionRuntime.ROOTLESS_UBUNTU -> "Ubuntu"
                 SessionRuntime.ROOTLESS_ARCH -> "Arch"
                 SessionRuntime.AVF -> "AVF"
-            }, runtime, sessionShell(runtime.wireName, nativeShell),
+            }, runtime, sessionShell(runtime.wireName),
                 if (runtime != SessionRuntime.AVF && runtimePreferences.getBoolean("native-login-shell", true)) listOf("-l") else emptyList(),
                 sessionInitialDirectory(runtime.wireName),
                 mapOf("TERM" to runtimePreferences.getString("native-term", "xterm-256color").orEmpty()))

@@ -51,12 +51,10 @@ import dev.terminal.app.ui.settingsItemSurface
 import dev.terminal.app.ui.terminalSettingsListItemColors
 import dev.terminal.app.ui.terminalListItemShapes
 import dev.terminal.app.ui.validatedIntegerDraft
-import dev.terminal.app.ui.validatedShellDraft
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.ipc.IRuntimeStateListener
 import dev.terminal.runtime.lifecycle.VmRuntimeService
 import dev.terminal.runtime.power.WakePolicyStore
-import java.io.File
 
 class SettingsDetailActivity : TerminalActivity() {
     private val terminalPreferences by lazy { getSharedPreferences(TERMINAL_PREFERENCES, MODE_PRIVATE) }
@@ -130,6 +128,9 @@ class SettingsDetailActivity : TerminalActivity() {
         }
         // Old task entries can still point to the removed tool's settings screen.
         if (category in listOf("toolbar-clipboard", "toolbar-commands")) intent.putExtra(EXTRA_CATEGORY, TOOLBAR)
+        if (category == "native") {
+            intent.putExtra(EXTRA_CATEGORY, TERMINAL).putExtra(EXTRA_SECTION_INDEX, 0)
+        }
         if (category == AVF && !SessionProfiles(this).hasAvfPrivileges()) {
             finish()
             return
@@ -232,11 +233,6 @@ class SettingsDetailActivity : TerminalActivity() {
         }
     }
 
-    private fun savedNativeShell(): String {
-        val stored = runtimePreferences.getString(KEY_NATIVE_SHELL, DEFAULT_NATIVE_SHELL) ?: DEFAULT_NATIVE_SHELL
-        return validatedShellDraft(stored) { path -> File(path).let { it.isFile && it.canExecute() } } ?: DEFAULT_NATIVE_SHELL
-    }
-
     @Composable
     private fun DetailScreen() {
         val title = stringResource(
@@ -245,8 +241,7 @@ class SettingsDetailActivity : TerminalActivity() {
                 APPEARANCE -> R.string.settings_appearance_title
                 AVF -> R.string.settings_avf_title
                 AVF_IMAGE -> R.string.debian_image
-                TERMINAL -> R.string.settings_terminal_title
-                else -> R.string.settings_native_title
+                else -> R.string.settings_terminal_title
             },
         )
         val description = stringResource(
@@ -255,8 +250,7 @@ class SettingsDetailActivity : TerminalActivity() {
                 APPEARANCE -> R.string.settings_appearance_description
                 AVF -> R.string.settings_avf_description
                 AVF_IMAGE -> R.string.avf_image_settings_description
-                TERMINAL -> R.string.settings_terminal_description
-                else -> R.string.settings_native_description
+                else -> R.string.settings_terminal_description
             },
         )
         SettingsPageScaffold(title, { finish() }) { padding ->
@@ -280,8 +274,7 @@ class SettingsDetailActivity : TerminalActivity() {
                     APPEARANCE -> appearanceItems()
                     AVF -> avfItems()
                     AVF_IMAGE -> avfImageItems()
-                    TERMINAL -> terminalItems()
-                    else -> nativeItems()
+                    else -> terminalItems()
                 }
             }
         }
@@ -427,16 +420,6 @@ class SettingsDetailActivity : TerminalActivity() {
             SettingsSection(R.string.storage_title) {
                 ActionSetting(R.string.storage_title, R.string.avf_image_profile_support) {
                     startActivity(Intent(this@SettingsDetailActivity, EnvironmentActivity::class.java))
-                }
-            }
-        }
-    }
-
-    private fun androidx.compose.foundation.lazy.LazyListScope.nativeItems() {
-        item {
-            SettingsSection(R.string.section_shell) {
-                TextSetting(KEY_NATIVE_SHELL, R.string.default_shell, R.string.default_shell_support, savedNativeShell()) {
-                    runtimePreferences.edit().putString(KEY_NATIVE_SHELL, it).apply()
                 }
             }
         }
@@ -696,53 +679,6 @@ class SettingsDetailActivity : TerminalActivity() {
     }
 
     @Composable
-    private fun TextSetting(stateKey: String, @StringRes title: Int, @StringRes supporting: Int, initial: String, onSave: (String) -> Unit) {
-        var committed by rememberSaveable(stateKey, "committed") { mutableStateOf(initial) }
-        var draft by rememberSaveable(stateKey, "draft") { mutableStateOf(initial) }
-        var dialogVisible by rememberSaveable(stateKey, "dialog") { mutableStateOf(false) }
-        PreferenceListItem(
-            title = title,
-            supporting = supporting,
-            trailing = { Text(committed, style = MaterialTheme.typography.labelLarge, maxLines = 1) },
-            role = Role.Button,
-        ) {
-            draft = committed
-            dialogVisible = true
-        }
-        if (dialogVisible) {
-            val validated = validatedShellDraft(draft) { path -> File(path).let { it.isFile && it.canExecute() } }
-            val focusManager = LocalFocusManager.current
-            val save = {
-                validated?.let {
-                    committed = it
-                    onSave(it)
-                    focusManager.clearFocus()
-                    dialogVisible = false
-                }
-                Unit
-            }
-            AlertDialog(
-                onDismissRequest = { dialogVisible = false },
-                title = { Text(stringResource(title)) },
-                text = {
-                    OutlinedTextField(
-                        value = draft,
-                        onValueChange = { draft = it },
-                        label = { Text(stringResource(title)) },
-                        supportingText = { Text(if (validated == null) stringResource(R.string.executable_path_error) else stringResource(supporting)) },
-                        isError = validated == null,
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(onDone = { save() }),
-                    )
-                },
-                confirmButton = { Button(onClick = save, shapes = ButtonDefaults.shapes(), enabled = validated != null) { Text(stringResource(R.string.save)) } },
-                dismissButton = { TextButton(onClick = { dialogVisible = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } },
-            )
-        }
-    }
-
-    @Composable
     private fun BooleanSetting(@StringRes title: Int, @StringRes supporting: Int, initial: Boolean, onChange: (Boolean) -> Unit) {
         var checked by rememberSaveable { mutableStateOf(initial) }
         val toggle = { checked = !checked; onChange(checked) }
@@ -859,7 +795,6 @@ class SettingsDetailActivity : TerminalActivity() {
         const val APPEARANCE = "appearance"
         const val AVF = "avf"
         const val AVF_IMAGE = "avf-image"
-        const val NATIVE = "native"
         const val TERMINAL = "terminal"
         const val ROOTLESS = "rootless"
         const val TERMINAL_PREFERENCES = "terminal-ui"
@@ -874,12 +809,10 @@ class SettingsDetailActivity : TerminalActivity() {
         const val KEY_AVF_PROTECTED = "avf-protected"
         const val KEY_AVF_NETWORK = "avf-network"
         const val KEY_WAKE_POLICY = "wake-policy"
-        const val KEY_NATIVE_SHELL = "native-shell"
         const val KEY_NATIVE_TERM = "native-term"
         const val KEY_KITTY_REMOTE = "kitty-remote-control"
         const val KEY_KITTY_GRAPHICS = "kitty-graphics-compatibility"
         const val KEY_NATIVE_LOGIN = "native-login-shell"
-        private const val DEFAULT_NATIVE_SHELL = "/system/bin/sh"
         private const val DEFAULT_TERMINAL_TYPE = "xterm-256color"
         private val DEFAULT_WAKE_POLICY = WakePolicyStore.DEFAULT_POLICY.name
     }

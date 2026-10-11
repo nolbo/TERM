@@ -9,7 +9,7 @@ class RootlessDistributionUiTest {
         val choices = parseRuntimeChoices("{}")
         for (id in rootlessRuntimeIds) {
             assertEquals(RuntimeSelectionAction.INSTALL, runtimeSelectionAction(choices.single { it.id == id }))
-            assertEquals("/bin/bash", sessionShell(id, "/system/bin/sh"))
+            assertEquals("/bin/bash", sessionShell(id))
         }
     }
 

@@ -124,8 +124,6 @@
     <string name="settings_rootless_summary">DNS 전역 정책, 실행 엔진 상태와 진단</string>
     <string name="settings_avf_title">AVF Linux</string>
     <string name="settings_avf_summary">메모리, CPU와 실행 정책</string>
-    <string name="settings_native_title">Native 셸</string>
-    <string name="settings_native_summary">새 세션의 기본 셸</string>
     <string name="settings_terminal_title">터미널 설정</string>
     <string name="settings_terminal_summary">모양, 툴바와 동작</string>
     <string name="section_terminal_customization">사용자 설정</string>
@@ -133,7 +131,6 @@
     <string name="settings_appearance_description">콘솔로 돌아가면 저장된 글꼴과 팔레트가 적용됩니다.</string>
     <string name="settings_avf_description">AVF 전역 정책입니다. 리소스는 다음 시작부터 적용되며 이미지·개별 VM은 실행환경에서 관리합니다.</string>
     <string name="settings_rootless_description">Userspace Linux의 PRoot 전역 정책·상태입니다. 배포판 설치·데이터는 실행환경에서 관리합니다.</string>
-    <string name="settings_native_description">새 Native 세션의 기본 셸입니다. Userspace Linux·AVF에는 적용되지 않습니다.</string>
     <string name="section_text">글자</string>
     <string name="section_palette">팔레트</string>
     <string name="section_resources">리소스</string>
@@ -280,9 +277,6 @@
     <string name="avf_image_offline_support">오프라인 설치를 원하는 경우에만 검증된 이미지 폴더를 선택합니다.</string>
     <string name="diagnostics_title">진단</string>
     <string name="diagnostics_support">런타임, 이미지, 세션과 절전 상태를 확인합니다.</string>
-    <string name="default_shell">기본 셸</string>
-    <string name="default_shell_support">새 Native 세션에서 실행할 셸입니다.</string>
-    <string name="executable_path_error">실행 가능한 파일의 절대 경로를 입력하세요.</string>
     <string name="terminal_type">터미널 유형</string>
     <string name="terminal_type_support">Native·Userspace Linux·AVF의 새 세션에 전달할 TERM 값입니다.</string>
     <string name="login_shell">로그인 셸</string>

@@ -23,6 +23,32 @@ import java.util.concurrent.TimeUnit
 class SessionProfilesTest {
     private val context = InstrumentationRegistry.getInstrumentation().targetContext
 
+    @Test fun nativeDefaultIgnoresRemovedGlobalShellSettingAndKeepsSavedProfileShell() {
+        val preferences = context.getSharedPreferences(SettingsDetailActivity.RUNTIME_PREFERENCES, Context.MODE_PRIVATE)
+        val key = "native-shell"
+        val previous = preferences.getString(key, null)
+        val customShell = "/system/bin/../bin/sh"
+        val store = SessionProfiles(context)
+        val profile = store.duplicate(store.builtIns().first {
+            it.runtime == dev.terminal.runtime.session.SessionRuntime.NATIVE
+        }).copy(name = "Native shell fixture", shell = customShell, storageId = "legacy")
+        try {
+            assertTrue(preferences.edit().putString(key, customShell).commit())
+            assertEquals("/system/bin/sh", store.builtIns().first {
+                it.runtime == dev.terminal.runtime.session.SessionRuntime.NATIVE
+            }.shell)
+            store.save(profile)
+            assertEquals(customShell, store.find(profile.id)?.shell)
+            assertEquals(customShell, store.resolve(requireNotNull(store.find(profile.id))).shell)
+            assertEquals(customShell, preferences.getString(key, null))
+        } finally {
+            store.delete(profile.id)
+            assertTrue(preferences.edit().apply {
+                if (previous == null) remove(key) else putString(key, previous)
+            }.commit())
+        }
+    }
+
     @Test fun newProfileUsesSettingsRowsAndPreservesDialogDraftUntilSaved() {
         val store = SessionProfiles(context)
         val name = "New profile ${java.util.UUID.randomUUID()}"

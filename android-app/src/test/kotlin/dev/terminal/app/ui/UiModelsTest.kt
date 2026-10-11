@@ -191,13 +191,6 @@ class UiModelsTest {
         assertEquals(null, validatedIntegerDraft("80", 8..72))
     }
 
-    @Test fun shellDraftRequiresAnExecutableAbsoluteFile() {
-        val executable = setOf("/system/bin/sh")
-        assertEquals("/system/bin/sh", validatedShellDraft(" /system/bin/sh ") { it in executable })
-        assertEquals(null, validatedShellDraft("/missing") { it in executable })
-        assertEquals(null, validatedShellDraft("bin/sh") { true })
-    }
-
     @Test fun sessionTitleIsTrimmedAndBounded() {
         assertEquals("빌드 로그", validatedSessionTitle("  빌드 로그  "))
         assertEquals(null, validatedSessionTitle(" "))

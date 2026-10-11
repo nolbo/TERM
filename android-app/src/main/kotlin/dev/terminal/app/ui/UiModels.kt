@@ -158,11 +158,6 @@ internal fun parseRootlessSettingsState(json: String, runtimeType: String = "ROO
 internal fun validatedIntegerDraft(value: String, range: IntRange): Int? =
     value.trim().toIntOrNull()?.takeIf(range::contains)
 
-internal fun validatedShellDraft(value: String, canExecute: (String) -> Boolean): String? {
-    val candidate = value.trim()
-    return candidate.takeIf { it.length <= 256 && it.startsWith('/') && canExecute(it) }
-}
-
 internal fun validatedSessionTitle(value: String): String? {
     val candidate = value.trim()
     return candidate.takeIf {

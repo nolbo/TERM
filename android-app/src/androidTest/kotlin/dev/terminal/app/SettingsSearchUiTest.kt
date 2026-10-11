@@ -1,6 +1,7 @@
 package dev.terminal.app
 
 import android.os.Bundle
+import android.content.Intent
 import android.os.SystemClock
 import android.graphics.Rect
 import android.view.accessibility.AccessibilityNodeInfo
@@ -46,6 +47,22 @@ class SettingsSearchUiTest {
             current = current.parent
         }
         throw AssertionError("Settings result is not clickable")
+    }
+
+    @Test fun removedNativeSettingsEntryOpensCommonTerminalSettings() {
+        val context = instrumentation.targetContext
+        val intent = Intent(context, SettingsDetailActivity::class.java)
+            .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, "native")
+            .putExtra(SettingsDetailActivity.EXTRA_SECTION_INDEX, 1)
+        ActivityScenario.launch<SettingsDetailActivity>(intent).use { scenario ->
+            waitFor { it.text?.toString() == context.getString(R.string.settings_terminal_title) }
+            waitFor { it.text?.toString() == context.getString(R.string.usb_title) }
+            scenario.onActivity {
+                assertEquals(SettingsDetailActivity.TERMINAL, it.intent.getStringExtra(SettingsDetailActivity.EXTRA_CATEGORY))
+                assertEquals(0, it.intent.getIntExtra(SettingsDetailActivity.EXTRA_SECTION_INDEX, -1))
+            }
+            assertNull(find { it.text?.toString() in listOf("Native 셸", "Native shell") })
+        }
     }
 
     @Test fun overviewGroupsRelatedCategoriesWithSmallGapsAndNoArrows() {

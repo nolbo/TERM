@@ -97,7 +97,6 @@ import dev.terminal.image.ImageInstallResult
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.ipc.IRuntimeStateListener
 import dev.terminal.runtime.lifecycle.VmRuntimeService
-import java.io.File
 import java.nio.file.Files
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
@@ -1460,7 +1459,7 @@ class MainActivity : TerminalActivity() {
         val category = when (runtimeType) {
             "AVF" -> SettingsDetailActivity.AVF
             in rootlessRuntimeIds -> SettingsDetailActivity.ROOTLESS
-            else -> SettingsDetailActivity.NATIVE
+            else -> SettingsDetailActivity.TERMINAL
         }
         startActivity(
             Intent(this, SettingsDetailActivity::class.java)
@@ -1561,12 +1560,6 @@ class MainActivity : TerminalActivity() {
         "ROOTLESS", "ROOTLESS_UBUNTU" -> getString(R.string.runtime_rootless_description)
         "AVF" -> getString(R.string.avf_unavailable_default)
         else -> getString(R.string.runtime_native_description)
-    }
-
-    private fun defaultShell(): String {
-        val stored = getSharedPreferences(SettingsDetailActivity.RUNTIME_PREFERENCES, MODE_PRIVATE)
-            .getString(SettingsDetailActivity.KEY_NATIVE_SHELL, DEFAULT_NATIVE_SHELL) ?: DEFAULT_NATIVE_SHELL
-        return stored.takeIf { path -> File(path).let { it.isFile && it.canExecute() } } ?: DEFAULT_NATIVE_SHELL
     }
 
     private fun terminalPreferences() = getSharedPreferences(SettingsDetailActivity.TERMINAL_PREFERENCES, MODE_PRIVATE)
@@ -1691,13 +1684,12 @@ class MainActivity : TerminalActivity() {
     companion object {
         const val EXTRA_OPEN_IMAGE_PICKER = "open_image_picker"
         const val EXTRA_START_RUNTIME = "start_runtime"
-        private const val DEFAULT_NATIVE_SHELL = "/system/bin/sh"
     }
 }
 
-internal fun sessionShell(runtimeType: String, nativeShell: String): String = when (runtimeType) {
+internal fun sessionShell(runtimeType: String): String = when (runtimeType) {
     "ROOTLESS", "ROOTLESS_UBUNTU", "ROOTLESS_ARCH", "AVF" -> "/bin/bash"
-    else -> nativeShell
+    else -> "/system/bin/sh"
 }
 
 internal fun sessionInitialDirectory(runtimeType: String): String = when (runtimeType) {
