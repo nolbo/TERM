@@ -38,6 +38,13 @@ class MemoryDiagnosticsUiTest {
 
     private fun row(section: Int, title: Int): AccessibilityNodeInfo {
         val label = context.getString(R.string.memory_progress_description, context.getString(section), context.getString(title))
+        return nodeWithLabel(label)
+    }
+
+    private fun composition(section: Int) = nodeWithLabel(
+        context.getString(R.string.memory_composition_bar_description, context.getString(section)))
+
+    private fun nodeWithLabel(label: String): AccessibilityNodeInfo {
         val deadline = SystemClock.elapsedRealtime() + 8000
         while (SystemClock.elapsedRealtime() < deadline) {
             instrumentation.waitForIdleSync()
@@ -46,6 +53,40 @@ class MemoryDiagnosticsUiTest {
             SystemClock.sleep(100)
         }
         throw AssertionError("Memory row was not found: $label")
+    }
+
+    @Test fun stackedCompositionUsesPssAndExposesEveryCategoryAndDifference() {
+        val mib = 1048576L
+        val areas = listOf(10, 20, 5, 5, 10, 20, 20)
+        fun process(scale: Long) = JSONObject().put("basis", "pss").put("total", 100 * scale * mib).apply {
+            appMemoryKeys.drop(1).zip(areas).forEach { (key, value) -> put(key, value * scale * mib) }
+        }
+        fixture(MemorySnapshot(DeviceMemory.from(1000 * mib, 250 * mib), process(1), process(2), 1)) {
+            for ((section, difference) in listOf(R.string.memory_app_total to 30,
+                R.string.memory_ui_process to 10, R.string.memory_runtime_process to 20)) {
+                val bar = composition(section)
+                assertEquals(0.9f, requireNotNull(bar.rangeInfo).current, 0.0001f)
+                assertFalse(bar.isClickable)
+                assertTrue(bar.stateDescription.toString().contains(context.getString(R.string.memory_java)))
+                assertTrue(bar.stateDescription.toString().contains(context.getString(R.string.memory_system)))
+                val value = String.format(java.util.Locale.getDefault(), "%.1f MiB", difference.toDouble())
+                assertTrue(bar.stateDescription.toString().contains(context.getString(R.string.memory_composition_difference, value)))
+            }
+        }
+    }
+
+    @Test fun excessiveSummaryValuesDoNotCreateANormalizedCompositionBar() {
+        val mib = 1048576L
+        val process = JSONObject().put("basis", "pss").put("total", 100 * mib).apply {
+            appMemoryKeys.drop(1).forEach { put(it, 0) }
+            put("java-heap", 60 * mib); put("native-heap", 50 * mib)
+        }
+        fixture(MemorySnapshot(null, process, process, 1)) {
+            val bar = composition(R.string.memory_app_total)
+            assertNull(bar.rangeInfo)
+            assertEquals(context.getString(R.string.memory_composition_inconsistent), bar.stateDescription.toString())
+            assertEquals(0.6f, requireNotNull(row(R.string.memory_app_total, R.string.memory_java).rangeInfo).current, 0.0001f)
+        }
     }
 
     private fun fixture(snapshot: MemorySnapshot, check: () -> Unit) {
@@ -110,13 +151,20 @@ class MemoryDiagnosticsUiTest {
                 R.string.memory_device to R.string.memory_device_used,
                 R.string.memory_app_total to R.string.memory_pss_total,
                 R.string.memory_runtime_process to R.string.memory_pss_total,
-                R.string.memory_ui_process to R.string.memory_java,
             )) {
                 val unknown = row(section, title)
                 assertNull(unknown.rangeInfo)
                 assertTrue("Unknown usage state: ${unknown.stateDescription}",
                     unknown.stateDescription.toString().contains(context.getString(R.string.diagnostics_unknown)))
             }
+            for (section in listOf(R.string.memory_app_total, R.string.memory_ui_process)) {
+                val bar = composition(section)
+                assertNull(bar.rangeInfo)
+                assertEquals(context.getString(R.string.memory_composition_unavailable), bar.stateDescription.toString())
+            }
+            val unknown = row(R.string.memory_ui_process, R.string.memory_java)
+            assertNull(unknown.rangeInfo)
+            assertTrue(unknown.stateDescription.toString().contains(context.getString(R.string.diagnostics_unknown)))
         }
     }
 

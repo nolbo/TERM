@@ -68,6 +68,12 @@
     <string name="memory_app_title">App memory</string>
     <string name="memory_composition_title">%1$s · Memory composition</string>
     <string name="memory_composition_basis">Total PSS: %1$s · Reference for component percentages</string>
+    <string name="memory_composition_bar_description">%1$s · Composition bar</string>
+    <string name="memory_composition_bar_state">Total PSS %1$s · %2$s</string>
+    <string name="memory_composition_item">%1$s: %2$s</string>
+    <string name="memory_composition_unavailable">Composition bar: Unknown. Requires a positive PSS total and measurements for all components.</string>
+    <string name="memory_composition_inconsistent">Component values exceed PSS, so a stacked bar cannot be displayed.</string>
+    <string name="memory_composition_difference">Gray segment: %1$s difference between PSS and displayed component values</string>
     <string name="memory_device">Device memory</string>
     <string name="memory_device_total">Total physical memory</string>
     <string name="memory_device_used">Used memory</string>

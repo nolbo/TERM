@@ -68,6 +68,12 @@
     <string name="memory_app_title">앱 메모리</string>
     <string name="memory_composition_title">%1$s · 메모리 구성</string>
     <string name="memory_composition_basis">PSS 합계: %1$s · 구성 항목의 비율 기준</string>
+    <string name="memory_composition_bar_description">%1$s · 구성 막대</string>
+    <string name="memory_composition_bar_state">PSS 합계 %1$s · %2$s</string>
+    <string name="memory_composition_item">%1$s: %2$s</string>
+    <string name="memory_composition_unavailable">구성 막대 확인 불가: 양수 PSS 합계와 모든 구성 항목의 측정값이 필요합니다.</string>
+    <string name="memory_composition_inconsistent">구성값의 합계가 PSS를 초과해 누적 막대를 표시할 수 없습니다.</string>
+    <string name="memory_composition_difference">회색 구간: PSS와 표시된 구성값의 차이 %1$s</string>
     <string name="memory_device">장치 메모리</string>
     <string name="memory_device_total">전체 물리 메모리</string>
     <string name="memory_device_used">사용 중인 메모리</string>

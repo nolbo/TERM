@@ -1,14 +1,21 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package dev.terminal.app.ui
 
+import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
@@ -21,6 +28,7 @@ import androidx.compose.ui.unit.dp
 import dev.terminal.app.MemorySnapshot
 import dev.terminal.app.R
 import dev.terminal.app.memoryBytes
+import dev.terminal.app.memoryCompositionSegments
 import dev.terminal.app.memoryRatio
 import org.json.JSONObject
 
@@ -28,6 +36,12 @@ private val memoryAreas = listOf(
     "java-heap" to R.string.memory_java, "native-heap" to R.string.memory_native,
     "code" to R.string.memory_code, "stack" to R.string.memory_stack, "graphics" to R.string.memory_graphics,
     "private-other" to R.string.memory_private_other, "system" to R.string.memory_system,
+)
+
+// Category colors are stable across cards and snapshots; they do not indicate severity.
+private val memoryAreaColors = listOf(
+    Color(0xFFC4ADD9), Color(0xFFD8B477), Color(0xFFD694A7), Color(0xFFADB183),
+    Color(0xFFC5916F), Color(0xFFAFB5BD), Color(0xFF9983B6),
 )
 
 @Composable
@@ -102,7 +116,8 @@ private fun MemoryStat(title: Int, bytes: Long?, modifier: Modifier) {
 
 @Composable
 private fun MemoryUsageMetric(section: Int, title: Int, bytes: Long?, total: Long?, reference: Int,
-    label: Int = title, prominent: Boolean = false, showReference: Boolean = true) {
+    label: Int = title, prominent: Boolean = false, showReference: Boolean = true,
+    showBar: Boolean = true, categoryColor: Color? = null) {
     val fraction = memoryRatio(bytes, total)
     val value = memoryValue(bytes)
     val percentage = fraction?.let {
@@ -119,7 +134,10 @@ private fun MemoryUsageMetric(section: Int, title: Int, bytes: Long?, total: Lon
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(16.dp)) {
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(stringResource(label), style = MaterialTheme.typography.bodyMedium)
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    categoryColor?.let { Box(Modifier.size(10.dp).background(it, CircleShape)) }
+                    Text(stringResource(label), style = MaterialTheme.typography.bodyMedium)
+                }
                 if (showReference) Text(referenceText, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
@@ -138,8 +156,52 @@ private fun MemoryUsageMetric(section: Int, title: Int, bytes: Long?, total: Lon
                     textAlign = TextAlign.End)
             }
         }
-        fraction?.let {
+        if (showBar) fraction?.let {
             LinearProgressIndicator(progress = { it }, modifier = Modifier.fillMaxWidth().height(if (prominent) 8.dp else 4.dp))
+        }
+    }
+}
+
+@Composable
+private fun MemoryCompositionBar(section: Int, values: List<Long?>, total: Long?) {
+    val composition = memoryCompositionSegments(values, total)
+    val label = stringResource(R.string.memory_composition_bar_description, stringResource(section))
+    val unavailable = stringResource(if (total == null || total <= 0 || values.any { it == null })
+        R.string.memory_composition_unavailable else R.string.memory_composition_inconsistent)
+    val difference = composition?.difference?.takeIf { it > 0 }?.let {
+        stringResource(R.string.memory_composition_difference, memoryValue(it))
+    }
+    val details = memoryAreas.mapIndexed { index, (_, title) ->
+        stringResource(R.string.memory_composition_item, stringResource(title), memoryValue(values[index]))
+    }.joinToString(" · ")
+    val state = if (composition == null) unavailable else
+        stringResource(R.string.memory_composition_bar_state, memoryValue(total), details) + difference?.let { " · $it" }.orEmpty()
+    val track = MaterialTheme.colorScheme.surfaceContainerHighest
+    Column(Modifier.fillMaxWidth().clearAndSetSemantics {
+        contentDescription = label
+        stateDescription = state
+        composition?.let {
+            progressBarRangeInfo = ProgressBarRangeInfo((1.0 - it.difference.toDouble() / requireNotNull(total)).toFloat(), 0f..1f)
+        }
+    }, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (composition == null) Text(unavailable, style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
+        else {
+            Canvas(Modifier.fillMaxWidth().height(16.dp).clip(CircleShape).background(track)) {
+                var start = 0.0
+                composition.fractions.forEachIndexed { index, fraction ->
+                    if (fraction > 0.0) {
+                        drawRect(memoryAreaColors[index], Offset((size.width * start).toFloat(), 0f),
+                            Size((size.width * fraction).toFloat(), size.height))
+                        if (start > 0.0) drawLine(track,
+                            Offset((size.width * start).toFloat(), 0f), Offset((size.width * start).toFloat(), size.height),
+                            strokeWidth = 1.dp.toPx())
+                    }
+                    start += fraction
+                }
+            }
+            difference?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant) }
         }
     }
 }
@@ -156,9 +218,10 @@ private fun MemoryCompositionCard(section: Int, process: JSONObject?) {
                 Text(stringResource(R.string.memory_composition_basis, memoryValue(total)),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            memoryAreas.forEach { (key, title) ->
+            MemoryCompositionBar(section, memoryAreas.map { (key, _) -> process?.memoryBytes(key) }, total)
+            memoryAreas.forEachIndexed { index, (key, title) ->
                 MemoryUsageMetric(section, title, process?.memoryBytes(key), total, R.string.memory_percentage_of_pss,
-                    showReference = false)
+                    showReference = false, showBar = false, categoryColor = memoryAreaColors[index])
             }
             if (section == R.string.memory_app_total) Text(stringResource(R.string.memory_pss_caveat),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)

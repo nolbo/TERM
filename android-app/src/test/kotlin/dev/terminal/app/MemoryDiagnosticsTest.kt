@@ -5,6 +5,33 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MemoryDiagnosticsTest {
+    @Test fun compositionKeepsPssDenominatorAndShowsTheDifference() {
+        val segments = requireNotNull(memoryCompositionSegments(listOf(20, 30, 10, 0, 15, 5, 10), 100))
+        assertEquals(listOf(0.2, 0.3, 0.1, 0.0, 0.15, 0.05, 0.1), segments.fractions)
+        assertEquals(10L, segments.difference)
+    }
+
+    @Test fun incompleteAndExcessiveCompositionsAreNotNormalizedOrFilledWithZeros() {
+        assertNull(memoryCompositionSegments(listOf(20, null, 0), 100))
+        assertNull(memoryCompositionSegments(listOf(0, 0), null))
+        assertNull(memoryCompositionSegments(listOf(0, 0), 0))
+        assertNull(memoryCompositionSegments(listOf(-1, 10), 100))
+        assertNull(memoryCompositionSegments(emptyList(), 100))
+        assertNull(memoryCompositionSegments(listOf(60, 50), 100))
+        assertNull(memoryCompositionSegments(listOf(Long.MAX_VALUE, Long.MAX_VALUE), Long.MAX_VALUE))
+    }
+
+    @Test fun compositionsHandleTrueZeroAndLargeMeasurementsWithoutOverflow() {
+        val empty = requireNotNull(memoryCompositionSegments(List(7) { 0L }, 100))
+        assertTrue(empty.fractions.all { it == 0.0 })
+        assertEquals(100L, empty.difference)
+        val large = requireNotNull(memoryCompositionSegments(listOf(Long.MAX_VALUE / 2,
+            Long.MAX_VALUE - Long.MAX_VALUE / 2), Long.MAX_VALUE))
+        assertEquals(0L, large.difference)
+        assertEquals(0.5, large.fractions[0], 0.000001)
+        assertEquals(0.5, large.fractions[1], 0.000001)
+    }
+
     @Test fun ratiosUseTheGivenTotalAndPreserveMeasuredZero() {
         assertEquals(0.75f, memoryRatio(750, 1000)!!, 0f)
         assertEquals(0.2f, memoryRatio(20, 100)!!, 0f)

@@ -15,6 +15,21 @@ internal fun memoryRatio(bytes: Long?, total: Long?): Float? {
     return (bytes.toDouble() / total).toFloat()
 }
 
+internal data class MemoryCompositionSegments(val fractions: List<Double>, val difference: Long)
+
+/** Keeps the measured PSS denominator; never normalizes summary values into a new total. */
+internal fun memoryCompositionSegments(values: List<Long?>, total: Long?): MemoryCompositionSegments? {
+    if (total == null || total <= 0 || values.isEmpty()) return null
+    var remaining = total
+    val fractions = mutableListOf<Double>()
+    for (value in values) {
+        if (value == null || value < 0 || value > remaining) return null
+        remaining -= value
+        fractions += value.toDouble() / total
+    }
+    return MemoryCompositionSegments(fractions, remaining)
+}
+
 /** PSS totals are never synthesized from Android's summary categories or a partial process set. */
 internal fun combineAppMemory(ui: JSONObject?, runtime: JSONObject?): JSONObject? {
     if (ui == null || runtime == null || ui.optString("basis") != "pss" || runtime.optString("basis") != "pss") return null
