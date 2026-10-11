@@ -12,7 +12,7 @@ internal data class TerminalChromeColors(
     val onContainer: Color = readableForeground(container),
     val accent: Color = readableAccent(container),
     val divider: Color = mix(background, foreground, 0.4f),
-    val checkedContainer: Color = readableAccent(background),
+    val checkedContainer: Color = readableAccent(background, terminalSheetBackground(background)),
     val onCheckedContainer: Color = readableForeground(checkedContainer),
     val unselectedTabContent: Color = mutedForeground(background, foreground),
     val appBarIcon: Color = mutedForeground(background, foreground, minimumPercent = 70),
@@ -22,6 +22,7 @@ internal data class TerminalChromeColors(
     val selectedTabContainer: Color = colorScheme?.primaryContainer ?: container,
     val selectedTabContent: Color = colorScheme?.onPrimaryContainer ?: accent,
     val selectedTabSupporting: Color = colorScheme?.onPrimaryContainer ?: onContainer,
+    val sheetBackground: Color = terminalSheetBackground(background),
 ) {
     val darkSystemIcons = readableForeground(background) == Color.Black
 
@@ -46,6 +47,7 @@ internal data class TerminalChromeColors(
             androidx.compose.ui.graphics.lerp(selectedTabContainer, to.selectedTabContainer, fraction),
             androidx.compose.ui.graphics.lerp(selectedTabContent, to.selectedTabContent, fraction),
             androidx.compose.ui.graphics.lerp(selectedTabSupporting, to.selectedTabSupporting, fraction),
+            androidx.compose.ui.graphics.lerp(sheetBackground, to.sheetBackground, fraction),
         )
     }
 }
@@ -59,14 +61,25 @@ internal fun colorContrast(first: Color, second: Color): Float {
 private fun readableForeground(background: Color): Color =
     if (colorContrast(Color.Black, background) >= colorContrast(Color.White, background)) Color.Black else Color.White
 
+/** A subtle surface offset shared by shell and dynamic TUI chrome, with readable content. */
+internal fun terminalSheetBackground(background: Color): Color {
+    val foreground = readableForeground(background)
+    val tinted = mix(background, foreground, 0.06f)
+    // Near the black/white contrast crossover, move away from the text instead.
+    return if (colorContrast(foreground, tinted) >= 4.5f) tinted
+        else mix(background, if (foreground == Color.White) Color.Black else Color.White, 0.06f)
+}
+
 private fun mutedForeground(background: Color, foreground: Color, minimumPercent: Int = 60): Color =
     (minimumPercent..100 step 5).asSequence()
         .map { mix(background, foreground, it / 100f) }
-        .firstOrNull { colorContrast(it, background) >= 4.5f }
+        .firstOrNull { colorContrast(it, background) >= 4.5f &&
+            colorContrast(it, terminalSheetBackground(background)) >= 4.5f }
         ?: foreground
 
-private fun readableAccent(background: Color): Color =
-    listOf(Color(0xFF8AB4F8), Color(0xFF124A91)).firstOrNull { colorContrast(it, background) >= 4.5f }
+private fun readableAccent(background: Color, secondaryBackground: Color = background): Color =
+    listOf(Color(0xFF8AB4F8), Color(0xFF124A91)).firstOrNull { colorContrast(it, background) >= 4.5f &&
+        colorContrast(it, secondaryBackground) >= 4.5f }
         ?: readableForeground(background)
 
 private fun mix(background: Color, foreground: Color, fraction: Float) = Color(

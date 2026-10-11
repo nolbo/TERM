@@ -211,7 +211,7 @@ internal fun ToolbarSessionsTool(
                                 selectedTabIndex = sessions.indexOfFirst { it.id == activeSessionId }.coerceAtLeast(0),
                                 scrollState = headerTabScroll,
                                 modifier = Modifier.fillMaxSize(),
-                                containerColor = colors.background,
+                                containerColor = colors.sheetBackground,
                                 contentColor = colors.accent,
                                 edgePadding = 0.dp,
                                 indicator = {},
@@ -230,12 +230,12 @@ internal fun ToolbarSessionsTool(
                                 }
                             }
                             ScrollEdgeFade(headerTabScroll.canScrollBackward,
-                                Brush.horizontalGradient(if (rtl) listOf(colors.background.copy(alpha = 0f), colors.background)
-                                    else listOf(colors.background, colors.background.copy(alpha = 0f))),
+                                Brush.horizontalGradient(if (rtl) listOf(colors.sheetBackground.copy(alpha = 0f), colors.sheetBackground)
+                                    else listOf(colors.sheetBackground, colors.sheetBackground.copy(alpha = 0f))),
                                 Modifier.align(Alignment.CenterStart).fillMaxHeight().width(20.dp))
                             ScrollEdgeFade(headerTabScroll.canScrollForward,
-                                Brush.horizontalGradient(if (rtl) listOf(colors.background, colors.background.copy(alpha = 0f))
-                                    else listOf(colors.background.copy(alpha = 0f), colors.background)),
+                                Brush.horizontalGradient(if (rtl) listOf(colors.sheetBackground, colors.sheetBackground.copy(alpha = 0f))
+                                    else listOf(colors.sheetBackground.copy(alpha = 0f), colors.sheetBackground)),
                                 Modifier.align(Alignment.CenterEnd).fillMaxHeight().width(20.dp))
                         }
                     }

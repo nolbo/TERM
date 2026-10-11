@@ -30,13 +30,14 @@ internal fun terminalDynamicColors(background: Color): TerminalChromeColors = sy
         // Material's standard surface tones differ from an arbitrary TUI background. Keep the
         // canvas exact and adjust foreground tones in the generated HCT palettes for contrast.
         val container = Color(source.surfaceContainerLow)
+        val sheet = terminalSheetBackground(background)
         // A generated surface tone can coincide with the exact TUI canvas. Keep the neutral
         // hue/chroma, but separate enabled controls from that canvas and pair their own text.
         // Leave room for rendered color quantization while displaying at least 2:1 contrast.
-        val button = terminalRoleWithContrast(Color(source.surfaceContainerHigh), listOf(background), 2.2f)
-        val foreground = terminalRoleForeground(Color(source.onSurface), background)
-        val supporting = terminalRoleForeground(Color(source.onSurfaceVariant), background, container)
-        val primary = terminalRoleForeground(Color(source.primary), background, container)
+        val button = terminalRoleWithContrast(Color(source.surfaceContainerHigh), listOf(background, sheet), 2.2f)
+        val foreground = terminalRoleForeground(Color(source.onSurface), background, sheet)
+        val supporting = terminalRoleForeground(Color(source.onSurfaceVariant), background, container, sheet)
+        val primary = terminalRoleForeground(Color(source.primary), background, container, sheet)
         val scheme = (if (isDark) darkColorScheme() else lightColorScheme()).copy(
             primary = primary,
             onPrimary = terminalRoleForeground(Color(source.onPrimary), primary),
@@ -54,7 +55,7 @@ internal fun terminalDynamicColors(background: Color): TerminalChromeColors = sy
             background = background,
             onBackground = foreground,
             surface = background,
-            onSurface = terminalRoleForeground(Color(source.onSurface), background, container),
+            onSurface = terminalRoleForeground(Color(source.onSurface), background, container, sheet),
             surfaceVariant = Color(source.surfaceVariant),
             onSurfaceVariant = supporting,
             surfaceTint = primary,
@@ -106,8 +107,9 @@ internal fun terminalDynamicColors(background: Color): TerminalChromeColors = sy
 }
 
 /** Find the nearest readable tone while retaining the role's generated hue and chroma. */
-private fun terminalRoleForeground(color: Color, background: Color, container: Color = background): Color =
-    terminalRoleWithContrast(color, listOf(background, container), 4.5f)
+private fun terminalRoleForeground(color: Color, background: Color, container: Color = background,
+    sheet: Color = background): Color =
+    terminalRoleWithContrast(color, listOf(background, container, sheet), 4.5f)
 
 private fun terminalRoleWithContrast(color: Color, backgrounds: List<Color>, minimumContrast: Float): Color {
     fun readable(candidate: Color) = backgrounds.all { colorContrast(candidate, it) >= minimumContrast }

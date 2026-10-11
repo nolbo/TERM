@@ -41,6 +41,8 @@ class TerminalDynamicColorsTest {
             val surfaceContrast = colorContrast(colors.buttonContainer, background)
             assertTrue("Button blends into $background: surface contrast $surfaceContrast",
                 surfaceContrast >= 2f)
+            assertTrue("Button blends into the toolbar sheet for $background",
+                colorContrast(colors.buttonContainer, colors.sheetBackground) >= 2f)
             assertTrue("Button label loses contrast on $background",
                 colorContrast(colors.onButtonContainer, colors.buttonContainer) >= 4.5f)
         }
@@ -68,6 +70,10 @@ class TerminalDynamicColorsTest {
                 colors.foreground to background,
                 colors.unselectedTabContent to background,
                 colors.appBarIcon to background,
+                colors.foreground to colors.sheetBackground,
+                colors.unselectedTabContent to colors.sheetBackground,
+                colors.appBarIcon to colors.sheetBackground,
+                colors.accent to colors.sheetBackground,
                 colors.accent to background,
                 colors.accent to colors.container,
                 colors.onContainer to colors.container,
@@ -118,6 +124,7 @@ class TerminalDynamicColorsTest {
         assertEquals(frame.background, scheme.surface)
         assertEquals(frame.accent, scheme.primary)
         assertEquals(lerp(from.buttonContainer, to.buttonContainer, 0.5f), frame.buttonContainer)
+        assertEquals(lerp(from.sheetBackground, to.sheetBackground, 0.5f), frame.sheetBackground)
         assertEquals(lerp(requireNotNull(from.colorScheme).tertiaryFixed,
             requireNotNull(to.colorScheme).tertiaryFixed, 0.5f), scheme.tertiaryFixed)
         assertSame(from, from.interpolate(to, 0f))

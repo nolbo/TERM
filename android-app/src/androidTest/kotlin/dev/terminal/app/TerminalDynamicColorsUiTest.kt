@@ -30,6 +30,7 @@ import dev.terminal.app.ui.ToolbarHotkeys
 import dev.terminal.app.ui.ToolbarHistoryTool
 import dev.terminal.app.ui.colorContrast
 import dev.terminal.app.ui.terminalDynamicColors
+import dev.terminal.app.ui.terminalSheetBackground
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import org.junit.Assert.*
@@ -143,6 +144,39 @@ class TerminalDynamicColorsUiTest {
         }
     }
 
+    @Test fun sheetStaysDistinctWithAndWithoutDynamicColorsInEverySize() {
+        val background = mutableStateOf(Color.Black)
+        val dynamic = mutableStateOf(false)
+        val mode = mutableStateOf(ToolbarSheetMode.Default)
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    val colors = if (dynamic.value) terminalDynamicColors(background.value)
+                        else TerminalChromeColors(background.value)
+                    Column(Modifier.fillMaxSize().background(colors.background)) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(ToolbarConfig(tools = listOf(HOTKEY_TOOL)),
+                            mode.value, {}, 400.dp, colors, animateModeChanges = false) { _, _ -> }
+                    }
+                } }
+            } }
+            for (sample in listOf(Color.Black, Color(0xFF301B26), Color(0xFF777777), Color(0xFFF0E0D0))) {
+                for (enabled in listOf(false, true)) {
+                    val colors = if (enabled) terminalDynamicColors(sample) else TerminalChromeColors(sample)
+                    for (size in listOf(ToolbarSheetMode.Hidden, ToolbarSheetMode.Default, ToolbarSheetMode.Expanded)) {
+                        scenario.onActivity { background.value = sample; dynamic.value = enabled; mode.value = size }
+                        val label = instrumentation.targetContext.getString(when (size) {
+                            ToolbarSheetMode.Hidden -> R.string.toolbar_hidden
+                            ToolbarSheetMode.Default -> R.string.toolbar_default
+                            ToolbarSheetMode.Expanded -> R.string.toolbar_expanded
+                        })
+                        assertSheetColor(colors, label)
+                    }
+                }
+            }
+        }
+    }
+
     private fun button(description: String): AccessibilityNodeInfo =
         clickableNode { it.contentDescription?.toString() == description }
 
@@ -176,18 +210,25 @@ class TerminalDynamicColorsUiTest {
         val deadline = SystemClock.elapsedRealtime() + 5000
         var actual = 0
         var canvas = 0
+        var sheet = 0
+        val handleBounds = Rect()
         while (SystemClock.elapsedRealtime() < deadline) {
             button(description).getBoundsInScreen(bounds)
+            button(instrumentation.targetContext.getString(R.string.toolbar_handle)).getBoundsInScreen(handleBounds)
             val screenshot = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
             try {
                 // Sample above the label and away from rounded edges, after color/morph motion.
                 actual = screenshot.getPixel(bounds.centerX(), bounds.top + bounds.height() / 4)
                 canvas = screenshot.getPixel(bounds.centerX(), screenshot.height / 2)
+                sheet = screenshot.getPixel(handleBounds.left + handleBounds.width() / 4, handleBounds.centerY())
             } finally {
                 screenshot.recycle()
             }
             if (matches(actual, target) && (background == null ||
-                (matches(canvas, background.toArgb()) && colorContrast(Color(actual), Color(canvas)) >= 2f))) return
+                (matches(canvas, background.toArgb()) &&
+                    matches(sheet, terminalSheetBackground(background).toArgb()) &&
+                    colorContrast(Color(actual), Color(canvas)) >= 2f &&
+                    colorContrast(Color(actual), Color(sheet)) >= 2f))) return
             SystemClock.sleep(100)
         }
         instrumentation.uiAutomation.takeScreenshot()?.let { screenshot ->
@@ -202,6 +243,35 @@ class TerminalDynamicColorsUiTest {
         if (background != null) {
             assertTrue("Rendered TUI canvas", matches(canvas, background.toArgb()))
             assertTrue("Rendered $description blends into its canvas", colorContrast(Color(actual), Color(canvas)) >= 2f)
+            assertTrue("Rendered $description blends into its sheet", colorContrast(Color(actual), Color(sheet)) >= 2f)
         }
+    }
+
+    private fun assertSheetColor(colors: TerminalChromeColors, modeLabel: String) {
+        fun matches(actual: Int, expected: Color) = listOf(0, 8, 16).all { shift ->
+            abs(((actual shr shift) and 255) - ((expected.toArgb() shr shift) and 255)) <= 4
+        }
+        val deadline = SystemClock.elapsedRealtime() + 5000
+        val bounds = Rect()
+        var actualSheet = 0
+        var canvas = 0
+        var corner = 0
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val handle = button(instrumentation.targetContext.getString(R.string.toolbar_handle))
+            handle.getBoundsInScreen(bounds)
+            val screenshot = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+            try {
+                val x = bounds.left + bounds.width() / 4
+                actualSheet = screenshot.getPixel(x, bounds.centerY())
+                canvas = screenshot.getPixel(x, bounds.top / 2)
+                corner = screenshot.getPixel(bounds.left + 1, bounds.top + 1)
+            } finally { screenshot.recycle() }
+            if (handle.stateDescription?.toString() == modeLabel &&
+                matches(actualSheet, colors.sheetBackground) && matches(canvas, colors.background) &&
+                matches(corner, colors.background) && actualSheet != canvas) return
+            SystemClock.sleep(100)
+        }
+        error("$modeLabel sheet ${actualSheet.toUInt().toString(16)}, canvas ${canvas.toUInt().toString(16)}, " +
+            "corner ${corner.toUInt().toString(16)}; expected ${colors.sheetBackground}")
     }
 }

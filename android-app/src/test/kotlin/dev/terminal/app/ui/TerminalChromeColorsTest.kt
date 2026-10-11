@@ -1,6 +1,10 @@
 package dev.terminal.app.ui
 
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.toArgb
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -12,6 +16,10 @@ class TerminalChromeColorsTest {
                 colors.foreground to colors.background,
                 colors.unselectedTabContent to colors.background,
                 colors.appBarIcon to colors.background,
+                colors.foreground to colors.sheetBackground,
+                colors.unselectedTabContent to colors.sheetBackground,
+                colors.appBarIcon to colors.sheetBackground,
+                colors.checkedContainer to colors.sheetBackground,
                 colors.onContainer to colors.container,
                 colors.accent to colors.container,
                 colors.onCheckedContainer to colors.checkedContainer,
@@ -35,5 +43,26 @@ class TerminalChromeColorsTest {
         assertTrue(TerminalChromeColors(Color.White).darkSystemIcons)
         assertTrue(!TerminalChromeColors(Color.Black).darkSystemIcons)
         assertTrue(TerminalChromeColors(Color.White).container != TerminalChromeColors(Color.Black).container)
+    }
+
+    @Test fun sheetIsSubtlyDistinctRegardlessOfDynamicColorsAndKeepsTheCanvasExact() {
+        for (background in listOf(Color.Black, Color.White, Color(0xFF301B26), Color(0xFF163025),
+            Color(0xFF747474), Color(0xFF777777), Color(0xFFF0E0D0), Color.Blue)) {
+            val legacy = TerminalChromeColors(background)
+            val dynamic = terminalDynamicColors(background)
+            assertEquals(background, legacy.background)
+            assertEquals(background, dynamic.background)
+            assertEquals(legacy.sheetBackground, dynamic.sheetBackground)
+            assertNotEquals(background.toArgb(), legacy.sheetBackground.toArgb())
+            assertTrue("The sheet offset should be subtle for $background",
+                colorContrast(background, legacy.sheetBackground) <= 1.4f)
+        }
+    }
+
+    @Test fun sheetFollowsThePaletteTransitionClock() {
+        val from = TerminalChromeColors(Color.Black)
+        val to = terminalDynamicColors(Color(0xFFF0E0D0))
+        assertEquals(lerp(from.sheetBackground, to.sheetBackground, 0.5f),
+            from.interpolate(to, 0.5f).sheetBackground)
     }
 }

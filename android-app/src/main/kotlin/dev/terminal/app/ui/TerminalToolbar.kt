@@ -21,6 +21,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
@@ -123,10 +124,11 @@ internal fun TerminalToolbar(
     val defaultLabel = stringResource(R.string.toolbar_default)
     val hideLabel = stringResource(R.string.toolbar_hide)
     fun settle(target: ToolbarSheetMode) { scope.launch { state.animateTo(target, motion) } }
+    val sheetShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     MaterialTheme(colorScheme = colors.colorScheme ?: MaterialTheme.colorScheme) {
-        Column(Modifier.fillMaxWidth().background(colors.background).navigationBarsPadding()) {
-            Surface(color = colors.background, contentColor = colors.foreground,
-                shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
+        Column(Modifier.fillMaxWidth().clip(sheetShape).background(colors.sheetBackground).navigationBarsPadding()) {
+            Surface(color = colors.sheetBackground, contentColor = colors.foreground,
+                shape = sheetShape,
                 modifier = Modifier.fillMaxWidth().then(sheetHeight).clipToBounds()) {
                 Column {
                     Box(Modifier.fillMaxWidth().height(hidden)
@@ -244,7 +246,7 @@ private fun ColumnScope.ToolbarPages(tools: List<String>, pager: PagerState, int
 /** Only fade edges with more content beyond them; overlays never intercept gestures. */
 @Composable
 internal fun ToolbarScrollEdges(backward: Boolean, forward: Boolean, modifier: Modifier = Modifier,
-    background: Color = LocalToolbarColors.current.background, content: @Composable () -> Unit) {
+    background: Color = LocalToolbarColors.current.sheetBackground, content: @Composable () -> Unit) {
     Box(modifier.clipToBounds()) {
         content()
         ScrollEdgeFade(backward, Brush.verticalGradient(listOf(background, background.copy(alpha = 0f))),
