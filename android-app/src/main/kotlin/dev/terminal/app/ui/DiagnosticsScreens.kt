@@ -12,6 +12,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.ProgressBarRangeInfo
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.*
 import dev.terminal.app.R
@@ -20,7 +25,9 @@ import dev.terminal.runtime.native.NativeCompatibility
 import dev.terminal.runtime.rootless.RootlessEngineInfo
 import org.json.JSONObject
 
-internal data class DiagnosticRow(val title: Int, val value: String, val detail: String? = null)
+internal data class DiagnosticProgress(val fraction: Float?, val description: String, val accessibilityLabel: String)
+internal data class DiagnosticRow(val title: Int, val value: String, val detail: String? = null,
+    val progress: DiagnosticProgress? = null)
 internal data class DiagnosticSection(val title: Int, val rows: List<DiagnosticRow>, val note: String? = null)
 internal val diagnosticMenuCategories = listOf(
     R.string.diagnostics_category_runtime to listOf(
@@ -86,16 +93,43 @@ private fun DiagnosticPage(title: Int, description: Int, loading: Boolean, onBac
                     Text(stringResource(section.title), Modifier.padding(start = 16.dp, bottom = 8.dp),
                         style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
                     SettingsGroup { section.rows.forEach { row ->
-                        ListItem(supportingContent = row.detail?.let { { SelectionContainer { Text(it) } } },
-                            trailingContent = { SelectionContainer { Text(row.value, Modifier.widthIn(max = 180.dp),
-                                style = MaterialTheme.typography.labelLarge) } },
-                            verticalAlignment = Alignment.CenterVertically, colors = terminalSettingsListItemColors(),
-                            modifier = Modifier.fillMaxWidth().settingsItemSurface()) { Text(stringResource(row.title)) }
+                        if (row.progress != null) DiagnosticProgressRow(row)
+                        else ListItem(supportingContent = row.detail?.let { { SelectionContainer { Text(it) } } },
+                                trailingContent = { SelectionContainer { Text(row.value, Modifier.widthIn(max = 180.dp),
+                                    style = MaterialTheme.typography.labelLarge) } },
+                                verticalAlignment = Alignment.CenterVertically, colors = terminalSettingsListItemColors(),
+                                modifier = Modifier.fillMaxWidth().settingsItemSurface()) { Text(stringResource(row.title)) }
                     } }
                     section.note?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
             } }
+        }
+    }
+}
+
+@Composable
+private fun DiagnosticProgressRow(row: DiagnosticRow) {
+    val progress = checkNotNull(row.progress)
+    val state = stringResource(R.string.memory_progress_state, row.value, progress.description)
+    ListItem(verticalAlignment = Alignment.CenterVertically, colors = terminalSettingsListItemColors(),
+        modifier = Modifier.fillMaxWidth().settingsItemSurface().clearAndSetSemantics {
+            contentDescription = progress.accessibilityLabel
+            stateDescription = state
+            progress.fraction?.let { progressBarRangeInfo = ProgressBarRangeInfo(it, 0f..1f) }
+        }) {
+        Column(Modifier.fillMaxWidth()) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(stringResource(row.title), Modifier.weight(1f))
+                SelectionContainer { Text(row.value, Modifier.widthIn(max = 180.dp),
+                    style = MaterialTheme.typography.labelLarge) }
+            }
+            Text(progress.description, Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+            progress.fraction?.let { fraction ->
+                LinearProgressIndicator(progress = { fraction }, modifier = Modifier.fillMaxWidth().padding(top = 8.dp))
+            }
         }
     }
 }
@@ -193,21 +227,36 @@ private fun memoryValue(bytes: Long?) = bytes?.let {
 } ?: stringResource(R.string.diagnostics_unknown)
 
 @Composable
+private fun memoryProgress(section: Int, title: Int, bytes: Long?, total: Long?, caption: Int): DiagnosticProgress {
+    val fraction = memoryRatio(bytes, total)
+    val percent = fraction?.let {
+        java.text.NumberFormat.getPercentInstance().apply { maximumFractionDigits = 1 }.format(it.toDouble())
+    } ?: stringResource(R.string.diagnostics_unknown)
+    return DiagnosticProgress(fraction, stringResource(caption, percent),
+        stringResource(R.string.memory_progress_description, stringResource(section), stringResource(title)))
+}
+
+@Composable
 internal fun MemoryDiagnosticsScreen(snapshot: MemorySnapshot?, loading: Boolean, onBack: () -> Unit, onRefresh: () -> Unit) {
     val device = snapshot?.device
     fun bytes(process: JSONObject?, key: String) = process?.memoryBytes(key)
     val sections = mutableListOf(DiagnosticSection(R.string.memory_device, listOf(
         DiagnosticRow(R.string.memory_device_total, memoryValue(device?.total)),
-        DiagnosticRow(R.string.memory_device_used, memoryValue(device?.used)),
+        DiagnosticRow(R.string.memory_device_used, memoryValue(device?.used), progress = memoryProgress(
+            R.string.memory_device, R.string.memory_device_used, device?.used, device?.total, R.string.memory_device_ratio)),
         DiagnosticRow(R.string.memory_device_available, memoryValue(device?.available)),
-        DiagnosticRow(R.string.memory_device_ratio, device?.usedRatio?.let {
-            java.text.NumberFormat.getPercentInstance().apply { maximumFractionDigits = 1 }.format(it)
-        } ?: stringResource(R.string.diagnostics_unknown)),
     )))
     for ((title, process) in listOf(R.string.memory_app_total to snapshot?.app,
         R.string.memory_ui_process to snapshot?.ui, R.string.memory_runtime_process to snapshot?.runtime)) {
-        sections += DiagnosticSection(title, listOf(DiagnosticRow(R.string.memory_pss_total, memoryValue(bytes(process, "total")))) +
-            memoryAreas.map { (key, label) -> DiagnosticRow(label, memoryValue(bytes(process, key))) },
+        val pss = process?.takeIf { it.optString("basis") == "pss" }
+        val total = bytes(pss, "total")
+        sections += DiagnosticSection(title, listOf(DiagnosticRow(R.string.memory_pss_total, memoryValue(total),
+            progress = memoryProgress(title, R.string.memory_pss_total, total, device?.total, R.string.memory_percentage_of_device))) +
+            memoryAreas.map { (key, label) ->
+                val value = bytes(pss, key)
+                DiagnosticRow(label, memoryValue(value), progress = memoryProgress(
+                    title, label, value, total, R.string.memory_percentage_of_pss))
+            },
             if (title == R.string.memory_app_total) stringResource(R.string.memory_pss_caveat) else null)
     }
     DiagnosticPage(R.string.memory_diagnostics_title, R.string.memory_diagnostics_description, loading, onBack, onRefresh, sections)

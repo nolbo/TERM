@@ -9,6 +9,12 @@ internal val appMemoryKeys = listOf("total", "java-heap", "native-heap", "code",
 internal fun JSONObject.memoryBytes(key: String): Long? = if (!has(key) || isNull(key)) null
     else (opt(key) as? Number)?.toLong()?.takeIf { it >= 0 }
 
+/** Unavailable or inconsistent measurements never become a zero or a full usage bar. */
+internal fun memoryRatio(bytes: Long?, total: Long?): Float? {
+    if (bytes == null || total == null || total <= 0 || bytes < 0 || bytes > total) return null
+    return (bytes.toDouble() / total).toFloat()
+}
+
 /** PSS totals are never synthesized from Android's summary categories or a partial process set. */
 internal fun combineAppMemory(ui: JSONObject?, runtime: JSONObject?): JSONObject? {
     if (ui == null || runtime == null || ui.optString("basis") != "pss" || runtime.optString("basis") != "pss") return null

@@ -5,6 +5,23 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MemoryDiagnosticsTest {
+    @Test fun ratiosUseTheGivenTotalAndPreserveMeasuredZero() {
+        assertEquals(0.75f, memoryRatio(750, 1000)!!, 0f)
+        assertEquals(0.2f, memoryRatio(20, 100)!!, 0f)
+        assertEquals(0f, memoryRatio(0, 100)!!, 0f)
+        assertEquals(1f, memoryRatio(Long.MAX_VALUE, Long.MAX_VALUE)!!, 0f)
+        assertEquals(0.5f, memoryRatio(Long.MAX_VALUE / 2, Long.MAX_VALUE)!!, 0.0001f)
+    }
+
+    @Test fun unavailableAndInconsistentRatiosDoNotProduceBars() {
+        assertNull(memoryRatio(null, 100))
+        assertNull(memoryRatio(20, null))
+        assertNull(memoryRatio(0, 0))
+        assertNull(memoryRatio(20, -1))
+        assertNull(memoryRatio(-1, 100))
+        assertNull(memoryRatio(101, 100))
+    }
+
     @Test fun combinesBothProcessesWithoutInventingMissingAreas() {
         val combined = requireNotNull(combineAppMemory(
             JSONObject().put("basis", "pss").put("total", 200).put("java-heap", 80),

@@ -69,7 +69,11 @@
     <string name="memory_device_total">Total physical memory</string>
     <string name="memory_device_used">Used memory</string>
     <string name="memory_device_available">Available memory</string>
-    <string name="memory_device_ratio">Memory usage ratio</string>
+    <string name="memory_device_ratio">Memory usage: %1$s</string>
+    <string name="memory_percentage_of_device">Share of physical memory: %1$s</string>
+    <string name="memory_percentage_of_pss">Share of PSS total: %1$s</string>
+    <string name="memory_progress_description">%1$s: %2$s</string>
+    <string name="memory_progress_state">%1$s · %2$s</string>
     <string name="memory_app_total">Total TERM app memory</string>
     <string name="memory_ui_process">Android UI process</string>
     <string name="memory_runtime_process">Runtime (:vmhost) process</string>
