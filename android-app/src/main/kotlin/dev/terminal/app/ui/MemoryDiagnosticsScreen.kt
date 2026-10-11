@@ -201,10 +201,10 @@ private fun MemoryCompositionProgressIndicator(fractions: List<Double>, progress
     val stopColor = ProgressIndicatorDefaults.linearColor
     val first = fractions.indexOfFirst { it > 0.0 }
     val last = fractions.indexOfLast { it > 0.0 }
-    // Material draws the default-height track, track gap and stop indicator. Only the
+    // Material draws the track, track gap and stop indicator. Only the
     // transparent active portion is replaced with colored, independently rounded segments.
     LinearProgressIndicator(progress = { progress }, color = Color.Transparent,
-        modifier = Modifier.fillMaxWidth().drawWithContent {
+        modifier = Modifier.fillMaxWidth().height(8.dp).drawWithContent {
             drawContent()
             val halfGap = ProgressIndicatorDefaults.LinearIndicatorTrackGapSize.toPx() / 2f
             val radius = if (ProgressIndicatorDefaults.LinearStrokeCap == StrokeCap.Round) size.height / 2f else 0f
