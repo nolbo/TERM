@@ -172,12 +172,9 @@ private fun memorySize(bytes: Long) = String.format(java.util.Locale.getDefault(
 
 @Composable
 internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean, target: String,
-    onSend: (String, Boolean) -> Unit, onSave: (ToolbarCommand) -> Unit) {
+    onSend: (String, Boolean) -> Unit, onEdit: (ToolbarCommand) -> Unit) {
     val colors = LocalToolbarColors.current
     var pending by remember { mutableStateOf<ToolbarCommand?>(null) }
-    var editId by rememberSaveable { mutableStateOf<String?>(null) }
-    var name by rememberSaveable { mutableStateOf("") }
-    var text by rememberSaveable { mutableStateOf("") }
     LaunchedEffect(active) { if (!active) pending = null }
     val scroll = rememberLazyListState()
     ToolbarScrollEdges(scroll.canScrollBackward, scroll.canScrollForward, Modifier.fillMaxSize()) {
@@ -202,7 +199,7 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
                                 style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis,
                                 color = colors.onContainer)
                         }
-                        IconButton(onClick = { editId = command.id; name = command.name; text = command.text }) {
+                        IconButton(onClick = { onEdit(command) }) {
                             Icon(painterResource(R.drawable.ic_toolbar_edit),
                                 stringResource(R.string.toolbar_command_edit_item, command.name), Modifier.size(20.dp))
                         }
@@ -210,10 +207,6 @@ internal fun ToolbarCommandsTool(commands: List<ToolbarCommand>, active: Boolean
                 }
             }
         }
-    }
-    editId?.let { id ->
-        ToolbarCommandEditDialog(ToolbarCommand(id, name, text), { name = it }, { text = it },
-            onDismiss = { editId = null }, onSave = { onSave(it); editId = null })
     }
     pending?.takeIf { active }?.let { command ->
         ToolbarSendDialog(command.text, target, { pending = null }) {
@@ -310,24 +303,6 @@ internal fun ToolbarToolSettings(screen: String, preferences: SharedPreferences,
     }
 }
 
-@Composable
-private fun ToolbarCommandEditDialog(draft: ToolbarCommand, onName: (String) -> Unit,
-    onText: (String) -> Unit, onDismiss: () -> Unit, onSave: (ToolbarCommand) -> Unit) {
-    AlertDialog(onDismissRequest = onDismiss, title = { Text(stringResource(R.string.toolbar_commands_edit)) },
-        text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            OutlinedTextField(draft.name, { if (it.length <= 60) onName(it) },
-                label = { Text(stringResource(R.string.toolbar_command_name)) }, singleLine = true)
-            OutlinedTextField(draft.text, { if (it.length <= MAX_TOOLBAR_TEXT) onText(it) },
-                label = { Text(stringResource(R.string.toolbar_command_text)) },
-                textStyle = MaterialTheme.typography.bodyMedium.copy(fontFamily = LocalTerminalMonospaceFontFamily.current),
-                minLines = 3, maxLines = 8)
-            Text(stringResource(R.string.toolbar_text_limit), style = MaterialTheme.typography.bodySmall)
-        } },
-        confirmButton = { Button(enabled = validToolbarCommand(draft), onClick = { onSave(draft) }) {
-            Text(stringResource(R.string.save))
-        } },
-        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.cancel)) } })
-}
 
 @Composable
 private fun MemorySettingsSection(title: String, content: @Composable ColumnScope.() -> Unit) {

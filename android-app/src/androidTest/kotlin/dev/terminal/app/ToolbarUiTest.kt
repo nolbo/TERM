@@ -1641,19 +1641,7 @@ class ToolbarUiTest {
             }
             settle()
             click(description(context.getString(R.string.toolbar_command_edit_item, "Sample")))
-            text(label(R.string.toolbar_commands_edit))
-            assertNull(edited)
-            assertNull(sent)
-            click(text(label(R.string.cancel)))
-            assertNull(edited)
-            click(description(context.getString(R.string.toolbar_command_edit_item, "Sample")))
-            val commandField = waitForNode("command editor") { it.isEditable && it.text?.toString() == commands.single().text }
-            commandField.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, android.os.Bundle().apply {
-                putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, "echo updated")
-            })
-            settle()
-            click(text(label(R.string.save)))
-            assertEquals(commands.single().copy(text = "echo updated"), edited)
+            assertEquals(commands.single(), edited)
             assertNull(sent)
             assertNull(find { it.text?.toString() == label(R.string.toolbar_run) })
             // A compact preview is available before opening the full confirmation.
@@ -1670,9 +1658,9 @@ class ToolbarUiTest {
             settle()
             assertNull(find { it.text?.toString() == label(R.string.toolbar_run) })
             assertNull(sent)
+            scenario.onActivity { edited = null }
             click(description(context.getString(R.string.toolbar_command_edit_item, "Sample")))
-            text(label(R.string.toolbar_commands_edit))
-            click(text(label(R.string.cancel)))
+            assertEquals("Editing remains available without an active session", commands.single(), edited)
         }
     }
 

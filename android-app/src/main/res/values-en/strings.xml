@@ -224,6 +224,7 @@
     <string name="toolbar_commands_limit">You can add up to 64 command sets.</string>
     <string name="toolbar_command_details">General</string>
     <string name="toolbar_command_missing">This command set has been deleted.</string>
+    <string name="toolbar_command_name_limit">Names allow up to 60 characters and no control characters.</string>
     <string name="toolbar_page_position">Tool %1$d of %2$d</string>
     <string name="toolbar_memory_app">App memory</string>
     <string name="toolbar_memory_java">Java heap</string>

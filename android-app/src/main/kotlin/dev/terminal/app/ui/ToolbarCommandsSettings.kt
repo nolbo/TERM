@@ -79,35 +79,3 @@ internal fun ToolbarCommandsSettings(preferences: SharedPreferences, onBack: () 
         }
     }
 }
-
-@Composable
-internal fun ToolbarCommandEditor(source: ToolbarCommand, newItem: Boolean, error: String?,
-    onSave: (ToolbarCommand) -> Unit, onDelete: () -> Unit, onBack: () -> Unit) {
-    val id = rememberSaveable { source.id }
-    var name by rememberSaveable { mutableStateOf(source.name) }
-    var text by rememberSaveable { mutableStateOf(source.text) }
-    var deleting by rememberSaveable { mutableStateOf(false) }
-    val draft = ToolbarCommand(id, name, text)
-    SettingsEditorPage(stringResource(if (newItem) R.string.toolbar_command_add else R.string.toolbar_commands_edit),
-        stringResource(R.string.toolbar_commands_description), error, saving = false, newItem = newItem,
-        dirty = name != source.name || text != source.text, canSave = validToolbarCommand(draft),
-        onBack = onBack, onSave = { onSave(draft) }, onDelete = if (newItem) null else { { deleting = true } }) {
-        ProfileSection(R.string.toolbar_command_details) {
-            SettingsTextRow(R.string.toolbar_command_name, name, confirmLabel = R.string.confirm,
-                valid = { it.isNotBlank() && it.length <= 60 && it.none(Char::isISOControl) }, onChange = { name = it })
-            SettingsTextRow(R.string.toolbar_command_text, text, singleLine = false, hint = R.string.toolbar_text_limit,
-                confirmLabel = R.string.confirm, fontFamily = LocalTerminalMonospaceFontFamily.current,
-                valid = { validToolbarCommand(draft.copy(name = "Command", text = it)) }, onChange = { text = it })
-        }
-    }
-    if (deleting) AlertDialog(onDismissRequest = { deleting = false },
-        title = { Text(stringResource(R.string.toolbar_command_delete)) }, text = { Text(source.name) },
-        confirmButton = {
-            TextButton(onClick = onDelete, shapes = ButtonDefaults.shapes(),
-                colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)) {
-                Text(stringResource(R.string.toolbar_command_delete))
-            }
-        }, dismissButton = {
-            TextButton(onClick = { deleting = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) }
-        })
-}

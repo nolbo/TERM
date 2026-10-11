@@ -74,28 +74,28 @@ class ToolbarCommandsSettingsUiTest {
     @Test fun editorRestoresInputDraftAndSavesWithoutMovingTheCommand() = withCommands(commands.reversed()) { prefs ->
         val original = readToolbarCommands(prefs)
         ActivityScenario.launch<ToolbarCommandEditActivity>(ToolbarCommandEditActivity.intent(context, commands.first().id)).use { activity ->
-            click(label(R.string.toolbar_command_name))
-            replaceInput("Cancelled name")
-            click(label(R.string.cancel))
-            assertEquals(original, readToolbarCommands(prefs))
-            node(commands.first().name)
-            click(label(R.string.toolbar_command_name))
-            replaceInput("Renamed command")
+            replaceInput(R.string.toolbar_command_name, "Renamed command")
+            replaceInput(R.string.toolbar_command_text, "if true; then\n\tprintf '%s\\n' \"\$HOME\"\nfi # 한글🙂")
+            focusInput(R.string.toolbar_command_text)
+            val scriptField = input(R.string.toolbar_command_text)
+            assertTrue(scriptField.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, Bundle().apply {
+                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 4)
+                putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, 8)
+            }))
+            settle()
+            assertEquals(4, input(R.string.toolbar_command_text).textSelectionStart)
+            assertEquals(8, input(R.string.toolbar_command_text).textSelectionEnd)
             activity.recreate()
             node("Renamed command")
-            click(label(R.string.confirm))
-            assertEquals("Confirm updates the draft only", original, readToolbarCommands(prefs))
-            click(label(R.string.toolbar_command_text))
-            replaceInput("echo edited\npwd")
-            click(label(R.string.confirm))
-            activity.recreate()
-            node("Renamed command")
+            focusInput(R.string.toolbar_command_text)
+            assertEquals(4, input(R.string.toolbar_command_text).textSelectionStart)
+            assertEquals(8, input(R.string.toolbar_command_text).textSelectionEnd)
             assertEquals(original, readToolbarCommands(prefs))
-            instrumentation.uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+            click(label(R.string.back))
             node(label(R.string.profile_discard))
             click(label(R.string.cancel))
             click(label(R.string.save))
-            val updated = commands.first().copy(name = "Renamed command", text = "echo edited\npwd")
+            val updated = commands.first().copy(name = "Renamed command", text = "if true; then\n\tprintf '%s\\n' \"\$HOME\"\nfi # 한글🙂")
             await { readToolbarCommands(prefs) == listOf(commands.last(), updated) }
         }
     }
@@ -104,14 +104,14 @@ class ToolbarCommandsSettingsUiTest {
         val original = readToolbarCommands(prefs)
         ActivityScenario.launch<ToolbarCommandEditActivity>(ToolbarCommandEditActivity.intent(context)).use { activity ->
             assertFalse(clickable(node(label(R.string.save))).isEnabled)
-            click(label(R.string.toolbar_command_name))
-            replaceInput("New command")
-            click(label(R.string.confirm))
-            click(label(R.string.toolbar_command_text))
-            replaceInput("echo new\npwd")
+            replaceInput(R.string.toolbar_command_name, "New command")
+            replaceInput(R.string.toolbar_command_text, "a".repeat(MAX_TOOLBAR_TEXT + 1))
+            assertFalse(clickable(node(label(R.string.save))).isEnabled)
+            replaceInput(R.string.toolbar_command_text, "echo\u001b[31m")
+            assertFalse(clickable(node(label(R.string.save))).isEnabled)
+            replaceInput(R.string.toolbar_command_text, "echo new\npwd")
             activity.recreate()
             node("echo new\npwd")
-            click(label(R.string.confirm))
             assertEquals(original, readToolbarCommands(prefs))
             click(label(R.string.save))
             await { readToolbarCommands(prefs).size == original.size + 1 }
@@ -192,11 +192,24 @@ class ToolbarCommandsSettingsUiTest {
         assertTrue(target.performAction(AccessibilityNodeInfo.ACTION_CLICK))
         settle()
     }
-    private fun replaceInput(value: String) {
+    private fun input(labelId: Int): AccessibilityNodeInfo {
         var field: AccessibilityNodeInfo? = null
-        await { field = find { it.isEditable }; field != null }
-        assertTrue(requireNotNull(field).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,
+        // Material exposes the labels on surrounding nodes; the editable fields are name, then script.
+        val position = if (labelId == R.string.toolbar_command_name) 0 else 1
+        await {
+            var index = 0
+            field = find { it.isEditable && index++ == position }
+            field != null
+        }
+        return requireNotNull(field)
+    }
+    private fun replaceInput(labelId: Int, value: String) {
+        assertTrue(input(labelId).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,
             Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value) }))
+        settle()
+    }
+    private fun focusInput(labelId: Int) {
+        assertTrue(input(labelId).performAction(AccessibilityNodeInfo.ACTION_FOCUS))
         settle()
     }
     private fun move(command: ToolbarCommand, actionLabel: Int) {
