@@ -64,7 +64,10 @@
     <string name="avf_reason_driver">이 앱에서 TERM AVF 플랫폼 드라이버를 찾을 수 없습니다. 드라이버가 포함된 TERM 빌드가 필요합니다.</string>
     <string name="avf_diagnostics_caveat">충족은 검사한 사전 조건과 API 서명에 대한 결과이며 실제 VM 부팅 성공을 뜻하지 않습니다. VM 생성·실행, 이미지 설치 및 기존 VM 변경은 수행하지 않습니다.</string>
     <string name="memory_diagnostics_title">메모리</string>
-    <string name="memory_diagnostics_description">화면을 사용하는 동안 5초마다 측정하며 수동 새로고침도 제공합니다. 화면이 비활성화되면 자동 측정을 중단합니다.</string>
+    <string name="memory_diagnostics_description">이 화면이 활성화된 동안 5초마다 갱신합니다.</string>
+    <string name="memory_app_title">앱 메모리</string>
+    <string name="memory_composition_title">%1$s · 메모리 구성</string>
+    <string name="memory_composition_basis">PSS 합계: %1$s · 구성 항목의 비율 기준</string>
     <string name="memory_device">장치 메모리</string>
     <string name="memory_device_total">전체 물리 메모리</string>
     <string name="memory_device_used">사용 중인 메모리</string>

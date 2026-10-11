@@ -64,7 +64,10 @@
     <string name="avf_reason_driver">The TERM AVF platform driver was not found in this app. Use a TERM build that includes it.</string>
     <string name="avf_diagnostics_caveat">Satisfied describes inspected prerequisites and API signatures, and does not certify a successful VM boot. This inspection does not create or run a VM, install an image, or change an existing VM.</string>
     <string name="memory_diagnostics_title">Memory</string>
-    <string name="memory_diagnostics_description">Measurements refresh every 5 seconds while this screen is active. You can also refresh manually. Automatic measurements stop when the screen becomes inactive.</string>
+    <string name="memory_diagnostics_description">Refreshes every 5 seconds while this screen is active.</string>
+    <string name="memory_app_title">App memory</string>
+    <string name="memory_composition_title">%1$s · Memory composition</string>
+    <string name="memory_composition_basis">Total PSS: %1$s · Reference for component percentages</string>
     <string name="memory_device">Device memory</string>
     <string name="memory_device_total">Total physical memory</string>
     <string name="memory_device_used">Used memory</string>

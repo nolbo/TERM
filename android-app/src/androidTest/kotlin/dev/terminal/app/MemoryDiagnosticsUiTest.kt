@@ -59,6 +59,19 @@ class MemoryDiagnosticsUiTest {
         }
     }
 
+    private fun refreshFromScreen() {
+        val label = context.getString(R.string.refresh)
+        val deadline = SystemClock.elapsedRealtime() + 8000
+        while (SystemClock.elapsedRealtime() < deadline) {
+            instrumentation.waitForIdleSync()
+            var node = find { it.text?.toString() == label || it.contentDescription?.toString() == label }
+            while (node != null && !node.isClickable) node = node.parent
+            if (node?.isEnabled == true && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return
+            SystemClock.sleep(50)
+        }
+        throw AssertionError("Refresh button was not available")
+    }
+
     @Test fun usageBarsUsePhysicalCapacityAndAreasUseTheirOwnPssTotals() {
         val mib = 1048576L
         val ui = JSONObject().put("basis", "pss").put("total", 100 * mib)
@@ -75,14 +88,14 @@ class MemoryDiagnosticsUiTest {
             }
             ratio(R.string.memory_device, R.string.memory_device_used, 0.75f)
             ratio(R.string.memory_app_total, R.string.memory_pss_total, 0.3f)
-            ratio(R.string.memory_app_total, R.string.memory_java, 40f / 300f)
             ratio(R.string.memory_ui_process, R.string.memory_pss_total, 0.1f)
+            ratio(R.string.memory_runtime_process, R.string.memory_pss_total, 0.2f)
+            ratio(R.string.memory_app_total, R.string.memory_java, 40f / 300f)
             ratio(R.string.memory_ui_process, R.string.memory_java, 0.2f)
             ratio(R.string.memory_ui_process, R.string.memory_stack, 0f)
             val inconsistent = row(R.string.memory_ui_process, R.string.memory_graphics)
             assertNull(inconsistent.rangeInfo)
             assertTrue(inconsistent.stateDescription.toString().contains(context.getString(R.string.diagnostics_unknown)))
-            ratio(R.string.memory_runtime_process, R.string.memory_pss_total, 0.2f)
             ratio(R.string.memory_runtime_process, R.string.memory_native, 0.3f)
         }
     }
@@ -96,8 +109,8 @@ class MemoryDiagnosticsUiTest {
             for ((section, title) in listOf(
                 R.string.memory_device to R.string.memory_device_used,
                 R.string.memory_app_total to R.string.memory_pss_total,
-                R.string.memory_ui_process to R.string.memory_java,
                 R.string.memory_runtime_process to R.string.memory_pss_total,
+                R.string.memory_ui_process to R.string.memory_java,
             )) {
                 val unknown = row(section, title)
                 assertNull(unknown.rangeInfo)
@@ -136,7 +149,7 @@ class MemoryDiagnosticsUiTest {
                 val first = sample { it.runtime?.memoryBytes("total") != null }
                 assertTrue(requireNotNull(first.device).total > 0)
                 assertEquals(first.ui!!.getLong("total") + first.runtime!!.getLong("total"), first.app!!.getLong("total"))
-                scenario.onActivity { it.refresh() }
+                refreshFromScreen()
                 val refreshed = sample { it.sampledAt > first.sampledAt }
                 scenario.moveToState(Lifecycle.State.CREATED)
                 var stopped: MemoryDiagnosticsActivity? = null
