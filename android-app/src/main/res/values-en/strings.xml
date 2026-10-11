@@ -225,6 +225,12 @@
     <string name="toolbar_command_details">General</string>
     <string name="toolbar_command_missing">This command set has been deleted.</string>
     <string name="toolbar_command_name_limit">Names allow up to 60 characters and no control characters.</string>
+    <string name="toolbar_command_untitled">Untitled command set</string>
+    <string name="toolbar_command_rename">Rename</string>
+    <string name="toolbar_command_editor_options">Command set menu</string>
+    <string name="shell_editor_language">Shell</string>
+    <string name="shell_editor_position">Ln %1$d, Col %2$d</string>
+    <string name="shell_editor_characters">%1$d / %2$d chars</string>
     <string name="toolbar_page_position">Tool %1$d of %2$d</string>
     <string name="toolbar_memory_app">App memory</string>
     <string name="toolbar_memory_java">Java heap</string>

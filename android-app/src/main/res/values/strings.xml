@@ -523,6 +523,12 @@
     <string name="toolbar_command_details">기본 설정</string>
     <string name="toolbar_command_missing">이 명령어셋은 삭제되었습니다.</string>
     <string name="toolbar_command_name_limit">이름은 최대 60자이며 제어 문자를 사용할 수 없습니다.</string>
+    <string name="toolbar_command_untitled">제목 없는 명령어셋</string>
+    <string name="toolbar_command_rename">이름 변경</string>
+    <string name="toolbar_command_editor_options">명령어셋 메뉴</string>
+    <string name="shell_editor_language">Shell</string>
+    <string name="shell_editor_position">%1$d행, %2$d열</string>
+    <string name="shell_editor_characters">%1$d / %2$d자</string>
     <string name="toolbar_page_position">도구 %2$d개 중 %1$d번째</string>
     <string name="toolbar_memory_app">앱 메모리</string>
     <string name="toolbar_memory_java">Java 힙</string>

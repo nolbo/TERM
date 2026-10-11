@@ -37,7 +37,7 @@ class ToolbarCommandsSettingsUiTest {
             node(moveLabel(commands.first()))
             assertTrue(rowBounds(commands.first().name).height() > rowBounds(commands.last().name).height())
             click(commands.first().name)
-            assertNull("Editing order must not navigate to the item editor", find { it.hasLabel(label(R.string.toolbar_command_name)) })
+            assertNull("Editing order must not navigate to the item editor", find { it.isEditable })
             drag(bounds(node(moveLabel(commands.first()))), bounds(node(moveLabel(commands.last()))).exactCenterY(), cancel = true) {
                 assertEquals(commands, readToolbarCommands(prefs))
             }
@@ -56,7 +56,7 @@ class ToolbarCommandsSettingsUiTest {
             await { find { it.hasLabel(moveLabel(commands.first())) } == null }
             assertTrue(rowBounds(commands.last().name).top < rowBounds(commands.first().name).top)
             click(commands.last().name)
-            node(label(R.string.toolbar_command_name))
+            node(label(R.string.shell_editor_language))
             instrumentation.uiAutomation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
             node(label(R.string.toolbar_commands_list))
             assertEquals(commands.reversed(), readToolbarCommands(prefs))
@@ -74,22 +74,26 @@ class ToolbarCommandsSettingsUiTest {
     @Test fun editorRestoresInputDraftAndSavesWithoutMovingTheCommand() = withCommands(commands.reversed()) { prefs ->
         val original = readToolbarCommands(prefs)
         ActivityScenario.launch<ToolbarCommandEditActivity>(ToolbarCommandEditActivity.intent(context, commands.first().id)).use { activity ->
-            replaceInput(R.string.toolbar_command_name, "Renamed command")
-            replaceInput(R.string.toolbar_command_text, "if true; then\n\tprintf '%s\\n' \"\$HOME\"\nfi # 한글🙂")
-            focusInput(R.string.toolbar_command_text)
-            val scriptField = input(R.string.toolbar_command_text)
+            click(commands.first().name)
+            replaceInput("Cancelled name")
+            click(label(R.string.cancel))
+            node(commands.first().name)
+            rename("Renamed command")
+            replaceInput("if true; then\n\tprintf '%s\\n' \"\$HOME\"\nfi # 한글🙂")
+            focusInput()
+            val scriptField = input()
             assertTrue(scriptField.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, Bundle().apply {
                 putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, 4)
                 putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, 8)
             }))
             settle()
-            assertEquals(4, input(R.string.toolbar_command_text).textSelectionStart)
-            assertEquals(8, input(R.string.toolbar_command_text).textSelectionEnd)
+            assertEquals(4, input().textSelectionStart)
+            assertEquals(8, input().textSelectionEnd)
             activity.recreate()
             node("Renamed command")
-            focusInput(R.string.toolbar_command_text)
-            assertEquals(4, input(R.string.toolbar_command_text).textSelectionStart)
-            assertEquals(8, input(R.string.toolbar_command_text).textSelectionEnd)
+            focusInput()
+            assertEquals(4, input().textSelectionStart)
+            assertEquals(8, input().textSelectionEnd)
             assertEquals(original, readToolbarCommands(prefs))
             click(label(R.string.back))
             node(label(R.string.profile_discard))
@@ -104,16 +108,28 @@ class ToolbarCommandsSettingsUiTest {
         val original = readToolbarCommands(prefs)
         ActivityScenario.launch<ToolbarCommandEditActivity>(ToolbarCommandEditActivity.intent(context)).use { activity ->
             assertFalse(clickable(node(label(R.string.save))).isEnabled)
-            replaceInput(R.string.toolbar_command_name, "New command")
-            replaceInput(R.string.toolbar_command_text, "a".repeat(MAX_TOOLBAR_TEXT + 1))
+            assertNull("The document has no inline name form", find { it.hasLabel(label(R.string.toolbar_command_name)) })
+            replaceInput("a".repeat(MAX_TOOLBAR_TEXT + 1))
             assertFalse(clickable(node(label(R.string.save))).isEnabled)
-            replaceInput(R.string.toolbar_command_text, "echo\u001b[31m")
+            replaceInput("echo\u001b[31m")
             assertFalse(clickable(node(label(R.string.save))).isEnabled)
-            replaceInput(R.string.toolbar_command_text, "echo new\npwd")
+            replaceInput("echo new\npwd")
             activity.recreate()
             node("echo new\npwd")
             assertEquals(original, readToolbarCommands(prefs))
             click(label(R.string.save))
+            node(label(R.string.toolbar_command_rename))
+            replaceInput("a".repeat(61))
+            assertFalse(clickable(node(label(R.string.confirm))).isEnabled)
+            replaceInput("New command")
+            activity.recreate()
+            node("New command")
+            assertEquals(original, readToolbarCommands(prefs))
+            click(label(R.string.cancel))
+            node(label(R.string.toolbar_command_untitled))
+            click(label(R.string.save))
+            replaceInput("New command")
+            click(label(R.string.confirm))
             await { readToolbarCommands(prefs).size == original.size + 1 }
         }
         val added = readToolbarCommands(prefs).last()
@@ -121,13 +137,39 @@ class ToolbarCommandsSettingsUiTest {
         assertEquals("New command", added.name)
         assertEquals("echo new\npwd", added.text)
         ActivityScenario.launch<ToolbarCommandEditActivity>(ToolbarCommandEditActivity.intent(context, added.id)).use {
-            click(label(R.string.delete))
+            deleteFromMenu()
             node(label(R.string.toolbar_command_delete))
             click(label(R.string.cancel))
             assertEquals(original + added, readToolbarCommands(prefs))
-            click(label(R.string.delete))
+            deleteFromMenu()
             click(label(R.string.toolbar_command_delete), button = true)
             await { readToolbarCommands(prefs) == original }
+        }
+    }
+
+    @Test fun editorHasOneDocumentAndScrollsToTheCaret() = withCommands(commands) { prefs ->
+        ActivityScenario.launch<ToolbarCommandEditActivity>(ToolbarCommandEditActivity.intent(context, commands.last().id)).use {
+            val field = input()
+            var fields = 0
+            find { if (it.isEditable) fields++; false }
+            assertEquals("The main screen is one code document", 1, fields)
+            val rootBounds = bounds(requireNotNull(instrumentation.uiAutomation.rootInActiveWindow))
+            assertTrue("Code fills the space below the app bar", bounds(field).height() > rootBounds.height() * 0.65f)
+            val text = (1..100).joinToString("\n") { "echo line_$it" }
+            replaceInput(text)
+            focusInput()
+            val current = input()
+            if (current.textSelectionStart != text.length || current.textSelectionEnd != text.length) {
+                assertTrue("Move caret from ${current.textSelectionStart}..${current.textSelectionEnd} to ${text.length}",
+                    current.performAction(AccessibilityNodeInfo.ACTION_SET_SELECTION, Bundle().apply {
+                        putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_START_INT, text.length)
+                        putInt(AccessibilityNodeInfo.ACTION_ARGUMENT_SELECTION_END_INT, text.length)
+                    }))
+            }
+            node(context.getString(R.string.shell_editor_position, 100, "echo line_100".length + 1))
+            await { find { node -> node.actionList.any { it.id == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD } } != null }
+            assertTrue(clickable(node(label(R.string.save))).isVisibleToUser)
+            assertEquals("Editing and scrolling do not persist a draft", commands, readToolbarCommands(prefs))
         }
     }
 
@@ -192,25 +234,34 @@ class ToolbarCommandsSettingsUiTest {
         assertTrue(target.performAction(AccessibilityNodeInfo.ACTION_CLICK))
         settle()
     }
-    private fun input(labelId: Int): AccessibilityNodeInfo {
+    private fun input(): AccessibilityNodeInfo {
         var field: AccessibilityNodeInfo? = null
-        // Material exposes the labels on surrounding nodes; the editable fields are name, then script.
-        val position = if (labelId == R.string.toolbar_command_name) 0 else 1
+        // There is one document, or one name field in the active rename dialog.
         await {
-            var index = 0
-            field = find { it.isEditable && index++ == position }
+            field = find { it.isEditable }
             field != null
         }
         return requireNotNull(field)
     }
-    private fun replaceInput(labelId: Int, value: String) {
-        assertTrue(input(labelId).performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,
+    private fun replaceInput(value: String) {
+        assertTrue(input().performAction(AccessibilityNodeInfo.ACTION_SET_TEXT,
             Bundle().apply { putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value) }))
         settle()
     }
-    private fun focusInput(labelId: Int) {
-        assertTrue(input(labelId).performAction(AccessibilityNodeInfo.ACTION_FOCUS))
+    private fun focusInput() {
+        assertTrue(input().performAction(AccessibilityNodeInfo.ACTION_FOCUS))
         settle()
+    }
+    private fun rename(value: String) {
+        click(label(R.string.toolbar_command_editor_options))
+        click(label(R.string.toolbar_command_rename))
+        replaceInput(value)
+        click(label(R.string.confirm))
+        node(value)
+    }
+    private fun deleteFromMenu() {
+        click(label(R.string.toolbar_command_editor_options))
+        click(label(R.string.delete))
     }
     private fun move(command: ToolbarCommand, actionLabel: Int) {
         var handle: AccessibilityNodeInfo? = null
