@@ -65,6 +65,32 @@ class DistributionTests(unittest.TestCase):
                 self.assertIn('"' + profile['archiveRoot'] + '", "' + profile['release'] + '"', source)
                 self.assertIn(profile['sha256'], source)
 
+    def test_builder_umask_does_not_deny_package_users_access_to_device_nodes(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            previous = os.umask(0o027)
+            try:
+                def create_node(path, mode, device):
+                    path.touch(mode=mode & 0o777)
+                with mock.patch.object(rootfs.os, 'mknod', side_effect=create_node):
+                    rootfs.prepare_devices(root)
+            finally:
+                os.umask(previous)
+            for name in ['null', 'zero', 'random', 'urandom']:
+                self.assertEqual(0o666, (root / 'dev' / name).stat().st_mode & 0o777)
+
+    def test_chroot_mount_table_contains_only_container_root_and_no_host_paths(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'etc').mkdir()
+            (root / 'etc/mtab').symlink_to('/proc/self/mounts')
+            rootfs.prepare_mount_table(root)
+            fields = (root / 'etc/mtab').read_text().split()
+            self.assertEqual('/', fields[1])
+            self.assertEqual(6, len(fields))
+            self.assertNotIn('lowerdir', fields[3])
+            self.assertFalse((root / 'etc/mtab').is_symlink())
+
     def test_rootfs_checksum_failure_stops_before_unpack_or_guest_execution(self):
         data = io.BytesIO(b'untrusted rootfs')
         data.url = 'https://example.invalid/rootfs.tar.xz'

@@ -14,6 +14,25 @@ from urllib.parse import urlparse
 PROFILES = json.loads(Path(__file__).with_name('avf-distributions.json').read_text())
 
 
+def prepare_devices(root):
+    for name, major, minor in [('null', 1, 3), ('zero', 1, 5), ('random', 1, 8), ('urandom', 1, 9)]:
+        device = root / 'dev' / name
+        device.parent.mkdir(exist_ok=True)
+        device.unlink(missing_ok=True)
+        os.mknod(device, stat.S_IFCHR | 0o666, os.makedev(major, minor))
+        device.chmod(0o666)  # mknod mode is otherwise narrowed by the builder's umask.
+
+
+def prepare_mount_table(root):
+    # chroot shares the container's root filesystem. Supply its actual root
+    # mount information without granting CAP_SYS_ADMIN or mounting host paths.
+    mount = next(line.split() for line in Path('/proc/self/mounts').read_text().splitlines()
+                 if line.split()[1] == '/')
+    mtab = root / 'etc/mtab'
+    mtab.unlink(missing_ok=True)
+    mtab.write_text(f'{mount[0]} / {mount[2]} {mount[3].split(",")[0]} 0 0\n')
+
+
 def prepare(distribution, destination):
     destination.mkdir(parents=True, exist_ok=True)
     if distribution == 'debian':
@@ -38,11 +57,8 @@ def prepare(distribution, destination):
     root.mkdir()
     # This pinned archive is unpacked only inside an isolated build container.
     subprocess.run(['tar', '-xJf', str(archive), '--strip-components=1', '-C', str(root)], check=True)
-    for name, major, minor in [('null', 1, 3), ('zero', 1, 5), ('random', 1, 8), ('urandom', 1, 9)]:
-        device = root / 'dev' / name
-        device.parent.mkdir(exist_ok=True)
-        device.unlink(missing_ok=True)
-        os.mknod(device, stat.S_IFCHR | 0o666, os.makedev(major, minor))
+    prepare_devices(root)
+    prepare_mount_table(root)
     resolver = root / 'etc/resolv.conf'
     resolver.unlink(missing_ok=True)
     shutil.copyfile('/etc/resolv.conf', resolver)
@@ -58,6 +74,8 @@ def prepare(distribution, destination):
                    'shadow pacman archlinuxarm-keyring libarchive tar gzip ca-certificates; '
                    "sed -i '/^[[:space:]]*DisableSandbox[[:space:]]*$/d' /etc/pacman.conf")
     subprocess.run(['chroot', str(root), '/bin/bash', '-eu', '-c', command], check=True)
+    (root / 'etc/mtab').unlink()
+    (root / 'etc/mtab').symlink_to('/proc/self/mounts')
     if distribution == 'ubuntu':
         policy.unlink()
     # Build DNS and PRoot-only host mounts are never part of the sealed rootfs.
