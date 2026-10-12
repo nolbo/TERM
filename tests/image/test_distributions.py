@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -142,6 +143,41 @@ class DistributionTests(unittest.TestCase):
                 subprocess.run(['sh', str(script)], env=env, check=True, capture_output=True)
                 self.assertEqual(receipt, (state / 'complete').read_bytes())
                 self.assertEqual(commands, log.read_text())
+
+    def test_pacman_probe_keeps_its_cached_package_hash_across_boot_timestamps(self):
+        original = (REPO / 'image/scripts/image-pacman-selftest').read_text()
+        setup = original.split('# Disposable overlay configuration only;')[0]
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            binaries = root / 'bin'
+            binaries.mkdir()
+            tools = {
+                'id': '#!/bin/sh\necho 0\n',
+                'repo-add': '#!/bin/sh\nexit 0\n',
+                'tar': f'#!{sys.executable}\n' +
+                       'import os, pathlib, sys\n'
+                       'source = pathlib.Path(sys.argv[sys.argv.index("-C") + 1])\n'
+                       'timestamp = int(os.environ["TERM_TEST_TIMESTAMP"])\n'
+                       'for path in [source, *source.rglob("*")]:\n'
+                       '    os.utime(path, (timestamp, timestamp))\n'
+                       'os.execv("/usr/bin/tar", ["tar", *sys.argv[1:]])\n',
+            }
+            for name, content in tools.items():
+                tool = binaries / name
+                tool.write_text(content)
+                tool.chmod(0o755)
+            script = root / 'create-probe.sh'
+            script.write_text(setup.replace('export PATH=/usr/sbin:/usr/bin:/sbin:/bin',
+                                            f'export PATH={binaries}:/usr/bin:/bin')
+                              .replace('/var/lib/droid-image-test', str(root / 'state')) +
+                              'cp "$repository/term-avf-setup-probe-1.0-1-any.pkg.tar.gz" "$TERM_TEST_PACKAGE"\n')
+            packages = []
+            for timestamp in [1700000000, 1700000060]:
+                package = root / f'probe-{timestamp}.pkg.tar.gz'
+                env = dict(os.environ, TERM_TEST_TIMESTAMP=str(timestamp), TERM_TEST_PACKAGE=str(package))
+                subprocess.run(['sh', str(script)], env=env, check=True, capture_output=True)
+                packages.append(package.read_bytes())
+            self.assertEqual(hashlib.sha256(packages[0]).digest(), hashlib.sha256(packages[1]).digest())
 
 
 if __name__ == '__main__':

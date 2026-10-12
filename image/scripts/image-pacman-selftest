@@ -21,7 +21,9 @@ arch = any
 INFO
 printf '#!/bin/sh\nprintf "TERM_AVF_PACMAN_OK\\n"\n' > "$repository/package/usr/bin/term-avf-setup-probe"
 chmod 0755 "$repository/package/usr/bin/term-avf-setup-probe"
-tar -czf "$repository/term-avf-setup-probe-1.0-1-any.pkg.tar.gz" -C "$repository/package" .PKGINFO usr
+# Keep this fixed package version immutable when the second boot reuses its cache.
+tar --format=gnu --sort=name --mtime=@1 --owner=0 --group=0 --numeric-owner \
+  -czf "$repository/term-avf-setup-probe-1.0-1-any.pkg.tar.gz" -C "$repository/package" .PKGINFO usr
 repo-add "$repository/probe.db.tar.gz" "$repository"/*.pkg.tar.gz
 # Disposable overlay configuration only; the producer resets it after both boots.
 printf '[options]\nArchitecture = aarch64\nSigLevel = Never\n[probe]\nServer = file://%s\n' "$repository" > /etc/pacman.conf
