@@ -9,8 +9,8 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.RemoteCallbackList
 import android.util.Log
-import dev.terminal.image.DebianImageVerifier
-import dev.terminal.image.BundledDebianImageCatalog
+import dev.terminal.image.AvfImageVerifier
+import dev.terminal.image.BundledAvfImageCatalog
 import dev.terminal.bridge.AndroidCapabilityBroker
 import dev.terminal.bridge.BridgeHostServer
 import dev.terminal.bridge.Capability
@@ -496,7 +496,8 @@ class VmRuntimeService : Service() {
                         val root = dev.terminal.runtime.session.SessionStorage.root(filesDir, environment.sessionRuntime, environment.storage.id).toPath()
                         val state = environmentRuntimeState(environment, sessionClient as? UnifiedSessionRegistry)
                         val hasData = java.nio.file.Files.exists(root, java.nio.file.LinkOption.NOFOLLOW_LINKS)
-                        JSONObject().put("installed", dev.terminal.image.DebianImageVerifier.hasInstalledImage(root))
+                        JSONObject().put("installed", dev.terminal.image.AvfImageVerifier.hasInstalledImage(root,
+                            requireNotNull(environment.distribution).avfDistribution))
                             .put("hasData", hasData).put("busy", busy || installing)
                             .put("canRemove", idle && !busy && !installing && hasData && environment.storage.id != "legacy" &&
                                 (state != null || environmentBackends[environment.id] == null && hasAvfPrivileges()))
@@ -1293,15 +1294,15 @@ class VmRuntimeService : Service() {
         }
     }
 
-    /** Holds only this environment's lease, so other runtimes remain usable during APT/network waits. */
+    /** Holds only this environment's lease, so other runtimes remain usable during package/network waits. */
     private suspend fun initializeAvfEnvironment(storageId: String,
         progress: (dev.terminal.runtime.image.AvfImageInstallPhase) -> Unit) {
         preparationLocks.withStorage(SessionRuntime.AVF, storageId) {
             storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(SessionRuntime.AVF, storageId)) }
             val environment = environmentForStorage(SessionRuntime.AVF, storageId)
             val root = dev.terminal.runtime.session.SessionStorage.root(filesDir, SessionRuntime.AVF, storageId).toPath()
-            if (dev.terminal.image.DebianAptInitialization.completedAt(root) != null) return@withStorage
-            check(dev.terminal.image.DebianAptInitialization.isRequired(root)) { "이 이미지에는 자동 패키지 목록 초기화 요청이 없습니다." }
+            if (dev.terminal.image.AvfPackageInitialization.completedAt(root) != null) return@withStorage
+            check(dev.terminal.image.AvfPackageInitialization.isRequired(root)) { "이 이미지에는 자동 패키지 목록 초기화 요청이 없습니다." }
             val registry = ensureSessionRegistry() ?: error("Runtime unavailable")
             val wasStarted = environment.id in startedEnvironmentBackends ||
                 (backend is dev.terminal.runtime.avf.AvfBackend && primaryReady())
@@ -1311,7 +1312,7 @@ class VmRuntimeService : Service() {
             try {
                 progress(dev.terminal.runtime.image.AvfImageInstallPhase.BOOT)
                 check(ensureEnvironmentControllerLocked(spec, registry, imageProgress = progress)) { "AVF 초기 실행을 준비할 수 없습니다." }
-                check(dev.terminal.image.DebianAptInitialization.completedAt(root) != null) { "패키지 목록 갱신이 완료되지 않았습니다." }
+                check(dev.terminal.image.AvfPackageInitialization.completedAt(root) != null) { "패키지 목록 갱신이 완료되지 않았습니다." }
             } finally {
                 withContext(kotlinx.coroutines.NonCancellable) {
                     val owner = environmentBackends[environment.id]
@@ -1338,12 +1339,12 @@ class VmRuntimeService : Service() {
 
     private suspend fun ensureAvfPackageIndexes(owner: dev.terminal.runtime.api.RuntimeBackend, root: java.nio.file.Path,
         progress: (dev.terminal.runtime.image.AvfImageInstallPhase) -> Unit = {}) {
-        if (!dev.terminal.image.DebianAptInitialization.isRequired(root) ||
-            dev.terminal.image.DebianAptInitialization.completedAt(root) != null) return
+        if (!dev.terminal.image.AvfPackageInitialization.isRequired(root) ||
+            dev.terminal.image.AvfPackageInitialization.completedAt(root) != null) return
         val avf = owner as? dev.terminal.runtime.avf.AvfBackend ?: error("AVF 초기화 소유자가 없습니다.")
         progress(dev.terminal.runtime.image.AvfImageInstallPhase.APT_REFRESH)
-        val completedAt = dev.terminal.runtime.image.AvfAptInitializer.initialize(avf.connectImageInitializer().getOrThrow())
-        dev.terminal.image.DebianAptInitialization.markComplete(root, completedAt)
+        val completedAt = dev.terminal.runtime.image.AvfPackageInitializer.initialize(avf.connectImageInitializer().getOrThrow())
+        dev.terminal.image.AvfPackageInitialization.markComplete(root, completedAt)
     }
 
     private fun launchRuntimeOperation(trackAsWork: Boolean = false, errorOperation: String = "런타임 작업", block: suspend () -> Unit) {
@@ -1770,7 +1771,8 @@ class VmRuntimeService : Service() {
                 "AVF requires privileged custom VM access"
             }
             val imageRoot = dev.terminal.runtime.session.SessionStorage.root(filesDir, spec.runtime, spec.storageId).toPath()
-            if (!dev.terminal.image.DebianImageVerifier.hasInstalledImage(imageRoot)) {
+            if (!dev.terminal.image.AvfImageVerifier.hasInstalledImage(imageRoot,
+                    requireNotNull(executionEnvironment.distribution).avfDistribution)) {
                 RuntimeSetupCoordinator(applicationContext).requestImageInstallation(spec.storageId)
             }
         }
@@ -1837,6 +1839,7 @@ class VmRuntimeService : Service() {
                 instanceId = if (spec.runtime == SessionRuntime.AVF)
                     requireNotNull(executionEnvironment.runtimeMetadata.vmInstanceId) else spec.storageId,
                 imageDirectory = root.path,
+                imageDistribution = executionEnvironment.distribution?.avfDistribution?.id ?: "debian",
                 memoryMib = preferences.getInt(KEY_AVF_MEMORY, 2048).coerceIn(512, 32768),
                 cpuCount = preferences.getInt(KEY_AVF_CPU, 2).coerceIn(1, 16),
                 protectedVm = preferences.getBoolean(KEY_AVF_PROTECTED, false),
@@ -1850,8 +1853,8 @@ class VmRuntimeService : Service() {
             owner.start().getOrThrow()
             startedEnvironmentBackends.add(key)
             startedForInitialization = spec.runtime == SessionRuntime.AVF &&
-                dev.terminal.image.DebianAptInitialization.isRequired(root.toPath()) &&
-                dev.terminal.image.DebianAptInitialization.completedAt(root.toPath()) == null
+                dev.terminal.image.AvfPackageInitialization.isRequired(root.toPath()) &&
+                dev.terminal.image.AvfPackageInitialization.completedAt(root.toPath()) == null
         }
         try { if (spec.runtime == SessionRuntime.AVF) ensureAvfPackageIndexes(owner, root.toPath(), imageProgress) }
         catch (failure: Exception) {
@@ -2134,10 +2137,10 @@ class VmRuntimeService : Service() {
     private fun imageStatus(): String = if (backend is NativeBackend) {
         "Native 사용자 공간 준비됨. AVF Debian은 권한 있는 제품 빌드에서 사용할 수 있습니다."
     } else when (
-        val verification = DebianImageVerifier.verifyInstalled(Paths.get(filesDir.absolutePath, "vm", "default"))
+        val verification = AvfImageVerifier.verifyInstalled(Paths.get(filesDir.absolutePath, "vm", "default"))
     ) {
         is ImageVerification.Ready -> "Debian ARM64 image verified"
-        is ImageVerification.Invalid -> if (BundledDebianImageCatalog.find(DEFAULT_DEBIAN_RELEASE_ID) == null) {
+        is ImageVerification.Invalid -> if (BundledAvfImageCatalog.find(DEFAULT_DEBIAN_RELEASE_ID) == null) {
             "$verification. 이 제품 빌드에 AVF 자동 설치 이미지가 등록되지 않았습니다."
         } else verification.reason
     }

@@ -47,7 +47,7 @@ def release_id(value):
 def catalog(data):
     approved = properties(data)
     required = {'id', 'releaseId', 'manifestUri', 'manifestSha256', 'maxArtifactBytes', 'compression'}
-    if set(approved) != required or approved['id'] != 'debian-arm64-current':
+    if set(approved) != required or approved['id'] not in {d + '-arm64-current' for d in ('debian', 'ubuntu', 'archlinux')}:
         raise ValueError('Invalid approved catalog fields')
     tag = release_id(approved['releaseId'])
     if approved['manifestUri'] != f'{PUBLIC_BASE}{tag}/manifest.properties':
@@ -61,17 +61,54 @@ def catalog(data):
     return approved
 
 
+def catalog_entries(data):
+    values = properties(data)
+    if not values:
+        return {}
+    if 'id' in values:
+        entry = catalog(data)
+        return {entry['id'].removesuffix('-arm64-current'): entry}
+    if values.get('formatVersion') != '2':
+        raise ValueError('Unsupported catalog collection')
+    ids = values.get('distributions', '').split(',')
+    if len(ids) != len(set(ids)) or any(d not in ('debian', 'ubuntu', 'archlinux') for d in ids):
+        raise ValueError('Invalid catalog distributions')
+    entries = {}
+    for distribution in ids:
+        entry = {key.removeprefix(distribution + '.'): value for key, value in values.items() if key.startswith(distribution + '.')}
+        entries[distribution] = catalog(''.join(f'{key}={value}\n' for key, value in entry.items()).encode('ascii'))
+        if entries[distribution]['id'] != distribution + '-arm64-current':
+            raise ValueError('Catalog distribution mismatch')
+    allowed = {'formatVersion', 'distributions'} | {d + '.' + k for d, entry in entries.items() for k in entry}
+    if set(values) != allowed:
+        raise ValueError('Unknown catalog entries')
+    return entries
+
+
+def merge_catalog(previous, new):
+    entries = catalog_entries(previous)
+    entries.update(catalog_entries(new))
+    if len(entries) == 1:
+        return ''.join(f'{k}={v}\n' for k, v in next(iter(entries.values())).items()).encode('ascii')
+    ids = [d for d in ('debian', 'ubuntu', 'archlinux') if d in entries]
+    contents = 'formatVersion=2\ndistributions=' + ','.join(ids) + '\n'
+    contents += ''.join(f'{d}.{key}={value}\n' for d in ids for key, value in entries[d].items())
+    return contents.encode('ascii')
+
+
 def manifest(data, approved):
     if digest(data) != approved['manifestSha256']:
         raise ValueError('Manifest differs from the pinned catalog hash')
     values = properties(data)
     required = {'formatVersion', 'distribution', 'architecture'} | {key + '.sha256' for key in ARTIFACTS}
-    optional = {'aptInitializationVersion', 'virtiofsVersion', 'androidStorageVersion'}
+    optional = {'aptInitializationVersion', 'packageInitializationVersion', 'virtiofsVersion', 'androidStorageVersion'}
     if (not required <= set(values) or not set(values) <= required | optional
-            or (values['formatVersion'], values['distribution'], values['architecture']) != ('1', 'debian', 'arm64')):
-        raise ValueError('Expected Debian ARM64 image manifest v1')
-    if 'aptInitializationVersion' in values and values['aptInitializationVersion'] != '1':
+            or (values['formatVersion'], values['distribution'], values['architecture']) != ('1', approved.get('id', 'debian-arm64-current').removesuffix('-arm64-current'), 'arm64')):
+        raise ValueError('Expected catalog-selected Linux ARM64 image manifest v1')
+    if 'aptInitializationVersion' in values and (values['aptInitializationVersion'] != '1' or values['distribution'] == 'archlinux'):
         raise ValueError('Unsupported APT initialization version')
+    if 'packageInitializationVersion' in values and values['packageInitializationVersion'] != '1':
+        raise ValueError('Unsupported package initialization version')
     if 'virtiofsVersion' in values and values['virtiofsVersion'] != '1':
         raise ValueError('Unsupported virtiofs version')
     if 'androidStorageVersion' in values and (values['androidStorageVersion'] != '1' or values.get('virtiofsVersion') != '1'):
@@ -124,6 +161,12 @@ def verify_directory(root, metadata_only=False, expected_commit=None, expected_m
         raise ValueError('Image came from another source commit')
     if not re.fullmatch(r'[0-9a-f]{64}', provenance['sourceSha256']) or provenance['diskMapping'] != ['system.img:ro', 'home.img:rw', 'config.img:ro']:
         raise ValueError('Invalid source image hash or disk mapping')
+    if provenance.get('distribution', 'debian') != values['distribution']:
+        raise ValueError('Rootfs provenance distribution differs from manifest')
+    if values['distribution'] != 'debian':
+        profile = json.loads(Path(__file__).with_name('avf-distributions.json').read_text())[values['distribution']]
+        if provenance.get('rootfs') != profile:
+            raise ValueError('Rootfs provenance differs from the approved distribution source')
     checksums = {}
     for line in read_metadata(root / 'SHA256SUMS').decode('ascii').splitlines():
         checksum, name = line.split('  ', 1)
@@ -182,7 +225,7 @@ def approve(root, output, **verification):
     verify_published(approved)
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(dir=output.parent, prefix='.approved-', delete=False) as temporary:
-        temporary.write(read_metadata(root / 'catalog.properties'))
+        temporary.write(merge_catalog(read_metadata(output) if output.exists() else b'', read_metadata(root / 'catalog.properties')))
         staged = Path(temporary.name)
     try:
         staged.replace(output)
@@ -192,7 +235,7 @@ def approve(root, output, **verification):
 
 
 def verify_apk(path, expected_catalog):
-    catalog(expected_catalog)
+    catalog_entries(expected_catalog)
     with zipfile.ZipFile(path) as apk:
         actual = apk.read('dev/terminal/image/approved-debian.properties')
     if actual != expected_catalog:
@@ -207,11 +250,12 @@ def main():
     parser.add_argument('--expected-manifest-sha')
     parser.add_argument('--approve', type=Path, help='Verify public downloads before writing the tracked default catalog')
     parser.add_argument('--apk', type=Path)
+    parser.add_argument('--apk-catalog', type=Path, help='Exact merged catalog expected inside the candidate APK')
     args = parser.parse_args()
     checks = dict(expected_commit=args.expected_commit, expected_manifest_sha=args.expected_manifest_sha)
     approved = approve(args.directory, args.approve, **checks) if args.approve else verify_directory(args.directory, args.metadata_only, **checks)
     if args.apk:
-        verify_apk(args.apk, read_metadata(args.directory / 'catalog.properties'))
+        verify_apk(args.apk, read_metadata(args.apk_catalog or args.directory / 'catalog.properties'))
     print(f"Verified AVF release {approved['releaseId']}: {approved['manifestSha256']}")
 
 

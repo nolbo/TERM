@@ -117,7 +117,7 @@ interface AvfPlatformDriver {
     /** True only if the latest successful start booted a stopped VM, not a reconnect. */
     val startedNewVm: Boolean get() = false
     suspend fun connectImageInitializer(): Result<GuestConnection> = Result.failure(
-        UnsupportedOperationException("이 Debian 이미지는 자동 패키지 목록 초기화를 지원하지 않습니다."))
+        UnsupportedOperationException("이 AVF Linux 이미지는 자동 패키지 목록 초기화를 지원하지 않습니다."))
     /** Must fully verify the installed image before accepting it for [start]. */
     suspend fun prepare(config: RuntimeConfig): Result<Unit>
     suspend fun start(config: RuntimeConfig): Result<Unit>

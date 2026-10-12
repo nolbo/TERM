@@ -70,6 +70,9 @@ class ProfileEditActivity : TerminalActivity() {
             val id = rememberSaveable { initial.id }
             var name by rememberSaveable { mutableStateOf(initial.name) }
             var runtime by rememberSaveable { mutableStateOf(initial.runtime.wireName) }
+            var avfDistribution by rememberSaveable { mutableStateOf((source?.environmentId ?: initial.environmentId)?.let {
+                store.environments().firstOrNull { environment -> environment.id == it }?.distribution?.name
+            } ?: "DEBIAN") }
             var shell by rememberSaveable { mutableStateOf(initial.shell) }
             var arguments by rememberSaveable { mutableStateOf(JSONArray(initial.shellArguments).toString()) }
             var cwd by rememberSaveable { mutableStateOf(initial.workingDirectory) }
@@ -119,6 +122,7 @@ class ProfileEditActivity : TerminalActivity() {
             }
             val selectEnvironment: (Environment) -> Unit = { selected ->
                 updateRuntime(selected.sessionRuntime)
+                avfDistribution = selected.distribution?.name ?: "DEBIAN"
                 selectedEnvironmentId = selected.id.value
                 storageId = selected.storage.id
             }
@@ -134,7 +138,8 @@ class ProfileEditActivity : TerminalActivity() {
                         withContext(Dispatchers.IO) {
                             if (fresh) store.save(profile, Environment.create(profile.runtime,
                                 freshStorageName.ifBlank { EnvironmentRegistry.defaultName(name) }, freshStorageId, EnvironmentId(freshEnvironmentId),
-                                internalStorageAccess = freshInternalStorageAccess))
+                                internalStorageAccess = freshInternalStorageAccess,
+                                avfDistribution = dev.terminal.runtime.session.EnvironmentDistribution.valueOf(avfDistribution)))
                             else { store.save(profile); requireNotNull(store.find(profile.id)) }
                         }
                     }.onSuccess { profile ->
@@ -217,9 +222,17 @@ class ProfileEditActivity : TerminalActivity() {
                                 freshStorageName = if (value.trim() == suggestedName) "" else value
                                 dirty = true
                             }
-                            if (runtime == SessionRuntime.AVF.wireName) ListItem(modifier = Modifier.settingsItemSurface(),
-                                colors = terminalSettingsListItemColors()) {
-                                Text(stringResource(R.string.environment_avf_guest))
+                            if (runtime == SessionRuntime.AVF.wireName) SettingsChoiceRow(stringResource(R.string.profile_distribution), null,
+                                dev.terminal.runtime.session.EnvironmentDistribution.entries.map {
+                                    SettingsChoice(it.avfDistribution.displayName, it.name)
+                                }, avfDistribution) { selected ->
+                                if (selected != avfDistribution) {
+                                    avfDistribution = selected
+                                    freshStorageId = java.util.UUID.randomUUID().toString()
+                                    storageId = freshStorageId
+                                    freshEnvironmentId = java.util.UUID.randomUUID().toString()
+                                    dirty = true
+                                }
                             }
                         } else if (storageChoice == "existing") Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(SettingsItemSpacing)) {
                             targets.forEach { target ->

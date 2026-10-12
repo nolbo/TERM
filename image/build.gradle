@@ -37,14 +37,33 @@ tasks.named('processResources') {
             if (!catalogFile.isFile()) throw new GradleException('AVF image catalog file is missing')
             def approved = new Properties()
             catalogFile.withInputStream { approved.load(it) }
-            def uri = new URI(approved.getProperty('manifestUri', ''))
-            def limit = approved.getProperty('maxArtifactBytes', '0').toLong()
-            if (approved.getProperty('id') != 'debian-arm64-current' || uri.scheme != 'https' ||
+            def distributions = ['debian', 'ubuntu', 'archlinux']
+            def entries = [approved]
+            if (!approved.containsKey('id')) {
+                def selected = approved.getProperty('distributions', '').split(',').toList()
+                if (approved.getProperty('formatVersion') != '2' || !selected ||
+                        selected.toSet().size() != selected.size() || !distributions.containsAll(selected)) {
+                    throw new GradleException('Invalid approved AVF distribution catalog')
+                }
+                entries = selected.collect { distribution ->
+                    def entry = new Properties()
+                    approved.each { key, value ->
+                        if (key.startsWith(distribution + '.')) entry.setProperty(key.substring(distribution.length() + 1), value)
+                    }
+                    if (entry.getProperty('id') != distribution + '-arm64-current') throw new GradleException('AVF catalog distribution mismatch')
+                    entry
+                }
+            }
+            entries.each { entry ->
+            def uri = new URI(entry.getProperty('manifestUri', ''))
+            def limit = entry.getProperty('maxArtifactBytes', '0').toLong()
+            if (!(entry.getProperty('id') in distributions.collect { it + '-arm64-current' }) || uri.scheme != 'https' ||
                     !uri.host || uri.userInfo || uri.query || uri.fragment || !uri.path.endsWith('/manifest.properties') ||
-                    !(approved.getProperty('manifestSha256', '') ==~ /[0-9a-f]{64}/) ||
+                    !(entry.getProperty('manifestSha256', '') ==~ /[0-9a-f]{64}/) ||
                     limit < 1 || limit > 32L * 1024 * 1024 * 1024 ||
-                    !(approved.getProperty('compression', 'none') in ['none', 'gzip'])) {
+                    !(entry.getProperty('compression', 'none') in ['none', 'gzip'])) {
                 throw new GradleException('Invalid approved AVF image catalog')
+            }
             }
         }
     }

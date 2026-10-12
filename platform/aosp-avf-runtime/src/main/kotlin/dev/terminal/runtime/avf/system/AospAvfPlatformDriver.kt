@@ -8,8 +8,8 @@ import android.system.virtualmachine.VirtualMachineCallback
 import android.system.virtualmachine.VirtualMachineConfig
 import android.system.virtualmachine.VirtualMachineCustomImageConfig
 import android.system.virtualmachine.VirtualMachineManager
-import dev.terminal.image.DebianImageLayout
-import dev.terminal.image.DebianImageInstaller
+import dev.terminal.image.AvfImageLayout
+import dev.terminal.image.AvfImageInstaller
 import dev.terminal.image.ImageVerification
 import dev.terminal.runtime.api.GuestConnection
 import dev.terminal.runtime.api.GuestByteStream
@@ -75,7 +75,8 @@ class AospAvfPlatformDriver(
             require(config.memoryMib >= MIN_MEMORY_MIB) { "VM memory must be at least $MIN_MEMORY_MIB MiB" }
             require(config.cpuCount >= 1) { "VM CPU count must be positive" }
             val verificationStartedAt = SystemClock.elapsedRealtime()
-            val verification = DebianImageInstaller.verifyForStartup(Paths.get(config.imageDirectory))
+            val verification = AvfImageInstaller.verifyForStartup(Paths.get(config.imageDirectory),
+                dev.terminal.image.AvfDistribution.fromId(config.imageDistribution))
             Log.i(TAG, "image.verify duration_ms=${SystemClock.elapsedRealtime() - verificationStartedAt} ready=${verification is ImageVerification.Ready}")
             when (verification) {
                 is ImageVerification.Ready -> {
@@ -295,7 +296,7 @@ class AospAvfPlatformDriver(
     }
 
     private fun buildConfig(config: RuntimeConfig, shares: AvfSharedDirectories? = null): VirtualMachineConfig = requireAvfPlatformApi {
-        val image = DebianImageLayout(Paths.get(config.imageDirectory))
+        val image = AvfImageLayout(Paths.get(config.imageDirectory))
         val customImage = VirtualMachineCustomImageConfig.Builder()
             .setName(vmName(config))
             .setKernelPath(image.kernelImage.toString())

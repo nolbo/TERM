@@ -21,10 +21,10 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Test
 
-class AvfAptInitializerTest {
+class AvfPackageInitializerTest {
     @Test fun sendsOnlyTheFixedRequestAndAcceptsACompletedRefreshAfterProgress() = runBlocking {
         val connection = Connection()
-        val initialized = async { AvfAptInitializer.initialize(connection) }
+        val initialized = async { AvfPackageInitializer.initialize(connection) }
         val request = connection.sent.receive()
         assertEquals(Service.LIFECYCLE, request.service)
         assertArrayEquals(byteArrayOf(0x40), request.payload)
@@ -36,7 +36,7 @@ class AvfAptInitializerTest {
 
     @Test fun readFailureIsContainedAndDoesNotCancelTheRuntimeOwner() = runBlocking {
         val connection = Connection()
-        val initialized = async { runCatching { AvfAptInitializer.initialize(connection) } }
+        val initialized = async { runCatching { AvfPackageInitializer.initialize(connection) } }
         connection.sent.receive()
         connection.frames.close(IOException("vsock reset"))
         assertTrue(initialized.await().exceptionOrNull() is IOException)
@@ -49,7 +49,7 @@ class AvfAptInitializerTest {
             reply(FrameKind.RESPONSE, ByteArray(8)),
             ProtocolFrame(service = Service.SESSION, kind = FrameKind.RESPONSE, requestId = 1, payload = ByteArray(8)))) {
             val connection = Connection()
-            val initialized = async { runCatching { AvfAptInitializer.initialize(connection) } }
+            val initialized = async { runCatching { AvfPackageInitializer.initialize(connection) } }
             connection.sent.receive()
             connection.frames.send(frame)
             assertTrue(initialized.await().isFailure)
@@ -70,7 +70,7 @@ class AvfAptInitializerTest {
             }
             override fun close() { closed = true; released.countDown() }
         }
-        val result = withTimeout(2_000) { runCatching { AvfAptInitializer.initialize(connection, 100) } }
+        val result = withTimeout(2_000) { runCatching { AvfPackageInitializer.initialize(connection, 100) } }
         assertTrue(result.exceptionOrNull() is kotlinx.coroutines.TimeoutCancellationException)
         assertTrue(closed)
         assertTrue(isActive)

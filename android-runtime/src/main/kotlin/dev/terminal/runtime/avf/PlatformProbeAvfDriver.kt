@@ -2,7 +2,7 @@ package dev.terminal.runtime.avf
 
 import android.content.Context
 import android.content.pm.PackageManager
-import dev.terminal.image.DebianImageVerifier
+import dev.terminal.image.AvfImageVerifier
 import dev.terminal.image.ImageVerification
 import dev.terminal.runtime.api.GuestConnection
 import dev.terminal.runtime.api.RuntimeConfig
@@ -16,7 +16,8 @@ import java.nio.file.Paths
 class PlatformProbeAvfDriver(private val context: Context) : AvfPlatformDriver {
     override suspend fun prepare(config: RuntimeConfig): Result<Unit> = runCatching {
         require(config.imageDirectory.isNotBlank()) { "A Debian image directory is required" }
-        when (val verification = DebianImageVerifier.verifyInstalled(Paths.get(config.imageDirectory))) {
+        when (val verification = AvfImageVerifier.verifyInstalled(Paths.get(config.imageDirectory),
+            expectedDistribution = dev.terminal.image.AvfDistribution.fromId(config.imageDistribution))) {
             is ImageVerification.Invalid -> error(verification.reason)
             is ImageVerification.Ready -> Unit
         }

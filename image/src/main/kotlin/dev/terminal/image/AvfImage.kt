@@ -6,8 +6,8 @@ import java.nio.file.Path
 import java.security.MessageDigest
 import java.util.Properties
 
-/** Immutable contract for the first supported guest image: Debian ARM64. */
-data class DebianImageManifest(
+/** Shared immutable AVF disk and guest-capability contract. */
+data class AvfImageManifest(
     val formatVersion: Int,
     val distribution: String,
     val architecture: String,
@@ -19,9 +19,13 @@ data class DebianImageManifest(
     val aptInitializationVersion: Int = 0,
     val virtiofsVersion: Int = 0,
     val androidStorageVersion: Int = 0,
-)
+    val packageInitializationVersion: Int = 0,
+) {
+    val guestDistribution: AvfDistribution get() = AvfDistribution.fromId(distribution)
+    val initializesPackageIndexes: Boolean get() = packageInitializationVersion == 1 || aptInitializationVersion == 1
+}
 
-data class DebianImageLayout(val root: Path) {
+data class AvfImageLayout(val root: Path) {
     val manifest: Path = root.resolve(MANIFEST_FILE)
     val kernelImage: Path = root.resolve(KERNEL_IMAGE)
     val initrdImage: Path = root.resolve(INITRD_IMAGE)
@@ -42,13 +46,12 @@ data class DebianImageLayout(val root: Path) {
 }
 
 sealed interface ImageVerification {
-    data class Ready(val manifest: DebianImageManifest) : ImageVerification
+    data class Ready(val manifest: AvfImageManifest) : ImageVerification
     data class Invalid(val reason: String) : ImageVerification
 }
 
-object DebianImageVerifier {
+object AvfImageVerifier {
     private const val EXPECTED_FORMAT_VERSION = 1
-    private const val EXPECTED_DISTRIBUTION = "debian"
     private const val EXPECTED_ARCHITECTURE = "arm64"
     private val SHA256 = Regex("[0-9a-f]{64}")
     private const val HASH_BUFFER_BYTES = 256 * 1024
@@ -56,55 +59,56 @@ object DebianImageVerifier {
     private const val INSTALL_RECEIPT = ".installed-manifest-sha256"
 
     /** Installation presence for UI only; boot still requires [verifyInstalled]. No disk is hashed. */
-    fun hasInstalledImage(root: Path): Boolean = runCatching {
-        val layout = DebianImageLayout(root)
+    fun hasInstalledImage(root: Path, expectedDistribution: AvfDistribution? = null): Boolean = runCatching {
+        val layout = AvfImageLayout(root)
         val files = listOf(layout.manifest, layout.kernelImage, layout.initrdImage,
             layout.systemImage, layout.homeImage, layout.configImage)
         if (!Files.isDirectory(root, java.nio.file.LinkOption.NOFOLLOW_LINKS) || files.any {
                 !Files.isRegularFile(it, java.nio.file.LinkOption.NOFOLLOW_LINKS) || Files.size(it) <= 0
             } || Files.size(layout.manifest) > 64 * 1024) return@runCatching false
         val manifest = parse(layout.manifest)
-        manifest.formatVersion == EXPECTED_FORMAT_VERSION && manifest.distribution == EXPECTED_DISTRIBUTION &&
+        manifest.formatVersion == EXPECTED_FORMAT_VERSION &&
+            (expectedDistribution == null || manifest.guestDistribution == expectedDistribution) &&
             manifest.architecture == EXPECTED_ARCHITECTURE && listOf(manifest.kernelSha256, manifest.initrdSha256,
                 manifest.systemSha256, manifest.homeSha256, manifest.configSha256).all(SHA256::matches)
     }.getOrDefault(false)
 
     /** A writable VM disk changes after first boot; immutable artifacts remain pinned. */
-    fun verifyInstalled(root: Path, checkCancellation: () -> Unit = {}): ImageVerification {
+    fun verifyInstalled(root: Path, expectedDistribution: AvfDistribution? = null, checkCancellation: () -> Unit = {}): ImageVerification {
         checkCancellation()
         val receipt = root.resolve(INSTALL_RECEIPT)
-        val manifest = root.resolve(DebianImageLayout.MANIFEST_FILE)
+        val manifest = root.resolve(AvfImageLayout.MANIFEST_FILE)
         val hasReceipt = runCatching {
             Files.isRegularFile(receipt, java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
                 Files.size(receipt) <= 65 && String(Files.readAllBytes(receipt), Charsets.US_ASCII).trim() == sha256(manifest)
         }.getOrDefault(false)
-        return verify(root, verifyHome = !hasReceipt, checkCancellation)
+        return verify(root, verifyHome = !hasReceipt, checkCancellation, expectedDistribution)
     }
 
     internal fun recordInstallation(root: Path) {
-        Files.write(root.resolve(INSTALL_RECEIPT), (sha256(root.resolve(DebianImageLayout.MANIFEST_FILE)) + "\n").toByteArray(Charsets.US_ASCII))
+        Files.write(root.resolve(INSTALL_RECEIPT), (sha256(root.resolve(AvfImageLayout.MANIFEST_FILE)) + "\n").toByteArray(Charsets.US_ASCII))
     }
 
-    fun verify(root: Path, checkCancellation: () -> Unit = {}): ImageVerification =
-        verify(root, verifyHome = true, checkCancellation)
+    fun verify(root: Path, expectedDistribution: AvfDistribution? = null, checkCancellation: () -> Unit = {}): ImageVerification =
+        verify(root, verifyHome = true, checkCancellation, expectedDistribution)
 
-    private fun verify(root: Path, verifyHome: Boolean, checkCancellation: () -> Unit): ImageVerification {
+    private fun verify(root: Path, verifyHome: Boolean, checkCancellation: () -> Unit, expectedDistribution: AvfDistribution?): ImageVerification {
         checkCancellation()
-        val layout = DebianImageLayout(root)
-        if (!Files.isDirectory(root)) return ImageVerification.Invalid("Debian image directory is missing")
+        val layout = AvfImageLayout(root)
+        if (!Files.isDirectory(root)) return ImageVerification.Invalid("AVF image directory is missing")
         val required = listOf(layout.manifest, layout.kernelImage, layout.initrdImage, layout.systemImage, layout.homeImage, layout.configImage)
         if (required.any { !layout.isContained(it) || !Files.isRegularFile(it, java.nio.file.LinkOption.NOFOLLOW_LINKS) }) {
-            return ImageVerification.Invalid("Debian image is incomplete")
+            return ImageVerification.Invalid("AVF image is incomplete")
         }
         if (required.drop(1).any { runCatching { Files.size(it) <= 0 }.getOrDefault(true) }) {
-            return ImageVerification.Invalid("Debian image contains an empty disk artifact")
+            return ImageVerification.Invalid("AVF image contains an empty disk artifact")
         }
         val manifest = runCatching { parse(layout.manifest) }
-            .getOrElse { return ImageVerification.Invalid("Invalid Debian image manifest: ${it.message}") }
+            .getOrElse { return ImageVerification.Invalid("Invalid AVF image manifest: ${it.message}") }
         if (manifest.formatVersion != EXPECTED_FORMAT_VERSION ||
-            manifest.distribution != EXPECTED_DISTRIBUTION ||
+            (expectedDistribution != null && manifest.guestDistribution != expectedDistribution) ||
             manifest.architecture != EXPECTED_ARCHITECTURE
-        ) return ImageVerification.Invalid("Unsupported image: expected Debian ARM64 format v1")
+        ) return ImageVerification.Invalid("Unsupported image: expected ${expectedDistribution?.displayName ?: "AVF Linux"} ARM64 format v1")
         val hashes = listOf(
             layout.kernelImage to manifest.kernelSha256,
             layout.initrdImage to manifest.initrdSha256,
@@ -121,9 +125,13 @@ object DebianImageVerifier {
         return ImageVerification.Ready(manifest)
     }
 
-    fun parse(manifestPath: Path): DebianImageManifest = Properties().run {
+    fun parse(manifestPath: Path): AvfImageManifest = Properties().run {
         Files.newInputStream(manifestPath).use(::load)
-        DebianImageManifest(
+        val distribution = AvfDistribution.fromId(getProperty("distribution") ?: error("distribution missing"))
+        require(getProperty("aptInitializationVersion") == null || distribution.packageManager == "apt") {
+            "APT initialization requires an APT distribution"
+        }
+        AvfImageManifest(
             formatVersion = getProperty("formatVersion")?.toIntOrNull() ?: error("formatVersion missing"),
             distribution = getProperty("distribution") ?: error("distribution missing"),
             architecture = getProperty("architecture") ?: error("architecture missing"),
@@ -142,6 +150,10 @@ object DebianImageVerifier {
             } ?: 0,
             androidStorageVersion = getProperty("androidStorageVersion")?.let {
                 require(it == "1" && getProperty("virtiofsVersion") == "1") { "Unsupported Android storage version" }
+                1
+            } ?: 0,
+            packageInitializationVersion = getProperty("packageInitializationVersion")?.let {
+                require(it == "1") { "Unsupported package initialization version" }
                 1
             } ?: 0,
         )

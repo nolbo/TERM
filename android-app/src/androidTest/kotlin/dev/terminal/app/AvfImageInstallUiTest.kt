@@ -221,7 +221,7 @@ class AvfImageInstallUiTest {
                 listOf("kernel", "initrd", "system", "home", "config").joinToString("") { "$it.sha256=$hashes\n" }).toByteArray())
         for (file in listOf("vmlinuz", "initrd.img", "system.img", "home.img", "config.img"))
             java.nio.file.Files.write(root.resolve(file), "preserved fixture".toByteArray())
-        dev.terminal.image.DebianAptInitialization.markPending(root)
+        dev.terminal.image.AvfPackageInitialization.markPending(root)
         var retried = false
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
@@ -241,7 +241,7 @@ class AvfImageInstallUiTest {
                 instrumentation.waitForIdleSync()
                 assertTrue(retried)
                 assertEquals("preserved fixture", String(java.nio.file.Files.readAllBytes(root.resolve("home.img"))))
-                assertNull(dev.terminal.image.DebianAptInitialization.completedAt(root))
+                assertNull(dev.terminal.image.AvfPackageInitialization.completedAt(root))
             }
         } finally { scratch.deleteRecursively() }
     }

@@ -90,8 +90,8 @@ import dev.terminal.app.ui.reconcileSessionTabs
 import dev.terminal.app.ui.requestSessionTermination
 import dev.terminal.app.ui.runtimeSelectionAction
 import dev.terminal.app.ui.validatedSessionTitle
-import dev.terminal.image.DebianImageInstaller
-import dev.terminal.image.DebianImageLayout
+import dev.terminal.image.AvfImageInstaller
+import dev.terminal.image.AvfImageLayout
 import dev.terminal.image.ImageInstallResult
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.ipc.IRuntimeStateListener
@@ -1644,7 +1644,7 @@ class MainActivity : TerminalActivity() {
         val staging = cacheDir.toPath().resolve("image-${UUID.randomUUID()}")
         val message = runCatching {
             Files.createDirectories(staging)
-            val layout = DebianImageLayout(staging)
+            val layout = AvfImageLayout(staging)
             listOf(layout.manifest, layout.kernelImage, layout.initrdImage, layout.systemImage, layout.homeImage, layout.configImage)
                 .forEach { target ->
                     val source = directory.findFile(target.fileName.toString())
@@ -1654,7 +1654,7 @@ class MainActivity : TerminalActivity() {
                 }
             val destination = filesDir.toPath().resolve("vm/default")
             Files.createDirectories(destination.parent)
-            when (val result = DebianImageInstaller.install(staging, destination)) {
+            when (val result = AvfImageInstaller.install(staging, destination, expectedDistribution = dev.terminal.image.AvfDistribution.DEBIAN)) {
                 is ImageInstallResult.Installed -> getString(R.string.image_imported)
                 is ImageInstallResult.AlreadyInstalled -> getString(R.string.image_already_installed)
                 is ImageInstallResult.Failed -> error(result.reason)

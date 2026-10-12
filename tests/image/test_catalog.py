@@ -93,7 +93,7 @@ class CatalogVerificationTests(unittest.TestCase):
             with self.subTest(version=version):
                 data = current.replace(b'aptInitializationVersion=1\n',
                                        b'' if version is None else b'aptInitializationVersion=' + version + b'\n')
-                approved = {'manifestSha256': verifier.digest(data)}
+                approved = {'id': 'debian-arm64-current', 'manifestSha256': verifier.digest(data)}
                 if version in (None, b'1'):
                     verifier.manifest(data, approved)
                 else:
@@ -106,7 +106,7 @@ class CatalogVerificationTests(unittest.TestCase):
             with self.subTest(version=version):
                 data = current.replace(b'virtiofsVersion=1\n',
                                        b'' if version is None else b'virtiofsVersion=' + version + b'\n')
-                approved = {'manifestSha256': verifier.digest(data)}
+                approved = {'id': 'debian-arm64-current', 'manifestSha256': verifier.digest(data)}
                 if version in (None, b'1'):
                     verifier.manifest(data, approved)
                 else:
@@ -120,7 +120,7 @@ class CatalogVerificationTests(unittest.TestCase):
         for version in [None, b'1', b'2', b'0', b'invalid']:
             with self.subTest(version=version):
                 data = current.replace(b'androidStorageVersion=1\n', b'' if version is None else b'androidStorageVersion=' + version + b'\n')
-                approved = {'manifestSha256': verifier.digest(data)}
+                approved = {'id': 'debian-arm64-current', 'manifestSha256': verifier.digest(data)}
                 if version in (None, b'1'):
                     verifier.manifest(data, approved)
                 else:

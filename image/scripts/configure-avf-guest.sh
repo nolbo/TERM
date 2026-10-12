@@ -2,47 +2,36 @@
 set -euo pipefail
 trap 'printf "AVF guest configuration failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-test "$(dpkg --print-architecture)" = arm64
-command -v unmkinitramfs mkinitramfs depmod modprobe >/dev/null
-test -x /usr/bin/systemctl
-# Google's direct-boot rootfs has no installed kernel or modules. The paired
-# initrd is a modules archive, not an initramfs-tools boot ramdisk.
-ramdisk=$(mktemp -d /tmp/term-source-initrd.XXXXXX)
-trap 'rm -rf "$ramdisk"' EXIT
-unmkinitramfs /tmp/term-avf/source-initrd.img "$ramdisk"
-kernel=
-for candidate in "$ramdisk"/lib/modules/* "$ramdisk"/usr/lib/modules/* \
-                 "$ramdisk"/main/lib/modules/* "$ramdisk"/main/usr/lib/modules/*; do
-  [ -d "$candidate" ] || continue
-  if [ -n "$kernel" ]; then
-    echo 'Source initrd contains more than one kernel module tree' >&2
-    exit 1
-  fi
-  test -f "$candidate/modules.dep"
-  test -f "$candidate/modules.builtin"
-  version=${candidate##*/}
-  if [ -f "/boot/vmlinuz-$version" ]; then
-    cmp /tmp/term-avf/source-vmlinuz "/boot/vmlinuz-$version"
-  fi
-  mkdir -p /lib/modules
-  cp -a "$candidate" /lib/modules/
-  kernel=$version
-done
-test -n "$kernel"
-depmod -a "$kernel"
-modprobe --set-version "$kernel" --show-depends overlay >/dev/null
-modprobe --set-version "$kernel" --show-depends virtiofs >/dev/null
-rm -rf "$ramdisk"
+distribution=${1:-debian}
+. /etc/os-release
+case "$distribution:$ID" in
+  debian:debian|ubuntu:ubuntu|archlinux:arch|archlinux:archarm) ;;
+  *) echo 'Rootfs distribution mismatch' >&2; exit 1;;
+esac
+case "$distribution" in
+  debian|ubuntu) test "$(dpkg --print-architecture)" = arm64; command -v apt-get dpkg-deb >/dev/null;;
+  archlinux) test "$(uname -m)" = aarch64; command -v pacman repo-add bsdtar >/dev/null;;
+  *) exit 1;;
+esac
+install -d -m 0755 /etc/droid
+printf '%s\n' "$distribution" > /etc/droid/distribution
 bash /tmp/term-avf/install-droid-guest.sh / /tmp/term-avf/bin
 install -m 0755 /tmp/term-avf/image-selftest /usr/local/lib/droid/image-selftest
-install -m 0755 /tmp/term-avf/image-user-selftest /usr/local/lib/droid/image-user-selftest
+for script in image-user-selftest image-apt-selftest image-pacman-selftest initialize-avf-packages.sh; do
+  install -m 0755 "/tmp/term-avf/$script" "/usr/local/lib/droid/$script"
+done
 sh /tmp/term-avf/configure-avf-user.sh /tmp/term-avf/droid.sudoers
 test "$(id -u droid)" -eq 1000
 sh /tmp/term-avf/configure-avf-shares.sh / /tmp/term-avf
 sh /tmp/term-avf/configure-avf-network.sh / /tmp/term-avf/term-virtio.network
-install -m 0755 /tmp/term-avf/initialize-avf-apt.sh /usr/local/lib/droid/initialize-avf-apt.sh
 command -v timeout flock >/dev/null
-sh /tmp/term-avf/clean-avf-apt.sh /
+case "$distribution" in
+  debian|ubuntu) sh /tmp/term-avf/clean-avf-apt.sh /;;
+  archlinux)
+    # Preserve installed-package state, trust keys and repository configuration.
+    rm -f /var/lib/pacman/sync/* /var/cache/pacman/pkg/*
+    ;;
+esac
 mkdir -p /etc/droid-config /.droid/lower /.droid/state
 chmod 0700 /.droid
 mkdir -p /etc/systemd/system/droid-agent.service.d
@@ -50,11 +39,6 @@ printf '[Service]\nGroup=droid\n' > /etc/systemd/system/droid-agent.service.d/ac
 # The root is an overlay with persistent upper/work directories on vdb.
 # All package and home writes survive reboot while the distributed base stays RO.
 printf 'overlay / overlay defaults 0 0\n/dev/vdc /etc/droid-config ext4 ro,nodev,nosuid,noexec 0 0\n' > /etc/fstab
-install -D -m 0755 /tmp/term-avf/droid-overlay /etc/initramfs-tools/scripts/local-bottom/droid-overlay
-for module in overlay virtio_blk virtio_pci virtio_mmio ext4 virtiofs; do
-  printf '%s\n' "$module" >> /etc/initramfs-tools/modules
-done
-mkinitramfs -c gzip -o /boot/term-initrd.img "$kernel"
 for service in droid-sessiond droid-agent droid-port-agent droid-apt-init droid-file-transfer term-shares term-android-storage; do
   systemctl enable "$service.service"
   systemd-analyze verify "/etc/systemd/system/$service.service"

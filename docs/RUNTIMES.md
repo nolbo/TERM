@@ -180,13 +180,15 @@ The old phase-one numbers are not stock-device measurements. Current comparison
 results and remaining device restrictions are in
 [emulated acceleration](ROOTLESS_EMULATED_ACCELERATION.md).
 
-## AVF Debian
+## AVF Linux
 
 The image progress card can cancel its current WorkManager attempt, including queued work or retries. Cancellation interrupts download, verification and copying before atomic activation and removes that attempt's temporary files. An already activated image is preserved; no VM or terminal session is terminated. Installation can be requested again in the same environment.
 
+Debian, Ubuntu 24.04 LTS and Arch Linux ARM use the same AVF install, initialization retry, start/stop and image-removal flow. Distribution is fixed when creating an Environment and verified at the image/VM boundary. Signed catalog availability is independent per distribution; the current committed default pin remains Debian until Ubuntu/Arch production and publication are verified. See [AVF_DISTRIBUTIONS.md](AVF_DISTRIBUTIONS.md).
+
 The APK includes the AOSP AVF execution driver. AVF still needs a supported Android 15+ device, both system permissions, and a compatible device-provided custom-image API authorized by the platform. The API declarations are compile-only, and Native remains the default owner. AVF uses a separate image/root filesystem and guest session daemon. See `AVF_NOTES.md`.
 
-Saving an AVF profile with a new Environment opens that environment's image installation choice. Online installation is an explicitly approved background job that verifies the image, boots its VM through the runtime service and refreshes the complete APT index once. It creates no terminal session and stops only a VM started solely for initialization; a following launch reuses its owner. Failed/offline initialization retains installed disks and exposes a retry. Existing installs without an initialization request are unchanged. Environment details display image status and progress shared by all its profiles. A session may wait for an approved job, but a missing image without one requires installation through environment settings; opening a session never implicitly downloads an image. AVF environments retain a VM identity plus persistent system/home/config images; global AVF settings control engine policy only.
+Saving an AVF profile with a new Environment opens that environment's image installation choice. Online installation is an explicitly approved background job that verifies the image, boots its VM through the runtime service and refreshes package indexes once with the selected distribution’s package manager. It creates no terminal session and stops only a VM started solely for initialization; a following launch reuses its owner. Failed/offline initialization retains installed disks and exposes a retry. Existing installs without an initialization request are unchanged. Environment details display image status and progress shared by all its profiles. A session may wait for an approved job, but a missing image without one requires installation through environment settings; opening a session never implicitly downloads an image. AVF environments retain a VM identity plus persistent system/home/config images; global AVF settings control engine policy only.
 
 ## Rootless USB
 

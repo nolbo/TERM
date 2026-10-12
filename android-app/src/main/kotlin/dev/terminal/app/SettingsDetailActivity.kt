@@ -245,7 +245,7 @@ class SettingsDetailActivity : TerminalActivity() {
                 LANGUAGE -> R.string.settings_language_title
                 APPEARANCE -> R.string.settings_appearance_title
                 AVF -> R.string.settings_avf_title
-                AVF_IMAGE -> R.string.debian_image
+                AVF_IMAGE -> R.string.avf_image_section
                 else -> R.string.settings_terminal_title
             },
         )

@@ -101,7 +101,7 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("avf", R.string.virtual_cpu, R.string.virtual_cpu_support, listOf(R.string.settings_avf_title) + R.string.section_resources, section = 1)
     entry("avf", R.string.protected_vm, R.string.protected_vm_support, listOf(R.string.settings_avf_title) + R.string.section_resources, section = 1)
     entry("avf", R.string.guest_network, R.string.guest_network_support, listOf(R.string.settings_avf_title) + R.string.section_resources, section = 1)
-    entry("environments", R.string.debian_image, R.string.avf_image_profile_support, listOf(R.string.storage_title))
+    entry("environments", R.string.avf_image_section, R.string.avf_image_profile_support, listOf(R.string.storage_title))
     entry("avf", R.string.forwarded_ports_title, R.string.forwarded_ports_support, listOf(R.string.settings_avf_title) + R.string.section_execution, section = 2)
     val diagnostics = listOf(R.string.settings_diagnostics_title)
     entry("diagnostics-native", R.string.runtime_native_title, R.string.native_diagnostics_description, diagnostics)

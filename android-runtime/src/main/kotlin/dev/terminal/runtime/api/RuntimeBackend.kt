@@ -53,6 +53,8 @@ data class RuntimeConfig(
     val sharedFolders: List<SharedDirectoryExport> = emptyList(),
     /** Host-resolved environment policy; the OS grant remains an additional requirement. */
     val enableInternalStorage: Boolean = false,
+    /** Host-selected distribution; drivers reject a different verified image before boot. */
+    val imageDistribution: String = "debian",
 )
 
 data class SharedDirectoryExport(val id: String, val name: String, val directory: String)

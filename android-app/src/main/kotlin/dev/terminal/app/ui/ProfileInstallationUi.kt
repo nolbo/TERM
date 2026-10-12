@@ -135,8 +135,9 @@ fun ProfileSupportingContent(
 
 @Composable
 fun ProfileInstallationDialog(spec: SessionLaunchSpec, onInstall: () -> Unit, onDismiss: () -> Unit) {
-    val software = stringResource(if (spec.runtime == SessionRuntime.AVF) R.string.profile_avf_image
-        else runtimeTitleResource(spec.runtime.wireName))
+    val software = if (spec.runtime == SessionRuntime.AVF) stringResource(R.string.avf_image_name,
+        spec.executionEnvironment?.distribution?.avfDistribution?.displayName ?: "Debian")
+        else stringResource(runtimeTitleResource(spec.runtime.wireName))
     InstallationConfirmationDialog(
         title = stringResource(R.string.profile_installation_title),
         message = stringResource(R.string.profile_installation_question,

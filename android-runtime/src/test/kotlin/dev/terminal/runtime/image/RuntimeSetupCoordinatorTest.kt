@@ -1,8 +1,8 @@
 package dev.terminal.runtime.image
 
 import android.content.ContextWrapper
-import dev.terminal.image.DebianImageInstaller
-import dev.terminal.image.DebianImageVerifier
+import dev.terminal.image.AvfImageInstaller
+import dev.terminal.image.AvfImageVerifier
 import dev.terminal.image.ImageVerification
 import java.nio.file.Files
 import java.nio.file.Path
@@ -39,10 +39,10 @@ class RuntimeSetupCoordinatorTest {
             val receipt = root.resolve(".installed-manifest-sha256")
             assertFalse("Provisioning must not verify/adopt the image", Files.exists(receipt))
 
-            assertTrue(DebianImageInstaller.verifyForStartup(root) is ImageVerification.Ready)
+            assertTrue(AvfImageInstaller.verifyForStartup(root) is ImageVerification.Ready)
             assertTrue(Files.exists(receipt))
             Files.writeString(root.resolve("home.img"), "persistent guest writes")
-            assertTrue(DebianImageInstaller.verifyForStartup(root) is ImageVerification.Ready)
+            assertTrue(AvfImageInstaller.verifyForStartup(root) is ImageVerification.Ready)
             assertEquals("persistent guest writes", Files.readString(root.resolve("home.img")))
         }
     }
@@ -51,11 +51,11 @@ class RuntimeSetupCoordinatorTest {
         for (name in listOf("vmlinuz", "initrd.img", "system.img", "config.img")) {
             withImageDirectory { root ->
                 writeImage(root)
-                assertTrue(DebianImageInstaller.verifyForStartup(root) is ImageVerification.Ready)
+                assertTrue(AvfImageInstaller.verifyForStartup(root) is ImageVerification.Ready)
                 Files.writeString(root.resolve(name), "tampered")
 
                 setup.awaitInstalledImage(root)
-                val verification = DebianImageInstaller.verifyForStartup(root)
+                val verification = AvfImageInstaller.verifyForStartup(root)
                 assertTrue(verification is ImageVerification.Invalid)
                 assertEquals("Checksum verification failed for $name", (verification as ImageVerification.Invalid).reason)
                 assertEquals("tampered", Files.readString(root.resolve(name)))
@@ -69,7 +69,7 @@ class RuntimeSetupCoordinatorTest {
             val brokenLink = Files.createSymbolicLink(parent.resolve("link"), parent.resolve("missing"))
             for (root in listOf(regularFile, brokenLink)) {
                 setup.awaitInstalledImage(root)
-                assertTrue(DebianImageInstaller.verifyForStartup(root) is ImageVerification.Invalid)
+                assertTrue(AvfImageInstaller.verifyForStartup(root) is ImageVerification.Invalid)
             }
             assertEquals("user data", Files.readString(regularFile))
             assertTrue(Files.isSymbolicLink(brokenLink))
@@ -97,6 +97,6 @@ class RuntimeSetupCoordinatorTest {
         for ((_, name) in artifacts) Files.writeString(root.resolve(name), name)
         Files.writeString(root.resolve("manifest.properties"),
             "formatVersion=1\ndistribution=debian\narchitecture=arm64\n" +
-                artifacts.joinToString("\n") { (key, name) -> "$key.sha256=${DebianImageVerifier.sha256(root.resolve(name))}" } + "\n")
+                artifacts.joinToString("\n") { (key, name) -> "$key.sha256=${AvfImageVerifier.sha256(root.resolve(name))}" } + "\n")
     }
 }

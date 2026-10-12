@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline boots check overlay, network configuration, sudo, APT and persistence."""
+"""Offline boots check overlay, network configuration, sudo, package management and persistence."""
 from pathlib import Path
 import subprocess
 
@@ -17,11 +17,11 @@ for expected in ["TERM_AVF_FIRST_BOOT_OK", "TERM_AVF_PERSISTENCE_OK"]:
     result = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=600)
     if (result.returncode or expected.encode() not in result.stdout
             or b"TERM_AVF_USER_SETUP_OK" not in result.stdout
-            or b"TERM_AVF_APT_BASE_CLEAN_OK" not in result.stdout
-            or b"TERM_AVF_APT_INIT_OK" not in result.stdout
+            or b"TERM_AVF_PACKAGE_BASE_CLEAN_OK" not in result.stdout
+            or b"TERM_AVF_PACKAGE_INIT_OK" not in result.stdout
             or b"TERM_AVF_VIRTIOFS_CONFIG_OK" not in result.stdout
             or b"TERM_AVF_ANDROID_STORAGE_CONFIG_OK" not in result.stdout
             or b"TERM_AVF_NETWORK_CONFIG_OK" not in result.stdout):
         print(result.stdout.decode(errors="replace")[-12000:])
-        raise SystemExit("Generated AVF image failed boot/user setup/package/APT initialization/network configuration/virtiofs configuration/Android storage configuration/persistence smoke test")
+        raise SystemExit("Generated AVF image failed boot/user setup/package/initialization/network configuration/virtiofs configuration/Android storage configuration/persistence smoke test")
     print(expected, flush=True)

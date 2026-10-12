@@ -1,4 +1,4 @@
-name: Build approved AVF Debian image
+name: Build approved AVF Linux image
 
 on:
   push:
@@ -12,6 +12,11 @@ on:
       - '.github/workflows/avf_image.yml'
   workflow_dispatch:
     inputs:
+      distribution:
+        description: Guest distribution
+        type: choice
+        options: [debian, ubuntu, archlinux]
+        default: debian
       release_id:
         description: Immutable image release ID
         required: true
@@ -28,6 +33,7 @@ permissions:
   actions: read
 
 env:
+  AVF_DISTRIBUTION: ${{ inputs.distribution || 'debian' }}
   TERMINAL_VERSION_CODE_OFFSET: ${{ vars.TERMINAL_VERSION_CODE_OFFSET || '0' }}
 
 jobs:
@@ -51,7 +57,7 @@ jobs:
           AVF_PUBLISH: ${{ inputs.publish }}
           GH_TOKEN: ${{ github.token }}
         run: |
-          avf_release_id=${AVF_RELEASE_ID:-avf-debian-$GITHUB_SHA}
+          avf_release_id=${AVF_RELEASE_ID:-avf-$AVF_DISTRIBUTION-$GITHUB_SHA}
           python3 - "$avf_release_id" <<'PY'
           import runpy, sys
           runpy.run_path('image/scripts/verify-avf-release.py')['release_id'](sys.argv[1])
@@ -76,6 +82,7 @@ jobs:
           fi
           # Source and anonymous runtime downloads share the public TERM repository.
           python3 image/scripts/build-avf-image.py \
+            --distribution "$AVF_DISTRIBUTION" \
             --release-id "$AVF_RELEASE_ID" \
             --base-uri "https://github.com/nolbo/TERM/releases/download/$AVF_RELEASE_ID/" \
             --output image/build/approved "${avf_arguments[@]}"
@@ -99,13 +106,13 @@ jobs:
           # on Actions artifact storage. Duplicate release IDs fail closed.
           gh release create "$AVF_RELEASE_ID" --repo nolbo/TERM --draft --prerelease --latest=false \
             --target "$GITHUB_SHA" \
-            --title "AVF Debian $AVF_RELEASE_ID" --notes-file "docs/release-notes/$AVF_RELEASE_ID.md" \
+            --title "AVF Linux $AVF_RELEASE_ID" --notes-file "docs/release-notes/$AVF_RELEASE_ID.md" \
             image/build/approved/*.gz image/build/approved/*.properties \
             image/build/approved/provenance.json image/build/approved/SHA256SUMS
       - uses: actions/upload-artifact@v4
         if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.publish) }}
         with:
-          name: avf-debian-${{ steps.metadata.outputs.release_id }}
+          name: avf-${{ env.AVF_DISTRIBUTION }}-${{ steps.metadata.outputs.release_id }}
           compression-level: 0
           if-no-files-found: error
           path: |
@@ -157,7 +164,9 @@ jobs:
         run: |
           python3 image/scripts/verify-avf-release.py --directory image/build/approved --metadata-only \
             --expected-commit "$GITHUB_SHA" --expected-manifest-sha "$AVF_MANIFEST_SHA256"
-          echo "ORG_GRADLE_PROJECT_avfImageCatalog=$GITHUB_WORKSPACE/image/build/approved/catalog.properties" >> "$GITHUB_ENV"
+          python3 image/scripts/merge-avf-catalog.py --existing image/catalog-approved.properties \
+            --candidate image/build/approved/catalog.properties --output image/build/approved/catalog-merged.properties
+          echo "ORG_GRADLE_PROJECT_avfImageCatalog=$GITHUB_WORKSPACE/image/build/approved/catalog-merged.properties" >> "$GITHUB_ENV"
       - name: Reuse the canonical Android workflow version-code sequence
         env:
           GH_TOKEN: ${{ github.token }}
@@ -194,7 +203,8 @@ jobs:
           python3 tools/rootless/prepare-release-runtime.py --verify-apk android-app/build/outputs/apk/debug/android-app-debug.apk
           python3 image/scripts/verify-avf-release.py --directory image/build/approved --metadata-only \
             --expected-commit "$GITHUB_SHA" --expected-manifest-sha "$AVF_MANIFEST_SHA256" \
-            --apk android-app/build/outputs/apk/debug/android-app-debug.apk
+            --apk android-app/build/outputs/apk/debug/android-app-debug.apk \
+            --apk-catalog image/build/approved/catalog-merged.properties
       - uses: actions/upload-artifact@v4
         continue-on-error: true
         with:

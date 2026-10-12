@@ -1,7 +1,7 @@
 package dev.terminal.runtime.image
 
-import dev.terminal.image.DebianImageInstaller
-import dev.terminal.image.DebianImageVerifier
+import dev.terminal.image.AvfImageInstaller
+import dev.terminal.image.AvfImageVerifier
 import dev.terminal.image.ImageInstallResult
 import dev.terminal.runtime.session.Environment
 import dev.terminal.runtime.session.EnvironmentRegistry
@@ -34,7 +34,7 @@ class AvfImageActivationTest {
             Files.createDirectories(destination.parent)
             val paused = AtomicBoolean()
             val install = executor.submit<ImageInstallResult> {
-                DebianImageInstaller.install(source, destination, activate = { promote ->
+                AvfImageInstaller.install(source, destination, activate = { promote ->
                     registry.transaction { validateImageGeneration(environment.storageKey, 0); promote() }
                 }, checkCancellation = {
                     if (Files.list(destination.parent).use { entries ->
@@ -72,7 +72,7 @@ class AvfImageActivationTest {
             val source = Files.createDirectory(root.resolve("source")).also(::writeImage)
             val destination = registry.root(environment.storageKey).toPath()
             Files.createDirectories(destination.parent)
-            val result = DebianImageInstaller.install(source, destination, activate = { promote ->
+            val result = AvfImageInstaller.install(source, destination, activate = { promote ->
                 registry.transaction { removeSoftware(environment.storageKey) }
                 registry.transaction { validateImageGeneration(environment.storageKey, 0); promote() }
             })
@@ -90,7 +90,7 @@ class AvfImageActivationTest {
         artifacts.forEach { (name, file) -> Files.writeString(root.resolve(file), name) }
         Files.writeString(root.resolve("manifest.properties"),
             "formatVersion=1\ndistribution=debian\narchitecture=arm64\n" + artifacts.joinToString("\n") { (name, file) ->
-                "$name.sha256=${DebianImageVerifier.sha256(root.resolve(file))}"
+                "$name.sha256=${AvfImageVerifier.sha256(root.resolve(file))}"
             })
     }
 }

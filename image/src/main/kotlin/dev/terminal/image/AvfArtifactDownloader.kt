@@ -9,7 +9,7 @@ import java.nio.file.Path
 import java.util.zip.GZIPInputStream
 
 /** Hashes pin the content even when an HTTPS asset host redirects to its CDN. */
-class DebianArtifactDownloader(private val cancelled: () -> Boolean = { false }) {
+class AvfArtifactDownloader(private val cancelled: () -> Boolean = { false }) {
     internal var openConnection: (URI) -> HttpURLConnection = { it.toURL().openConnection() as HttpURLConnection }
     fun download(uri: URI, destination: Path, maxBytes: Long, gzip: Boolean = false,
         onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit = { _, _ -> }) {

@@ -15,7 +15,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 
 /** Uses a dedicated maintenance connection, never a terminal or capability RPC. */
-internal object AvfAptInitializer {
+internal object AvfPackageInitializer {
     suspend fun initialize(connection: GuestConnection, timeoutMillis: Long = 360_000): Long =
         withTimeout(timeoutMillis) {
             coroutineScope {
@@ -27,12 +27,12 @@ internal object AvfAptInitializer {
                     connection.send(ProtocolFrame(service = Service.LIFECYCLE, kind = FrameKind.REQUEST,
                         requestId = 1, payload = byteArrayOf(0x40))).getOrThrow()
                     val response = connection.incomingFrames().first { frame ->
-                        require(frame.service == Service.LIFECYCLE && frame.requestId == 1L) { "Invalid APT initialization response" }
+                        require(frame.service == Service.LIFECYCLE && frame.requestId == 1L) { "Invalid package initialization response" }
                         frame.kind != FrameKind.STREAM
                     }
                     if (response.kind == FrameKind.ERROR) throw GuestRequestException(ProtocolErrorCodec.decode(response.payload))
-                    require(response.kind == FrameKind.RESPONSE && response.payload.size == 8) { "Invalid APT initialization result" }
-                    ByteBuffer.wrap(response.payload).long.also { require(it > 0) { "Invalid APT refresh timestamp" } }
+                    require(response.kind == FrameKind.RESPONSE && response.payload.size == 8) { "Invalid package initialization result" }
+                    ByteBuffer.wrap(response.payload).long.also { require(it > 0) { "Invalid package refresh timestamp" } }
                 } finally {
                     runCatching { connection.close() }
                     closer.cancel()

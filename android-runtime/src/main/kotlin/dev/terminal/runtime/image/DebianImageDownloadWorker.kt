@@ -5,14 +5,14 @@ import androidx.work.CoroutineWorker
 import androidx.work.Data
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkerParameters
-import dev.terminal.image.BundledDebianImageCatalog
-import dev.terminal.image.DebianImageInstaller
-import dev.terminal.image.DebianImageLayout
-import dev.terminal.image.DebianImageRelease
-import dev.terminal.image.DebianImageVerifier
+import dev.terminal.image.BundledAvfImageCatalog
+import dev.terminal.image.AvfImageInstaller
+import dev.terminal.image.AvfImageLayout
+import dev.terminal.image.AvfImageRelease
+import dev.terminal.image.AvfImageVerifier
 import dev.terminal.image.ImageInstallResult
 import dev.terminal.image.ImageVerification
-import dev.terminal.image.DebianArtifactDownloader
+import dev.terminal.image.AvfArtifactDownloader
 import dev.terminal.runtime.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -30,7 +30,7 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
 
-/** Installs a pinned image, then observes VM/APT initialization owned by :vmhost. */
+/** Distribution-independent worker. Class/work names retain persisted Debian work compatibility. */
 class DebianImageDownloadWorker(
     appContext: Context,
     workerParams: WorkerParameters,
@@ -45,7 +45,7 @@ class DebianImageDownloadWorker(
         workContext = currentCoroutineContext()
         startedAt = android.os.SystemClock.elapsedRealtime()
         val releaseId = inputData.getString(KEY_RELEASE_ID) ?: return@withContext failure("Missing release ID")
-        val release = BundledDebianImageCatalog.find(releaseId) ?: return@withContext failure("Unknown approved Debian release")
+        val release = BundledAvfImageCatalog.find(releaseId) ?: return@withContext failure("Unknown approved AVF release")
         val storageId = inputData.getString(KEY_STORAGE_ID) ?: "legacy"
         val generation = inputData.getLong(KEY_IMAGE_GENERATION, 0L)
         val target = runCatching {
@@ -56,6 +56,7 @@ class DebianImageDownloadWorker(
             .resolve("image-downloads")
             .resolve("${release.id}-${UUID.randomUUID()}")
         return@withContext try {
+            check(distributionForStorage(applicationContext, storageId) == release.distribution) { "AVF catalog distribution differs from environment" }
             dev.terminal.runtime.session.StorageRegistry(applicationContext.filesDir).transaction {
                 validateImageGeneration(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId), generation)
             }
@@ -63,27 +64,29 @@ class DebianImageDownloadWorker(
             report(AvfImageInstallPhase.PREPARING)
             if (Files.exists(target)) {
                 report(AvfImageInstallPhase.VERIFY)
-                return@withContext if (DebianImageVerifier.verifyInstalled(target, ::checkCancellation) is ImageVerification.Ready) {
+                return@withContext if (AvfImageVerifier.verifyInstalled(target, release.distribution, ::checkCancellation) is ImageVerification.Ready) {
                     initializeInstalledImage(storageId)
                 } else failure("Existing AVF image is invalid; refusing replacement")
             }
             Files.createDirectories(target.parent)
             Files.createDirectories(stagingRoot)
             report(AvfImageInstallPhase.MANIFEST)
-            DebianArtifactDownloader { isStopped }.download(release.manifestUri,
-                stagingRoot.resolve(DebianImageLayout.MANIFEST_FILE), 64 * 1024)
-            if (DebianImageVerifier.sha256(stagingRoot.resolve(DebianImageLayout.MANIFEST_FILE), ::checkCancellation) != release.manifestSha256) {
+            AvfArtifactDownloader { isStopped }.download(release.manifestUri,
+                stagingRoot.resolve(AvfImageLayout.MANIFEST_FILE), 64 * 1024)
+            if (AvfImageVerifier.sha256(stagingRoot.resolve(AvfImageLayout.MANIFEST_FILE), ::checkCancellation) != release.manifestSha256) {
                 return@withContext failure("Downloaded manifest checksum does not match catalog")
             }
-            DebianImageVerifier.parse(stagingRoot.resolve(DebianImageLayout.MANIFEST_FILE))
-            listOf(DebianImageLayout.KERNEL_IMAGE, DebianImageLayout.INITRD_IMAGE,
-                DebianImageLayout.SYSTEM_IMAGE, DebianImageLayout.HOME_IMAGE, DebianImageLayout.CONFIG_IMAGE)
+            check(AvfImageVerifier.parse(stagingRoot.resolve(AvfImageLayout.MANIFEST_FILE)).guestDistribution == release.distribution) {
+                "Downloaded manifest distribution differs from catalog"
+            }
+            listOf(AvfImageLayout.KERNEL_IMAGE, AvfImageLayout.INITRD_IMAGE,
+                AvfImageLayout.SYSTEM_IMAGE, AvfImageLayout.HOME_IMAGE, AvfImageLayout.CONFIG_IMAGE)
                 .forEachIndexed { index, name -> downloadArtifact(release, name, stagingRoot, index + 1) }
             report(AvfImageInstallPhase.VERIFY)
-            when (val verification = DebianImageVerifier.verify(stagingRoot, ::checkCancellation)) {
+            when (val verification = AvfImageVerifier.verify(stagingRoot, release.distribution, ::checkCancellation)) {
                 is ImageVerification.Invalid -> failure(verification.reason)
                 is ImageVerification.Ready -> when (
-                    val installed = installImage(stagingRoot, target, storageId, generation)
+                    val installed = installImage(stagingRoot, target, storageId, generation, release.distribution)
                 ) {
                     is ImageInstallResult.Installed -> initializeInstalledImage(storageId)
                     is ImageInstallResult.AlreadyInstalled -> if (installed.verification is ImageVerification.Ready)
@@ -103,33 +106,34 @@ class DebianImageDownloadWorker(
         }
     }
 
-    private fun installImage(stagingRoot: Path, target: Path, storageId: String, generation: Long): ImageInstallResult {
+    private fun installImage(stagingRoot: Path, target: Path, storageId: String, generation: Long,
+        distribution: dev.terminal.image.AvfDistribution): ImageInstallResult {
         report(AvfImageInstallPhase.INSTALL)
         val registry = dev.terminal.runtime.session.StorageRegistry(applicationContext.filesDir) {
             applicationContext.getSharedPreferences("session-profiles", Context.MODE_PRIVATE).all.mapValues { it.value as String }
         }
-        return DebianImageInstaller.install(stagingRoot, target, activate = { promote ->
+        return AvfImageInstaller.install(stagingRoot, target, activate = { promote ->
             registry.transaction {
                 validateImageGeneration(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId), generation)
                 promote()
             }
-        }, checkCancellation = ::checkCancellation, initializePackageIndexes = true)
+        }, checkCancellation = ::checkCancellation, initializePackageIndexes = true, expectedDistribution = distribution)
     }
 
     private suspend fun initializeInstalledImage(storageId: String): Result {
         val root = dev.terminal.runtime.session.SessionStorage.root(applicationContext.filesDir,
             dev.terminal.runtime.session.SessionRuntime.AVF, storageId).toPath()
         // Legacy image releases and pre-upgrade installs have no initialization request.
-        if (!dev.terminal.image.DebianAptInitialization.isRequired(root)) return success("already_installed")
+        if (!dev.terminal.image.AvfPackageInitialization.isRequired(root)) return success("already_installed")
         report(AvfImageInstallPhase.BOOT)
         initializeAvfImage(applicationContext, storageId) { phase -> report(phase) }
         return success("initialized")
     }
 
-    private fun downloadArtifact(release: DebianImageRelease, name: String, stagingRoot: Path, index: Int) {
+    private fun downloadArtifact(release: AvfImageRelease, name: String, stagingRoot: Path, index: Int) {
         val artifactUri = release.manifestUri.resolve(if (release.gzipArtifacts) "$name.gz" else name)
         report(AvfImageInstallPhase.DOWNLOAD, index)
-        DebianArtifactDownloader { isStopped }.download(artifactUri, stagingRoot.resolve(name),
+        AvfArtifactDownloader { isStopped }.download(artifactUri, stagingRoot.resolve(name),
             release.maxArtifactBytes, release.gzipArtifacts) { bytes, total ->
                 report(AvfImageInstallPhase.DOWNLOAD, index, bytes, total)
             }
@@ -175,13 +179,13 @@ class DebianImageDownloadWorker(
         }
         val notification = NotificationCompat.Builder(applicationContext, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_notification_terminal)
-            .setContentTitle("AVF Debian 자동 설치")
+            .setContentTitle("AVF Linux 이미지 설치")
             .setContentText(when (lastProgress.getString(AvfImageInstallMonitor.KEY_PHASE)) {
                 "MANIFEST" -> "설치 정보 확인 중"
                 "DOWNLOAD" -> "이미지 다운로드 및 압축 해제 중"
                 "VERIFY" -> "이미지 무결성 검증 중"
                 "INSTALL" -> "이미지 설치 및 최종 검증 중"
-                "BOOT" -> "Debian 초기 실행 준비 중"
+                "BOOT" -> "배포판 초기 실행 준비 중"
                 "APT_REFRESH" -> "최신 패키지 목록을 가져오는 중"
                 "COMPLETE" -> "이미지 설치 완료"
                 else -> "이미지 설치 준비 중"

@@ -17,23 +17,25 @@ sealed interface ImageInstallResult {
  * It deliberately refuses replacement: upgrades and rollback require a later
  * versioned-image design rather than silently deleting user data.
  */
-object DebianImageInstaller {
+object AvfImageInstaller {
     /** Adopt previously fully verified installs without resetting their writable state. */
-    fun verifyForStartup(root: Path): ImageVerification = DebianImageVerifier.verifyInstalled(root).also {
-        if (it is ImageVerification.Ready) DebianImageVerifier.recordInstallation(root)
+    fun verifyForStartup(root: Path, expectedDistribution: AvfDistribution? = null): ImageVerification =
+        AvfImageVerifier.verifyInstalled(root, expectedDistribution = expectedDistribution).also {
+        if (it is ImageVerification.Ready) AvfImageVerifier.recordInstallation(root)
     }
 
     /** Activation may fence deletion under a metadata lock; copying and hashing stay outside it. */
     fun install(stagingDirectory: Path, destination: Path,
         activate: (() -> Unit) -> Unit = { it() }, initializePackageIndexes: Boolean = false,
+        expectedDistribution: AvfDistribution? = null,
         checkCancellation: () -> Unit = {}): ImageInstallResult {
         checkCancellation()
         if (Files.exists(destination)) {
-            return ImageInstallResult.AlreadyInstalled(DebianImageVerifier.verifyInstalled(destination, checkCancellation))
+            return ImageInstallResult.AlreadyInstalled(AvfImageVerifier.verifyInstalled(destination, expectedDistribution, checkCancellation))
         }
         val parent = destination.parent ?: return ImageInstallResult.Failed("Image destination has no parent directory")
         if (!Files.isDirectory(parent)) return ImageInstallResult.Failed("Image destination parent is missing")
-        val stagingVerification = DebianImageVerifier.verify(stagingDirectory, checkCancellation)
+        val stagingVerification = AvfImageVerifier.verify(stagingDirectory, expectedDistribution, checkCancellation)
         if (stagingVerification !is ImageVerification.Ready) {
             return ImageInstallResult.Failed((stagingVerification as ImageVerification.Invalid).reason)
         }
@@ -41,17 +43,17 @@ object DebianImageInstaller {
         val temporary = parent.resolve(".${destination.fileName}.install-${UUID.randomUUID()}")
         return try {
             Files.createDirectory(temporary)
-            for (name in listOf(DebianImageLayout.MANIFEST_FILE, DebianImageLayout.KERNEL_IMAGE,
-                DebianImageLayout.INITRD_IMAGE, DebianImageLayout.SYSTEM_IMAGE,
-                DebianImageLayout.HOME_IMAGE, DebianImageLayout.CONFIG_IMAGE)) {
+            for (name in listOf(AvfImageLayout.MANIFEST_FILE, AvfImageLayout.KERNEL_IMAGE,
+                AvfImageLayout.INITRD_IMAGE, AvfImageLayout.SYSTEM_IMAGE,
+                AvfImageLayout.HOME_IMAGE, AvfImageLayout.CONFIG_IMAGE)) {
                 copyArtifact(stagingDirectory, temporary, name, checkCancellation)
             }
-            when (val verification = DebianImageVerifier.verify(temporary, checkCancellation)) {
+            when (val verification = AvfImageVerifier.verify(temporary, expectedDistribution, checkCancellation)) {
                 is ImageVerification.Invalid -> ImageInstallResult.Failed(verification.reason)
                 is ImageVerification.Ready -> {
-                    DebianImageVerifier.recordInstallation(temporary)
-                    if (initializePackageIndexes && verification.manifest.aptInitializationVersion == 1) {
-                        DebianAptInitialization.markPending(temporary)
+                    AvfImageVerifier.recordInstallation(temporary)
+                    if (initializePackageIndexes && verification.manifest.initializesPackageIndexes) {
+                        AvfPackageInitialization.markPending(temporary)
                     }
                     activate {
                         checkCancellation()

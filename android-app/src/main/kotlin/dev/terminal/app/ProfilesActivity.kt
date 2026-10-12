@@ -49,8 +49,11 @@ class ProfilesActivity : TerminalActivity() {
             var installedImages by remember { mutableStateOf(emptyMap<String, Boolean>()) }
             LaunchedEffect(profiles, revision, imageInstallations) {
                 installedImages = withContext(Dispatchers.IO) {
+                    val distributions = store.environments().associate { it.storage.id to it.distribution?.avfDistribution }
                     profiles.filter { it.runtime == SessionRuntime.AVF }.map { it.storageId }.distinct()
-                        .associateWith { hasAvfEnvironmentImage(this@ProfilesActivity, it) }
+                        .associateWith { storageId -> dev.terminal.image.AvfImageVerifier.hasInstalledImage(
+                            dev.terminal.runtime.session.SessionStorage.root(filesDir, SessionRuntime.AVF, storageId).toPath(),
+                            distributions[storageId]) }
                 }
             }
             val effects = MaterialTheme.motionScheme.fastEffectsSpec<Float>()

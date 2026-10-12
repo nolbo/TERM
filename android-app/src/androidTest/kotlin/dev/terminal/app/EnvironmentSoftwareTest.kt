@@ -348,13 +348,13 @@ class EnvironmentSoftwareTest {
             ActivityScenario.launch<EnvironmentDetailActivity>(EnvironmentDetailActivity.intent(context, environment.id.value)).use { scenario ->
                 await { var bound = false; scenario.onActivity { bound = activityRuntime(it).value != null }; bound }
                 scenario.onActivity { activityRuntime(it).value = proxy }
-                scrollTo(R.string.environment_debian_remove)
-                click(R.string.environment_debian_remove)
+                scrollTo(R.string.environment_distribution_remove)
+                click(R.string.environment_distribution_remove)
                 await { find { it.text?.toString() == context.getString(R.string.environment_debian_remove_message) } != null }
                 click(R.string.cancel)
                 assertTrue(requested.isEmpty()); assertTrue(disk.exists())
-                click(R.string.environment_debian_remove)
-                click(R.string.environment_debian_remove)
+                click(R.string.environment_distribution_remove)
+                click(R.string.environment_distribution_remove)
                 await { requested.size == 1 && !disk.exists() }
                 assertEquals(environment.id.value to "REMOVE_SOFTWARE", requested.single())
                 assertEquals(environment.id, SessionProfiles(context).find(profile.id)?.environmentId)

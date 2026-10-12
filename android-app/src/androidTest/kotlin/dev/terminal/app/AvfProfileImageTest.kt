@@ -15,7 +15,7 @@ import androidx.work.ExistingWorkPolicy
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import dev.terminal.image.DebianImageVerifier
+import dev.terminal.image.AvfImageVerifier
 import dev.terminal.runtime.image.DebianImageDownloadWorker
 import dev.terminal.runtime.image.RuntimeSetupCoordinator
 import dev.terminal.runtime.session.SessionRuntime
@@ -239,7 +239,7 @@ class AvfProfileImageTest {
             val names = mapOf("kernel" to "vmlinuz", "initrd" to "initrd.img", "system" to "system.img", "home" to "home.img", "config" to "config.img")
             names.values.forEach { Files.write(root.resolve(it), it.toByteArray()) }
             Files.write(root.resolve("manifest.properties"), ("formatVersion=1\ndistribution=debian\narchitecture=arm64\n" +
-                names.entries.joinToString("\n") { (key, file) -> "$key.sha256=${DebianImageVerifier.sha256(root.resolve(file))}" }).toByteArray())
+                names.entries.joinToString("\n") { (key, file) -> "$key.sha256=${AvfImageVerifier.sha256(root.resolve(file))}" }).toByteArray())
             for (id in listOf(first.id, second.id)) open(id).use {
                 scrollTo(R.string.avf_image_installed)
                 assertFalse(visible(label(R.string.avf_install_cancelled)))

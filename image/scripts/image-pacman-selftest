@@ -1,0 +1,54 @@
+#!/bin/sh
+set -eu
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+test "$(id -u)" -eq 0
+umask 022
+install -d -m 0755 /var/lib/droid-image-test
+repository=$(mktemp -d /var/lib/droid-image-test/pacman.XXXXXX)
+trap 'rm -rf "$repository"' EXIT
+chmod 0755 "$repository"
+mkdir -p "$repository/package/usr/bin"
+cat > "$repository/package/.PKGINFO" <<'INFO'
+pkgname = term-avf-setup-probe
+pkgbase = term-avf-setup-probe
+pkgver = 1.0-1
+pkgdesc = Offline AVF package management probe
+url = https://example.invalid
+builddate = 1
+packager = TERM image test
+size = 64
+arch = any
+INFO
+printf '#!/bin/sh\nprintf "TERM_AVF_PACMAN_OK\\n"\n' > "$repository/package/usr/bin/term-avf-setup-probe"
+chmod 0755 "$repository/package/usr/bin/term-avf-setup-probe"
+tar -czf "$repository/term-avf-setup-probe-1.0-1-any.pkg.tar.gz" -C "$repository/package" .PKGINFO usr
+repo-add "$repository/probe.db.tar.gz" "$repository"/*.pkg.tar.gz
+# Disposable overlay configuration only; the producer resets it after both boots.
+printf '[options]\nArchitecture = aarch64\nSigLevel = Never\n[probe]\nServer = file://%s\n' "$repository" > /etc/pacman.conf
+runuser -u droid -- sh -eu -c '
+  test "$(id -u)" -ne 0
+  test "$(sudo -n id -u)" -eq 0
+  cd /home/droid
+  test -w .
+  sudo -n pacman -Sy --noconfirm
+  sudo -n pacman -S --noconfirm term-avf-setup-probe
+  test "$(term-avf-setup-probe)" = TERM_AVF_PACMAN_OK
+  sudo -n pacman -R --noconfirm term-avf-setup-probe
+'
+rm -rf /var/lib/droid/package-initialization
+sed -i "s@file://.*@file://$repository/missing@" /etc/pacman.conf
+if /usr/local/lib/droid/initialize-avf-packages.sh; then
+  echo 'Package initialization accepted an unavailable repository' >&2
+  exit 1
+fi
+test ! -e /var/lib/droid/package-initialization/complete
+sed -i "s@file://.*@file://$repository@" /etc/pacman.conf
+/usr/local/lib/droid/initialize-avf-packages.sh
+completed=$(cat /var/lib/droid/package-initialization/complete)
+test "$completed" -gt 0
+sed -i "s@file://.*@file://$repository/missing@" /etc/pacman.conf
+/usr/local/lib/droid/initialize-avf-packages.sh
+test "$(cat /var/lib/droid/package-initialization/complete)" = "$completed"
+rm -rf /var/lib/droid/package-initialization
+echo TERM_AVF_PACKAGE_INIT_OK
+echo TERM_AVF_USER_SETUP_OK

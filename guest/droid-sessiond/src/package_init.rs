@@ -1,4 +1,4 @@
-//! A host-CID-only endpoint for one fixed, bounded guest APT initialization.
+//! A host-CID-only endpoint for one fixed, bounded guest package initialization.
 use crate::protocol::{encode_error, ErrorCode, Frame, FrameKind, Service};
 use crate::vsock::{VsockConnection, VsockError, VsockListener};
 use std::io;
@@ -16,10 +16,10 @@ pub fn serve() -> Result<(), VsockError> {
         match listener.accept() {
             Ok(mut connection) => {
                 if let Err(error) = initialize(&mut connection) {
-                    eprintln!("APT initialization connection ended: {error:?}");
+                    eprintln!("package initialization connection ended: {error:?}");
                 }
             }
-            Err(error) => eprintln!("Rejected APT initialization peer: {error:?}"),
+            Err(error) => eprintln!("Rejected package initialization peer: {error:?}"),
         }
     }
 }
@@ -36,26 +36,26 @@ fn initialize(connection: &mut VsockConnection) -> Result<(), VsockError> {
     let request = connection.read_frame()?;
     if !valid_request(&request) {
         return connection.write_frame(&reply(&request, FrameKind::Error,
-            encode_error(ErrorCode::Unsupported, "Only initial APT refresh is supported")?));
+            encode_error(ErrorCode::Unsupported, "Only initial package refresh is supported")?));
     }
-    let mut task = Task(Command::new("/bin/sh").arg("/usr/local/lib/droid/initialize-avf-apt.sh")
+    let mut task = Task(Command::new("/bin/sh").arg("/usr/local/lib/droid/initialize-avf-packages.sh")
         .stdin(Stdio::null()).process_group(0).spawn()?);
     let started = Instant::now();
     loop {
         if let Some(status) = task.0.try_wait()? {
-            let timestamp = std::fs::read_to_string("/var/lib/droid/apt-initialization/complete")
+            let timestamp = std::fs::read_to_string("/var/lib/droid/package-initialization/complete")
                 .ok().and_then(|value| value.trim().parse::<u64>().ok()).filter(|value| *value > 0);
             let response = match (status.success(), timestamp) {
                 (true, Some(timestamp)) => reply(&request, FrameKind::Response, timestamp.to_be_bytes().to_vec()),
                 _ => reply(&request, FrameKind::Error,
-                    encode_error(ErrorCode::GuestError, "APT index refresh failed; check guest network and retry initialization")?),
+                    encode_error(ErrorCode::GuestError, "package index refresh failed; check guest network and retry initialization")?),
             };
             return connection.write_frame(&response);
         }
         if started.elapsed() > Duration::from_secs(340) {
-            return Err(io::Error::new(io::ErrorKind::TimedOut, "APT initialization timed out").into());
+            return Err(io::Error::new(io::ErrorKind::TimedOut, "package initialization timed out").into());
         }
-        // A closed host connection cancels the process group, including APT's
+        // A closed host connection cancels the process group, including package's
         // methods. A cancelled refresh cannot report host-side completion.
         connection.write_frame(&reply(&request, FrameKind::Stream, vec![INITIALIZE]))?;
         thread::sleep(Duration::from_millis(250));
@@ -76,7 +76,7 @@ impl Drop for Task {
         if matches!(self.0.try_wait(), Ok(Some(_))) { return; }
         let group = -(self.0.id() as i32);
         unsafe { nix::libc::kill(group, nix::libc::SIGTERM); }
-        // The shell may exit before APT or a download method. Do not reap it
+        // The shell may exit before package or a download method. Do not reap it
         // during the grace period: its PID must not be reused before group kill.
         thread::sleep(Duration::from_secs(1));
         unsafe { nix::libc::kill(group, nix::libc::SIGKILL); }

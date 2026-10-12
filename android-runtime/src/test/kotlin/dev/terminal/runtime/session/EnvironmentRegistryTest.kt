@@ -14,6 +14,31 @@ class EnvironmentRegistryTest {
     private fun profile(id: String = UUID.randomUUID().toString(), runtime: SessionRuntime = SessionRuntime.ROOTLESS,
         storage: String = UUID.randomUUID().toString()) = SessionProfile(id, "Development", runtime, "/bin/bash", storageId = storage)
 
+    @Test fun avfDistributionsKeepIndependentStorageAndAuthoritativeLaunchMetadata() {
+        val registry = EnvironmentRegistry(temporary.newFolder())
+        val environments = EnvironmentDistribution.entries.map { distribution ->
+            Environment.create(SessionRuntime.AVF, distribution.name, avfDistribution = distribution)
+        }
+        val profiles = registry.transaction { environments.map { save(profile(runtime = SessionRuntime.AVF), it) } }
+        val reopened = EnvironmentRegistry(registry.storage)
+        reopened.transaction {
+            profiles.zip(environments).forEach { (profile, environment) ->
+                if (environment.distribution != EnvironmentDistribution.DEBIAN) {
+                    assertThrows(IllegalStateException::class.java) {
+                        resolveLaunch(profile.resolve(environment.copy(distribution = EnvironmentDistribution.DEBIAN)))
+                    }
+                }
+                val launch = resolveLaunch(profile.resolve(environment))
+                assertEquals(environment, launch.executionEnvironment)
+                assertEquals(SessionRuntime.AVF, launch.runtime)
+                assertEquals(environment.distribution, Environment.fromJson(environment.toJson()).distribution)
+                assertEquals(environment.storage.id, environment.runtimeMetadata.vmInstanceId)
+            }
+            assertEquals(3, all().map { it.storageKey }.distinct().size)
+            assertEquals(EnvironmentDistribution.DEBIAN, Environment.create(SessionRuntime.AVF, "Legacy").distribution)
+        }
+    }
+
     @Test fun deletionRemovesDistributionsWithReadOnlyDirectoriesAndPreservesOtherData() {
         for (runtime in listOf(SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH)) {
             val files = temporary.newFolder()

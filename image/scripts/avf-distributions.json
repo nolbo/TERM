@@ -1,0 +1,12 @@
+{
+  "ubuntu": {
+    "archiveRoot": "ubuntu-noble-aarch64",
+    "release": "v4.18.0",
+    "sha256": "91acaa786b8e2fbba56a9fd0f8a1188cee482b5c7baeed707b29ddaa9a294daa"
+  },
+  "archlinux": {
+    "archiveRoot": "archlinux-aarch64",
+    "release": "v4.22.1",
+    "sha256": "b7e4cfb1414a281f90bfd39a503f72f38e03c31b356927972f797988fb48b5b1"
+  }
+}

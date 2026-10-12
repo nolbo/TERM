@@ -9,7 +9,7 @@ import java.util.zip.GZIPOutputStream
 import org.junit.Assert.*
 import org.junit.Test
 
-class DebianArtifactDownloaderTest {
+class AvfArtifactDownloaderTest {
     private val origin = URI("https://example.invalid/v1/system.img.gz")
     private class Connection(uri: URI, private val status: Int, private val bytes: ByteArray = byteArrayOf(),
         private val location: String? = null) : HttpURLConnection(uri.toURL()) {
@@ -27,7 +27,7 @@ class DebianArtifactDownloaderTest {
         val payload = "Debian disk data".repeat(100).toByteArray()
         val compressed = ByteArrayOutputStream().also { bytes -> GZIPOutputStream(bytes).use { it.write(payload) } }.toByteArray()
         val connections = mutableListOf<Connection>()
-        val downloader = DebianArtifactDownloader().apply {
+        val downloader = AvfArtifactDownloader().apply {
             openConnection = { uri ->
                 (if (uri == origin) Connection(uri, 302, location = "https://cdn.example.invalid/disk")
                 else Connection(uri, 200, compressed)).also { connections.add(it) }
@@ -45,7 +45,7 @@ class DebianArtifactDownloaderTest {
     @Test fun refusesDowngradeCredentialsAndRedirectLoops() {
         for (location in listOf("http://cdn.example.invalid/disk", "https://user@cdn.example.invalid/disk", origin.toString())) {
             var requests = 0
-            val downloader = DebianArtifactDownloader().apply {
+            val downloader = AvfArtifactDownloader().apply {
                 openConnection = { uri -> requests++; Connection(uri, 302, location = location) }
             }
             val destination = Files.createTempFile("debian-reject", ".img")
@@ -59,7 +59,7 @@ class DebianArtifactDownloaderTest {
 
     @Test fun refusesGzipExpansionBeyondApprovedLimit() {
         val compressed = ByteArrayOutputStream().also { bytes -> GZIPOutputStream(bytes).use { it.write(ByteArray(4096)) } }.toByteArray()
-        val downloader = DebianArtifactDownloader().apply { openConnection = { uri -> Connection(uri, 200, compressed) } }
+        val downloader = AvfArtifactDownloader().apply { openConnection = { uri -> Connection(uri, 200, compressed) } }
         val destination = Files.createTempFile("debian-bomb", ".img")
         try {
             assertThrows(IllegalArgumentException::class.java) { downloader.download(origin, destination, 512, gzip = true) }
@@ -70,7 +70,7 @@ class DebianArtifactDownloaderTest {
         val payload = ByteArray(8192) { 1 }
         val compressed = ByteArrayOutputStream().also { bytes -> GZIPOutputStream(bytes).use { it.write(payload) } }.toByteArray()
         for (knownLength in listOf(true, false)) {
-            val downloader = DebianArtifactDownloader().apply {
+            val downloader = AvfArtifactDownloader().apply {
                 openConnection = { uri -> object : HttpURLConnection(uri.toURL()) {
                     override fun connect() = Unit
                     override fun disconnect() = Unit

@@ -351,7 +351,7 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                                 cancelling = cancellingInstallation?.id == detail.id)
                         }
                         if (detail.environment.runtime == EnvironmentRuntime.AVF) item(key = "avf-image") {
-                            AvfEnvironmentImageSetting(detail.storageId, imageInstallations.firstOrNull {
+                            AvfEnvironmentImageSetting(detail.storageId, requireNotNull(detail.environment.distribution).avfDistribution, imageInstallations.firstOrNull {
                                 it.storageId == detail.storageId || detail.migratedLegacy && it.storageId == "legacy"
                             },
                                 revision, savedStorage = true, requesting = imageInstallTarget != null,
@@ -400,7 +400,7 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
             }
             imageInstallTarget?.let { row -> dev.terminal.app.ui.InstallationConfirmationDialog(
                 title = stringResource(R.string.avf_image_install_confirm_title),
-                message = stringResource(R.string.avf_image_install_confirm_message, row.name),
+                message = stringResource(R.string.avf_image_install_confirm_message, row.name, requireNotNull(row.environment.distribution).avfDistribution.displayName),
                 onInstall = {
                     imageInstallTargetId = null
                     installingImage = row
@@ -418,7 +418,7 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
             }
             entries?.firstOrNull { it.id == removeSoftwareTargetId }?.let { row ->
                 val rootless = row.environment.runtime == EnvironmentRuntime.ROOTLESS
-                val label = if (rootless) R.string.environment_distribution_remove else R.string.environment_debian_remove
+                val label = R.string.environment_distribution_remove
                 AlertDialog(onDismissRequest = { removeSoftwareTargetId = null },
                     title = { Text(stringResource(label)) },
                     text = { Column {

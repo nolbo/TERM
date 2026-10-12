@@ -60,8 +60,12 @@ def extract_source(archive, destination):
         raise ValueError("Google archive must contain root_part, vmlinuz and initrd.img (direct-kernel boot)")
 
 
-def write_release(root, release_id, base_uri, source_url, source_sha):
-    manifest = "formatVersion=1\ndistribution=debian\narchitecture=arm64\naptInitializationVersion=1\nvirtiofsVersion=1\nandroidStorageVersion=1\n"
+def write_release(root, release_id, base_uri, source_url, source_sha, distribution="debian"):
+    if distribution not in ("debian", "ubuntu", "archlinux"):
+        raise ValueError("Unsupported AVF distribution")
+    manifest = f"formatVersion=1\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nvirtiofsVersion=1\nandroidStorageVersion=1\n"
+    if distribution in ("debian", "ubuntu"):
+        manifest += "aptInitializationVersion=1\n"
     for key, name in ARTIFACTS.items():
         artifact = root / name
         if artifact.is_symlink() or not artifact.is_file() or not 0 < artifact.stat().st_size <= MAX_BYTES:
@@ -70,13 +74,14 @@ def write_release(root, release_id, base_uri, source_url, source_sha):
     (root / "manifest.properties").write_text(manifest)
     limit = max((root / name).stat().st_size for name in ARTIFACTS.values())
     (root / "catalog.properties").write_text(
-        f"id=debian-arm64-current\nreleaseId={release_id}\n"
+        f"id={distribution}-arm64-current\nreleaseId={release_id}\n"
         f"manifestUri={base_uri}manifest.properties\n"
         f"manifestSha256={sha256(root / 'manifest.properties')}\n"
         f"maxArtifactBytes={limit}\ncompression=gzip\n")
     (root / "provenance.json").write_text(json.dumps({
-        "releaseId": release_id, "sourceUri": source_url, "sourceSha256": source_sha,
+        "distribution": distribution, "releaseId": release_id, "sourceUri": source_url, "sourceSha256": source_sha,
         "sourceCommit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
+        "rootfs": json.loads((REPO / "image/scripts/avf-distributions.json").read_text()).get(distribution),
         "diskMapping": ["system.img:ro", "home.img:rw", "config.img:ro"],
     }, indent=2) + "\n")
     for name in ARTIFACTS.values():
@@ -90,6 +95,7 @@ def write_release(root, release_id, base_uri, source_url, source_sha):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--distribution", choices=["debian", "ubuntu", "archlinux"], default="debian")
     parser.add_argument("--release-id", required=True)
     parser.add_argument("--base-uri", required=True, type=validate_base_uri)
     parser.add_argument("--output", required=True, type=Path)
@@ -111,7 +117,7 @@ def main():
         shutil.copytree(REPO / "guest", context / "guest", ignore=shutil.ignore_patterns("target", ".git"))
         shutil.copytree(REPO / "image/scripts", context / "image/scripts", ignore=shutil.ignore_patterns("__pycache__"))
         image_id = work / "docker-image-id"
-        subprocess.run(["docker", "build", "--platform", "linux/arm64", "--iidfile", str(image_id), "-f",
+        subprocess.run(["docker", "build", "--build-arg", f"AVF_DISTRIBUTION={args.distribution}", "--platform", "linux/arm64", "--iidfile", str(image_id), "-f",
                         str(context / "image/scripts/Dockerfile"), str(context)], check=True)
         factory_image = image_id.read_text().strip()
         archive = work / "google-images.tar.gz"
@@ -144,7 +150,7 @@ def main():
             subprocess.run(["docker", "run", "--rm", "--network", "none", "-v", f"{release}:/output",
                             "--entrypoint", "chown", factory_image,
                             "-R", f"{os.getuid()}:{os.getgid()}", "/output"], check=True)
-        write_release(release, args.release_id, args.base_uri, SOURCE_URL, source_sha)
+        write_release(release, args.release_id, args.base_uri, SOURCE_URL, source_sha, args.distribution)
         release.rename(output)
     print(f"Verified release directory: {output}", flush=True)
 

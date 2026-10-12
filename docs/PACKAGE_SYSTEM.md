@@ -17,11 +17,11 @@ not executable code. This deliberately limits dynamic Native package breadth.
 
 ## Rootless and AVF packages
 
-Rootless Debian, Rootless Ubuntu and AVF Debian use official `apt` and `dpkg`;
-Rootless Arch Linux ARM uses `pacman`. Every environment has an independent
+Debian and Ubuntu in Rootless or AVF use official `apt` and `dpkg`;
+Arch Linux ARM in either runtime uses `pacman`. Every environment has an independent
 package database and home. A future `packages.lock` contains requested package names such as
 `git`, `neovim`, `python3`, and `clang`; reproducing an environment means normal
-apt installation in the target runtime, never transplanting `/var/lib/dpkg` into an unrelated rootfs. A Full Environment backup instead copies a matching rootfs and its package database together into a new independent Environment with compatible ABI and preserved storage semantics; see [BACKUP_RESTORE.md](BACKUP_RESTORE.md). Data backups do not include a package database or installed distribution.
+installation with the target distribution’s package manager, never transplanting `/var/lib/dpkg` into an unrelated rootfs. A Full Environment backup instead copies a matching rootfs and its package database together into a new independent Environment with compatible ABI and preserved storage semantics; see [BACKUP_RESTORE.md](BACKUP_RESTORE.md). Data backups do not include a package database or installed distribution.
 
 ## Optional USB client
 

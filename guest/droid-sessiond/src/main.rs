@@ -1,5 +1,5 @@
 mod graphics_transport;
-mod apt_init;
+mod package_init;
 mod protocol;
 mod pty;
 mod session;
@@ -15,8 +15,8 @@ use session_protocol::SessionRequest;
 use server::SessionServer;
 
 fn main() {
-    if std::env::args().any(|argument| argument == "--apt-initializer") {
-        apt_init::serve().expect("APT initializer listener terminated");
+    if std::env::args().any(|argument| argument == "--package-initializer" || argument == "--apt-initializer") {
+        package_init::serve().expect("Package initializer listener terminated");
         return;
     }
     if std::env::args().any(|argument| argument == "--self-check") {

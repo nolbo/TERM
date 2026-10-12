@@ -15,7 +15,9 @@ value class EnvironmentId(val value: String) {
 }
 
 enum class EnvironmentRuntime { NATIVE, ROOTLESS, AVF }
-enum class EnvironmentDistribution { DEBIAN, UBUNTU, ARCH }
+enum class EnvironmentDistribution { DEBIAN, UBUNTU, ARCH;
+    val avfDistribution get() = dev.terminal.image.AvfDistribution.valueOf(name)
+}
 
 /** Persistence handle only. It never supplies an arbitrary host path. */
 data class EnvironmentStorage(val id: String) {
@@ -48,7 +50,7 @@ data class Environment(
         when (runtime) {
             EnvironmentRuntime.NATIVE -> require(distribution == null && runtimeMetadata == EnvironmentRuntimeMetadata())
             EnvironmentRuntime.ROOTLESS -> require(distribution != null && runtimeMetadata == EnvironmentRuntimeMetadata(rootfsLayout = "rootfs"))
-            EnvironmentRuntime.AVF -> require(distribution == EnvironmentDistribution.DEBIAN && runtimeMetadata.rootfsLayout == null &&
+            EnvironmentRuntime.AVF -> require(distribution != null && runtimeMetadata.rootfsLayout == null &&
                 runtimeMetadata.vmInstanceId in setOf("default", storage.id)) { "Invalid AVF environment metadata" }
         }
     }
@@ -85,13 +87,15 @@ data class Environment(
 
         fun create(runtime: SessionRuntime, name: String, storageId: String = UUID.randomUUID().toString(),
             id: EnvironmentId = EnvironmentId.create(), vmInstanceId: String = storageId,
-            createdAt: Long = System.currentTimeMillis(), internalStorageAccess: Boolean = false): Environment = Environment(id, name,
+            createdAt: Long = System.currentTimeMillis(), internalStorageAccess: Boolean = false,
+            avfDistribution: EnvironmentDistribution = EnvironmentDistribution.DEBIAN): Environment = Environment(id, name,
             when (runtime) {
                 SessionRuntime.NATIVE -> EnvironmentRuntime.NATIVE
                 SessionRuntime.AVF -> EnvironmentRuntime.AVF
                 else -> EnvironmentRuntime.ROOTLESS
             }, when (runtime) {
                 SessionRuntime.NATIVE -> null
+                SessionRuntime.AVF -> avfDistribution
                 SessionRuntime.ROOTLESS_UBUNTU -> EnvironmentDistribution.UBUNTU
                 SessionRuntime.ROOTLESS_ARCH -> EnvironmentDistribution.ARCH
                 else -> EnvironmentDistribution.DEBIAN

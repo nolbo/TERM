@@ -18,15 +18,32 @@ mkdir /tmp/term-avf
 tar-in /tmp/payload.tar /tmp/term-avf
 EOF
 virt-customize --format raw -a /output/system.img --no-network \
-  --run-command 'bash /tmp/term-avf/configure-avf-guest.sh' \
+  --run-command 'bash /tmp/term-avf/configure-avf-boot.sh'
+guestfish --ro --format=raw -a /output/system.img -m /dev/sda <<'EOF_BOOT'
+download /boot/term-initrd.img /output/initrd.img
+tar-out /lib/modules /tmp/kernel-modules.tar
+EOF_BOOT
+if [ "${AVF_DISTRIBUTION:-debian}" != debian ]; then
+  # Rootfs and boot layer are separate inputs; no Debian dpkg state is copied.
+  rm /output/system.img
+  truncate -s 6G /output/system.img
+  mkfs.ext4 -F -L droid-system -O '^metadata_csum_seed,^orphan_file' /output/system.img
+  guestfish --rw --format=raw -a /output/system.img -m /dev/sda <<'EOF_ROOT'
+tar-in /prepared/rootfs.tar /
+mkdir-p /lib/modules
+tar-in /tmp/kernel-modules.tar /lib/modules
+mkdir-p /tmp/term-avf
+tar-in /tmp/payload.tar /tmp/term-avf
+EOF_ROOT
+fi
+virt-customize --format raw -a /output/system.img --no-network \
+  --run-command "bash /tmp/term-avf/configure-avf-guest.sh ${AVF_DISTRIBUTION:-debian}" \
   --run-command 'rm -rf /tmp/term-avf'
-# Seal the runtime link outside guest command customization so appliance
-# resolver handling cannot leave builder DNS in the distributed image.
-guestfish --rw --format=raw -a /output/system.img -m /dev/sda <<'EOF'
+# Appliance resolver handling must not leave builder DNS in a sealed image.
+guestfish --rw --format=raw -a /output/system.img -m /dev/sda <<'EOF_RESOLVER'
 rm-f /etc/resolv.conf
 ln-s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-download /boot/term-initrd.img /output/initrd.img
-EOF
+EOF_RESOLVER
 cp /input/vmlinuz /output/vmlinuz
 truncate -s 8G /output/home.img
 mkfs.ext4 -F -L droid-state -O '^metadata_csum_seed,^orphan_file' /output/home.img

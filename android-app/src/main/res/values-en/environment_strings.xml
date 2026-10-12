@@ -14,19 +14,19 @@
     <string name="environment_disks">Persistent disks</string>
     <string name="environment_delete_protected">Remove connected profiles and active sessions first. Deletion is blocked during installation, management, or legacy adoption, or when the runtime cannot be verified stopped.</string>
     <string name="environment_delete_rootless_confirm">Delete environment %1$s and its distribution image, install cache, packages, home and settings permanently? Existing /workspace and shared directories are kept.</string>
-    <string name="environment_delete_avf_confirm">Delete environment %1$s? Once the VM is confirmed stopped, permanently delete its Debian image, packages, home, settings, persistent state and file copies. Host shared directories are kept.</string>
+    <string name="environment_delete_avf_confirm">Delete environment %1$s? Once the VM is confirmed stopped, permanently delete its distribution image, packages, home, settings, persistent state and file copies. Host shared directories are kept.</string>
     <string name="environment_engine_status">Execution engine support</string>
     <string name="environment_instances_support">Manage execution environment names, storage, installation, and runtime state.</string>
     <string name="rootless_engine_supported">ARM64 PRoot engine · no additional Android permissions</string>
     <string name="rootless_engine_unsupported">The PRoot engine does not support this device architecture.</string>
-    <string name="avf_engine_privileges">Custom Debian ARM64 VMs require AVF support and MANAGE_VIRTUAL_MACHINE and USE_CUSTOM_VIRTUAL_MACHINE permissions.</string>
-    <string name="environment_avf_guest">AVF · Debian ARM64</string>
+    <string name="avf_engine_privileges">Custom Linux ARM64 VMs require AVF support and MANAGE_VIRTUAL_MACHINE and USE_CUSTOM_VIRTUAL_MACHINE permissions.</string>
+    <string name="environment_avf_guest">AVF · Linux ARM64</string>
     <string name="environment_distribution_installation">Distribution management</string>
     <string name="environment_software_status">Installation status</string>
     <string name="environment_distribution_install">Install distribution</string>
     <string name="environment_distribution_remove">Remove distribution</string>
-    <string name="environment_debian_remove">Remove Debian</string>
+    <string name="environment_debian_remove">Remove distribution image</string>
     <string name="environment_distribution_remove_message">Delete the distribution image and its packages/files permanently. Home and work folders are kept by default. The environment and profiles remain for reinstallation.</string>
-    <string name="environment_debian_remove_message">Permanently delete the Debian image and VM home/packages/settings. The environment, profiles and shared-directory files remain for reinstallation.</string>
+    <string name="environment_debian_remove_message">Permanently delete the distribution image and VM home/packages/settings. The environment, profiles and shared-directory files remain for reinstallation.</string>
     <string name="environment_software_protected">Removal is blocked while sessions or installation/management tasks are active, or runtime safety cannot be verified.</string>
 </resources>

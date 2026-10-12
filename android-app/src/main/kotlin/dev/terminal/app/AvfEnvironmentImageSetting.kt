@@ -1,7 +1,6 @@
 @file:OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class, androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
 package dev.terminal.app
 
-import android.content.Context
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -11,9 +10,9 @@ import androidx.compose.ui.res.stringResource
 import dev.terminal.app.ui.AvfImageInstallCard
 import dev.terminal.app.ui.settingsItemSurface
 import dev.terminal.app.ui.terminalSettingsListItemColors
-import dev.terminal.image.BundledDebianImageCatalog
-import dev.terminal.image.DebianImageVerifier
-import dev.terminal.image.DebianAptInitialization
+import dev.terminal.image.BundledAvfImageCatalog
+import dev.terminal.image.AvfImageVerifier
+import dev.terminal.image.AvfPackageInitialization
 import dev.terminal.runtime.image.AvfImageInstallSnapshot
 import dev.terminal.runtime.image.AvfImageInstallState
 import dev.terminal.runtime.session.SessionRuntime
@@ -21,12 +20,10 @@ import dev.terminal.runtime.session.SessionStorage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-internal fun hasAvfEnvironmentImage(context: Context, storageId: String): Boolean =
-    DebianImageVerifier.hasInstalledImage(SessionStorage.root(context.filesDir, SessionRuntime.AVF, storageId).toPath())
-
 /** Displays this environment's files and persisted install progress, independently of VM readiness. */
 @Composable internal fun AvfEnvironmentImageSetting(
     storageId: String,
+    distribution: dev.terminal.image.AvfDistribution,
     snapshot: AvfImageInstallSnapshot?,
     revision: Int,
     savedStorage: Boolean,
@@ -44,8 +41,8 @@ internal fun hasAvfEnvironmentImage(context: Context, storageId: String): Boolea
         do {
             val state = withContext(Dispatchers.IO) {
                 val root = SessionStorage.root(context.filesDir, SessionRuntime.AVF, storageId).toPath()
-                Triple(hasAvfEnvironmentImage(context, storageId), DebianAptInitialization.isRequired(root),
-                    DebianAptInitialization.completedAt(root))
+                Triple(AvfImageVerifier.hasInstalledImage(root, distribution), AvfPackageInitialization.isRequired(root),
+                    AvfPackageInitialization.completedAt(root))
             }
             installed = state.first
             aptCompletedAt = state.third
@@ -55,7 +52,7 @@ internal fun hasAvfEnvironmentImage(context: Context, storageId: String): Boolea
             if (aptPending) kotlinx.coroutines.delay(2_000)
         } while (aptPending)
     }
-    EnvironmentSection(R.string.debian_image) {
+    EnvironmentSection(R.string.avf_image_section) {
         ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors(),
             supportingContent = { Text(stringResource(when (installed) {
                 true -> R.string.avf_image_installed
@@ -74,7 +71,7 @@ internal fun hasAvfEnvironmentImage(context: Context, storageId: String): Boolea
             it.state in setOf(AvfImageInstallState.FAILED, AvfImageInstallState.CANCELLED) }
         if (progress != null) AvfImageInstallCard(progress)
         if ((installed == false || aptPending) && progress?.active != true) {
-            val available = BundledDebianImageCatalog.find(BundledDebianImageCatalog.DEFAULT_RELEASE_ID) != null
+            val available = BundledAvfImageCatalog.find(distribution) != null
             EnvironmentActionSetting(if (aptPending) R.string.avf_apt_retry else R.string.avf_image_install, R.drawable.ic_material_symbol_download_24,
                 enabled = savedStorage && available && !requesting,
                 supporting = when {
@@ -84,7 +81,7 @@ internal fun hasAvfEnvironmentImage(context: Context, storageId: String): Boolea
                 }, onClick = onInstall)
         }
         if (installed == true || hasData) {
-            EnvironmentActionSetting(R.string.environment_debian_remove, R.drawable.ic_material_symbol_delete_24,
+            EnvironmentActionSetting(R.string.environment_distribution_remove, R.drawable.ic_material_symbol_delete_24,
                 enabled = canRemove && !requesting && progress?.active != true,
                 supporting = R.string.environment_software_protected, destructive = true, onClick = onRemove)
         }

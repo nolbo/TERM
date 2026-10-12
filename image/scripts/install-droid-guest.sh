@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-# Run inside the prepared Debian ARM64 rootfs before sealing system.img.
+# Run inside the prepared Linux ARM64 rootfs before sealing system.img.
 root="${1:?usage: install-droid-guest.sh ROOTFS BINDIR}"
 bin="${2:?usage: install-droid-guest.sh ROOTFS BINDIR}"
 
