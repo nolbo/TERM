@@ -5,7 +5,8 @@
 On 2026-10-11, source and distribution were consolidated into public
 [nolbo/TERM](https://github.com/nolbo/TERM). The former private
 `nolbo/terminal` repository is retained as an archived backup.
-TERM's default branch is `dev`; new development and verification use that branch.
+TERM's default branch is `main`; local development and prerelease preparation
+use `dev`. Both branches contain source, rather than a distribution-only tree.
 The local `origin` points to TERM and `legacy-source` identifies the backup.
 
 Before consolidation, source `dev` ended at
@@ -16,10 +17,15 @@ The previously unrelated distribution history was merged into source `dev`.
 Both histories and original commit IDs remain reachable; commits were not replayed.
 Source `main` was already an ancestor of source `dev`.
 
-Public `main` retains the former distribution tip during this cutover.
-It is now an ancestor of unified `dev`. A later, explicitly authorized stable
-promotion can merge/fast-forward `dev` into `main`. Consolidation itself does not
-publish an app or image release or promote development changes to stable.
+On 2026-10-12, the former source `main` was imported into public `main`, preserving
+both its original stable history and the former distribution history as merge
+parents. Its 0.1.0 app/runtime source and dependencies are retained; only repository
+operation, license declarations and their tests/docs are adapted. The merge is
+also recorded in `dev`, preserving its 0.16.0 source and approved image catalog.
+The default branch changes from the temporary `dev` setting to `main`.
+Consolidation does not publish an app/image release or promote development changes
+to stable. Migration commits skip automatic CI publication; manual Android runs
+verify the two source branches without publishing or notifying Discord.
 
 Existing release IDs, assets, download URLs and public tag targets remain unchanged.
 The two repositories had different targets for `v0.1.0-rootless.1`.
@@ -56,13 +62,26 @@ attachment/deletion and JitPack publication workflows are retired.
 Former source Actions are disabled to prevent duplicate publishers.
 
 Manual Android verification builds the canonical debug checks, app/update tests,
-USB host safety gate and signed release APK. It checks the release certificate
-and exact approved AVF catalog but does not publish a channel release.
+USB host safety gate and signed release APK. Both branches check the release
+certificate; `dev` additionally checks the exact approved AVF catalog. Imported
+0.1.0 `main` predates catalog embedding, so its verification checks the certificate
+without requiring a catalog resource. An explicit `--catalog` remains mandatory
+in the current `dev` workflow and rejects absent or different catalog bytes.
+The AVF workflow exists on default `main` for discovery and is dispatched on
+`dev`, where its producer and catalog integration live. A main dispatch skips
+image jobs. Main publication requires committed `main-latest.md` Korean notes;
+the import creates no new release notes or stable release.
 The existing `avf-debian-20261011` image and approved catalog remain valid;
 repository consolidation changes no guest or runtime code and needs no new image.
 Installed apps and environments require no migration or reinstallation.
 
 ## Alternatives and limitations
+
+Replacing public `main` with the old source ref would require rewriting its
+distribution history. Advancing it directly to `dev` would also carry 0.16.0
+development features into the stable source branch. Importing original stable
+source with both histories as parents preserves the two branch contents and
+permits normal fast-forward publication without either trade-off.
 
 Moving releases into the former private source repository would change public
 download locations or require changing its visibility. Keeping distribution and
@@ -75,7 +94,7 @@ original source revision, now reachable from `dev`.
 
 ## Verification record
 
-The final [manual Android verification run #3](https://github.com/nolbo/TERM/actions/runs/38139642499)
+The initial cutover's final [manual Android verification run #3](https://github.com/nolbo/TERM/actions/runs/38139642499)
 passed on `05c78e4a1971b873a7a055bc03f87e33d62a11d4`, with version code `1000073`.
 It ran `:android-app:assembleDebug`, `:android-app:testDebugUnitTest`,
 `:android-runtime:testDebugUnitTest`, `:image:test`, the USB host safety gate,

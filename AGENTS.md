@@ -393,6 +393,9 @@ Keep the relevant design documentation consistent with task-owned UI changes.
 
 ## 10. Git and worktree safety
 
+The public repository's default branch is `main`. Use `dev` for local development;
+changing the default branch does not authorize promoting development to stable.
+
 The worktree may contain user or previous-session changes.
 
 - All repository work MUST be performed on the `dev` branch. Before editing,

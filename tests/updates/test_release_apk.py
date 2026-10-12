@@ -1,5 +1,7 @@
 import importlib.util
 from pathlib import Path
+import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -47,3 +49,24 @@ class ReleaseApkTest(unittest.TestCase):
             module.verify_catalog(apk, b"pinned catalog")
             with self.assertRaises(ValueError):
                 module.verify_catalog(apk, b"different pin")
+
+    def test_legacy_apk_can_omit_catalog_but_explicit_catalog_and_identity_remain_enforced(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            signer = root / "apksigner"
+            signer.write_text(f"#!/bin/sh\nprintf 'V2 Signer: certificate SHA-256 digest: {self.digest}\\n'\n")
+            signer.chmod(0o700)
+            apk = root / "legacy.apk"
+            with zipfile.ZipFile(apk, "w"):
+                pass
+            catalog = root / "catalog.properties"
+            catalog.write_bytes(b"required catalog")
+            command = [sys.executable, str(PATH), "--apk", str(apk), "--apksigner", str(signer),
+                       "--certificate-sha256", self.digest]
+            legacy = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(legacy.returncode, 0, legacy.stderr)
+            self.assertNotIn("catalog verified", legacy.stdout.lower())
+            wrong_identity = subprocess.run(command[:-1] + ["b" * 64], capture_output=True, text=True)
+            self.assertNotEqual(wrong_identity.returncode, 0)
+            required_catalog = subprocess.run(command + ["--catalog", str(catalog)], capture_output=True, text=True)
+            self.assertNotEqual(required_catalog.returncode, 0)

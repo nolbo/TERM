@@ -5,7 +5,8 @@
 [nolbo/TERM](https://github.com/nolbo/TERM) is the public source and release
 repository. Download the stable APK from [Releases](https://github.com/nolbo/TERM/releases/latest),
 or choose a commit-specific development prerelease from [all releases](https://github.com/nolbo/TERM/releases).
-Development takes place on the default `dev` branch; stable promotion uses `main`.
+The default branch is `main`, which contains stable source. Local development
+takes place on `dev`; stable promotion uses `main`.
 
 TERM is an Android Linux runtime based on
 [Termux](https://github.com/termux/termux-app). It uses and extends Termux's

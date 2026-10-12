@@ -4,7 +4,8 @@
 
 The application is **TERM**. Source, verification, signing and releases share
 the public [nolbo/TERM](https://github.com/nolbo/TERM) repository. Installed apps
-read public release assets without a GitHub token. The default branch is `dev`;
+read public release assets without a GitHub token. The default branch is `main`;
+local development and prerelease preparation use `dev`.
 see [repository consolidation](REPOSITORY_MIGRATION.md) for the preserved history
 and former private source archive.
 
@@ -48,11 +49,12 @@ Complete Git history is still required. No local count-based build is published
 automatically. For main/dev push events, CI pins the selected remote ref to
 the event's checked-out `GITHUB_SHA`; it never labels older checked-out source
 with a newer queued revision. Other branches and PRs are verified, not published. Manual dispatch on `dev` or
-`main` also builds and verifies a signed APK, including the installed-app signing
-identity and exact approved AVF catalog, without publishing it.
-During the repository cutover, `main` retains the former distribution tree;
-manual verification currently uses `dev`. The first explicitly authorized
-stable promotion carries the unified source and workflows onto `main`.
+`main` also builds and verifies a signed APK without publishing it. Both branches
+check the installed-app signing identity; `dev` additionally checks the exact
+approved AVF catalog. Imported `main` retains the former source repository's
+0.1.0 stable code, which predates the approved-catalog integration. `dev` retains
+0.16.0 and its verified image catalog. Changing the default branch and importing
+stable history does not promote development features or publish a stable APK.
 
 ## Publishing
 

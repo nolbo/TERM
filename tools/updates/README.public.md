@@ -5,7 +5,8 @@
 Public source and Android APK releases for TERM. App versions follow the
 main/development branches. Source commit and channel are recorded in each
 release’s `update.json`; source and previous distribution history are preserved
-in the default `dev` branch. See the root README for current build instructions.
+in `main` and `dev`. The default branch is `main`; local development uses `dev`.
+See the root README for current build instructions.
 
 Download **TERM.apk** from [Releases](https://github.com/nolbo/TERM/releases).
 Stable and development releases are published after verification. The app also checks releases under **Settings →

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify the existing release signing identity and approved image catalog."""
+"""Verify the release signing identity and, when supplied, approved image catalog."""
 
 import argparse
 import os
@@ -32,7 +32,9 @@ def verify_catalog(apk, expected_catalog):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--apk", required=True, type=Path)
-    parser.add_argument("--catalog", required=True, type=Path)
+    # Imported 0.1.0 stable source predates catalog embedding. Current releases
+    # explicitly pass --catalog and retain exact-byte catalog verification.
+    parser.add_argument("--catalog", type=Path)
     parser.add_argument("--certificate-sha256", required=True)
     parser.add_argument("--apksigner", type=Path)
     args = parser.parse_args()
@@ -43,8 +45,10 @@ def main():
     result = subprocess.run([str(signer), "verify", "--print-certs", str(args.apk)], check=True, capture_output=True, text=True)
     print(result.stdout, end="")  # Certificate metadata is public; no keystore is read here.
     certificate = verify_certificate(result.stdout, args.certificate_sha256)
-    verify_catalog(args.apk, args.catalog.read_bytes())
-    print(f"Release signing certificate verified: {certificate}; approved AVF catalog verified")
+    print(f"Release signing certificate verified: {certificate}")
+    if args.catalog is not None:
+        verify_catalog(args.apk, args.catalog.read_bytes())
+        print("Approved AVF catalog verified")
 
 
 if __name__ == "__main__":
