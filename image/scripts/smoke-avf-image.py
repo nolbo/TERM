@@ -23,5 +23,5 @@ for expected in ["TERM_AVF_FIRST_BOOT_OK", "TERM_AVF_PERSISTENCE_OK"]:
             or b"TERM_AVF_ANDROID_STORAGE_CONFIG_OK" not in result.stdout
             or b"TERM_AVF_NETWORK_CONFIG_OK" not in result.stdout):
         print(result.stdout.decode(errors="replace")[-12000:])
-        raise SystemExit("Generated AVF image failed boot/user setup/package/initialization/network configuration/virtiofs configuration/Android storage configuration/persistence smoke test")
+        raise SystemExit("Generated AVF image failed boot/user setup/package initialization/network configuration/virtiofs configuration/Android storage configuration/persistence smoke test")
     print(expected, flush=True)

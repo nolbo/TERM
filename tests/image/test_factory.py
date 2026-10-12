@@ -250,11 +250,11 @@ class ImageFactoryTests(unittest.TestCase):
             self.assertIn("symlink", result.stderr)
             self.assertEqual("private", (outside / "keep").read_text())
 
-    def test_smoke_rejects_missing_apt_initialization_evidence(self):
+    def test_smoke_rejects_missing_package_initialization_evidence(self):
         results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_VIRTIOFS_CONFIG_OK\nTERM_AVF_ANDROID_STORAGE_CONFIG_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK")
                    for marker in [b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"]]
         with mock.patch('subprocess.run', side_effect=results), mock.patch('sys.stdout', new_callable=io.StringIO):
-            with self.assertRaisesRegex(SystemExit, "APT initialization"):
+            with self.assertRaisesRegex(SystemExit, "package initialization"):
                 runpy.run_path(str(REPO / "image/scripts/smoke-avf-image.py"))
 
 
