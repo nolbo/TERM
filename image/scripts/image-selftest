@@ -2,9 +2,10 @@
 set -eu
 # Executed as PID 1 by the producer's QEMU smoke test, never normal AVF boot.
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
-mount -t proc proc /proc
-mount -t sysfs sysfs /sys
-mount -t devtmpfs devtmpfs /dev || true
+# The initramfs can leave these mounted after switching to the target rootfs.
+mountpoint -q /proc || mount -t proc proc /proc
+mountpoint -q /sys || mount -t sysfs sysfs /sys
+mountpoint -q /dev || mount -t devtmpfs devtmpfs /dev
 # Normal boot gets localhost from systemd.hostname; this PID 1 bypasses systemd.
 printf 'localhost\n' > /proc/sys/kernel/hostname
 grep -q ' / overlay ' /proc/mounts
