@@ -116,3 +116,45 @@ tag; all 48 local tags match TERM. The archived source backup ends at the same
 verified code commit `05c78e4a1971b873a7a055bc03f87e33d62a11d4`, with Actions disabled.
 Device/UI/privileged AVF checks were not repeated because runtime code and image
 contents did not change in this consolidation.
+
+## Stable main import verification (2026-10-12)
+
+Public `main` is imported by merge
+`6b7207f64a22c74677951f71c62868de7122ec0d`, with the original distribution
+`f658a1a0bdc4df9b7f9e40daf0fd660a19f1576e` and source
+`fa20f3345141c5e2670ee72161fb4d559fcf156d` as parents. The merge is recorded in
+shared `dev` by `e959a6c3a95abb032320788c6fd83f6ca26eccef` without replacing
+development source. Both remote updates were normal fast-forwards.
+GitHub's default branch and local `origin/HEAD` are `main`; local work stays
+on `dev`, tracking `origin/dev`. Local `main` tracks `origin/main`.
+
+Git tree comparisons confirm original stable app/runtime/image/terminal-library
+source and build/version settings are unchanged. Guest source and dependencies
+are unchanged; only four Cargo license fields become `GPL-3.0-only`. Main's
+README credits Termux, and root `COPYING` contains the same GPL text already
+included in development source. Local update checks pass all 27 tests in the
+stable configuration and 30 in development. Six workflow YAML files, 46 shell
+blocks and embedded Python pass static checks, including manual publication and
+notification guards. The updated verifier also passes against the actual
+published 0.16.0 APK, checking its existing certificate and exact approved catalog.
+
+[Manual Android run #4](https://github.com/nolbo/TERM/actions/runs/38226458723)
+passes on imported `main` commit `6b7207f64a22c74677951f71c62868de7122ec0d`,
+with version code `1000074`. The canonical debug/module checks, 27 update tests
+and USB host gate pass; the signed release APK also builds and matches the
+existing certificate. Signed-artifact upload, release publication and Discord
+notification are all skipped. This verification consumes a workflow code but
+does not replace either published channel APK.
+
+GitHub MCP confirms the default branch and successful job/step results and
+supplies the certificate/build logs. Its generic fetch rejects the named
+workflow-run collection URL; authenticated `gh` supplies that run listing, and
+the dedicated MCP job/log tools supply the completed-run evidence. Jev's
+advisory review has no contradicted completion claims but requests further
+review at `safe_to_apply=0.24`, particularly around CI test evidence. Direct
+tree comparisons, the real development APK check and the successful main
+CI above establish the checked behavior; no automatic Jev approval is claimed.
+
+All 47 release IDs/publication timestamps, 341 asset IDs/names/sizes/digests and
+48 tag targets match the pre-import snapshot. No app/image release is published
+and no existing installed environment is changed by this branch migration.
