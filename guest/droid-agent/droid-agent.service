@@ -1,0 +1,13 @@
+[Unit]
+Description=TERM Android capability agent
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/droid/droid-agent
+Restart=on-failure
+RuntimeDirectory=droid
+RuntimeDirectoryMode=0750
+
+[Install]
+WantedBy=multi-user.target

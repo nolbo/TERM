@@ -1,0 +1,32 @@
+<resources>
+    <string name="update_channel_label">Update channel</string>
+    <string name="update_channel_main">Stable release</string>
+    <string name="update_channel_dev">Development release</string>
+    <string name="update_dev_warning">Development releases include the latest origin/dev changes and may be unstable. Save terminal work before installing.</string>
+    <string name="update_channel_older">This channel’s published version is older than the installed app. Wait for a newer release. Uninstalling to downgrade can lose app data.</string>
+    <string name="app_updates">App updates</string>
+    <string name="update_settings_summary">Check, download, and install new versions</string>
+    <string name="update_description">Check for a new app version and download it. Installation proceeds in Android’s confirmation screen.</string>
+    <string name="update_installed_version">Installed version · %1$s</string>
+    <string name="update_idle">Use the button below to check for updates.</string>
+    <string name="update_check">Check for updates</string>
+    <string name="update_checking">Checking for a new version…</string>
+    <string name="update_no_release">No updates have been published yet.</string>
+    <string name="update_current">The installed app is up to date.</string>
+    <string name="update_available">New version · %1$s</string>
+    <string name="update_download">Download update</string>
+    <string name="update_downloading">Downloading and verifying the update…</string>
+    <string name="update_ready">Ready to install · %1$s</string>
+    <string name="update_download_lifetime">Downloading continues while the app process is alive, even after you close this screen. Download again if the app process exits.</string>
+    <string name="update_network_error">Could not reach the update server. Check your internet connection and try again.</string>
+    <string name="update_invalid_manifest">The release information is invalid; this update cannot be used.</string>
+    <string name="update_invalid_apk">The downloaded APK failed integrity or app identity verification. Installation was blocked.</string>
+    <string name="update_wrong_signature">The update and installed app have different signing keys. Debug builds can only use updates signed with the same key.</string>
+    <string name="update_incompatible">This update does not support your Android version.</string>
+    <string name="update_non_forward">The release history does not match the installed app. An automatic update cannot replace this version.</string>
+    <string name="update_cache_missing">The downloaded file was removed. Download the update again.</string>
+    <string name="update_allow_install">Allow this app to install unknown apps, then return and tap Install again.</string>
+    <string name="update_installer_missing">Could not open the Android installer.</string>
+    <string name="update_install_title">Update the app?</string>
+    <string name="update_install_warning">Android may stop the app and runtime processes during installation, interrupting live terminal sessions. Save your work before continuing. App data and Linux files are retained.</string>
+</resources>

@@ -1,0 +1,34 @@
+diff --git a/src/GNUmakefile b/src/GNUmakefile
+index 52fa1bc..f6b82af 100644
+--- a/src/GNUmakefile
++++ b/src/GNUmakefile
+@@ -217 +217 @@ $(eval $(call define_from_arch.h,$1,LOADER_ADDRESS))
+-LOADER_LDFLAGS$1 += -static -nostdlib -Wl$(BUILD_ID_NONE),-Ttext=$(LOADER_ADDRESS$1)$(ROSEGMENT),-z,noexecstack
++LOADER_LDFLAGS$1 += -static -nostdlib -Wl,-z,max-page-size=16384 -Wl,-z,common-page-size=16384 -Wl$(BUILD_ID_NONE),-Ttext=$(LOADER_ADDRESS$1)$(ROSEGMENT),-z,noexecstack
+diff --git a/src/extension/ashmem_memfd/ashmem_memfd.c b/src/extension/ashmem_memfd/ashmem_memfd.c
+index 8eb364d..1118d1c 100644
+--- a/src/extension/ashmem_memfd/ashmem_memfd.c
++++ b/src/extension/ashmem_memfd/ashmem_memfd.c
+@@ -10 +10,2 @@
+-#include <talloc.h>
++#include <talloc.h>
++#include <string.h>
+diff --git a/src/loader/loader-info.awk b/src/loader/loader-info.awk
+index 38c02a7..e4ec209 100644
+--- a/src/loader/loader-info.awk
++++ b/src/loader/loader-info.awk
+@@ -2,2 +2,2 @@
+-/\ypokedata_workaround\y/{pokedata_workaround=strtonum("0x" $2)}
+-/\y_start\y/{start=strtonum("0x" $2)}
++/\ypokedata_workaround\y/{pokedata_workaround=("0x" $2)+0}
++/\y_start\y/{start=("0x" $2)+0}
+diff --git a/src/loader/loader.c b/src/loader/loader.c
+index 730d32c..bd1d80f 100644
+--- a/src/loader/loader.c
++++ b/src/loader/loader.c
+@@ -91 +91 @@ static void bzero(void *s, size_t n)
+-static inline word_t basename(word_t string_)
++static inline word_t loader_basename(word_t string_)
+@@ -245 +245 @@ void _start(const Elf_auxv_t *raw_auxv, word_t *stack_pointer,
+-			name = basename(stmt->start.at_execfn);
++			name = loader_basename(stmt->start.at_execfn);

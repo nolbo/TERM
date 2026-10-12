@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.TermuxShared.Dark" parent="Theme.AppCompat.NoActionBar">
+        <item name="android:windowBackground">@color/ui_background</item>
+        <item name="android:colorBackground">@color/ui_background</item>
+        <item name="android:statusBarColor">@color/ui_surface</item>
+        <item name="android:navigationBarColor">@color/ui_background</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:forceDarkAllowed">false</item>
+        <item name="android:textColorPrimary">@color/ui_text_primary</item>
+        <item name="android:textColorSecondary">@color/ui_text_secondary</item>
+        <item name="android:textColorLink">@color/ui_text_primary</item>
+        <item name="android:colorAccent">@color/ui_accent</item>
+        <item name="colorAccent">@color/ui_accent</item>
+        <item name="colorControlNormal">@color/ui_icon</item>
+        <item name="colorControlActivated">@color/ui_accent</item>
+    </style>
+    <style name="Theme.AppCompat.TermuxReportActivity" parent="Theme.TermuxShared.Dark" />
+    <style name="Theme.AppCompat.TermuxTextIOActivity" parent="Theme.TermuxShared.Dark" />
+    <style name="Toolbar.Title" parent="TextAppearance.Widget.AppCompat.Toolbar.Title">
+        <item name="android:textColor">@color/ui_text_primary</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">normal</item>
+    </style>
+    <style name="Widget.Termux.ToolbarNavigation" parent="Widget.AppCompat.Toolbar.Button.Navigation">
+        <item name="android:background">@drawable/ui_action_button_background</item>
+        <item name="android:minWidth">48dp</item>
+        <item name="android:minHeight">48dp</item>
+    </style>
+    <style name="ViewDivider">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">1dp</item>
+        <item name="android:layout_marginTop">@dimen/activity_vertical_margin</item>
+        <item name="android:layout_marginBottom">@dimen/activity_vertical_margin</item>
+        <item name="android:background">@color/ui_border</item>
+    </style>
+</resources>

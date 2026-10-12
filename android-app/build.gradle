@@ -1,0 +1,127 @@
+plugins {
+    id 'com.android.application'
+    id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+/**
+ * main and dev are separate update channels. CI pins the selected remote ref
+ * to the event commit and supplies a shared workflow sequence versionCode.
+ */
+def gitOutput = { List<String> arguments ->
+    providers.exec {
+        workingDir rootProject.projectDir
+        commandLine(['git'] + arguments)
+    }.standardOutput.asText.get().trim()
+}
+
+def updateChannel = providers.environmentVariable('TERMINAL_UPDATE_CHANNEL')
+    .orElse(gitOutput(['branch', '--show-current']) == 'dev' ? 'dev' : 'main').get()
+if (!(updateChannel in ['main', 'dev'])) throw new GradleException('Update channel must be main or dev.')
+def updateRevision = gitOutput(['rev-parse', '--verify', "origin/${updateChannel}"])
+if (gitOutput(['rev-parse', '--is-shallow-repository']) != 'false') {
+    throw new GradleException('Full Git history is required for update versions. Run git fetch --unshallow before building.')
+}
+def revisionCount = gitOutput(['rev-list', '--count', "origin/${updateChannel}"]).toInteger()
+def updateCodeText = providers.environmentVariable('TERMINAL_UPDATE_VERSION_CODE').orElse(revisionCount.toString()).get()
+if (!updateCodeText.matches('[0-9]+') || updateCodeText.toBigInteger() < 1 || updateCodeText.toBigInteger() > Integer.MAX_VALUE) {
+    throw new GradleException('Update versionCode must be a positive Android integer.')
+}
+def updateVersionCode = updateCodeText.toInteger()
+def appBaseVersion = project.properties.appBaseVersion
+def appVersionName = "${appBaseVersion}+${updateChannel}.${updateVersionCode}.${updateRevision.take(12)}"
+
+// Keep private signing material outside the worktree. PKCS12 uses the store
+// password for its key unless a separate key password is explicitly supplied.
+def releaseStoreFile = providers.environmentVariable('TERMINAL_SIGNING_STORE_FILE')
+    .orElse(new File(System.getProperty('user.home'), '.local/share/terminal-signing/terminal-release.p12').path).get()
+def releaseStorePassword = providers.environmentVariable('TERMINAL_SIGNING_STORE_PASSWORD').orNull
+def releaseKeyPassword = providers.environmentVariable('TERMINAL_SIGNING_KEY_PASSWORD').orElse(
+    providers.environmentVariable('TERMINAL_SIGNING_STORE_PASSWORD')).orNull
+def releaseKeyAlias = providers.environmentVariable('TERMINAL_SIGNING_KEY_ALIAS').orElse('terminal').get()
+
+def checkReleaseSigning = tasks.register('checkReleaseSigning') {
+    doLast {
+        if (!releaseStorePassword || !releaseKeyPassword) {
+            throw new GradleException('Release signing requires TERMINAL_SIGNING_STORE_PASSWORD. Use bash tools/build-release.sh for an interactive build.')
+        }
+        if (!file(releaseStoreFile).isFile()) {
+            throw new GradleException('Release keystore not found. Set TERMINAL_SIGNING_STORE_FILE to your existing keystore.')
+        }
+    }
+}
+
+tasks.configureEach {
+    if (name == 'packageRelease' || name == 'validateSigningRelease') {
+        dependsOn checkReleaseSigning
+    }
+}
+
+android {
+    namespace 'dev.terminal.app'
+    compileSdk project.properties.compileSdkVersion.toInteger()
+
+    defaultConfig {
+        applicationId 'dev.terminal.app'
+        minSdk project.properties.minSdkVersion.toInteger()
+        targetSdk project.properties.targetSdkVersion.toInteger()
+        versionCode updateVersionCode
+        versionName appVersionName
+        buildConfigField 'String', 'UPDATE_REVISION', "\"${updateRevision}\""
+        buildConfigField 'String', 'UPDATE_CHANNEL', "\"${updateChannel}\""
+
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+    }
+
+    signingConfigs {
+        release {
+            storeFile file(releaseStoreFile)
+            storePassword releaseStorePassword
+            keyAlias releaseKeyAlias
+            keyPassword releaseKeyPassword
+        }
+    }
+
+    buildTypes {
+        release {
+            signingConfig signingConfigs.release
+        }
+    }
+
+    buildFeatures {
+        compose true
+        buildConfig true
+        aidl true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    packagingOptions {
+        resources.excludes += '/META-INF/{AL2.0,LGPL2.1}'
+        // Rootless runtime executables are APK payloads selected from nativeLibraryDir.
+        // They must be extracted to an immutable executable filesystem path.
+        jniLibs.useLegacyPackaging = true
+    }
+}
+
+dependencies {
+    implementation project(':android-runtime')
+    implementation project(':image')
+    implementation project(':terminal-view')
+
+    implementation 'androidx.core:core-ktx:1.16.0'
+    implementation 'androidx.appcompat:appcompat:1.7.0'
+    implementation 'androidx.documentfile:documentfile:1.0.1'
+    implementation platform('androidx.compose:compose-bom:2026.08.00')
+    implementation 'androidx.compose.ui:ui'
+    implementation 'androidx.compose.foundation:foundation'
+    implementation 'androidx.compose.material3:material3:1.5.0-alpha27'
+    implementation 'androidx.activity:activity-compose:1.13.0'
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+    androidTestImplementation 'androidx.test:core:1.7.0'
+    androidTestImplementation 'androidx.test:runner:1.7.0'
+    androidTestImplementation 'androidx.test.ext:junit:1.3.0'
+}

@@ -1,0 +1,133 @@
+# Compose Material 3 design system
+
+## Direction
+
+TERM의 활성 Android UI는 Jetpack Compose와 Material 3 Expressive를 기준으로 구현한다. Compose 기반선은 2026.08 BOM이며, segmented menu와 최신 Expressive 컴포넌트를 위해 Material 3 `1.5.0-alpha27`을 명시적으로 사용한다. 앱 크롬은 시스템 테마와 관계없이 차가운 회백색 primary와 중립 surface를 갖는 명시적 다크 색상표만 사용한다. 파란색은 활성·사용 가능·준비·진행 상태처럼 의미가 있는 상태에만 사용하며 민트 계열 색상은 앱 UI에 사용하지 않는다.
+
+터미널 캔버스는 예외다. `TerminalView`와 `TerminalAppearance`가 사용자 선택 팔레트, ANSI 색상, 커서, 선택 영역과 배경을 독립적으로 관리하며 Material 앱 색상표가 이를 덮어쓰지 않는다.
+
+## Foundations
+
+- 비동적 다크 색상표는 primary/secondary/tertiary, 모든 on/container, surface container 단계, inverse, outline, error, scrim 역할을 명시한다. 일반 동작과 강조는 `MaterialTheme.colorScheme` 역할을 사용하고, 활성·가용·준비·진행 상태는 이름이 명시된 파란색 semantic token을 사용한다.
+- 앱 루트는 `MaterialExpressiveTheme`와 `MotionScheme.expressive()`를 제공한다. 별도 Expressive API가 있는 버튼과 아이콘 버튼은 상태에 따라 형태가 변하는 `shapes` 오버로드를 사용하고, 로딩은 shape-morphing `LoadingIndicator` 또는 wavy progress indicator를 사용한다. 별도 Expressive 오버로드가 없는 scaffold, dialog, text field, switch, radio button, card, tab은 같은 테마 아래 최신 Material 3 토큰과 motion scheme을 상속한다.
+- 앱 텍스트는 Material 3 type scale을 사용한다. 고정폭 글꼴은 터미널, extra key, 진단 및 크래시 payload에만 사용한다.
+- 앱 내부 아이콘은 24 dp Material Symbols Rounded의 기본 비채움 스타일을 사용한다. 방향성 아이콘은 RTL 레이아웃에서 자동 반전한다.
+- 간격은 4 dp 배수를 기본으로 한다. 독립된 카드와 설정 행은 평상시 `extraLarge`(28 dp) 컨테이너 shape를 사용해 높은 곡률이 화면에서 명확히 드러나게 하고, 상호작용 가능한 `ListItem`은 눌림·포커스·선택 상태에서 Material Expressive 기본 shape로 morph한다. 앱 바, 터미널 캔버스처럼 화면 경계에 붙는 기반 surface는 직사각형을 유지한다.
+- 모든 일반 상호작용 대상은 최소 48 dp다. Extra key는 기본 높이 48 dp를 사용하되 사용자 설정에 따라 최소 32 dp까지 줄일 수 있다. 이 예외는 핫키 그리드에만 적용한다.
+- 아이콘 버튼에는 동작을 설명하는 content description을 제공한다. 장식 아이콘에는 중복 설명을 제공하지 않는다.
+- 화면 전환에 별도 View transition을 강제하지 않는다. Compose 및 플랫폼의 애니메이터 배율을 따르는 표준 컴포넌트 상태 변화만 사용한다.
+
+구현은 `android-app/src/main/kotlin/dev/terminal/app/ui/ComposeUi.kt`의 `DroidTheme`와 공통 scaffold/화면 컴포넌트에 모인다. 사용자 문구는 `android-app/src/main/res/values/strings.xml`에 둔다.
+
+## Components and screens
+
+초기 설정은 Native, Rootless Linux, AVF Debian을 각각 카드로 설명하고 즉시 터미널 시작과 AVF 로컬 이미지 선택을 분리한다. 세로 스크롤을 사용하므로 좁은 화면, 가로 화면, 큰 글꼴에서도 작업 버튼에 접근할 수 있다.
+
+터미널은 다음 세 영역을 유지한다.
+
+1. Material 3 `PrimaryScrollableTabRow` 세션 탭과 고정된 새 세션/설정 아이콘 버튼
+2. `AndroidView`에 포함된 기존 `TerminalView`
+3. 터미널 배경 위에 사용자 설정 그리드로 배치된 높이를 조절할 수 있는 extra key
+
+권위 있는 세션 목록이 비어 있으면 두 번째와 세 번째 영역 대신 빈 상태를
+표시한다. 빈 상태는 장식 아이콘 없이 런타임이 대기 중임을 설명하고 **새 세션**
+동작을 제공하며, 이 동작은 화면 하단의 Material 3 `ModalBottomSheet`에서 실행
+환경을 선택하게 한다. 상단의 새 세션 메뉴와 설정 동작도 그대로 유지한다. 이때
+터미널 View와 extra key를 구성하거나 IME 포커스를 유지하지 않는다.
+
+세션 선택은 Material 3 `Tab`의 indicator와 selected semantics로 구분한다. 탭 앞에는 20dp 실행 환경 아이콘(Native 로봇, Debian 나선, Ubuntu 원형, Arch 아치, AVF 칩)을 표시한다. 상태 뱃지와 ANDROID/LINUX 등의 접두사는 표시하지 않고 제목만 표시한다. 아이콘은 실행 환경 이름을 접근성 설명으로 제공하며, 세션 상태는 탭의 stateDescription으로 전달한다. 탭 본문을 길게 누르면 사용자 지정 제목이 있을 때만 기존 제목을 미리 채우고, 없으면 빈 입력 필드를 표시하는 이름 변경 대화상자가 열리고, 탭의 종료 아이콘은 확인 대화상자를 연 뒤에만 runtime의 명시적 terminate 명령을 보낸다. 새 세션 버튼의 `DropdownMenuPopup` 안에는 Expressive `DropdownMenuGroup`과 위치별 segmented item shape를 둔다. 빈 상태의 주 동작은 별도 `ModalBottomSheet`를 사용한다. 상단 새 세션 메뉴는 Rootless Linux 하위 메뉴 안에 Debian, Ubuntu 24.04 LTS, Arch Linux ARM을 묶는다. 빈 상태에서는 실행 환경 바텀시트의 Rootless Linux를 누르면 첫 시트를 닫고 배포판 선택 시트를 연다. 설치 가능한 미설치 배포판은 설치 확인으로 연결하며, 실행 준비 또는 설치 가능 상태가 아닌 항목은 두 선택기에서 숨긴다. Rootless 설치 진행은 대화상자, wavy 진행 표시기, 오류 텍스트, 재시도 및 닫기 동작을 사용한다.
+
+실행 중인 터미널 캔버스를 두 번 탭하면 세션 탭·새 세션·설정으로 이루어진 상단 앱
+바 전체를 위로 접고, 다시 두 번 탭하면 복원한다. status bar inset은 유지하고,
+앱 바의 56 dp 높이는 숨김 완료 시 0이 되어 터미널이 그만큼 넓어진다.
+Expressive motion scheme의 spatial/effects spec으로 세로 크기·위치·투명도를
+함께 전환한다. 단일 탭의 IME 표시,
+스크롤, 길게 누르기의 텍스트 선택은 이 동작과 독립적으로 유지한다.
+
+Extra key는 별도의 둥근 wrapper나 그림자 없이 터미널 배경 위에서 순서대로 그리드를 채운다. 설정 미리보기도 별도 wrapper 없이 같은 키 스타일을 사용한다. 기본값은 7열, 48 dp 높이, 12 sp 글자이며 설정에서 최대 열 수(2–10), 최소 높이(32–80 dp), 글자 크기(10–24 sp), 개별 키 너비(1–4칸)를 조절한다. 가용 폭에 따라 실제 열 수와 span을 줄여 최소 48 dp 터치 폭을 유지하고, 긴 툴바는 최대 160 dp 영역 안에서 세로 스크롤한다. 툴바 외곽 여백과 키 간격은 4 dp다. 일반 키·CTRL·ALT·드래그 중인 키는 모두 surfaceContainerHigh(#22272D) 배경과 onSurface(#E3E2E6) 글자를 사용한다. CTRL·ALT 단독 키만 toggle semantics와 선택 상태색을 사용하며 pressed/checked shape는 `CircleShape`다.
+
+설정의 **터미널 단축키**는 실제 툴바와 같은 그리드 미리보기를 제공한다. 키를 눌러 이름·단축키·너비를 편집하거나 순서를 변경하고 삭제할 수 있다. 미리보기에서 키를 길게 누르면 햅틱과 함께 키가 떠오르고 드래그 대상으로 강조된 키 위치에 놓아 순서를 바꾼다. 여러 칸을 차지하는 키도 실제 경계를 기준으로 판정하며 빈 칸은 가장 가까운 키 위치를 사용한다. 가장자리에 머무르면 설정 목록이 자동 스크롤된다. 드래그 취소나 미리보기 밖에 놓기는 순서를 바꾸지 않는다. 일반 탭 편집과 대화상자의 앞으로/뒤로 동작도 유지한다. 편집 화면의 초안은 Activity 재생성 때 보존되며 전체 **저장**에서 하나의 버전 지정 설정으로 반영한다. 저장하지 않고 나갈 때와 기본 배치를 복원할 때 확인한다. 단축키 조합은 선택되어 있던 CTRL·ALT를 대체하고 기존 terminal input 경로로 전달된다. UI는 입력 명령만 보내며 세션 소유권은 변경하지 않는다.
+
+설정 화면은 Android 17 설정 앱의 계층을 따른다. 설정 홈은 `LargeTopAppBar`, 실제 카테고리 필터로 동작하는 둥근 검색 필드, 40 dp 원형 아이콘과 supporting text를 가진 최소 72 dp 독립 카테고리 surface를 사용한다. 상세 화면은 큰 앱 바 아래 설명을 두고, 섹션 제목별 하나의 `extraLarge` 카드 안에 관련 interactive/non-interactive Expressive `ListItem`을 묶는다. 설명이 여러 줄로 바뀌어도 leading icon과 trailing text·icon·control은 행 전체 높이에서 수직 중앙을 유지한다. 그 밖의 일반 화면 앱 바는 표준 Material 3 `TopAppBar`다. boolean 행 전체가 한 번만 toggle된다. 숫자·경로·단일 선택은 복원 가능한 입력 초안과 저장값을 분리하고, 대화상자의 **저장**에서 전체 값을 검증한 뒤에만 반영한다. Rootless 설정은 화면 상단에 Debian, Ubuntu, Arch Linux ARM의 상태와 개별 동작을 모두 표시하고, 공유 저장소 설정을 그 아래에 배치한다. Rootless 상태 행은 확인 중·설치 필요·환경 보완 필요·준비됨·오류를 구분하고 shape-morphing 로딩 표시, 설치, 환경 보완, 제거, 재시도 동작을 제공한다. 이미지가 있으면 보완 실패 상태에서도 제거할 수 있다. 패키지·설정·검증을 마치기 전에는 준비됨으로 표시하지 않는다. 진단과 크래시 payload는 선택 가능한 고정폭 텍스트로 유지한다. 크래시 화면에서는 복사를 primary action으로, 닫기를 낮은 강조 action으로 제공한다.
+
+## Insets and adaptive behavior
+
+**터미널 기록 → 부드러운 스크롤**은 기본 꺼짐이다. 켜면 일반 스크롤백의
+드래그와 관성 이동을 픽셀 단위로 표시하고 프레임 타이밍에 맞춰 갱신한다.
+부분 행과 하단의 추가 행을 함께 렌더링하며 링크·선택 좌표도 같은 오프셋을
+사용한다. 마우스 보고·대체 화면은 기존 행 단위 입력을 유지한다.
+
+터미널 설정의 **웹 링크 열기**는 기본 꺼짐이다. 활성화하면 기존 제스처 인식기의
+확정된 단일 탭에서 출력된 HTTP(S) URL을 찾아 브라우저로 전달한다. 별도 터치
+리스너를 설치하지 않으며 더블 탭·스크롤·선택 및 마우스 보고 입력을 우선한다.
+줄바꿈된 주소와 터미널의 문자 셀 좌표를 고려하고, 탐색 범위를 초과하는 주소는
+부분 주소로 열지 않는다.
+
+새 세션 메뉴·배포판 하위 메뉴·바텀시트에서 준비된 실행 환경은 세션 탭과 동일한
+런타임 아이콘을 사용한다. 환경 보완 필요 상태는 배포판 원래 아이콘 우측 하단에
+고대비 원형 느낌표 배지를 표시하며, 설정 상태 행에도 같은 표시를 사용한다.
+접근성 설명은 “기본 환경 보완 필요”를 전달하고 준비 완료 후 배지가 사라진다.
+미설치 항목은 다운로드, 불가 항목은
+차단 아이콘을 사용한다(현재 새 세션 목록에서는 불가 항목을 숨긴다).
+Rootless Linux 그룹과 설정 항목에는 셸 프롬프트를 나타내는 `$_` 형태의
+자체 제작 `ic_runtime_rootless_group` 단색 벡터를 공통으로 사용한다.
+달러 기호와 밑줄을 둥근 1.8 dp 선으로 표시하며 Linux 펭귄 로고는 사용하지 않는다.
+
+**터미널 단축키**와 **터미널 모양**은 설정 홈에 중복 표시하지 않고,
+**터미널 설정 → 사용자 설정**에서 각각의 편집 화면으로 이동한다.
+
+설정 홈은 공통 **터미널 설정**과 **Native 셸 설정**을 분리한다. TERM·스크롤백·
+로그인 셸·공유 내부저장소·앱 권한은 공통 화면에, Native 기본 셸만 Native 화면에
+둔다. 로그인 셸은 Native/Rootless에만 적용됨을 명시한다. 공유 내부저장소 설정은
+공통 화면에 한 번만 제공하며 Rootless 화면에 중복하지 않는다. 기존 저장 키를
+유지하므로 메뉴 이동 전 설정값을 그대로 사용한다.
+
+설정 홈의 메뉴 이름과 해당 상세 화면의 제목은 같은 문자열 리소스를 사용한다.
+
+설정의 단순 안내(공유 저장소 사용 설명, Rootless 환경 제한, 사용자 글꼴 빈 목록)는
+옵션 카드 밖에 배경 없는 텍스트로 표시한다. 옵션 사이의 구분선을 안내 문구에는
+사용하지 않는다. 실행 가능한 설정과 상태 확인 동작은 카드에 유지한다.
+
+USB 디바이스 설정도 큰 앱 바와 섹션별 둥근 옵션 카드를 사용한다. 연결된 기기,
+접근 요청, 허용된 접근, 이동식 저장장치, 호스트 도구, 도움말 및 진단을 구분하며
+대기 요청이 있으면 가장 먼저 표시한다. 기기는 유형과 VID/PID, 연결 사용 상태를
+요약하고 연결 ID·구성·인터페이스는 펼쳐서 확인한다. 요청에는 런타임·세션·연결 ID·
+접근 범위를 표시하며 Android 권한 대기 중에는 중복 승인을 비활성화한다.
+승인·세션 전체 접근 해제·폴더 제거는 별도 확인을 거친다. 진단은 원본 JSON 대신
+허용된 연결 수만 표시하며, 계정 입력은 기존 호스트 도구 입력 화면으로 이동한다.
+
+모든 화면은 edge-to-edge다. 공통 앱 바와 터미널 chrome은 status bar inset을 적용하고, 하단 extra key는 navigation bar inset을 적용한다. 터미널 화면은 IME inset을 반영해 키보드가 terminal/extra key를 가리지 않게 한다. 목록 기반 화면은 고정 텍스트 높이를 사용하지 않고 스크롤한다.
+
+상태 표시줄과 탐색 표시줄은 투명한 다크 surface와 밝은 아이콘을 유지한다. RTL에서는 start/end 기반 배치를 사용하되, 문자 셀 정확성이 필요한 터미널 렌더러 자체는 기존 방향 규칙을 유지한다.
+
+## Lifecycle boundary
+
+설정 홈의 **앱 업데이트**는 같은 큰 앱 바와 중립 둥근 상태 카드를 사용한다.
+정식·개발 채널은 단일 선택 FilterChip으로 제공하고 선택을 저장한다. 개발
+채널의 불안정 경고는 카드 밖 안내 텍스트로 표시한다. 진행 중 채널 변경은
+비활성화하고 채널 변경 시 이전 설치 확인 상태를 폐기한다.
+확인 중·다운로드 중에는 wavy 진행 표시와 중복 동작 차단을 적용하고,
+배포 없음·최신·다운로드 가능·검증 완료·오류를 구분한다. 다운로드 상태는
+Application 소유 controller에서 관찰하므로 화면 재생성·닫기로 취소되지 않는다.
+설치는 별도 확인을 거쳐 시스템 설치 화면에 넘기며, APK 교체로 실행 중인
+터미널 세션이 끊길 수 있음을 안내한다. UI는 세션 종료나 자동 앱 삭제를 하지 않는다.
+
+Compose 상태는 서비스 상태의 투영일 뿐 권위 있는 세션 저장소가 아니다. Activity가 시작되거나 서비스에 재연결되면 세션 목록과 runtime 상태를 다시 읽는다. `AndroidView` 재구성은 `TerminalView`를 불필요하게 만들거나 세션을 종료하지 않으며, Activity 정지는 renderer callback을 detach하고 로컬 emulator projection만 폐기한다.
+
+PTY, 프로세스, Rootless 설치와 VM은 계속 `:vmhost` runtime 서비스가 소유한다. 대화상자 닫기, 세션 전환, Activity 재생성 또는 UI task 제거는 terminate 명령이 아니다. 실제 종료는 사용자가 확인한 세션 종료 동작을 runtime이 처리할 때만 일어난다.
+
+종료 요청 중인 탭은 중복 종료를 막고, 서비스가 revision이 증가한 목록으로
+제거를 확인한 뒤에만 해당 로컬 렌더러 상태를 폐기한다. 실패하면 탭과 형제
+렌더러를 유지하고 해당 탭의 대기 상태만 해제한다.
+
+### Rootless 설치 진행
+
+설정의 배포판 상태 행과 설치 대화상자는 런타임이 보관하는 같은 진행 상태를
+표시한다. 현재 단계와 작업 내용, 전체 경과 시간을 보여주며 화면 재진입 시
+상세 단계가 “확인 중”으로 바뀌지 않는다. 이미지 다운로드·무결성 검증 및 apt가
+보고하는 진행률에는 determinate `LinearWavyProgressIndicator`를 사용하고,
+전체량을 모르는 압축 해제·pacman 작업·설정 등에는 indeterminate 표시를 사용한다.
+숫자는 “현재 단계” 진행률이며 전체 설치 완료율로 표시하지 않는다. 다운로드는
+MiB 수치를 병기하고, 진행 보고가 20초 이상 없으면 마지막 보고 이후 시간을
+표시한다. 실행 중인 배포판을 새 세션 메뉴에서 선택하면 진행 화면을 다시 연다.
+오류나 완료 뒤에는 애니메이션과 경과 시간 증가를 멈춘다.

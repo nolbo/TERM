@@ -1,0 +1,160 @@
+plugins {
+    id 'com.android.library'
+}
+
+def rootlessPayloadSource = layout.projectDirectory.dir('src/main/rootless/arm64-v8a')
+def generatedRootlessJniDirectory = layout.buildDirectory.dir('generated/rootlessJniLibs')
+def iphoneBuildDirectory = layout.buildDirectory.dir('iphone-native')
+def sideStoreBuildDirectory = layout.buildDirectory.dir('sidestore-native')
+tasks.register('buildSideStoreBootstrap', Exec) {
+    description = 'Build pinned trusted isideload CLI recipe for APK packaging'
+    inputs.files(rootProject.fileTree('tools/sidestore'), rootProject.fileTree('tools/iphone/connector'), rootProject.file('tools/iphone/android-clang.sh'))
+    outputs.dir(sideStoreBuildDirectory.map { it.dir('jniLibs') })
+    outputs.dir(sideStoreBuildDirectory.map { it.dir('assets') })
+    outputs.file(sideStoreBuildDirectory.map { it.file('distributions/sidestore-bootstrap-source.tar.gz') })
+    doFirst {
+        def sdk = androidComponents.sdkComponents.sdkDirectory.get().asFile
+        commandLine 'bash', rootProject.file('tools/sidestore/build.sh'),
+            sideStoreBuildDirectory.get().asFile, new File(sdk, "ndk/${project.properties.ndkVersion}")
+    }
+}
+def iphoneToolsBuildDirectory = layout.buildDirectory.dir('iphone-tools')
+tasks.register('buildIphoneTools', Exec) {
+    inputs.files(rootProject.fileTree('tools/iphone/connector'), rootProject.file('tools/iphone/android-clang.sh'))
+    outputs.dir(iphoneToolsBuildDirectory.map { it.dir('jniLibs') })
+    outputs.dir(iphoneToolsBuildDirectory.map { it.dir('assets') })
+    outputs.file(iphoneToolsBuildDirectory.map { it.file('distributions/iphone-tools-source.tar.gz') })
+    doFirst {
+        def sdk = androidComponents.sdkComponents.sdkDirectory.get().asFile
+        commandLine 'bash', rootProject.file('tools/iphone/connector/build.sh'),
+            iphoneToolsBuildDirectory.get().asFile, new File(sdk, "ndk/${project.properties.ndkVersion}")
+    }
+}
+def serialBuildDirectory = layout.buildDirectory.dir('usb-serial')
+def usbClientAssets = layout.buildDirectory.dir('generated/usbClientAssets')
+tasks.register('buildUsbClient', Exec) {
+    inputs.files(fileTree('src/main/assets/usb'), rootProject.file('tools/usb/build_client.py'))
+    outputs.file(usbClientAssets.map { it.file('usb/terminal-usb.pyz') })
+    commandLine 'python3', rootProject.file('tools/usb/build_client.py'), file('src/main/assets/usb'),
+        usbClientAssets.get().file('usb/terminal-usb.pyz').asFile
+}
+
+tasks.register('prepareUsbSerial', Exec) {
+    inputs.file(rootProject.file('tools/usb-serial/prepare.sh'))
+    outputs.dir(serialBuildDirectory.map { it.dir('java') })
+    outputs.dir(serialBuildDirectory.map { it.dir('assets') })
+    commandLine 'bash', rootProject.file('tools/usb-serial/prepare.sh'), serialBuildDirectory.get().asFile
+}
+
+tasks.register('buildIphoneWorker', Exec) {
+    inputs.files(rootProject.fileTree('tools/iphone'), fileTree('src/main/iphone'))
+    outputs.dir(iphoneBuildDirectory.map { it.dir('jniLibs') })
+    outputs.dir(iphoneBuildDirectory.map { it.dir('assets') })
+    doFirst {
+        def sdk = androidComponents.sdkComponents.sdkDirectory.get().asFile
+        commandLine 'bash', rootProject.file('tools/iphone/build.sh'),
+            iphoneBuildDirectory.get().asFile, new File(sdk, "ndk/${project.properties.ndkVersion}")
+    }
+}
+
+tasks.register('bundleIphoneWorkerSources', Exec) {
+    dependsOn('buildIphoneWorker')
+    inputs.files(rootProject.fileTree('tools/iphone'), fileTree('src/main/iphone'))
+    def archive = layout.buildDirectory.file('distributions/iphone-worker-source.tar.gz')
+    outputs.file(archive)
+    commandLine 'bash', rootProject.file('tools/iphone/bundle-sources.sh'),
+        iphoneBuildDirectory.get().asFile, archive.get().asFile
+}
+
+tasks.register('stageRootlessExecutables', Sync) {
+    into generatedRootlessJniDirectory.map { it.dir('arm64-v8a') }
+    from(rootlessPayloadSource.file('proot')) { rename { 'libproot.so' } }
+    from(rootlessPayloadSource.file('proot-loader')) { rename { 'libproot-loader.so' } }
+}
+
+tasks.register('verifyRootlessExecutables') {
+    inputs.files(rootlessPayloadSource.file('proot'), rootlessPayloadSource.file('proot-loader'))
+    doLast {
+        def expected = [
+            'proot': '1374f8c067c3b2674144bf85f33bdce2fb1860c103e814b11ed21bf406d484d9',
+            'proot-loader': '2567ab8ad3b418a8804696342056052eef37835e50d200e9f4ff48aae564c237',
+        ]
+        expected.each { name, digest ->
+            def payload = rootlessPayloadSource.file(name).asFile
+            if (!payload.isFile()) throw new GradleException("Missing Rootless ARM64 payload: ${payload}")
+            def actual = java.security.MessageDigest.getInstance('SHA-256')
+                .digest(payload.bytes).encodeHex().toString()
+            if (actual != digest) throw new GradleException("Unexpected SHA-256 for Rootless ${name}: ${actual}")
+            def bytes = payload.bytes
+            if (bytes.length < 64 || bytes[0..3] != [0x7f, 0x45, 0x4c, 0x46] as byte[] ||
+                    bytes[4] != 2 || bytes[5] != 1 || (bytes[18] & 0xff) != 183 || bytes[19] != 0) {
+                throw new GradleException("Rootless ${name} is not a little-endian ARM64 ELF")
+            }
+            def buffer = java.nio.ByteBuffer.wrap(bytes).order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            def programOffset = buffer.getLong(32)
+            def entrySize = buffer.getShort(54) & 0xffff
+            def entryCount = buffer.getShort(56) & 0xffff
+            (0..<entryCount).each { index ->
+                def offset = Math.toIntExact(programOffset + index * entrySize)
+                if (buffer.getInt(offset) == 1 && buffer.getLong(offset + 48) < 16384L) {
+                    throw new GradleException("Rootless ${name} has a LOAD segment below 16 KiB alignment")
+                }
+            }
+        }
+    }
+}
+
+android {
+    namespace 'dev.terminal.runtime'
+    compileSdk project.properties.compileSdkVersion.toInteger()
+
+    defaultConfig {
+        minSdk project.properties.minSdkVersion.toInteger()
+        targetSdk project.properties.targetSdkVersion.toInteger()
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
+        consumerProguardFiles 'consumer-rules.pro'
+    }
+
+    buildFeatures {
+        aidl true
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
+    sourceSets.main.jniLibs.srcDirs = [generatedRootlessJniDirectory, iphoneBuildDirectory.get().dir('jniLibs').asFile, iphoneToolsBuildDirectory.get().dir('jniLibs').asFile]
+    sourceSets.main.assets.srcDir(iphoneToolsBuildDirectory.get().dir('assets').asFile)
+    sourceSets.main.jniLibs.srcDir(sideStoreBuildDirectory.get().dir('jniLibs').asFile)
+    sourceSets.main.assets.srcDir(sideStoreBuildDirectory.get().dir('assets').asFile)
+    sourceSets.main.assets.srcDir(iphoneBuildDirectory.get().dir('assets').asFile)
+    sourceSets.main.java.srcDir(serialBuildDirectory.get().dir('java/java').asFile)
+    sourceSets.main.assets.srcDir(serialBuildDirectory.get().dir('assets').asFile)
+    sourceSets.main.assets.srcDir(usbClientAssets.get().asFile)
+}
+
+tasks.named('preBuild').configure { dependsOn('stageRootlessExecutables', 'verifyRootlessExecutables', 'bundleIphoneWorkerSources', 'prepareUsbSerial', 'buildUsbClient', 'buildIphoneTools', 'buildSideStoreBootstrap') }
+
+dependencies {
+    api project(':protocol')
+    implementation project(':image')
+    implementation project(':android-bridge')
+    implementation project(':terminal-emulator')
+
+    implementation 'androidx.annotation:annotation:1.9.1'
+    implementation 'androidx.core:core-ktx:1.16.0'
+    implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.9.0'
+    implementation 'androidx.work:work-runtime-ktx:2.10.1'
+    // Debian's approved Rootless archive is xz-compressed tar. Both libraries
+    // are pure Java and run without a shell or storage permission.
+    implementation 'org.apache.commons:commons-compress:1.27.1'
+    implementation 'org.tukaani:xz:1.10'
+
+    testImplementation 'junit:junit:4.13.2'
+    testImplementation 'org.json:json:20240303'
+}

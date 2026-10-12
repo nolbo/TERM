@@ -1,0 +1,21 @@
+Rootless PRoot runtime
+======================
+
+The ARM64 Rootless runtime is built from:
+
+* PRoot 5.1.107.92, Copyright (C) STMicroelectronics and contributors,
+  GPL-2.0-or-later, source commit
+  7266fb3e8516535682f5a9c8f3a7e70f6506eddb.
+* talloc 2.4.3, Copyright (C) Andrew Tridgell and contributors,
+  GPL-3.0, official Termux runtime/static artifacts pinned by SHA-256.
+* libandroid-shmem 0.7, Copyright (C) 2014 Juro Bystricky,
+  BSD-3-Clause, official Termux runtime/static artifacts pinned by SHA-256.
+
+The complete input checksums, build commands, compatibility patch and output
+checksums are provided in tools/rootless. The PRoot and talloc code is combined
+into the executable under GPL-3.0. The corresponding license texts are shipped
+alongside this notice. Source archives are available from:
+
+https://github.com/termux/proot/tree/v5.1.107.92
+https://www.samba.org/ftp/talloc/talloc-2.4.3.tar.gz
+https://github.com/termux/libandroid-shmem/tree/v0.7

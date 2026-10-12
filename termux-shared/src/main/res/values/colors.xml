@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Material 3 dark baseline palette. Primary is overridden by a theme overlay selected in
+         the app settings; ui_accent remains the default for non-theme-aware resources. -->
+    <color name="ui_background">#121212</color>
+    <color name="ui_surface">#181818</color>
+    <color name="ui_surface_raised">#242424</color>
+    <color name="ui_surface_active">#303030</color>
+    <color name="ui_surface_hover">#2A2A2A</color>
+    <color name="ui_surface_pressed">#3A3A3A</color>
+    <color name="ui_border">#454545</color>
+    <color name="ui_text_primary">#F1F1F1</color>
+    <color name="ui_text_secondary">#C4C4C4</color>
+    <color name="ui_text_muted">#969696</color>
+    <color name="ui_icon">#D6D6D6</color>
+    <color name="ui_accent">#BDBDBD</color>
+    <color name="ui_on_accent">#1A1A1A</color>
+    <color name="ui_error">#F2B8B5</color>
+    <color name="ui_ripple">#33FFFFFF</color>
+    <color name="ui_disabled">#665F636B</color>
+    <color name="ui_transparent">#00000000</color>
+
+    <color name="background_markdown_code_inline">#1F000000</color>
+    <color name="background_markdown_code_block">#0F000000</color>
+
+    <color name="black">#FF000000</color>
+    <color name="white">#FFFFFFFF</color>
+
+    <color name="red_400">#FF0000</color>
+    <color name="red_800">#C4001D</color>
+
+    <color name="grey_200">#EEEEEE</color>
+    <color name="grey_800">#424242</color>
+    <color name="grey_900">#212121</color>
+
+    <color name="red_error">#DC143C</color>
+    <color name="red_error_link">#FC143C</color>
+</resources>

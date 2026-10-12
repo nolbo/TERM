@@ -1,0 +1,14 @@
+[Unit]
+Description=XTermX persistent terminal and Android API bridge
+After=local-fs.target
+
+[Service]
+Type=simple
+ExecStart=/usr/libexec/xtermx-agent
+Restart=always
+RestartSec=1
+User=root
+Group=root
+
+[Install]
+WantedBy=multi-user.target

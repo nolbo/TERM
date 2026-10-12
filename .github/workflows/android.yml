@@ -1,0 +1,155 @@
+name: Android verification
+
+on:
+  push:
+  pull_request:
+  # Verify the imported stable source without publishing a release.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  TERMINAL_VERSION_CODE_OFFSET: ${{ vars.TERMINAL_VERSION_CODE_OFFSET || '0' }}
+
+jobs:
+  build-and-unit-test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && 'term-public-release' || format('term-verification-{0}', github.run_id) }}
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Pin the selected update branch to the checked-out event commit.
+          fetch-depth: 0
+      - name: Select update revision and version
+        run: |
+          git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main +refs/heads/dev:refs/remotes/origin/dev
+          if { [ "$GITHUB_EVENT_NAME" = push ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; } && { [ "$GITHUB_REF" = refs/heads/main ] || [ "$GITHUB_REF" = refs/heads/dev ]; }; then
+            terminal_update_channel=${GITHUB_REF#refs/heads/}
+            git update-ref "refs/remotes/origin/$terminal_update_channel" "$GITHUB_SHA"
+            echo "TERMINAL_UPDATE_CHANNEL=$terminal_update_channel" >> "$GITHUB_ENV"
+            # Reuse TERM's shared sequence, including the migration offset.
+            terminal_version_code=$(python3 tools/updates/version-code.py --run-number "$GITHUB_RUN_NUMBER")
+            echo "TERMINAL_UPDATE_VERSION_CODE=$terminal_version_code" >> "$GITHUB_ENV"
+          fi
+      - name: Check channel inputs before building
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        env:
+          TERMINAL_SIGNING_KEYSTORE_BASE64: ${{ secrets.TERMINAL_SIGNING_KEYSTORE_BASE64 }}
+          TERMINAL_SIGNING_STORE_PASSWORD: ${{ secrets.TERMINAL_SIGNING_STORE_PASSWORD }}
+        run: |
+          set +x
+          test "$GITHUB_REPOSITORY" = nolbo/TERM
+          test -n "$TERMINAL_SIGNING_KEYSTORE_BASE64"
+          test -n "$TERMINAL_SIGNING_STORE_PASSWORD"
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            test -s "docs/release-notes/${GITHUB_REF_NAME}-latest.md"
+          fi
+      - name: Use Maven AAPT2 on the CI host
+        # The checked-in override is for the local ARM64/QEMU host only.
+        run: sed -i '/^android.aapt2FromMavenOverride=/d' gradle.properties
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          cache-read-only: ${{ github.event_name != 'push' || (github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev') }}
+      - name: Install pinned Android Rust toolchain
+        run: rustup toolchain install 1.89.0 --profile minimal --target aarch64-linux-android
+      - name: Build and test
+        run: |
+          ./gradlew :android-app:assembleDebug :android-app:testDebugUnitTest :android-runtime:testDebugUnitTest :image:test --build-cache --console=plain
+          python3 -m unittest discover -s tests/updates -p 'test_*.py'
+      - name: USB host safety regression gate (not physical validation)
+        run: |
+          terminal_ndk_version=$(sed -n 's/^ndkVersion=//p' gradle.properties)
+          python3 tests/usb/safety_gate.py --scope host --ndk "$ANDROID_HOME/ndk/$terminal_ndk_version" > "${{ runner.temp }}/usb-safety-report.json"
+      - name: Publish safety scope report
+        if: always()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: usb-safety-report
+          path: ${{ runner.temp }}/usb-safety-report.json
+      - name: Publish debug APK
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: droid-terminal-debug
+          path: |
+            android-app/build/outputs/apk/debug/android-app-debug.apk
+            android-runtime/build/distributions/iphone-worker-source.tar.gz
+            android-runtime/build/iphone-tools/distributions/iphone-tools-source.tar.gz
+            android-runtime/build/sidestore-native/distributions/sidestore-bootstrap-source.tar.gz
+      - name: Use JDK 21 for release lint
+        # AGP 9.3's lint parser calls List.removeLast(), unavailable on JDK 17.
+        # Verification above and explicit compilation toolchains remain on 17.
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Build signed channel update
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        env:
+          TERMINAL_SIGNING_KEYSTORE_BASE64: ${{ secrets.TERMINAL_SIGNING_KEYSTORE_BASE64 }}
+          TERMINAL_SIGNING_STORE_PASSWORD: ${{ secrets.TERMINAL_SIGNING_STORE_PASSWORD }}
+        run: |
+          set +x
+          umask 077
+          if [ -z "$TERMINAL_SIGNING_KEYSTORE_BASE64" ] || [ -z "$TERMINAL_SIGNING_STORE_PASSWORD" ]; then
+            echo "Configure TERMINAL_SIGNING_KEYSTORE_BASE64 and TERMINAL_SIGNING_STORE_PASSWORD repository secrets."
+            exit 1
+          fi
+          export TERMINAL_SIGNING_STORE_FILE="$RUNNER_TEMP/terminal-release.p12"
+          trap 'rm -f "$TERMINAL_SIGNING_STORE_FILE"' EXIT
+          printf '%s' "$TERMINAL_SIGNING_KEYSTORE_BASE64" | base64 --decode > "$TERMINAL_SIGNING_STORE_FILE"
+          unset TERMINAL_SIGNING_KEYSTORE_BASE64
+          bash tools/build-release.sh --build-cache
+          # Original stable source has no embedded approved-catalog resource.
+          python3 tools/updates/verify-release-apk.py \
+            --apk android-app/build/outputs/apk/release/android-app-release.apk \
+            --certificate-sha256 7f639e70cc1969415beab27cfb10db6d10bf553b1f956a2f9d68d55ebf3785ba
+          mkdir -p android-app/build/update
+          python3 tools/updates/create-manifest.py \
+            --apk android-app/build/outputs/apk/release/android-app-release.apk \
+            --metadata android-app/build/outputs/apk/release/output-metadata.json \
+            --commit "$GITHUB_SHA" --channel "$TERMINAL_UPDATE_CHANNEL" --output android-app/build/update/update.json
+          cp android-app/build/outputs/apk/release/android-app-release.apk android-app/build/update/TERM.apk
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            cp "docs/release-notes/${TERMINAL_UPDATE_CHANNEL}-latest.md" android-app/build/update/RELEASE_NOTES.ko.md
+          fi
+          cp android-runtime/build/distributions/iphone-worker-source.tar.gz \
+            android-runtime/build/iphone-tools/distributions/iphone-tools-source.tar.gz \
+            android-runtime/build/sidestore-native/distributions/sidestore-bootstrap-source.tar.gz android-app/build/update/
+      - name: Publish signed update APK
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: terminal-${{ github.ref_name }}-update
+          if-no-files-found: error
+          path: android-app/build/update/
+
+      - name: Publish verified update to TERM
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash tools/updates/publish.sh android-app/build/update
+
+  notify-release:
+    needs: build-and-unit-test
+    if: github.repository == 'nolbo/TERM' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    permissions:
+      contents: read
+    uses: ./.github/workflows/discord-release.yml
+    with:
+      release_tag: ${{ format('{0}-{1}', github.ref_name, github.sha) }}
+    secrets:
+      DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
+      DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}

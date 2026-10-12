@@ -1,0 +1,15 @@
+[Unit]
+Description=TERM persistent session daemon
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/droid-terminal/droid-sessiond
+Restart=on-failure
+RestartSec=2
+User=droid
+NoNewPrivileges=yes
+PrivateTmp=yes
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,14 @@
+--- client.c
++++ client.c
+@@ -522,7 +522,10 @@
+ 		return send_result(client, tag, EINVAL);
+ 	}
+ 
+-	config_get_device_record(record_id, &record_data, &record_size);
++	int record_status = config_get_device_record(record_id, &record_data, &record_size);
++	if (record_status < 0) {
++		return send_result(client, tag, -record_status);
++	}
+ 
+ 	if (record_data) {
+ 		plist_t dict = plist_new_dict();

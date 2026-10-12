@@ -1,0 +1,6 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp" android:viewportWidth="24" android:viewportHeight="24">
+    <!-- Original peaked arch silhouette identifying Arch Linux. -->
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M12,2L21,22L15,19Q15,13 12,13Q9,13 9,19L3,22L7.7,11.5L10,12.5L8.5,9.7Z"/>
+</vector>

@@ -1,0 +1,120 @@
+apply plugin: 'com.android.library'
+apply plugin: 'maven-publish'
+
+def isArm64BuildHost = System.getProperty('os.arch').toLowerCase() in ['aarch64', 'arm64']
+def generatedJniDirectory = layout.buildDirectory.dir('generated/jniLibs')
+
+android {
+    namespace "com.termux.terminal"
+    enableKotlin = false
+    compileSdkVersion project.properties.compileSdkVersion.toInteger()
+    ndkVersion project.properties.ndkVersion
+
+    defaultConfig {
+        minSdkVersion project.properties.minSdkVersion.toInteger()
+        targetSdkVersion project.properties.targetSdkVersion.toInteger()
+        if (!isArm64BuildHost) {
+            externalNativeBuild {
+                ndkBuild {
+                    arguments "APP_PLATFORM=android-${project.properties.minSdkVersion}"
+                }
+            }
+        }
+    }
+
+    if (!isArm64BuildHost) {
+        externalNativeBuild {
+            ndkBuild {
+                path file('src/main/jni/Android.mk')
+            }
+        }
+    }
+
+    // The checked-in binaries are retained only as historical artifacts. Always
+    // package the library built from the reviewed JNI source above.
+    sourceSets.main.jniLibs.srcDirs = isArm64BuildHost ? [generatedJniDirectory] : []
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    testOptions {
+        unitTests.returnDefaultValues = true
+    }
+
+    publishing {
+        singleVariant("release")
+    }
+}
+
+if (isArm64BuildHost) {
+    // Google's Linux NDK host tools are x86_64-only. On an ARM64 CI host, use the
+    // installed native clang driver with the official NDK sysroot and runtimes.
+    // This produces the same Android targets without trying to execute x86 code.
+    def sdkRoot = androidComponents.sdkComponents.sdkDirectory.get().asFile
+    def ndkRoot = file("${sdkRoot}/ndk/${project.properties.ndkVersion}")
+    def llvmDataRoot = file("${ndkRoot}/toolchains/llvm/prebuilt/linux-x86_64")
+    def clangResourceDirectory = file("${llvmDataRoot}/lib/clang/19")
+    def androidApi = project.properties.minSdkVersion.toString()
+    def targets = [
+        'arm64-v8a': 'aarch64-linux-android',
+        'armeabi-v7a': 'armv7a-linux-androideabi',
+        'x86': 'i686-linux-android',
+        'x86_64': 'x86_64-linux-android',
+    ]
+    def nativeTasks = targets.collect { abi, target ->
+        tasks.register("compileTermuxJni${abi.replaceAll('[^A-Za-z0-9]', '').capitalize()}", Exec) {
+            def destination = generatedJniDirectory.map { it.dir(abi).file('libtermux.so') }
+            inputs.file('src/main/jni/termux.c')
+            outputs.file(destination)
+            doFirst { destination.get().asFile.parentFile.mkdirs() }
+            commandLine 'clang',
+                "--target=${target}${androidApi}",
+                "--sysroot=${llvmDataRoot}/sysroot",
+                "-resource-dir=${clangResourceDirectory}",
+                '-rtlib=compiler-rt', '-fPIC', '-shared',
+                '-Wl,-z,max-page-size=16384', '-Wl,-z,common-page-size=16384',
+                '-o', destination.get().asFile,
+                file('src/main/jni/termux.c')
+        }
+    }
+    tasks.named('preBuild').configure { dependsOn(nativeTasks) }
+}
+
+tasks.withType(Test) {
+    testLogging {
+        events "started", "passed", "skipped", "failed"
+    }
+}
+
+dependencies {
+    testImplementation 'junit:junit:4.13.2'
+}
+
+task sourceJar(type: Jar) {
+    from android.sourceSets.main.java.srcDirs
+    archiveClassifier.set("sources")
+}
+
+afterEvaluate {
+    publishing {
+        publications {
+            // Creates a Maven publication called "release".
+            release(MavenPublication) {
+                from components.release
+                groupId = 'com.termux'
+                artifactId = 'terminal-emulator'
+                version = '0.118.0'
+                artifact(sourceJar)
+            }
+        }
+    }
+}

@@ -1,0 +1,122 @@
+package dev.terminal.runtime.rootless
+
+import android.content.Context
+import dev.terminal.runtime.session.SessionCommand
+import java.io.File
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.runInterruptible
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.TimeoutCancellationException
+
+/** Runs official package managers through the same APK-owned loader, in service-owned jobs. */
+internal class RootlessEnvironmentSetup(
+    private val context: Context,
+    private val layout: RootlessDebianLayout,
+    private val proot: File,
+    private val loader: File,
+    private val reporter: RootlessProgressReporter,
+) {
+    suspend fun prepare() {
+        // An older successful marker must not survive a failed repair of missing defaults.
+        RootlessEnvironmentProfile.invalidate(layout)
+        val packages = RootlessEnvironmentProfile.packages(layout.distribution)
+        runStage(RootlessPhase.PACKAGES,
+            if (layout.distribution == RootlessDistribution.ARCH) "packages-arch.sh" else "packages-debian.sh", packages)
+        runStage(RootlessPhase.CONFIGURE, "configure.sh", listOf(layout.distribution.directory))
+        reporter.report(RootlessPhase.HOME, "기존 사용자 설정을 보존하고 누락된 셸 설정을 복원하고 있습니다")
+        configureRootlessLoginHome(layout)
+        runStage(RootlessPhase.VERIFY, "verify.sh", listOf(layout.distribution.directory) + packages)
+        RootlessEnvironmentProfile.markVerified(layout)
+        RootlessEnvironmentProfile.validate(layout).getOrThrow()
+    }
+
+    private suspend fun runStage(phase: RootlessPhase, asset: String, arguments: List<String>) {
+        reporter.report(phase, "${layout.distribution.displayName}: ${phase.displayName}")
+        val script = context.assets.open("rootless/$asset").bufferedReader().use { it.readText() }
+        val progress = RootlessPackageProgress(phase, reporter)
+        try {
+            val result = runRootlessSetupCommand(layout, proot, loader, listOf("/bin/sh", "-c", script, "terminal-setup") + arguments,
+                onOutputLine = progress::line)
+            check(result.exitCode == 0) { "종료 코드 ${result.exitCode}\n${result.errorContext.ifBlank { result.output.takeLast(2000) }}" }
+        } catch (error: TimeoutCancellationException) {
+            throw RootlessSetupException(progress.currentPhase,
+                IllegalStateException("20분 동안 단계가 완료되지 않았습니다. 네트워크와 패키지 상태를 확인한 뒤 재시도하세요", error))
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Exception) {
+            throw RootlessSetupException(progress.currentPhase, error)
+        }
+    }
+}
+
+internal data class RootlessCommandResult(val exitCode: Int, val output: String, val errorContext: String = "")
+
+internal suspend fun runRootlessSetupCommand(
+    layout: RootlessDebianLayout, proot: File, loader: File, argv: List<String>, timeoutMs: Long = 20 * 60 * 1000L,
+    onOutputLine: (String) -> Unit = {},
+): RootlessCommandResult = withContext(Dispatchers.IO) {
+    File(layout.tmp, "graphics-shm").mkdirs()
+    val spec = buildRootlessLaunchSpec(layout, proot, loader, "/bin/sh", "/", mapOf(
+        SessionCommand.KEY to SessionCommand.encode(argv), "TERM" to "dumb", "LC_ALL" to "C.UTF-8",
+        "DEBIAN_FRONTEND" to "noninteractive", "NEEDRESTART_MODE" to "a",
+    ))
+    // Maintenance commands are finite: keyring hooks may leave gpg-agent detached.
+    // Reap only this invocation's tracees once its command exits. Interactive PTYs
+    // keep their independent lifetime and do not use this option.
+    val arguments = spec.arguments.toMutableList().apply { add(1, "--kill-on-exit") }
+    val process = ProcessBuilder(arguments).directory(File(spec.hostCwd)).redirectErrorStream(true).apply {
+        environment().clear()
+        spec.hostEnvironment.forEach { environment()[it.substringBefore('=')] = it.substringAfter('=') }
+    }.start()
+    process.outputStream.close() // Installers must never wait for UI input.
+    try {
+        coroutineScope {
+            val output = async(Dispatchers.IO) {
+                val tail = StringBuilder()
+                val recentLines = java.util.ArrayDeque<String>()
+                var errorContext = ""
+                val lines = RootlessOutputLines { line ->
+                    if (!line.startsWith("pmstatus:") && !line.startsWith("dlstatus:")) {
+                        recentLines.addLast(line.take(300))
+                        if (recentLines.size > 8) recentLines.removeFirst()
+                    }
+                    if (errorContext.isEmpty() && (line.startsWith("dpkg: error") || line.startsWith("pmerror:") || line.startsWith("E:"))) {
+                        errorContext = recentLines.joinToString("\n").takeLast(2000)
+                    }
+                    onOutputLine(line)
+                }
+                process.inputStream.reader().use { reader ->
+                    val buffer = CharArray(2048)
+                    while (true) {
+                        val count = reader.read(buffer)
+                        if (count < 0) break
+                        tail.append(buffer, 0, count)
+                        if (tail.length > 8192) tail.delete(0, tail.length - 8192)
+                        lines.accept(buffer, count)
+                    }
+                    lines.flush()
+                }
+                tail.toString() to errorContext
+            }
+            try {
+                withTimeout(timeoutMs) {
+                    val code = runInterruptible(Dispatchers.IO) { process.waitFor() }
+                    val captured = output.await()
+                    RootlessCommandResult(code, captured.first, captured.second)
+                }
+            } finally {
+                // Closing the pipe releases the blocking reader before coroutineScope joins it.
+                if (process.isAlive) process.destroyForcibly()
+                process.inputStream.close()
+                output.cancel()
+            }
+        }
+    } finally {
+        if (process.isAlive) process.destroyForcibly()
+        process.inputStream.close()
+    }
+}

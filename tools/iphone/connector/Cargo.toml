@@ -1,0 +1,23 @@
+[package]
+name = "terminal-iphone-connector"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+license = "MIT"
+description = "Private Android-owned usbmux streams for trusted APK-packaged iPhone tools"
+
+[patch.crates-io]
+idevice = { path = "../idevice" }
+
+[dependencies]
+idevice = { version = "=0.1.65", default-features = false, features = ["ring", "usbmuxd"] }
+tokio = { version = "=1.53.1", features = ["net", "rt", "sync", "macros", "rt-multi-thread", "time"] }
+libc = "=0.2.189"
+serde_json = "=1.0.151"
+
+[profile.release]
+opt-level = "s"
+lto = "thin"
+codegen-units = 1
+strip = true
+panic = "abort"

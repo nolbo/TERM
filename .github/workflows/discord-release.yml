@@ -5,8 +5,19 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+  workflow_call:
+    inputs:
+      release_tag:
+        required: true
+        type: string
+    secrets:
+      DISCORD_BOT_TOKEN:
+        required: true
+      DISCORD_CHANNEL_ID:
+        required: true
 
-permissions: {}
+permissions:
+  contents: read
 
 jobs:
   notify:
@@ -15,6 +26,8 @@ jobs:
     steps:
       - name: Send Discord notification
         env:
+          TERM_RELEASE_TAG: ${{ inputs.release_tag }}
+          GH_TOKEN: ${{ github.token }}
           DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
           DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}
 
@@ -43,6 +56,21 @@ jobs:
 
           repo = os.environ["GITHUB_REPOSITORY"]
           release = event.get("release")
+
+          # GITHUB_TOKEN publication uses an explicit reusable-workflow call.
+          requested_tag = os.environ.get("TERM_RELEASE_TAG")
+          if requested_tag:
+              request = urllib.request.Request(
+                  f"https://api.github.com/repos/{repo}/releases/tags/{requested_tag}",
+                  headers={
+                      "Authorization": f"Bearer {os.environ['GH_TOKEN']}",
+                      "Accept": "application/vnd.github+json",
+                  },
+              )
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  release = json.load(response)
+              if release.get("draft") or release["tag_name"] != requested_tag:
+                  raise RuntimeError("Requested release is not published")
 
           # Release information
           if release:
