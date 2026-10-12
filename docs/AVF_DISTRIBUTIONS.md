@@ -34,6 +34,10 @@ Google AVF base. Ubuntu and Arch use the same checksum-pinned base archives as
 Userspace Linux (`avf-distributions.json`), prepared in an isolated ARM64 build
 container with systemd, DHCP/resolver, sudo and native package tools. Target
 rootfs preparation verifies the archive before extraction or executing guest code.
+During image production, a rootfs bootstrap account at UID/GID 1000 is renamed to
+`droid` and its home is moved to `/home/droid`, preserving files and numeric
+ownership. The factory locks its password and validates passwordless sudo.
+This normalization never runs against an installed environment.
 
 The paired Google AVF kernel and modules supply the common initramfs/overlay
 boot layer. `configure-avf-boot.sh` creates that layer independently of

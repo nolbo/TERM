@@ -28,6 +28,7 @@ done
 echo TERM_AVF_NETWORK_CONFIG_OK
 modprobe virtiofs
 test "$(id -u droid)" -eq 1000
+test "$(id -g droid)" -eq 1000
 test -x /usr/local/lib/droid/mount-shared-directories.sh
 systemctl --root=/ is-enabled --quiet term-shares.service
 grep -qx 'Requires=term-shares.service' /etc/systemd/system/droid-sessiond.service.d/shares.conf

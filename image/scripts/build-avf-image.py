@@ -60,7 +60,7 @@ def extract_source(archive, destination):
         raise ValueError("Google archive must contain root_part, vmlinuz and initrd.img (direct-kernel boot)")
 
 
-def write_release(root, release_id, base_uri, source_url, source_sha, distribution="debian"):
+def write_release(root, release_id, base_uri, source_url, source_sha, distribution="debian", source_commit=None):
     if distribution not in ("debian", "ubuntu", "archlinux"):
         raise ValueError("Unsupported AVF distribution")
     manifest = f"formatVersion=1\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nvirtiofsVersion=1\nandroidStorageVersion=1\n"
@@ -80,7 +80,7 @@ def write_release(root, release_id, base_uri, source_url, source_sha, distributi
         f"maxArtifactBytes={limit}\ncompression=gzip\n")
     (root / "provenance.json").write_text(json.dumps({
         "distribution": distribution, "releaseId": release_id, "sourceUri": source_url, "sourceSha256": source_sha,
-        "sourceCommit": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
+        "sourceCommit": source_commit or subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
         "rootfs": json.loads((REPO / "image/scripts/avf-distributions.json").read_text()).get(distribution),
         "diskMapping": ["system.img:ro", "home.img:rw", "config.img:ro"],
     }, indent=2) + "\n")
@@ -111,6 +111,7 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     if shutil.disk_usage(output.parent).free < 24 * 1024 ** 3:
         parser.error("AVF image production requires at least 24 GiB free space (including Docker layers)")
+    source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
     with tempfile.TemporaryDirectory(prefix=".avf-build-", dir=output.parent) as temporary:
         work = Path(temporary)
         context = work / "context"
@@ -150,7 +151,7 @@ def main():
             subprocess.run(["docker", "run", "--rm", "--network", "none", "-v", f"{release}:/output",
                             "--entrypoint", "chown", factory_image,
                             "-R", f"{os.getuid()}:{os.getgid()}", "/output"], check=True)
-        write_release(release, args.release_id, args.base_uri, SOURCE_URL, source_sha, args.distribution)
+        write_release(release, args.release_id, args.base_uri, SOURCE_URL, source_sha, args.distribution, source_commit)
         release.rename(output)
     print(f"Verified release directory: {output}", flush=True)
 

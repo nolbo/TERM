@@ -2,6 +2,7 @@ import gzip
 import hashlib
 import importlib.util
 import io
+import json
 from pathlib import Path
 import runpy
 import subprocess
@@ -74,6 +75,18 @@ class ImageFactoryTests(unittest.TestCase):
                       "https://example.invalid/release/?latest=1", "https://example.invalid/release/\nid=evil"]:
             with self.assertRaises(ValueError):
                 factory.validate_base_uri(value)
+
+    def test_provenance_retains_source_commit_captured_before_production(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name in factory.ARTIFACTS.values():
+                (root / name).write_bytes(b"generated artifact")
+            captured = "1" * 40
+            with mock.patch.object(factory.subprocess, "check_output") as current_head:
+                factory.write_release(root, "avf-debian-test", "https://example.invalid/avf-debian-test/",
+                                      factory.SOURCE_URL, "a" * 64, source_commit=captured)
+                current_head.assert_not_called()
+            self.assertEqual(captured, json.loads((root / "provenance.json").read_text())["sourceCommit"])
 
     def test_insufficient_space_fails_before_docker_or_download(self):
         with tempfile.TemporaryDirectory() as temporary:
