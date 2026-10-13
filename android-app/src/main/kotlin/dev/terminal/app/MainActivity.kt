@@ -1641,20 +1641,21 @@ class MainActivity : TerminalActivity() {
     }
 
     private fun importImage(directory: DocumentFile) = Thread {
-        val staging = cacheDir.toPath().resolve("image-${UUID.randomUUID()}")
+        val destination = filesDir.toPath().resolve("vm/default")
+        val staging = AvfImageInstaller.newStagingPath(destination)
         val message = runCatching {
+            Files.createDirectories(destination.parent)
             Files.createDirectories(staging)
             val layout = AvfImageLayout(staging)
             listOf(layout.manifest, layout.kernelImage, layout.initrdImage, layout.systemImage, layout.homeImage, layout.configImage)
                 .forEach { target ->
                     val source = directory.findFile(target.fileName.toString())
                         ?: error(getString(R.string.image_required_file_missing, target.fileName))
-                    contentResolver.openInputStream(source.uri)?.use { input -> Files.newOutputStream(target).use(input::copyTo) }
+                    contentResolver.openInputStream(source.uri)?.use { input -> dev.terminal.image.AvfSparseFiles.copy(input, target) }
                         ?: error(getString(R.string.image_open_failed, target.fileName))
                 }
-            val destination = filesDir.toPath().resolve("vm/default")
-            Files.createDirectories(destination.parent)
-            when (val result = AvfImageInstaller.install(staging, destination, expectedDistribution = dev.terminal.image.AvfDistribution.DEBIAN)) {
+            when (val result = AvfImageInstaller.install(staging, destination, expectedDistribution = dev.terminal.image.AvfDistribution.DEBIAN,
+                consumeStagingDirectory = true)) {
                 is ImageInstallResult.Installed -> getString(R.string.image_imported)
                 is ImageInstallResult.AlreadyInstalled -> getString(R.string.image_already_installed)
                 is ImageInstallResult.Failed -> error(result.reason)

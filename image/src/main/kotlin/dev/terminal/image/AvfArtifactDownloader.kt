@@ -1,10 +1,8 @@
 package dev.terminal.image
 
 import java.io.BufferedInputStream
-import java.io.BufferedOutputStream
 import java.net.HttpURLConnection
 import java.net.URI
-import java.nio.file.Files
 import java.nio.file.Path
 import java.util.zip.GZIPInputStream
 
@@ -48,7 +46,7 @@ class AvfArtifactDownloader(private val cancelled: () -> Boolean = { false }) {
                         }
                         val input = if (gzip) GZIPInputStream(bounded) else bounded
                         input.use {
-                            Files.newOutputStream(destination).use { output -> copyBounded(it, output, maxBytes, cancelled) }
+                            AvfSparseFiles.copy(it, destination, maxBytes, ::checkCancelled)
                         }
                     }
                     return
@@ -61,21 +59,4 @@ class AvfArtifactDownloader(private val cancelled: () -> Boolean = { false }) {
         if (cancelled()) throw java.util.concurrent.CancellationException("Image installation cancelled")
     }
 
-    companion object {
-        internal fun copyBounded(input: java.io.InputStream, output: java.io.OutputStream, maxBytes: Long,
-            cancelled: () -> Boolean = { false }) {
-            BufferedOutputStream(output).use { target ->
-                val buffer = ByteArray(64 * 1024)
-                var total = 0L
-                while (true) {
-                    if (cancelled()) throw java.util.concurrent.CancellationException("Image installation cancelled")
-                    val count = input.read(buffer)
-                    if (count < 0) break
-                    total += count
-                    require(total <= maxBytes) { "Expanded image exceeds approved size limit" }
-                    target.write(buffer, 0, count)
-                }
-            }
-        }
-    }
 }

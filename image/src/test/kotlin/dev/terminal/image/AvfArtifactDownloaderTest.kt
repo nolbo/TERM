@@ -33,13 +33,13 @@ class AvfArtifactDownloaderTest {
                 else Connection(uri, 200, compressed)).also { connections.add(it) }
             }
         }
-        val destination = Files.createTempFile("debian-download", ".img")
+        val destination = Files.createTempDirectory("debian-download").resolve("disk.img")
         try {
             downloader.download(origin, destination, payload.size.toLong(), gzip = true)
             assertArrayEquals(payload, Files.readAllBytes(destination))
             assertEquals(2, connections.size)
             assertTrue(connections.all { it.disconnected })
-        } finally { Files.deleteIfExists(destination) }
+        } finally { destination.parent.toFile().deleteRecursively() }
     }
 
     @Test fun refusesDowngradeCredentialsAndRedirectLoops() {
@@ -48,22 +48,23 @@ class AvfArtifactDownloaderTest {
             val downloader = AvfArtifactDownloader().apply {
                 openConnection = { uri -> requests++; Connection(uri, 302, location = location) }
             }
-            val destination = Files.createTempFile("debian-reject", ".img")
+            val destination = Files.createTempDirectory("debian-reject").resolve("disk.img")
             try {
                 assertThrows(IllegalArgumentException::class.java) { downloader.download(origin, destination, 1024) }
                 assertTrue(requests <= 6)
-                assertEquals(0, Files.size(destination))
-            } finally { Files.deleteIfExists(destination) }
+                assertFalse(Files.exists(destination))
+            } finally { destination.parent.toFile().deleteRecursively() }
         }
     }
 
     @Test fun refusesGzipExpansionBeyondApprovedLimit() {
         val compressed = ByteArrayOutputStream().also { bytes -> GZIPOutputStream(bytes).use { it.write(ByteArray(4096)) } }.toByteArray()
         val downloader = AvfArtifactDownloader().apply { openConnection = { uri -> Connection(uri, 200, compressed) } }
-        val destination = Files.createTempFile("debian-bomb", ".img")
+        val destination = Files.createTempDirectory("debian-bomb").resolve("disk.img")
         try {
             assertThrows(IllegalArgumentException::class.java) { downloader.download(origin, destination, 512, gzip = true) }
-        } finally { Files.deleteIfExists(destination) }
+            assertFalse(Files.exists(destination))
+        } finally { destination.parent.toFile().deleteRecursively() }
     }
 
     @Test fun progressCountsCompressedTransferAndKeepsUnknownLengthIndeterminate() {
@@ -81,7 +82,7 @@ class AvfArtifactDownloaderTest {
                 } }
             }
             val updates = mutableListOf<Pair<Long, Long?>>()
-            val destination = Files.createTempFile("debian-progress", ".img")
+            val destination = Files.createTempDirectory("debian-progress").resolve("disk.img")
             try {
                 downloader.download(origin, destination, payload.size.toLong(), gzip = true) { bytes, total -> updates += bytes to total }
                 assertEquals(0L, updates.first().first)
@@ -89,7 +90,7 @@ class AvfArtifactDownloaderTest {
                 assertTrue(updates.zipWithNext().all { (before, after) -> before.first <= after.first })
                 assertTrue(updates.all { it.second == if (knownLength) compressed.size.toLong() else null })
                 assertArrayEquals(payload, Files.readAllBytes(destination))
-            } finally { Files.deleteIfExists(destination) }
+            } finally { destination.parent.toFile().deleteRecursively() }
         }
     }
 }

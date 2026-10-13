@@ -1,5 +1,8 @@
 package dev.terminal.runtime.session
 
+import android.system.ErrnoException
+import android.system.Os
+import android.system.OsConstants
 import java.io.File
 import java.io.RandomAccessFile
 import java.nio.file.Files
@@ -252,13 +255,13 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
     fun root(key: Key): File = SessionStorage.root(files, key.runtime, key.storageId)
     fun cachedUsage(key: Key): Usage? = sizes[key]?.takeIf { System.currentTimeMillis() - it.measuredAt < 60_000 }?.usage
     fun cachedSize(key: Key): Long? = cachedUsage(key)?.bytes
-    /** Lazy approximate logical bytes; never follows symlinks outside a storage root. */
+    /** Lazy approximate bytes: allocated space for AVF, logical bytes for other runtimes. */
     fun measure(key: Key): Long = measureUsage(key).bytes
     fun measureUsage(key: Key): Usage {
         cachedUsage(key)?.let { return it }
-        val primary = treeSize(root(key).toPath())
+        val primary = treeSize(root(key).toPath(), allocated = key.runtime == SessionRuntime.AVF)
         val shared = if (key.runtime == SessionRuntime.AVF)
-            treeSize(File(files, "shared-vms/${SessionStorage.avfInstanceId(files, key.storageId)}").toPath()) else Usage(0)
+            treeSize(File(files, "shared-vms/${SessionStorage.avfInstanceId(files, key.storageId)}").toPath(), allocated = true) else Usage(0)
         val usage = Usage(primary.bytes + shared.bytes, primary.incomplete || shared.incomplete)
         // A not-yet-installed environment must be measured again as soon as files appear.
         if (usage.bytes > 0) sizes[key] = Size(usage, System.currentTimeMillis()) else sizes.remove(key)
@@ -289,7 +292,7 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
         private fun decodeKeys(array: JSONArray) = List(array.length()) { index -> array.getJSONObject(index).let {
             Key(requireNotNull(SessionRuntime.fromWireName(it.getString("runtime"))), it.getString("storageId"))
         } }.toSet()
-        private fun treeSize(path: java.nio.file.Path): Usage {
+        private fun treeSize(path: java.nio.file.Path, allocated: Boolean = false): Usage {
             // exists() also returns false when access is denied. Only absence means zero.
             val attributes = try {
                 Files.readAttributes(path, java.nio.file.attribute.BasicFileAttributes::class.java, NOFOLLOW_LINKS)
@@ -311,7 +314,19 @@ class StorageRegistry(files: File, private val migrateProfiles: () -> Map<String
                     return java.nio.file.FileVisitResult.CONTINUE
                 }
                 override fun visitFile(file: java.nio.file.Path, attrs: java.nio.file.attribute.BasicFileAttributes): java.nio.file.FileVisitResult {
-                    size += attrs.size(); return java.nio.file.FileVisitResult.CONTINUE
+                    try {
+                        // Android lstat does not follow links; st_blocks uses 512-byte units.
+                        // Plain JVM tests return null for the Android API stub.
+                        size += if (allocated) Os.lstat(file.toString())?.let { Math.multiplyExact(it.st_blocks, 512L) }
+                            ?: attrs.size() else attrs.size()
+                    } catch (failure: ErrnoException) {
+                        when (failure.errno) {
+                            OsConstants.ENOENT -> Unit
+                            OsConstants.EACCES, OsConstants.EPERM -> incomplete = true
+                            else -> throw java.io.IOException("Cannot measure allocated storage: $file", failure)
+                        }
+                    }
+                    return java.nio.file.FileVisitResult.CONTINUE
                 }
                 override fun visitFileFailed(file: java.nio.file.Path, failure: java.io.IOException): java.nio.file.FileVisitResult {
                     if (failure is java.nio.file.AccessDeniedException && file != path) {

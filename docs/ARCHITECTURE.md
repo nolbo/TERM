@@ -159,6 +159,17 @@ Storage exposure is explicit and minimal. Keep runtime roots and package
 databases separate. Expose only explicitly connected shared directories rather than the entire
 app-private directory. Logical Workspaces never expose filesystem paths.
 
+AVF raw disks retain their published logical lengths and SHA-256 hashes while
+installation omits writes of zero-filled 4 KiB blocks. Online downloads and
+offline imports use owned sibling staging directories; verification and receipt
+creation precede the fenced rename into place, avoiding a second complete disk
+copy. WorkManager staging names include their work ID so retries can remove
+their own partial files and finished/pruned attempts without deleting active
+downloads, offline imports or installed environments. Cancellation and failure
+clean up owned staging; package initialization failures retain activated disks.
+AVF environment usage reports allocated filesystem blocks rather than raw disk
+capacity. This changes new installation allocation, not existing guest data.
+
 A foreground service improves survivability but is not a permanent execution
 guarantee. Wake locks must be policy-driven, time-bounded where appropriate, and
 tied to meaningful work. Represent Android process death and power restrictions

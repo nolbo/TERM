@@ -27,6 +27,28 @@ kernel, initrd, immutable system/config disks and a persistent writable home dis
 The manifest hash and artifact hashes remain pinned; normal guest writes never
 invalidate immutable artifacts. An installer never replaces an existing image.
 
+### Installation storage
+
+The current raw ext4 contract retains a 6 GiB system disk and an 8 GiB writable
+state disk. Those logical capacities do not require allocating every host block.
+The shared installer writes nonzero blocks, retains zero regions as sparse holes
+and explicitly sets the exact final file length, including trailing zeros.
+Online gzip extraction and offline imports use the same bounded/cancellable
+writer; logical bytes and published hashes remain unchanged. Existing approved
+images therefore work without new image publication or catalog changes.
+
+An installation attempt owns a sibling `.install-` directory. After full artifact
+verification, the installer records its manifest/initialization receipts and
+renames that directory under the existing activation fence. The compatibility
+copying API also preserves sparsity and retains its caller's source directory.
+Worker staging includes a stable work ID; retry cleanup excludes active work,
+offline imports, other environments and installed disks. Existing environments
+are neither replaced nor compacted. AVF environment usage counts allocated
+512-byte filesystem blocks; writable capacity remains 8 GiB. Guest writes grow
+physical usage, and guest free space does not reserve Android storage in advance.
+Allocation savings depend on the target filesystem and package initialization;
+producer measurements are not device measurements.
+
 ## Factory and guest management
 
 `build-avf-image.py --distribution` selects the target rootfs. Debian retains the

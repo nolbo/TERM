@@ -62,26 +62,29 @@ class AvfImageActivationTest {
     }
 
     @Test fun removalDuringPreparationRejectsStaleActivationAndCleansTemporaryImage() {
-        val root = Files.createTempDirectory("avf-stale-activation")
-        try {
-            val registry = StorageRegistry(root.resolve("files").toFile())
-            val environment = Environment.create(SessionRuntime.AVF, "Installing")
-            EnvironmentRegistry(registry).transaction {
-                save(SessionProfile("installing", "Installing", SessionRuntime.AVF, "/bin/bash"), environment)
-            }
-            val source = Files.createDirectory(root.resolve("source")).also(::writeImage)
-            val destination = registry.root(environment.storageKey).toPath()
-            Files.createDirectories(destination.parent)
-            val result = AvfImageInstaller.install(source, destination, activate = { promote ->
-                registry.transaction { removeSoftware(environment.storageKey) }
-                registry.transaction { validateImageGeneration(environment.storageKey, 0); promote() }
-            })
-            assertTrue(result is ImageInstallResult.Failed)
-            assertTrue((result as ImageInstallResult.Failed).reason.contains("superseded"))
-            assertFalse(Files.exists(destination))
-            Files.list(destination.parent).use { assertEquals(0L, it.count()) }
-            registry.transaction { assertEquals(1L, imageGeneration(environment.storageKey)) }
-        } finally { root.toFile().deleteRecursively() }
+        for (consumeStaging in listOf(false, true)) {
+            val root = Files.createTempDirectory("avf-stale-activation")
+            try {
+                val registry = StorageRegistry(root.resolve("files").toFile())
+                val environment = Environment.create(SessionRuntime.AVF, "Installing")
+                EnvironmentRegistry(registry).transaction {
+                    save(SessionProfile("installing", "Installing", SessionRuntime.AVF, "/bin/bash"), environment)
+                }
+                val destination = registry.root(environment.storageKey).toPath()
+                Files.createDirectories(destination.parent)
+                val source = Files.createDirectory(if (consumeStaging) AvfImageInstaller.newStagingPath(destination)
+                    else root.resolve("source")).also(::writeImage)
+                val result = AvfImageInstaller.install(source, destination, activate = { promote ->
+                    registry.transaction { removeSoftware(environment.storageKey) }
+                    registry.transaction { validateImageGeneration(environment.storageKey, 0); promote() }
+                }, consumeStagingDirectory = consumeStaging)
+                assertTrue(result is ImageInstallResult.Failed)
+                assertTrue((result as ImageInstallResult.Failed).reason.contains("superseded"))
+                assertFalse(Files.exists(destination))
+                Files.list(destination.parent).use { assertEquals(0L, it.count()) }
+                registry.transaction { assertEquals(1L, imageGeneration(environment.storageKey)) }
+            } finally { root.toFile().deleteRecursively() }
+        }
     }
 
     private fun writeImage(root: Path) {

@@ -26,9 +26,10 @@ import androidx.core.app.NotificationCompat
 import androidx.work.ForegroundInfo
 import androidx.work.Constraints
 import androidx.work.NetworkType
+import androidx.work.WorkManager
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.UUID
+import java.util.concurrent.TimeUnit
 
 /** Distribution-independent worker. Class/work names retain persisted Debian work compatibility. */
 class DebianImageDownloadWorker(
@@ -52,9 +53,7 @@ class DebianImageDownloadWorker(
             dev.terminal.runtime.session.SessionStorage.root(applicationContext.filesDir,
                 dev.terminal.runtime.session.SessionRuntime.AVF, storageId).toPath()
         }.getOrElse { return@withContext failure("Invalid storage ID") }
-        val stagingRoot = applicationContext.cacheDir.toPath()
-            .resolve("image-downloads")
-            .resolve("${release.id}-${UUID.randomUUID()}")
+        val stagingRoot = AvfImageDownloadStaging.path(target, id)
         return@withContext try {
             check(distributionForStorage(applicationContext, storageId) == release.distribution) { "AVF catalog distribution differs from environment" }
             dev.terminal.runtime.session.StorageRegistry(applicationContext.filesDir).transaction {
@@ -62,6 +61,11 @@ class DebianImageDownloadWorker(
             }
             setForeground(foregroundInfo())
             report(AvfImageInstallPhase.PREPARING)
+            AvfImageDownloadStaging.clean(target, id) { previousId ->
+                val previous = WorkManager.getInstance(applicationContext).getWorkInfoById(previousId)
+                    .get(10, TimeUnit.SECONDS)
+                previous != null && !previous.state.isFinished
+            }
             if (Files.exists(target)) {
                 report(AvfImageInstallPhase.VERIFY)
                 return@withContext if (AvfImageVerifier.verifyInstalled(target, release.distribution, ::checkCancellation) is ImageVerification.Ready) {
@@ -117,7 +121,8 @@ class DebianImageDownloadWorker(
                 validateImageGeneration(dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId), generation)
                 promote()
             }
-        }, checkCancellation = ::checkCancellation, initializePackageIndexes = true, expectedDistribution = distribution)
+        }, checkCancellation = ::checkCancellation, initializePackageIndexes = true, expectedDistribution = distribution,
+            consumeStagingDirectory = true)
     }
 
     private suspend fun initializeInstalledImage(storageId: String): Result {

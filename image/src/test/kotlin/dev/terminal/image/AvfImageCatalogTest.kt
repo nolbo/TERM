@@ -1,7 +1,5 @@
 package dev.terminal.image
 
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -26,15 +24,6 @@ class AvfImageCatalogTest {
         for (invalid in listOf("manifestSha256=", "compression=zip", "manifestUri=http://example.invalid/manifest.properties",
             "manifestUri=https://user@example.invalid/manifest.properties", "maxArtifactBytes=999999999999", "id=arbitrary")) {
             assertThrows(IllegalArgumentException::class.java) { read(invalid) }
-        }
-    }
-
-    @Test fun boundedCopyRejectsExpandedPayloadAndCancellation() {
-        assertThrows(IllegalArgumentException::class.java) {
-            AvfArtifactDownloader.copyBounded(ByteArrayInputStream(ByteArray(1024)), ByteArrayOutputStream(), 128)
-        }
-        assertThrows(java.util.concurrent.CancellationException::class.java) {
-            AvfArtifactDownloader.copyBounded(ByteArrayInputStream(ByteArray(10)), ByteArrayOutputStream(), 128) { true }
         }
     }
 
