@@ -34,6 +34,10 @@ Google AVF base. Ubuntu and Arch use the same checksum-pinned base archives as
 Userspace Linux (`avf-distributions.json`), prepared in an isolated ARM64 build
 container with systemd, DHCP/resolver, sudo and native package tools. Target
 rootfs preparation verifies the archive before extraction or executing guest code.
+Ubuntu explicitly installs `udev`; every prepared guest must provide `systemd-udevd`.
+Without it, systemd cannot activate the config disk's device unit, waits for
+`/dev/vdc`, and enters emergency mode before sessiond starts. A devtmpfs node or
+the old PID-1 self-test does not establish a normal systemd boot.
 During image production, a rootfs bootstrap account at UID/GID 1000 is renamed to
 `droid` and its home is moved to `/home/droid`, preserving files and numeric
 ownership. The factory locks its password and validates passwordless sudo.
@@ -58,6 +62,12 @@ Offline factory gates boot twice and verify the RO lower layer, writable-overlay
 persistence, services/network/shares, non-root `droid` plus sudo, real local package
 installation/removal and initialization failure/success/idempotence. A candidate
 cannot be approved based only on host tests or a successful archive download.
+Two additional normal systemd boots use a disposable state-disk copy and a real
+vhost-vsock device. A host-CID session-list RPC on 40500 and a connection to the
+package initializer on 40503 must both succeed on each boot. The producer records
+these results in `provenance.json`; the distributed state disk stays clean.
+Host-side probing preserves Docker's default seccomp policy, which blocks
+container AF_VSOCK sockets. Producers need the host `vhost_vsock` module enabled.
 
 ## Compatibility and publication
 
@@ -74,11 +84,13 @@ preserving other reviewed pins. Each added pin must pass producer smoke boots,
 public-download hash checks and exact APK-catalog verification under
 [IMAGE_RELEASE.md](IMAGE_RELEASE.md).
 
-The current committed default catalog remains Debian. Ubuntu/Arch source support
-requires new factory candidates, public verification and pin promotion before
-online installation is available in ordinary APKs. This implementation does not
-publish releases. Factory verification requires at least 24 GiB free space and two successful
-offline boots; device verification requires a privileged AVF-capable ARM64 target.
+The committed default catalog includes separately published Debian, Ubuntu and
+Arch pins. A corrected image requires a new immutable release ID, public download
+verification and catalog promotion. Existing installed images and writable disks
+are not automatically replaced; an environment using a faulty base image must use
+an explicit image transition or a new environment while preserving its old data.
+Factory verification requires at least 24 GiB free space, the two fixture boots
+and two normal systemd/vsock boots; device verification requires a privileged AVF-capable ARM64 target.
 Host unit tests alone do not establish these production/runtime criteria.
 
 ## Decision and alternatives

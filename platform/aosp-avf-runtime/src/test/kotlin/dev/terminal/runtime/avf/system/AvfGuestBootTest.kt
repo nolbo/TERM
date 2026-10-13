@@ -64,6 +64,7 @@ class AvfGuestBootTest {
         }.exceptionOrNull()
         assertTrue(failure is IllegalStateException)
         assertTrue(failure!!.message.orEmpty().contains("vsock port 40500"))
+        assertTrue(failure.message.orEmpty().startsWith("AVF Linux"))
         assertSame(refused, failure.cause)
     }
 

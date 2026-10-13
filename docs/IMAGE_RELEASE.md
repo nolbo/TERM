@@ -8,6 +8,15 @@ New producer manifests include the optional `aptInitializationVersion=1` field, 
 
 ## Automated producer
 
+The producer also performs two normal systemd boots with a real vhost-vsock
+device, separately from the PID-1 filesystem/package fixture boots. On each boot
+the host verifies an empty session-list RPC on 40500 and the package initializer's
+listener on 40503. Both boots share only a disposable copy of the writable disk;
+the release disk is not modified. Enable the host `vhost_vsock` module before
+production (`sudo modprobe vhost_vsock`); CI performs this preparation explicitly.
+The probe runs on the host so the QEMU container retains its default seccomp
+policy and requires neither privileged mode nor a host filesystem mount.
+
 New manifests also declare `virtiofsVersion=1`. Factory configuration requires the matching `virtiofs` module/built-in support, guest `droid` UID 1000, the versioned shared-directory mounter and `term-shares.service` ordered before sessiond. The initrd includes virtiofs support. The two offline boots check module loading and installed service/configuration (`TERM_AVF_VIRTIOFS_CONFIG_OK`); they do not claim a live host export. `tests/image/test_virtiofs.py` exercises the real mount script with controlled commands, including full-table validation and failed-mount rollback. Actual bidirectional filesystem I/O and Android platform server teardown still require the privileged AVF acceptance sequence. Existing installed images and the catalog pin stay unchanged until an explicitly authorized image release.
 
 The repository's `Build approved AVF Linux image` workflow automatically prepares a candidate when image, guest, or related verification files are pushed to `dev`; promoting only `image/catalog-approved.properties` does not rebuild an unchanged producer. It can also be dispatched on `dev` with an explicit immutable release ID. An ARM64 runner builds the guest binaries, downloads Google's official AVF Debian archive, rejects unsafe archive entries, installs the TERM services and CLI, creates the three disks, rebuilds the matching initrd and creates the manifest and pinned catalog. It records the upstream archive SHA-256 and repository commit in `provenance.json`. An optional reviewed source SHA-256 rejects upstream changes. Unsupported archive formats or missing overlay kernel support fail instead of producing an apparently usable image.

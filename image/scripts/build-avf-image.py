@@ -9,6 +9,7 @@ from pathlib import Path, PurePosixPath
 import re
 import shutil
 import subprocess
+import sys
 import tarfile
 import tempfile
 import urllib.request
@@ -60,7 +61,7 @@ def extract_source(archive, destination):
         raise ValueError("Google archive must contain root_part, vmlinuz and initrd.img (direct-kernel boot)")
 
 
-def write_release(root, release_id, base_uri, source_url, source_sha, distribution="debian", source_commit=None):
+def write_release(root, release_id, base_uri, source_url, source_sha, distribution="debian", source_commit=None, boot_verification=None):
     if distribution not in ("debian", "ubuntu", "archlinux"):
         raise ValueError("Unsupported AVF distribution")
     manifest = f"formatVersion=1\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nvirtiofsVersion=1\nandroidStorageVersion=1\n"
@@ -83,6 +84,7 @@ def write_release(root, release_id, base_uri, source_url, source_sha, distributi
         "sourceCommit": source_commit or subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
         "rootfs": json.loads((REPO / "image/scripts/avf-distributions.json").read_text()).get(distribution),
         "diskMapping": ["system.img:ro", "home.img:rw", "config.img:ro"],
+        "normalBootVerification": boot_verification,
     }, indent=2) + "\n")
     for name in ARTIFACTS.values():
         with (root / name).open("rb") as source, (root / (name + ".gz")).open("xb") as raw:
@@ -111,6 +113,8 @@ def main():
     output.parent.mkdir(parents=True, exist_ok=True)
     if shutil.disk_usage(output.parent).free < 24 * 1024 ** 3:
         parser.error("AVF image production requires at least 24 GiB free space (including Docker layers)")
+    boot_check = REPO / 'image/scripts/smoke-avf-systemd.py'
+    subprocess.run([sys.executable, str(boot_check), '--check-host'], check=True)
     source_commit = subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip()
     with tempfile.TemporaryDirectory(prefix=".avf-build-", dir=output.parent) as temporary:
         work = Path(temporary)
@@ -151,7 +155,11 @@ def main():
             subprocess.run(["docker", "run", "--rm", "--network", "none", "-v", f"{release}:/output",
                             "--entrypoint", "chown", factory_image,
                             "-R", f"{os.getuid()}:{os.getgid()}", "/output"], check=True)
-        write_release(release, args.release_id, args.base_uri, SOURCE_URL, source_sha, args.distribution, source_commit)
+        boot_report = work / 'normal-systemd-boot.json'
+        subprocess.run([sys.executable, str(boot_check), '--directory', str(release),
+                        '--docker-image', factory_image, '--report', str(boot_report)], check=True)
+        write_release(release, args.release_id, args.base_uri, SOURCE_URL, source_sha, args.distribution,
+                      source_commit, json.loads(boot_report.read_text()))
         release.rename(output)
     print(f"Verified release directory: {output}", flush=True)
 

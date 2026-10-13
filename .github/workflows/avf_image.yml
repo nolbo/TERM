@@ -75,6 +75,7 @@ jobs:
         env:
           AVF_SOURCE_SHA256: ${{ inputs.source_sha256 }}
         run: |
+          sudo modprobe vhost_vsock
           python3 -m unittest discover -s tests/image -p 'test_*.py'
           avf_arguments=()
           if [ -n "$AVF_SOURCE_SHA256" ]; then

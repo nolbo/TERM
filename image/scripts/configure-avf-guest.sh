@@ -2,6 +2,9 @@
 set -euo pipefail
 trap 'printf "AVF guest configuration failed at line %s: %s\n" "$LINENO" "$BASH_COMMAND" >&2' ERR
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+# PID 1 needs udev to activate .device units such as the config disk in fstab.
+# A devtmpfs node alone does not make that disk available to systemd mounts.
+test -x /usr/lib/systemd/systemd-udevd
 distribution=${1:-debian}
 . /etc/os-release
 case "$distribution:$ID" in

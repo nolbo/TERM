@@ -139,7 +139,7 @@ class AospAvfPlatformDriver(
             pendingSessionConnection.set(boot.awaitSessiond(BOOT_TIMEOUT_MS, GUEST_CONNECT_RETRY_MS) {
                 ParcelFileDescriptorFrameTransport(vm.connectVsock(DROID_SESSIOND_PORT), GUEST_CID_UNAVAILABLE)
             })
-            check(machine === vm) { "AVF stopped while connecting to the Debian session daemon" }
+            check(machine === vm) { "AVF stopped while connecting to the Linux session daemon" }
             Log.i(TAG, "vm.sessiond duration_ms=${SystemClock.elapsedRealtime() - bootStartedAt} reused=${!startedHere}")
             startedNewVm = startedHere
             Result.success(Unit)

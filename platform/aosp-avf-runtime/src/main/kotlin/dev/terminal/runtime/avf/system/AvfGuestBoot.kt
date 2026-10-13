@@ -9,7 +9,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withTimeout
 
-/** Custom Debian guests do not send Microdroid's payload-ready notification. */
+/** Custom Linux guests do not send Microdroid's payload-ready notification. */
 internal class AvfGuestBoot {
     private val failure = CompletableDeferred<Nothing>()
 
@@ -49,7 +49,7 @@ internal class AvfGuestBoot {
             // Preserve cancellation of the owning operation instead of turning it into a boot error.
             currentCoroutineContext().ensureActive()
             throw IllegalStateException(
-                "Debian session daemon did not accept vsock port 40500 within ${timeoutMillis / 1_000} seconds",
+                "AVF Linux session daemon did not accept vsock port 40500 within ${timeoutMillis / 1_000} seconds",
                 lastError ?: timeout,
             )
         }

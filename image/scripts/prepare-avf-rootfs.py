@@ -67,7 +67,7 @@ def prepare(distribution, destination):
         policy.write_text('#!/bin/sh\nexit 101\n')
         policy.chmod(0o755)
         command = ('export DEBIAN_FRONTEND=noninteractive; apt-get -o APT::Update::Error-Mode=any update; '
-                   'apt-get -y --no-install-recommends install systemd systemd-sysv systemd-resolved '
+                   'apt-get -y --no-install-recommends install systemd systemd-sysv systemd-resolved udev '
                    'sudo util-linux kmod ca-certificates; apt-get clean')
     else:
         command = ('pacman -Syu --needed --noconfirm systemd systemd-sysvcompat sudo util-linux '
