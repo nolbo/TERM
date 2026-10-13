@@ -72,8 +72,9 @@ def boot(directory, state, docker_image, scratch, number, timeout=600):
     cidfile = scratch / f'boot-{number}.container'
     console = scratch / f'boot-{number}.log'
     command = ['docker', 'run', '--rm', '--network', 'none', '--device', '/dev/vhost-vsock',
+               '--entrypoint', 'qemu-system-aarch64',
                '--cidfile', str(cidfile), '-v', f'{directory}:/images:ro', '-v', f'{state.parent}:/state',
-               docker_image, 'qemu-system-aarch64', '-machine', 'virt', '-cpu', 'max', '-accel', 'tcg',
+               docker_image, '-machine', 'virt', '-cpu', 'max', '-accel', 'tcg',
                '-m', '2048', '-display', 'none', '-monitor', 'none', '-no-reboot', '-nic', 'none',
                '-kernel', '/images/vmlinuz', '-initrd', '/images/initrd.img', '-append', BOOT_PARAMS,
                '-device', 'virtio-serial-pci', '-chardev', 'stdio,id=console,signal=off',

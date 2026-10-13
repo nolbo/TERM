@@ -15,7 +15,7 @@ listener on 40503. Both boots share only a disposable copy of the writable disk;
 the release disk is not modified. Enable the host `vhost_vsock` module before
 production (`sudo modprobe vhost_vsock`); CI performs this preparation explicitly.
 The probe runs on the host so the QEMU container retains its default seccomp
-policy and requires neither privileged mode nor a host filesystem mount.
+policy and requires neither privileged mode nor a host loop mount.
 
 New manifests also declare `virtiofsVersion=1`. Factory configuration requires the matching `virtiofs` module/built-in support, guest `droid` UID 1000, the versioned shared-directory mounter and `term-shares.service` ordered before sessiond. The initrd includes virtiofs support. The two offline boots check module loading and installed service/configuration (`TERM_AVF_VIRTIOFS_CONFIG_OK`); they do not claim a live host export. `tests/image/test_virtiofs.py` exercises the real mount script with controlled commands, including full-table validation and failed-mount rollback. Actual bidirectional filesystem I/O and Android platform server teardown still require the privileged AVF acceptance sequence. Existing installed images and the catalog pin stay unchanged until an explicitly authorized image release.
 
