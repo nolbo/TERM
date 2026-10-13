@@ -215,13 +215,6 @@ class ProfileEditActivity : TerminalActivity() {
                                 listOf(SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH).map {
                                     SettingsChoice(stringResource(runtimeTitleResource(it.wireName)), it.wireName)
                                 }, runtime) { selectRuntime(SessionRuntime.valueOf(it)) }
-                            val suggestedName = if (name.isBlank()) "" else EnvironmentRegistry.defaultName(name, environments.map { it.name })
-                            ProfileField(R.string.profile_storage_name, freshStorageName.ifBlank { suggestedName },
-                                hint = R.string.profile_storage_name_hint) {
-                                val value = it.filterNot { char -> char.isISOControl() }.take(dev.terminal.runtime.session.StorageRegistry.MAX_NAME_LENGTH)
-                                freshStorageName = if (value.trim() == suggestedName) "" else value
-                                dirty = true
-                            }
                             if (runtime == SessionRuntime.AVF.wireName) SettingsChoiceRow(stringResource(R.string.profile_distribution), null,
                                 dev.terminal.runtime.session.EnvironmentDistribution.entries.map {
                                     SettingsChoice(it.avfDistribution.displayName, it.name)
@@ -233,6 +226,13 @@ class ProfileEditActivity : TerminalActivity() {
                                     freshEnvironmentId = java.util.UUID.randomUUID().toString()
                                     dirty = true
                                 }
+                            }
+                            val suggestedName = if (name.isBlank()) "" else EnvironmentRegistry.defaultName(name, environments.map { it.name })
+                            ProfileField(R.string.profile_storage_name, freshStorageName.ifBlank { suggestedName },
+                                hint = R.string.profile_storage_name_hint) {
+                                val value = it.filterNot { char -> char.isISOControl() }.take(dev.terminal.runtime.session.StorageRegistry.MAX_NAME_LENGTH)
+                                freshStorageName = if (value.trim() == suggestedName) "" else value
+                                dirty = true
                             }
                         } else if (storageChoice == "existing") Column(Modifier.selectableGroup(), verticalArrangement = Arrangement.spacedBy(SettingsItemSpacing)) {
                             targets.forEach { target ->
