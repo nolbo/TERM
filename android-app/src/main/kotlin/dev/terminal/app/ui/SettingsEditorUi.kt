@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -37,7 +38,7 @@ internal fun SettingsTextRow(label: Int, value: String, singleLine: Boolean = tr
             Column(Modifier.verticalScroll(rememberScrollState())) {
                 OutlinedTextField(draft, { draft = it }, label = { Text(stringResource(label)) },
                     singleLine = singleLine, isError = !valid(draft), modifier = Modifier.fillMaxWidth(),
-                    textStyle = MaterialTheme.typography.bodyLarge.copy(fontFamily = fontFamily))
+                    textStyle = MaterialTheme.typography.bodyLarge.merge(TextStyle(fontFamily = fontFamily)))
                 hint?.let { Text(stringResource(it), style = MaterialTheme.typography.bodySmall) }
             }
         },
