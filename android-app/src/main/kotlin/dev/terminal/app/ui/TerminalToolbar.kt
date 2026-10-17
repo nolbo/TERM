@@ -26,6 +26,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.CornerRadius
@@ -68,6 +69,7 @@ internal fun TerminalToolbar(
     colors: TerminalChromeColors,
     pageNavigationEnabled: Boolean = true,
     animateModeChanges: Boolean = true,
+    cornerColors: TerminalSheetCorners = TerminalSheetCorners(colors.background, colors.background),
     // Pager content is registered by stable tool ID; new tools need no sheet/gesture changes.
     content: @Composable (String, Boolean) -> Unit,
 ) {
@@ -134,7 +136,12 @@ internal fun TerminalToolbar(
     fun settle(target: ToolbarSheetMode) { scope.launch { state.animateTo(target, motion) } }
     val sheetShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
     MaterialTheme(colorScheme = colors.colorScheme ?: MaterialTheme.colorScheme) {
-        Column(Modifier.fillMaxWidth().clip(sheetShape).background(colors.sheetBackground).navigationBarsPadding()) {
+        Column(Modifier.fillMaxWidth().drawBehind {
+            // Draw before clipping so each cutout continues the canvas directly above it.
+            drawRect(cornerColors.left)
+            drawRect(cornerColors.right, topLeft = Offset(size.width / 2f, 0f),
+                size = Size(size.width / 2f, size.height))
+        }.clip(sheetShape).background(colors.sheetBackground).navigationBarsPadding()) {
             Surface(color = colors.sheetBackground, contentColor = colors.foreground,
                 shape = sheetShape,
                 modifier = Modifier.fillMaxWidth().then(sheetHeight).clipToBounds()) {

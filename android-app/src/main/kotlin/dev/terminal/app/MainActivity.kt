@@ -290,10 +290,14 @@ class MainActivity : TerminalActivity() {
     private var altPressed by mutableStateOf(false)
     private var shiftPressed by mutableStateOf(false)
     private var terminalChromeColors by mutableStateOf(dev.terminal.app.ui.TerminalChromeColors(Color.Black))
+    private val terminalSheetBackdrop = dev.terminal.app.ui.TerminalSheetBackdrop()
     private var followTuiBackground = false
     private val paletteTransition = TerminalPaletteTransition(
         followTuiBackground = { followTuiBackground },
-    ) { terminalChromeColors = it }
+    ) { colors ->
+        terminalView?.let { terminalSheetBackdrop.update(it, colors.background) }
+        terminalChromeColors = colors
+    }
     private val updateTerminalChrome = object : Runnable {
         override fun run() {
             mainHandler.removeCallbacks(this)
@@ -845,6 +849,7 @@ class MainActivity : TerminalActivity() {
                         },
                         maxHeight = toolbarMaxHeight,
                         colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,
+                        cornerColors = terminalSheetBackdrop.colors(screenBackgroundColor),
                         pageNavigationEnabled = visibleSessions.isNotEmpty() && !sessionProfilePickerVisible,
                     ) { tool, interactive ->
                         // Session navigation keeps its scroll position across tab switches.
