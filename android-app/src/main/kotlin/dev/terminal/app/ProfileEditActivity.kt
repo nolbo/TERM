@@ -38,6 +38,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import dev.terminal.runtime.session.Environment
+import dev.terminal.runtime.session.EnvironmentDistribution
 import dev.terminal.runtime.session.EnvironmentId
 import dev.terminal.runtime.session.EnvironmentRegistry
 
@@ -64,15 +65,19 @@ class ProfileEditActivity : TerminalActivity() {
             finish()
             return
         }
-        val initial = if (source == null) store.duplicate(store.builtIns().first()).copy(name = "")
+        val initial = if (source == null) store.duplicate(store.builtIns().first())
             else if (intent.getBooleanExtra("duplicate", false)) store.duplicate(source) else source
         compose {
             val id = rememberSaveable { initial.id }
-            var name by rememberSaveable { mutableStateOf(initial.name) }
+            val otherProfiles = remember { store.all().filter { it.id != id } }
             var runtime by rememberSaveable { mutableStateOf(initial.runtime.wireName) }
             var avfDistribution by rememberSaveable { mutableStateOf((source?.environmentId ?: initial.environmentId)?.let {
                 store.environments().firstOrNull { environment -> environment.id == it }?.distribution?.name
             } ?: "DEBIAN") }
+            var nameIsAutomatic by rememberSaveable { mutableStateOf(source == null) }
+            var name by rememberSaveable { mutableStateOf(if (source == null)
+                defaultProfileName(initial.runtime, EnvironmentDistribution.valueOf(avfDistribution), otherProfiles.map { it.name })
+                else initial.name) }
             var shell by rememberSaveable { mutableStateOf(initial.shell) }
             var arguments by rememberSaveable { mutableStateOf(JSONArray(initial.shellArguments).toString()) }
             var cwd by rememberSaveable { mutableStateOf(initial.workingDirectory) }
@@ -95,12 +100,15 @@ class ProfileEditActivity : TerminalActivity() {
             }
             var icon by rememberSaveable { mutableStateOf(initial.icon) }
             var palette by rememberSaveable { mutableStateOf(initial.palette?.joinToString(",")) }
-            val otherProfiles = remember { store.all().filter { it.id != initial.id } }
             var dirty by rememberSaveable { mutableStateOf(false) }
             var discard by rememberSaveable { mutableStateOf(false) }
             var deleting by rememberSaveable { mutableStateOf(false) }
             val editing = source != null && initial.id == source.id
             val back = { if (dirty) discard = true else finish() }
+            fun updateAutomaticName(environmentName: String? = null) {
+                if (nameIsAutomatic) name = defaultProfileName(SessionRuntime.valueOf(runtime),
+                    EnvironmentDistribution.valueOf(avfDistribution), otherProfiles.map { it.name }, environmentName)
+            }
             val updateRuntime: (SessionRuntime) -> Unit = { option ->
                 val old = store.builtIns().first { it.runtime.wireName == runtime }
                 val new = store.builtIns().first { it.runtime == option }
@@ -119,12 +127,14 @@ class ProfileEditActivity : TerminalActivity() {
                     freshEnvironmentId = java.util.UUID.randomUUID().toString()
                 }
                 updateRuntime(option)
+                updateAutomaticName()
             }
             val selectEnvironment: (Environment) -> Unit = { selected ->
                 updateRuntime(selected.sessionRuntime)
                 avfDistribution = selected.distribution?.name ?: "DEBIAN"
                 selectedEnvironmentId = selected.id.value
                 storageId = selected.storage.id
+                updateAutomaticName(selected.name)
             }
             val rootless = runtime in listOf("ROOTLESS", "ROOTLESS_UBUNTU", "ROOTLESS_ARCH")
             val saveProfile: () -> Unit = {
@@ -139,7 +149,7 @@ class ProfileEditActivity : TerminalActivity() {
                             if (fresh) store.save(profile, Environment.create(profile.runtime,
                                 freshStorageName.ifBlank { EnvironmentRegistry.defaultName(name) }, freshStorageId, EnvironmentId(freshEnvironmentId),
                                 internalStorageAccess = freshInternalStorageAccess,
-                                avfDistribution = dev.terminal.runtime.session.EnvironmentDistribution.valueOf(avfDistribution)))
+                                avfDistribution = EnvironmentDistribution.valueOf(avfDistribution)))
                             else { store.save(profile); requireNotNull(store.find(profile.id)) }
                         }
                     }.onSuccess { profile ->
@@ -173,7 +183,11 @@ class ProfileEditActivity : TerminalActivity() {
                     Text(stringResource(R.string.profile_future_only), modifier = Modifier.padding(horizontal = 4.dp),
                         style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     ProfileSection(R.string.profile_identity) {
-                        ProfileField(R.string.profile_name, name, confirmLabel = R.string.confirm) { name = it; dirty = true }
+                        ProfileField(R.string.profile_name, name, confirmLabel = R.string.confirm) {
+                            if (it != name) nameIsAutomatic = false
+                            name = it
+                            dirty = true
+                        }
                         dev.terminal.app.ui.ProfileIconSetting(icon, runtime) { icon = it; dirty = true }
                     }
                     ProfileSection(R.string.profile_palette) {
@@ -195,8 +209,8 @@ class ProfileEditActivity : TerminalActivity() {
                             storageChoice = selected
                             when (selected) {
                                 "keep" -> current?.let(selectEnvironment)
-                                "fresh" -> { selectedEnvironmentId = ""; storageId = freshStorageId }
-                                else -> { selectedEnvironmentId = ""; storageId = "" }
+                                "fresh" -> { selectedEnvironmentId = ""; storageId = freshStorageId; updateAutomaticName() }
+                                else -> { selectedEnvironmentId = ""; storageId = ""; updateAutomaticName() }
                             }
                             dirty = true
                         }
@@ -216,7 +230,7 @@ class ProfileEditActivity : TerminalActivity() {
                                     SettingsChoice(stringResource(runtimeTitleResource(it.wireName)), it.wireName)
                                 }, runtime) { selectRuntime(SessionRuntime.valueOf(it)) }
                             if (runtime == SessionRuntime.AVF.wireName) SettingsChoiceRow(stringResource(R.string.profile_distribution), null,
-                                dev.terminal.runtime.session.EnvironmentDistribution.entries.map {
+                                EnvironmentDistribution.entries.map {
                                     SettingsChoice(it.avfDistribution.displayName, it.name)
                                 }, avfDistribution) { selected ->
                                 if (selected != avfDistribution) {
@@ -224,6 +238,7 @@ class ProfileEditActivity : TerminalActivity() {
                                     freshStorageId = java.util.UUID.randomUUID().toString()
                                     storageId = freshStorageId
                                     freshEnvironmentId = java.util.UUID.randomUUID().toString()
+                                    updateAutomaticName()
                                     dirty = true
                                 }
                             }
@@ -345,6 +360,17 @@ class ProfileEditActivity : TerminalActivity() {
 internal fun parseProfileArguments(value: String): List<String> {
     val array = JSONArray(value)
     return List(array.length()) { require(array.get(it) is String) { "Arguments must be JSON strings" }; array.getString(it) }
+}
+internal fun defaultProfileName(runtime: SessionRuntime, avfDistribution: EnvironmentDistribution,
+    existingNames: Collection<String>, environmentName: String? = null): String {
+    val base = environmentName ?: when (runtime) {
+        SessionRuntime.NATIVE -> "Native"
+        SessionRuntime.ROOTLESS -> EnvironmentDistribution.DEBIAN.avfDistribution.displayName
+        SessionRuntime.ROOTLESS_UBUNTU -> EnvironmentDistribution.UBUNTU.avfDistribution.displayName
+        SessionRuntime.ROOTLESS_ARCH -> EnvironmentDistribution.ARCH.avfDistribution.displayName
+        SessionRuntime.AVF -> avfDistribution.avfDistribution.displayName
+    }
+    return EnvironmentRegistry.defaultName(base, existingNames)
 }
 internal fun parseProfileEnvironment(value: String): Map<String, String> = buildMap {
     value.lines().filter { it.isNotBlank() }.forEach { line ->

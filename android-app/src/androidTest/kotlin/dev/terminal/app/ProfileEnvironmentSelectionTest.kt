@@ -23,6 +23,97 @@ class ProfileEnvironmentSelectionTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
 
+    @Test fun newProfileDefaultNameIsVisibleRestoredAndSavedWithoutManualInput() {
+        val store = SessionProfiles(context)
+        val originalProfiles = store.all().map { it.id }.toSet()
+        val originalEnvironments = store.environments().map { it.id }.toSet()
+        val expected = EnvironmentRegistry.defaultName("Native", store.all().map { it.name })
+        var saved: SessionProfile? = null
+        try {
+            ActivityScenario.launch(ProfileEditActivity::class.java).use { activity ->
+                click(R.string.profile_name)
+                await { nodes().any { it.isEditable } }
+                assertEquals("The creation screen decides the default name", expected,
+                    nodes().first { it.isEditable }.text?.toString())
+                activity.recreate()
+                await { nodes().any { it.isEditable && it.text?.toString() == expected } }
+                click(R.string.cancel)
+                assertEquals(originalProfiles, store.all().map { it.id }.toSet())
+                assertEquals(originalEnvironments, store.environments().map { it.id }.toSet())
+                click(R.string.profile_save)
+                await { store.all().any { it.id !in originalProfiles && it.name == expected } }
+                val profile = store.all().single { it.id !in originalProfiles && it.name == expected }
+                saved = profile
+                assertEquals(expected, profile.name)
+                assertEquals(originalEnvironments + requireNotNull(profile.environmentId),
+                    store.environments().map { it.id }.toSet())
+            }
+        } finally {
+            saved?.let { profile ->
+                store.delete(profile.id)
+                EnvironmentRegistry(context.filesDir).transaction(store.builtIns()) {
+                    delete(requireNotNull(profile.environmentId))
+                }
+            }
+        }
+    }
+
+    @Test fun defaultNameFollowsSelectionsUntilAManualNameIsConfirmed() = withEnvironments { store, fixtures ->
+        val (targetProfile, target) = fixtures.last()
+        store.save(targetProfile.copy(name = target.name))
+        val existingNames = store.all().map { it.name }
+        val manualName = "My profile ${UUID.randomUUID()}"
+        var saved: SessionProfile? = null
+        try {
+            ActivityScenario.launch(ProfileEditActivity::class.java).use { activity ->
+                choose(R.string.profile_runtime, context.getString(R.string.runtime_rootless_title))
+                assertChoice(R.string.profile_name, EnvironmentRegistry.defaultName("Debian", existingNames))
+                activity.recreate()
+                choose(R.string.profile_distribution, context.getString(R.string.runtime_ubuntu_title))
+                assertChoice(R.string.profile_name, EnvironmentRegistry.defaultName("Ubuntu 24.04 LTS", existingNames))
+                // Cancelling a name edit must leave automatic naming enabled.
+                click(R.string.profile_name)
+                click(R.string.cancel)
+                choose(R.string.profile_storage, context.getString(R.string.profile_storage_existing))
+                click(target.name)
+                assertChoice(R.string.profile_name, "${target.name} (2)")
+                activity.recreate()
+                assertChoice(R.string.profile_name, "${target.name} (2)")
+                choose(R.string.profile_storage, context.getString(R.string.profile_storage_new))
+                assertChoice(R.string.profile_name, EnvironmentRegistry.defaultName("Arch Linux ARM", existingNames))
+                setField(R.string.profile_name, manualName)
+                activity.recreate()
+                choose(R.string.profile_runtime, context.getString(R.string.runtime_native_title))
+                assertChoice(R.string.profile_name, manualName)
+                assertTrue("Names remain draft-only until saving", store.all().none { it.name == manualName })
+                click(R.string.profile_save)
+                await { store.all().any { it.name == manualName } }
+                saved = store.all().single { it.name == manualName }
+                assertEquals(SessionRuntime.NATIVE, saved?.runtime)
+            }
+        } finally {
+            saved?.let { profile ->
+                store.delete(profile.id)
+                EnvironmentRegistry(context.filesDir).transaction(store.builtIns()) {
+                    delete(requireNotNull(profile.environmentId))
+                }
+            }
+        }
+    }
+
+    @Test fun duplicateKeepsItsNameWhenTheRuntimeChangesAndTheScreenIsRecreated() = withEnvironments { store, fixtures ->
+        val profile = fixtures.first().first
+        val originalProfiles = store.all().map { it.id }.toSet()
+        ActivityScenario.launch<ProfileEditActivity>(Intent(context, ProfileEditActivity::class.java)
+            .putExtra("profileId", profile.id).putExtra("duplicate", true)).use { activity ->
+            assertChoice(R.string.profile_name, "${profile.name} copy")
+            choose(R.string.profile_runtime, context.getString(R.string.runtime_rootless_title))
+            activity.recreate()
+            assertChoice(R.string.profile_name, "${profile.name} copy")
+        }
+        assertEquals(originalProfiles, store.all().map { it.id }.toSet())
+    }
+
     @Test fun creationShowsNativeStorageAccessAndOpensAndroidPermissionSettings() {
         val store = SessionProfiles(context)
         val original = store.environments().map { it.id }.toSet()
@@ -150,6 +241,7 @@ class ProfileEnvironmentSelectionTest {
             choose(R.string.profile_storage, context.getString(R.string.profile_storage_new))
             choose(R.string.profile_runtime, context.getString(R.string.runtime_rootless_title))
             choose(R.string.profile_distribution, context.getString(runtimeTitleResource(SessionRuntime.ROOTLESS_UBUNTU.wireName)))
+            assertChoice(R.string.profile_name, profile.name)
             choose(R.string.profile_storage, context.getString(R.string.profile_storage_existing))
             assertEveryEnvironmentListed(store)
             click(current.name)
@@ -157,6 +249,7 @@ class ProfileEnvironmentSelectionTest {
             click(target.name)
             assertSingleEnvironmentRow(target)
             activity.recreate()
+            assertChoice(R.string.profile_name, profile.name)
             assertSelected(target)
             assertEquals("Selection must not save the profile", current.id, store.find(profile.id)?.environmentId)
             choose(R.string.profile_storage, context.getString(R.string.profile_storage_current))
