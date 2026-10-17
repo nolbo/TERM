@@ -40,6 +40,9 @@ public final class TerminalColors implements java.io.Serializable {
     /** Queries and SGR cell colors do not declare a terminal-wide background. */
     public boolean isBackgroundColorSet() { return mBackgroundColorSet; }
 
+    /** Configured session background, independent of live OSC color declarations. */
+    public int getDefaultBackgroundColor() { return mDefaultColors[TextStyle.COLOR_INDEX_BACKGROUND]; }
+
     /** Sets this session's palette only. OSC resets use these defaults, never another session's. */
     public boolean setDefaultColors(java.util.Properties properties) {
         if (properties.equals(mDefaultProperties)) return false;

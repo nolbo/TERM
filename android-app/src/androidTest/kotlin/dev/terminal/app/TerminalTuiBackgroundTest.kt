@@ -167,6 +167,13 @@ class TerminalTuiBackgroundTest {
                 view.attachSession(session)
                 session.updateSize(80, 24, 10, 20)
                 val emulator = requireNotNull(session.emulator)
+                transition.show(view, animate = false)
+                val configuredBackground = emulator.mColors.defaultBackgroundColor
+                emulator.output("\u001b[?1049h")
+                transition.update(view)
+                assertBackground(configuredBackground)
+                assertNull("An unchanged alternate-screen background keeps normal chrome",
+                    requireNotNull(chrome).colorScheme)
                 emulator.output("\u001b[?1049h\u001b[48;2;18;52;86m\u001b[2J")
                 transition.show(view, animate = false)
                 emulator.fillRows(1, 23, "42")
@@ -188,6 +195,8 @@ class TerminalTuiBackgroundTest {
                 transition.update(view)
                 val fallback = emulator.mColors.mCurrentColors[TextStyle.COLOR_INDEX_BACKGROUND]
                 assertBackground(fallback)
+                assertNull("Repainting the default background restores normal chrome",
+                    requireNotNull(chrome).colorScheme)
                 emulator.fillRows(1, 24, "48;2;171;205;239")
                 transition.update(view)
                 assertBackground(0xFFABCDEF.toInt())
@@ -195,12 +204,29 @@ class TerminalTuiBackgroundTest {
                 transition.update(view)
                 assertBackground(fallback)
                 assertNull(requireNotNull(chrome).colorScheme)
+
                 followTuiBackground = true
                 transition.update(view)
                 assertNotNull(requireNotNull(chrome).colorScheme)
                 emulator.output("\u001b[?1049l")
                 transition.update(view)
                 assertBackground(fallback)
+                assertNull(requireNotNull(chrome).colorScheme)
+                // A profile's colored default remains the baseline even after live OSC changes.
+                emulator.mColors.setDefaultColors(java.util.Properties().apply { setProperty("background", "#301b26") })
+                emulator.output("\u001b[?1049h\u001b[0m\u001b[2J\u001b]11;#301b26\u0007")
+                transition.update(view)
+                assertBackground(0xFF301B26.toInt())
+                assertTrue(emulator.mColors.isBackgroundColorSet)
+                assertNull(requireNotNull(chrome).colorScheme)
+                emulator.output("\u001b]11;#163025\u0007")
+                transition.update(view)
+                assertBackground(0xFF163025.toInt())
+                assertNotNull("A different OSC color still generates dynamic roles", requireNotNull(chrome).colorScheme)
+                assertEquals(0xFF301B26.toInt(), emulator.mColors.defaultBackgroundColor)
+                emulator.output("\u001b]11;#301b26\u0007")
+                transition.update(view)
+                assertBackground(0xFF301B26.toInt())
                 assertNull(requireNotNull(chrome).colorScheme)
             } finally {
                 transition.cancel()

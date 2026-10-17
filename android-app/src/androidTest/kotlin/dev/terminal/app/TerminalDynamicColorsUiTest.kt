@@ -31,6 +31,9 @@ import dev.terminal.app.ui.ToolbarHistoryTool
 import dev.terminal.app.ui.colorContrast
 import dev.terminal.app.ui.terminalDynamicColors
 import dev.terminal.app.ui.terminalSheetBackground
+import dev.terminal.app.ui.WorkspaceSelector
+import dev.terminal.runtime.workspace.Workspace
+import dev.terminal.runtime.workspace.WorkspaceRegistry
 import java.util.concurrent.atomic.AtomicReference
 import kotlin.math.abs
 import org.junit.Assert.*
@@ -40,6 +43,38 @@ import org.junit.runner.RunWith
 @RunWith(AndroidJUnit4::class)
 class TerminalDynamicColorsUiTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
+
+    @Test fun workspaceMenuUsesTheTabHighlightAndUpdatesWhileOpen() {
+        val background = mutableStateOf(Color(0xFF301B26))
+        val workspace = Workspace("981e8b9d-cbed-4c75-9561-bdb44c12e668", "Color fixture", false)
+        val state = WorkspaceRegistry.State(workspaces = listOf(workspace))
+        var selected: String? = null
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    val colors = terminalDynamicColors(background.value)
+                    MaterialTheme(colorScheme = requireNotNull(colors.colorScheme)) {
+                        Column(Modifier.fillMaxSize().background(colors.background)) {
+                            Spacer(Modifier.weight(1f))
+                            WorkspaceSelector(state, enabled = true, select = { selected = it },
+                                create = {}, tint = colors.appBarIcon)
+                        }
+                    }
+                } }
+            } }
+            val title = instrumentation.targetContext.getString(R.string.workspace_unassigned)
+            val description = instrumentation.targetContext.getString(R.string.workspace_selector, title)
+            assertTrue(button(description).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            for (sample in listOf(Color(0xFF301B26), Color(0xFF163025), Color(0xFF777879), Color(0xFFF0E0D0))) {
+                scenario.onActivity { background.value = sample }
+                assertMenuColor(title, terminalDynamicColors(sample).selectedTabContainer)
+            }
+            assertTrue(controlNode { it.text?.toString() == workspace.name }
+                .performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            instrumentation.waitForIdleSync()
+            assertEquals(workspace.id, selected)
+        }
+    }
 
     @Test fun hotkeysUseDynamicRolesAndReactToThemeAndCheckedState() {
         val background = mutableStateOf(Color(0xFF301B26))
@@ -131,8 +166,9 @@ class TerminalDynamicColorsUiTest {
                 // Both halves still open the scope menu after changing the TUI palette.
                 assertTrue(button(if (index % 2 == 0) scopeDescription() else scopeMenu)
                     .performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                assertMenuColor(scopeTitle, colors.selectedTabContainer)
                 val title = context.getString(if (index % 2 == 0) R.string.history_scope_output else R.string.history_scope_all)
-                assertTrue(clickableNode { it.text?.toString() == title }.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                assertTrue(controlNode { it.text?.toString() == title }.performAction(AccessibilityNodeInfo.ACTION_CLICK))
                 scopeTitle = title
                 assertButtonColor(scopeDescription(), colors.buttonContainer, sample)
                 assertButtonColor(scopeMenu, colors.buttonContainer, sample)
@@ -178,9 +214,28 @@ class TerminalDynamicColorsUiTest {
     }
 
     private fun button(description: String): AccessibilityNodeInfo =
-        clickableNode { it.contentDescription?.toString() == description }
+        controlNode { it.contentDescription?.toString() == description }
 
-    private fun clickableNode(predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo {
+    private fun assertMenuColor(title: String, expected: Color) {
+        val bounds = Rect()
+        val target = expected.toArgb()
+        val deadline = SystemClock.elapsedRealtime() + 5000
+        var actual = 0
+        while (SystemClock.elapsedRealtime() < deadline) {
+            controlNode(requireClick = false) { it.text?.toString() == title }.getBoundsInScreen(bounds)
+            val screenshot = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+            try {
+                actual = screenshot.getPixel(bounds.centerX(), bounds.top + bounds.height() / 8)
+            } finally { screenshot.recycle() }
+            if (listOf(0, 8, 16).all { shift ->
+                abs(((actual shr shift) and 255) - ((target shr shift) and 255)) <= 5
+            }) return
+            SystemClock.sleep(100)
+        }
+        assertEquals("Rendered selected menu row $title at $bounds", target, actual)
+    }
+
+    private fun controlNode(requireClick: Boolean = true, predicate: (AccessibilityNodeInfo) -> Boolean): AccessibilityNodeInfo {
         fun find(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
             node ?: return null
             if (predicate(node) && node.isVisibleToUser) return node
@@ -192,18 +247,34 @@ class TerminalDynamicColorsUiTest {
             instrumentation.waitForIdleSync()
             instrumentation.uiAutomation.clearCache()
             var node = find(instrumentation.uiAutomation.rootInActiveWindow)
-            while (node != null && !node.isClickable) node = node.parent
+            // A selected Material menu row is checkable but deliberately has no click action.
+            while (node != null && !node.isClickable && (requireClick || !node.isCheckable)) node = node.parent
             if (node != null) return node
             SystemClock.sleep(100)
         }
-        error("Required dynamic-color control was not visible")
+        val details = buildString {
+            fun visit(node: AccessibilityNodeInfo?, depth: Int = 0) {
+                if (node == null || length > 2500) return
+                append("\n${" ".repeat(depth)}${node.text} / ${node.contentDescription}" +
+                    " clickable=${node.isClickable} selected=${node.isSelected}")
+                for (index in 0 until node.childCount) visit(node.getChild(index), depth + 1)
+            }
+            visit(instrumentation.uiAutomation.rootInActiveWindow)
+        }
+        instrumentation.uiAutomation.takeScreenshot()?.let { screenshot ->
+            try {
+                instrumentation.targetContext.cacheDir.resolve("terminal-menu-color-failure.png")
+                    .outputStream().use { screenshot.compress(Bitmap.CompressFormat.PNG, 100, it) }
+            } finally { screenshot.recycle() }
+        }
+        error("Required dynamic-color control was not visible:$details")
     }
 
     private fun assertButtonColor(description: String, expected: Color, background: Color? = null) {
         fun matches(actual: Int, target: Int) = listOf(0, 8, 16).all { shift ->
-            // GPU color conversion shifts a channel by up to four levels on the device.
+            // GPU color conversion shifts a channel by up to five levels on the device.
             // The contrast requirement still uses the rendered pixels without a tolerance.
-            abs(((actual shr shift) and 255) - ((target shr shift) and 255)) <= 4
+            abs(((actual shr shift) and 255) - ((target shr shift) and 255)) <= 5
         }
         val bounds = Rect()
         val target = expected.toArgb()

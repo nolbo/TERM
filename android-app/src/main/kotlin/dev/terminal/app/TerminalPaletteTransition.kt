@@ -40,7 +40,8 @@ internal class TerminalPaletteTransition(
             val background = Color(terminalChromeBackground(
                 emulator, followTuiBackground(), target,
             ))
-            val targetChrome = if (followsTui) terminalDynamicColors(background) else TerminalChromeColors(background)
+            val targetChrome = if (followsTui) terminalDynamicColors(background, Color(colors.defaultBackgroundColor))
+                else TerminalChromeColors(background)
             chrome = fromChrome.interpolate(targetChrome, fraction)
             view.setPaletteOverride(if (fraction < 1f) current else null)
             val canvasBackground = requireNotNull(chrome).background.toArgb()

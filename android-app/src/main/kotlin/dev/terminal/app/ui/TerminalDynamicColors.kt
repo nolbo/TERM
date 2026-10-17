@@ -10,6 +10,7 @@ import com.materialkolor.dynamiccolor.ColorSpec
 import com.materialkolor.hct.Hct
 import com.materialkolor.scheme.DynamicScheme
 import com.materialkolor.scheme.SchemeExpressive
+import com.materialkolor.scheme.SchemeMonochrome
 import kotlin.math.abs
 
 /** Bounded cache: output redraws reuse their palette, without another color-generation pass. */
@@ -17,11 +18,26 @@ private val terminalDynamicColorCache = object : LinkedHashMap<Int, TerminalChro
     override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Int, TerminalChromeColors>) = size > 16
 }
 
-internal fun terminalDynamicColors(background: Color): TerminalChromeColors = synchronized(terminalDynamicColorCache) {
+internal fun terminalDynamicColors(background: Color, defaultBackground: Color? = null): TerminalChromeColors {
+    // Entering alternate screen alone must not recolor the normal terminal UI. Compare with
+    // the configured session default, since the live palette can already contain an OSC color.
+    if (defaultBackground?.toArgb() == background.toArgb()) return TerminalChromeColors(background)
+    return cachedTerminalDynamicColors(background)
+}
+
+private fun cachedTerminalDynamicColors(background: Color): TerminalChromeColors = synchronized(terminalDynamicColorCache) {
     terminalDynamicColorCache.getOrPut(background.toArgb()) {
         val isDark = colorContrast(Color.White, background) >= colorContrast(Color.Black, background)
-        val source = SchemeExpressive(
-            sourceColorHct = Hct.fromInt(background.toArgb()),
+        val seed = Hct.fromInt(background.toArgb())
+        // A near-gray seed has no meaningful hue for Expressive's hue rotations to preserve.
+        val source = if (seed.chroma <= 8.0) SchemeMonochrome(
+            sourceColorHct = seed,
+            isDark = isDark,
+            contrastLevel = 0.0,
+            specVersion = ColorSpec.SpecVersion.SPEC_2025,
+            platform = DynamicScheme.Platform.PHONE,
+        ) else SchemeExpressive(
+            sourceColorHct = seed,
             isDark = isDark,
             contrastLevel = 0.0,
             specVersion = ColorSpec.SpecVersion.SPEC_2025,
@@ -44,14 +60,16 @@ internal fun terminalDynamicColors(background: Color): TerminalChromeColors = sy
             primaryContainer = Color(source.primaryContainer),
             onPrimaryContainer = terminalRoleForeground(Color(source.onPrimaryContainer), Color(source.primaryContainer)),
             inversePrimary = Color(source.inversePrimary),
-            secondary = Color(source.secondary),
-            onSecondary = Color(source.onSecondary),
-            secondaryContainer = Color(source.secondaryContainer),
-            onSecondaryContainer = terminalRoleForeground(Color(source.onSecondaryContainer), Color(source.secondaryContainer)),
-            tertiary = Color(source.tertiary),
-            onTertiary = Color(source.onTertiary),
-            tertiaryContainer = Color(source.tertiaryContainer),
-            onTertiaryContainer = Color(source.onTertiaryContainer),
+            // Legacy menus/tonal controls use secondary, while Expressive menus use tertiary.
+            // Share the primary family with selected tabs across both sets of defaults.
+            secondary = primary,
+            onSecondary = terminalRoleForeground(Color(source.onPrimary), primary),
+            secondaryContainer = Color(source.primaryContainer),
+            onSecondaryContainer = terminalRoleForeground(Color(source.onPrimaryContainer), Color(source.primaryContainer)),
+            tertiary = primary,
+            onTertiary = terminalRoleForeground(Color(source.onPrimary), primary),
+            tertiaryContainer = Color(source.primaryContainer),
+            onTertiaryContainer = terminalRoleForeground(Color(source.onPrimaryContainer), Color(source.primaryContainer)),
             background = background,
             onBackground = foreground,
             surface = background,
@@ -79,14 +97,14 @@ internal fun terminalDynamicColors(background: Color): TerminalChromeColors = sy
             primaryFixedDim = Color(source.primaryFixedDim),
             onPrimaryFixed = Color(source.onPrimaryFixed),
             onPrimaryFixedVariant = Color(source.onPrimaryFixedVariant),
-            secondaryFixed = Color(source.secondaryFixed),
-            secondaryFixedDim = Color(source.secondaryFixedDim),
-            onSecondaryFixed = Color(source.onSecondaryFixed),
-            onSecondaryFixedVariant = Color(source.onSecondaryFixedVariant),
-            tertiaryFixed = Color(source.tertiaryFixed),
-            tertiaryFixedDim = Color(source.tertiaryFixedDim),
-            onTertiaryFixed = Color(source.onTertiaryFixed),
-            onTertiaryFixedVariant = Color(source.onTertiaryFixedVariant),
+            secondaryFixed = Color(source.primaryFixed),
+            secondaryFixedDim = Color(source.primaryFixedDim),
+            onSecondaryFixed = Color(source.onPrimaryFixed),
+            onSecondaryFixedVariant = Color(source.onPrimaryFixedVariant),
+            tertiaryFixed = Color(source.primaryFixed),
+            tertiaryFixedDim = Color(source.primaryFixedDim),
+            onTertiaryFixed = Color(source.onPrimaryFixed),
+            onTertiaryFixedVariant = Color(source.onPrimaryFixedVariant),
         )
         TerminalChromeColors(
             background = background,

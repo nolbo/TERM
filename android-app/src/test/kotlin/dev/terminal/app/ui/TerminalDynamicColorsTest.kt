@@ -9,9 +9,50 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class TerminalDynamicColorsTest {
-    @Test fun normalControlsStayInTheBackgroundColorFamily() {
+    @Test fun selectableMenusShareThePrimaryHighlightFamily() {
+        for (background in listOf(Color(0xFF301B26), Color(0xFF163025), Color(0xFFF0E0D0),
+            Color(0xFF407840), Color(0xFF777777))) {
+            val colors = terminalDynamicColors(background)
+            val scheme = requireNotNull(colors.colorScheme)
+            assertEquals(scheme.primary, scheme.secondary)
+            assertEquals(scheme.onPrimary, scheme.onSecondary)
+            assertEquals(colors.selectedTabContainer, scheme.secondaryContainer)
+            assertEquals(colors.selectedTabContent, scheme.onSecondaryContainer)
+            assertEquals(scheme.primary, scheme.tertiary)
+            assertEquals(scheme.onPrimary, scheme.onTertiary)
+            assertEquals(colors.selectedTabContainer, scheme.tertiaryContainer)
+            assertEquals(colors.selectedTabContent, scheme.onTertiaryContainer)
+            assertTrue(colorContrast(scheme.onSecondaryContainer, scheme.secondaryContainer) >= 4.5f)
+        }
+    }
+
+    @Test fun neutralAndNearNeutralBackgroundsDoNotInventAccentHues() {
+        val samples = (0..255 step 17).map { Color(it, it, it) } + listOf(
+            Color(0xFF18191A), Color(0xFF20221F), Color(0xFF777879), Color(0xFFF0EFEF), Color(0xFFF0E0D0))
+        for (background in samples) {
+            val scheme = requireNotNull(terminalDynamicColors(background).colorScheme)
+            listOf(scheme.primary, scheme.primaryContainer, scheme.secondary, scheme.secondaryContainer,
+                scheme.tertiary, scheme.tertiaryContainer, scheme.surfaceContainerHigh,
+                scheme.primaryFixed, scheme.secondaryFixed, scheme.tertiaryFixed).forEach { role ->
+                assertTrue("Neutral $background produced a colorful role $role",
+                    Hct.fromInt(role.toArgb()).chroma <= 4.0)
+            }
+            assertEquals(background, scheme.background)
+        }
+    }
+
+    @Test fun configuredBackgroundKeepsLegacyColorsEvenAfterTheDynamicPaletteWasCached() {
+        for (background in listOf(Color.Black, Color(0xFF18191A), Color(0xFF301B26), Color(0xFFF0E0D0))) {
+            assertNotNull(terminalDynamicColors(background, Color(0xFF123456)).colorScheme)
+            assertEquals(TerminalChromeColors(background),
+                terminalDynamicColors(background, defaultBackground = background))
+            assertNotNull(terminalDynamicColors(background, Color(0xFF123456)).colorScheme)
+        }
+    }
+
+    @Test fun chromaticControlsStayInTheBackgroundColorFamily() {
         for (background in listOf(Color(0xFF301B26), Color(0xFF163025), Color(0xFF1E2431),
-            Color(0xFFF0E0D0), Color(0xFF407840))) {
+            Color(0xFF407840))) {
             val source = Hct.fromInt(background.toArgb())
             val button = Hct.fromInt(terminalDynamicColors(background).buttonContainer.toArgb())
             val difference = abs(source.hue - button.hue)
