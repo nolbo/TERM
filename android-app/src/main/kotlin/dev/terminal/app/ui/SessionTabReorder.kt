@@ -156,7 +156,8 @@ internal fun ReorderableSessionTabs(sessions: List<SessionUi>, activeSessionId: 
         val valid = currentActive && viewport.contains(pointer) && currentIds == ids
         val index = slots?.indexOfFirst { source in it } ?: -1
         val destination = slots?.let {
-            ((pointer.y - grid.top - grabOffset) / stepPx).roundToInt().coerceIn(0, it.lastIndex)
+            sessionTabDropDestination(index, it.lastIndex, pointer.y - grid.top, stepPx, rowPx,
+                hover.target != null)
         }
         val result = slots?.toMutableList()?.apply {
             if (index >= 0 && destination != null && index != destination) add(destination, removeAt(index))
@@ -231,7 +232,8 @@ internal fun ReorderableSessionTabs(sessions: List<SessionUi>, activeSessionId: 
                             while (true) {
                                 val event = awaitPointerEvent(PointerEventPass.Initial)
                                 val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                if (event.changes.any { it.id != down.id && it.pressed }) break
+                                // Compose sends ACTION_CANCEL as a consumed up event; it must not commit a drop.
+                                if (change.isConsumed || event.changes.any { it.id != down.id && it.pressed }) break
                                 event.changes.forEach { it.consume() }
                                 pointer = grid.topLeft + change.position
                                 updateDrag()
@@ -347,6 +349,13 @@ internal fun liveSessionTabDestination(index: Int, lastIndex: Int, y: Float, gra
     if (destination > index && y < destination * step + height * 0.78f) return index
     if (destination < index && y > destination * step + height * 0.22f) return index
     return destination
+}
+
+/** Keep the live slot at edges/gaps; a quick center drop can still move to a hovered row. */
+internal fun sessionTabDropDestination(index: Int, lastIndex: Int, y: Float, step: Float,
+    height: Float, retainingHover: Boolean = false): Int {
+    val row = (y / step).toInt()
+    return if (row in 0..lastIndex && splitTabHoverContains(y - row * step, height, retainingHover)) row else index
 }
 
 /** A stationary hover arms splitting; passing over a tab still means reordering. */

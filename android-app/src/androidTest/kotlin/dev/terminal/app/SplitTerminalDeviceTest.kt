@@ -335,6 +335,61 @@ class SplitTerminalDeviceTest {
         }
     }
 
+    @Test fun expandedTabReorderPersistsAfterReleaseOutputAndRecreation() = Fixture(listOf("A", "B", "C")).use { fixture ->
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            check(scenario, "Initial session visible") { it.focusedTerminalView() != null }
+            scenario.onActivity {
+                call(it, "attach", fixture.id("A"))
+                MainActivity::class.java.getDeclaredMethod("reorderSessionTabs", List::class.java)
+                    .apply { isAccessible = true }.invoke(it, listOf("A", "B", "C").map(fixture::id))
+            }
+            expandToolbar(scenario)
+            fun savedOrder(): List<String> {
+                val value = context.getSharedPreferences("terminal-ui-state", Context.MODE_PRIVATE)
+                    .getString("session-tab-order", "[]")
+                val order = JSONArray(value)
+                return List(order.length()) { order.getString(it) }.filter { it in fixture.ids.values }
+            }
+            fun assertOrder(vararg titles: String) {
+                val expected = titles.map(fixture::id)
+                await("Released drag saves ${titles.toList()} instead of restoring the original order") { savedOrder() == expected }
+                val positions = titles.map { tabBounds(it).centerY() }
+                assertTrue("Tabs follow the saved order: $positions", positions.zipWithNext().all { (a, b) -> a < b })
+            }
+            assertOrder("A", "B", "C")
+            TabDrag("A", "B").use { drag ->
+                val originalB = drag.to.centerY()
+                drag.moveTo(drag.from.centerX().toFloat(), drag.to.bottom - 1f)
+                await("Neighbor moves before release") { tabBounds("B", false).centerY() < originalB }
+                // Release in the gap after a small reversal. The live preview still puts A below B.
+                drag.moveTo(drag.from.centerX().toFloat(), drag.to.top - 3 * context.resources.displayMetrics.density)
+                drag.release()
+            }
+            assertOrder("B", "A", "C")
+            fixture.runtime.writeSessionInput(fixture.id("A"), "printf 'TAB_ORDER_STAYS\\n'\n".toByteArray())
+            check(scenario, "Output arrives without changing focus") {
+                paneState(it).focusedSessionId == fixture.id("A") &&
+                    "TAB_ORDER_STAYS" in it.focusedTerminalView()!!.mEmulator.screen.transcriptText
+            }
+            assertOrder("B", "A", "C")
+            scenario.recreate()
+            check(scenario, "Focused session restored") { paneState(it).focusedSessionId == fixture.id("A") }
+            assertOrder("B", "A", "C")
+            TabDrag("A", "B").use { drag ->
+                drag.moveTo(drag.from.centerX().toFloat(), drag.to.top + 1f)
+                drag.moveTo(drag.from.centerX().toFloat(), drag.to.bottom + 3 * context.resources.displayMetrics.density)
+                drag.release()
+            }
+            assertOrder("A", "B", "C")
+            TabDrag("A", "B").use { drag ->
+                drag.moveTo(drag.from.centerX().toFloat(), drag.to.bottom - 1f)
+            }
+            assertOrder("A", "B", "C")
+            check(scenario, "Reordering never creates a split") { !paneState(it).split }
+            fixture.assertLive()
+        }
+    }
+
     @Test fun expandedDragReordersThenDwellsForAnimatedSplitAndChoosesBothPaneOrders() = Fixture().use { fixture ->
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             check(scenario, "Initial session visible") { it.focusedTerminalView() != null }

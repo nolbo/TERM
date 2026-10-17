@@ -39,6 +39,30 @@ class SessionTabReorderTest {
         assertEquals(1, liveSessionTabDestination(2, 2, 54f, 24f, 52f, 48f))
     }
 
+    @Test fun releasingInAGapAfterReversingKeepsTheLiveOrderInBothDirections() {
+        val movedDown = liveSessionTabDestination(0, 2, 100f, 24f, 52f, 48f)
+        assertEquals(1, movedDown)
+        assertEquals(movedDown, liveSessionTabDestination(movedDown, 2, 49f, 24f, 52f, 48f))
+        assertEquals(movedDown, sessionTabDropDestination(movedDown, 2, 49f, 52f, 48f))
+
+        val movedUp = liveSessionTabDestination(1, 2, 1f, 24f, 52f, 48f)
+        assertEquals(0, movedUp)
+        assertEquals(movedUp, liveSessionTabDestination(movedUp, 2, 51f, 24f, 52f, 48f))
+        assertEquals(movedUp, sessionTabDropDestination(movedUp, 2, 51f, 52f, 48f))
+    }
+
+    @Test fun quickCenterDropsReorderWithoutWaitingForSplitOrCrossingTheNeighbor() {
+        assertEquals(1, sessionTabDropDestination(0, 2, 76f, 52f, 48f))
+        assertEquals(1, sessionTabDropDestination(2, 2, 76f, 52f, 48f))
+        assertEquals(0, sessionTabDropDestination(1, 2, 24f, 52f, 48f))
+    }
+
+    @Test fun quickDropRetainsAnEnteredHoverAfterSmallDrift() {
+        val y = 52f + 48f * 0.18f
+        assertEquals(0, sessionTabDropDestination(0, 2, y, 52f, 48f))
+        assertEquals(1, sessionTabDropDestination(0, 2, y, 52f, 48f, retainingHover = true))
+    }
+
     @Test fun smallDriftOutsideTheEntryBandKeepsTheOriginalDwellButLeavingTheBodyCancelsIt() {
         val hover = SplitTabHover()
         fun move(y: Float, now: Long): SplitTabPreview? {
