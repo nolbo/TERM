@@ -57,6 +57,7 @@ internal fun HotkeyGrid(
     cellModifier: (Int) -> Modifier = { Modifier },
     minimumRows: Int = 0,
     canvasModifier: Modifier = Modifier,
+    pressInteractionSource: MutableInteractionSource? = null,
     decoration: @Composable BoxScope.(androidx.compose.ui.unit.Dp) -> Unit = {},
     onKey: (Int) -> Unit,
 ) {
@@ -83,9 +84,54 @@ internal fun HotkeyGrid(
                             Text(key.name, fontFamily = LocalTerminalMonospaceFontFamily.current, fontSize = layout.fontSize.sp,
                                 maxLines = 1, overflow = TextOverflow.Ellipsis)
                         }
+                        val interactions = remember { MutableInteractionSource() }
+                        val currentOnKey by rememberUpdatedState({ onKey(index) })
+                        val repeatable = !editing && isRepeatableHotkey(key.shortcut)
+                        var repeatJob by remember { mutableStateOf<Job?>(null) }
+                        var repeated by remember { mutableStateOf(false) }
+                        LaunchedEffect(interactions, key.shortcut, editing, enabled, pressInteractionSource) {
+                            if (editing || !enabled) return@LaunchedEffect
+                            val presses = mutableSetOf<PressInteraction.Press>()
+                            try {
+                                interactions.interactions.collect { interaction ->
+                                    when (interaction) {
+                                        is PressInteraction.Press -> {
+                                            presses.add(interaction)
+                                            pressInteractionSource?.emit(interaction)
+                                            repeatJob?.cancel()
+                                            repeated = false
+                                            if (repeatable) repeatJob = launch {
+                                                delay(400)
+                                                while (isActive) {
+                                                    repeated = true
+                                                    currentOnKey()
+                                                    delay(60)
+                                                }
+                                            }
+                                        }
+                                        is PressInteraction.Release -> {
+                                            presses.remove(interaction.press)
+                                            pressInteractionSource?.emit(interaction)
+                                            repeatJob?.cancel()
+                                        }
+                                        is PressInteraction.Cancel -> {
+                                            presses.remove(interaction.press)
+                                            pressInteractionSource?.emit(interaction)
+                                            repeatJob?.cancel()
+                                            repeated = false
+                                        }
+                                    }
+                                }
+                            } finally {
+                                repeatJob?.cancel()
+                                repeated = false
+                                presses.forEach { pressInteractionSource?.tryEmit(PressInteraction.Cancel(it)) }
+                            }
+                        }
                         if (!editing && key.shortcut in setOf("CTRL", "ALT", "SHIFT")) {
                             FilledTonalToggleButton(
                                 enabled = enabled,
+                                interactionSource = interactions,
                                 checked = when (key.shortcut) {
                                     "CTRL" -> control
                                     "ALT" -> alt
@@ -109,40 +155,6 @@ internal fun HotkeyGrid(
                                 contentPadding = PaddingValues(horizontal = 2.dp),
                             ) { content() }
                         } else {
-                            val interactions = remember { MutableInteractionSource() }
-                            val currentOnKey by rememberUpdatedState({ onKey(index) })
-                            val repeatable = !editing && isRepeatableHotkey(key.shortcut)
-                            var repeatJob by remember { mutableStateOf<Job?>(null) }
-                            var repeated by remember { mutableStateOf(false) }
-                            LaunchedEffect(interactions, key.shortcut, repeatable, enabled) {
-                                if (!repeatable || !enabled) return@LaunchedEffect
-                                try {
-                                    interactions.interactions.collect { interaction ->
-                                        when (interaction) {
-                                            is PressInteraction.Press -> {
-                                                repeatJob?.cancel()
-                                                repeated = false
-                                                repeatJob = launch {
-                                                    delay(400)
-                                                    while (isActive) {
-                                                        repeated = true
-                                                        currentOnKey()
-                                                        delay(60)
-                                                    }
-                                                }
-                                            }
-                                            is PressInteraction.Release -> repeatJob?.cancel()
-                                            is PressInteraction.Cancel -> {
-                                                repeatJob?.cancel()
-                                                repeated = false
-                                            }
-                                        }
-                                    }
-                                } finally {
-                                    repeatJob?.cancel()
-                                    repeated = false
-                                }
-                            }
                             FilledTonalButton(
                                 onClick = {
                                     // Release can reach onClick before the interaction collector.

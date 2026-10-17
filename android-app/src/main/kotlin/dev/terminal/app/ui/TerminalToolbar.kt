@@ -7,6 +7,10 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.interaction.collectIsDraggedAsState
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.PagerState
 import androidx.compose.foundation.pager.PagerDefaults
@@ -28,6 +32,9 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
@@ -48,6 +55,7 @@ internal val LocalToolbarColors = staticCompositionLocalOf { TerminalChromeColor
 /** Share the sheet's animated geometry so tools also follow an interrupted animation or drag. */
 internal val LocalToolbarExpansionProgress = compositionLocalOf<State<Float>> { mutableFloatStateOf(1f) }
 internal val LocalToolbarExpandedContentHeight = compositionLocalOf<Dp?> { null }
+private val LocalToolbarKeyInteractions = staticCompositionLocalOf<MutableInteractionSource?> { null }
 internal val ToolbarHotkeyViewportHeight = (HOTKEY_HEIGHT_DP * 2 + 4 + 8).dp
 
 /** Persistent, non-modal bottom sheet with a handle-only hidden anchor. No runtime ownership. */
@@ -224,9 +232,41 @@ private fun ColumnScope.ToolbarPages(tools: List<String>, pager: PagerState, int
     val currentFling by rememberUpdatedState(fling)
     val defaultConnection = PagerDefaults.pageNestedScrollConnection(pager, Orientation.Horizontal)
     val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) 1f else -1f
-    val navigationEnabled by rememberUpdatedState(interactive && pageNavigationEnabled)
+    val keyInteractions = remember { MutableInteractionSource() }
+    val keyPressed by keyInteractions.collectIsPressedAsState()
+    var pointersDown by remember { mutableStateOf(false) }
+    var keyGestureLocked by remember { mutableStateOf(false) }
+    LaunchedEffect(keyInteractions) {
+        keyInteractions.interactions.collect { interaction ->
+            if (interaction is PressInteraction.Press && pointersDown) keyGestureLocked = true
+        }
+    }
+    val keyGestureObserver = Modifier.pointerInput(keyInteractions) {
+        try {
+            awaitPointerEventScope {
+                while (true) {
+                    val event = awaitPointerEvent(PointerEventPass.Initial)
+                    pointersDown = event.changes.any { it.pressed }
+                    // Leaving a held key cancels its ripple, but must not start paging
+                    // halfway through that same gesture. Wait for every finger to lift.
+                    if (!pointersDown) keyGestureLocked = false
+                }
+            }
+        } finally {
+            pointersDown = false
+            keyGestureLocked = false
+        }
+    }
+    val navigationEnabled by rememberUpdatedState(
+        interactive && pageNavigationEnabled && !keyPressed && !keyGestureLocked)
     val pageConnection = remember(pager, defaultConnection, direction) {
         object : NestedScrollConnection by defaultConnection {
+            override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset =
+                if (navigationEnabled) defaultConnection.onPreScroll(available, source) else Offset.Zero
+
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
+                if (navigationEnabled) defaultConnection.onPostScroll(consumed, available, source) else Offset.Zero
+
             override suspend fun onPreFling(available: Velocity): Velocity {
                 if (!navigationEnabled || pager.currentPageOffsetFraction == 0f) return Velocity.Zero
                 // A tab-list edge drag has moved the pager. Snap with the original release
@@ -234,12 +274,17 @@ private fun ColumnScope.ToolbarPages(tools: List<String>, pager: PagerState, int
                 pager.scroll { with(currentFling) { performFling(available.x * direction) } }
                 return Velocity(available.x, 0f)
             }
+
+            override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
+                if (navigationEnabled) defaultConnection.onPostFling(consumed, available) else Velocity.Zero
         }
     }
-    HorizontalPager(state = pager, userScrollEnabled = interactive && pageNavigationEnabled,
-        flingBehavior = fling, pageNestedScrollConnection = pageConnection,
-        key = { tools[it] }, modifier = Modifier.weight(1f).fillMaxWidth()) { page ->
-        content(tools[page], interactive && !pager.isScrollInProgress && page == pager.currentPage)
+    CompositionLocalProvider(LocalToolbarKeyInteractions provides keyInteractions) {
+        HorizontalPager(state = pager, userScrollEnabled = navigationEnabled,
+            flingBehavior = fling, pageNestedScrollConnection = pageConnection,
+            key = { tools[it] }, modifier = Modifier.weight(1f).fillMaxWidth().then(keyGestureObserver)) { page ->
+            content(tools[page], interactive && !pager.isScrollInProgress && page == pager.currentPage)
+        }
     }
 }
 
@@ -260,9 +305,22 @@ internal fun ToolbarScrollEdges(backward: Boolean, forward: Boolean, modifier: M
 internal fun ToolbarHotkeys(layout: HotkeyLayout, control: Boolean, alt: Boolean, shift: Boolean,
     colors: TerminalChromeColors, enabled: Boolean, onKey: (TerminalToolbarKey) -> Unit) {
     val scroll = rememberScrollState()
+    val keyInteractions = LocalToolbarKeyInteractions.current ?: remember { MutableInteractionSource() }
+    val keyPressed by keyInteractions.collectIsPressedAsState()
+    val dragged by scroll.interactionSource.collectIsDraggedAsState()
+    val density = LocalDensity.current.density
+    val snapMotion = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
+    LaunchedEffect(scroll, layout, density, snapMotion) {
+        snapshotFlow { scroll.isScrollInProgress || dragged || keyPressed }.distinctUntilChanged().collect { busy ->
+            if (!busy) {
+                val target = hotkeyScrollSnapOffset(layout, scroll.value, scroll.maxValue, scroll.viewportSize, density)
+                if (target != scroll.value) launch { scroll.animateScrollTo(target, snapMotion) }
+            }
+        }
+    }
     Box(Modifier.fillMaxSize().clipToBounds()) {
         HotkeyGrid(layout = layout, control = control, alt = alt, shift = shift, terminalColors = colors,
-            enabled = enabled,
+            enabled = enabled, pressInteractionSource = keyInteractions,
             modifier = Modifier.fillMaxSize().verticalScroll(scroll).padding(4.dp)) { index ->
             onKey(when (val shortcut = layout.keys[index].shortcut) {
                 "CTRL" -> TerminalToolbarKey.Control
