@@ -61,6 +61,9 @@ and prerelease builds (`dev.terminal.app`). Their settings, runtime data, and
 sessions are separate. Update debug builds by installing a new APK signed with
 the same debug key; release-channel updates are disabled in the debug app.
 See [debug build details](docs/DEBUG_BUILDS.md).
+Debug APK version codes advance automatically from UTC time and a persistent
+local record, independently of the signed-release workflow sequence. Repeated
+builds and clock rollback do not lower the next local debug version.
 
 ## Update versions
 

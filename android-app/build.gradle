@@ -18,7 +18,7 @@ def updateChannel = providers.environmentVariable('TERMINAL_UPDATE_CHANNEL')
     .orElse(gitOutput(['branch', '--show-current']) == 'dev' ? 'dev' : 'main').get()
 if (!(updateChannel in ['main', 'dev'])) throw new GradleException('Update channel must be main or dev.')
 def updateRevision = providers.environmentVariable('TERMINAL_UPDATE_REVISION')
-    .orElse(gitOutput(['rev-parse', '--verify', "origin/${updateChannel}"])).get()
+    .orElse(gitOutput(['rev-parse', '--verify', 'HEAD'])).get()
 if (!(updateRevision ==~ /[0-9a-f]{40}/)) throw new GradleException('Update revision must be a full commit SHA.')
 if (gitOutput(['rev-parse', '--is-shallow-repository']) != 'false') {
     throw new GradleException('Full Git history is required for update versions. Run git fetch --unshallow before building.')
@@ -125,6 +125,25 @@ android {
         // These are verified runtime inputs, not newly linked JNI libraries.
         // Preserve exact bytes across local/CI strip-tool versions.
         jniLibs.keepDebugSymbols += ['**/libproot.so', '**/libproot-loader.so', '**/libproot-faststat.so']
+    }
+}
+
+// Debug has its own application ID and install sequence. Never reuse the
+// release workflow number or a remote commit count for local debug updates.
+def debugVersionCode = providers.exec {
+    commandLine 'python3', rootProject.file('tools/updates/debug-version-code.py'),
+        '--state-file', new File(gradle.gradleUserHomeDir, 'terminal/debug-version.sqlite3'),
+        '--minimum', providers.environmentVariable('TERMINAL_DEBUG_MIN_VERSION_CODE').orElse(updateCodeText).get()
+}.standardOutput.asText.map { it.trim().toInteger() }
+
+androidComponents {
+    onVariants(selector().withBuildType('debug')) { variant ->
+        variant.outputs.each { output ->
+            output.versionCode.set(debugVersionCode)
+            output.versionName.set(debugVersionCode.map { code ->
+                "${appBaseVersion}+${updateChannel}.${code}.${updateRevision.take(12)}-debug".toString()
+            })
+        }
     }
 }
 
