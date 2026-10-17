@@ -23,6 +23,7 @@ import dev.terminal.view.TerminalView
 import dev.terminal.view.TerminalRenderer
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.lifecycle.VmRuntimeService
+import dev.terminal.runtime.workspace.WorkspaceRegistry
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
 import org.json.JSONArray
@@ -178,6 +179,7 @@ class TerminalTuiLifecycleTest {
                         .apply { isAccessible = true }.get(activity) as androidx.compose.runtime.MutableState<ToolbarSheetMode>
                     state.value = mode
                 }
+                // Let the requested mode render before checking its geometry.
                 SystemClock.sleep(1500)
                 val label = context.getString(R.string.toolbar_handle)
                 fun find(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
@@ -186,29 +188,42 @@ class TerminalTuiLifecycleTest {
                     for (i in 0 until node.childCount) find(node.getChild(i))?.let { return it }
                     return null
                 }
-                instrumentation.uiAutomation.clearCache()
-                val root = instrumentation.uiAutomation.rootInActiveWindow
-                val labels = mutableListOf<String>()
-                fun dump(node: AccessibilityNodeInfo?) {
-                    if (node == null) return
-                    if (node.contentDescription != null) labels += node.contentDescription.toString()
-                    for (i in 0 until node.childCount) dump(node.getChild(i))
-                }
-                dump(root)
-                val handle = checkNotNull(find(root)) { "$mode: missing $label, descriptions=$labels" }
-                val bounds = Rect().also { handle.getBoundsInScreen(it) }
-                scenario.onActivity {
-                    val terminalView = checkNotNull(view(scenario))
-                    val renderer = TerminalView::class.java.getDeclaredField("mRenderer")
-                        .apply { isAccessible = true }.get(terminalView) as TerminalRenderer
-                    val inset = terminalView.terminalContentTopInset
-                    val top = TerminalRenderer::class.java.getDeclaredField("mFontLineSpacingAndAscent")
-                        .apply { isAccessible = true }.getInt(renderer)
-                    val location = IntArray(2).also { terminalView.getLocationOnScreen(it) }
-                    val gridBottom = location[1] + inset + top + terminalView.currentSession.emulator.mRows * renderer.fontLineSpacing
-                    val gap = bounds.top - gridBottom
-                    assertTrue("$mode: gap=$gap, view=${terminalView.height}, rows=${terminalView.currentSession.emulator.mRows}, line=${renderer.fontLineSpacing}",
-                        kotlin.math.abs(gap - padding) <= 1)
+                var lastWindow = "$mode: no accessibility window observed"
+                var lastGeometry = "terminal geometry not yet available"
+                try {
+                    await("$mode: terminal grid reaches the toolbar handle") {
+                        instrumentation.uiAutomation.clearCache()
+                        val root = instrumentation.uiAutomation.rootInActiveWindow
+                        val handle = find(root)
+                        if (handle == null) {
+                            lastWindow = "$mode: missing $label, package=${root?.packageName}"
+                            false
+                        } else {
+                            val bounds = Rect().also { handle.getBoundsInScreen(it) }
+                            lastWindow = "$mode: handle=$bounds"
+                            var adjacent = false
+                            scenario.onActivity { activity ->
+                                val terminalView = activity.focusedTerminalView()
+                                val emulator = terminalView?.currentSession?.emulator
+                                if (terminalView != null && emulator != null) {
+                                    val renderer = TerminalView::class.java.getDeclaredField("mRenderer")
+                                        .apply { isAccessible = true }.get(terminalView) as TerminalRenderer
+                                    val inset = terminalView.terminalContentTopInset
+                                    val top = TerminalRenderer::class.java.getDeclaredField("mFontLineSpacingAndAscent")
+                                        .apply { isAccessible = true }.getInt(renderer)
+                                    val location = IntArray(2).also { terminalView.getLocationOnScreen(it) }
+                                    val gridBottom = location[1] + inset + top + emulator.mRows * renderer.fontLineSpacing
+                                    val gap = bounds.top - gridBottom
+                                    lastGeometry = "gap=$gap, padding=$padding, view=${terminalView.height}, rows=${emulator.mRows}, " +
+                                        "line=${renderer.fontLineSpacing}, top=${location[1]}, inset=$inset"
+                                    adjacent = kotlin.math.abs(gap - padding) <= 1
+                                }
+                            }
+                            adjacent
+                        }
+                    }
+                } catch (failure: AssertionError) {
+                    throw AssertionError("$lastWindow; last geometry: $lastGeometry", failure)
                 }
             }
         }
@@ -420,7 +435,7 @@ class TerminalTuiLifecycleTest {
     private fun view(scenario: ActivityScenario<MainActivity>): TerminalView? {
         var result: TerminalView? = null
         scenario.onActivity {
-            result = MainActivity::class.java.getDeclaredField("terminalView").apply { isAccessible = true }.get(it) as? TerminalView
+            result = it.focusedTerminalView()
         }
         return result
     }
@@ -439,8 +454,11 @@ class TerminalTuiLifecycleTest {
         }
         assertTrue(context.bindService(Intent(context, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE))
         var owned: String? = null
+        var previousWorkspace: String? = null
         val service = requireNotNull(queue.poll(15, TimeUnit.SECONDS))
         try {
+            previousWorkspace = WorkspaceRegistry.State.parse(service.workspacesJson).selected
+            assertEquals("Select the fixture's unassigned Workspace", "", service.selectWorkspace(WorkspaceRegistry.UNASSIGNED))
             service.startRuntime()
             await("Native runtime ready") { service.state == "READY" }
             fun ids() = JSONArray(service.sessionsJson).let { array -> (0 until array.length()).map { array.getJSONObject(it).getString("id") }.toSet() }
@@ -449,8 +467,15 @@ class TerminalTuiLifecycleTest {
             await("test PTY") { owned = (ids() - previous).singleOrNull(); owned != null }
             test(service, checkNotNull(owned))
         } finally {
-            owned?.let(service::terminateSession)
-            context.unbindService(connection)
+            try {
+                owned?.let(service::terminateSession)
+            } finally {
+                try {
+                    previousWorkspace?.let { assertEquals("Restore the original Workspace", "", service.selectWorkspace(it)) }
+                } finally {
+                    context.unbindService(connection)
+                }
+            }
         }
     }
 

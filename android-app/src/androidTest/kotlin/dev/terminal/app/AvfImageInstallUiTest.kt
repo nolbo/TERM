@@ -228,7 +228,8 @@ class AvfImageInstallUiTest {
                 scenario.onActivity { activity -> activity.setContent {
                     androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalContext provides isolated) {
                         DroidTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
-                            AvfEnvironmentImageSetting(storageId, null, 0, true, false, { retried = true })
+                            AvfEnvironmentImageSetting(storageId, dev.terminal.image.AvfDistribution.DEBIAN,
+                                null, 0, true, false, { retried = true })
                         } }
                     }
                 } }

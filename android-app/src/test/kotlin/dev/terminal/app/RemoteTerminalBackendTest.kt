@@ -5,6 +5,26 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class RemoteTerminalBackendTest {
+    @Test fun paneResizesRejectZeroDimensionsAndCoalesceIdenticalPendingGeometryPerSession() {
+        var firstResizes = 0
+        var secondResizes = 0
+        val first = RemoteTerminalBackend(write = {}, resize = { _, _ -> }, authoritative = true,
+            onGeometry = { firstResizes++ })
+        val second = RemoteTerminalBackend(write = {}, resize = { _, _ -> }, authoritative = true,
+            onGeometry = { secondResizes++ })
+        first.resize(40, 12, 10, 20)
+        repeat(10) { first.resize(40, 12, 10, 20) }
+        first.resize(0, 0, 0, 0)
+        first.resize(80, 0, 10, 20)
+        assertEquals(1, firstResizes)
+        assertEquals(0, secondResizes)
+        assertEquals(40, first.columns)
+        assertEquals(12, first.rows)
+        second.resize(40, 12, 10, 20)
+        first.resize(40, 12, 11, 21)
+        assertEquals(2, firstResizes)
+        assertEquals(1, secondResizes)
+    }
     @Test fun initialGeometryIsSentBeforeAttachmentAndLaterResizesStillWork() {
         val events = mutableListOf<String>()
         val backend = RemoteTerminalBackend(

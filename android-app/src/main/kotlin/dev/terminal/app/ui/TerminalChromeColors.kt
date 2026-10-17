@@ -25,6 +25,16 @@ internal data class TerminalChromeColors(
     val sheetBackground: Color = terminalSheetBackground(background),
 ) {
     val darkSystemIcons = readableForeground(background) == Color.Black
+    val unfocusedSplitTabContent: Color
+        get() {
+            val foreground = readableForeground(selectedTabContainer)
+            val muted = (60..100).asSequence()
+                .map { mix(selectedTabContainer, foreground, it / 100f) }
+                .firstOrNull { colorContrast(it, selectedTabContainer) >= 4.5f } ?: foreground
+            val alternative = if (foreground == Color.White) Color.Black else Color.White
+            return if (muted == selectedTabContent && colorContrast(alternative, selectedTabContainer) >= 4.5f)
+                alternative else muted
+        }
 
     fun interpolate(to: TerminalChromeColors, fraction: Float): TerminalChromeColors {
         if (fraction <= 0f) return this

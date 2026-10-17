@@ -18,6 +18,7 @@ class TerminalChromeColorsTest {
                 colors.appBarIcon to colors.background,
                 colors.foreground to colors.sheetBackground,
                 colors.unselectedTabContent to colors.sheetBackground,
+                colors.unfocusedSplitTabContent to colors.selectedTabContainer,
                 colors.appBarIcon to colors.sheetBackground,
                 colors.checkedContainer to colors.sheetBackground,
                 colors.onContainer to colors.container,
@@ -26,6 +27,8 @@ class TerminalChromeColorsTest {
             ).forEach { (foreground, background) ->
                 assertTrue("Insufficient contrast for $r,$g,$b", colorContrast(foreground, background) >= 4.5f)
             }
+            assertNotEquals("Split focus must remain visible for $r,$g,$b",
+                colors.selectedTabContent.toArgb(), colors.unfocusedSplitTabContent.toArgb())
         }
     }
 

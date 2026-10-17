@@ -52,6 +52,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
@@ -69,7 +70,12 @@ import dev.terminal.app.ui.RootlessProgressUi
 import dev.terminal.app.ui.RenameSessionDialog
 import dev.terminal.app.ui.RuntimeChoiceUi
 import dev.terminal.app.ui.RuntimeSelectionAction
-import dev.terminal.app.ui.RuntimeSessionAttachment
+import dev.terminal.app.ui.TerminalPaneState
+import dev.terminal.app.ui.SplitDirection
+import dev.terminal.app.ui.KEY_TERMINAL_LAYOUTS
+import dev.terminal.app.ui.encodeTerminalLayouts
+import dev.terminal.app.ui.parseTerminalLayouts
+import dev.terminal.app.ui.reconcileWorkspaceLayouts
 import dev.terminal.app.ui.RuntimeUnavailableDialog
 import dev.terminal.app.ui.SessionUi
 import dev.terminal.app.ui.TerminalActivity
@@ -170,7 +176,7 @@ class MainActivity : TerminalActivity() {
     }
     private fun selectWorkspaceFilter(filter: String) {
         val entering = workspaceState.selected != filter
-        getSharedPreferences("workspace-selections", MODE_PRIVATE).edit().putString(workspaceState.selected, activeSessionId).apply()
+        rememberWorkspaceLayout()
         workspaceMutation { service ->
             service.selectWorkspace(filter).also { error ->
                 if (error.isEmpty() && entering) queueWorkspaceStartups(
@@ -178,19 +184,23 @@ class MainActivity : TerminalActivity() {
             }
         }
     }
-    private fun selectVisibleWorkspaceSession() {
+    private fun selectVisibleWorkspaceSession(preferred: String? = null) {
+        if (!workspaceSessionStateKnown) return
         val visible = sessions.filter(::workspaceIncludes)
-        if (visible.none { it.id == activeSessionId }) {
-            terminalView?.saveSessionScrollPosition()
-            val remembered = getSharedPreferences("workspace-selections", MODE_PRIVATE).getString(workspaceState.selected, null)
-            activeSessionId = visible.firstOrNull { it.id == remembered }?.id ?: visible.firstOrNull()?.id
-            if (activeSessionId != null) attach(checkNotNull(activeSessionId)) else {
-                displayedSessionId = null
-                runtimeAttachment.reset()
-                releaseTerminalFocus()
-                updateSessionNotificationFocus()
-            }
+        val target = workspaceState.selected
+        if (layoutWorkspaceId != target) {
+            panelRenderers.keys.forEach { it.saveSessionScrollPosition() }
+            rememberWorkspaceLayout()
         }
+        workspaceLayouts = reconcileWorkspaceLayouts(workspaceLayouts, sessions, workspaceState)
+        val remembered = getSharedPreferences("workspace-selections", MODE_PRIVATE).getString(target, null)
+        val seed = if (layoutWorkspaceId == target) paneState else workspaceLayouts[target]
+            ?: TerminalPaneState(first = remembered ?: preferred ?: activeSessionId)
+        val restoring = layoutWorkspaceId != target
+        layoutWorkspaceId = target
+        val candidates = if (restoring) visible.filter { it.pendingLaunch || it.state == "RUNNING" } else visible
+        applyPaneState(seed.reconcile(candidates, workspaceState.memberships, preferred))
+        ensureVisibleSessionMirrors()
     }
     private var runtimeSessionRows = emptyList<SessionUi>()
     private var unconfirmedAvfLaunches = emptyList<SessionUi>()
@@ -262,7 +272,10 @@ class MainActivity : TerminalActivity() {
     }
     private var runtimeChoices by mutableStateOf(emptyList<RuntimeChoiceUi>())
     private var notificationSessionId: String? = null
-    private var activeSessionId by mutableStateOf<String?>(null)
+    private var paneState by mutableStateOf(TerminalPaneState())
+    private val activeSessionId get() = paneState.focusedSessionId
+    private var workspaceLayouts = emptyMap<String, TerminalPaneState>()
+    private var layoutWorkspaceId: String? = null
     private var ignoreInitialRuntimeFocus = false
     private var runtimeMessage by mutableStateOf("")
     private var feedbackMessage by mutableStateOf<String?>(null)
@@ -292,23 +305,28 @@ class MainActivity : TerminalActivity() {
     private var terminalChromeColors by mutableStateOf(dev.terminal.app.ui.TerminalChromeColors(Color.Black))
     private val terminalSheetBackdrop = dev.terminal.app.ui.TerminalSheetBackdrop()
     private var followTuiBackground = false
-    private val paletteTransition = TerminalPaletteTransition(
-        followTuiBackground = { followTuiBackground },
-    ) { colors ->
-        terminalView?.let { terminalSheetBackdrop.update(it, colors.background) }
-        terminalChromeColors = colors
-    }
     private val updateTerminalChrome = object : Runnable {
         override fun run() {
-            mainHandler.removeCallbacks(this)
-            val view = terminalView ?: return
-            val delay = view.currentSession?.emulator?.synchronizedOutputDelayMillis ?: return
-            if (delay > 0) mainHandler.postDelayed(this, delay)
-            else paletteTransition.update(view)
+            terminalView?.let { panelRenderers[it]?.updateChrome?.run() }
         }
     }
-    private var paletteSessionId: String? = null
-    private var paletteView: TerminalView? = null
+    private inner class PanelRenderer(val view: TerminalView) {
+        var paletteSessionId: String? = null
+        val transition = TerminalPaletteTransition(followTuiBackground = { followTuiBackground }) { colors ->
+            terminalSheetBackdrop.update(view, colors.background)
+            terminalPaneLayout?.setPaneBackground(view, colors.background.toArgb())
+            if (terminalView === view) terminalChromeColors = colors
+        }
+        val updateChrome = object : Runnable {
+            override fun run() {
+                mainHandler.removeCallbacks(this)
+                val delay = view.currentSession?.emulator?.synchronizedOutputDelayMillis ?: return
+                if (delay > 0) mainHandler.postDelayed(this, delay)
+                else transition.update(view)
+            }
+        }
+    }
+    private val panelRenderers = mutableMapOf<TerminalView, PanelRenderer>()
     private var terminalPaddingDp by mutableStateOf(TerminalAppearance.DEFAULT_PADDING_DP)
     private var applicationTerminalTitles by mutableStateOf(emptyMap<String, String>())
     private var toolbarSheetMode by mutableStateOf(ToolbarSheetMode.Default)
@@ -322,19 +340,23 @@ class MainActivity : TerminalActivity() {
     private var rootlessInstallRuntime by mutableStateOf("ROOTLESS")
     private var rootlessInstallInFlight by mutableStateOf(false)
     private var rootlessSessionsBeforeInstall = emptySet<String>()
-    private var displayedSessionId: String? = null
-    private var terminalView: TerminalView? = null
+    private var terminalPaneLayout: TerminalPaneLayout? = null
+    private val terminalView: TerminalView? get() {
+        val session = activeSessionId?.let { terminalSessions[it] } ?: return null
+        return terminalPaneLayout?.terminal(paneState.focusedPaneIndex)?.takeIf { it.currentSession === session }
+    }
+    internal fun focusedTerminalView(): TerminalView? = terminalView
     private var keyboardRequested = false
     private var bindingGeneration = 0L
     private var lastSessionRevision = -1L
     private var workspaceSessionStateKnown by mutableStateOf(false)
     private var listener: IRuntimeStateListener? = null
-    private val runtimeAttachment = RuntimeSessionAttachment()
     private val mainHandler by lazy { Handler(mainLooper) }
     private val terminalStore by lazy { (application as TerminalApplication).terminalSessions }
     private val terminalSessions get() = terminalStore.sessions
     private val sessionExitCodes = mutableMapOf<String, Int>()
     private lateinit var terminalInputCallbacks: TerminalInputCallbacks
+    private val terminalModifiers = TerminalModifierState()
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (!granted) feedbackMessage = "세션 알림을 보려면 앱 설정에서 알림을 허용해 주세요."
@@ -368,6 +390,8 @@ class MainActivity : TerminalActivity() {
         override fun onSessionExited(sessionId: String, exitCode: Int) = runOnUiThread {
             if (generation == bindingGeneration) {
                 sessionExitCodes[sessionId] = exitCode
+                runtimeSessionRows = runtimeSessionRows.map { if (it.id == sessionId) it.copy(state = "EXITED", exitCode = exitCode) else it }
+                renderSessionProjection()
             }
         }
 
@@ -476,6 +500,8 @@ class MainActivity : TerminalActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putString("terminal-toolbar-mode", toolbarSheetMode.name)
+        rememberWorkspaceLayout()
+        outState.putString(KEY_TERMINAL_LAYOUTS, encodeTerminalLayouts(workspaceLayouts))
         activeSessionId?.let { outState.putString("active-session", it) }
         workspaceMoveSession?.let {
             outState.putString("workspace-move-session", it.id)
@@ -512,16 +538,14 @@ class MainActivity : TerminalActivity() {
             val session = terminalSessions[id]
             if (session != null) {
                 updateApplicationTerminalTitle(id, session.title)
-                terminalView?.takeIf { it.currentSession === session }?.let { view ->
+                panelRenderers.keys.filter { it.currentSession === session }.forEach { view ->
                     terminalStore.restoreViewport(view)
                     view.onScreenUpdated()
-                    mainHandler.removeCallbacks(updateTerminalChrome)
-                    updateTerminalChrome.run()
+                    panelRenderers[view]?.updateChrome?.run()
                 }
-            } else if (id == activeSessionId) {
-                displayedSessionId = null
-                runtimeAttachment.reset()
-                attach(id)
+            } else if (id in paneState.sessionIds) {
+                ensureVisibleSessionMirrors()
+                terminalPaneLayout?.requestLayout()
             }
         }
     }
@@ -539,8 +563,11 @@ class MainActivity : TerminalActivity() {
         workspaceMoveSession = savedInstanceState?.getString("workspace-move-session")?.let { id ->
             SessionUi(id, "", savedInstanceState.getString("workspace-move-title").orEmpty(), "UNKNOWN")
         }
-        activeSessionId = savedInstanceState?.getString("active-session")
-            ?: getSharedPreferences("terminal-ui-state", MODE_PRIVATE).getString("active-session", null)
+        val uiPreferences = getSharedPreferences("terminal-ui-state", MODE_PRIVATE)
+        paneState = TerminalPaneState(first = savedInstanceState?.getString("active-session")
+            ?: uiPreferences.getString("active-session", null))
+        workspaceLayouts = parseTerminalLayouts(savedInstanceState?.getString(KEY_TERMINAL_LAYOUTS)
+            ?: uiPreferences.getString(KEY_TERMINAL_LAYOUTS, null))
         selectedLaunchWorkspace = savedInstanceState?.getString("launch-workspace")
         workspaceStartupQueue = savedInstanceState?.getString("workspace-startup-queue")?.let { encoded ->
             org.json.JSONArray(encoded).let { array ->
@@ -593,6 +620,7 @@ class MainActivity : TerminalActivity() {
             onShowKeyboard = ::requestTerminalKeyboard,
             onPinchScale = ::scaleTerminalFont,
             onWebLink = ::openTerminalWebLink,
+            modifiers = terminalModifiers,
         )
         compose(systemBarBackground = { if (activeSessionId != null) terminalChromeColors.background else null }) { TerminalScreen() }
         val notificationPreferences = getSharedPreferences("notification-permission", MODE_PRIVATE)
@@ -614,8 +642,8 @@ class MainActivity : TerminalActivity() {
 
     override fun onStart() {
         super.onStart()
-        observeTerminalSessions()
         activityStarted = true
+        observeTerminalSessions()
         runtimeRetry.reset()
         mainHandler.removeCallbacks(reconnectRuntime)
         bindRuntime()
@@ -633,18 +661,20 @@ class MainActivity : TerminalActivity() {
         refreshProfiles()
         refreshWorkspaces()
         terminalPaddingDp = TerminalAppearance.paddingDp(preferences)
-        terminalView?.let {
-            paletteTransition.capture(it)
-            TerminalAppearance.apply(preferences, it, sessionFontSize(), applyPalette = false)
-            updateTerminalPalette(it)
-            updateTerminalChrome.run()
-            terminalSessions.filterKeys { id -> id != activeSessionId }.forEach { (id, session) ->
-                val palette = sessionPalette(id).asProperties()
-                session.emulator?.mColors?.setDefaultColors(palette)
-                terminalStore.setPalette(id, palette)
-            }
-            applyScrollSettings(it, preferences)
-            it.refresh()
+        selectVisibleWorkspaceSession()
+        panelRenderers.forEach { (view, renderer) ->
+            val id = terminalSessions.entries.firstOrNull { it.value === view.currentSession }?.key ?: return@forEach
+            renderer.transition.capture(view)
+            TerminalAppearance.apply(preferences, view, sessionFontSize(id), applyPalette = false)
+            updateTerminalPalette(view, id)
+            renderer.updateChrome.run()
+            applyScrollSettings(view, preferences)
+            view.refresh()
+        }
+        terminalSessions.filterKeys { id -> id !in paneState.sessionIds }.forEach { (id, session) ->
+            val palette = sessionPalette(id).asProperties()
+            session.emulator?.mColors?.setDefaultColors(palette)
+            terminalStore.setPalette(id, palette)
         }
     }
 
@@ -658,9 +688,13 @@ class MainActivity : TerminalActivity() {
     override fun onStop() {
         activityStarted = false
         keyboardRequested = false
-        terminalView?.removeCallbacks(showTerminalKeyboard)
+        panelRenderers.keys.forEach { it.removeCallbacks(showTerminalKeyboard) }
         mainHandler.removeCallbacks(reconnectRuntime)
-        terminalView?.saveSessionScrollPosition()
+        panelRenderers.keys.forEach { it.saveSessionScrollPosition() }
+        panelRenderers.values.forEach { it.transition.cancel(); mainHandler.removeCallbacks(it.updateChrome) }
+        rememberWorkspaceLayout()
+        // Foreground return must validate even a retained single pane against live descriptors.
+        layoutWorkspaceId = null
         terminalStore.unobserve(this)
         // The store keeps the mirror for a short grace period; runtime ownership is unchanged.
         if (bindingRequested) {
@@ -673,19 +707,16 @@ class MainActivity : TerminalActivity() {
         workspaceStartupConnected = false
         runtime = null
         listener = null
-        runtimeAttachment.reset()
         super.onStop()
     }
 
     override fun onDestroy() {
         // Release only this screen's UI resources.
-        terminalView?.saveSessionScrollPosition()
+        panelRenderers.keys.forEach { it.saveSessionScrollPosition() }
         terminalStore.unobserve(this)
-        paletteTransition.cancel()
-        mainHandler.removeCallbacks(updateTerminalChrome)
-        paletteView = null
+        terminalPaneLayout?.release()
+        terminalPaneLayout = null
         bindingGeneration++
-        terminalView?.removeCallbacks(showTerminalKeyboard)
         mainHandler.removeCallbacks(reconnectRuntime)
         if (bindingRequested) {
             if (bound) {
@@ -693,9 +724,7 @@ class MainActivity : TerminalActivity() {
             }
             runCatching { unbindService(connection) }
         }
-        runtimeAttachment.reset()
         applicationTerminalTitles = emptyMap()
-        displayedSessionId = null
         bindingRequested = false
         bound = false
         workspaceStartupConnected = false
@@ -717,6 +746,7 @@ class MainActivity : TerminalActivity() {
         val edgeToEdgeTerminal = activeSessionId != null
         val topInsets = WindowInsets.statusBars.union(WindowInsets.displayCutout).only(WindowInsetsSides.Top)
         val terminalTopInset = if (edgeToEdgeTerminal) topInsets.getTop(LocalDensity.current) else 0
+        val terminalPaddingPixels = with(LocalDensity.current) { terminalPaddingDp.dp.roundToPx() }
         val screenBackgroundColor = if (activeSessionId == null) {
             MaterialTheme.colorScheme.background
         } else {
@@ -807,36 +837,34 @@ class MainActivity : TerminalActivity() {
                             Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(topInsets),
                             onDismiss = { terminate(loadingSession.id) })
                     } else {
+                        val paneComposition = androidx.compose.runtime.rememberCompositionContext()
+                        val paneHaptics = androidx.compose.runtime.rememberUpdatedState(dev.terminal.app.ui.LocalTerminalHaptics.current)
                         AndroidView(
                             factory = { context ->
-                                TerminalView(context, null).apply {
-                                    setTerminalGridBottomAligned(true)
-                                    isFocusable = true
-                                    isFocusableInTouchMode = true
-                                    terminalView = this
-                                    setTerminalViewClient(terminalInputCallbacks)
-                                    applyScrollSettings(this, terminalPreferences())
-                                    TerminalAppearance.apply(terminalPreferences(), this, applyPalette = false)
-                                }
+                                TerminalPaneLayout(context, ::createTerminalPane, ::attachRenderer,
+                                    ::releaseTerminalPane, ::focusTerminalPane,
+                                    { fraction -> applyPaneState(paneState.copy(fraction = fraction)) },
+                                    parentCompositionContext = paneComposition,
+                                    onDirection = { applyPaneState(paneState.copy(direction = it)) },
+                                    onUnsplit = { applyPaneState(paneState.unsplit()) },
+                                    onCollapseThreshold = { paneHaptics.value.performHapticFeedback(
+                                        androidx.compose.ui.hapticfeedback.HapticFeedbackType.Confirm) },
+                                    onCollapse = { survivor ->
+                                        if (paneState.split) applyPaneState(paneState.copy(focus = survivor).unsplit())
+                                    })
+                                    .also { terminalPaneLayout = it }
                             },
-                            update = { view ->
-                                view.setScrollbackTopInset(terminalTopInset)
-                                attachRenderer(view)
+                            update = { layout ->
+                                layout.update(paneState,
+                                    terminalPaddingPixels,
+                                    terminalTopInset, terminalChromeColors.divider.toArgb(),
+                                    terminalChromeColors.sheetBackground.toArgb())
                             },
-                            onRelease = { view ->
-                                view.saveSessionScrollPosition()
-                                view.removeCallbacks(showTerminalKeyboard)
-                                if (terminalView === view) {
-                                    paletteTransition.cancel()
-                                    mainHandler.removeCallbacks(updateTerminalChrome)
-                                    paletteView = null
-                                    terminalView = null
-                                }
+                            onRelease = { layout ->
+                                layout.release()
+                                if (terminalPaneLayout === layout) terminalPaneLayout = null
                             },
-                            modifier = Modifier.weight(1f).fillMaxWidth()
-                                .clipToBounds()
-                                .background(terminalChromeColors.background)
-                                .padding(terminalPaddingDp.dp),
+                            modifier = Modifier.weight(1f).fillMaxWidth().clipToBounds(),
                         )
                     }
                     val toolbarSessionId = activeSessionId
@@ -898,6 +926,15 @@ class MainActivity : TerminalActivity() {
                                     workspaceSessionStateKnown = runtime != null && workspaceSessionStateKnown,
                                     onRunWorkspaceStartups = ::runWorkspaceStartups,
                                     onInfo = { startActivity(SessionInfoActivity.intent(this@MainActivity, it.id, it.title)) },
+                                    paneState = paneState,
+                                    canSplit = { paneState.canSplitWith(it.id, visibleSessions, workspaceState.memberships) },
+                                    onSplit = { openSplit(it.id) },
+                                    canPair = { source, target -> workspaceSessionStateKnown &&
+                                        source !in terminatingSessionIds && target !in terminatingSessionIds &&
+                                        TerminalPaneState(target).canSplitWith(source, visibleSessions, workspaceState.memberships) },
+                                    onPair = ::pairSessions,
+                                    onUnsplit = { applyPaneState(paneState.unsplit()) },
+                                    onSplitDirection = { applyPaneState(paneState.copy(direction = it)) },
                                 )
                                 HISTORY_TOOL -> ToolbarHistoryTool(active, onReturnToTerminal = ::requestTerminalKeyboard, terminal = {
                                     terminalView?.takeIf {
@@ -1086,22 +1123,23 @@ class MainActivity : TerminalActivity() {
         val replacements = dev.terminal.app.ui.avfLaunchTabReplacements(combined)
         avfFocusHandoffs += sessions.filter { it.pendingLaunch }.mapNotNull { replacements[it.id] }
         sessionTabOrder = sessionTabOrder.map { replacements[it] ?: it }
-        activeSessionId = replacements[activeSessionId] ?: activeSessionId
+        paneState = paneState.remap(replacements)
+        workspaceLayouts = workspaceLayouts.mapValues { it.value.remap(replacements) }
         val updated = orderSessionTabs(combined, sessionTabOrder)
         sessionTabOrder = updated.map { it.id }
         val tabUpdate = reconcileSessionTabs(sessions, activeSessionId, terminatingSessionIds, updated)
         val removedSessionIds = tabUpdate.removedSessionIds
         sessions = updated
-        activeSessionId = tabUpdate.activeSessionId
-        selectVisibleWorkspaceSession()
+        selectVisibleWorkspaceSession(tabUpdate.activeSessionId)
         notificationSessionId?.let { requested ->
             if (updated.any { it.id == requested }) {
                 if (!workspaceState.includes(requested)) {
                     runtime?.selectWorkspace(workspaceState.memberships[requested]
                         ?: dev.terminal.runtime.workspace.WorkspaceRegistry.UNASSIGNED)
                     refreshWorkspaces()
+                    selectVisibleWorkspaceSession()
                 }
-                activeSessionId = requested
+                attach(requested)
                 notificationSessionId = null
             } else if (lastSessionRevision > 0) {
                 notificationSessionId = null
@@ -1122,47 +1160,125 @@ class MainActivity : TerminalActivity() {
                 rootlessInstallInFlight = false
                 rootlessRunning = false
                 rootlessVisible = false
-                if (workspaceIncludes(it)) activeSessionId = it.id
+                if (workspaceIncludes(it)) attach(it.id)
             }
         }
-        val selected = activeSessionId
-        if (selected == null) {
-            runtimeAttachment.reset()
-            releaseTerminalFocus()
-            updateSessionNotificationFocus()
-        } else if (selected != displayedSessionId || runtimeAttachment.sessionId != selected) {
-            attach(selected)
-        }
+        ensureVisibleSessionMirrors()
+        terminalPaneLayout?.requestLayout()
+        updateSessionNotificationFocus()
         getSharedPreferences("terminal-ui-state", MODE_PRIVATE).edit()
             .putString("active-session", activeSessionId)
             .putString(KEY_SESSION_TAB_ORDER, org.json.JSONArray(sessionTabOrder).toString()).apply()
         removedSessionIds.forEach { id ->
             terminalStore.remove(id)
             applicationTerminalTitles = applicationTerminalTitles - id
-            runtimeAttachment.forget(id)
-            if (displayedSessionId == id) displayedSessionId = null
         }
         runtime?.let { service -> runCatching { updateRuntimeChoices(service.runtimeStatusJson) } }
     }
 
     private fun attach(id: String) {
         val selected = sessions.firstOrNull { it.id == id } ?: return
-        paletteTransition.capture(terminalView)
-        activeSessionId = id
-        updateSessionNotificationFocus()
-        getSharedPreferences("terminal-ui-state", MODE_PRIVATE).edit().putString("active-session", id).apply()
-        if (selected.pendingLaunch) {
-            runtimeAttachment.reset()
-            displayedSessionId = null
-            releaseTerminalFocus()
-            return
+        if (!workspaceIncludes(selected)) return
+        applyPaneState(paneState.select(id))
+        ensureVisibleSessionMirrors()
+        terminalPaneLayout?.requestLayout()
+    }
+
+    private fun rememberWorkspaceLayout() {
+        layoutWorkspaceId?.let { workspaceLayouts = workspaceLayouts + (it to paneState) }
+        getSharedPreferences("terminal-ui-state", MODE_PRIVATE).edit()
+            .putString("active-session", activeSessionId)
+            .putString(KEY_TERMINAL_LAYOUTS, encodeTerminalLayouts(workspaceLayouts)).apply()
+    }
+
+    private fun applyPaneState(next: TerminalPaneState) {
+        val previous = paneState
+        val oldView = terminalView
+        if (previous != next) {
+            if (previous.sessionIds != next.sessionIds || previous.focusedPaneIndex != next.focusedPaneIndex)
+                panelRenderers.keys.forEach { it.saveSessionScrollPosition() }
+            paneState = next
         }
-        val session = terminalStore.getOrCreate(id, terminalPreferences().getInt(SettingsDetailActivity.KEY_SCROLLBACK, 10_000),
-            palette = sessionPalette(id).asProperties())
-        updateApplicationTerminalTitle(id, session.title)
-        displayedSessionId = id
-        terminalView?.let(::attachRenderer)
-        attachRuntimeWhenReady(id)
+        rememberWorkspaceLayout()
+        updateSessionNotificationFocus()
+        if (activeSessionId == null || sessions.any { it.id == activeSessionId && it.pendingLaunch }) {
+            releaseTerminalFocus()
+        } else if (previous.focusedSessionId != next.focusedSessionId || oldView !== terminalView) {
+            terminalView?.let { view ->
+                view.requestFocus()
+                getSystemService(InputMethodManager::class.java).restartInput(view)
+                panelRenderers[view]?.updateChrome?.run()
+            }
+        }
+    }
+
+    private fun focusTerminalPane(index: Int) {
+        if (index !in paneState.sessionIds.indices || paneState.focusedPaneIndex == index) return
+        applyPaneState(paneState.copy(focus = index))
+    }
+
+    private fun openSplit(id: String) {
+        if (!workspaceSessionStateKnown || id in terminatingSessionIds) return
+        val landscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val next = paneState.openSplit(id, sessions.filter(::workspaceIncludes), workspaceState.memberships,
+            SplitDirection.default(landscape))
+        applyPaneState(next)
+        ensureVisibleSessionMirrors()
+    }
+
+    private fun pairSessions(source: String, target: String, sourceFirst: Boolean) {
+        if (!workspaceSessionStateKnown || source in terminatingSessionIds || target in terminatingSessionIds) return
+        val landscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        applyPaneState(paneState.pair(source, target, sessions.filter(::workspaceIncludes), workspaceState.memberships,
+            SplitDirection.default(landscape), sourceFirst))
+        ensureVisibleSessionMirrors()
+    }
+
+    private fun ensureVisibleSessionMirrors() {
+        if (!workspaceSessionStateKnown) return
+        paneState.sessionIds.forEach { id ->
+            val descriptor = sessions.firstOrNull { it.id == id && !it.pendingLaunch } ?: return@forEach
+            if (!workspaceIncludes(descriptor)) return@forEach
+            val session = terminalStore.getOrCreate(id,
+                terminalPreferences().getInt(SettingsDetailActivity.KEY_SCROLLBACK, 10_000), sessionPalette(id).asProperties())
+            updateApplicationTerminalTitle(id, session.title)
+            terminalStore.attachWhenReady(id)
+        }
+    }
+
+    private fun createTerminalPane(index: Int): TerminalView {
+        val view = TerminalView(this, null)
+        view.setTerminalGridBottomAligned(true)
+        view.isFocusable = true
+        view.isFocusableInTouchMode = true
+        view.setTerminalViewClient(TerminalInputCallbacks(
+            onModifierStateChanged = ::syncModifierState,
+            onShowKeyboard = ::requestTerminalKeyboard,
+            onPinchScale = ::scaleTerminalFont,
+            onWebLink = ::openTerminalWebLink,
+            isSelected = { terminalView === view }, modifiers = terminalModifiers,
+        ))
+        view.setOnFocusChangeListener { _, focused ->
+            val session = terminalSessions[paneState.sessionIds.getOrNull(index)]
+            if (focused && session != null && view.currentSession === session)
+                focusTerminalPane(index)
+        }
+        view.setSessionScrollPositions(terminalStore.scrollPositions)
+        view.setScrollPositionListener { session, position -> terminalStore.saveViewport(session, position) }
+        applyScrollSettings(view, terminalPreferences())
+        TerminalAppearance.apply(terminalPreferences(), view, applyPalette = false)
+        panelRenderers[view] = PanelRenderer(view)
+        return view
+    }
+
+    private fun releaseTerminalPane(view: TerminalView) {
+        view.saveSessionScrollPosition()
+        view.removeCallbacks(showTerminalKeyboard)
+        panelRenderers.remove(view)?.let {
+            it.transition.cancel()
+            mainHandler.removeCallbacks(it.updateChrome)
+        }
+        view.attachSession(null)
     }
 
     private fun updateApplicationTerminalTitle(sessionId: String, title: String?) {
@@ -1175,28 +1291,24 @@ class MainActivity : TerminalActivity() {
         applicationTerminalTitles = applicationTerminalTitles + (sessionId to normalized)
     }
 
-    private fun attachRuntimeWhenReady(id: String) {
-        if (activeSessionId != id || terminalSessions[id]?.emulator == null) return
-        terminalView?.let(::updateTerminalPalette)
-        runtimeAttachment.select(id, replayTranscript = false)
-        terminalStore.attachWhenReady(id)
-    }
-
-    private fun attachRenderer(view: TerminalView) {
-        view.setSessionScrollPositions(terminalStore.scrollPositions)
-        view.setScrollPositionListener { session, position -> terminalStore.saveViewport(session, position) }
-        val id = activeSessionId ?: return
+    private fun attachRenderer(index: Int, view: TerminalView, id: String) {
         val session = terminalSessions[id] ?: return
         if (view.currentSession === session) {
-            updateTerminalPalette(view)
+            updateTerminalPalette(view, id)
             return
         }
+        panelRenderers[view]?.transition?.capture(view)
+        // Apply the new session's font while detached so the old PTY is never resized for it.
+        view.attachSession(null)
+        TerminalAppearance.apply(terminalPreferences(), view, sessionFontSize(id), applyPalette = false)
         view.attachSession(session)
-        applySessionFontSize(view)
-        updateTerminalPalette(view)
-        // A different shell must get a fresh IME connection/composition buffer.
-        getSystemService(InputMethodManager::class.java).restartInput(view)
-        requestTerminalKeyboard()
+        updateTerminalPalette(view, id)
+        terminalStore.attachWhenReady(id)
+        if (index == paneState.focusedPaneIndex) {
+            view.requestFocus()
+            getSystemService(InputMethodManager::class.java).restartInput(view)
+            requestTerminalKeyboard()
+        }
     }
 
     private fun sessionPalette(id: String): TerminalAppearance.PaletteColors {
@@ -1205,20 +1317,19 @@ class MainActivity : TerminalActivity() {
         return TerminalAppearance.profilePalette(terminalPreferences(), profile)
     }
 
-    private fun updateTerminalPalette(view: TerminalView) {
-        val id = activeSessionId ?: return
+    private fun updateTerminalPalette(view: TerminalView, id: String) {
         val session = terminalSessions[id] ?: return
         if (view.currentSession !== session) return
         val colors = session.emulator?.mColors ?: return
         val palette = sessionPalette(id).asProperties()
         val changed = colors.setDefaultColors(palette)
         terminalStore.setPalette(id, palette)
-        if (paletteSessionId != id || paletteView !== view || changed) {
-            val animate = paletteView === view && paletteSessionId != null
-            paletteSessionId = id
-            paletteView = view
-            paletteTransition.show(view, animate)
-            if (session.emulator.synchronizedOutputDelayMillis > 0) updateTerminalChrome.run()
+        val renderer = panelRenderers[view] ?: return
+        if (renderer.paletteSessionId != id || changed) {
+            val animate = renderer.paletteSessionId != null
+            renderer.paletteSessionId = id
+            renderer.transition.show(view, animate)
+            if (session.emulator.synchronizedOutputDelayMillis > 0) renderer.updateChrome.run()
         }
     }
 
@@ -1231,13 +1342,13 @@ class MainActivity : TerminalActivity() {
         }
     }
 
-    private fun sessionFontSize(): Int {
+    private fun sessionFontSize(id: String? = activeSessionId): Int {
         val defaults = terminalPreferences().getInt(
             SettingsDetailActivity.KEY_FONT_SIZE,
             TerminalAppearance.DEFAULT_FONT_SIZE_SP,
         )
         return sessionFontSizes.get(
-            activeSessionId ?: return defaults.coerceIn(
+            id ?: return defaults.coerceIn(
                 SessionFontSizes.MIN_FONT_SIZE_SP,
                 SessionFontSizes.MAX_FONT_SIZE_SP,
             ),
@@ -1313,7 +1424,7 @@ class MainActivity : TerminalActivity() {
 
     private fun releaseTerminalFocus() {
         keyboardRequested = false
-        terminalView?.let { view ->
+        panelRenderers.keys.toList().forEach { view ->
             view.removeCallbacks(showTerminalKeyboard)
             view.clearFocus()
             WindowCompat.getInsetsController(window, view).hide(WindowInsetsCompat.Type.ime())
@@ -1490,7 +1601,7 @@ class MainActivity : TerminalActivity() {
             if (installationApproved) installationApprovedAvfLaunches += requestId
             val launch = dev.terminal.app.ui.avfLaunchTab(requestId, spec)
             unconfirmedAvfLaunches = unconfirmedAvfLaunches + launch
-            activeSessionId = launch.id
+            paneState = paneState.select(launch.id)
             renderSessionProjection()
             submitPendingAvfLaunches()
         } else {
@@ -1557,9 +1668,11 @@ class MainActivity : TerminalActivity() {
             val filter = intent.getStringExtra("workspace-id") ?: dev.terminal.runtime.workspace.WorkspaceRegistry.UNASSIGNED
             safeRuntimeCall { service ->
                 intent.removeExtra("workspace-launch")
+                rememberWorkspaceLayout()
                 val error = service.selectWorkspace(filter)
                 if (error.isNotEmpty()) feedbackMessage = error else {
                     refreshWorkspaces()
+                    selectVisibleWorkspaceSession()
                     runCatching { selectLaunchSpec(dev.terminal.runtime.session.SessionLaunchSpec.fromJson(encoded)) }
                         .onFailure { feedbackMessage = it.message }
                 }
@@ -1572,7 +1685,6 @@ class MainActivity : TerminalActivity() {
                     it.selectWorkspace(workspaceState.memberships[id] ?: dev.terminal.runtime.workspace.WorkspaceRegistry.UNASSIGNED)
                 }
                 notificationSessionId = null
-                activeSessionId = id
                 attach(id)
             }
             // Never create a replacement if the PTY owner has already lost this session.
@@ -1619,7 +1731,6 @@ class MainActivity : TerminalActivity() {
         runtime = null
         workspaceSessionStateKnown = false
         listener = null
-        runtimeAttachment.reset()
         runtimeMessage = getString(R.string.runtime_reconnecting_prompt)
         if (activityStarted) mainHandler.postDelayed(reconnectRuntime, runtimeRetry.nextDelayMs())
     }

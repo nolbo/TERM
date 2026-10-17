@@ -169,7 +169,7 @@ class TerminalProcessDeathProbe : BroadcastReceiver() {
 
     private fun currentView(store: TerminalSessionStore): dev.terminal.view.TerminalView {
         val owner = TerminalSessionStore::class.java.getDeclaredField("observerOwner").apply { isAccessible = true }.get(store) as MainActivity
-        return MainActivity::class.java.getDeclaredField("terminalView").apply { isAccessible = true }.get(owner) as dev.terminal.view.TerminalView
+        return checkNotNull(owner.focusedTerminalView())
     }
 
     private fun writeProbeScript(runtime: IRuntimeService, id: String, script: String) {

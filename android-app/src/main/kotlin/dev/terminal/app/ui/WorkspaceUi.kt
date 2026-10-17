@@ -137,10 +137,11 @@ internal fun workspaceFilterName(state: WorkspaceRegistry.State): String = when 
 
 @Composable
 internal fun SessionWorkspaceMenu(expanded: Boolean, onRename: () -> Unit, onMove: () -> Unit, onDismiss: () -> Unit,
-    onInfo: () -> Unit = {}) {
+    onInfo: () -> Unit = {}, splitContent: (@Composable () -> Unit)? = null) {
     DropdownMenuPopup(expanded, onDismiss) {
-        DropdownMenuGroup(shapes = MenuDefaults.groupShape(0, 1),
-            modifier = Modifier.verticalScroll(rememberScrollState())) {
+        Column(Modifier.width(IntrinsicSize.Max).verticalScroll(rememberScrollState())) {
+        DropdownMenuGroup(shapes = MenuDefaults.groupShape(0, if (splitContent != null) 2 else 1),
+            modifier = Modifier.fillMaxWidth()) {
             DropdownMenuItem(shape = MenuDefaults.leadingItemShape,
                 text = { Text(stringResource(R.string.rename_session_action)) },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_toolbar_edit), null,
@@ -153,6 +154,11 @@ internal fun SessionWorkspaceMenu(expanded: Boolean, onRename: () -> Unit, onMov
                 text = { Text(stringResource(R.string.session_info_title)) },
                 leadingIcon = { Icon(painterResource(R.drawable.ic_app_info_24), null,
                     modifier = Modifier.size(MenuDefaults.LeadingIconSize)) }, onClick = onInfo)
+        }
+        if (splitContent != null) {
+            Spacer(Modifier.height(MenuDefaults.GroupSpacing))
+            splitContent()
+        }
         }
     }
 }

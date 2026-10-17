@@ -9,6 +9,9 @@ import android.os.IBinder
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.MotionEvent
+import android.view.View
+import android.view.ViewGroup
+import android.view.ViewTreeObserver
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.ScrollState
@@ -20,6 +23,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.ViewRootForTest
+import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ActivityScenario
@@ -871,6 +878,84 @@ class ToolbarUiTest {
         }
     }
 
+    @Test fun defaultSessionTabsReachTheEndBeforeANewGestureChangesTools() {
+        val sessions = (0..5).map {
+            SessionUi("end-scroll-$it", "NATIVE", "End scroll session $it with a long title", "RUNNING")
+        }
+        val selected = mutableStateOf(sessions.first().id)
+        val pair = TerminalPaneState(sessions[0].id, sessions[1].id)
+        var currentTool: String? = null
+        var tabActions = 0
+        var headerScroll: ScrollState? = null
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    val scroll = rememberScrollState()
+                    SideEffect { headerScroll = scroll }
+                    Column(Modifier.fillMaxSize()) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(ToolbarConfig(tools = listOf(SESSIONS_TOOL, "next")),
+                            ToolbarSheetMode.Default, {}, 400.dp, TerminalChromeColors(Color.Black)) { id, active ->
+                            SideEffect { if (active) currentTool = id }
+                            if (id == SESSIONS_TOOL) ToolbarSessionsTool(sessions, selected.value, active,
+                                emptySet(), emptyList(), {}, {}, false,
+                                { selected.value = it; tabActions++ }, { tabActions++ }, { tabActions++ }, {}, {}, {},
+                                headerTabScroll = scroll, paneState = pair)
+                            else Text("next tool", Modifier.fillMaxSize())
+                        }
+                    }
+                } }
+            } }
+            settle()
+            var scroller: AccessibilityNodeInfo? = tabText(sessions.first().title)
+            while (scroller != null && !scroller.isScrollable) scroller = scroller.parent
+            val viewport = bounds(requireNotNull(scroller))
+            val page = bounds(handle())
+            val density = context.resources.displayMetrics.density
+            val x = viewport.right - 12 * density
+            val y = viewport.exactCenterY()
+            val scroll = requireNotNull(headerScroll)
+            val beforeDrag = scroll.value
+            val firstBounds = bounds(tabText(sessions.first().title))
+            // Start the regression at a real, non-edge position without programmatic scrolling.
+            swipe(x, y, -48 * density)
+            assertTrue("The first drag moves the list into its middle: $beforeDrag -> ${scroll.value}/${scroll.maxValue}, viewport=$viewport first=$firstBounds start=($x,$y) tool=$currentTool",
+                scroll.value > 0 && scroll.value < scroll.maxValue)
+            assertEquals("A middle drag keeps the sessions tool selected", SESSIONS_TOOL, currentTool)
+
+            var gestures = 0
+            while (scroll.value < scroll.maxValue && gestures < 8) {
+                val before = scroll.value
+                swipe(x, y, -(viewport.width() - 24 * density))
+                val currentViewport = find { it.isScrollable && bounds(it).height() == viewport.height() }?.let(::bounds)
+                val lastVisible = find { it.text?.toString() == sessions.last().title }?.let(::bounds)
+                assertTrue("Every swipe advances the tab list: gesture=$gestures $before -> ${scroll.value}/${scroll.maxValue} tool=$currentTool viewport=$viewport current=$currentViewport last=$lastVisible actions=$tabActions",
+                    scroll.value > before)
+                assertEquals("Reaching the edge during a list gesture must not change tools", SESSIONS_TOOL, currentTool)
+                gestures++
+            }
+            assertTrue("At least one swipe starts in the middle", gestures > 0)
+            assertEquals("Actual finger swipes reach the list's exact end", scroll.maxValue, scroll.value)
+            val last = bounds(tabText(sessions.last().title))
+            assertTrue("The final tab is visible inside the tab viewport",
+                last.width() > 0 && last.left >= viewport.left && last.right <= viewport.right)
+            assertEquals("Scrolling preserves the selected split session", sessions.first().id, selected.value)
+            assertEquals("Scrolling does not invoke tab actions", 0, tabActions)
+
+            // Only a fresh gesture that starts at the edge may move to the next tool.
+            val edgeX = last.right - 24 * density
+            swipe(edgeX, last.exactCenterY(), -(edgeX - page.left - 8 * density))
+            waitForNode("The next tool snaps after a fresh edge gesture") {
+                it.text?.toString() == "next tool" && bounds(it).let { area ->
+                    area.left == page.left && area.right == page.right
+                }
+            }
+            assertEquals("The new edge gesture keeps existing tool navigation", "next", currentTool)
+            assertEquals("Tool navigation preserves the selected session", sessions.first().id, selected.value)
+            assertEquals("Tool navigation does not invoke tab actions", 0, tabActions)
+        }
+    }
+
     private fun assertDefaultSessionTabEdgeSwipes(layoutDirection: LayoutDirection) {
         val density = context.resources.displayMetrics.density
         val sessions = (0..2).map { SessionUi("edge-$it", "NATIVE", "Edge session $it with a long title", "RUNNING") }
@@ -939,6 +1024,163 @@ class ToolbarUiTest {
                     assertEquals("An edge swipe must not select, rename, or close a tab: $case", 0, tabActions)
                 }
             }
+        }
+    }
+
+    @Test fun inactiveSplitTabsStayGroupedAndRestoreFocusInBothToolbarSizes() {
+        val sessions = listOf("A", "B", "C").map { SessionUi(it, "NATIVE", it, "RUNNING") }
+        val savedPair = TerminalPaneState("A", "B")
+        val panes = mutableStateOf(savedPair.select("C"))
+        val mode = mutableStateOf(ToolbarSheetMode.Default)
+        val selections = mutableListOf<String>()
+        var otherTabActions = 0
+        var showFirstTabs: (() -> Unit)? = null
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    val scroll = rememberScrollState()
+                    val scope = rememberCoroutineScope()
+                    SideEffect { showFirstTabs = { scope.launch { scroll.scrollTo(0) }; Unit } }
+                    Column(Modifier.fillMaxSize()) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(ToolbarConfig(tools = listOf(SESSIONS_TOOL)), mode.value,
+                            { mode.value = it }, 400.dp, TerminalChromeColors(Color.Black)) { _, active ->
+                            ToolbarSessionsTool(sessions, panes.value.focusedSessionId, active, emptySet(), emptyList(),
+                                {}, {}, false, { selections += it; panes.value = panes.value.select(it) },
+                                { otherTabActions++ }, { otherTabActions++ }, {}, {}, {},
+                                headerTabScroll = scroll, paneState = panes.value)
+                        }
+                    }
+                } }
+            } }
+            fun tab(title: String, iconOnly: Boolean = false): AccessibilityNodeInfo {
+                var target: AccessibilityNodeInfo? = if (iconOnly) description(title) else tabText(title)
+                while (target != null && target.stateDescription == null) target = target.parent
+                return requireNotNull(target)
+            }
+            val menuA = context.getString(R.string.workspace_session_menu, "A")
+            val menuB = context.getString(R.string.workspace_session_menu, "B")
+            val animationScale = android.provider.Settings.Global.getFloat(context.contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+            data class MenuFrame(val width: Float?, val menuPresent: Boolean)
+            fun composeRoot(view: View): ViewRootForTest? {
+                if (view is ViewRootForTest) return view
+                if (view is ViewGroup) for (index in 0 until view.childCount) {
+                    composeRoot(view.getChildAt(index))?.let { return it }
+                }
+                return null
+            }
+            fun menuFrame(root: ViewRootForTest): MenuFrame {
+                var width: Float? = null
+                var menuPresent = false
+                fun visit(node: SemanticsNode) {
+                    if (node.config.getOrNull(SemanticsProperties.ContentDescription)?.contains(menuB) == true) menuPresent = true
+                    if (node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == "B" } == true) {
+                        var member: SemanticsNode? = node
+                        while (member != null && member.config.getOrNull(SemanticsProperties.StateDescription) == null) member = member.parent
+                        width = member?.boundsInRoot?.width
+                    }
+                    node.children.forEach(::visit)
+                }
+                visit(root.semanticsOwner.rootSemanticsNode)
+                return MenuFrame(width, menuPresent)
+            }
+            fun captureMenuMotion(action: () -> Unit): List<MenuFrame> {
+                if (animationScale == 0f) { action(); return emptyList() }
+                var root: ViewRootForTest? = null
+                scenario.onActivity { root = composeRoot(it.window.decorView) }
+                val compose = requireNotNull(root)
+                val frames = mutableListOf<MenuFrame>()
+                val listener = ViewTreeObserver.OnPreDrawListener { frames += menuFrame(compose); true }
+                scenario.onActivity { compose.view.viewTreeObserver.addOnPreDrawListener(listener) }
+                try {
+                    action()
+                    var result = emptyList<MenuFrame>()
+                    scenario.onActivity { result = frames.toList() }
+                    return result
+                } finally {
+                    scenario.onActivity { compose.view.viewTreeObserver.removeOnPreDrawListener(listener) }
+                }
+            }
+            val inspectDelay = InstrumentationRegistry.getArguments().getString("split.inspectInactiveMs")
+                ?.toLongOrNull()?.coerceIn(0, 30_000) ?: 0
+            val inspectActiveDelay = InstrumentationRegistry.getArguments().getString("split.inspectActiveMs")
+                ?.toLongOrNull()?.coerceIn(0, 30_000) ?: 0
+            for (size in listOf(ToolbarSheetMode.Default, ToolbarSheetMode.Expanded)) {
+                scenario.onActivity { mode.value = size; panes.value = savedPair.select("C") }
+                settle()
+                val compact = size == ToolbarSheetMode.Default
+                if (compact) {
+                    // Expose the saved group even when C's initial reveal scrolled it out of view.
+                    scenario.onActivity { requireNotNull(showFirstTabs)() }
+                    settle()
+                }
+                assertEquals("The ordinary tab stays selected in $size", "C", panes.value.focusedSessionId)
+                assertTrue("C keeps its selected tab style in $size", tab("C").isSelected)
+                assertEquals(listOf("A", "B"), panes.value.splitSessionIds)
+                assertFalse("Showing C does not display the saved pair", panes.value.split)
+                for (title in listOf("A", "B")) {
+                    val member = tab(title, compact)
+                    assertFalse("The saved $title tab remains unselected in $size", member.isSelected)
+                    if (compact) {
+                        assertNull("Compact inactive members show icons without title text", find { it.text?.toString() == title })
+                        assertEquals("Compact inactive members keep their 48dp width",
+                            48f * context.resources.displayMetrics.density, bounds(member).width().toFloat(), 1f)
+                    }
+                }
+                val inactiveA = if (compact) null else bounds(tab("A"))
+                val inactiveB = if (compact) null else bounds(tab("B"))
+                if (!compact) {
+                    assertNull("An inactive group has no common A menu", find { it.contentDescription?.toString() == menuA })
+                    assertNull("An inactive group has no common B menu", find { it.contentDescription?.toString() == menuB })
+                    val fullRow = bounds(tab("C"))
+                    assertTrue("The inactive pair uses the whole row without a menu slot",
+                        kotlin.math.abs(inactiveA!!.left - fullRow.left) <= 2 &&
+                            kotlin.math.abs(inactiveB!!.right - fullRow.right) <= 2)
+                }
+                if (inspectDelay > 0) {
+                    android.util.Log.i("InactiveSplitInspection", "Inactive split tabs ready: $size")
+                    SystemClock.sleep(inspectDelay)
+                }
+                val showingFrames = if (compact) {
+                    click(description("B")); emptyList()
+                } else captureMenuMotion { click(tabText("B")) }
+                assertEquals("Selecting a member restores both panes in $size", listOf("A", "B"), panes.value.sessionIds)
+                assertEquals("The clicked member receives focus in $size", "B", panes.value.focusedSessionId)
+                assertTrue(panes.value.split)
+                assertEquals(1, panes.value.focus)
+                assertTrue("The restored member uses the selected tab style in $size", tab("B").isSelected)
+                assertFalse("The partner retains unselected semantics in $size", tab("A", compact).isSelected)
+                val activeB = if (compact) null else bounds(tab("B"))
+                if (!compact) {
+                    description(menuB)
+                    val activeWidth = requireNotNull(activeB).width()
+                    val inactiveWidth = requireNotNull(inactiveB).width()
+                    assertTrue("Showing the menu gives it room beside the two tabs", activeWidth < inactiveWidth)
+                    if (animationScale > 0f) assertTrue("The common menu appears through intermediate tab widths: ${showingFrames.take(20)}",
+                        showingFrames.any { it.width != null && it.width > activeWidth + 2 && it.width < inactiveWidth - 2 })
+                }
+                if (inspectActiveDelay > 0) {
+                    android.util.Log.i("ActiveSplitInspection", "Active split tabs ready: $size")
+                    SystemClock.sleep(inspectActiveDelay)
+                }
+                if (!compact) {
+                    val hidingFrames = captureMenuMotion { click(tabText("C")) }
+                    assertEquals("C opens alone again", listOf("C"), panes.value.sessionIds)
+                    assertTrue("C regains selected semantics", tab("C").isSelected)
+                    assertFalse(tab("A").isSelected)
+                    assertFalse(tab("B").isSelected)
+                    assertNull("The hidden common menu has no accessibility node", find { it.contentDescription?.toString() == menuB })
+                    assertNull(find { it.contentDescription?.toString() == menuA })
+                    assertEquals("A reclaims its original width", inactiveA!!.width().toFloat(), bounds(tab("A")).width().toFloat(), 2f)
+                    assertEquals("B reclaims its original width", inactiveB!!.width().toFloat(), bounds(tab("B")).width().toFloat(), 2f)
+                    if (animationScale > 0f) assertTrue("The menu loses semantics while the tabs expand: ${hidingFrames.take(20)}",
+                        hidingFrames.any { !it.menuPresent && it.width != null &&
+                            it.width > activeB!!.width() + 2 && it.width < inactiveB.width() - 2 })
+                }
+            }
+            assertEquals(listOf("B", "B", "C"), selections)
+            assertEquals("Restoring a member does not invoke another tab action", 0, otherTabActions)
         }
     }
 

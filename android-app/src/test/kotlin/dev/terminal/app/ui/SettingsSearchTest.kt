@@ -14,7 +14,7 @@ class SettingsSearchTest {
         assertTrue(visibleSettingsSearchEntries(true).any { it.target.screen == "avf" && it.path.isNotEmpty() })
         assertTrue(unprivileged.any { it.title == R.string.wake_policy })
         assertTrue(unprivileged.any { it.title == R.string.battery_optimization })
-        assertTrue(unprivileged.any { it.title == R.string.debian_image && it.target.screen == "environments" })
+        assertTrue(unprivileged.any { it.title == R.string.avf_image_section && it.target.screen == "environments" })
     }
 
     @Test fun matchesTitlesDescriptionsAndAncestorPaths() {

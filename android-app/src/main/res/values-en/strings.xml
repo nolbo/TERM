@@ -1,4 +1,11 @@
 <resources>
+    <string name="terminal_open_split">Open in split screen</string>
+    <string name="terminal_unsplit">Remove split</string>
+    <string name="terminal_split_side_by_side">Side by side</string>
+    <string name="terminal_split_stacked">Top and bottom</string>
+    <string name="terminal_split_other_pane">Shown in the other split pane</string>
+    <string name="terminal_split_resize">Adjust split ratio</string>
+    <string name="terminal_split_menu">Split screen menu</string>
     <string name="custom_font_import_error">Could not add the font. Check its format and read access.</string>
     <string name="profile_installation_checking">Checking installation</string>
     <string name="profile_installation_installed">Installed</string>

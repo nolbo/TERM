@@ -35,6 +35,8 @@ class RemoteTerminalBackend(
         onStarted()
     }
     override fun resize(columns: Int, rows: Int, cellWidthPixels: Int, cellHeightPixels: Int) {
+        if (columns <= 0 || rows <= 0 || (this.columns == columns && this.rows == rows &&
+                cellWidth == cellWidthPixels && cellHeight == cellHeightPixels)) return
         this.columns = columns; this.rows = rows
         cellWidth = cellWidthPixels; cellHeight = cellHeightPixels
         if (authoritative) onGeometry() else resize(columns, rows)

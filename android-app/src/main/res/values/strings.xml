@@ -1,4 +1,11 @@
 <resources>
+    <string name="terminal_open_split">분할 화면으로 열기</string>
+    <string name="terminal_unsplit">분할 해제</string>
+    <string name="terminal_split_side_by_side">좌우 분할</string>
+    <string name="terminal_split_stacked">상하 분할</string>
+    <string name="terminal_split_other_pane">다른 분할 패널에 표시 중</string>
+    <string name="terminal_split_resize">분할 비율 조절</string>
+    <string name="terminal_split_menu">분할 화면 메뉴</string>
     <string name="terminal_open_links">터미널 링크 열기</string>
     <string name="terminal_open_links_support">링크·주소를 한 번 탭해 브라우저로 엽니다. http/https만 허용하며 더블 탭·스크롤은 유지됩니다.</string>
     <string name="terminal_link_no_browser">웹 링크를 열 수 있는 앱이 없습니다.</string>

@@ -203,6 +203,43 @@ Disabling the option or leaving the alternate screen restores the existing chrom
 The UI renders state and sends typed commands. It never becomes the hidden
 owner of a process, PTY, VM, package operation, or capability grant.
 
+The terminal screen supports at most two pane slots with independent `TerminalView`
+renderers over the existing `TerminalSessionStore` mirrors. `TerminalPaneState`
+stores only session IDs, focused slot, split direction and ratio per logical
+Workspace (including unassigned sessions). Runtime/Environment differences are
+allowed within a Workspace; duplicate IDs and mixed Workspace membership are not.
+The focused pane determines the existing selected tab, input/IME, hotkeys, command
+history and toolbar palette. The UI retains one split pair per Workspace while an
+unrelated tab is viewed alone: selecting a normal tab opens a single renderer, and
+selecting either paired tab restores the pair with its direction and ratio. The
+optional persisted solo selection is separate from the paired IDs/focus; only the
+projected visible IDs determine renderers and PTY geometry. Explicit split actions
+replace the saved pair. Pane replacement, unsplitting and Workspace changes
+only detach presentation; explicit tab termination retains its existing PTY command.
+Authoritative session/membership updates validate saved layouts and collapse an
+invalid pair to a surviving session. Activity restoration never creates sessions.
+`TerminalPaneLayout` remains the stable native owner of the renderer slots. Its
+internal `ComposeView` uses Material 3 Adaptive 1.3.0 `SupportingPaneScaffold`,
+with rectangular split-pane surfaces and a central Material drag handle; the
+single terminal retains its full rectangular bounds without added outer margins.
+The handle uses theme spatial motion to expand while dragging and return on
+release or cancellation, without changing pane geometry or the touch region.
+The official scaffold override preserves both split axes, the existing 20–80%
+ratio and minimum extents, since default vertical reflow requires the first pane
+to occupy at least half the area. Axis and focus changes retain the same native
+slot containers. Renderers bind only after actual, positive layout; lookahead
+geometry never drives binding or native hit testing. The native host alone
+handles touch resizing, while the Compose handle exposes the range and progress
+accessibility action. Neither presentation layer acquires runtime ownership.
+Beyond the normal ratio/minimum bounds, the visible divider follows the raw drag
+with a slightly underdamped spring. Start/end-anchored axis scaling fills both
+panes while their native measured extents stay bounded; animation frames never
+resize PTYs. Cancellation springs presentation back, and a completed collapse
+immediately removes the transform while keeping the opposite session focused.
+Each renderer submits its own settled, positive geometry; identical pending
+geometry is coalesced per remote backend. PTY, Environment and emulator ownership
+remains in `:vmhost`/`UnifiedSessionRegistry`.
+
 ## Local services and port ownership
 
 `LocalServicesActivity` projects the `:vmhost`-owned `LocalServiceManager`/`PortForwardRegistry`; it never starts, prepares, stops or owns an Environment, session, listener or VM. The service exposes appended, authenticated host-UI Binder methods and an invalidation callback. Visible Activities reread authoritative snapshots after invalidation/reconnection and unregister on stop; the dashboard adds no persistent polling service. Manual Native/Userspace Linux registrations and explicit AVF mappings use a bounded app-private preference record and survive Activity/runtime recreation. Live AVF observations are not restored as active after owner death.

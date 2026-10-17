@@ -411,11 +411,16 @@ public final class TerminalView extends View {
      *
      * @param session The {@link TerminalSession} this view will be displaying.
      */
-    public boolean attachSession(TerminalSession session) {
+    private long mInputConnectionGeneration;
+    private boolean mTerminalFocusReported;
+
+    public boolean attachSession(@Nullable TerminalSession session) {
         if (session != mTermSession) mKittyPressedKeys.clear();
         if (session == mTermSession) return false;
         clearHistorySearch();
-        if (mEmulator != null && hasWindowFocus()) mEmulator.sendFocusEvent(false);
+        mInputConnectionGeneration++;
+        if (mEmulator != null && mTerminalFocusReported) mEmulator.sendFocusEvent(false);
+        mTerminalFocusReported = false;
         mScaleFactor = 1.f;
         if (mRenderer != null) mRenderer.clearPresentedFrame();
         stopScrollAnimation();
@@ -442,7 +447,7 @@ public final class TerminalView extends View {
             if (savedPosition != null && mTopRow < 0) anchorToTranscript();
             else mLastTranscriptScroll = mEmulator.getTranscriptRowShiftCounter();
             mEmulator.clearScrollCounter();
-            if (hasWindowFocus()) mEmulator.sendFocusEvent(true);
+            updateTerminalFocus();
         }
 
         return true;
@@ -520,10 +525,23 @@ public final class TerminalView extends View {
         // keyboard on Android TV (see https://github.com/termux/termux-app/issues/221).
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_FULLSCREEN;
 
+        final long generation = mInputConnectionGeneration;
+        final TerminalSession inputSession = mTermSession;
         BaseInputConnection connection = new BaseInputConnection(this, true) {
+
+            private boolean isCurrent() {
+                return generation == mInputConnectionGeneration && inputSession == mTermSession &&
+                    mClient.isTerminalViewSelected();
+            }
+
+            @Override
+            public boolean sendKeyEvent(KeyEvent event) {
+                return isCurrent() && super.sendKeyEvent(event);
+            }
 
             @Override
             public boolean performContextMenuAction(int id) {
+                if (!isCurrent()) return false;
                 if (id == android.R.id.paste || id == android.R.id.pasteAsPlainText) {
                     pasteFromClipboard();
                     return true;
@@ -533,6 +551,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean setComposingText(CharSequence text, int newCursorPosition) {
+                if (!isCurrent()) return false;
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED)
                     mClient.logInfo(LOG_TAG, "IME: setComposingText(\"" + text + "\", " + newCursorPosition + ")");
                 super.setComposingText(text, newCursorPosition);
@@ -542,6 +561,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean finishComposingText() {
+                if (!isCurrent()) { getEditable().clear(); return false; }
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) mClient.logInfo(LOG_TAG, "IME: finishComposingText()");
                 boolean hadComposing = mComposingText != null;
                 super.finishComposingText();
@@ -554,6 +574,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean commitText(CharSequence text, int newCursorPosition) {
+                if (!isCurrent()) return false;
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
                     mClient.logInfo(LOG_TAG, "IME: commitText(\"" + text + "\", " + newCursorPosition + ")");
                 }
@@ -570,6 +591,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean deleteSurroundingText(int leftLength, int rightLength) {
+                if (!isCurrent()) return false;
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED) {
                     mClient.logInfo(LOG_TAG, "IME: deleteSurroundingText(" + leftLength + ", " + rightLength + ")");
                 }
@@ -581,6 +603,7 @@ public final class TerminalView extends View {
 
             @Override
             public boolean setSelection(int start, int end) {
+                if (!isCurrent()) return false;
                 if (TERMINAL_VIEW_KEY_LOGGING_ENABLED)
                     mClient.logInfo(LOG_TAG, "IME: setSelection(" + start + ", " + end + ")");
                 boolean result = super.setSelection(start, end);
@@ -597,6 +620,7 @@ public final class TerminalView extends View {
             }
 
             void sendTextToTerminal(CharSequence text) {
+                if (!isCurrent() || mEmulator == null) return;
                 if (text.length() != 0) scrollToLatest();
                 stopTextSelectionMode();
                 // IME clipboard commits bypass the selection menu. Preserve multiline pastes
@@ -757,7 +781,25 @@ public final class TerminalView extends View {
     @Override
     public void onWindowFocusChanged(boolean hasWindowFocus) {
         super.onWindowFocusChanged(hasWindowFocus);
-        if (mEmulator != null) mEmulator.sendFocusEvent(hasWindowFocus);
+        updateTerminalFocus();
+    }
+
+    @Override
+    protected void onFocusChanged(boolean gainFocus, int direction, android.graphics.Rect previouslyFocusedRect) {
+        super.onFocusChanged(gainFocus, direction, previouslyFocusedRect);
+        if (!gainFocus) {
+            mInputConnectionGeneration++;
+            setComposingTextPreview(null);
+        }
+        updateTerminalFocus();
+    }
+
+    private void updateTerminalFocus() {
+        boolean focused = hasWindowFocus() && hasFocus() && mClient != null && mClient.isTerminalViewSelected();
+        if (mEmulator != null && focused != mTerminalFocusReported) {
+            mEmulator.sendFocusEvent(focused);
+            mTerminalFocusReported = focused;
+        }
     }
 
     private int[] mPaletteOverride;
@@ -1540,7 +1582,9 @@ public final class TerminalView extends View {
         int newColumns = Math.max(4, (int) (viewWidth / mRenderer.mFontWidth));
         int newRows = Math.max(4, (viewHeight - mScrollbackTopInset - mRenderer.mFontLineSpacingAndAscent) / mRenderer.mFontLineSpacing);
 
-        if (mEmulator == null || (newColumns != mEmulator.mColumns || newRows != mEmulator.mRows)) {
+        if (mEmulator == null || (newColumns != mEmulator.mColumns || newRows != mEmulator.mRows) ||
+            mEmulator.getCellWidthPixels() != (int) mRenderer.getFontWidth() ||
+            mEmulator.getCellHeightPixels() != mRenderer.getFontLineSpacing()) {
             mTermSession.updateSize(newColumns, newRows, (int) mRenderer.getFontWidth(), mRenderer.getFontLineSpacing());
             mEmulator = mTermSession.getEmulator();
             anchorToTranscript();

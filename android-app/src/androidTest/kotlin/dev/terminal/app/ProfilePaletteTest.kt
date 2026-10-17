@@ -211,14 +211,13 @@ class ProfilePaletteTest {
                 owned += sessions().first { it.optString("profileId") == profile.id }.getString("id")
             }
             ActivityScenario.launch(MainActivity::class.java).use { activity ->
-                val viewField = MainActivity::class.java.getDeclaredField("terminalView").apply { isAccessible = true }
                 val attach = MainActivity::class.java.getDeclaredMethod("attach", String::class.java).apply { isAccessible = true }
                 fun select(id: String, background: String) {
                     await {
                         var matched = false
                         activity.onActivity {
                             attach.invoke(it, id)
-                            val view = viewField.get(it) as? TerminalView
+                            val view = it.focusedTerminalView()
                             matched = view?.currentSession?.emulator?.mColors?.mCurrentColors
                                 ?.get(TextStyle.COLOR_INDEX_BACKGROUND) == android.graphics.Color.parseColor(background)
                         }
