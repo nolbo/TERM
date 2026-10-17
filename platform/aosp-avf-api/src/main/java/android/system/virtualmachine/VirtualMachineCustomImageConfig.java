@@ -1,9 +1,14 @@
 // Compile-only AOSP API declarations. Never package these classes in an APK.
-// Source ABI: packages/modules/Virtualization @ 175a51b30123fa6b02b541f1969665708f7ec2c3.
+// Base ABI: packages/modules/Virtualization @ 175a51b30123fa6b02b541f1969665708f7ec2c3.
+// Android 17 SharedPath ABI: 22f1c9ee92b146e10c8f5e71338618f77ab1631e.
 package android.system.virtualmachine;
 
 public class VirtualMachineCustomImageConfig {
     public static final class SharedPath {
+        public SharedPath(String path, int hostUid, int hostGid, int guestUid, int guestGid,
+                int mask, String tag, String socket, String socketPath) {
+            throw new UnsupportedOperationException("Compile-only API");
+        }
         public SharedPath(String path, int hostUid, int hostGid, int guestUid, int guestGid,
                 int mask, String tag, String socket, boolean appDomain, String socketPath) {
             throw new UnsupportedOperationException("Compile-only API");

@@ -10,6 +10,7 @@ include ':terminal-emulator'
 include ':terminal-view'
 
 // AVF driver is packaged; the platform API declarations are compile-only.
-include ':aosp-avf-api', ':aosp-avf-runtime'
+include ':aosp-avf-api', ':aosp-avf-compat', ':aosp-avf-runtime'
 project(':aosp-avf-api').projectDir = file('platform/aosp-avf-api')
+project(':aosp-avf-compat').projectDir = file('platform/aosp-avf-compat')
 project(':aosp-avf-runtime').projectDir = file('platform/aosp-avf-runtime')

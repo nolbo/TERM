@@ -1,0 +1,18 @@
+plugins { id 'com.android.library' }
+
+android {
+    namespace 'dev.terminal.avf.compat'
+    compileSdk project.properties.compileSdkVersion.toInteger()
+    defaultConfig { minSdk project.properties.minSdkVersion.toInteger() }
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // Compile the two known ABIs independently of the runtime module's exact OEM jar override.
+    // These platform declarations must never be runtime dependencies.
+    compileOnly project(':aosp-avf-api')
+    testImplementation 'junit:junit:4.13.2'
+}

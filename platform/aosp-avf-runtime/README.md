@@ -19,6 +19,14 @@ After the capability checks, the factory allocates a custom-image builder to che
 
 Verify the built APK with `python3 tools/avf/verify-driver-apk.py android-app/build/outputs/apk/debug/android-app-debug.apk`. This inspects DEX class definitions, including that all compile-only platform classes are absent. `AvfDriverIntegrationTest` verifies the unsupported-device guard and a real Native shell through the runtime service; actual AVF boot still requires an authorized AOSP/ARM64 target and approved image.
 
+## SharedPath ABI compatibility
+
+Android 17 removes `SharedPath`'s `appDomain` boolean at [AOSP revision 22f1c9ee92b146e10c8f5e71338618f77ab1631e](https://android.googlesource.com/platform/packages/modules/Virtualization/+/22f1c9ee92b146e10c8f5e71338618f77ab1631e/libs/framework-virtualization/src/android/system/virtualmachine/VirtualMachineCustomImageConfig.java). Calling only the old ten-argument constructor therefore fails even when the device can run a basic VM. Startup and sharing diagnostics use the same `SharedPathCompat` adapter: SDK 37+ prefers nine arguments, older SDKs prefer ten, and a `NoSuchMethodError` tries the other known ABI for OEM backports. Both missing signatures retain the preferred error and suppress the alternative; access and constructor security errors propagate. Every common export argument remains identical, and the legacy call retains `appDomain=true`.
+
+The small `:aosp-avf-compat` library compiles each direct constructor call in a separate class against the bundled union of declarations. The runtime module can still compile against an exact single-ABI OEM jar through `-PavfFrameworkJar=...`; placing both constructor calls in that module would make such compilation fail. The compatibility library packages only its own classes. Platform permissions, hidden-API policy, directory validation, VM leases and socket ownership remain enforced by their existing boundaries.
+
+Run `:aosp-avf-compat:testDebugUnitTest` for production-bytecode tests against isolated nine-only, ten-only, dual, missing and denied constructor fixtures. This verifies actual method linkage and all exported fields; it does not certify physical-device mounts or SELinux behavior. This APK-only compatibility change reuses existing verified guest images.
+
 ## Fixed initial image mapping
 
 The signed Debian image contract maps disks in this exact order:
