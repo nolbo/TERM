@@ -43,24 +43,42 @@ class SessionTabReorderTest {
         val movedDown = liveSessionTabDestination(0, 2, 100f, 24f, 52f, 48f)
         assertEquals(1, movedDown)
         assertEquals(movedDown, liveSessionTabDestination(movedDown, 2, 49f, 24f, 52f, 48f))
-        assertEquals(movedDown, sessionTabDropDestination(movedDown, 2, 49f, 52f, 48f))
+        assertEquals(movedDown, sessionTabDropDestination(movedDown, 2, 49f, 52f, 48f, 24f))
 
         val movedUp = liveSessionTabDestination(1, 2, 1f, 24f, 52f, 48f)
         assertEquals(0, movedUp)
         assertEquals(movedUp, liveSessionTabDestination(movedUp, 2, 51f, 24f, 52f, 48f))
-        assertEquals(movedUp, sessionTabDropDestination(movedUp, 2, 51f, 52f, 48f))
+        assertEquals(movedUp, sessionTabDropDestination(movedUp, 2, 51f, 52f, 48f, 24f))
     }
 
     @Test fun quickCenterDropsReorderWithoutWaitingForSplitOrCrossingTheNeighbor() {
-        assertEquals(1, sessionTabDropDestination(0, 2, 76f, 52f, 48f))
-        assertEquals(1, sessionTabDropDestination(2, 2, 76f, 52f, 48f))
-        assertEquals(0, sessionTabDropDestination(1, 2, 24f, 52f, 48f))
+        assertEquals(1, sessionTabDropDestination(0, 2, 76f, 52f, 48f, 24f))
+        assertEquals(1, sessionTabDropDestination(2, 2, 76f, 52f, 48f, 24f))
+        assertEquals(0, sessionTabDropDestination(1, 2, 24f, 52f, 48f, 24f))
+    }
+
+    @Test fun upwardDropFromALowGripCommitsTheAlignedSlotWithoutEnteringSplitHover() {
+        val grab = 48f * 0.9f
+        val y = 52f + grab
+        val preview = liveSessionTabDestination(2, 2, y, grab, 52f, 48f)
+        assertEquals(2, preview)
+        assertEquals(1, sessionTabDropDestination(preview, 2, y, 52f, 48f, grab))
+        assertEquals(0, sessionTabDropDestination(1, 2, grab, 52f, 48f, grab))
+    }
+
+    @Test fun downwardDropFromAHighGripCommitsTheAlignedSlotWithoutEnteringSplitHover() {
+        val grab = 48f * 0.1f
+        val y = 52f + grab
+        val preview = liveSessionTabDestination(0, 2, y, grab, 52f, 48f)
+        assertEquals(0, preview)
+        assertEquals(1, sessionTabDropDestination(preview, 2, y, 52f, 48f, grab))
+        assertEquals(2, sessionTabDropDestination(1, 2, 104f + grab, 52f, 48f, grab))
     }
 
     @Test fun quickDropRetainsAnEnteredHoverAfterSmallDrift() {
         val y = 52f + 48f * 0.18f
-        assertEquals(0, sessionTabDropDestination(0, 2, y, 52f, 48f))
-        assertEquals(1, sessionTabDropDestination(0, 2, y, 52f, 48f, retainingHover = true))
+        assertEquals(0, sessionTabDropDestination(0, 2, y, 52f, 48f, 44f))
+        assertEquals(1, sessionTabDropDestination(0, 2, y, 52f, 48f, 44f, retainingHover = true))
     }
 
     @Test fun smallDriftOutsideTheEntryBandKeepsTheOriginalDwellButLeavingTheBodyCancelsIt() {

@@ -196,13 +196,14 @@ class SplitTerminalDeviceTest {
         return requireNotNull(target)
     }
 
-    private inner class TabDrag(source: String, target: String, private val leftBody: Boolean = false) : AutoCloseable {
+    private inner class TabDrag(source: String, target: String, private val leftBody: Boolean = false,
+        grabFraction: Float = 0.5f) : AutoCloseable {
         val from = tabBounds(source)
         val to = tabBounds(target)
         private val down = SystemClock.uptimeMillis()
         private val startX = if (leftBody) from.left + from.width() * 0.15f else from.centerX().toFloat()
         private var x = startX
-        private var y = from.centerY().toFloat()
+        private var y = from.top + from.height() * grabFraction
         private var pressed = true
         private fun event(action: Int, x: Float, y: Float) {
             val value = android.view.MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0)
@@ -381,6 +382,25 @@ class SplitTerminalDeviceTest {
                 drag.release()
             }
             assertOrder("A", "B", "C")
+            // The pointer can stay outside the split-hover band even when the tab reaches its new slot.
+            TabDrag("B", "A", grabFraction = 0.9f).use { drag ->
+                drag.moveTo(drag.to.centerX().toFloat(), drag.to.top + drag.to.height() * 0.9f)
+                drag.release()
+            }
+            assertOrder("B", "A", "C")
+            TabDrag("B", "A", grabFraction = 0.1f).use { drag ->
+                drag.moveTo(drag.to.centerX().toFloat(), drag.to.top + drag.to.height() * 0.1f)
+                drag.release()
+            }
+            assertOrder("A", "B", "C")
+            // A remains focused while the inactive B is moved above and below its narrower body.
+            repeat(2) { index ->
+                TabDrag("B", "A").use { drag -> drag.toTarget(); drag.release() }
+                if (index == 0) assertOrder("B", "A", "C") else assertOrder("A", "B", "C")
+            }
+            check(scenario, "Reordering over the focused tab keeps focus without splitting") {
+                paneState(it).focusedSessionId == fixture.id("A") && !paneState(it).split
+            }
             TabDrag("A", "B").use { drag ->
                 drag.moveTo(drag.from.centerX().toFloat(), drag.to.bottom - 1f)
             }

@@ -157,7 +157,7 @@ internal fun ReorderableSessionTabs(sessions: List<SessionUi>, activeSessionId: 
         val index = slots?.indexOfFirst { source in it } ?: -1
         val destination = slots?.let {
             sessionTabDropDestination(index, it.lastIndex, pointer.y - grid.top, stepPx, rowPx,
-                hover.target != null)
+                grabOffset, hover.target != null)
         }
         val result = slots?.toMutableList()?.apply {
             if (index >= 0 && destination != null && index != destination) add(destination, removeAt(index))
@@ -351,11 +351,15 @@ internal fun liveSessionTabDestination(index: Int, lastIndex: Int, y: Float, gra
     return destination
 }
 
-/** Keep the live slot at edges/gaps; a quick center drop can still move to a hovered row. */
+/** Keep the live slot in gaps; body drops use the hovered center or the dragged tab's position. */
 internal fun sessionTabDropDestination(index: Int, lastIndex: Int, y: Float, step: Float,
-    height: Float, retainingHover: Boolean = false): Int {
+    height: Float, grab: Float, retainingHover: Boolean = false): Int {
     val row = (y / step).toInt()
-    return if (row in 0..lastIndex && splitTabHoverContains(y - row * step, height, retainingHover)) row else index
+    val withinRow = y - row * step
+    if (row !in 0..lastIndex || withinRow !in 0f..height) return index
+    if (splitTabHoverContains(withinRow, height, retainingHover)) return row
+    // Reaching a slot with a low/high grip need not enter the split-hover band.
+    return ((y - grab) / step).roundToInt().coerceIn(0, lastIndex)
 }
 
 /** A stationary hover arms splitting; passing over a tab still means reordering. */
