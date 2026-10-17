@@ -14,6 +14,39 @@ class EnvironmentRegistryTest {
     private fun profile(id: String = UUID.randomUUID().toString(), runtime: SessionRuntime = SessionRuntime.ROOTLESS,
         storage: String = UUID.randomUUID().toString()) = SessionProfile(id, "Development", runtime, "/bin/bash", storageId = storage)
 
+    @Test fun defaultEnvironmentNamesUseTheProfileAndKeepUnreferencedNamesReserved() {
+        val registry = EnvironmentRegistry(temporary.newFolder())
+        registry.transaction {
+            val first = save(profile())
+            assertEquals("env-Development", requireEnvironment(requireNotNull(first.environmentId)).name)
+            val second = save(profile(runtime = SessionRuntime.NATIVE))
+            assertEquals("env-Development (2)", requireEnvironment(requireNotNull(second.environmentId)).name)
+            deleteProfile(first.id, false)
+            val third = save(profile(runtime = SessionRuntime.ROOTLESS_UBUNTU))
+            assertEquals("env-Development (3)", requireEnvironment(requireNotNull(third.environmentId)).name)
+            val custom = Environment.create(SessionRuntime.ROOTLESS, "My environment")
+            save(profile(), custom)
+            assertEquals(custom.name, requireEnvironment(custom.id).name)
+        }
+        EnvironmentRegistry(registry.storage).transaction {
+            assertEquals(setOf("env-Development", "env-Development (2)", "env-Development (3)", "My environment"),
+                all().map { it.name }.toSet())
+        }
+    }
+
+    @Test fun defaultEnvironmentNamesBoundThePrefixAndSuffixWithoutSplittingUnicode() {
+        assertEquals("env-Development", EnvironmentRegistry.defaultEnvironmentName(" Development "))
+        val profileName = "x".repeat(115) + "😀tail"
+        val first = EnvironmentRegistry.defaultEnvironmentName(profileName)
+        val second = EnvironmentRegistry.defaultEnvironmentName(profileName, listOf(first))
+        listOf(first, second).forEach { name ->
+            assertTrue(name.startsWith("env-"))
+            assertTrue(name.length <= StorageRegistry.MAX_NAME_LENGTH)
+            assertTrue(name.none { it.isSurrogate() })
+        }
+        assertTrue(second.endsWith(" (2)"))
+    }
+
     @Test fun avfDistributionsKeepIndependentStorageAndAuthoritativeLaunchMetadata() {
         val registry = EnvironmentRegistry(temporary.newFolder())
         val environments = EnvironmentDistribution.entries.map { distribution ->

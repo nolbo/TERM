@@ -147,7 +147,7 @@ class ProfileEditActivity : TerminalActivity() {
                             if (fresh) null else selectedEnvironmentId.takeIf(String::isNotEmpty)?.let(::EnvironmentId))
                         withContext(Dispatchers.IO) {
                             if (fresh) store.save(profile, Environment.create(profile.runtime,
-                                freshStorageName.ifBlank { EnvironmentRegistry.defaultName(name) }, freshStorageId, EnvironmentId(freshEnvironmentId),
+                                freshStorageName.ifBlank { EnvironmentRegistry.defaultEnvironmentName(name) }, freshStorageId, EnvironmentId(freshEnvironmentId),
                                 internalStorageAccess = freshInternalStorageAccess,
                                 avfDistribution = EnvironmentDistribution.valueOf(avfDistribution)))
                             else { store.save(profile); requireNotNull(store.find(profile.id)) }
@@ -242,7 +242,7 @@ class ProfileEditActivity : TerminalActivity() {
                                     dirty = true
                                 }
                             }
-                            val suggestedName = if (name.isBlank()) "" else EnvironmentRegistry.defaultName(name, environments.map { it.name })
+                            val suggestedName = if (name.isBlank()) "" else EnvironmentRegistry.defaultEnvironmentName(name, environments.map { it.name })
                             ProfileField(R.string.profile_storage_name, freshStorageName.ifBlank { suggestedName },
                                 hint = R.string.profile_storage_name_hint) {
                                 val value = it.filterNot { char -> char.isISOControl() }.take(dev.terminal.runtime.session.StorageRegistry.MAX_NAME_LENGTH)

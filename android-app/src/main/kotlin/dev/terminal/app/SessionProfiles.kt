@@ -60,7 +60,7 @@ class SessionProfiles(context: Context) {
             val fresh = profile.environmentId == null && profile.storageId != "legacy" &&
                 all().none { it.sessionRuntime == profile.runtime && it.storage.id == profile.storageId }
             save(profile, if (fresh) Environment.create(profile.runtime,
-                newStorageName?.takeIf(String::isNotBlank) ?: EnvironmentRegistry.defaultName(profile.name), profile.storageId) else null)
+                newStorageName?.takeIf(String::isNotBlank) ?: EnvironmentRegistry.defaultEnvironmentName(profile.name), profile.storageId) else null)
         }
     }
     fun delete(id: String) {

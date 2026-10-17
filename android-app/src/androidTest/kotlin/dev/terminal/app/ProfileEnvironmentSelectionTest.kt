@@ -28,9 +28,11 @@ class ProfileEnvironmentSelectionTest {
         val originalProfiles = store.all().map { it.id }.toSet()
         val originalEnvironments = store.environments().map { it.id }.toSet()
         val expected = EnvironmentRegistry.defaultName("Native", store.all().map { it.name })
+        val expectedEnvironment = EnvironmentRegistry.defaultName("env-$expected", store.environments().map { it.name })
         var saved: SessionProfile? = null
         try {
             ActivityScenario.launch(ProfileEditActivity::class.java).use { activity ->
+                assertChoice(R.string.profile_storage_name, expectedEnvironment)
                 click(R.string.profile_name)
                 await { nodes().any { it.isEditable } }
                 assertEquals("The creation screen decides the default name", expected,
@@ -38,6 +40,7 @@ class ProfileEnvironmentSelectionTest {
                 activity.recreate()
                 await { nodes().any { it.isEditable && it.text?.toString() == expected } }
                 click(R.string.cancel)
+                assertChoice(R.string.profile_storage_name, expectedEnvironment)
                 assertEquals(originalProfiles, store.all().map { it.id }.toSet())
                 assertEquals(originalEnvironments, store.environments().map { it.id }.toSet())
                 click(R.string.profile_save)
@@ -45,8 +48,42 @@ class ProfileEnvironmentSelectionTest {
                 val profile = store.all().single { it.id !in originalProfiles && it.name == expected }
                 saved = profile
                 assertEquals(expected, profile.name)
+                assertEquals(expectedEnvironment, store.environments().single { it.id == profile.environmentId }.name)
                 assertEquals(originalEnvironments + requireNotNull(profile.environmentId),
                     store.environments().map { it.id }.toSet())
+            }
+        } finally {
+            saved?.let { profile ->
+                store.delete(profile.id)
+                EnvironmentRegistry(context.filesDir).transaction(store.builtIns()) {
+                    delete(requireNotNull(profile.environmentId))
+                }
+            }
+        }
+    }
+
+    @Test fun environmentDefaultNameTracksTheProfileUntilAnEnvironmentNameIsConfirmed() {
+        val store = SessionProfiles(context)
+        val name = "Environment default ${UUID.randomUUID()}"
+        val customEnvironmentName = "My environment ${UUID.randomUUID()}"
+        var saved: SessionProfile? = null
+        try {
+            ActivityScenario.launch(ProfileEditActivity::class.java).use { activity ->
+                setField(R.string.profile_name, name)
+                assertChoice(R.string.profile_storage_name, "env-$name")
+                setField(R.string.profile_name, "$name renamed")
+                activity.recreate()
+                assertChoice(R.string.profile_storage_name, "env-$name renamed")
+                setField(R.string.profile_storage_name, customEnvironmentName)
+                setField(R.string.profile_name, name)
+                activity.recreate()
+                assertChoice(R.string.profile_storage_name, customEnvironmentName)
+                assertTrue(store.environments().none { it.name == customEnvironmentName })
+                click(R.string.profile_save)
+                await { store.all().any { it.name == name } }
+                val profile = store.all().single { it.name == name }
+                saved = profile
+                assertEquals(customEnvironmentName, store.environments().single { it.id == profile.environmentId }.name)
             }
         } finally {
             saved?.let { profile ->

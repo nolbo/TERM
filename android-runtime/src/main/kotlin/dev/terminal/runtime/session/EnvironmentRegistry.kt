@@ -49,7 +49,7 @@ class EnvironmentRegistry(val storage: StorageRegistry) {
                         val linked = profiles.firstOrNull { it.runtime == key.runtime && it.storageId == key.storageId }
                         val id = Environment.migrationId(originalKey)
                         check(!isDeleted(id)) { "Environment has been deleted" }
-                        val name = persistence.name(key) ?: defaultName(linked?.name ?: key.runtime.wireName, names)
+                        val name = persistence.name(key) ?: defaultEnvironmentName(linked?.name ?: key.runtime.wireName, names)
                         val environment = Environment.create(key.runtime, name, key.storageId, id,
                             vmInstanceId = if (key.runtime == SessionRuntime.AVF && originalKey.storageId == "legacy") "default" else key.storageId,
                             internalStorageAccess = true)
@@ -87,7 +87,7 @@ class EnvironmentRegistry(val storage: StorageRegistry) {
                 val key = persistence.canonicalKey(StorageRegistry.Key(spec.runtime, spec.storageId))
                 persistence.validateConnection(key)
                 all().singleOrNull { it.storageKey == key } ?: Environment.create(key.runtime,
-                    defaultName(spec.profileName, all().map { it.name }), key.storageId,
+                    defaultEnvironmentName(spec.profileName, all().map { it.name }), key.storageId,
                     vmInstanceId = if (key.storageId == "legacy" || key.storageId == persistence.migratedLegacyId(key.runtime)) "default" else key.storageId).also {
                     put(it)
                     state.put("storages", JSONArray((persistence.keys() + key).map { storage -> storage.json() }))
@@ -123,7 +123,7 @@ class EnvironmentRegistry(val storage: StorageRegistry) {
                     val key = persistence.canonicalKey(StorageRegistry.Key(profile.runtime, profile.storageId))
                     persistence.validateConnection(key)
                     all().singleOrNull { it.storageKey == key } ?: Environment.create(key.runtime,
-                        defaultName(profile.name, all().map { it.name }), key.storageId,
+                        defaultEnvironmentName(profile.name, all().map { it.name }), key.storageId,
                         vmInstanceId = if (key.storageId == "legacy") "default" else key.storageId)
                 }
             }
@@ -245,6 +245,9 @@ class EnvironmentRegistry(val storage: StorageRegistry) {
         }
     }
     companion object {
+        fun defaultEnvironmentName(profileName: String, existingNames: Collection<String> = emptyList()): String =
+            defaultName("env-${profileName.trim()}", existingNames)
+
         fun defaultName(profileName: String, existingNames: Collection<String> = emptyList()): String {
             val name = profileName.trim().filterNot { it.isISOControl() }.take(StorageRegistry.MAX_NAME_LENGTH)
                 .let { if (it.lastOrNull()?.isHighSurrogate() == true) it.dropLast(1) else it }.ifBlank { "Environment" }
