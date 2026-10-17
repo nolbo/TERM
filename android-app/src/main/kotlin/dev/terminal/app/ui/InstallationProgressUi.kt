@@ -2,11 +2,16 @@
 
 package dev.terminal.app.ui
 
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
+import android.widget.Toast
 import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
@@ -14,6 +19,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.R
@@ -55,6 +61,7 @@ internal fun InstallationProgressCard(
     cancelError: String? = null,
     onRetry: (() -> Unit)? = null,
 ) {
+    val context = LocalContext.current
     Card(modifier.fillMaxWidth(),
         shape = if (LocalSettingsGroup.current) SettingsItemShape else MaterialTheme.shapes.extraLarge,
         colors = if (LocalSettingsGroup.current)
@@ -65,8 +72,17 @@ internal fun InstallationProgressCard(
             Text(status, style = MaterialTheme.typography.bodyLarge,
                 color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
             (error ?: detail)?.takeIf { it.isNotBlank() && it != status }?.let {
-                Text(it, style = MaterialTheme.typography.bodyMedium,
-                    color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                SelectionContainer {
+                    Text(it, style = MaterialTheme.typography.bodyMedium,
+                        color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            error?.takeIf { it.isNotBlank() }?.let { message ->
+                TextButton(onClick = {
+                    (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                        .setPrimaryClip(ClipData.newPlainText("TERM installation error", message))
+                    Toast.makeText(context, R.string.install_error_copied, Toast.LENGTH_SHORT).show()
+                }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.copy_error)) }
             }
             if (progress != null) RootlessProgressIndicator(progress, running = active)
             else if (active) LinearWavyProgressIndicator(Modifier.fillMaxWidth())

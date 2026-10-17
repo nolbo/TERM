@@ -206,6 +206,43 @@ class AvfImageInstallUiTest {
         }
     }
 
+    @Test fun completePlatformFailureCanBeCopiedWithoutAdb() {
+        val error = "AVF 내부저장소 공유 API 오류. ".repeat(12) +
+            "No direct method <init>(Ljava/lang/String;IIIIILjava/lang/String;Ljava/lang/String;ZLjava/lang/String;)V " +
+            "in class Landroid/system/virtualmachine/VirtualMachineCustomImageConfig\$SharedPath;"
+        assertTrue(error.length > 240)
+        fun scrollable(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+            if (node == null) return null
+            if (node.isScrollable) return node
+            for (index in 0 until node.childCount) scrollable(node.getChild(index))?.let { return it }
+            return null
+        }
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
+                    AvfImageInstallCard(snapshot(AvfImageInstallState.FAILED, AvfImageInstallPhase.BOOT, error = error))
+                } }
+            } }
+            waitFor(error)
+            for (attempt in 0 until 8) {
+                instrumentation.uiAutomation.clearCache()
+                if (find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.copy_error)) != null) break
+                assertTrue(scrollable(instrumentation.uiAutomation.rootInActiveWindow)
+                    ?.performAction(AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) == true)
+                instrumentation.waitForIdleSync()
+            }
+            waitFor(label(R.string.copy_error))
+            var copy = find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.copy_error))
+            while (copy != null && !copy.isClickable) copy = copy.parent
+            assertTrue(copy?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true)
+            instrumentation.waitForIdleSync()
+            scenario.onActivity { activity ->
+                val clipboard = activity.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                assertEquals(error, clipboard.primaryClip?.getItemAt(0)?.text?.toString())
+            }
+        }
+    }
+
     @Test fun pendingIndexesPreserveInstalledStatusAndOfferInitializationOnlyRetry() {
         val scratch = java.io.File(context.cacheDir, "apt-ui-${java.util.UUID.randomUUID()}").apply { mkdirs() }
         val storageId = java.util.UUID.randomUUID().toString()

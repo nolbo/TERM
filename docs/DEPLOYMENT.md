@@ -16,6 +16,8 @@ acceptance sequence.
 
 The runtime checks constructor access after capability checks and before image installation or VM creation. Startup reports the platform-access problem together with the original linkage error; existing images are retained.
 
+A successful basic VM boot does not establish storage-sharing API support. Internal-storage and connected-folder exports additionally call `VirtualMachineCustomImageConfig.SharedPath` and `Builder.addSharedPath`. In **진단 및 리포트 → AVF Linux**, the separate storage-sharing section checks those direct calls using inert configuration objects; it neither creates files nor starts a VM or a virtiofs server. It runs only after the seven basic checks pass. Sharing failures retain their original error, and failed installation cards expose **오류 복사** with up to 2048 characters of persisted detail. This provides on-device evidence without ADB; a hidden-API denial and an OEM ABI difference remain distinct possibilities until the original error and target framework are examined.
+
 On the target device, reproduce the failure and inspect only its AVF hidden-API log entries:
 
 ```sh

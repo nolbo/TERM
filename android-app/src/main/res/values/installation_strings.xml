@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="install_error_copied">설치 오류를 복사했습니다.</string>
     <string name="install_step_done">완료</string>
     <string name="install_step_stopped">중단</string>
     <string name="install_step_running">진행 중</string>

@@ -1,6 +1,9 @@
 package dev.terminal.runtime.avf.system
 
-enum class AvfCondition { ANDROID_VERSION, SYSTEM_FEATURE, MANAGE_PERMISSION, CUSTOM_PERMISSION, CUSTOM_IMAGE_API, VM_MANAGER, PLATFORM_DRIVER }
+enum class AvfCondition(val required: Boolean = true) {
+    ANDROID_VERSION, SYSTEM_FEATURE, MANAGE_PERMISSION, CUSTOM_PERMISSION, CUSTOM_IMAGE_API, VM_MANAGER, PLATFORM_DRIVER,
+    SHARED_DIRECTORY_API(false),
+}
 enum class AvfCheckStatus { SATISFIED, UNSATISFIED, UNKNOWN }
 enum class AvfCheckReason { OBSERVED, ANDROID_TOO_OLD, FEATURE_MISSING, PERMISSION_MISSING, PREREQUISITES_REQUIRED,
     API_ACCESS_OR_ABI, API_DENIED, INSPECTION_FAILED, MANAGER_MISSING, DRIVER_MISSING }
@@ -8,11 +11,14 @@ enum class AvfCheckReason { OBSERVED, ANDROID_TOO_OLD, FEATURE_MISSING, PERMISSI
 data class AvfCheck(val condition: AvfCondition, val status: AvfCheckStatus, val reason: AvfCheckReason,
     val detail: String? = null)
 data class AvfDiagnostics(val checks: List<AvfCheck>) {
-    val status: AvfCheckStatus get() = when {
-        checks.any { it.status == AvfCheckStatus.UNSATISFIED } -> AvfCheckStatus.UNSATISFIED
-        checks.map { it.condition }.toSet() != AvfCondition.entries.toSet() ||
-            checks.any { it.status == AvfCheckStatus.UNKNOWN } -> AvfCheckStatus.UNKNOWN
-        else -> AvfCheckStatus.SATISFIED
+    val status: AvfCheckStatus get() {
+        val required = checks.filter { it.condition.required }
+        return when {
+            required.any { it.status == AvfCheckStatus.UNSATISFIED } -> AvfCheckStatus.UNSATISFIED
+            required.map { it.condition }.toSet() != AvfCondition.entries.filter { it.required }.toSet() ||
+                required.any { it.status == AvfCheckStatus.UNKNOWN } -> AvfCheckStatus.UNKNOWN
+            else -> AvfCheckStatus.SATISFIED
+        }
     }
 }
 
@@ -25,6 +31,7 @@ internal interface AvfDiagnosticProbe {
     fun manager(): Boolean
     fun driverPackaged(): Boolean
     fun driverCompatible()
+    fun sharedDirectoryApi()
 }
 
 internal const val AVF_FEATURE = "android.software.virtualization_framework"
@@ -66,18 +73,24 @@ internal fun collectAvfDiagnostics(probe: AvfDiagnosticProbe): AvfDiagnostics {
     }
     api(AvfCondition.CUSTOM_IMAGE_API, AvfCheckReason.API_ACCESS_OR_ABI) { probe.customImageApi(); true }
     api(AvfCondition.VM_MANAGER, AvfCheckReason.MANAGER_MISSING, probe::manager)
+    fun result(): AvfDiagnostics {
+        if (checks.all { it.status == AvfCheckStatus.SATISFIED })
+            api(AvfCondition.SHARED_DIRECTORY_API, AvfCheckReason.API_ACCESS_OR_ABI) { probe.sharedDirectoryApi(); true }
+        else checks += AvfCheck(AvfCondition.SHARED_DIRECTORY_API, AvfCheckStatus.UNKNOWN, AvfCheckReason.PREREQUISITES_REQUIRED)
+        return AvfDiagnostics(checks)
+    }
     // Driver presence can be inspected without loading the optional Android API implementation.
     val packaged = try { probe.driverPackaged() } catch (failure: Throwable) {
         checks += AvfCheck(AvfCondition.PLATFORM_DRIVER, AvfCheckStatus.UNKNOWN,
             if (failure is LinkageError) AvfCheckReason.API_ACCESS_OR_ABI else AvfCheckReason.INSPECTION_FAILED,
             failure.description())
-        return AvfDiagnostics(checks)
+        return result()
     }
     if (!packaged) checks += AvfCheck(AvfCondition.PLATFORM_DRIVER, AvfCheckStatus.UNSATISFIED, AvfCheckReason.DRIVER_MISSING)
     else if (checks.any { it.status != AvfCheckStatus.SATISFIED }) checks += AvfCheck(AvfCondition.PLATFORM_DRIVER,
         AvfCheckStatus.UNKNOWN, AvfCheckReason.PREREQUISITES_REQUIRED)
     else api(AvfCondition.PLATFORM_DRIVER, AvfCheckReason.API_ACCESS_OR_ABI) { probe.driverCompatible(); true }
-    return AvfDiagnostics(checks)
+    return result()
 }
 
-private fun Throwable.description() = "${javaClass.simpleName}: ${message.orEmpty().take(600)}"
+private fun Throwable.description() = "${javaClass.simpleName}: ${message.orEmpty().take(2048)}"

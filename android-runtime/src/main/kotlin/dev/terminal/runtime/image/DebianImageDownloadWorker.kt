@@ -199,7 +199,7 @@ class DebianImageDownloadWorker(
         return ForegroundInfo(id.hashCode() and Int.MAX_VALUE, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
     }
 
-    private fun failure(message: String): Result = Result.failure(Data.Builder().putAll(lastProgress).putString(KEY_ERROR, message.take(240)).build())
+    private fun failure(message: String): Result = Result.failure(failureData(lastProgress, message))
 
     private fun deleteTree(root: Path) {
         Files.walk(root).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) } }
@@ -211,9 +211,17 @@ class DebianImageDownloadWorker(
         private const val KEY_IMAGE_GENERATION = "image_generation"
         private const val KEY_STATUS = "status"
         internal const val KEY_ERROR = "error"
+        // WorkManager Data is limited to 10 KiB, including progress and serialized string overhead.
+        internal const val MAX_ERROR_CHARACTERS = 2048
         private const val MAX_RETRIES = 3
         private const val CHANNEL_ID = "avf-image-install"
         private const val UNIQUE_WORK_NAME = "debian-image-download"
+
+        internal fun failureData(progress: Data, message: String): Data {
+            val detail = if (message.length <= MAX_ERROR_CHARACTERS) message
+                else message.take(MAX_ERROR_CHARACTERS - 1) + "…"
+            return Data.Builder().putAll(progress).putString(KEY_ERROR, detail).build()
+        }
 
         internal fun workName(storageId: String): String {
             dev.terminal.runtime.session.SessionStorage.validate(storageId)

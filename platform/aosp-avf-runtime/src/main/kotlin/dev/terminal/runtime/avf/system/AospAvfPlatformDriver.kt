@@ -316,11 +316,7 @@ class AospAvfPlatformDriver(
             if (shares.hasFolders) customImage.addParam(AvfSharedDirectories.BOOT_PARAM)
             if (shares.hasAndroidStorage) customImage.addParam(AvfSharedDirectories.ANDROID_STORAGE_PARAM)
             shares.exports.forEach { export ->
-                customImage.addSharedPath(VirtualMachineCustomImageConfig.SharedPath(
-                    export.directory.path, android.os.Process.myUid(), android.system.Os.getgid(),
-                    AvfSharedDirectories.GUEST_UID, AvfSharedDirectories.GUEST_GID, 7,
-                    export.tag, export.socket.name, true, export.socket.path,
-                ))
+                requireAvfSharedDirectoryApi { customImage.addSharedPath(avfSharedPath(export)) }
             }
         }
 

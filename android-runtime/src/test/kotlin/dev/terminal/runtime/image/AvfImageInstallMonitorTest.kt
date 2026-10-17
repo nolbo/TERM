@@ -64,4 +64,24 @@ class AvfImageInstallMonitorTest {
             setOf("${AvfImageInstallMonitor.STORAGE_TAG}same-storage", "${AvfImageInstallMonitor.REQUESTED_TAG}3000"))
         assertEquals(waiting.id.toString(), AvfImageInstallMonitor.snapshots(listOf(old, recent, waiting)).single().workId)
     }
+
+    @Test fun platformFailureRetainsTheConstructorAndClassThroughPersistenceAndObservation() {
+        val error = "AVF 맞춤 이미지 API 오류: ".repeat(20) +
+            "No direct method <init>(Ljava/lang/String;IIIIILjava/lang/String;Ljava/lang/String;ZLjava/lang/String;)V " +
+            "in class Landroid/system/virtualmachine/VirtualMachineCustomImageConfig\$SharedPath;"
+        assertTrue(error.length > 240)
+        val output = DebianImageDownloadWorker.failureData(data(AvfImageInstallPhase.BOOT), error)
+        val failed = AvfImageInstallMonitor.snapshot(work(WorkInfo.State.FAILED, output = output))
+        assertEquals(error, failed.error)
+        assertEquals(AvfImageInstallPhase.BOOT, failed.phase)
+        assertEquals(5000L, failed.updatedAtElapsedMs)
+    }
+
+    @Test fun oversizedUnicodeFailureStillFitsWorkManagerDataAndMarksTruncation() {
+        val output = DebianImageDownloadWorker.failureData(data(AvfImageInstallPhase.BOOT), "가".repeat(20_000))
+        val failed = AvfImageInstallMonitor.snapshot(work(WorkInfo.State.FAILED, output = output))
+        assertEquals(DebianImageDownloadWorker.MAX_ERROR_CHARACTERS, failed.error!!.length)
+        assertTrue(failed.error.endsWith("…"))
+        assertEquals(AvfImageInstallPhase.BOOT, failed.phase)
+    }
 }

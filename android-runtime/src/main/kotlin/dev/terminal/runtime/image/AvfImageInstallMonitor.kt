@@ -72,7 +72,7 @@ class AvfImageInstallMonitor(context: Context) {
                     ?: data.getString(KEY_STORAGE) ?: "legacy",
                 state, phase, data.getInt(KEY_ARTIFACT, 0).coerceIn(0, 5),
                 number(KEY_BYTES), number(KEY_TOTAL), number(KEY_STARTED), number(KEY_UPDATED),
-                data.getString(DebianImageDownloadWorker.KEY_ERROR)?.take(240),
+                data.getString(DebianImageDownloadWorker.KEY_ERROR),
                 work.tags.firstOrNull { it.startsWith(REQUESTED_TAG) }?.removePrefix(REQUESTED_TAG)
                     ?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L)
         }

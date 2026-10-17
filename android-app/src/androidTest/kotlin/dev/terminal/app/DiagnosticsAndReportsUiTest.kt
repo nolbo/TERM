@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
+import androidx.activity.compose.setContent
 import androidx.lifecycle.Lifecycle
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -15,6 +16,13 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 import java.util.UUID
+import dev.terminal.app.ui.AvfLinuxDiagnosticsScreen
+import dev.terminal.app.ui.DroidTheme
+import dev.terminal.runtime.avf.system.AvfCheck
+import dev.terminal.runtime.avf.system.AvfCheckReason
+import dev.terminal.runtime.avf.system.AvfCheckStatus
+import dev.terminal.runtime.avf.system.AvfCondition
+import dev.terminal.runtime.avf.system.AvfDiagnostics
 
 @RunWith(AndroidJUnit4::class)
 class DiagnosticsAndReportsUiTest {
@@ -113,11 +121,29 @@ class DiagnosticsAndReportsUiTest {
         }
     }
 
+    @Test fun sharedApiFailureIsShownSeparatelyWithTheCompleteConstructorError() {
+        val error = "No direct method <init> " + "constructor detail ".repeat(40) +
+            "in class Landroid/system/virtualmachine/VirtualMachineCustomImageConfig\$SharedPath;"
+        val info = AvfDiagnostics(AvfCondition.entries.map { condition ->
+            if (condition.required) AvfCheck(condition, AvfCheckStatus.SATISFIED, AvfCheckReason.OBSERVED)
+            else AvfCheck(condition, AvfCheckStatus.UNKNOWN, AvfCheckReason.API_ACCESS_OR_ABI, error)
+        })
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { AvfLinuxDiagnosticsScreen(info, false, {}, {}) }
+            } }
+            waitFor { it.text?.toString() == context.getString(R.string.avf_overall) }
+            waitFor(scroll = true) { it.text?.toString() == context.getString(R.string.avf_check_sharing_api) }
+            waitFor(scroll = true) { it.text?.toString()?.contains(error) == true }
+        }
+    }
+
     @Test fun unsupportedAvfIsSafeAndDoesNotCreateRuntimeOrVmFiles() {
         val processManager = context.getSystemService(android.app.ActivityManager::class.java)
         fun vmhostRunning() = processManager.runningAppProcesses.orEmpty().any { it.processName == context.packageName + ":vmhost" }
-        fun artifacts() = listOf("vm", "shared-vms").associateWith { name ->
-            File(context.filesDir, name).listFiles()?.map { it.name }?.toSet().orEmpty()
+        fun artifacts() = listOf("vm", "shared-vms", ".avf-sharing-api-probe", ".virtiofs").associateWith { name ->
+            val directory = File(context.filesDir, name)
+            directory.exists() to directory.listFiles()?.map { it.name }?.toSet().orEmpty()
         }
         val processBefore = vmhostRunning()
         val filesBefore = artifacts()
@@ -128,7 +154,7 @@ class DiagnosticsAndReportsUiTest {
                 scenario.onActivity { info = it.information }; SystemClock.sleep(50)
             }
             val result = requireNotNull(info)
-            assertEquals(7, result.checks.size)
+            assertEquals(8, result.checks.size)
             val feature = context.packageManager.hasSystemFeature("android.software.virtualization_framework")
             val check = result.checks.single { it.condition == dev.terminal.runtime.avf.system.AvfCondition.SYSTEM_FEATURE }
             assertEquals(if (feature) dev.terminal.runtime.avf.system.AvfCheckStatus.SATISFIED
@@ -137,6 +163,8 @@ class DiagnosticsAndReportsUiTest {
                 assertEquals(dev.terminal.runtime.avf.system.AvfCheckStatus.UNSATISFIED, result.status)
                 assertEquals(dev.terminal.runtime.avf.system.AvfCheckStatus.UNKNOWN,
                     result.checks.single { it.condition == dev.terminal.runtime.avf.system.AvfCondition.CUSTOM_IMAGE_API }.status)
+                assertEquals(dev.terminal.runtime.avf.system.AvfCheckReason.PREREQUISITES_REQUIRED,
+                    result.checks.single { it.condition == dev.terminal.runtime.avf.system.AvfCondition.SHARED_DIRECTORY_API }.reason)
             }
             scenario.recreate()
             waitFor { it.text?.toString() == context.getString(R.string.avf_overall) }

@@ -48,7 +48,10 @@
     <string name="avf_diagnostics_title">AVF Linux 진단</string>
     <string name="avf_diagnostics_description">현재 기기와 앱에서 AVF Linux 실행에 필요한 조건을 개별 검사합니다.</string>
     <string name="avf_prerequisites">AVF 필수 조건</string>
-    <string name="avf_overall">전체 진단 결과</string>
+    <string name="avf_overall">기본 VM 진단 결과</string>
+    <string name="avf_storage_sharing">내부저장소·공유 디렉토리</string>
+    <string name="avf_check_sharing_api">SharedPath API 접근·호환성</string>
+    <string name="avf_sharing_diagnostics_caveat">저장소 공유는 기본 VM 실행과 별도의 API를 사용합니다. API 접근을 검사하며 파일이나 VM을 만들지 않습니다. 충족은 실제 공유 마운트 성공을 뜻하지 않습니다.</string>
     <string name="avf_check_android">Android 15 이상</string>
     <string name="avf_check_feature">AVF 시스템 기능</string>
     <string name="avf_check_manage">MANAGE_VIRTUAL_MACHINE 권한</string>
