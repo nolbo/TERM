@@ -1,6 +1,6 @@
 # Direct Linux 호환성 목표 진행 기록 — 개발 중단
 
-2026-09-30 사용자 지시에 따라 Direct Linux 개발·제품화를 중단했다. 이후 작업 대상은 [기존 Rootless Linux 개선](../../docs/ROOTLESS_AGENT_PERFORMANCE.md)이며, [감사의 C01–C45 전체](COMPATIBILITY_AUDIT.md)를 달성하는 Direct Linux 계획은 더 이상 활성 작업이 아니다.
+2026-09-30 사용자 지시에 따라 Direct Linux 개발·제품화를 중단했다. 이후 작업 대상은 [기존 Userspace Linux 개선](../../docs/ROOTLESS_AGENT_PERFORMANCE.md)이며, [감사의 C01–C45 전체](COMPATIBILITY_AUDIT.md)를 달성하는 Direct Linux 계획은 더 이상 활성 작업이 아니다.
 
 전체 호환성 목표를 달성한 것은 아니다. 아래 부분 구현·fixture 성공·성능 결과와 미완료 항목은 중단 당시의 역사적 기록으로 보존한다. 과거 결과를 새 Rootless 구현의 검증이나 성능 측정으로 취급하지 않는다. Android 실행 테스트는 [활성 source set 밖으로 보관](archive/README.md)했고, 제품 executable allowlist에서 Direct Linux 이름을 제거했다.
 

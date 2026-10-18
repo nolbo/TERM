@@ -2,11 +2,11 @@
 
 **Retired on 2026-09-30 by user direction.** Development and product integration
 of this separate Linux runtime have stopped in favor of the existing
-[Rootless Linux improvement plan](../../docs/ROOTLESS_AGENT_PERFORMANCE.md).
+[Userspace Linux improvement plan](../../docs/ROOTLESS_AGENT_PERFORMANCE.md).
 The C01–C45 compatibility objective was not achieved and is no longer active.
 Historical source, results, limitations and audit records remain here; they do
 not establish current Rootless performance or complete Linux compatibility.
-Android Native/Bionic, Rootless Linux and AVF remain the product runtimes.
+Android Native/Bionic, Userspace Linux and AVF remain the product runtimes.
 
 The two Direct Linux payload names have been removed from `NativeExecutableLoader`.
 Their [instrumentation source is archived](archive/README.md) outside the Android

@@ -4,7 +4,7 @@
 
 ## 문제와 범위
 
-Rootless Linux는 ARM64 프로그램을 Android 커널에서 PRoot로 실행한다.
+Userspace Linux는 ARM64 프로그램을 Android 커널에서 PRoot로 실행한다.
 현재 실행 경로에는 QEMU CPU 에뮬레이션이 없고, seccomp 가속을 기본적으로
 시도한다. 이번 변경은 고정된 Termux PRoot 5.1.107.92의 내부 처리만 개선한다.
 Native/AVF 자동 전환, 패키지 구성 변경, 세션 소유권 변경은 포함하지 않는다.

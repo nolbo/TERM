@@ -86,7 +86,7 @@ mixing; PRoot and the common app UID do not provide hostile-guest isolation.
 
 The new-session menu offers Debian, Ubuntu 24.04 LTS and Arch Linux ARM. Selecting
 an uninstalled distribution asks to install that named environment, then opens
-its shell. Rootless Linux settings show all three distributions together, each with its
+its shell. Userspace Linux settings show all three distributions together, each with its
 own status and install, retry or remove action. Removal asks for confirmation,
 rejects live sessions, and deletes only that distribution's rootfs, staging and
 download cache. The confirmation keeps home by default and offers an explicit

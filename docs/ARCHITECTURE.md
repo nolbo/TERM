@@ -38,7 +38,7 @@ zero-setup usability
   > persistent sessions/runtime
   > correct lifecycle ownership
   > security boundary
-  > Rootless Linux compatibility
+  > Userspace Linux compatibility
   > Android integration
   > Native package usability
   > AVF acceleration

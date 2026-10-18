@@ -140,7 +140,7 @@ Missing `installable` is false. Rootless backends report it only when the device
 ABI and packaged PRoot executables permit installation. Session pickers display
 entries with either flag; unavailable privileged AVF entries remain accessible
 through settings but are omitted from session creation. Grouping distributions
-under Rootless Linux is UI-only; requests retain their individual runtime IDs.
+under Userspace Linux is UI-only; requests retain their individual runtime IDs.
 
 Rootless entries also expose `installed` independently of readiness, so incomplete
 or failed environment setup remains removable. Older responses infer installation

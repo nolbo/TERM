@@ -1,13 +1,13 @@
 # Runtimes
 
-The [Direct Linux experiment](DIRECT_LINUX_EXPERIMENT.md) was retired on 2026-09-30 in favor of improvements to the existing Rootless runtime. Its source, partial results and unresolved compatibility audit are preserved as historical records; its executables and instrumentation are no longer active. Android Native/Bionic, Rootless Linux and AVF remain the product runtimes.
+The [Direct Linux experiment](DIRECT_LINUX_EXPERIMENT.md) was retired on 2026-09-30 in favor of improvements to the existing Rootless runtime. Its source, partial results and unresolved compatibility audit are preserved as historical records; its executables and instrumentation are no longer active. Android Native/Bionic, Userspace Linux and AVF remain the product runtimes.
 
 ## Runtime matrix
 
 | Runtime | Availability | Userspace | Kernel | Package system |
 | --- | --- | --- | --- | --- |
 | Android Native | stock APK, immediate | Android/Bionic | Android | native recipe/cache (bounded set) |
-| Rootless Linux | stock ARM64 APK, automatic on-demand bootstrap | Debian, Ubuntu or Arch Linux ARM through PRoot | Android | distribution `apt`/`dpkg` or `pacman` |
+| Userspace Linux | stock ARM64 APK, automatic on-demand bootstrap | Debian, Ubuntu or Arch Linux ARM through PRoot | Android | distribution `apt`/`dpkg` or `pacman` |
 | AVF Debian | privileged product build only | Debian/glibc | guest Linux kernel | official `apt`/`dpkg` |
 
 The zero-special-permission product is Native plus Rootless Debian. AVF is an
@@ -49,7 +49,7 @@ ABI and uses 16 KiB ELF segment alignment. On ARM64 Linux build hosts, where
 Google's NDK host executables are unavailable, the build uses the native Clang
 driver with the official NDK r28 sysroot and compiler runtime archives.
 
-## Rootless Linux
+## Userspace Linux
 
 Userspace Linux installation can be explicitly cancelled from its environment detail or installation dialog. The owning service stops only that backend's preparation, cleans temporary downloads/extraction, and retains any activated rootfs, home and workspace. A retry recovers interrupted package operations before verifying readiness. Closing a view does not cancel installation.
 

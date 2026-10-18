@@ -172,7 +172,7 @@ class RootlessDebianBackend(
         state.value = RuntimeState.Stopped
     }
     override fun observeState(): Flow<RuntimeState> = state.asStateFlow()
-    override suspend fun connectGuestAgent(): Result<GuestConnection> = Result.failure(UnsupportedOperationException("Rootless Linux uses local IPC"))
+    override suspend fun connectGuestAgent(): Result<GuestConnection> = Result.failure(UnsupportedOperationException("Userspace Linux uses local IPC"))
 
     fun sessionController(): SessionController? = controller
     fun installProgress(): RootlessInstallProgress? = progressTracker.latest

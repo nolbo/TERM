@@ -1,6 +1,6 @@
 # Direct Linux 실험 — 개발 중단·기록 보존
 
-2026-09-30 사용자 지시에 따라 별도 Direct Linux 런타임의 개발·제품화를 중단하고 [기존 Rootless Linux 개선 설계](ROOTLESS_AGENT_PERFORMANCE.md)의 구현으로 전환했다. 기존 Android Native/Bionic, Rootless Linux, AVF 환경은 유지한다.
+2026-09-30 사용자 지시에 따라 별도 Direct Linux 런타임의 개발·제품화를 중단하고 [기존 Userspace Linux 개선 설계](ROOTLESS_AGENT_PERFORMANCE.md)의 구현으로 전환했다. 기존 Android Native/Bionic, Userspace Linux, AVF 환경은 유지한다.
 
 **Rootless와의 호환성 동등성 및 C01–C45 전체 목표는 달성되지 않았다.** 아래 설계, 부분 성공, 성능 결과, 남은 한계는 2026-09-24부터의 연구 기록이며 현재 개발 계획이나 새 Rootless 성능 근거가 아니다. 소스·감사·원시 결과는 [중단된 실험 디렉터리](../tools/direct-linux/README.md)에 보존한다.
 
