@@ -113,7 +113,7 @@
     <string name="rootless_setup_initial">설치 상태를 확인합니다.</string>
     <string name="rootless_installing">%1$s 실행환경 준비 중</string>
     <string name="rootless_install_detail">이미지와 배포판의 공식 기본 구성을 준비하고 있습니다. 기존 이미지는 보존하며 필요한 패키지와 설정을 보완합니다.</string>
-    <string name="rootless_install_note">여유 공간: Debian·Arch Linux ARM 2 GiB, Ubuntu Server 4 GiB 이상. 인터넷이 필요하며 창을 닫아도 설치는 계속됩니다.</string>
+    <string name="rootless_install_note">여유 공간: Debian·Arch Linux ARM 2 GiB, Ubuntu 4 GiB 이상. 인터넷이 필요하며 창을 닫아도 설치는 계속됩니다.</string>
     <string name="rootless_install_failed">실행환경 준비를 완료하지 못했습니다</string>
     <string name="install_cancel">설치 취소</string>
     <string name="install_cancelling">설치 취소 중…</string>

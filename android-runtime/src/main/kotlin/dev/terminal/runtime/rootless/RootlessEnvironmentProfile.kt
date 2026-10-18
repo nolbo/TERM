@@ -7,12 +7,12 @@ import java.nio.file.StandardCopyOption
 
 /** Official distribution package selections; deliberately no common app-curated tool bundle. */
 internal object RootlessEnvironmentProfile {
-    const val VERSION = "distribution-defaults-1"
+    const val VERSION = "distribution-defaults-2"
     const val MARKER = ".terminal-environment-version"
     fun packages(distribution: RootlessDistribution): List<String> = when (distribution) {
         // Debian's standard installation consists of required, important and standard priorities.
         RootlessDistribution.DEBIAN -> listOf("?priority(required)", "?priority(important)", "?priority(standard)")
-        RootlessDistribution.UBUNTU -> listOf("ubuntu-minimal", "ubuntu-standard", "ubuntu-server")
+        RootlessDistribution.UBUNTU -> listOf("ubuntu-minimal", "ubuntu-standard")
         RootlessDistribution.ARCH -> listOf("base")
     }
     fun commands(distribution: RootlessDistribution): List<String> = when (distribution) {

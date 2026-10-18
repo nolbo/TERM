@@ -72,7 +72,7 @@ class RootlessEnvironmentProfileTest {
     @Test fun packageSelectionsFollowEachDistributionWithoutAnInventedCommonBundle() {
         assertEquals(listOf("?priority(required)", "?priority(important)", "?priority(standard)"),
             RootlessEnvironmentProfile.packages(RootlessDistribution.DEBIAN))
-        assertEquals(listOf("ubuntu-minimal", "ubuntu-standard", "ubuntu-server"),
+        assertEquals(listOf("ubuntu-minimal", "ubuntu-standard"),
             RootlessEnvironmentProfile.packages(RootlessDistribution.UBUNTU))
         assertEquals(listOf("base"), RootlessEnvironmentProfile.packages(RootlessDistribution.ARCH))
         assertFalse(RootlessEnvironmentProfile.commands(RootlessDistribution.ARCH).contains("git"))

@@ -117,7 +117,7 @@ project's default package selection, including recommended dependencies:
 | Distribution | Official selection | Reference |
 | --- | --- | --- |
 | Debian | required, important and standard priority packages | [tasksel standard task](https://sources.debian.org/src/tasksel/3.81/tasks/standard/) |
-| Ubuntu | `ubuntu-minimal`, `ubuntu-standard`, `ubuntu-server` | [Ubuntu Server metapackage](https://packages.ubuntu.com/noble/ubuntu-server) |
+| Ubuntu | `ubuntu-minimal`, `ubuntu-standard` | [Ubuntu minimal metapackage](https://packages.ubuntu.com/noble/ubuntu-minimal), [Ubuntu standard metapackage](https://packages.ubuntu.com/noble/ubuntu-standard) |
 | Arch Linux ARM | `base`, with a full `pacman -Syu` | [Arch ARM image preparation](https://github.com/termux/proot-distro/blob/v4.29.0/distro-build/archlinux.sh) |
 
 There is no common Git/Python/compiler bundle. Tools appear according to the
