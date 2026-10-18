@@ -54,9 +54,7 @@ class LocalServicesActivity : TerminalActivity() {
         super.onCreate(savedInstanceState)
         compose {
             LocalServicesScreen(snapshot, loading, unavailable, saving, actionError,
-                intent.getStringExtra(EXTRA_FILTER) ?: "ALL", { finish() }, ::refresh,
-                onSave = { encoded, done -> mutate(done) { it.saveLocalService(encoded) } },
-                onDelete = { id, done -> mutate(done) { it.deleteLocalService(id) } },
+                { finish() }, ::refresh,
                 onForward = { id, port, protocol, done -> mutate(done) { it.updateLocalServiceForwarding(id, port, protocol) } },
                 onCopy = ::copy, onBrowse = ::browse, onDismissError = { actionError = null })
         }
@@ -117,7 +115,6 @@ class LocalServicesActivity : TerminalActivity() {
             .onFailure { Toast.makeText(this, R.string.local_services_browser_unavailable, Toast.LENGTH_LONG).show() }
     }
     companion object {
-        const val EXTRA_FILTER = "local-services-filter"
-        fun intent(context: Context, filter: String = "ALL") = Intent(context, LocalServicesActivity::class.java).putExtra(EXTRA_FILTER, filter)
+        fun intent(context: Context) = Intent(context, LocalServicesActivity::class.java)
     }
 }

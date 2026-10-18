@@ -89,7 +89,7 @@ class DiagnosticsAndReportsUiTest {
                     waitFor { it.text?.toString() == context.getString(R.string.settings_diagnostics_title) }
                 }
             }
-            assertNull(find { it.text?.toString() == context.getString(R.string.forwarded_ports_title) })
+            assertNull(find { it.text?.toString() == context.getString(R.string.local_services_title) })
         }
     }
 
@@ -266,7 +266,7 @@ class DiagnosticsAndReportsUiTest {
             ActivityScenario.launch(ForwardedPortsActivity::class.java).use { scenario ->
                 val dashboard = monitor.waitForActivityWithTimeout(5000)
                 assertNotNull(dashboard)
-                assertEquals("AVF", dashboard.intent.getStringExtra(LocalServicesActivity.EXTRA_FILTER))
+                assertEquals(LocalServicesActivity::class.java.name, dashboard.componentName.className)
                 assertEquals(Lifecycle.State.DESTROYED, scenario.state)
                 instrumentation.runOnMainSync { dashboard.finish() }
             }

@@ -776,7 +776,7 @@ internal fun SettingsOverview(onBack: () -> Unit, onOpen: (SettingsSearchTarget)
                 }
             } else if (query.isBlank()) {
                 val groups = listOf(listOf("environments", "profiles", "workspaces"),
-                    listOf("shared-folders", "local-services"), listOf("language", "terminal"),
+                    listOf("shared-folders"), listOf("language", "terminal"),
                     listOf("rootless", "avf"), listOf("diagnostics", "updates", "about"))
                     .map { screens -> visibleRows.filter { it.entry.target.screen in screens } }
                     .filter { it.isNotEmpty() }

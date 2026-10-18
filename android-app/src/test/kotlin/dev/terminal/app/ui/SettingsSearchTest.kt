@@ -8,7 +8,7 @@ class SettingsSearchTest {
     @Test fun avfCategoriesAndNestedSearchResultsRequirePrivileges() {
         val unprivileged = visibleSettingsSearchEntries(false)
         assertFalse(unprivileged.any { it.target.screen == "avf" })
-        assertEquals(listOf("environments", "profiles", "workspaces", "shared-folders", "local-services", "language", "terminal", "rootless", "diagnostics", "updates", "about"),
+        assertEquals(listOf("environments", "profiles", "workspaces", "shared-folders", "language", "terminal", "rootless", "diagnostics", "updates", "about"),
             unprivileged.filter { it.path.isEmpty() }.map { it.target.screen })
         assertEquals(settingsSearchEntries, visibleSettingsSearchEntries(true))
         assertTrue(visibleSettingsSearchEntries(true).any { it.target.screen == "avf" && it.path.isNotEmpty() })
@@ -44,11 +44,11 @@ class SettingsSearchTest {
         assertEquals(SettingsSearchTarget("profiles"), target(R.string.profile_directory))
         assertEquals(SettingsSearchTarget("profiles"), target(R.string.profile_list))
         assertEquals(SettingsSearchTarget("environments"), target(R.string.storage_title))
-        assertEquals(SettingsSearchTarget("local-services"), target(R.string.local_services_title))
+        assertEquals(SettingsSearchTarget("avf", 2), target(R.string.local_services_title))
         assertEquals(SettingsSearchTarget("backups"), target(R.string.backup_title))
         assertEquals(SettingsSearchTarget("backups"), target(R.string.backup_import))
         assertEquals(SettingsSearchTarget("environments"), target(R.string.backup_create))
-        assertTrue(visibleSettingsSearchEntries(false).any { it.target.screen == "local-services" })
+        assertFalse(visibleSettingsSearchEntries(false).any { it.title == R.string.local_services_title })
         assertEquals(SettingsSearchTarget("rootless-dns"), target(R.string.userspace_dns))
         assertEquals(SettingsSearchTarget("diagnostics-userspace"), target(R.string.userspace_proot))
         assertFalse(settingsSearchEntries.any { it.target.screen in setOf("rootless-info", "toolbar-memory") })
@@ -56,11 +56,10 @@ class SettingsSearchTest {
         assertEquals(SettingsSearchTarget("diagnostics-memory"), target(R.string.memory_diagnostics_title))
         assertEquals(SettingsSearchTarget("diagnostics-avf"), target(R.string.avf_diagnostics_title))
         assertTrue(visibleSettingsSearchEntries(false).any { it.target.screen == "diagnostics-avf" })
-        assertEquals(SettingsSearchTarget("avf", 2), target(R.string.forwarded_ports_title))
     }
 
     @Test fun homeIncludesEnvironmentsAndResultKeysAreUnique() {
-        assertEquals(listOf("environments", "profiles", "workspaces", "shared-folders", "local-services", "language", "terminal", "rootless", "avf", "diagnostics", "updates", "about"),
+        assertEquals(listOf("environments", "profiles", "workspaces", "shared-folders", "language", "terminal", "rootless", "avf", "diagnostics", "updates", "about"),
             settingsSearchEntries.filter { it.path.isEmpty() }.map { it.target.screen })
         val keys = settingsSearchEntries.map { it.target.screen to it.title }
         assertEquals(keys.size, keys.toSet().size)
@@ -71,8 +70,11 @@ class SettingsSearchTest {
     @Test fun diagnosticsAndPortsHaveOnlyTheirAssignedSettingsDestinations() {
         assertEquals("diagnostics", settingsSearchEntries.single { it.title == R.string.settings_diagnostics_title }.target.screen)
         assertEquals("crash-reports", settingsSearchEntries.single { it.title == R.string.crash_reports_title }.target.screen)
-        assertTrue(settingsSearchEntries.filter { it.title == R.string.forwarded_ports_title }.all { it.target.screen == "avf" })
-        assertFalse(visibleSettingsSearchEntries(false).any { it.title == R.string.forwarded_ports_title })
+        val services = settingsSearchEntries.single { it.title == R.string.local_services_title }
+        assertEquals(SettingsSearchTarget("avf", 2), services.target)
+        assertEquals(listOf(R.string.settings_avf_title, R.string.section_execution), services.path)
+        assertFalse(settingsSearchEntries.any { it.target.screen == "local-services" })
+        assertFalse(visibleSettingsSearchEntries(false).any { it.title == R.string.local_services_title })
     }
 
     @Test fun backupsAreNestedUnderEnvironmentsAndImportOpensASeparateFileFlow() {

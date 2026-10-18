@@ -674,14 +674,6 @@ class VmRuntimeService : Service() {
             enforceHostToolUi()
             return localServices.snapshot(environmentRegistry.transaction(storageDefaults()) { all() })
         }
-        override fun saveLocalService(registrationJson: String): String {
-            enforceHostToolUi()
-            return localServices.saveManual(registrationJson, environmentRegistry.transaction(storageDefaults()) { all() })
-        }
-        override fun deleteLocalService(serviceId: String): String {
-            enforceHostToolUi()
-            return localServices.deleteManual(serviceId)
-        }
         override fun updateLocalServiceForwarding(serviceId: String, hostPort: Int, applicationProtocol: String): String {
             enforceHostToolUi()
             return localServices.updateForwarding(serviceId, hostPort, applicationProtocol)

@@ -75,7 +75,7 @@ class LocalServicesDeviceTest {
         }
     }
 
-    @Test fun dashboardRecreationAndCrudPreserveSessionsAndNeverStartRuntime() {
+    @Test fun avfDashboardRecreationPreservesSessionsAndNeverStartsRuntime() {
         val context = InstrumentationRegistry.getInstrumentation().targetContext
         val connected = CountDownLatch(1)
         lateinit var runtime: IRuntimeService
@@ -84,37 +84,28 @@ class LocalServicesDeviceTest {
             override fun onServiceDisconnected(name: ComponentName) {}
         }
         assertTrue(context.bindService(Intent(context, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE))
-        val id = "manual:${UUID.randomUUID()}"
         try {
             assertTrue(connected.await(10, TimeUnit.SECONDS))
             val originalSessions = runtime.sessionsJson
             val originalState = runtime.state
-            ActivityScenario.launch<LocalServicesActivity>(LocalServicesActivity.intent(context, "AVF")).use { activity ->
+            ActivityScenario.launch<LocalServicesActivity>(LocalServicesActivity.intent(context)).use { activity ->
                 val changed = CountDownLatch(1)
                 val listener = object : ILocalServicesListener.Stub() { override fun onServicesChanged() { changed.countDown() } }
                 runtime.registerLocalServicesListener(listener)
                 try {
-                    val input = JSONObject().put("id", id).put("name", "Dashboard device test").put("port", 18099)
-                        .put("environmentId", JSONObject.NULL).put("applicationProtocol", "HTTPS")
-                    assertEquals("", runtime.saveLocalService(input.toString()))
                     assertTrue(changed.await(5, TimeUnit.SECONDS))
                     activity.recreate()
-                    fun row(): JSONObject = JSONArray(JSONObject(runtime.localServicesJson).getJSONArray("services").toString())
-                        .let { rows -> (0 until rows.length()).map { rows.getJSONObject(it) }.single { it.getString("id") == id } }
-                    assertEquals("REGISTERED_UNVERIFIED", row().getString("observation"))
-                    assertEquals("NONE", row().getString("forwarding"))
-                    assertEquals("", runtime.saveLocalService(input.put("port", 18100).toString()))
-                    assertEquals(18100, row().getInt("port"))
-                    assertEquals("INVALID_PORT", runtime.saveLocalService(input.put("port", 0).toString()))
-                    assertEquals(18100, row().getInt("port"))
+                    val snapshot = JSONObject(runtime.localServicesJson)
+                    for (key in listOf("services", "environments")) {
+                        val rows = snapshot.getJSONArray(key)
+                        for (index in 0 until rows.length())
+                            assertEquals("AVF", rows.getJSONObject(index).getString("runtime"))
+                    }
                 } finally { runtime.unregisterLocalServicesListener(listener) }
             }
             assertEquals(originalSessions, runtime.sessionsJson)
             assertEquals(originalState, runtime.state)
-            assertEquals("", runtime.deleteLocalService(id))
-            assertFalse(JSONObject(runtime.localServicesJson).getJSONArray("services").toString().contains(id))
         } finally {
-            if (connected.count == 0L) runCatching { runtime.deleteLocalService(id) }
             context.unbindService(connection)
         }
     }

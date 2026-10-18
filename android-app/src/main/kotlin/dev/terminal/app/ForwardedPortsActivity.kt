@@ -7,7 +7,7 @@ import dev.terminal.app.ui.TerminalActivity
 class ForwardedPortsActivity : TerminalActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        startActivity(LocalServicesActivity.intent(this, "AVF"))
+        startActivity(LocalServicesActivity.intent(this))
         finish()
     }
 }

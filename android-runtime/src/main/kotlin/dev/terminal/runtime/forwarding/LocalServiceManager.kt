@@ -29,17 +29,7 @@ class LocalServiceManager(
             require(encoded.length <= 262_144)
             val root = JSONObject(encoded)
             require(root.optInt("version", 1) == 1)
-            val manual = root.optJSONArray("manual") ?: JSONArray()
-            require(manual.length() <= PortForwardRegistry.MAX_MANUAL)
-            for (i in 0 until manual.length()) runCatching {
-                val service = LocalService.fromJson(manual.getJSONObject(i))
-                requireManualId(service.id)
-                require(service.source == ServiceSource.MANUAL && service.runtime in setOf("NATIVE", "ROOTLESS", "SHARED_ANDROID"))
-                service.environmentId?.let { dev.terminal.runtime.session.EnvironmentId(it) }
-                require(service.name != null)
-                registry.put(service.copy(observation = ServiceObservation.REGISTERED_UNVERIFIED, forwarding = ForwardingState.NONE,
-                    sourceAddress = "127.0.0.1", hostPort = service.port, error = null, attemptedHostPort = null, sessionId = null))
-            }.onFailure { storageError = "STORAGE_CORRUPT" }
+            // Retired Native/Rootless registrations are ignored; keep AVF mappings.
             val mappings = root.optJSONObject("mappings") ?: JSONObject()
             require(mappings.length() <= PortForwardRegistry.MAX_SERVICES)
             mappings.keys().forEach { id -> runCatching {
@@ -49,37 +39,6 @@ class LocalServiceManager(
                 preferences[id] = Preference(port, ApplicationProtocol.valueOf(row.getString("protocol")))
             }.onFailure { storageError = "STORAGE_CORRUPT" } }
         }.onFailure { storageError = "STORAGE_CORRUPT" }
-    }
-
-    @Synchronized fun saveManual(encoded: String, environments: List<Environment>): String = result {
-        require(encoded.length <= 1024) { "INVALID_INPUT" }
-        val row = JSONObject(encoded)
-        require(row.keys().asSequence().all { it in setOf("id", "name", "port", "environmentId", "applicationProtocol") }) { "INVALID_INPUT" }
-        val id = row.nullableString("id") ?: "manual:${UUID.randomUUID()}"
-        requireManualId(id)
-        val existing = registry.get(id)
-        check(existing == null || existing.source == ServiceSource.MANUAL) { "INVALID_INPUT" }
-        val name = row.getString("name").trim()
-        LocalService.validateName(name)
-        val port = strictPort(row, "port")
-        val environmentId = row.nullableString("environmentId")
-        val environment = environmentId?.let { idValue -> environments.singleOrNull { it.id.value == idValue }
-            ?: error("ENVIRONMENT_UNAVAILABLE") }
-        require(environment?.runtime != EnvironmentRuntime.AVF) { "INVALID_ENVIRONMENT" }
-        val protocol = ApplicationProtocol.valueOf(row.getString("applicationProtocol"))
-        val service = LocalService(id, environmentId, environment?.runtime?.name ?: "SHARED_ANDROID", name, port,
-            "127.0.0.1", ServiceSource.MANUAL, ServiceObservation.REGISTERED_UNVERIFIED, hostPort = port, applicationProtocol = protocol)
-        val manual = registry.services.value.filter { it.source == ServiceSource.MANUAL && it.id != id } + service
-        check(manual.size <= PortForwardRegistry.MAX_MANUAL && (existing != null || registry.services.value.size < PortForwardRegistry.MAX_SERVICES)) { "SERVICE_LIMIT" }
-        persist(manual, preferences)
-        registry.put(service)
-    }
-
-    @Synchronized fun deleteManual(id: String): String = result {
-        requireManualId(id)
-        check(registry.get(id)?.source == ServiceSource.MANUAL) { "SERVICE_UNAVAILABLE" }
-        persist(registry.services.value.filter { it.source == ServiceSource.MANUAL && it.id != id }, preferences)
-        registry.remove(id)
     }
 
     @Synchronized fun attach(environmentId: String, driver: PortForwardDriver) {
@@ -94,7 +53,7 @@ class LocalServiceManager(
     @Synchronized fun linkSnapshot(): JSONObject = JSONObject(links.toMap())
     @Synchronized fun snapshot(environments: List<Environment>): String = JSONObject()
         .put("services", JSONArray(registry.services.value.map { it.toJson() }))
-        .put("environments", JSONArray(environments.map { it.toJson() }))
+        .put("environments", JSONArray(environments.filter { it.runtime == EnvironmentRuntime.AVF }.map { it.toJson() }))
         .put("links", linkSnapshot()).put("storageError", storageError ?: JSONObject.NULL).toString()
 
     @Synchronized fun event(environmentId: String, event: PortEvent) {
@@ -125,7 +84,7 @@ class LocalServiceManager(
         val previous = registry.get(id)
         if (previous == null) {
             // Bound retained history and each untrusted VM's contribution independently.
-            val owned = registry.services.value.filter { it.environmentId == environment && it.source != ServiceSource.MANUAL }
+            val owned = registry.services.value.filter { it.environmentId == environment }
             if (owned.size >= PortForwardRegistry.MAX_PER_ENVIRONMENT || registry.services.value.size >= PortForwardRegistry.MAX_SERVICES) {
                 owned.firstOrNull { it.observation in setOf(ServiceObservation.CLOSED, ServiceObservation.DISCONNECTED) }
                     ?.let { registry.remove(it.id) } ?: return
@@ -164,7 +123,7 @@ class LocalServiceManager(
         val appProtocol = ApplicationProtocol.valueOf(protocol)
         check(id in preferences || preferences.size < PortForwardRegistry.MAX_SERVICES) { "SERVICE_LIMIT" }
         val next = preferences + (id to Preference(hostPort, appProtocol))
-        val changed = bind(service, hostPort) { persist(registry.services.value.filter { it.source == ServiceSource.MANUAL }, next) }
+        val changed = bind(service, hostPort) { persist(next) }
         if (changed.error != null) { registry.put(changed); error(requireNotNull(changed.error)) }
         preferences.clear(); preferences.putAll(next)
         registry.put(changed.copy(applicationProtocol = appProtocol))
@@ -206,15 +165,14 @@ class LocalServiceManager(
         drivers.values.forEach { it.close() }; drivers.clear()
     }
 
-    private fun persist(manual: List<LocalService>, mappings: Map<String, Preference>) {
-        val value = JSONObject().put("version", 1).put("manual", JSONArray(manual.map { it.toJson() }))
+    private fun persist(mappings: Map<String, Preference>) {
+        val value = JSONObject().put("version", 1)
             .put("mappings", JSONObject().apply { mappings.forEach { (id, pref) ->
                 put(id, JSONObject().put("port", pref.port).put("protocol", pref.protocol.name))
             } }).toString()
         try { write(value) } catch (_: Exception) { error("STORAGE_FAILED") }
         storageError = null
     }
-    private fun requireManualId(id: String) { require(id.startsWith("manual:")) { "INVALID_INPUT" }; UUID.fromString(id.removePrefix("manual:")) }
     private fun strictPort(row: JSONObject, key: String, minimum: Int = 1): Int {
         val raw = row.get(key)
         require(raw is Number && raw.toString().matches(Regex("[0-9]{1,5}"))) { "INVALID_PORT" }

@@ -4,9 +4,9 @@ import dev.terminal.protocol.PortPayloadCodec
 import org.json.JSONObject
 import java.util.UUID
 
-enum class ServiceObservation { REGISTERED_UNVERIFIED, LISTENING, UPDATING, DISCONNECTED, CLOSED }
+enum class ServiceObservation { LISTENING, UPDATING, DISCONNECTED, CLOSED }
 enum class ForwardingState { NONE, ACTIVE, CONFLICT, FAILED, UNAVAILABLE }
-enum class ServiceSource { MANUAL, AVF_AGENT, LEGACY_AVF_AGENT }
+enum class ServiceSource { AVF_AGENT, LEGACY_AVF_AGENT }
 enum class ApplicationProtocol { UNKNOWN, HTTP, HTTPS }
 
 /** Observation, logical association, forwarding and application health are separate facts. */
@@ -26,7 +26,7 @@ data class LocalService(
     val attemptedHostPort: Int? = null,
     val sessionId: String? = null,
 ) {
-    val androidAddress: String? get() = hostPort?.takeIf { source == ServiceSource.MANUAL || forwarding == ForwardingState.ACTIVE }
+    val androidAddress: String? get() = hostPort?.takeIf { forwarding == ForwardingState.ACTIVE }
         ?.let { "127.0.0.1:$it" }
     val browserUrl: String? get() = androidAddress?.let { address -> when (applicationProtocol) {
         ApplicationProtocol.HTTP -> "http://$address/"
@@ -50,6 +50,7 @@ data class LocalService(
             ForwardingState.valueOf(row.getString("forwarding")), row.nullableInt("hostPort"),
             ApplicationProtocol.valueOf(row.getString("applicationProtocol")), row.nullableString("error"),
             row.nullableInt("attemptedHostPort"), row.nullableString("sessionId")).also {
+                require(it.runtime == "AVF" && it.environmentId != null)
                 require(it.port in 1..65_535 && (it.hostPort == null || it.hostPort in 1..65_535))
                 require(it.sourceAddress == null || PortPayloadCodec.validAddress(it.sourceAddress))
                 validateName(it.name)

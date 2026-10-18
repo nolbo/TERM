@@ -79,9 +79,9 @@ class LocalServicesUiTest {
         val refreshed = AtomicInteger()
         ActivityScenario.launch(SettingsActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
-                DroidTheme { LocalServicesScreen(state.value, false, false, false, null, "ALL", {}, {
+                DroidTheme { LocalServicesScreen(state.value, false, false, false, null, {}, {
                     refreshed.incrementAndGet(); state.value = snapshot(emptyList())
-                }, { _, _ -> }, { _, _ -> }, { _, _, _, _ -> }, copied::set, { opened.set(it.browserUrl) }, {}) }
+                }, { _, _, _, _ -> }, copied::set, { opened.set(it.browserUrl) }, {}) }
             } }
             text("Development API")
             text(requireNotNull(port.androidAddress))
@@ -107,8 +107,8 @@ class LocalServicesUiTest {
         val failed = mutableStateOf(false)
         ActivityScenario.launch(SettingsActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
-                DroidTheme { LocalServicesScreen(state.value, loading.value, failed.value, false, null, "ALL", {}, {},
-                    { _, _ -> }, { _, _ -> }, { _, _, _, _ -> }, {}, {}, {}) }
+                DroidTheme { LocalServicesScreen(state.value, loading.value, failed.value, false, null, {}, {},
+                    { _, _, _, _ -> }, {}, {}, {}) }
             } }
             assertFalse(button(text(label(R.string.local_services_loading))).isEnabled)
             assertNull(find { it.text?.toString() == label(R.string.local_services_empty) })
@@ -131,8 +131,8 @@ class LocalServicesUiTest {
                     val density = LocalDensity.current.density
                     CompositionLocalProvider(LocalDensity provides Density(density, fontScale = 2f)) {
                         Box(Modifier.width(320.dp).fillMaxHeight()) {
-                            LocalServicesScreen(snapshot(listOf(port)), false, false, false, null, "ALL", {}, {},
-                                { _, _ -> }, { _, _ -> }, { _, _, _, _ -> }, copied::set, {}, {})
+                            LocalServicesScreen(snapshot(listOf(port)), false, false, false, null, {}, {},
+                                { _, _, _, _ -> }, copied::set, {}, {})
                         }
                     }
                 }

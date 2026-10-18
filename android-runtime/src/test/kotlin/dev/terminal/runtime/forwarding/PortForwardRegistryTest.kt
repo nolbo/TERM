@@ -30,10 +30,6 @@ class PortForwardRegistryTest {
     private fun connect(manager: LocalServiceManager, env: String = environment, driver: Driver = Driver()): Driver {
         manager.attach(env, driver); manager.event(env, PortEvent.SnapshotBegin); return driver
     }
-    private fun registration(id: String = "manual:${UUID.randomUUID()}", port: Any = 8000, env: String? = null, protocol: String = "UNKNOWN") =
-        JSONObject().put("id", id).put("name", "Development server").put("port", port)
-            .put("environmentId", env ?: JSONObject.NULL).put("applicationProtocol", protocol).toString()
-
     @Test fun differentEnvironmentsAndAddressesKeepDistinctIdentities() {
         val manager = LocalServiceManager()
         val other = UUID.randomUUID().toString()
@@ -124,34 +120,39 @@ class PortForwardRegistryTest {
         manager.event(environment, PortEvent.Listening(8000))
         assertEquals(1, manager.registry.services.value.size)
     }
-    @Test fun manualCrudSurvivesOwnerRestartButNeverClaimsListenerHealthOrOwnership() {
+    @Test fun retiredManualRegistrationsAreIgnoredAndAvfMappingsSurviveUpgrade() {
         var saved: String? = null
-        val env = Environment.create(SessionRuntime.ROOTLESS_UBUNTU, "Ubuntu")
-        val manager = LocalServiceManager(write = { saved = it })
-        val id = "manual:${UUID.randomUUID()}"
-        assertEquals("", manager.saveManual(registration(id, env = env.id.value), listOf(env)))
-        val restarted = LocalServiceManager(read = { saved }, write = { saved = it })
-        val row = restarted.registry.services.value.single()
-        assertEquals("ROOTLESS", row.runtime); assertEquals(ServiceObservation.REGISTERED_UNVERIFIED, row.observation)
-        assertEquals(ForwardingState.NONE, row.forwarding); assertNull(row.browserUrl); assertNull(row.sessionId)
-        assertEquals("", restarted.saveManual(registration(id, 9000, protocol = "HTTP"), listOf(env)))
-        assertEquals("http://127.0.0.1:9000/", restarted.registry.get(id)!!.browserUrl)
-        assertEquals("", restarted.deleteManual(id))
-        assertTrue(LocalServiceManager(read = { saved }).registry.services.value.isEmpty())
-    }
-    @Test fun rejectsInvalidPortsNamesIdsUnknownEnvironmentAndAvfManualAssociation() {
-        val manager = LocalServiceManager()
-        for (port in listOf<Any>(0, 65536, -1, 12.5, "8000", "javascript:x"))
-            assertEquals("INVALID_PORT", manager.saveManual(registration(port = port), emptyList()))
-        val valid = JSONObject(registration())
-        assertEquals("INVALID_NAME", manager.saveManual(valid.put("name", "x\ny").toString(), emptyList()))
-        assertEquals("ENVIRONMENT_UNAVAILABLE", manager.saveManual(registration(env = environment), emptyList()))
-        val avf = Environment.create(SessionRuntime.AVF, "AVF")
-        assertEquals("INVALID_ENVIRONMENT", manager.saveManual(registration(env = avf.id.value), listOf(avf)))
+        val id = LocalService.avfId(environment, "127.0.0.1", 8000)
+        val legacy = JSONObject().put("version", 1)
+            .put("manual", org.json.JSONArray("""[{"source":"MANUAL","runtime":"NATIVE"},{"source":"MANUAL","runtime":"ROOTLESS"}]"""))
+            .put("mappings", JSONObject().put(id, JSONObject().put("port", 18000).put("protocol", "HTTPS"))).toString()
+        val manager = LocalServiceManager(read = { legacy }, write = { saved = it })
         assertTrue(manager.registry.services.value.isEmpty())
+        assertNull(manager.storageError)
+        connect(manager); listening(manager)
+        assertEquals("https://127.0.0.1:18000/", manager.registry.get(id)!!.browserUrl)
+        assertEquals("", manager.updateForwarding(id, 19000, "HTTP"))
+        assertFalse(JSONObject(requireNotNull(saved)).has("manual"))
+        val restarted = LocalServiceManager(read = { saved })
+        connect(restarted); listening(restarted)
+        assertEquals("http://127.0.0.1:19000/", restarted.registry.get(id)!!.browserUrl)
+    }
+    @Test fun snapshotAndRegistryAcceptOnlyAvfEnvironments() {
+        val manager = LocalServiceManager()
+        val avf = Environment.create(SessionRuntime.AVF, "AVF")
+        val environments = listOf(avf, Environment.create(SessionRuntime.NATIVE, "Native"),
+            Environment.create(SessionRuntime.ROOTLESS_UBUNTU, "Ubuntu"))
+        val rows = JSONObject(manager.snapshot(environments)).getJSONArray("environments")
+        assertEquals(1, rows.length())
+        assertEquals(avf.id.value, rows.getJSONObject(0).getString("id"))
+        connect(manager); listening(manager)
+        val observed = manager.registry.services.value.single()
+        for (runtime in listOf("NATIVE", "ROOTLESS", "SHARED_ANDROID"))
+            assertTrue(runCatching { manager.registry.put(observed.copy(runtime = runtime)) }.isFailure)
+        assertEquals(listOf(observed), manager.registry.services.value)
     }
     @Test fun malformedPersistentRowsAreIsolatedAndCountsBounded() {
-        val manager = LocalServiceManager(read = { """{"version":1,"manual":[{},{}]}""" })
+        val manager = LocalServiceManager(read = { """{"version":1,"mappings":{"invalid":{}}}""" })
         assertEquals("STORAGE_CORRUPT", manager.storageError)
         connect(manager)
         repeat(140) { listening(manager, port = 8000 + it) }

@@ -50,7 +50,7 @@ class RootlessSettingsUiTest {
             assertFalse(context.getString(R.string.rootless_remove) in text)
             assertFalse(context.getString(R.string.rootless_complete_environment) in text)
             assertFalse(context.getString(R.string.diagnostics_title) in text)
-            assertFalse(context.getString(R.string.forwarded_ports_title) in text)
+            assertFalse(context.getString(R.string.local_services_title) in text)
         }
     }
 }

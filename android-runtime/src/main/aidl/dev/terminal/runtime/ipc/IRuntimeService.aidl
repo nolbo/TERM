@@ -68,8 +68,6 @@ interface IRuntimeService {
     void cancelAvfImageInitialization(String requestId);
     void setSessionNotificationFocus(@nullable String sessionId, IRuntimeStateListener listener);
     String getLocalServicesJson();
-    String saveLocalService(String registrationJson);
-    String deleteLocalService(String serviceId);
     String updateLocalServiceForwarding(String serviceId, int hostPort, String applicationProtocol);
     void registerLocalServicesListener(ILocalServicesListener listener);
     void unregisterLocalServicesListener(ILocalServicesListener listener);

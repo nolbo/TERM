@@ -32,7 +32,6 @@ class SettingsActivity : TerminalActivity() {
             "workspaces" -> WorkspacesActivity::class.java
             "shared-folders" -> SharedFoldersActivity::class.java
             "backups" -> EnvironmentBackupActivity::class.java
-            "local-services" -> LocalServicesActivity::class.java
             "updates" -> AppUpdatesActivity::class.java
             "about" -> AppInfoActivity::class.java
             "diagnostics" -> DiagnosticsActivity::class.java

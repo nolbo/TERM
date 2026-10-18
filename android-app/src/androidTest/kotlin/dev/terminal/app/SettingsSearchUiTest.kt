@@ -72,7 +72,7 @@ class SettingsSearchUiTest {
             SystemClock.sleep(1000)
             instrumentation.waitForIdleSync()
             val labels = listOf(R.string.storage_title, R.string.profiles, R.string.workspaces_title,
-                R.string.shared_folders_title, R.string.local_services_title,
+                R.string.shared_folders_title,
                 R.string.settings_language_title, R.string.settings_terminal_title)
             val rows = labels.map { label ->
                 var node = waitFor { it.text?.toString() == context.getString(label) }
@@ -85,9 +85,9 @@ class SettingsSearchUiTest {
                     (rows[index].top - rows[index - 1].bottom).toFloat(), 1f)
             }
             assertEquals("Shared directories start a separate group", 16f * density, (rows[3].top - rows[2].bottom).toFloat(), 1f)
-            assertEquals("Shared directories and Local Services share a group", 2f * density, (rows[4].top - rows[3].bottom).toFloat(), 1f)
-            assertEquals("Local Services is above app language", 16f * density, (rows[5].top - rows[4].bottom).toFloat(), 1f)
-            assertEquals("Language and terminal share a group", 2f * density, (rows[6].top - rows[5].bottom).toFloat(), 1f)
+            assertEquals("Shared directories is above app language", 16f * density, (rows[4].top - rows[3].bottom).toFloat(), 1f)
+            assertEquals("Language and terminal share a group", 2f * density, (rows[5].top - rows[4].bottom).toFloat(), 1f)
+            assertNull(find { it.text?.toString() == context.getString(R.string.local_services_title) })
             val first = rows[0]
             val adjacent = rows[1]
             val inset = (2f * density).toInt()
@@ -149,27 +149,28 @@ class SettingsSearchUiTest {
         }
     }
 
-    @Test fun localServicesHomeAndPortSearchOpenTheDashboard() {
+    @Test fun localServicesSearchRequiresAvfAndOpensItsSettingsSection() {
         val context = instrumentation.targetContext
         ActivityScenario.launch(SettingsActivity::class.java).use {
-            fun openDashboard() {
-                val monitor = instrumentation.addMonitor(LocalServicesActivity::class.java.name, null, false)
-                try {
-                    click(waitFor { node -> node.text?.toString() == context.getString(R.string.local_services_title) })
-                    val dashboard = monitor.waitForActivityWithTimeout(5000)
-                    assertNotNull(dashboard)
-                    try {
-                        assertEquals("ALL", dashboard.intent.getStringExtra(LocalServicesActivity.EXTRA_FILTER) ?: "ALL")
-                    } finally { instrumentation.runOnMainSync { dashboard.finish() } }
-                } finally { instrumentation.removeMonitor(monitor) }
-            }
-            openDashboard()
-            val query = if (context.resources.configuration.locales[0].language == "ko") "포트" else "port"
+            assertNull(find { node -> node.text?.toString() == context.getString(R.string.local_services_title) })
+            val query = context.getString(R.string.local_services_title)
             assertTrue(waitFor { it.isEditable }.performAction(AccessibilityNodeInfo.ACTION_SET_TEXT, Bundle().apply {
                 putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, query)
             }))
             waitFor { it.isEditable && it.text?.toString() == query }
-            openDashboard()
+            if (!SessionProfiles(context).hasAvfPrivileges()) {
+                waitFor { node -> node.text?.toString() == context.getString(R.string.settings_search_no_results) }
+            } else {
+                click(waitFor { node -> !node.isEditable && node.text?.toString() == query })
+                waitFor { node -> node.text?.toString() == context.getString(R.string.section_execution) }
+                val monitor = instrumentation.addMonitor(LocalServicesActivity::class.java.name, null, false)
+                try {
+                    click(waitFor { node -> node.text?.toString() == query })
+                    val dashboard = monitor.waitForActivityWithTimeout(5000)
+                    assertNotNull(dashboard)
+                    instrumentation.runOnMainSync { dashboard.finish() }
+                } finally { instrumentation.removeMonitor(monitor) }
+            }
         }
     }
 }
