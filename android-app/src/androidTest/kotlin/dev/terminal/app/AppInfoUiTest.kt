@@ -1,5 +1,6 @@
 package dev.terminal.app
 
+import android.content.Intent
 import android.os.Bundle
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
@@ -72,23 +73,39 @@ class AppInfoUiTest {
     }
 
     @Test fun apkIncludesNonemptyLicensesForUiFontsAndNestedRuntimeComponents() {
+        val catalog = LicenseCatalog.load { context.assets.open(it) }
         val paths = mutableListOf<String>()
         fun visit(path: String) {
-            val children = context.assets.list(path).orEmpty()
-            if (children.isEmpty()) {
-                assertTrue("License is empty: $path", context.assets.open(path).bufferedReader().use { it.readText() }.isNotBlank())
+            if (catalog.isDocument(path)) {
+                assertTrue("License is empty: $path", catalog.readText(path).isNotBlank())
                 paths += path
-            } else children.forEach { visit("$path/$it") }
+            } else catalog.list(path).forEach { visit(it.path) }
         }
         visit("licenses")
+        assertEquals(catalog.documentPaths.toSet(), paths.toSet())
+        assertEquals(paths.size, paths.toSet().size)
         for (name in listOf("TERM-GPL-3.0.txt", "AndroidX-Kotlin-Apache-2.0.txt", "Markwon-Apache-2.0.txt",
             "CommonMark-BSD-2-Clause.txt", "Commons-Compress-Apache-2.0.txt", "XZ-for-Java-0BSD.txt",
             "GoogleSans-OFL.txt", "GoogleSansCode-OFL.txt", "Pretendard-OFL.txt",
             "material-symbols-Apache-2.0.txt", "proot-GPL-2.0-or-later.txt")) {
             assertTrue("Missing bundled license: $name", "licenses/$name" in paths)
         }
-        for (directory in listOf("iphone", "iphone-tools", "usb-serial")) {
+        for (directory in listOf("iphone", "iphone-tools", "usb-serial", "java-resources/META-INF/androidx")) {
             assertTrue("Missing nested runtime licenses: $directory", paths.any { it.startsWith("licenses/$directory/") })
+        }
+    }
+
+    @Test fun sharedDocumentsAndSeparateNoticesOpenUnderEachOriginalComponentPath() {
+        val catalog = LicenseCatalog.load { context.assets.open(it) }
+        val shared = catalog.documentPaths.groupBy { catalog.readText(it) }.values.first { it.size > 1 }.take(2)
+        val examples = shared + listOf("licenses/Pretendard-OFL.txt", "licenses/Commons-Compress-NOTICE.txt",
+            catalog.documentPaths.first { it.startsWith("licenses/java-resources/") })
+        for (path in examples) {
+            val intent = Intent(context, AppInfoActivity::class.java).putExtra(AppInfoActivity.EXTRA_LICENSE_PATH, path)
+            ActivityScenario.launch<AppInfoActivity>(intent).use {
+                val expected = catalog.readText(path)
+                waitFor { it.text?.toString() == expected }
+            }
         }
     }
 }

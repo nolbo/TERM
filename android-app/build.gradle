@@ -1,6 +1,58 @@
+import com.android.build.api.artifact.ScopedArtifact
+import com.android.build.api.artifact.SingleArtifact
+import com.android.build.api.variant.ScopedArtifacts
+import org.gradle.api.artifacts.component.ModuleComponentIdentifier
+import javax.inject.Inject
+
 plugins {
     id 'com.android.application'
     id 'org.jetbrains.kotlin.plugin.compose'
+}
+
+abstract class DeduplicateLicenseAssets extends DefaultTask {
+    @InputDirectory @PathSensitive(PathSensitivity.RELATIVE)
+    abstract DirectoryProperty getInputAssets()
+
+    @InputFiles @PathSensitive(PathSensitivity.RELATIVE)
+    abstract ListProperty<RegularFile> getJavaResourceJars()
+
+    @InputFiles @PathSensitive(PathSensitivity.RELATIVE)
+    abstract ListProperty<Directory> getJavaResourceDirectories()
+
+    @InputFiles @PathSensitive(PathSensitivity.RELATIVE)
+    abstract ConfigurableFileCollection getDependencyArchives()
+
+    @Input
+    abstract SetProperty<String> getOriginalJavaResourceExcludes()
+
+    @InputFile @PathSensitive(PathSensitivity.RELATIVE)
+    abstract RegularFileProperty getGenerator()
+
+    @OutputDirectory
+    abstract DirectoryProperty getOutputAssets()
+
+    @Inject abstract FileSystemOperations getFileSystemOperations()
+    @Inject abstract ExecOperations getExecOperations()
+
+    @TaskAction
+    void generate() {
+        // Sync removes stale generated blobs on incremental builds, while all
+        // original assets (including dependency assets) remain untouched.
+        fileSystemOperations.sync {
+            from inputAssets
+            into outputAssets
+            exclude 'licenses/**'
+            includeEmptyDirs = false
+        }
+        def arguments = ['python3', generator.get().asFile.absolutePath,
+                         '--input-assets', inputAssets.get().asFile.absolutePath,
+                         '--output-assets', outputAssets.get().asFile.absolutePath]
+        javaResourceJars.get().each { arguments.addAll(['--java-resource-jar', it.asFile.absolutePath]) }
+        javaResourceDirectories.get().each { arguments.addAll(['--java-resource-directory', it.asFile.absolutePath]) }
+        dependencyArchives.files.sort().each { arguments.addAll(['--java-resource-jar', it.absolutePath]) }
+        originalJavaResourceExcludes.get().sort().each { arguments.addAll(['--java-resource-exclude', it]) }
+        execOperations.exec { commandLine arguments }
+    }
 }
 
 /**
@@ -141,7 +193,31 @@ def debugVersionCode = providers.exec {
         '--minimum', providers.environmentVariable('TERMINAL_DEBUG_MIN_VERSION_CODE').orElse(updateCodeText).get()
 }.standardOutput.asText.map { it.trim().toInteger() }
 
+def sourceJavaResourceExcludes = [] as Set
 androidComponents {
+    finalizeDsl { dsl ->
+        sourceJavaResourceExcludes = dsl.packaging.resources.excludes.toSet()
+    }
+    onVariants(selector().all()) { variant ->
+        def catalog = tasks.register("deduplicate${variant.name.capitalize()}LicenseAssets", DeduplicateLicenseAssets) {
+            generator.set(rootProject.layout.projectDirectory.file('tools/licenses/deduplicate.py'))
+            // Scoped JAVA_RES does not include external dependency notices in
+            // AGP 9.3. Read the selected runtime JARs/AARs as well, before exclusions.
+            dependencyArchives.from(variant.runtimeConfiguration.incoming.artifactView {
+                componentFilter { it instanceof ModuleComponentIdentifier }
+            }.files)
+            originalJavaResourceExcludes.set(sourceJavaResourceExcludes)
+        }
+        // Read Java notices before packaging exclusions. Preserve their complete
+        // component paths in the same offline catalog rather than discarding them.
+        variant.artifacts.forScope(ScopedArtifacts.Scope.ALL).use(catalog).toGet(
+            ScopedArtifact.JAVA_RES.INSTANCE, { it.javaResourceJars }, { it.javaResourceDirectories })
+        variant.packaging.resources.excludes.addAll([
+            'META-INF/**/LICENSE*', 'META-INF/**/NOTICE*', 'META-INF/**/COPYING*'
+        ])
+        variant.artifacts.use(catalog).wiredWithDirectories(
+            { it.inputAssets }, { it.outputAssets }).toTransform(SingleArtifact.ASSETS.INSTANCE)
+    }
     onVariants(selector().withBuildType('debug')) { variant ->
         variant.outputs.each { output ->
             output.versionCode.set(debugVersionCode)

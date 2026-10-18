@@ -32,10 +32,12 @@ import kotlinx.coroutines.withContext
 
 /** Installed APK metadata and the license documents actually bundled with it. */
 class AppInfoActivity : TerminalActivity() {
+    private val licenseCatalog by lazy { LicenseCatalog.load { assets.open(it) } }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val path = intent.getStringExtra(EXTRA_LICENSE_PATH)
-        if (path != null && !(path == "licenses" || path.startsWith("licenses/") && path.split('/').none { it == ".." || it.isEmpty() })) {
+        if (path != null && !LicenseCatalog.isLogicalPath(path)) {
             finish()
             return
         }
@@ -96,12 +98,8 @@ class AppInfoActivity : TerminalActivity() {
         val page by produceState<Result<LicenseContent>?>(null, path) {
             value = withContext(Dispatchers.IO) {
                 runCatching {
-                    val children = assets.list(path).orEmpty().sorted()
-                    if (children.isEmpty()) LicenseContent.Text(assets.open(path).bufferedReader().use { it.readText() })
-                    else LicenseContent.Directory(children.map {
-                        val child = "$path/$it"
-                        LicenseEntry(child, assets.list(child).orEmpty().isNotEmpty())
-                    })
+                    if (licenseCatalog.isDocument(path)) LicenseContent.Text(licenseCatalog.readText(path))
+                    else LicenseContent.Directory(licenseCatalog.list(path))
                 }
             }
         }
@@ -147,6 +145,7 @@ class AppInfoActivity : TerminalActivity() {
         "licenses/iphone" -> stringResource(R.string.license_iphone_runtime)
         "licenses/iphone-tools" -> stringResource(R.string.license_iphone_tools)
         "licenses/usb-serial" -> "USB Serial for Android"
+        "licenses/java-resources" -> stringResource(R.string.license_java_resources)
         "licenses/GoogleSans-OFL.txt" -> "Google Sans"
         "licenses/GoogleSansCode-OFL.txt" -> "Google Sans Code"
         "licenses/Pretendard-OFL.txt" -> "Pretendard"
@@ -173,9 +172,8 @@ class AppInfoActivity : TerminalActivity() {
         else -> stringResource(R.string.license_document_summary)
     }
 
-    private data class LicenseEntry(val path: String, val directory: Boolean)
     private sealed interface LicenseContent {
-        data class Directory(val entries: List<LicenseEntry>) : LicenseContent
+        data class Directory(val entries: List<LicenseCatalog.Entry>) : LicenseContent
         data class Text(val value: String) : LicenseContent
     }
 

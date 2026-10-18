@@ -213,6 +213,7 @@
     <string name="license_read_error">Unable to load the license document.</string>
     <string name="license_iphone_runtime">iPhone runtime</string>
     <string name="license_iphone_tools">iPhone tools</string>
+    <string name="license_java_resources">Java library notices</string>
     <string name="license_directory_summary">License and notice documents</string>
     <string name="license_document_summary">License text and notices</string>
     <string name="license_rootless_notices">Userspace Linux runtime notices</string>
