@@ -97,6 +97,11 @@ android {
             resValue 'color', 'app_icon_foreground', updateChannel == 'main' ? '#00FFA1' : '#FF0062'
         }
         release {
+            // AGP 9.3 enables code/resource optimization and Android's default
+            // keep rules together; release-specific rules live in keepRules/*.keep.
+            optimization {
+                enable = true
+            }
             // Signed dev updates and versions with a prerelease suffix are prereleases.
             if (updateChannel == 'dev' || appBaseVersion.contains('-')) {
                 resValue 'color', 'app_icon_foreground', '#FF8400'

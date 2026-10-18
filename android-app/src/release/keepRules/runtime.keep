@@ -1,0 +1,42 @@
+# Class.forName probes in NativeCompatibility and AndroidAvfDiagnostics require
+# these class identities even when the optional AVF platform API is unavailable.
+-keep,allowoptimization class dev.terminal.runtime.native.NativeBackend
+-keep,allowoptimization class dev.terminal.runtime.avf.system.AospAvfPlatformDriver
+
+# terminal-jni.c binds JNI, scoped file access and graphics reads by exported
+# Java_dev_terminal_emulator_* symbols. Keep only the native entry points, not
+# every Java helper in the terminal implementation.
+-keepclasseswithmembers,allowoptimization,includedescriptorclasses class dev.terminal.emulator.** {
+    native <methods>;
+}
+
+# TerminalCheckpoint transfers a Java-serialized state graph between :vmhost
+# and the UI. Its allowlist contains literal nested-class/array names, and
+# ObjectInputStream accesses fields and serialization hooks reflectively.
+# Keep that schema, while leaving ordinary terminal methods optimizable.
+-keep class dev.terminal.emulator.** implements java.io.Serializable {
+    !transient <fields>;
+    private void writeObject(java.io.ObjectOutputStream);
+    private void readObject(java.io.ObjectInputStream);
+    private void readObjectNoData();
+    java.lang.Object writeReplace();
+    java.lang.Object readResolve();
+}
+
+# WorkManager persists this legacy class name in its database. Preserve its name
+# and the constructor used by WorkerFactory, including across app updates.
+# WorkManager's own consumer rules preserve the remaining framework entry points.
+-keep,allowoptimization class dev.terminal.runtime.image.DebianImageDownloadWorker {
+    public <init>(android.content.Context, androidx.work.WorkerParameters);
+}
+
+# WorkManager's Room database is instantiated by its generated class name and
+# no-argument constructor. Room's consumer rules alone do not retain this
+# constructor under AGP 9.3 full-mode optimization.
+-keep,allowoptimization class androidx.work.impl.WorkDatabase_Impl {
+    public <init>();
+}
+
+# android-runtime/consumer-rules.pro already preserves the public runtime/AIDL
+# APIs and USB serial drivers (reflective constructors, getSupportedDevices and
+# optional probe methods). Those consumer rules also apply to this release.
