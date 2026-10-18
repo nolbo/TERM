@@ -66,7 +66,8 @@ class ProfileEditActivity : TerminalActivity() {
             return
         }
         val initial = if (source == null) store.duplicate(store.builtIns().first())
-            else if (intent.getBooleanExtra("duplicate", false)) store.duplicate(source) else source
+            else if (intent.getBooleanExtra("duplicate", false)) store.duplicate(source).copy(
+                storageId = source.storageId, environmentId = source.environmentId) else source
         compose {
             val id = rememberSaveable { initial.id }
             val otherProfiles = remember { store.all().filter { it.id != id } }
@@ -85,7 +86,11 @@ class ProfileEditActivity : TerminalActivity() {
             var environment by rememberSaveable { mutableStateOf(initial.environment.entries.joinToString("\n") { "${it.key}=${it.value}" }) }
             var error by rememberSaveable { mutableStateOf<String?>(null) }
             var storageId by rememberSaveable { mutableStateOf(initial.storageId) }
-            var storageChoice by rememberSaveable { mutableStateOf(if (source != null && initial.id == source.id) "keep" else "fresh") }
+            var storageChoice by rememberSaveable { mutableStateOf(when {
+                source == null -> "fresh"
+                initial.id == source.id -> "keep"
+                else -> "existing"
+            }) }
             var freshStorageId by rememberSaveable { mutableStateOf(if (storageChoice == "fresh") initial.storageId else java.util.UUID.randomUUID().toString()) }
             var freshEnvironmentId by rememberSaveable { mutableStateOf(java.util.UUID.randomUUID().toString()) }
             var selectedEnvironmentId by rememberSaveable { mutableStateOf(initial.environmentId?.value.orEmpty()) }

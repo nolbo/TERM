@@ -139,11 +139,17 @@ class ProfileEnvironmentSelectionTest {
     }
 
     @Test fun duplicateKeepsItsNameWhenTheRuntimeChangesAndTheScreenIsRecreated() = withEnvironments { store, fixtures ->
-        val profile = fixtures.first().first
+        val (profile, environment) = fixtures.first()
         val originalProfiles = store.all().map { it.id }.toSet()
         ActivityScenario.launch<ProfileEditActivity>(Intent(context, ProfileEditActivity::class.java)
             .putExtra("profileId", profile.id).putExtra("duplicate", true)).use { activity ->
             assertChoice(R.string.profile_name, "${profile.name} copy")
+            assertChoice(R.string.profile_storage, context.getString(R.string.profile_storage_existing))
+            assertSelected(environment)
+            activity.recreate()
+            assertChoice(R.string.profile_storage, context.getString(R.string.profile_storage_existing))
+            assertSelected(environment)
+            choose(R.string.profile_storage, context.getString(R.string.profile_storage_new))
             choose(R.string.profile_runtime, context.getString(R.string.runtime_rootless_title))
             activity.recreate()
             assertChoice(R.string.profile_name, "${profile.name} copy")
