@@ -42,7 +42,7 @@ pre-existing app data or user settings. See IPHONE_TOOLING.md for limits and rec
 
 USB failure containment closes uncertain Python broker streams and releases raw
 interfaces after host I/O exceptions; cleanup does not reset devices or replay
-commands. Tooling FAILED/CANCELED states have nonzero CLI exit status. This bounds
+commands. Failed broker responses have nonzero CLI exit status. This bounds
 additional effects of failure, not the effects of user-authorized raw/serial/ADB
 commands or operations already accepted by a peripheral. See USB.md failure safety.
 
@@ -55,27 +55,17 @@ metadata and grant no capability. Initial Trust has a 120-second deadline.
 ## Registered iPhone host tools
 
 Native and Rootless have equivalent bounded USB tool capabilities, not raw
-transport authority. The APK allowlist includes the Native `terminal-usb` client
-and trusted `iphone-tool-probe`/`isideload`. Only the registered fixed-artifact
-recipe can start; status/select/cancel are authenticated and session scoped.
-Extra fields, arbitrary worker/service operations and connector requests
-from guests are rejected. `usbStateJson` exposes only a tool ID/grant state.
+transport authority. The APK allowlist includes the Native `terminal-usb` client,
+`iphone-worker` and the trusted `iphone-tool-probe`. Only the fixed probe check
+can be requested; extra fields, arbitrary worker/service operations and connector
+requests from guests are rejected. `usbStateJson` exposes only a tool ID/grant state.
 
 USB FD ownership remains in the separate GPL worker. The host sends only an
 anonymous connector to the trusted probe, authenticated by same UID and a random
 stdin token. No path/token/FD for that connector enters guest environments or
-binds. Device lease release follows reaping, including cancellation, revocation
-and detach. Signing tools use host-only secure input, never Rootless
-account/password/2FA input or a general stdin/argv relay. Secret Binder calls
-require the app main process (same UID plus ActivityManager PID/process identity)
-and a one-use prompt nonce. Guest snapshots omit that nonce and all secret
-values. The generic input screen has FLAG_SECURE, disables autofill and clears
-unsaved drafts on stop. Immutable JVM/Binder/upstream copies cannot be guaranteed
-zeroized; mutable reply arrays/pipe buffers are cleared and credentials are not
-persisted or logged. The signing store uses
-0700/0600 no-backup pairing-level protection, not Keystore encryption; it is not
-exposed to Rootless. New per-operation artifacts use owner-only host cache
-directories and are deleted after worker reaping on all terminal paths. See
+binds. Device lease release follows reaping, including revocation and detach.
+No credential-bearing host input Binder or signing store is part of the product.
+See
 [IPHONE_TOOLING.md](IPHONE_TOOLING.md).
 
 The Linux guest is an untrusted execution environment. No guest process may

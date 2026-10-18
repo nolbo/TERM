@@ -43,15 +43,13 @@ bundle build/distributions/iphone-worker-source.tar.gz; no GPL objects link here
 
 Rust tests cover marker/count/CLOEXEC and handshake rejection. Android
 IphoneToolingDeviceTest runs the actual packaged CLI/probe against synthetic
-peers and proves fresh mux streams without USB. C self-test also requests fresh
-connector FDs. These do not prove physical iPhone or SideStore compatibility.
+peers and proves fresh mux streams without USB. These do not prove physical
+iPhone compatibility.
 
 Host IPC uses same UID, randomized abstract address and random stdin token.
-Keep/watch the owner FD and fail closed on EOF. Never publish connector
+Keep the owner FD and fail closed on EOF. Never publish connector
 addresses/tokens/FDs to either terminal or make the provider a general guest RPC.
-Register bounded host tasks instead. The pinned tools/sidestore worker is now
-packaged as isideload, behind the shared asynchronous host-tool operations and
-generic main-process-only secure input. No arbitrary guest stdin relay exists.
+The registered probe is bounded and has no arbitrary guest stdin relay.
 
 Connector requests use nonblocking Tokio readiness (including recvmsg/SCM_RIGHTS)
 with a 5-second deadline covering lock acquisition, send and receive. No detached
@@ -63,7 +61,7 @@ Startup authentication socket I/O also has 5-second kernel deadlines.
 `7484b3a39a089068167a8ab0b3da6a05b5f6f8969daf1a893da1c7087cb2e09a`, extracts only
 into the build directory and applies `idevice/bounds.patch` (no shared Cargo cache
 mutation). Both top-level manifests patch crates.io to the same source for direct
-and isideload transitive dependencies. Lockfiles retain 0.1.65; its registry
+dependencies. Lockfiles retain 0.1.65; its registry
 checksum moves to the preparation script because Cargo records a path dependency.
 No other dependency versions change.
 

@@ -73,10 +73,9 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             android-runtime/build/iphone-tools/target
-            android-runtime/build/sidestore-native/target
             android-runtime/build/device-safety-connector/target
             android-runtime/build/device-safety-rust/target
-          key: ${{ runner.os }}-${{ runner.arch }}-rust-1.89.0-ndk-${{ env.TERMINAL_NDK_VERSION }}-${{ hashFiles('tools/iphone/connector/**', 'tools/iphone/android-clang.sh', 'tools/sidestore/**') }}
+          key: ${{ runner.os }}-${{ runner.arch }}-rust-1.89.0-ndk-${{ env.TERMINAL_NDK_VERSION }}-${{ hashFiles('tools/iphone/connector/**', 'tools/iphone/android-clang.sh') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-rust-1.89.0-ndk-${{ env.TERMINAL_NDK_VERSION }}-
       - name: Install pinned Android Rust toolchain
@@ -116,7 +115,6 @@ jobs:
             android-app/build/outputs/apk/debug/android-app-debug.apk
             android-runtime/build/distributions/iphone-worker-source.tar.gz
             android-runtime/build/iphone-tools/distributions/iphone-tools-source.tar.gz
-            android-runtime/build/sidestore-native/distributions/sidestore-bootstrap-source.tar.gz
       - name: Use JDK 21 for release lint
         # AGP 9.3's lint parser calls List.removeLast(), unavailable on JDK 17.
         # Verification above and explicit compilation toolchains remain on 17.
@@ -156,8 +154,7 @@ jobs:
           cp android-runtime/build/verifiedRootless/rootless-runtime-source.tar.gz android-runtime/build/verifiedRootless/rootless-runtime.json android-app/build/update/
           cp "docs/release-notes/${TERMINAL_UPDATE_CHANNEL}-latest.md" android-app/build/update/RELEASE_NOTES.ko.md
           cp android-runtime/build/distributions/iphone-worker-source.tar.gz \
-            android-runtime/build/iphone-tools/distributions/iphone-tools-source.tar.gz \
-            android-runtime/build/sidestore-native/distributions/sidestore-bootstrap-source.tar.gz android-app/build/update/
+            android-runtime/build/iphone-tools/distributions/iphone-tools-source.tar.gz android-app/build/update/
       - name: Publish signed update APK
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
         continue-on-error: true
@@ -175,7 +172,6 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             android-runtime/build/iphone-tools/target
-            android-runtime/build/sidestore-native/target
             android-runtime/build/device-safety-connector/target
             android-runtime/build/device-safety-rust/target
           key: ${{ steps.rust-cache.outputs.cache-primary-key }}

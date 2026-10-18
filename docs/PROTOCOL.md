@@ -101,42 +101,25 @@ Without tracking, horizontal gestures produce neither keys nor vertical scrollba
 
 ## Shared registered iPhone tools
 
-Current service revision is 3. Snapshots may contain `changes` with only fixed
-effect keys/statuses described in IPHONE_TOOLING.md. No paths, records or credentials
-are included. Both CLIs preserve this metadata in JSON. `USB_CONFIGURATION_REQUIRED`
-means the iPhone worker refused to change the active configuration; use the existing
-separately approved `configuration` request, also supported by the Native CLI.
-
-Service revision 2 adds `serviceRevision: 2`, `requestAction` and a random
-non-authorizing `requestId` to successful tooling results. `tooling list` also
+Current service revision is 4. Successful tooling results include
+`serviceRevision`, `requestAction` and a random non-authorizing `requestId`.
+`tooling list` also
 provides `workerSha256`, keyed by APK executable name (no host paths).
-Operation failures may include only a fixed allowlisted `detail` category.
 Pairing phases/errors are documented in [IPHONE_TOOLING.md](IPHONE_TOOLING.md).
-Request schemas and grants are unchanged; clients reject isideload status
-received as a `check` reply rather than interpreting it as probe output.
+The only registered tooling operation beyond `list` is the device-scoped probe
+check; no signing, installation or credential-input operation is exposed.
 
 Native's packaged client and Rootless's Python client use the existing same-UID,
 session-token, version-1 length-prefixed USB protocol. A flat `op: "tooling"`
-request accepts these exact additional fields: `list`: none; `check`: device;
-`start`: tool/device; `status` and `cancel`: operation; `select`: operation/choices
-(comma-separated non-secret choice IDs). Every request has version/token/op/action.
-Only registered isideload can start; it needs a separate whole-device grant and
-OS USB permission. Arbitrary argv, ports, paths, payloads and credentials are
-not accepted. `watch` is client-side status polling, not a separate broker RPC.
-Operation status is validated metadata, stable errors/progress and non-secret
-choices; ownership is authenticated by the session as well as operation ID.
-No public response contains account/password/2FA or a secure prompt nonce.
-
-App-only typed Binder APIs getHostToolOperationsJson/submitHostToolInput/
-cancelHostToolOperation serve the generic host input screen. Input is a bounded
-String array, not diagnostic JSON; secret prompts need a one-use nonce and the
-verified main UI process. Terminal select is rejected for login and 2FA.
+request accepts these exact additional fields: `list`: none; `check`: device.
+Every request has version/token/op/action. Arbitrary argv, ports, paths, payloads
+and credentials are not accepted.
 
 Host-internal IPC is separate: same-UID + random stdin token, marker `B` with
 USB+connector FDs to `iphone-worker mux-owner`, and marker `M` with one connector
-FD to the trusted probe or isideload worker. Each private `M` request receives one fresh CLOEXEC
-stream FD. No descriptor is returned on the guest socket. Old USB operations
-remain compatible. See [IPHONE_TOOLING.md](IPHONE_TOOLING.md).
+FD to the trusted probe. Each private `M` request receives one fresh CLOEXEC
+stream FD. No descriptor is returned on the guest socket. See
+[IPHONE_TOOLING.md](IPHONE_TOOLING.md).
 
 ## Android storage size measurements
 

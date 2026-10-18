@@ -109,7 +109,7 @@ class UsbSettingsUiTest {
         val commands = mutableListOf<UsbSettingsCommand>()
         ActivityScenario.launch(UsbDevicesActivity::class.java).use { scenario ->
             scenario.onActivity { it.setContent { DroidTheme {
-                UsbSettingsScreen(snapshot.value, true, false, "", {}, { commands += it }, {}, {}, {})
+                UsbSettingsScreen(snapshot.value, true, false, "", {}, { commands += it }, {}, {})
             } } }
             click(label(R.string.usb_approve))
             waitFor("/approved-file")
@@ -131,7 +131,7 @@ class UsbSettingsUiTest {
         val commands = mutableListOf<UsbSettingsCommand>()
         ActivityScenario.launch(UsbDevicesActivity::class.java).use { scenario ->
             scenario.onActivity { it.setContent { DroidTheme {
-                UsbSettingsScreen(fixture(true), true, false, "", {}, { commands += it }, {}, {}, {})
+                UsbSettingsScreen(fixture(true), true, false, "", {}, { commands += it }, {}, {})
             } } }
             waitFor(label(R.string.usb_waiting_permission))
             // Compose exposes the child Text as enabled even when the containing button is disabled.
@@ -148,7 +148,7 @@ class UsbSettingsUiTest {
         val commands = mutableListOf<UsbSettingsCommand>()
         ActivityScenario.launch(UsbDevicesActivity::class.java).use { scenario ->
             scenario.onActivity { it.setContent { DroidTheme {
-                UsbSettingsScreen(fixture(), true, false, "", {}, { commands += it }, {}, {}, {})
+                UsbSettingsScreen(fixture(), true, false, "", {}, { commands += it }, {}, {})
             } } }
             click(label(R.string.usb_approve))
             waitFor(label(R.string.cancel))
@@ -163,7 +163,7 @@ class UsbSettingsUiTest {
         val data = fixture().copy(requests = emptyList(), grants = emptyList(), storage = listOf(UsbStorageUi("fixture-root", "Test Drive", true, false)))
         ActivityScenario.launch(UsbDevicesActivity::class.java).use { scenario ->
             scenario.onActivity { it.setContent { DroidTheme {
-                UsbSettingsScreen(data, true, false, "", {}, { commands += it }, {}, {}, {})
+                UsbSettingsScreen(data, true, false, "", {}, { commands += it }, {}, {})
             } } }
             val deviceId = instrumentation.targetContext.getString(R.string.usb_device_id, "fixture-phone")
             assertNull(find(deviceId))
@@ -187,7 +187,7 @@ class UsbSettingsUiTest {
         ))
         ActivityScenario.launch(UsbDevicesActivity::class.java).use { scenario ->
             scenario.onActivity { it.setContent { DroidTheme {
-                UsbSettingsScreen(data, true, false, "", {}, {}, {}, {}, {})
+                UsbSettingsScreen(data, true, false, "", {}, {}, {}, {})
             } } }
             val header = label(R.string.usb_device_iphone)
             val nextHeader = label(R.string.usb_device_serial)
@@ -216,7 +216,7 @@ class UsbSettingsUiTest {
         val data = fixture().copy(requests = emptyList())
         ActivityScenario.launch(UsbDevicesActivity::class.java).use { scenario ->
             scenario.onActivity { it.setContent { DroidTheme {
-                UsbSettingsScreen(data, true, false, "", {}, { commands += it }, {}, {}, {})
+                UsbSettingsScreen(data, true, false, "", {}, { commands += it }, {}, {})
             } } }
             scrollTo(label(R.string.usb_revoke))
             click(label(R.string.usb_revoke))
@@ -234,22 +234,4 @@ class UsbSettingsUiTest {
         }
     }
 
-    @Test fun realServiceScreenReconnectsAfterRecreationAndOpensHostInputs() {
-        ActivityScenario.launch(UsbDevicesActivity::class.java).use { scenario ->
-            waitFor(label(R.string.usb_no_requests_title))
-            scenario.recreate()
-            waitFor(label(R.string.usb_no_requests_title))
-            scrollTo(label(R.string.host_tool_inputs_title))
-            click(label(R.string.host_tool_inputs_title))
-            var hostVisible = false
-            instrumentation.waitForIdleSync()
-            instrumentation.runOnMainSync {
-                val resumed = androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry.getInstance()
-                    .getActivitiesInStage(androidx.test.runner.lifecycle.Stage.RESUMED)
-                hostVisible = resumed.any { it is HostToolInputsActivity }
-                resumed.filterIsInstance<HostToolInputsActivity>().forEach { it.finish() }
-            }
-            assertTrue(hostVisible)
-        }
-    }
 }

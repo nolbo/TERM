@@ -31,7 +31,7 @@ class UsbBroker(private val context: Context, bootstrapWorkChanged: (Int) -> Uni
     private val toolBuilds by lazy {
         val loader = dev.terminal.runtime.native.ApkNativeExecutableLoader(context)
         JSONObject().also { result ->
-            for (name in listOf("iphone-worker", "iphone-tool-probe", "isideload")) {
+            for (name in listOf("iphone-worker", "iphone-tool-probe")) {
                 val digest = runCatching {
                     val hash = java.security.MessageDigest.getInstance("SHA-256")
                     loader.resolvePackagedExecutable(name).getOrThrow().inputStream().use { input ->
@@ -701,24 +701,14 @@ class UsbBroker(private val context: Context, bootstrapWorkChanged: (Int) -> Uni
             val session = sessions[request.getString("token")] ?: error("SESSION_EXPIRED")
             require(request.int("version") == 1) { "UNSUPPORTED_VERSION" }
             TrustedIphoneToolPolicy.validateRequest(action, request.keys().asSequence().toSet())
-            if (action in setOf("status", "cancel", "select")) {
-                val id = request.getString("operation")
-                val result = when (action) {
-                    "status" -> iphoneTools.status(session.id, id)
-                    "cancel" -> iphoneTools.cancel(session.id, id)
-                    else -> iphoneTools.select(session.id, id, request.getString("choices"))
-                }
-                return reply(result)
-            }
             if (action == "list") return reply(JSONObject()
-                .put("tools", JSONArray(listOf("idevice-check", "isideload"))).put("privateTransport", true).put("publicMuxSocket", false)
+                .put("tools", JSONArray(listOf("idevice-check"))).put("privateTransport", true).put("publicMuxSocket", false)
                 .put("workerSha256", JSONObject(toolBuilds.toString())))
-            val tool = if (action == "start") request.getString("tool") else "idevice-check"
-            require(tool in if (action == "start") setOf("isideload") else setOf("idevice-check")) { "UNSUPPORTED_TOOL_OPERATION" }
+            require(action == "check") { "UNSUPPORTED_TOOL_OPERATION" }
             check(supported && manager != null) { "USB_HOST_UNAVAILABLE" }
             val target = device(request.getString("device"))
             require(IphonePolicy.candidate(target.usb.vendorId, target.usb.productId)) { "UNSUPPORTED_USB_DEVICE" }
-            val grant = Grant(session.id, target.key, -1, false, tool = tool)
+            val grant = Grant(session.id, target.key, -1, false, tool = "idevice-check")
             requireGrant(grant); selectedGrant = grant
             check(manager.hasPermission(target.usb)) { "ANDROID_PERMISSION_REQUIRED" }
             target.key
@@ -726,9 +716,7 @@ class UsbBroker(private val context: Context, bootstrapWorkChanged: (Int) -> Uni
         fun access() = synchronized(this) {
             check(selectedGrant in grants && request.getString("token") in sessions && devices.values.any { it.key == deviceKey }) { "GRANT_REVOKED" }
         }
-        val result = if (action == "start") iphoneTools.start(request.getString("tool"), deviceKey,
-            synchronized(this) { sessions[request.getString("token")]?.id ?: error("SESSION_EXPIRED") }, ::access)
-            else iphoneTools.check(deviceKey, socket, ::access)
+        val result = iphoneTools.check(deviceKey, socket, ::access)
         return reply(result)
     }
 

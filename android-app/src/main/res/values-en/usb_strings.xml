@@ -1,7 +1,7 @@
 <resources>
     <string name="usb_title">USB devices</string>
     <string name="usb_summary">Manage Native iPhone and Userspace Linux USB access</string>
-    <string name="usb_help">Native/Userspace Linux: terminal-usb list, iphone, tooling. Userspace Linux also supports serial/adb/mtp/raw (Python 3 required). Approve here and rerun. Account/2FA: Host tool inputs only. Choose folders under Removable storage.</string>
+    <string name="usb_help">Native/Userspace Linux: terminal-usb list, iphone, tooling. Userspace Linux also supports serial/adb/mtp/raw (Python 3 required). Approve here and rerun. Choose folders under Removable storage.</string>
     <string name="usb_connecting">Connecting to USB service…</string>
     <string name="usb_unsupported">This Android device does not support USB Host.</string>
     <string name="usb_no_devices">No USB devices are connected.</string>

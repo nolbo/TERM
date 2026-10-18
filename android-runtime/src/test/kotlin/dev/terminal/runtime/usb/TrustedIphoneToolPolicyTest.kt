@@ -1,7 +1,6 @@
 package dev.terminal.runtime.usb
 
 import java.io.ByteArrayInputStream
-import java.nio.file.Files
 import org.junit.Assert.*
 import org.junit.Test
 import dev.terminal.runtime.usb.TrustedIphoneToolPolicy.Phase
@@ -43,18 +42,5 @@ class TrustedIphoneToolPolicyTest {
         listOf("truncated", "x".repeat(8193) + "\n").forEach {
             assertTrue(runCatching { TrustedIphoneToolHost.line(ByteArrayInputStream(it.toByteArray())) }.isFailure)
         }
-    }
-    @Test fun noFollowCleanupNeverDeletesUnrelatedHostData() {
-        val root = Files.createTempDirectory("iphone-tools-cleanup").toFile()
-        val outside = Files.createTempDirectory("iphone-tools-outside").toFile()
-        try {
-            val secret = java.io.File(outside, "key").apply { writeText("secret") }
-            val operation = java.io.File(root, "operation").apply { mkdir() }
-            Files.createSymbolicLink(java.io.File(operation, "escape").toPath(), outside.toPath())
-            TrustedIphoneToolPolicy.deleteTemporary(root, operation)
-            assertTrue(secret.isFile); assertFalse(operation.exists())
-            assertTrue(runCatching { TrustedIphoneToolPolicy.deleteTemporary(root, root) }.isFailure)
-            assertTrue(runCatching { TrustedIphoneToolPolicy.deleteTemporary(root, outside) }.isFailure)
-        } finally { root.deleteRecursively(); outside.deleteRecursively() }
     }
 }

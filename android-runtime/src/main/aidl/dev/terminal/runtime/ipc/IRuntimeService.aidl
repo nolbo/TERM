@@ -48,9 +48,6 @@ interface IRuntimeService {
     void revokeUsbSession(String sessionId);
     String addUsbStorageTree(String uri, int flags);
     void removeUsbStorageTree(String id);
-    String getHostToolOperationsJson();
-    String submitHostToolInput(String operationId, String promptNonce, in String[] values);
-    void cancelHostToolOperation(String operationId);
     void migrateRootlessToNative(String runtimeType);
     void setSessionTaskNotifications(boolean enabled);
     String getSessionMemoryJson(String sessionId);

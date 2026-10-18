@@ -27,80 +27,7 @@ internal class TrustedIphoneToolHost(
     private val context: Context, private val broker: UsbBroker, private val workChanged: (Int) -> Unit,
 ) : AutoCloseable {
     private val active = TrustedIphoneToolSlot<Operation>()
-    private val operations = java.util.concurrent.ConcurrentHashMap<String, Pair<String, Operation>>()
     @Volatile private var closed = false
-    @Volatile private var cleanupBlocked = false
-    init {
-        runCatching {
-            val root = File(context.cacheDir, "host-tool-work")
-            if (root.exists()) {
-                val metadata = Os.lstat(root.absolutePath)
-                check(OsConstants.S_ISDIR(metadata.st_mode) && metadata.st_uid == Process.myUid())
-                Os.chmod(root.absolutePath, 448)
-                checkNotNull(root.canonicalFile.listFiles()).filter { it.name.matches(Regex("[0-9a-f-]{36}")) }
-                    .forEach { TrustedIphoneToolPolicy.deleteTemporary(root, it) }
-            }
-        }.onFailure { cleanupBlocked = true }
-    }
-
-    @Synchronized fun start(tool: String, device: String, session: String, access: () -> Unit): JSONObject {
-        check(!closed) { "USB_HOST_UNAVAILABLE" }; require(tool == "isideload") { "UNSUPPORTED_TOOL_OPERATION" }
-        check(!cleanupBlocked) { "ARTIFACT_CLEANUP" }
-        operations.entries.filter { it.value.second.conversation!!.terminal() && active.get() !== it.value.second }
-            .take((operations.size - 31).coerceAtLeast(0)).forEach { operations.remove(it.key) }
-        check(operations.size < 32) { "DEVICE_BUSY" }
-        val record = HostToolConversation(UUID.randomUUID().toString(), tool, device)
-        val operation = Operation(null, access, record)
-        check(active.compareAndSet(null, operation)) { "DEVICE_BUSY" }
-        var reserved = false; var counted = false
-        try {
-            val (manager, usb) = broker.reserveBootstrap(device) { operation.stop(Error.USB_DETACHED) }
-            reserved = true; check(manager.hasPermission(usb)) { "USB_PERMISSION_DENIED" }
-            workChanged(1); counted = true
-            operations[record.id] = session to operation
-            Thread({
-                try { operation.run(manager, usb) }
-                catch (failure: Exception) { operation.stop(symbol(operation.error()?.name ?: record.failure() ?: failure.message)) }
-                finally {
-                    try { operation.cleanup() } catch (_: Exception) { cleanupBlocked = true; record.fail("ARTIFACT_CLEANUP") }
-                    finally { broker.releaseBootstrap(device); active.compareAndSet(operation, null); workChanged(-1) }
-                    if (!record.terminal()) runCatching { record.complete() }.onFailure { record.fail("WORKER_PROTOCOL") }
-                }
-            }, "host-tool-${record.id}").start()
-            return record.snapshot()
-        } catch (failure: Exception) {
-            operations.remove(record.id)
-            try { operation.cleanup() } catch (_: Exception) { cleanupBlocked = true }
-            finally {
-                if (reserved) broker.releaseBootstrap(device)
-                active.compareAndSet(operation, null); if (counted) workChanged(-1)
-            }
-            throw IllegalStateException(symbol(failure.message).name)
-        }
-    }
-    private fun operation(session: String, id: String): Operation = operations[id]?.takeIf { it.first == session }?.second
-        ?: error("NO_TOOL_OPERATION")
-    fun status(session: String, id: String) = operation(session, id).conversation!!.snapshot()
-    fun cancel(session: String, id: String): JSONObject {
-        val op = operation(session, id); op.stop(Error.CANCELED); return op.conversation!!.snapshot()
-    }
-    fun select(session: String, id: String, choices: String): JSONObject {
-        require(choices.length in 1..12900) { "INVALID_TOOL_INPUT" }
-        val op = operation(session, id); op.conversation!!.submit(null, choices.split(',').toTypedArray(), false)
-        return op.conversation.snapshot()
-    }
-    fun hostState() = org.json.JSONArray(operations.values.sortedBy { it.second.conversation!!.terminal() }
-        .map { it.second.conversation!!.snapshot(true).put("session", it.first) }).toString()
-    fun hostInput(id: String, nonce: String, values: Array<String>) {
-        try {
-            val conversation = operations[id]?.second?.conversation ?: error("NO_TOOL_OPERATION")
-            val kind = conversation.snapshot(true).optJSONObject("prompt")?.optString("kind")
-            conversation.submit(nonce, values, kind in setOf("LOGIN", "CODE"))
-        }
-        finally { values.fill("") }
-    }
-    fun hostCancel(id: String) { (operations[id]?.second ?: error("NO_TOOL_OPERATION")).stop(Error.CANCELED) }
-    private fun symbol(code: String?): Error = runCatching { Error.valueOf(code.orEmpty()) }.getOrDefault(Error.WORKER_PROTOCOL)
 
     fun check(deviceKey: String, client: LocalSocket, access: () -> Unit): JSONObject {
         check(!closed) { "USB_HOST_UNAVAILABLE" }
@@ -126,14 +53,12 @@ internal class TrustedIphoneToolHost(
     }
     override fun close() { closed = true; active.get()?.stop(Error.CANCELED) }
 
-    private inner class Operation(private val client: LocalSocket?, private val access: () -> Unit,
-        val conversation: HostToolConversation? = null) {
+    private inner class Operation(private val client: LocalSocket?, private val access: () -> Unit) {
         private val state = TrustedIphoneToolStateMachine()
         private val resources = mutableListOf<AutoCloseable>()
         private val children = mutableListOf<java.lang.Process>()
         private val timer = Executors.newSingleThreadScheduledExecutor()
         private var failure: Error? = null
-        private var temporary: File? = null
         @Synchronized fun error(): Error? = failure
         @Synchronized private fun checkActive() { check(failure == null) { failure!!.name } }
         @Synchronized private fun <T : AutoCloseable> own(value: T): T {
@@ -147,15 +72,14 @@ internal class TrustedIphoneToolHost(
         }
         @Synchronized fun stop(error: Error) {
             if (failure != null || state.phase == Phase.COMPLETED) return
-            failure = error; state.stop(error); conversation?.fail(error.name)
+            failure = error; state.stop(error)
             children.forEach { runCatching { it.destroyForcibly() } }
             resources.asReversed().forEach { runCatching { it.close() } }
         }
         fun run(manager: UsbManager, device: UsbDevice): JSONObject {
             state.transition(Phase.WAITING_FOR_USB_PERMISSION)
             check(manager.hasPermission(device)) { "USB_PERMISSION_DENIED" }
-            timer.schedule({ stop(if (conversation == null) Error.CANCELED else Error.INPUT_TIMEOUT) },
-                if (conversation == null) 25 else 1800, TimeUnit.SECONDS)
+            timer.schedule({ stop(Error.CANCELED) }, 25, TimeUnit.SECONDS)
             timer.scheduleWithFixedDelay({
                 runCatching {
                     access()
@@ -193,12 +117,6 @@ internal class TrustedIphoneToolHost(
             if (ready != null && runCatching { JSONObject(ready).optString("error") == "USB_CONFIGURATION_REQUIRED" }.getOrDefault(false))
                 error("USB_CONFIGURATION_REQUIRED")
             require(ready == "{\"ok\":true,\"result\":{\"muxReady\":true}}") { "WORKER_PROTOCOL" }
-            if (conversation != null) {
-                state.transition(Phase.RUNNING)
-                runInteractive(loader, endpoints)
-                synchronized(this) { checkActive() }
-                return conversation.snapshot()
-            }
             val probeAddress = "terminal-tool-probe-${UUID.randomUUID()}"
             val listener = own(LocalServerSocket(probeAddress))
             val probeToken = UUID.randomUUID().toString()
@@ -214,51 +132,6 @@ internal class TrustedIphoneToolHost(
             synchronized(this) { checkActive(); state.transition(Phase.COMPLETED) }
             return JSONObject().put("tool", "idevice-check").put("completed", true)
                 .put("privateConnector", true).put("publicMuxSocket", false).put("ideviceVersion", "0.1.65")
-        }
-        private fun privateDirectory(directory: File): File {
-            check(directory.mkdirs() || directory.isDirectory) { "WORKER_PROTOCOL" }
-            val metadata = Os.lstat(directory.absolutePath)
-            check(OsConstants.S_ISDIR(metadata.st_mode) && metadata.st_uid == Process.myUid()) { "WORKER_PROTOCOL" }
-            Os.chmod(directory.absolutePath, 448); return directory.canonicalFile
-        }
-        private fun runInteractive(loader: ApkNativeExecutableLoader, endpoints: List<ParcelFileDescriptor>) {
-            val record = conversation!!
-            val root = privateDirectory(File(context.cacheDir, "host-tool-work"))
-            val temp = privateDirectory(File(root, record.id)); temporary = temp
-            val storage = privateDirectory(File(context.noBackupFilesDir, "iphone-tool-state"))
-            val address = "terminal-tool-${UUID.randomUUID()}"; val listener = own(LocalServerSocket(address))
-            val token = UUID.randomUUID().toString()
-            val worker = launch(listOf(loader.resolvePackagedExecutable("isideload").getOrThrow().absolutePath,
-                "bootstrap", storage.absolutePath, address), mapOf("TMPDIR" to temp.absolutePath))
-            worker.outputStream.write((token + "\n").toByteArray()); worker.outputStream.flush()
-            send(handshake(listener, token), arrayOf(endpoints[1].fileDescriptor), 'M'); endpoints.forEach { it.close() }
-            while (true) {
-                checkActive()
-                val event = JSONObject(line(worker.inputStream) ?: break); record.event(event)
-                record.failure()?.let { error(it) }
-                val command = when (event.getString("phase")) {
-                    "WAITING_FOR_LOGIN" -> "start"
-                    "WAITING_FOR_2FA" -> "code"
-                    "WAITING_FOR_TEAM_SELECTION" -> "team"
-                    "WAITING_FOR_CERTIFICATE_REVOCATION" -> "revoke"
-                    else -> null
-                }
-                if (command != null) {
-                    val values = record.awaitReply()
-                    try {
-                        val reply = JSONObject().put("op", command)
-                        when (command) {
-                            "start" -> reply.put("email", values[0]).put("password", values[1]).put("anisette", values[2])
-                            "code" -> reply.put("code", values[0])
-                            "team" -> reply.put("id", values[0])
-                            "revoke" -> reply.put("ids", org.json.JSONArray(values.toList()))
-                        }
-                        val bytes = (reply.toString() + "\n").toByteArray()
-                        try { worker.outputStream.write(bytes); worker.outputStream.flush() } finally { bytes.fill(0) }
-                    } finally { values.fill("") }
-                }
-            }
-            check(worker.waitFor(2, TimeUnit.SECONDS) && worker.exitValue() == 0) { "WORKER_PROTOCOL" }
         }
         private fun launch(arguments: List<String>, variables: Map<String, String> = emptyMap()) = own(ProcessBuilder(arguments).apply {
             environment().clear(); environment().putAll(variables); redirectError(File("/dev/null"))
@@ -294,7 +167,6 @@ internal class TrustedIphoneToolHost(
             }
             HostToolProcessCleanup.reap(children)
             children.forEach { child -> listOf(child.inputStream, child.outputStream, child.errorStream).forEach { runCatching { it.close() } } }
-            temporary?.let { TrustedIphoneToolPolicy.deleteTemporary(it.parentFile!!, it) }
         }
     }
     companion object {

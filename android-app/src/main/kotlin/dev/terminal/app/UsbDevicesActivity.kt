@@ -80,7 +80,6 @@ class UsbDevicesActivity : TerminalActivity() {
             }
             UsbSettingsScreen(state, runtime != null, command != null || storageSelection != null, error,
                 onBack = { finish() }, onCommand = { command = it }, onDismissError = { error = "" },
-                onHostInputs = { startActivity(Intent(this@UsbDevicesActivity, HostToolInputsActivity::class.java)) },
                 onStorage = {
                     runCatching { pickStorage.launch(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).addFlags(
                         Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION or

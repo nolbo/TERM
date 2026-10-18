@@ -254,21 +254,19 @@ Inspection found that the previous implementation connected a reported TCP port 
 
 The iPhone transport only claims the active USB configuration; changing it requires
 the separate device-wide broker capability, including for trusted tools. The host
-conversation retains bounded residual-effect metadata through failure/cancellation.
-SideStore pairing placement uses a verified staging file and one AFC rename, with
-no destructive replacement fallback or automatic uninstall/settings rollback.
-These are failure-containment measures, not an iOS transaction or crash-recovery
-journal; see IPHONE_TOOLING.md for protocol and physical-validation limitations.
+performs pairing placement through a verified staging file and one AFC rename,
+with no destructive replacement fallback. These are failure-containment measures,
+not an iOS transaction or crash-recovery journal; see IPHONE_TOOLING.md for
+protocol and physical-validation limitations.
 
-The app provides a shared typed USB CLI capability, not a SideStore/IPA installer
-screen. Native's packaged Bionic CLI and Rootless's Python CLI call the same
+The app provides a shared typed USB CLI capability, not an IPA installer screen.
+Native's packaged Bionic CLI and Rootless's Python CLI call the same
 session-scoped broker. `:vmhost` leases the physical device and owns the USB/mux
 worker and registered host-tool processes independently of Activities. Only the
-trusted mux owner receives USB; a trusted tool receives a private anonymous
-multi-stream connector. Guests receive neither. Registered APK recipes now have
-session-scoped start/status/select/cancel operations. The pinned isideload recipe
-uses generic host-only secure input; there is no application install button. See
-[IPHONE_TOOLING.md](IPHONE_TOOLING.md) for the plan and extension rules.
+trusted mux owner receives USB; the probe receives a private anonymous
+multi-stream connector. Guests receive neither. The only registered APK host
+tool is the device-scoped iPhone probe. See [IPHONE_TOOLING.md](IPHONE_TOOLING.md)
+for the plan and extension rules.
 
 ## Phase 0 decision
 

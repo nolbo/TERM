@@ -3,7 +3,7 @@
 The [virtual iPhone test environment](../tests/usb/VIRTUAL_IPHONE.md) runs real
 Native/Rootless CLIs against test-only synthetic device responses, with real broker
 session authentication. A separate in-memory lockdown peer exercises pinned idevice
-Trust handling. This is not physical USB, RPPairing or installation validation.
+Trust handling. This is not physical USB, RPPairing or AFC validation.
 
 ## Failure safety
 
@@ -16,15 +16,15 @@ failures and keep their documented semantics. Unsupported serial DTR/RTS request
 are checked before changing line settings; driver initialization can still affect
 hardware. Incomplete MTP arguments are rejected before opening a device session.
 
-Both CLIs print tooling status JSON but exit 1 for FAILED and 130 for CANCELED,
-so shell `&&` does not continue after failure. Python Ctrl-C exits 130 except an
-intentional `tooling watch` detach, which leaves the host-owned task running.
+Both CLIs reject failed broker responses with a nonzero exit status, so shell
+`&&` does not continue after failure. Python Ctrl-C exits 130. `tooling check`
+is a bounded synchronous probe; it has no detached host-owned task to resume.
 Native download cleanup is armed only after exclusive temporary-file creation.
 Complete downloads are published without overwriting an existing destination.
 
 These protections cannot guarantee harmless effects from arbitrary `run`/raw,
 serial or ADB commands, device firmware bugs, cable faults or power loss. An
-interrupted upload can leave a partial new file, and an accepted install, pairing,
+interrupted upload can leave a partial new file, and an accepted pairing,
 configuration or control-line change can remain applied even if its reply is lost.
 Inspect the target before retrying; do not assume failure means nothing happened.
 Cleanup never formats storage or deletes unrelated files to recover an operation.
@@ -32,29 +32,23 @@ Cleanup never formats storage or deletes unrelated files to recover an operation
 ## Shared iPhone CLI tool environment
 
 For pairing failures, collect `terminal-usb tooling list` from the same new
-session after updating the APK. Service revision 2 reports installed worker
-hashes and distinguishes record checking, Trust, saving and session validation.
-`check` only probes private usbmux and never starts isideload or Trust. Its
-successful result identifies `idevice-check`; mismatched installation output
-is rejected by the updated clients. Record read errors no longer trigger new
-pairing automatically. See [pairing diagnostics](IPHONE_TOOLING.md) for the
-bounded error detail format. Physical iOS 27 beta compatibility remains unverified.
+session after updating the APK. Service revision 4 reports installed worker
+hashes and keeps the probe check separate from pairing. `check` only probes
+private usbmux and never starts installation or Trust. Its successful result
+identifies `idevice-check`; record read errors no longer trigger new pairing
+automatically. See [pairing diagnostics](IPHONE_TOOLING.md) for the bounded
+error detail format. Physical iOS 27 beta compatibility remains unverified.
 
 Native and Rootless both support `terminal-usb list`, `iphone pair|info|unpair`,
-`iphone ls|get|put`, and `tooling list|check|start|status|watch|select|cancel`. Each selected-device action uses
+`iphone ls|get|put`, and `tooling list|check`. Each selected-device action uses
 its own approved capability and Android USB permission. The `idevice-check`
 host tool proves fresh internal usbmux clients can be supplied through an
 anonymous connector while Android remains the physical owner. No USB FD,
 connector or pair record is returned to either terminal.
 
-This is tooling infrastructure, not an application SideStore/IPA installation
-screen or a public usbmuxd endpoint. The registered isideload recipe uses the
-generic **USB → Host tool inputs** screen for account/password/2FA, never the
-Rootless PTY. Team and explicit certificate choices can use that screen or the
-CLI. Async operations survive watch-client disconnect and UI navigation;
-explicit cancellation, grant/session revocation and detach terminate/reap them.
-Process death loses the operation and old temporary artifacts are removed on
-the next service start, without resuming secrets or device writes. See
+This is tooling infrastructure, not an application installation screen or a
+public usbmuxd endpoint. No signing, installation or credential-input workflow
+is registered. See
 [IPHONE_TOOLING.md](IPHONE_TOOLING.md) and the
 [connector build guide](../tools/iphone/connector/README.md).
 
@@ -87,7 +81,7 @@ requirement, AVF dependency or automatic distribution package installation.
 ## Usage
 
 The USB settings screen groups **Connected devices**, **Access requests**,
-**Allowed access**, **Removable storage**, **Host tools**, and **Help & diagnostics**.
+**Allowed access**, **Removable storage**, and **Help & diagnostics**.
 Pending requests appear first. Tap a device to inspect its attachment ID and
 configuration/interface details; descriptors alone do not claim protocol compatibility
 or Android permission. Requests show their exact session and target scope.

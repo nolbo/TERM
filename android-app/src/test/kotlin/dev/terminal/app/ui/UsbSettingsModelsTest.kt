@@ -35,7 +35,7 @@ class UsbSettingsModelsTest {
     @Test fun interactiveStatesAndScopeStaySeparateFromUsbPermission() {
         val data = UsbSettingsSnapshot.parse(JSONObject("""{
             "requests":[{"request":"request-id","session":"session","runtime":"ROOTLESS","device":"phone",
-                "interface":-1,"tool":"isideload","waitingForAndroid":true,"scope":"/allowed"}],
+                "interface":-1,"tool":"idevice-check","waitingForAndroid":true,"scope":"/allowed"}],
             "grants":[{"session":"session","device":"phone","iphone":"afc-get","active":true,"scope":"/file"}],
             "storageRoots":[{"id":"root","name":"Drive","available":true,"writable":false}],
             "diagnostics":{"rawConnections":-1}
@@ -43,7 +43,7 @@ class UsbSettingsModelsTest {
         assertTrue(data.requests.single().waiting)
         assertEquals("request-id", data.requests.single().requestId)
         assertEquals(-1, data.requests.single().interfaceId)
-        assertEquals("isideload", data.requests.single().tool)
+        assertEquals("idevice-check", data.requests.single().tool)
         assertTrue(data.grants.single().active)
         assertEquals("/file", data.grants.single().scope)
         assertEquals(UsbStorageUi("root","Drive",true,false), data.storage.single())

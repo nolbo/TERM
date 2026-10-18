@@ -25,7 +25,7 @@ internal data class UsbSettingsCommand(val action: UsbSettingsAction, val id: St
 internal fun UsbSettingsScreen(
     state: UsbSettingsSnapshot?, connected: Boolean, busy: Boolean, error: String,
     onBack: () -> Unit, onCommand: (UsbSettingsCommand) -> Unit,
-    onStorage: () -> Unit, onHostInputs: () -> Unit, onDismissError: () -> Unit,
+    onStorage: () -> Unit, onDismissError: () -> Unit,
 ) {
     var confirm by remember { mutableStateOf<UsbSettingsCommand?>(null) }
     val request = state?.requests?.firstOrNull { it.requestId == confirm?.id }
@@ -117,15 +117,6 @@ internal fun UsbSettingsScreen(
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             item {
-                UsbSection(R.string.usb_section_tools) {
-                    ListItem(onClick = onHostInputs, supportingContent = { Text(stringResource(R.string.usb_host_inputs_hint)) },
-                        trailingContent = { UsbIcon(R.drawable.ic_material_symbol_chevron_right_24) },
-                        verticalAlignment = Alignment.CenterVertically, shapes = terminalListItemShapes(), colors = usbListColors()) {
-                        Text(stringResource(R.string.host_tool_inputs_title))
-                    }
-                }
-            }
-            item {
                 var help by rememberSaveable { mutableStateOf(false) }
                 var diagnostics by rememberSaveable { mutableStateOf(false) }
                 UsbSection(R.string.usb_section_help) {
@@ -175,7 +166,7 @@ internal fun UsbSettingsScreen(
                             item { Text(stringResource(R.string.usb_driver_port, request.driver, request.port)) }
                         if (request.scope.isNotEmpty()) item { SelectionContainer { Text(request.scope) } }
                         item { Text(stringResource(accessConfirmation(request))) }
-                        if (request.tool.isNotEmpty()) item { Text(stringResource(if (request.tool == "isideload") R.string.host_tool_signing_scope else R.string.host_tool_probe_scope)) }
+                        if (request.tool.isNotEmpty()) item { Text(stringResource(R.string.host_tool_probe_scope)) }
                     } else item { Text(stringResource(if (revoke) R.string.usb_revoke_confirmation else R.string.usb_remove_storage_confirmation)) }
                 }
             },

@@ -36,7 +36,7 @@ class VirtualIphoneDeviceTest {
         val check = command("tooling", "check", VirtualIphone.DEVICE)
         assertEquals(check.text, 0, check.code)
         assertEquals("idevice-check", JSONObject(check.text).getString("tool"))
-        assertFalse(sim.requests.any { it == "tooling/start" || it == "iphone/pair" })
+        assertFalse(sim.requests.any { it == "iphone/pair" })
         for (error in listOf("DEVICE_LOCKED", "TRUST_DENIED", "PAIRING_FAILED")) {
             sim.pairError = error
             val result = command("iphone", "pair", VirtualIphone.DEVICE)
@@ -71,16 +71,6 @@ class VirtualIphoneDeviceTest {
         assertEquals(2, sim.uploads) // Explicit new command only, no hidden retry.
         assertTrue(sim.files.values.any { it.contentEquals(source.readBytes()) })
 
-        assertEquals(0, command("tooling", "start", "isideload", VirtualIphone.DEVICE).code)
-        assertEquals(1, command("tooling", "start", "isideload", VirtualIphone.DEVICE).code)
-        val waiting = command("tooling", "status", "virtual-operation")
-        assertEquals("WAITING_FOR_TRUST", JSONObject(waiting.text).getString("phase"))
-        assertEquals(130, command("tooling", "cancel", "virtual-operation").code)
-        for ((phase, error) in listOf("WAITING_FOR_TRUST" to "TRUST_DENIED", "INSTALLING" to "USB_DETACHED", "PLACING_PAIRING" to "AFC_PLACEMENT")) {
-            sim.toolPhase = phase; sim.toolState = "FAILED"; sim.toolError = error
-            val result = command("tooling", "watch", "virtual-operation")
-            assertEquals(1, result.code); assertEquals(error, JSONObject(result.text).getString("error"))
-        }
         assertFalse(sim.requests.any { it.contains("reset") || it.contains("delete") || it.contains("unpair") })
         assertTrue(sim.errors.toString(), sim.errors.isEmpty())
     }
@@ -113,20 +103,6 @@ class VirtualIphoneDeviceTest {
                 assertEquals(before, sim.uploads)
             } }
         } finally { directory.deleteRecursively() }
-    }
-
-    @Test fun terminatingNativeWatchDoesNotCancelVirtualHostTask() {
-        UsbBroker(context).use { broker -> VirtualIphone(broker).use { sim ->
-            val child = ProcessBuilder(loader.resolvePackagedExecutable("terminal-usb").getOrThrow().path,
-                "tooling", "watch", "virtual-operation").apply { environment().putAll(sim.clientEnvironment) }.start()
-            try {
-                assertTrue(sim.observedStatus.await(5, TimeUnit.SECONDS))
-                child.destroyForcibly(); assertTrue(child.waitFor(5, TimeUnit.SECONDS))
-                assertEquals("RUNNING", sim.toolState)
-                assertTrue(sim.requests.all { it == "tooling/status" })
-                assertEquals(0, native(sim, listOf("tooling", "status", "virtual-operation")).code)
-            } finally { child.destroyForcibly() }
-        } }
     }
 
     @Test fun rootlessCliVirtualIphoneFailureMatrix() {

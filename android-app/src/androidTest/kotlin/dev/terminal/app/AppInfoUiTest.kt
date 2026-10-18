@@ -87,7 +87,7 @@ class AppInfoUiTest {
             "material-symbols-Apache-2.0.txt", "proot-GPL-2.0-or-later.txt")) {
             assertTrue("Missing bundled license: $name", "licenses/$name" in paths)
         }
-        for (directory in listOf("iphone", "iphone-tools", "sidestore", "usb-serial")) {
+        for (directory in listOf("iphone", "iphone-tools", "usb-serial")) {
             assertTrue("Missing nested runtime licenses: $directory", paths.any { it.startsWith("licenses/$directory/") })
         }
     }

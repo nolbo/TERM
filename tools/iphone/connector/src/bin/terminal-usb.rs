@@ -97,9 +97,6 @@ fn checked_probe(value: Value) -> Result<Value> {
     }
     Ok(value)
 }
-fn result_exit_code(value: &Value) -> i32 {
-    match value["state"].as_str() { Some("FAILED") => 1, Some("CANCELED") => 130, _ => 0 }
-}
 fn run(args: &[String]) -> Result<Value> {
     let mut broker = Broker::new()?;
     match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
@@ -112,14 +109,6 @@ fn run(args: &[String]) -> Result<Value> {
         },
         ["tooling","list"] => broker.call(json!({"op":"tooling","action":"list"})),
         ["tooling","check",device] => checked_probe(broker.call(json!({"op":"tooling","action":"check","device":device}))?),
-        ["tooling","start",tool,device] => broker.call(json!({"op":"tooling","action":"start","tool":tool,"device":device})),
-        ["tooling",action,operation] if ["status","cancel"].contains(action) => broker.call(json!({"op":"tooling","action":action,"operation":operation})),
-        ["tooling","select",operation,choices] => broker.call(json!({"op":"tooling","action":"select","operation":operation,"choices":choices})),
-        ["tooling","watch",operation] => loop {
-            let value = broker.call(json!({"op":"tooling","action":"status","operation":operation}))?;
-            if value["state"] != "RUNNING" { break Ok(value); }
-            println!("{value}"); std::thread::sleep(std::time::Duration::from_secs(1));
-        },
         ["iphone",action,device] if ["pair","info","unpair"].contains(action) => broker.call(json!({"op":"iphone","action":action,"device":device})),
         ["iphone","ls",device] => broker.call(json!({"op":"iphone","action":"afc-list","device":device,"path":"/"})),
         ["iphone","ls",device,path] => broker.call(json!({"op":"iphone","action":"afc-list","device":device,"path":path})),
@@ -133,24 +122,18 @@ fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.is_empty() || args == ["--help"] {
         println!("terminal-usb configuration DEVICE VALUE — separate device-wide approval; list again afterward. Never automatic.");
-        println!("tooling start TOOL DEVICE | status/watch/cancel OPERATION | select OPERATION CHOICE_IDS\nLogin/2FA: open USB → host tool inputs in the app. No credentials in the terminal. Watch detaches without canceling; use cancel explicitly.");
         println!("terminal-usb list | diagnostics | tooling list | tooling check DEVICE\nterminal-usb iphone pair|info|unpair DEVICE\nterminal-usb iphone ls DEVICE [AFC_PATH]\nterminal-usb iphone get DEVICE AFC_PATH LOCAL_FILE\nterminal-usb iphone put DEVICE LOCAL_FILE [--name ASCII_NAME]\nEach device action requires separate approval in the app USB screen. No raw USB FD, pair records or usbmux endpoint enter the terminal."); return;
     }
-    match run(&args) { Ok(value) => { println!("{value}"); std::process::exit(result_exit_code(&value)); }, Err(error) => { eprintln!("{error}\nReview USB approvals in TERM. Do not automatically retry writes."); std::process::exit(1); } }
+    match run(&args) { Ok(value) => { println!("{value}"); }, Err(error) => { eprintln!("{error}\nReview USB approvals in TERM. Do not automatically retry writes."); std::process::exit(1); } }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    #[test] fn failed_or_canceled_operations_are_not_shell_success() {
-        for (state, code) in [("FAILED", 1), ("CANCELED", 130), ("RUNNING", 0), ("COMPLETED", 0)] {
-            assert_eq!(result_exit_code(&json!({"state":state})), code);
-        }
-    }
-    #[test] fn check_rejects_installation_status_and_wrong_action() {
-        assert!(checked_probe(json!({"tool":"isideload","state":"FAILED","error":"PAIRING_FAILED"})).is_err());
+    #[test] fn check_rejects_non_probe_status_and_wrong_action() {
+        assert!(checked_probe(json!({"tool":"other-tool","state":"FAILED"})).is_err());
         let mut valid = json!({"tool":"idevice-check","completed":true,"privateConnector":true,"publicMuxSocket":false});
         assert!(checked_probe(valid.clone()).is_ok());
-        valid["requestAction"] = "start".into(); assert!(checked_probe(valid).is_err());
+        valid["requestAction"] = "list".into(); assert!(checked_probe(valid).is_err());
     }
 }

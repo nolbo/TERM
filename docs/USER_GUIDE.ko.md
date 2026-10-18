@@ -23,8 +23,8 @@
 업데이트가 차단되며, 앱이 자동으로 기존 앱을 삭제하지 않습니다.
 
 저장된 원격 페어링 정보는 연결된 iPhone에서 유효성을 확인한 뒤 재사용합니다.
-`RP_PAIRING`이 발생하면 기존 정보를 자동 삭제·재생성하지 않습니다. 설치나 Wi-Fi
-디버깅 변경은 이미 완료됐을 수 있으므로 상태를 확인하고 반복 설치는 피하세요.
+`RP_PAIRING`이 발생하면 기존 정보를 자동 삭제·재생성하지 않습니다. Trust나 Wi-Fi
+디버깅 변경은 이미 완료됐을 수 있으므로 상태를 확인하고 반복 작업은 피하세요.
 
 USB 안전성은 [자동 검사와 실기기 검증 절차](../tests/usb/DEVICE_SAFETY.md)로 나누어
 확인합니다. 가상 테스트 통과는 실기기 무손상을 보장하지 않습니다. 실기기 검사에서는
@@ -33,33 +33,25 @@ USB 안전성은 [자동 검사와 실기기 검증 절차](../tests/usb/DEVICE_
 iPhone 검사 중 USB 구성을 자동 변경하지 않습니다. `USB_CONFIGURATION_REQUIRED`가
 나오면 Native/Userspace Linux의 `terminal-usb configuration DEVICE_ID VALUE`로 별도 승인을
 요청하고, 변경 후 다시 목록을 조회해 새 기기 ID를 사용하세요.
-호스트 도구 화면과 CLI의 `changes`는 실패·취소 후에도 설치·설정 변경이 남았는지
-표시합니다. `POSSIBLE`은 확인 필요, `CONFIRMED`는 완료 응답 확인, `UNCHANGED`는
-기존 설정 유지입니다. 자동 앱 삭제·신뢰 해제·설정 초기화는 하지 않습니다.
 페어링 파일은 임시 파일 검증 후 교체하며, 중단 시 임시 파일이 남을 수 있습니다.
 
 개발용 [가상 iPhone 테스트](../tests/usb/VIRTUAL_IPHONE.md)는 테스트 APK에서만
 연결 중단·Trust 거부·부분 전송 등을 재현합니다. 제품 앱에 가상 iPhone이나 권한
-우회 기능을 제공하지 않으며, 실제 iOS 설치 성공을 검증하는 실행환경은 아닙니다.
+우회 기능을 제공하지 않으며, 실제 iPhone 전송 성공을 검증하는 실행환경은 아닙니다.
 
 USB 명령 실패 시 자동 재전송·기기 초기화를 하지 않습니다. 응답 시간 초과나
-통신 오류가 난 연결은 재사용하지 마세요. `tooling` 작업이 FAILED이면 종료 코드
-1, CANCELED이면 130을 반환하므로 `&&`로 연결한 다음 명령은 실행되지 않습니다.
-단, `watch`에서 Ctrl-C는 관찰만 종료하며 호스트 작업은 계속됩니다.
-이미 기기가 수락한 쓰기·설치·설정 변경은 실패나 취소로 되돌릴 수 없고, 업로드
+통신 오류가 난 연결은 재사용하지 마세요. 실패한 broker 응답은 0이 아닌 종료
+코드를 반환하므로 `&&`로 연결한 다음 명령은 실행되지 않습니다.
+이미 기기가 수락한 쓰기·페어링·설정 변경은 실패나 취소로 되돌릴 수 없고, 업로드
 중단 시 새 부분 파일이 남을 수 있습니다. 대상 상태를 확인한 뒤 재시도하세요.
 사용자 스크립트·raw·시리얼·ADB 명령 자체의 부작용까지 방지하는 기능은 아닙니다.
 
 Native와 Userspace Linux에서 `terminal-usb list`, `iphone pair|info|ls|get|put`,
-`tooling list|check|start|status|watch|select|cancel`로 같은 iPhone 호스트 capability를 사용할 수 있습니다.
-각 작업은 USB 화면에서 별도 승인해야 합니다. 앱은 전용 SideStore/IPA 설치
-화면이 아닌 도구 실행 기반을 제공하며, USB FD·페어링·서명 비밀은 터미널에
-전달하지 않습니다. `tooling start isideload DEVICE_ID`는 고정된 SideStore stable
-작업을 수행하는 APK 도구를 호출합니다. 계정·암호·2FA는 **USB 디바이스 →
-호스트 도구 입력**에서만 입력하세요. `tooling watch OPERATION_ID`를 종료하거나
-화면을 나가도 작업은 계속되며, `tooling cancel OPERATION_ID`로 명시적으로
-취소합니다. 임의 IPA URL이나 일반 usbmuxd는 제공하지 않습니다. 실제 iPhone
-설치·첫 갱신은 아직 실기 검증하지 않았습니다. [iPhone 도구 실행환경](IPHONE_TOOLING.md)을 참고하세요.
+`tooling list|check`로 같은 iPhone 호스트 capability를 사용할 수 있습니다.
+각 작업은 USB 화면에서 별도 승인해야 합니다. 앱은 USB FD·페어링 데이터·키를
+터미널에 전달하지 않으며, 앱 설치·서명·Apple 계정 입력 도구는 제공하지
+않습니다. 일반 usbmuxd endpoint도 제공하지 않습니다. [iPhone 도구 실행환경](IPHONE_TOOLING.md)을
+참고하세요.
 
 **TERM**은 **Terminal Environments with Runtime Multiplexing**의 약자입니다.
 
@@ -114,8 +106,8 @@ PyUSB는 apt의 `python3-usb`와 `terminal_usb.pyusb_backend()`를 명시적으�
 
 페어링 오류 조사 시 APK 업데이트 후 새 세션에서 `terminal-usb tooling list`를
 실행하면 서비스 수정 버전(`serviceRevision`)과 설치된 worker 해시를 확인할 수
-있습니다. 수정 버전 2는 기존 기록 확인·Trust 대기·기록 저장·세션 검증을 따로
-표시합니다. 기록이 손상되거나 읽기 실패한 경우 자동 재페어링하지 않습니다.
+있습니다. 수정 버전 4는 두 worker의 해시와 검사 요청의 범위를 확인할 수
+있게 합니다. 기록이 손상되거나 읽기 실패한 경우 자동 재페어링하지 않습니다.
 `tooling check`는 연결 검사이며 Trust나 설치를 시작하지 않습니다. 다른 작업의
 응답이 오면 `TOOL_RESPONSE_MISMATCH`로 표시합니다. 이 변경만으로 iOS 27 베타의
 실기기 호환성이 검증된 것은 아닙니다.

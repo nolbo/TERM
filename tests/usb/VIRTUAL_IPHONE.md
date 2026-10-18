@@ -16,7 +16,7 @@ The Android fixture forwards each request's version/token to the real UsbBroker
 for authentication, but **does not route synthetic device operations through the
 production device dispatcher or USB worker**. It does not test Android USB grants,
 physical device reservations, USB transfers, lockdown TLS, RPPairing, House Arrest,
-Apple signing, installation or SideStore refresh. Separate existing broker/worker
+Apple signing or installation. Separate existing broker/worker
 tests cover policy rejection and internal connector FDs. Hardware remains required
 for end-to-end claims. No product DI hook or virtual-device permission bypass exists.
 
@@ -31,9 +31,6 @@ Rootless sessions against the same synthetic iPhone:
 - complete download, no overwrite, and cleanup of incomplete local downloads;
 - disconnect after accepting an upload chunk but before acknowledging it;
 - no implicit write retry or deletion of unrelated target files;
-- waiting for Trust, duplicate start rejection, explicit cancellation;
-- installation/placement failure status and nonzero watch exit;
-- Native watch process termination does not cancel the synthetic host task;
 - real broker rejects a virtual device; forged/expired sessions cannot mutate it.
 
 Tool phases and service failures in the Android fixture are scripted results, not
@@ -61,10 +58,10 @@ package manager. Missing Debian or Python produces an explicit assumption/skip,
 Python for Rootless. They create only uniquely named test workspace/cache directories
 and remove those directories after the test. They do not terminate existing sessions.
 
-For the Rust peer, use the repository-selected NDK and existing Cargo configuration:
+For the Rust connector peer, use the repository-selected NDK and existing Cargo configuration:
 
 ```sh
-bash tools/sidestore/build.sh /tmp/sidestore-worker-tests "$TERMINAL_ANDROID_NDK" --test
+bash tools/iphone/connector/build.sh /tmp/iphone-tools-tests "$TERMINAL_ANDROID_NDK" --test
 ```
 
 No new dependency/version or moving upstream reference is introduced. Android

@@ -34,16 +34,6 @@ class ClientTest(unittest.TestCase):
         broker.socket.sendall.assert_called_once()
         broker.socket.close.assert_called_once()
 
-    def test_failed_tooling_result_has_nonzero_exit_after_printing_json(self):
-        for action in ("status", "watch"):
-            for state, code in [("FAILED", 1), ("CANCELED", 130)]:
-                broker = MagicMock(); broker.call.return_value = {"state": state}
-                with patch.object(client, "Broker", return_value=broker), patch.object(sys, "argv", ["terminal-usb", "tooling", action, "operation"]), patch("sys.stdout", new=io.StringIO()) as output:
-                    with self.assertRaises(SystemExit) as error: client.main()
-                    self.assertEqual(code, error.exception.code)
-                    self.assertEqual(state, json.loads(output.getvalue())["state"])
-                broker.close.assert_called_once()
-
     def test_invalid_mtp_arguments_do_not_open_usb(self):
         from usb_mtp import run_mtp
         from types import SimpleNamespace
@@ -85,28 +75,13 @@ class ClientTest(unittest.TestCase):
         raw.broker.call.assert_not_called()
         raw.broker.close.assert_called_once()
 
-    def test_check_rejects_isideload_status_and_mismatched_action(self):
+    def test_check_rejects_non_probe_status_and_mismatched_action(self):
         good = {"tool": "idevice-check", "completed": True, "privateConnector": True, "publicMuxSocket": False}
         self.assertEqual(good, client.validate_tooling_reply("check", good))
-        for value in [{"tool": "isideload", "state": "FAILED", "error": "PAIRING_FAILED"},
-                      dict(good, requestAction="start"), dict(good, operation="unexpected"), dict(good, completed=1)]:
+        for value in [{"tool": "other-tool", "state": "FAILED"},
+                      dict(good, requestAction="list"), dict(good, operation="unexpected"), dict(good, completed=1)]:
             with self.assertRaisesRegex(RuntimeError, "TOOL_RESPONSE_MISMATCH"):
                 client.validate_tooling_reply("check", value)
-    def test_tooling_lifecycle_and_choices_use_scoped_flat_requests(self):
-        cases = [(["start", "isideload", "phone"], {"action": "start", "tool": "isideload", "device": "phone"}),
-                 (["status", "operation"], {"action": "status", "operation": "operation"}),
-                 (["cancel", "operation"], {"action": "cancel", "operation": "operation"}),
-                 (["select", "operation", "A,B"], {"action": "select", "operation": "operation", "choices": "A,B"})]
-        for args, fields in cases:
-            broker = MagicMock(); broker.call.return_value = {"state": "RUNNING"}
-            with patch.object(client, "Broker", return_value=broker), patch.object(sys, "argv", ["terminal-usb", "tooling"] + args), patch("sys.stdout", new=io.StringIO()):
-                client.main()
-            broker.call.assert_called_once_with("tooling", **fields)
-    def test_watch_detaches_without_canceling_host_operation(self):
-        broker = MagicMock(); broker.call.return_value = {"state": "RUNNING"}
-        with patch.object(client, "Broker", return_value=broker), patch.object(sys, "argv", ["terminal-usb", "tooling", "watch", "operation"]), patch.object(client.time, "sleep", side_effect=KeyboardInterrupt), patch("sys.stdout", new=io.StringIO()):
-            client.main()
-        broker.call.assert_called_once_with("tooling", action="status", operation="operation")
     def test_tooling_cli_uses_only_registered_host_action_without_fds_or_secrets(self):
         broker = MagicMock()
         broker.__enter__.return_value = broker

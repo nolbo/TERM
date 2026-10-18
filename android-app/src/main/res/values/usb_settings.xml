@@ -6,7 +6,6 @@
     <string name="usb_section_requests">접근 요청</string>
     <string name="usb_section_grants">허용된 접근</string>
     <string name="usb_section_storage">이동식 저장장치</string>
-    <string name="usb_section_tools">호스트 도구</string>
     <string name="usb_section_help">도움말 및 진단</string>
     <string name="usb_connecting_hint">런타임 연결 후 기기·승인 상태를 표시합니다.</string>
     <string name="usb_host_hint">직접 연결은 Android USB Host 지원이 필요합니다. 마운트된 저장장치 폴더는 아래에서 공유하세요.</string>
@@ -15,7 +14,6 @@
     <string name="usb_no_requests_hint">terminal-usb로 요청하고 여기서 승인 후 다시 실행하세요. 요청은 2분 뒤 만료됩니다.</string>
     <string name="usb_no_grants">허용된 접근 없음</string>
     <string name="usb_grants_hint">Android USB 권한과 세션 승인은 별개이며 승인된 세션만 접근합니다.</string>
-    <string name="usb_host_inputs_hint">신뢰된 도구의 계정·인증 코드를 입력합니다. 비밀 정보는 터미널에 전달하지 않습니다.</string>
     <string name="usb_usage_title">터미널에서 USB 사용하기</string>
     <string name="usb_storage_folder">선택한 폴더</string>
     <string name="usb_device_connected">연결됨</string>

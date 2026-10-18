@@ -19,75 +19,6 @@ import org.junit.runner.RunWith
 
 @RunWith(AndroidJUnit4::class)
 class IphoneToolingDeviceTest {
-    @Test fun genericHostInputScreenIsNonExportedAndStaysSecureAfterRecreation() {
-        androidx.test.core.app.ActivityScenario.launch<HostToolInputsActivity>(android.content.Intent(context, HostToolInputsActivity::class.java)).use { scenario ->
-            scenario.onActivity { activity ->
-                assertTrue(activity.window.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_SECURE != 0)
-                assertEquals(android.view.View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS, activity.window.decorView.importantForAutofill)
-            }
-            scenario.recreate()
-            scenario.onActivity { assertTrue(it.window.attributes.flags and android.view.WindowManager.LayoutParams.FLAG_SECURE != 0) }
-        }
-        val info = context.packageManager.getActivityInfo(android.content.ComponentName(context, HostToolInputsActivity::class.java), 0)
-        assertFalse(info.exported)
-    }
-    @Test fun nativeCliLifecycleCommandsMatchRootlessScopedRequests() {
-        val cases = listOf(
-            listOf("configuration", "phone", "2") to mapOf("device" to "phone", "configuration" to "2"),
-            listOf("start", "isideload", "phone") to mapOf("tool" to "isideload", "device" to "phone"),
-            listOf("status", "operation") to mapOf("operation" to "operation"),
-            listOf("watch", "operation") to mapOf("operation" to "operation"),
-            listOf("select", "operation", "A,B") to mapOf("operation" to "operation", "choices" to "A,B"),
-            listOf("cancel", "operation") to mapOf("operation" to "operation"),
-        )
-        for ((arguments, fields) in cases) {
-            val address = "tool-life-test-${UUID.randomUUID()}"; val token = UUID.randomUUID().toString()
-            LocalServerSocket(address).use { server ->
-                val configuration = arguments[0] == "configuration"
-                val child = ProcessBuilder(listOf(binary("terminal-usb")) + (if (configuration) emptyList() else listOf("tooling")) + arguments).apply {
-                    environment().clear(); environment()["TERMINAL_USB_SOCKET"] = address; environment()["TERMINAL_USB_TOKEN"] = token
-                    redirectErrorStream(true)
-                }.start()
-                try {
-                    ready(server)
-                    server.accept().use { socket ->
-                        socket.soTimeout = 2000; val input = DataInputStream(socket.inputStream)
-                        val size = input.readInt(); assertTrue(size in 1..49152)
-                        val request = JSONObject(String(ByteArray(size).also(input::readFully)))
-                        if (configuration) assertEquals("configuration", request.getString("op"))
-                        else assertEquals(if (arguments[0] == "watch") "status" else arguments[0], request.getString("action"))
-                        assertEquals(setOf("version", "token", "op") + (if (configuration) emptySet() else setOf("action")) + fields.keys, request.keys().asSequence().toSet())
-                        fields.forEach { (key, value) -> assertEquals(value, request.getString(key)) }
-                        val reply = "{\"ok\":true,\"result\":{\"state\":\"COMPLETED\"}}".toByteArray()
-                        DataOutputStream(socket.outputStream).apply { writeInt(reply.size); write(reply); flush() }
-                        assertTrue(child.waitFor(5, TimeUnit.SECONDS)); assertEquals(0, child.exitValue())
-                        assertFalse(child.inputStream.bufferedReader().readText().contains(token))
-                    }
-                } finally { child.destroyForcibly() }
-            }
-        }
-    }
-    @Test fun packagedIsideloadRunsPrivateStoragePairingSelfTestWithoutNetworkOrUsb() {
-        val directory = java.io.File(context.noBackupFilesDir, "tool-self-test-${UUID.randomUUID()}").apply { mkdirs() }
-        android.system.Os.chmod(directory.absolutePath, 448)
-        val child = ProcessBuilder(binary("isideload"), "--self-test", directory.canonicalPath).apply {
-            environment().clear(); redirectErrorStream(true)
-        }.start()
-        try {
-            assertTrue(child.waitFor(15, TimeUnit.SECONDS))
-            val output = child.inputStream.bufferedReader().readText()
-            assertEquals(output, 0, child.exitValue())
-            assertTrue(JSONObject(output).getBoolean("selfTest"))
-            assertFalse(JSONObject(output).getBoolean("rawUsbFd"))
-        } finally { child.destroyForcibly(); directory.deleteRecursively() }
-    }
-    @Test fun packagedIsideloadRejectsArbitraryOperationBeforeAuthentication() {
-        val child = ProcessBuilder(binary("isideload"), "ReadPairRecord").apply { environment().clear(); redirectErrorStream(true) }.start()
-        try {
-            assertTrue(child.waitFor(5, TimeUnit.SECONDS))
-            assertEquals("FAILED", JSONObject(child.inputStream.bufferedReader().readText()).getString("phase"))
-        } finally { child.destroyForcibly() }
-    }
     private val context get() = InstrumentationRegistry.getInstrumentation().targetContext
     private fun binary(name: String) = ApkNativeExecutableLoader(context).resolvePackagedExecutable(name).getOrThrow().absolutePath
     private fun ready(server: LocalServerSocket) {
@@ -183,32 +114,6 @@ class IphoneToolingDeviceTest {
             } finally { child.destroyForcibly() }
         } }
     }
-    @Test fun nativeCliFailureStopsShellChainingWithoutReplayingRequests() {
-        val address = "tool-failure-test-${UUID.randomUUID()}"
-        LocalServerSocket(address).use { server ->
-            val child = ProcessBuilder(binary("terminal-usb"), "tooling", "watch", "operation").apply {
-                environment()["TERMINAL_USB_SOCKET"] = address
-                environment()["TERMINAL_USB_TOKEN"] = UUID.randomUUID().toString()
-            }.redirectErrorStream(true).start()
-            try {
-                ready(server)
-                server.accept().use { socket ->
-                    socket.soTimeout = 3000
-                    val input = DataInputStream(socket.inputStream)
-                    val size = input.readInt(); assertTrue(size in 1..49152)
-                    val request = JSONObject(String(ByteArray(size).also(input::readFully)))
-                    assertEquals("status", request.getString("action"))
-                    val reply = "{\"ok\":true,\"result\":{\"state\":\"FAILED\",\"error\":\"USB_DETACHED\"}}".toByteArray()
-                    DataOutputStream(socket.outputStream).apply { writeInt(reply.size); write(reply); flush() }
-                    assertTrue(child.waitFor(5, TimeUnit.SECONDS))
-                    assertEquals(1, child.exitValue())
-                    assertEquals("FAILED", JSONObject(child.inputStream.bufferedReader().readText()).getString("state"))
-                    assertEquals(-1, input.read())
-                }
-            } finally { child.destroyForcibly() }
-        }
-    }
-
     @Test fun trustedProbeRejectsArbitraryOperationWithoutUsb() {
         val child = ProcessBuilder(binary("iphone-tool-probe"), "ReadPairRecord").redirectErrorStream(true).start()
         try {

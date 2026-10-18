@@ -648,14 +648,6 @@ class VmRuntimeService : Service() {
             return (dev.terminal.runtime.session.currentAppProcessMemory() ?: JSONObject()).toString()
         }
         override fun getUsbStateJson(): String = usbBroker.state()
-        override fun getHostToolOperationsJson(): String { enforceHostToolUi(); return usbBroker.iphoneTools.hostState() }
-        override fun submitHostToolInput(operationId: String, promptNonce: String, values: Array<String>): String {
-            enforceHostToolUi()
-            return try { usbBroker.iphoneTools.hostInput(operationId, promptNonce, values); "" }
-            catch (failure: Exception) { failure.message?.takeIf { it.matches(Regex("[A-Z_]{1,80}")) } ?: "INVALID_TOOL_INPUT" }
-            finally { values.fill("") }
-        }
-        override fun cancelHostToolOperation(operationId: String) { enforceHostToolUi(); usbBroker.iphoneTools.hostCancel(operationId) }
         override fun approveUsbRequest(requestId: String): String = usbBroker.approve(requestId)
         override fun denyUsbRequest(requestId: String) = usbBroker.deny(requestId)
         override fun revokeUsbSession(sessionId: String) = usbBroker.revokeSession(sessionId)

@@ -146,7 +146,6 @@ class AppInfoActivity : TerminalActivity() {
         "licenses" -> stringResource(R.string.open_source_licenses)
         "licenses/iphone" -> stringResource(R.string.license_iphone_runtime)
         "licenses/iphone-tools" -> stringResource(R.string.license_iphone_tools)
-        "licenses/sidestore" -> "SideStore"
         "licenses/usb-serial" -> "USB Serial for Android"
         "licenses/GoogleSans-OFL.txt" -> "Google Sans"
         "licenses/GoogleSansCode-OFL.txt" -> "Google Sans Code"

@@ -12,8 +12,8 @@ python3 tests/usb/safety_gate.py --scope host --ndk "$TERMINAL_ANDROID_NDK"
 ```
 
 Use the repository's existing JDK/Cargo/NDK setup. The host scope runs Python
-client and gate tests, USB runtime JUnit tests, Rust connector tests and the pinned Rust worker
-tests. Source downloads/builds may occur on the build host. It does not install
+client and gate tests, USB runtime JUnit tests and Rust connector tests. Source
+downloads/builds may occur on the build host. It does not install
 anything on Android, open USB, contact Apple, or issue restore/reset commands.
 JSON contains commit, worktree dirty-state, scope, counts and statuses, not raw
 logs, device IDs, credentials or pairing data. Exit 0 means only the selected
@@ -31,10 +31,10 @@ when changing those paths, and report their skips explicitly.
 | Hazard | Automated regression evidence | Remaining physical evidence |
 | --- | --- | --- |
 | Implicit device-wide USB change | `test_client.py` port guard; `IphonePolicyTest` normal-mode filtering | Active configuration before/after check, reconnect |
-| Unauthorized access or secret disclosure | `TrustedIphoneToolPolicyTest`, `HostToolConversationTest`, worker/broker instrumentation | OS USB permission grant/denial/revocation |
-| Unplug/cancel/retry causes extra writes | Python partial-send tests, Kotlin stage cancellation, Rust silent-peer and staged-file tests | Disconnect during each relevant stage |
-| Existing pairing/app/settings damaged | Rust staging corruption/lost-ack tests, Wi-Fi read-before-write test; residual-change snapshots | Existing app/container and settings comparison |
-| Unrelated Android session interrupted | `VirtualIphoneDeviceTest` watch detach, scoped worker tests | Live Native and Rootless sessions survive cancellation/navigation |
+| Unauthorized access or secret disclosure | `TrustedIphoneToolPolicyTest`, worker/broker instrumentation | OS USB permission grant/denial/revocation |
+| Unplug/retry causes extra writes | Python partial-send tests, Rust silent-peer and staged-file tests | Disconnect during each relevant stage |
+| Existing pairing/settings damaged | Rust staging corruption/lost-ack tests, Wi-Fi read-before-write test | Existing pairing and settings comparison |
+| Unrelated Android session interrupted | `VirtualIphoneDeviceTest`, scoped worker tests | Live Native and Rootless sessions survive navigation |
 
 Static guards are tripwires, not proof of every call path. The virtual Android
 fixture is not a real USB dispatcher; see [VIRTUAL_IPHONE.md](VIRTUAL_IPHONE.md).
@@ -58,10 +58,10 @@ it to claim Native/Rootless equivalence. Keep test APKs off production devices.
 ## 3. Physical acceptance — explicit, staged, supervised
 
 Use backed-up test devices/account, a known-good data cable, sufficient battery
-and free storage. Obtain separate consent for pairing, account changes, app
-installation and enabling Wi-Fi debugging. Never run destructive tests on the
-user's only device or automatically unplug, reboot, unpair, revoke certificates,
-delete apps, switch recovery/DFU mode or reset settings as a safety check.
+and free storage. Obtain separate consent for pairing and enabling Wi-Fi debugging.
+Never run destructive tests on the user's only device or automatically unplug,
+reboot, unpair, delete files, switch recovery/DFU mode or reset settings as a
+safety check.
 
 Record a private baseline: APK SHA-256/commit, Android model/build, iPhone
 model/iOS build (beta separately), cable/power arrangement, normal unlocked state,
@@ -73,25 +73,24 @@ Publish redacted categorical comparisons, not serial numbers or container data.
 Run in order, stopping on the first unexpected change:
 
 1. List/diagnostics/tooling check; deny then grant Android permission. Verify no
-   installation/account changes and no implicit configuration switch. Check can
-   lead to a separately approved pairing flow: do not assume it is read-only.
-2. Trust: locked phone, rejection, approval; cancel while waiting. Confirm no
-   automatic unpair/reset and fresh explicit authorization after reconnect.
-3. On the test account only, run approved signing/install/pairing placement.
-   Compare existing app data, unrelated files and Wi-Fi settings afterward.
-4. Repeat with explicit cancellation and supervised cable removal during Trust,
-   signing, installation and placement, one scenario at a time. Signing may
-   already have changed Apple account state even with USB disconnected.
+   pairing, account or implicit configuration changes. `check` is a bounded probe
+   and does not start Trust or pairing.
+2. Trust: locked phone, rejection, approval. Confirm no automatic unpair/reset
+   and fresh explicit authorization after reconnect.
+3. Run approved pairing and placement operations. Compare existing app data,
+   unrelated files and Wi-Fi settings afterward.
+4. Repeat with supervised cable removal during Trust, pairing and placement,
+   one scenario at a time.
 5. After each scenario verify both phones remain normally operable, charging/USB
    reconnect works, no unexpected reboot/thermal warning, unrelated sessions
    remain live, owned workers release the device, and a new explicit request can
-   acquire it. Compare app data/settings with baseline and `changes` metadata.
+   acquire it. Compare app data/settings with the baseline.
    A rename accepted before disconnect may leave the complete new pairing file;
    before rename the old file must remain. A staging file can remain. Never
-   automatically delete it or retry an ambiguous installation to hide failure.
+   automatically delete it or retry an ambiguous placement to hide failure.
 
-Expected authorized changes (trust, certificate/device registration, installation,
-Wi-Fi debugging) are not automatically rolled back. Unexpected data loss,
+Expected authorized changes (trust, device registration, Wi-Fi debugging and
+pairing-file placement) are not automatically rolled back. Unexpected data loss,
 settings change, reboot, persistent USB failure, stuck worker/lease, secret
 exposure or unexplained result is **FAIL**: stop that scenario and block release
 claims for the affected path until investigated. Preserve only redacted evidence;

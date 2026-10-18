@@ -1,5 +1,0 @@
-# name revision sha256 URL
-isideload b6d111376657a59207ac26c8ef8be5cca8793cba 2b97ef0c882ced8791054b810258564b59803cbf01f23df1537cfa4cad3f9484 https://codeload.github.com/nab138/isideload/tar.gz/b6d111376657a59207ac26c8ef8be5cca8793cba
-# idevice is exactly registry version 0.1.65 in Cargo.lock. IdeviceProvider
-# supports custom providers, so no idevice fork or public listener is needed.
-# iLoader reference: 348eefd7de78e9bc612c9d619b8b1e7a80ba3ba0 (MIT).

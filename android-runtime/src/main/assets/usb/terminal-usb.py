@@ -7,7 +7,6 @@ import select
 import socket
 import struct
 import sys
-import time
 import stat
 import tempfile
 import re
@@ -29,12 +28,6 @@ def validate_tooling_reply(action, result):
     ):
         raise RuntimeError("TOOL_RESPONSE_MISMATCH: check received an unexpected host-tool response")
     return result
-
-
-def tooling_exit(result):
-    # Preserve JSON diagnostics, but never let shell && continue after failure.
-    if result.get("state") in ("FAILED", "CANCELED"):
-        raise SystemExit(1 if result["state"] == "FAILED" else 130)
 
 
 class Broker:
@@ -363,8 +356,8 @@ def main():
     sub.add_parser("list", help="List device descriptors and this terminal session ID")
     sub.add_parser("diagnostics", help="Bounded broker status without credentials or payloads")
     tooling = sub.add_parser("tooling", help="Registered host-native iPhone tools; never a guest usbmux endpoint")
-    tooling.add_argument("action", choices=("list", "check", "start", "status", "watch", "select", "cancel"))
-    tooling.add_argument("arguments", nargs="*", help="check DEVICE | start TOOL DEVICE | status/watch/cancel OPERATION | select OPERATION CHOICE_IDS")
+    tooling.add_argument("action", choices=("list", "check"))
+    tooling.add_argument("arguments", nargs="*", help="check DEVICE")
     configure = sub.add_parser("configuration", help="Separately approve a device-wide USB configuration change")
     configure.add_argument("device")
     configure.add_argument("value", type=int)
@@ -462,27 +455,12 @@ def main():
         if args.command == "diagnostics":
             print(json.dumps(broker.call("diagnostics"), indent=2)); return
         if args.command == "tooling":
-            expected = {"list": 0, "check": 1, "start": 2, "status": 1, "watch": 1, "select": 2, "cancel": 1}
-            if len(args.arguments) != expected[args.action]: parser.error("Invalid tooling arguments; secrets must be entered in the host UI, not the terminal")
-            fields = {}
-            if args.action == "check": fields = {"device": args.arguments[0]}
-            elif args.action == "start": fields = {"tool": args.arguments[0], "device": args.arguments[1]}
-            elif args.action != "list": fields = {"operation": args.arguments[0]}
-            if args.action == "select": fields["choices"] = args.arguments[1]
+            expected = {"list": 0, "check": 1}
+            if len(args.arguments) != expected[args.action]: parser.error("Invalid tooling arguments")
+            fields = {"device": args.arguments[0]} if args.action == "check" else {}
             broker.socket.settimeout(30)
-            if args.action == "watch":
-                try:
-                    while True:
-                        result = validate_tooling_reply("status", broker.call("tooling", action="status", **fields))
-                        print(json.dumps(result), flush=True)
-                        tooling_exit(result)
-                        if result.get("state") != "RUNNING": return
-                        time.sleep(1)
-                except KeyboardInterrupt:
-                    print("Watch detached. The host operation continues; use tooling cancel to stop it."); return
             result = validate_tooling_reply(args.action, broker.call("tooling", action=args.action, **fields))
             print(json.dumps(result, indent=2))
-            tooling_exit(result)
             return
         if args.command == "configuration":
             print(json.dumps(broker.call("configuration", device=args.device, configuration=args.value), indent=2)); return

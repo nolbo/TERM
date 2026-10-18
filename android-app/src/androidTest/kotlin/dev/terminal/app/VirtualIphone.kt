@@ -29,14 +29,10 @@ internal class VirtualIphone(private val real: UsbBroker) : AutoCloseable {
     val files = ConcurrentHashMap<String, ByteArray>()
     val requests = CopyOnWriteArrayList<String>() // Operations only, never tokens or payloads.
     val errors = CopyOnWriteArrayList<Throwable>()
-    val observedStatus = java.util.concurrent.CountDownLatch(1)
     private val clients = ConcurrentHashMap.newKeySet<LocalSocket>()
     private val executor = Executors.newFixedThreadPool(3)
     @Volatile private var closed = false
     @Volatile var fault = "NONE"
-    @Volatile var toolState = "RUNNING"
-    @Volatile var toolError = "TRUST_DENIED"
-    @Volatile var toolPhase = "WAITING_FOR_TRUST"
     @Volatile var pairError: String? = null
     @Volatile var uploads = 0
     companion object { const val DEVICE = "virtual-iphone"; const val FRAME = 48 * 1024 }
@@ -85,12 +81,6 @@ internal class VirtualIphone(private val real: UsbBroker) : AutoCloseable {
         reply(socket, JSONObject().put("error", "SESSION_EXPIRED"), false)
         return false
     }
-    private fun status() = JSONObject().put("operation", "virtual-operation").put("tool", "isideload")
-        .put("device", DEVICE).put("state", toolState).put("phase", toolPhase).also {
-            if (toolState == "FAILED") it.put("error", toolError)
-            if (toolState == "CANCELED") it.put("error", "CANCELED")
-        }
-
     private fun serve(socket: LocalSocket) {
         try {
             check(socket.peerCredentials.uid == android.os.Process.myUid())
@@ -109,16 +99,6 @@ internal class VirtualIphone(private val real: UsbBroker) : AutoCloseable {
                         JSONObject().put("id", DEVICE).put("iphone", true).put("name", "Synthetic iPhone"))))
                     op == "tooling" && action == "check" -> reply(socket, JSONObject().put("tool", "idevice-check")
                         .put("completed", true).put("privateConnector", true).put("publicMuxSocket", false))
-                    op == "tooling" && action == "start" && request.optString("tool") == "isideload" -> {
-                        if (toolState == "RUNNING" && requests.count { it == "tooling/start" } > 1)
-                            reply(socket, JSONObject().put("error", "DEVICE_BUSY"), false)
-                        else reply(socket, status())
-                    }
-                    op == "tooling" && action in setOf("status", "cancel") && request.optString("operation") == "virtual-operation" -> {
-                        observedStatus.countDown()
-                        if (action == "cancel") toolState = "CANCELED"
-                        reply(socket, status())
-                    }
                     op == "iphone" && action in setOf("pair", "info") -> {
                         val error = pairError
                         if (error != null) reply(socket, JSONObject().put("error", error), false)
