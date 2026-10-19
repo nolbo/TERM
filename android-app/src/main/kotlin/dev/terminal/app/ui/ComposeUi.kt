@@ -310,43 +310,86 @@ private data class SetupRuntime(
 
 @Composable
 fun SetupScreen(onStart: () -> Unit, onImage: () -> Unit) {
-    val runtimes = listOf(
-        SetupRuntime(R.string.runtime_native_title, R.string.runtime_native_setup, R.string.runtime_native_description, R.drawable.ic_material_symbol_terminal_24),
-        SetupRuntime(R.string.runtime_rootless_title, R.string.runtime_rootless_setup, R.string.runtime_rootless_description, R.drawable.ic_material_symbol_download_24),
-        SetupRuntime(R.string.runtime_avf_title, R.string.runtime_avf_setup, R.string.runtime_avf_description, R.drawable.ic_material_symbol_memory_24),
+    val linuxRuntimes = listOf(
+        SetupRuntime(R.string.runtime_rootless_title, R.string.runtime_rootless_setup, R.string.setup_rootless_description, R.drawable.ic_material_symbol_download_24),
+        SetupRuntime(R.string.runtime_avf_title, R.string.runtime_avf_setup, R.string.setup_avf_description, R.drawable.ic_material_symbol_memory_24),
     )
     AppScaffold(stringResource(R.string.app_name)) { padding ->
-        LazyColumn(
-            Modifier.fillMaxSize().padding(padding).padding(horizontal = 20.dp),
-            contentPadding = PaddingValues(vertical = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                Text(stringResource(R.string.setup_title), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-                Spacer(Modifier.height(8.dp))
-                Text(stringResource(R.string.setup_headline), style = MaterialTheme.typography.headlineMedium)
-                Spacer(Modifier.height(12.dp))
-                Text(stringResource(R.string.setup_intro), style = MaterialTheme.typography.bodyLarge)
-            }
-            items(runtimes) { runtime ->
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.extraLarge,
-                ) {
-                    Row(Modifier.padding(16.dp), verticalAlignment = Alignment.Top) {
-                        Icon(painterResource(runtime.icon), null, tint = MaterialTheme.colorScheme.primary)
-                        Spacer(Modifier.width(16.dp))
-                        Column {
-                            Text(stringResource(runtime.label), color = MaterialTheme.colorScheme.primary, style = MaterialTheme.typography.labelLarge)
-                            Text(stringResource(runtime.title), style = MaterialTheme.typography.titleMedium)
-                            Text(stringResource(runtime.description), style = MaterialTheme.typography.bodyMedium)
+        Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.TopCenter) {
+            LazyColumn(
+                Modifier.widthIn(max = 640.dp).fillMaxSize().padding(horizontal = 20.dp),
+                contentPadding = PaddingValues(vertical = 20.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp),
+            ) {
+                item {
+                    Text(stringResource(R.string.setup_title), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.labelLarge)
+                    Spacer(Modifier.height(8.dp))
+                    Text(stringResource(R.string.setup_headline), style = MaterialTheme.typography.headlineMedium)
+                    Spacer(Modifier.height(12.dp))
+                    Text(stringResource(R.string.setup_intro), style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = MaterialTheme.shapes.extraLarge,
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
+                    ) {
+                        Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
+                            SetupRuntimeSummary(SetupRuntime(R.string.runtime_native_title, R.string.runtime_native_setup,
+                                R.string.setup_native_description, R.drawable.ic_material_symbol_terminal_24))
+                            Button(onClick = onStart, shapes = ButtonDefaults.shapes(),
+                                modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                                Text(stringResource(R.string.start_terminal))
+                            }
                         }
                     }
                 }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Text(stringResource(R.string.setup_linux_title), style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(horizontal = 4.dp))
+                        Text(stringResource(R.string.setup_linux_later), style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
+                        SettingsGroup {
+                            linuxRuntimes.forEach { runtime ->
+                                Box(Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp)) {
+                                    SetupRuntimeSummary(runtime)
+                                }
+                            }
+                        }
+                    }
+                }
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        TextButton(onClick = onImage, shapes = ButtonDefaults.shapes(),
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                            Text(stringResource(R.string.setup_import_image))
+                        }
+                        Text(stringResource(R.string.avf_image_note), style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
+                    }
+                }
             }
-            item { Button(onClick = onStart, shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(stringResource(R.string.start_terminal)) } }
-            item { OutlinedButton(onClick = onImage, shapes = ButtonDefaults.shapes(), modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text(stringResource(R.string.select_avf_image)) } }
-            item { Text(stringResource(R.string.avf_image_note), style = MaterialTheme.typography.bodySmall) }
+        }
+    }
+}
+
+@Composable
+private fun SetupRuntimeSummary(runtime: SetupRuntime) {
+    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+        Surface(shape = CircleShape, color = MaterialTheme.colorScheme.surfaceContainerHigh) {
+            Icon(painterResource(runtime.icon), null, tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(10.dp).size(24.dp))
+        }
+        Spacer(Modifier.width(16.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(stringResource(runtime.label), color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.labelMedium)
+            Text(stringResource(runtime.title), style = MaterialTheme.typography.titleMedium)
+            Text(stringResource(runtime.description), style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
