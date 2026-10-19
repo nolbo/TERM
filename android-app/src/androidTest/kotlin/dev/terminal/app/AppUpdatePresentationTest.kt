@@ -1,6 +1,5 @@
 package dev.terminal.app
 
-import android.graphics.Rect
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ActivityScenario
@@ -65,24 +64,10 @@ class AppUpdatePresentationTest {
                 waitFor(initial)
                 assertNull(find(label(R.string.update_current_title)))
                 assertNull(find(label(R.string.update_current)))
-                val channelBounds = Rect().also { waitFor(label(R.string.update_channel_label)).getBoundsInScreen(it) }
-                val statusBounds = Rect().also { waitFor(initial).getBoundsInScreen(it) }
-                assertTrue("Installed channel must precede the state card", channelBounds.bottom < statusBounds.top)
-                val channel = label(when {
-                    !controller.releaseUpdatesSupported -> R.string.update_channel_debug
-                    controller.channel == UpdateChannel.MAIN -> R.string.update_channel_main
-                    else -> R.string.update_channel_dev
-                })
-                var channelNode: AccessibilityNodeInfo? = waitFor(channel)
-                while (channelNode != null) {
-                    assertFalse("Installed channel is read-only", channelNode.isClickable || channelNode.isCheckable)
-                    channelNode = channelNode.parent
-                }
-                if (controller.releaseUpdatesSupported) waitFor(label(R.string.update_separate_apps))
-                listOf(R.string.update_channel_main, R.string.update_channel_dev, R.string.update_channel_debug)
-                    .map(::label).filter { it != channel }.forEach { assertNull(find(it)) }
+                assertNull(find(label(R.string.update_channel_label)))
                 scenario.recreate()
-                waitFor(channel)
+                waitFor(initial)
+                assertNull(find(label(R.string.update_channel_label)))
                 scenario.onActivity { setState(AppUpdateState.Current) }
                 waitFor(label(R.string.update_current_title))
                 waitFor(label(R.string.update_current))

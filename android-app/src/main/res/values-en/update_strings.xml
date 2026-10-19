@@ -1,10 +1,5 @@
 <resources>
     <string name="update_channel_label">Update channel</string>
-    <string name="update_channel_main">Stable release</string>
-    <string name="update_channel_dev">Prerelease</string>
-    <string name="update_channel_debug">Debug build</string>
-    <string name="update_separate_apps">TERM and TERM Preview can be installed together and keep separate app data. Each app updates only from its own channel.</string>
-    <string name="update_dev_warning">Prereleases include recent changes and may be unstable. Save work before installing.</string>
     <string name="update_channel_older">This channel has an older version. Wait for a newer release; uninstalling to downgrade may lose data.</string>
     <string name="app_updates">App updates</string>
     <string name="update_settings_summary">Check and install updates</string>
@@ -24,7 +19,7 @@
     <string name="update_failed_title">Unable to proceed with the update</string>
     <string name="update_download_before_install">You can install the update once the download finishes.</string>
     <string name="update_save_work">Save your terminal work before installing.</string>
-    <string name="update_debug_manual">Update the separate TERM Debug app manually with an APK signed by the same debug key. Stable/prerelease channels do not apply.</string>
+    <string name="update_debug_manual">Update the separate TERM Debug app manually with an APK signed by the same debug key.</string>
     <string name="update_check">Check for updates</string>
     <string name="update_checking">Checking for a new version…</string>
     <string name="update_no_release">No updates have been published yet.</string>

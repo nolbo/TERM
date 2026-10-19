@@ -147,7 +147,6 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("profiles", R.string.profile_directory, path = listOf(R.string.profiles, R.string.profile_settings))
     entry("profiles", R.string.profile_startup, path = listOf(R.string.profiles, R.string.profile_settings))
     entry("profiles", R.string.profile_environment, path = listOf(R.string.profiles, R.string.profile_settings))
-    entry("updates", R.string.update_channel_label, path = listOf(R.string.app_updates))
     entry("updates", R.string.update_check, path = listOf(R.string.app_updates))
 
 }

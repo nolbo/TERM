@@ -24,7 +24,6 @@ import dev.terminal.app.ui.ReleaseNotesMarkdown
 import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.ui.TerminalStatusBlue
 import dev.terminal.app.update.AppUpdateState
-import dev.terminal.app.update.UpdateChannel
 
 /** Dedicated subclass follows FileProvider's device compatibility contract. */
 class AppUpdateFileProvider : FileProvider()
@@ -46,21 +45,6 @@ class AppUpdatesActivity : TerminalActivity() {
                 }
                 Column(Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                        Text(stringResource(R.string.update_channel_label), style = MaterialTheme.typography.labelLarge,
-                            modifier = Modifier.padding(horizontal = 4.dp))
-                        Text(stringResource(when {
-                            !updates.releaseUpdatesSupported -> R.string.update_channel_debug
-                            updates.channel == UpdateChannel.MAIN -> R.string.update_channel_main
-                            else -> R.string.update_channel_dev
-                        }), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 4.dp))
-                        if (updates.releaseUpdatesSupported) Text(stringResource(R.string.update_separate_apps),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 4.dp))
-                        if (updates.releaseUpdatesSupported && updates.channel == UpdateChannel.DEV) Text(stringResource(R.string.update_dev_warning),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 4.dp))
-                    }
                     Card(shape = MaterialTheme.shapes.extraLarge, colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)) {
                         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                             Text(stringResource(when (state) {
