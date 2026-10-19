@@ -1,0 +1,17 @@
+[Unit]
+Description=Private TERM shared directories over app-owned vsock
+After=local-fs.target
+Before=term-shares.service droid-sessiond.service
+ConditionKernelCommandLine=term.share-broker=1
+FailureAction=poweroff
+
+[Service]
+Type=simple
+ExecStartPre=/sbin/modprobe fuse
+ExecStart=/usr/bin/python3 /usr/local/lib/droid/private-share-broker.py
+TimeoutStopSec=10
+KillMode=control-group
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

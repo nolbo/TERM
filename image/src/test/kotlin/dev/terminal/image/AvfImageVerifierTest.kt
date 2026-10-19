@@ -10,6 +10,20 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AvfImageVerifierTest {
+    @Test fun privateSharingRequiresItsOwnVerifiedFeatureAndRejectsUnknownVersions() {
+        for (version in listOf(null, "1", "0", "2")) {
+            val root = Files.createTempDirectory("private-share-feature")
+            try {
+                writeVerifiedImage(root)
+                version?.let { Files.writeString(root.resolve("manifest.properties"), "\nshareBrokerVersion=$it\n",
+                    java.nio.file.StandardOpenOption.APPEND) }
+                val result = AvfImageVerifier.verify(root)
+                if (version == null || version == "1") assertEquals(if (version == null) 0 else 1,
+                    (result as ImageVerification.Ready).manifest.shareBrokerVersion)
+                else assertTrue(result is ImageVerification.Invalid)
+            } finally { root.toFile().deleteRecursively() }
+        }
+    }
     @Test fun androidStorageRequiresItsOwnSupportedMarkerAndVirtiofs() {
         for (features in listOf("", "virtiofsVersion=1\n", "androidStorageVersion=1\n", "virtiofsVersion=1\nandroidStorageVersion=1\n",
             "virtiofsVersion=1\nandroidStorageVersion=2\n")) {

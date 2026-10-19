@@ -121,7 +121,7 @@ internal fun SharedFolderTransferDialog(request: String, saving: Boolean, canSub
 internal fun SharedFolderEditor(encoded: String, snapshot: SharedFoldersSnapshot?, error: String?, saving: Boolean,
     onSave: (SharedFolder) -> Unit, onDelete: ((String) -> Unit)? = null,
     onTransfer: ((SharedFolder, Environment, String) -> Unit)? = null, onBack: () -> Unit,
-    canSubmit: Boolean = true, requiresPublicAvfStorage: Boolean = android.os.Build.VERSION.SDK_INT >= 37) {
+    canSubmit: Boolean = true) {
     val original = remember(encoded) { JSONObject(encoded) }
     val newItem = original.optBoolean("_new")
     var name by rememberSaveable(encoded) { mutableStateOf(original.getString("name")) }
@@ -133,9 +133,8 @@ internal fun SharedFolderEditor(encoded: String, snapshot: SharedFoldersSnapshot
     val originalIds = original.getJSONArray("environments").let { array -> List(array.length()) { EnvironmentId(array.getString(it)) }.toSet() }
     val dirty = name != original.getString("name") || ids != originalIds
     val persisted = snapshot?.folders?.firstOrNull { it.id == original.getString("id") }
-    val needsPublicStorage = persisted?.androidStorage == true || (requiresPublicAvfStorage &&
-        snapshot?.environments?.any { it.id in ids && it.runtime == EnvironmentRuntime.AVF } == true)
-    val needsConversion = needsPublicStorage && persisted?.androidStorage != true
+    // Only folders moved by the retired public-storage workaround need one-time access.
+    val needsConversion = persisted?.androidStorage == true
     val context = LocalContext.current
     var storageGranted by remember { mutableStateOf(android.os.Environment.isExternalStorageManager()) }
     val lifecycle = (context as? LifecycleOwner)?.lifecycle
@@ -200,13 +199,13 @@ internal fun SharedFolderEditor(encoded: String, snapshot: SharedFoldersSnapshot
                     shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth()) { Text(environment.name) }
             }
         }
-        if (needsPublicStorage) {
+        if (needsConversion) {
             ProfileSection(R.string.shared_folder_android_storage) {
                 SettingsNavigationRow(stringResource(R.string.environment_storage_android_permission),
                     stringResource(if (storageGranted) R.string.environment_storage_os_enabled else R.string.environment_storage_os_disabled),
                     enabled = !saving, onClick = { openInternalStorageSettings(context) })
             }
-            Text(stringResource(if (needsConversion) R.string.shared_folder_android_conversion_summary else R.string.shared_folder_android_storage_summary),
+            Text(stringResource(R.string.shared_folder_android_conversion_summary),
                 Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
         }

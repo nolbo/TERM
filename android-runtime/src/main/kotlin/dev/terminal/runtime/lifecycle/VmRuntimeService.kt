@@ -276,7 +276,8 @@ class VmRuntimeService : Service() {
             avfSharedDirectoryVerifier.verifyStoppedInstance(it).getOrThrow()
         }
         if (directory != null) dev.terminal.runtime.backup.EnvironmentWriterProbe(android.os.Process.myUid(), android.os.Process.myPid())
-            .verify(listOf(directory.toPath(), java.io.File(dev.terminal.runtime.storage.AndroidSharedFolderStorage.root(applicationContext),
+            .verify(listOf(directory.toPath(), java.io.File(sharedFolders.root, id).toPath(),
+                java.io.File(dev.terminal.runtime.storage.AndroidSharedFolderStorage.root(applicationContext),
                 "shared-folders/$id").toPath()))
     }
     private val sharedFolderJobs by lazy {
@@ -363,14 +364,12 @@ class VmRuntimeService : Service() {
                 // Backing storage is host-owned metadata; an edit cannot move it back or invent a path.
                 val existing = sharedFolders.all().firstOrNull { it.id == requested.id }
                 val folder = requested.copy(androidStorage = existing?.androidStorage == true)
-                val promote = android.os.Build.VERSION.SDK_INT >= 37 && !folder.androidStorage &&
-                    environments.any { it.id in folder.environments && it.runtime == dev.terminal.runtime.session.EnvironmentRuntime.AVF }
-                if (promote) {
-                    check(android.os.Environment.isExternalStorageManager()) { "Android 17 AVF 공유에는 모든 파일 접근 권한이 필요합니다. 공유 디렉토리 설정에서 허용하세요." }
-                    check(!sharedFolderJobs.hasActive()) { "공유 저장소로 전환하기 전에 파일 작업을 완료하거나 취소하세요." }
+                if (folder.androidStorage) {
+                    check(android.os.Environment.isExternalStorageManager()) { "최신 공유 데이터를 앱 전용 저장소로 복사하려면 모든 파일 접근 권한이 필요합니다." }
+                    check(!sharedFolderJobs.hasActive()) { "앱 전용 저장소로 전환하기 전에 파일 작업을 완료하거나 취소하세요." }
                     kotlinx.coroutines.runBlocking(Dispatchers.IO) { preparationLocks.withAll {
                         verifySharedFolderIdle(folder.id, existing?.let { sharedFolders.directory(it) })
-                        sharedFolders.promoteToAndroidStorage(folder)
+                        sharedFolders.restorePrivateStorage(folder)
                     } }
                 } else {
                     sharedFolderJobs.revokeFolder(folder.id)
@@ -397,6 +396,8 @@ class VmRuntimeService : Service() {
                     sharedFolders.requireFolder(folderId)
                     dev.terminal.runtime.backup.EnvironmentWriterProbe(android.os.Process.myUid(), android.os.Process.myPid())
                         .verify(listOf(java.io.File(sharedFolders.root, folderId).toPath(),
+                            java.io.File(sharedFolders.root, ".private-$folderId").toPath(),
+                            java.io.File(sharedFolders.root, ".original-$folderId").toPath(),
                             java.io.File(dev.terminal.runtime.storage.AndroidSharedFolderStorage.root(applicationContext),
                                 "shared-folders/$folderId").toPath()))
                     sharedFolders.delete(folderId)

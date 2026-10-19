@@ -20,6 +20,7 @@ data class AvfImageManifest(
     val virtiofsVersion: Int = 0,
     val androidStorageVersion: Int = 0,
     val packageInitializationVersion: Int = 0,
+    val shareBrokerVersion: Int = 0,
 ) {
     val guestDistribution: AvfDistribution get() = AvfDistribution.fromId(distribution)
     val initializesPackageIndexes: Boolean get() = packageInitializationVersion == 1 || aptInitializationVersion == 1
@@ -154,6 +155,10 @@ object AvfImageVerifier {
             } ?: 0,
             packageInitializationVersion = getProperty("packageInitializationVersion")?.let {
                 require(it == "1") { "Unsupported package initialization version" }
+                1
+            } ?: 0,
+            shareBrokerVersion = getProperty("shareBrokerVersion")?.let {
+                require(it == "1") { "Unsupported private share broker version" }
                 1
             } ?: 0,
         )

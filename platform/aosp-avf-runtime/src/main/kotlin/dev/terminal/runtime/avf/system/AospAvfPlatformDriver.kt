@@ -55,9 +55,12 @@ class AospAvfPlatformDriver(
     private var prepared: RuntimeConfig? = null
     private var supportsVirtiofs = false
     private var supportsAndroidStorage = false
+    private var supportsShareBroker = false
     @Volatile private var machine: VirtualMachine? = null
     private data class SharedBoot(val vm: VirtualMachine, val instanceId: String, val directories: AvfSharedDirectories)
     private val sharedBoot = AtomicReference<SharedBoot?>()
+    private data class PrivateBoot(val vm: VirtualMachine, val instanceId: String, val shares: PrivateAvfShares)
+    private val privateBoot = AtomicReference<PrivateBoot?>()
     private val activeBoot = AtomicReference<Any?>()
     private val shareLeases = AvfSharedDirectoryLeases(appContext.filesDir)
     private val sharedStorage = AvfSharedStorageCoordinator(shareLeases,
@@ -82,10 +85,18 @@ class AospAvfPlatformDriver(
                 is ImageVerification.Ready -> {
                     supportsVirtiofs = verification.manifest.virtiofsVersion == 1
                     supportsAndroidStorage = verification.manifest.androidStorageVersion == 1
+                    supportsShareBroker = verification.manifest.shareBrokerVersion == 1
                     AvfSharedDirectories.validate(appContext.filesDir.canonicalFile, config.sharedFolders, publicSharesRoot(),
-                        supportsVirtiofs && android.os.Build.VERSION.SDK_INT >= 37)
-                    require(!supportsVirtiofs || config.sharedFolders.isEmpty() || !config.protectedVm) {
-                        "virtiofs 공유 디렉토리는 비보호 AVF VM에서만 사용할 수 있습니다."
+                        false)
+                    require(config.sharedFolders.isEmpty() || supportsShareBroker) {
+                        "이 이미지는 앱 전용 공유 디렉토리를 지원하지 않습니다. 새 공유 기능을 포함한 AVF 이미지가 필요합니다. 기존 VM 데이터는 유지됩니다."
+                    }
+                    require(config.sharedFolders.all { java.io.File(it.directory).absoluteFile ==
+                        java.io.File(appContext.filesDir.canonicalFile, "shared-folders/${it.id}") }) {
+                        "설정 → 공유 디렉토리에서 이 폴더를 저장해 최신 데이터를 앱 전용 저장소로 전환하세요."
+                    }
+                    require(config.sharedFolders.isEmpty() || !config.protectedVm) {
+                        "앱 전용 공유 디렉토리는 비보호 AVF VM에서만 사용할 수 있습니다."
                     }
                 }
                 is ImageVerification.Invalid -> error(verification.reason)
@@ -121,12 +132,8 @@ class AospAvfPlatformDriver(
                     releaseStoppedShares(config.instanceId)
                     val storage = if (config.enableInternalStorage && supportsAndroidStorage && storageGranted && !config.protectedVm)
                         android.os.Environment.getExternalStorageDirectory().canonicalFile else null
-                    val publicFolders = config.sharedFolders.any { java.io.File(it.directory).parentFile ==
-                        java.io.File(publicSharesRoot(), "shared-folders") }
-                    if (supportsVirtiofs && publicFolders) sharedStorage.requirePermission()
                     stagedShares = if (supportsVirtiofs)
-                        AvfSharedDirectories.create(appContext.filesDir.canonicalFile, config.sharedFolders, storage,
-                            publicSharesRoot(), android.os.Build.VERSION.SDK_INT >= 37) else null
+                        AvfSharedDirectories.create(appContext.filesDir.canonicalFile, emptyList(), storage) else null
                     requireAvfPlatformApi { vm.setConfig(buildConfig(config, stagedShares)) }
                     val shares = stagedShares
                     if (shares != null) {
@@ -136,9 +143,35 @@ class AospAvfPlatformDriver(
                         sharedBoot.set(SharedBoot(vm, config.instanceId, shares))
                         stagedShares = null
                     }
+                    if (config.sharedFolders.isNotEmpty()) {
+                        // Private SFTP streams need no SharedPath/index or all-files permission.
+                        // Merge the lease with an optional /sdcard export before VM run.
+                        shareLeases.record(config.instanceId, config.sharedFolders.map { it.id }, shares?.artifact,
+                            shares?.requiresStoragePermission == true)
+                        val owner = PrivateAvfShares(config.sharedFolders)
+                        PrivateShareOwners.register(privateShareKey(config.instanceId), owner)
+                        privateBoot.set(PrivateBoot(vm, config.instanceId, owner))
+                    }
                     startedHere = true
                     if (shares?.requiresStoragePermission == true) sharedStorage.requirePermission()
                     vm.run()
+                }
+            }
+            if (config.sharedFolders.isNotEmpty()) {
+                val owner = checkNotNull(privateBoot.get()?.takeIf { it.vm === vm }) {
+                    "앱 전용 공유 연결의 소유자가 없습니다. VM을 중지한 뒤 다시 시작하세요."
+                }
+                if (!owner.shares.ready) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    val deadline = SystemClock.elapsedRealtime() + 45_000
+                    owner.shares.start {
+                        var stream: GuestByteStream? = null
+                        while (stream == null) {
+                            check(SystemClock.elapsedRealtime() < deadline && machine === vm) { "앱 전용 공유 연결 시간이 초과되었습니다." }
+                            stream = runCatching { ParcelFileDescriptorByteStream(vm.connectVsock(40_506)) }.getOrNull()
+                            if (stream == null) Thread.sleep(100)
+                        }
+                        stream
+                    }
                 }
             }
             pendingSessionConnection.set(boot.awaitSessiond(BOOT_TIMEOUT_MS, GUEST_CONNECT_RETRY_MS) {
@@ -162,6 +195,7 @@ class AospAvfPlatformDriver(
                 }.getOrElse { failure.addSuppressed(it); false }
                 if (stopped) {
                     releaseSharedBoot(vm)
+                    runCatching { releaseStoppedShares(config.instanceId) }.exceptionOrNull()?.let(failure::addSuppressed)
                     if (machine === vm) machine = null
                 }
             }
@@ -317,6 +351,7 @@ class AospAvfPlatformDriver(
             .addDisk(VirtualMachineCustomImageConfig.Disk.RODisk(image.systemImage.toString()))
             .addDisk(VirtualMachineCustomImageConfig.Disk.RWDisk(image.homeImage.toString()))
             .addDisk(VirtualMachineCustomImageConfig.Disk.RODisk(image.configImage.toString()))
+        if (config.sharedFolders.isNotEmpty()) customImage.addParam("term.share-broker=1")
         if (shares != null) {
             if (shares.hasFolders) customImage.addParam(AvfSharedDirectories.BOOT_PARAM)
             if (shares.hasAndroidStorage) customImage.addParam(AvfSharedDirectories.ANDROID_STORAGE_PARAM)
@@ -401,10 +436,17 @@ class AospAvfPlatformDriver(
     }
 
     private fun releaseStoppedShares(instanceId: String) {
+        // This may be a separate verifier/revocation driver, not the boot owner.
+        PrivateShareOwners.releaseStopped(privateShareKey(instanceId))
+        privateBoot.get()?.takeIf { it.instanceId == instanceId }?.let { owned ->
+            privateBoot.compareAndSet(owned, null)
+        }
         shareLeases.release(instanceId) { artifact -> artifact?.let {
             AvfSharedDirectories.cleanup(appContext.filesDir.canonicalFile, it, publicSharesRoot())
         } }
     }
+
+    private fun privateShareKey(instanceId: String) = "${appContext.filesDir.canonicalPath}:$instanceId"
 
     private fun publicSharesRoot() = dev.terminal.runtime.storage.AndroidSharedFolderStorage.root(appContext)
 

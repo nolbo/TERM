@@ -27,6 +27,10 @@ for service in systemd-networkd systemd-resolved; do
 done
 echo TERM_AVF_NETWORK_CONFIG_OK
 modprobe virtiofs
+modprobe fuse
+command -v sshfs fusermount3 python3 setpriv >/dev/null
+test -x /usr/local/lib/droid/private-share-broker.py
+systemctl --root=/ is-enabled --quiet term-share-broker.service
 test "$(id -u droid)" -eq 1000
 test "$(id -g droid)" -eq 1000
 test -x /usr/local/lib/droid/mount-shared-directories.sh

@@ -5,6 +5,17 @@ cmdline=${1:-/proc/cmdline}
 index=${2:-/run/term-shares-index}
 destination=${3:-/mnt/term-shares}
 case " $(cat "$cmdline") " in
+  *' term.share-broker=1 '*)
+    count=0
+    while [ ! -f /run/term-share-broker.ready ]; do
+      count=$((count + 1))
+      [ "$count" -le 45 ] || exit 1
+      sleep 1
+    done
+    exit 0
+    ;;
+esac
+case " $(cat "$cmdline") " in
   *' term.virtiofs=1 '*) ;;
   *) exit 0 ;;
 esac

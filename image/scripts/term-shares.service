@@ -1,6 +1,8 @@
 [Unit]
 Description=Mount connected TERM shared directories
 After=local-fs.target
+Requires=term-share-broker.service
+After=term-share-broker.service
 Before=droid-sessiond.service
 
 [Service]

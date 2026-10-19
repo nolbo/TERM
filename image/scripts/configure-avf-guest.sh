@@ -25,6 +25,8 @@ for script in image-user-selftest image-apt-selftest image-pacman-selftest initi
 done
 sh /tmp/term-avf/configure-avf-user.sh /tmp/term-avf/droid.sudoers
 test "$(id -u droid)" -eq 1000
+# Dependencies are provisioned before this offline assembly phase.
+command -v sshfs fusermount3 python3 setpriv >/dev/null
 sh /tmp/term-avf/configure-avf-shares.sh / /tmp/term-avf
 sh /tmp/term-avf/configure-avf-network.sh / /tmp/term-avf/term-virtio.network
 command -v timeout flock >/dev/null
@@ -42,7 +44,7 @@ printf '[Service]\nGroup=droid\n' > /etc/systemd/system/droid-agent.service.d/ac
 # The root is an overlay with persistent upper/work directories on vdb.
 # All package and home writes survive reboot while the distributed base stays RO.
 printf 'overlay / overlay defaults 0 0\n/dev/vdc /etc/droid-config ext4 ro,nodev,nosuid,noexec 0 0\n' > /etc/fstab
-for service in droid-sessiond droid-agent droid-port-agent droid-apt-init droid-file-transfer term-shares term-android-storage; do
+for service in droid-sessiond droid-agent droid-port-agent droid-apt-init droid-file-transfer term-shares term-share-broker term-android-storage; do
   systemctl enable "$service.service"
   systemd-analyze verify "/etc/systemd/system/$service.service"
 done

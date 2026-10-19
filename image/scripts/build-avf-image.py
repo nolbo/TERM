@@ -64,7 +64,7 @@ def extract_source(archive, destination):
 def write_release(root, release_id, base_uri, source_url, source_sha, distribution="debian", source_commit=None, boot_verification=None):
     if distribution not in ("debian", "ubuntu", "archlinux"):
         raise ValueError("Unsupported AVF distribution")
-    manifest = f"formatVersion=1\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nvirtiofsVersion=1\nandroidStorageVersion=1\n"
+    manifest = f"formatVersion=1\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nvirtiofsVersion=1\nandroidStorageVersion=1\nshareBrokerVersion=1\n"
     if distribution in ("debian", "ubuntu"):
         manifest += "aptInitializationVersion=1\n"
     for key, name in ARTIFACTS.items():
@@ -143,6 +143,21 @@ def main():
         inputs.mkdir()
         release.mkdir()
         extract_source(archive, inputs)
+        if args.distribution == "debian":
+            prepared = work / "prepared-debian"
+            prepared.mkdir()
+            # Package installation needs the actual upstream dpkg state. Keep
+            # it in a separate appliance phase, before network-free assembly.
+            try:
+                subprocess.run(["docker", "run", "--rm", "--platform", "linux/arm64",
+                                "--network", "bridge", "-v", f"{inputs}:/input:ro",
+                                "-v", f"{prepared}:/output", "--entrypoint", "bash", factory_image,
+                                "/usr/local/bin/provision-debian-shares"], check=True)
+            finally:
+                subprocess.run(["docker", "run", "--rm", "--network", "none", "-v", f"{prepared}:/output",
+                                "--entrypoint", "chown", factory_image,
+                                "-R", f"{os.getuid()}:{os.getgid()}", "/output"], check=True)
+            inputs = prepared
         command = ["docker", "run", "--rm", "--platform", "linux/arm64", "--network", "none",
                    "-v", f"{inputs}:/input:ro", "-v", f"{release}:/output"]
         if Path("/dev/kvm").exists():

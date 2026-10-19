@@ -30,6 +30,8 @@ COPY image/scripts/configure-avf-network.sh /payload/configure-avf-network.sh
 COPY image/scripts/configure-avf-shares.sh /payload/configure-avf-shares.sh
 COPY image/scripts/mount-shared-directories.sh /payload/mount-shared-directories.sh
 COPY image/scripts/term-shares.service /payload/term-shares.service
+COPY image/scripts/private-share-broker.py /payload/private-share-broker.py
+COPY image/scripts/term-share-broker.service /payload/term-share-broker.service
 COPY image/scripts/mount-android-storage.sh /payload/mount-android-storage.sh
 COPY image/scripts/term-android-storage.service /payload/term-android-storage.service
 COPY image/scripts/initialize-avf-packages.sh /payload/initialize-avf-packages.sh
@@ -43,6 +45,7 @@ COPY image/scripts/image-pacman-selftest /payload/image-pacman-selftest
 COPY image/scripts/image-user-selftest /payload/image-user-selftest
 COPY image/scripts/smoke-avf-image.py /usr/local/bin/smoke-avf-image.py
 COPY image/scripts/assemble-avf-image.sh /usr/local/bin/assemble-avf-image
+COPY image/scripts/provision-debian-shares.sh /usr/local/bin/provision-debian-shares
 # Hosted ARM64 runners do not expose KVM. Avoid an unusable host GIC fallback.
 ENV LIBGUESTFS_BACKEND=direct LIBGUESTFS_BACKEND_SETTINGS=force_tcg LIBGUESTFS_DEBUG=1 LIBGUESTFS_TRACE=1
 ENTRYPOINT ["bash", "/usr/local/bin/assemble-avf-image"]

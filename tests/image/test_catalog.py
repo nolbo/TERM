@@ -64,6 +64,17 @@ class CatalogVerificationTests(unittest.TestCase):
         verifier.verify_directory(self.root, expected_commit=provenance['sourceCommit'],
                                   expected_manifest_sha=approved['manifestSha256'])
 
+    def test_private_share_broker_version_is_optional_and_unknown_versions_fail(self):
+        current = (self.root / 'manifest.properties').read_bytes()
+        for version in [None, b'1', b'0', b'2']:
+            data = current.replace(b'shareBrokerVersion=1\n', b'' if version is None else b'shareBrokerVersion=' + version + b'\n')
+            approved = {'id': 'debian-arm64-current', 'manifestSha256': verifier.digest(data)}
+            if version in (None, b'1'):
+                verifier.manifest(data, approved)
+            else:
+                with self.assertRaisesRegex(ValueError, 'share broker version'):
+                    verifier.manifest(data, approved)
+
     def test_metadata_transfer_is_checked_against_producer_outputs(self):
         for name in verifier.ARTIFACTS.values():
             (self.root / (name + '.gz')).unlink()

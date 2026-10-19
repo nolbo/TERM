@@ -87,6 +87,46 @@ class SharedFolderRegistry(private val files: File, private val read: () -> Stri
         write(encoded)
         Files.deleteIfExists(marker.toPath())
     }
+    /** Reverse the retired public-storage workaround using its latest data, never the stale backup.
+     * Caller holds idle-writer/preparation reservations. Public source is retained after publication.
+     */
+    @Synchronized fun restorePrivateStorage(folder: SharedFolder) {
+        require(folder.androidStorage && requireFolder(folder.id).androidStorage)
+        check(storageGranted()) { "최신 공유 저장소 데이터를 앱 전용으로 복사하려면 모든 파일 접근 권한이 필요합니다." }
+        val encoded = encodedWith(folder.copy(androidStorage = false))
+        val source = directory(folder)
+        ensureDirectory(root)
+        val journal = File(files, ".shared-folder-private-restores").also(::ensureDirectory)
+        val marker = File(journal, folder.id)
+        val stage = ".private-${folder.id}"
+        val backup = ".original-${folder.id}"
+        if (Files.exists(marker.toPath(), NOFOLLOW_LINKS)) {
+            require(Files.isRegularFile(marker.toPath(), NOFOLLOW_LINKS) && marker.length() == 0L)
+            clearChildIfPresent(root, stage)
+        } else {
+            require(Files.notExists(File(root, stage).toPath(), NOFOLLOW_LINKS) &&
+                Files.notExists(File(root, backup).toPath(), NOFOLLOW_LINKS)) { "Private restore destination already exists" }
+            java.io.FileOutputStream(marker).use { it.fd.sync() }
+            ScopedDirectory.open(journal).use { it.sync() }
+        }
+        val target = File(root, stage)
+        Files.createDirectory(target.toPath())
+        SharedFolderTree.copyVerified(source, target)
+        check(storageGranted()) { "저장소 접근 권한이 해제되었습니다. 최신 원본은 보존됩니다." }
+        ScopedDirectory.open(root).use { parent ->
+            if (folder.id in parent.names()) {
+                if (backup !in parent.names()) dev.terminal.emulator.ScopedFileAccess.rename(parent.fd, folder.id, parent.fd, backup)
+                else clearChildIfPresent(root, folder.id) // Only a journaled, unpublished retry copy.
+            }
+            dev.terminal.emulator.ScopedFileAccess.rename(parent.fd, stage, parent.fd, folder.id)
+            parent.sync()
+        }
+        // A crash after the old public metadata commit may have left its marker.
+        // Public metadata still owns that source if the private publication fails.
+        Files.deleteIfExists(File(File(files, ".shared-folder-promotions"), folder.id).toPath())
+        write(encoded)
+        Files.deleteIfExists(marker.toPath())
+    }
     private fun encodedWith(folder: SharedFolder): String {
         val rows = all()
         require(rows.none { it.id != folder.id && it.name == folder.name }) { "Shared Directory name already exists" }
@@ -118,7 +158,10 @@ class SharedFolderRegistry(private val files: File, private val read: () -> Stri
             clearChildIfPresent(File(androidRoot(), "shared-folders"), id)
         }
         clearChildIfPresent(root, id) // Includes the retained private original after conversion.
+        clearChildIfPresent(root, ".private-$id")
+        clearChildIfPresent(root, ".original-$id")
         Files.deleteIfExists(marker.toPath())
+        Files.deleteIfExists(File(File(files, ".shared-folder-private-restores"), id).toPath())
         write(JSONArray(all().filterNot { it.id == id }.map { it.json() }).toString())
     }
     /** Metadata/UI lookup must remain possible after permission revocation or volume loss. */

@@ -20,12 +20,48 @@ import java.util.UUID
 /** Exercises the conditional mount path and retained copy controls without claiming a live AVF VM. */
 @RunWith(AndroidJUnit4::class)
 class AvfSharedFolderUiTest {
-    @Test fun android17SaveRequiresPermissionAndConversionConsent() {
+    @Test fun privateAvfFolderSavesWithoutStorageConversionOrPermission() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        val environment = Environment.create(SessionRuntime.AVF, "Private AVF")
+        val folder = SharedFolder(UUID.randomUUID().toString(), "Code", setOf(environment.id))
+        val snapshot = SharedFoldersSnapshot(listOf(folder), emptyMap(), listOf(environment), emptyList())
+        var saved: SharedFolder? = null
+        ActivityScenario.launch(ProfilesActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { SharedFolderEditor(folder.json().toString(), snapshot, null, false,
+                    onSave = { saved = it }, onBack = {}) }
+            } }
+            val text = instrumentation.targetContext.getString(R.string.save)
+            val deadline = SystemClock.elapsedRealtime() + 10_000
+            while (saved == null && SystemClock.elapsedRealtime() < deadline) {
+                instrumentation.waitForIdleSync()
+                instrumentation.uiAutomation.clearCache()
+                fun click(node: AccessibilityNodeInfo?): Boolean {
+                    if (node == null) return false
+                    if (node.isVisibleToUser && (node.text?.toString() == text || node.contentDescription?.toString() == text)) {
+                        var button: AccessibilityNodeInfo? = node
+                        while (button != null) {
+                            if (button.isClickable) {
+                                assertTrue(button.isEnabled)
+                                return button.performAction(AccessibilityNodeInfo.ACTION_CLICK)
+                            }
+                            button = button.parent
+                        }
+                    }
+                    return (0 until node.childCount).any { click(node.getChild(it)) }
+                }
+                click(instrumentation.uiAutomation.rootInActiveWindow)
+                SystemClock.sleep(50)
+            }
+            assertEquals(folder, saved)
+        }
+    }
+    @Test fun publicRestoreRequiresPermissionAndConversionConsent() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         val environment = Environment.create(SessionRuntime.AVF, "AVF conversion preview")
-        val folder = SharedFolder(UUID.randomUUID().toString(), "Project", setOf(environment.id))
-        val snapshot = SharedFoldersSnapshot(emptyList(), emptyMap(), listOf(environment), emptyList())
+        val folder = SharedFolder(UUID.randomUUID().toString(), "Project", setOf(environment.id), androidStorage = true)
+        val snapshot = SharedFoldersSnapshot(listOf(folder), emptyMap(), listOf(environment), emptyList())
         var saved = 0
         fun find(text: String): AccessibilityNodeInfo? {
             instrumentation.uiAutomation.clearCache()
@@ -66,7 +102,7 @@ class AvfSharedFolderUiTest {
         ActivityScenario.launch(ProfilesActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 DroidTheme { SharedFolderEditor(folder.json().toString(), snapshot, null, false,
-                    onSave = { saved++ }, onBack = {}, requiresPublicAvfStorage = true) }
+                    onSave = { saved++ }, onBack = {}) }
             } }
             val save = button(context.getString(R.string.save))
             assertEquals(android.os.Environment.isExternalStorageManager(), save.isEnabled)
