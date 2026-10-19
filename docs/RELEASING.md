@@ -19,6 +19,23 @@ Preview creates a separate data area and does not migrate or delete anything.
 Include this transition in the first separated prerelease's Korean patch notes.
 See [APP_UPDATES.md](APP_UPDATES.md) for backup and installation guidance.
 
+## Manual publication from shared dev history
+
+An authorized stable release does not require a `main` merge. The Android workflow
+can publish the checked-out `dev` event commit to either release channel through
+the explicit `publish_channel` dispatch input: `main` for TERM or `dev` for TERM
+Preview. Its default `none` keeps the existing signed verification without
+publication. Explicit publication is accepted only from the `dev` ref and only
+when the event SHA belongs to fetched `origin/dev` history; channel selection does
+not move `main` or rewrite shared history.
+
+Prepare and commit the requested version, per-release Korean notes and matching
+`docs/release-notes/<channel>-latest.md` on `dev` before the authorized push and
+dispatch. Both channels retain the existing signing, runtime/image verification,
+serialized publication and forward-only versionCode checks. Verify the run's
+source SHA, selected channel and published APK/manifest after completion. See
+[APP_UPDATES.md](APP_UPDATES.md#publishing) for dispatch commands and boundaries.
+
 ## Versioning and patch notes
 
 App base-version decisions MUST follow `docs/VERSIONING.md`. Assess the complete

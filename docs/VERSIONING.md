@@ -188,3 +188,15 @@ Direct Linux 실험 커밋 22개는 이번 배포에서 제외한다. 필수 데
 프로필·실행환경의 기본 이름, 세션 탭 위쪽 이동, Userspace Linux Ubuntu 기본 패키지에서 `ubuntu-server` 제외, release 코드·리소스 최적화와 바이트가 같은 라이선스 본문의 중복 저장 제거, Userspace Linux 표기 정리를 함께 포함합니다. 제거된 호스트 도구 이외의 Native·Userspace Linux 무특권 실행 경로, 앱 ID·서명 키·공유 versionCode 정책, 기존 프로필·설치 환경·파일을 유지합니다. 기존 Ubuntu 환경에서 패키지를 자동 제거하지 않고 설치된 환경·이미지·작업 파일을 자동 교체하지 않습니다.
 
 게스트·이미지 제작 소스와 승인 카탈로그는 직전 앱 배포 이후 변경되지 않았습니다. 공개 manifest 핀과 제작 provenance를 다시 확인한 Debian `avf-debian-debug-20261012-r4`, Ubuntu `avf-ubuntu-debug-20261013-r1`, Arch `avf-archlinux-debug-20261012-r5` 카탈로그를 그대로 포함하며 새 이미지는 제작하지 않습니다. 실제 특권 AVF 기기의 부팅·vsock·공유 파일 I/O·네트워크 검증과 1.0 준비 기준 충족은 주장하지 않습니다.
+
+## 1.0.0 결정 (2026-10-19)
+
+정식 릴리즈와 프리릴리즈의 기본 버전을 모두 `1.0.0`으로 배포하라는 사용자의
+명시적 지시를 우선합니다. 프로필 수명주기·번역/Locale 수정과 정식판·Preview의
+독립 설치 변경을 공유 dev 이력에 포함하며, 기존 서명 키와 공유 versionCode
+순번을 유지합니다. 정식판은 `dev.terminal.app`, 프리릴리즈판은
+`dev.terminal.app.prerelease`이고 기존 설치를 자동 제거하거나 데이터를 이전하지
+않습니다. 버전 선택을 1.0 검증 조건 전체의 통과로 해석하지 않습니다.
+재사용한 검사와 API별 기기·일반 기기 Rootless·이전 서명 APK 업데이트 보존 등의
+미확인 범위, 최종 배포 검증은 [1.0.0 출시 검증 기록](release-validation/1.0.0.md)에
+구분하여 남깁니다.

@@ -57,7 +57,7 @@ android-app/build/outputs/apk/debug/android-app-debug.apk
 ```
 
 Debug builds install as **TERM Debug** (`dev.terminal.app.debug`) alongside stable
-and prerelease builds (`dev.terminal.app`). Their settings, runtime data, and
+**TERM** (`dev.terminal.app`) and **TERM Preview** (`dev.terminal.app.prerelease`). Their settings, runtime data, and
 sessions are separate. Update debug builds by installing a new APK signed with
 the same debug key; release-channel updates are disabled in the debug app.
 See [debug build details](docs/DEBUG_BUILDS.md).
@@ -69,16 +69,21 @@ builds and clock rollback do not lower the next local debug version.
 
 Base versions follow the [version promotion policy](docs/VERSIONING.md): fixes
 increment patch, compatible features increment minor, and incompatible changes
-after 1.0 increment major. The current development baseline is `0.16.0`.
+after 1.0 increment major. The current base version is `1.0.0`; the
+[release validation record](docs/release-validation/1.0.0.md) states its tested scope and limitations.
 
 `origin/main` advances provide stable updates; `origin/dev` advances provide
-development prereleases. Settings → App updates selects either channel, with
-the installed APK's channel as the initial default. Both use the same app ID
-and release signing key. CI uses `1000000 + TERMINAL_VERSION_CODE_OFFSET + GITHUB_RUN_NUMBER` as a shared
+development prereleases. An explicitly selected manual publication can also
+release a shared `dev` commit to either channel without changing `main`.
+Settings → App updates displays the installed app's fixed channel. TERM and
+TERM Preview use separate app IDs and the existing release signing key.
+Older development installs under `dev.terminal.app` retain their data; installing
+Preview does not automatically transfer or delete it.
+CI uses `1000000 + TERMINAL_VERSION_CODE_OFFSET + GITHUB_RUN_NUMBER` as a shared
 Android `versionCode`. The TERM repository offset is `70`, carrying the previous
 repository’s last code `1000070` forward; the name is
-`<base>+<main|dev>.<code>.<12-character source SHA>`. An older channel cannot
-downgrade the installed app. Local builds default to the checked-out dev branch
+`<base>+<main|dev>.<code>.<12-character source SHA>`. Updates are forward-only
+within each installed package. Local builds default to the checked-out dev branch
 or main, identify that remote ref, and use its commit count unless
 `TERMINAL_UPDATE_VERSION_CODE` is supplied. Set `TERMINAL_UPDATE_CHANNEL=main|dev`
 to override the local channel. Local count-based APKs do not replace newer CI

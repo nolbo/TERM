@@ -57,17 +57,38 @@ Local builds use `origin/dev` on the dev branch, otherwise `origin/main`, unless
 ref's full commit count, so they cannot replace a newer CI APK; an explicitly
 supplied `TERMINAL_UPDATE_VERSION_CODE` must be a positive Android integer.
 Complete Git history is still required. No local count-based build is published
-automatically. For main/dev push events, CI pins the selected remote ref to
+automatically. For main/dev push events, CI sets `TERMINAL_UPDATE_REVISION` to
 the event's checked-out `GITHUB_SHA`; it never labels older checked-out source
-with a newer queued revision. Other branches and PRs are verified, not published. Manual dispatch on `dev` or
-`main` also builds and verifies a signed APK without publishing it. Both branches
-check the installed-app signing identity; `dev` additionally checks the exact
-approved AVF catalog. Imported `main` retains the former source repository's
-0.1.0 stable code, which predates the approved-catalog integration. `dev` retains
-0.16.0 and its verified image catalog. Changing the default branch and importing
-stable history does not promote development features or publish a stable APK.
+with a newer queued revision. Other branches and PRs are verified, not published.
+Manual dispatch defaults to `publish_channel=none`: on `dev` or `main` it builds
+and verifies a signed APK without publishing it. The workflow in `dev` checks
+the installed-app signing identity and exact approved AVF catalog for both release
+channels. Imported `main` retains the former source repository's 0.1.0 stable
+code, which predates the approved-catalog integration. Changing the default
+branch and importing stable history does not promote development features or
+publish a stable APK.
 
 ## Publishing
+
+An explicitly authorized release can publish either channel from shared `dev`
+history without merging or changing `main`. Dispatch `android.yml` on `dev` with
+`publish_channel=main` for stable or `publish_channel=dev` for prerelease:
+
+```sh
+gh workflow run android.yml --ref dev -f publish_channel=main
+gh workflow run android.yml --ref dev -f publish_channel=dev
+```
+
+Run only the command for the requested channel. The selector rejects explicit
+publication from other refs/events and requires the event's source SHA to belong
+to the fetched `origin/dev` history. The selected channel determines the app
+package, version name, Korean `<channel>-latest.md` notes, artifact name and
+release tag; the exact event SHA remains the source revision. Neither source
+branch nor its remote tracking ref is repointed to choose a release channel.
+Push publications and explicit manual publications share the same serialization
+group and forward-only versionCode sequence. The default manual verification
+mode does not publish, and all existing build, signing, Rootless, USB safety and
+approved-catalog checks remain required before a manual publication.
 
 After canonical verification, app tests and the USB safety gate, CI uses the
 persistent release key to build one APK. `tools/updates/create-manifest.py`
@@ -212,8 +233,8 @@ size/hash and signing identity rejection. Publisher tests check first/forward
 publication, late older builds, draft retries, immutable published assets and
 fail-closed API errors. Device checks exercise Android's
 real signing parser, FileProvider directory bounds and screen recreation.
-Published APK download and installer completion require the publisher token,
-main integration and a release-signed test installation; do not claim those
+Public download verification requires a published release, and installer completion
+requires a release-signed test installation; do not claim those
 checks passed from local unit tests or repository creation.
 
 Initial implementation validation passed the canonical tasks plus app unit

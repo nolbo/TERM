@@ -3,8 +3,18 @@ name: Android verification
 on:
   push:
   pull_request:
-  # Manual runs verify packaging/signing without publishing a channel update.
+  # Manual runs verify by default; explicit publication uses shared dev history.
   workflow_dispatch:
+    inputs:
+      publish_channel:
+        description: 'Publish the selected channel from dev; none only verifies signing'
+        type: choice
+        required: true
+        default: none
+        options:
+          - none
+          - main
+          - dev
 
 permissions:
   contents: read
@@ -21,25 +31,21 @@ jobs:
     # Publish directly from the verified build directory without an Actions
     # artifact handoff. Serialize channel builds through publication.
     concurrency:
-      group: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && 'term-public-release' || format('term-verification-{0}', github.run_id) }}
+      group: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev' && (inputs.publish_channel == 'main' || inputs.publish_channel == 'dev'))) && 'term-public-release' || format('term-verification-{0}', github.run_id) }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
         with:
-          # Pin the selected update branch to the checked-out event commit.
+          # Build the event commit with full history for publication validation.
           fetch-depth: 0
       - name: Select update revision and version
+        id: release
+        env:
+          TERMINAL_PUBLISH_CHANNEL: ${{ inputs.publish_channel || 'none' }}
         run: |
           echo "TERMINAL_NDK_VERSION=$(sed -n 's/^ndkVersion=//p' gradle.properties)" >> "$GITHUB_ENV"
           git fetch --no-tags origin +refs/heads/main:refs/remotes/origin/main +refs/heads/dev:refs/remotes/origin/dev
-          if { [ "$GITHUB_EVENT_NAME" = push ] || [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; } && { [ "$GITHUB_REF" = refs/heads/main ] || [ "$GITHUB_REF" = refs/heads/dev ]; }; then
-            terminal_update_channel=${GITHUB_REF#refs/heads/}
-            git update-ref "refs/remotes/origin/$terminal_update_channel" "$GITHUB_SHA"
-            echo "TERMINAL_UPDATE_CHANNEL=$terminal_update_channel" >> "$GITHUB_ENV"
-            # The offset carries the previous repository's sequence forward.
-            terminal_version_code=$(python3 tools/updates/version-code.py --run-number "$GITHUB_RUN_NUMBER")
-            echo "TERMINAL_UPDATE_VERSION_CODE=$terminal_version_code" >> "$GITHUB_ENV"
-          fi
+          python3 tools/updates/select-channel.py
       - name: Check channel publication inputs before building
         if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
         env:
@@ -52,7 +58,7 @@ jobs:
             echo 'Configure the existing signing secrets before building a channel update.'
             exit 1
           fi
-          test -s "docs/release-notes/${GITHUB_REF_NAME}-latest.md"
+          test -s "docs/release-notes/${TERMINAL_UPDATE_CHANNEL}-latest.md"
       - name: Use Maven AAPT2 on the CI host
         # The checked-in override is for the local ARM64/QEMU host only.
         run: sed -i '/^android.aapt2FromMavenOverride=/d' gradle.properties
@@ -156,11 +162,11 @@ jobs:
           cp android-runtime/build/distributions/iphone-worker-source.tar.gz \
             android-runtime/build/iphone-tools/distributions/iphone-tools-source.tar.gz android-app/build/update/
       - name: Publish signed update APK
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        if: steps.release.outputs.publish == 'true'
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: terminal-${{ github.ref_name }}-update
+          name: terminal-${{ steps.release.outputs.channel }}-update
           if-no-files-found: error
           compression-level: 0
           path: android-app/build/update/
@@ -177,7 +183,7 @@ jobs:
           key: ${{ steps.rust-cache.outputs.cache-primary-key }}
 
       - name: Publish verified update to TERM
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+        if: steps.release.outputs.publish == 'true'
         env:
           GH_TOKEN: ${{ github.token }}
         run: bash tools/updates/publish.sh android-app/build/update
