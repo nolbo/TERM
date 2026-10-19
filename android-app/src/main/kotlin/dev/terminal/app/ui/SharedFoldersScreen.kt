@@ -26,14 +26,14 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal data class SharedFoldersSnapshot(val folders: List<SharedFolder>, val paths: Map<String, String>,
-    val environments: List<Environment>, val sources: List<Pair<String, String>>, val operations: List<JSONObject>) {
+    val environments: List<Environment>, val operations: List<JSONObject>) {
     companion object {
         fun parse(encoded: String): SharedFoldersSnapshot {
             val json = JSONObject(encoded)
             fun rows(key: String): List<JSONObject> = json.getJSONArray(key).let { a -> List(a.length()) { a.getJSONObject(it) } }
             val folders = rows("folders")
             return SharedFoldersSnapshot(folders.map(SharedFolder::parse), folders.associate { it.getString("id") to it.getString("hostPath") },
-                rows("environments").map(Environment::fromJson), rows("legacySources").map { it.getString("id") to it.getString("name") }, rows("operations"))
+                rows("environments").map(Environment::fromJson), rows("operations"))
         }
     }
 }
@@ -42,8 +42,7 @@ internal data class SharedFoldersSnapshot(val folders: List<SharedFolder>, val p
 internal fun SharedFoldersScreen(snapshot: SharedFoldersSnapshot?, error: String?, saving: Boolean, onBack: () -> Unit,
     onCreate: () -> Unit,
     onEdit: (SharedFolder) -> Unit,
-    onOperation: (JSONObject, () -> Unit) -> Unit, onExport: (String) -> Unit, onCancel: (String) -> Unit) {
-    var importing by rememberSaveable { mutableStateOf<String?>(null) }
+    onCancel: (String) -> Unit) {
     SettingsPageScaffold(stringResource(R.string.shared_folders_title), onBack) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -65,18 +64,6 @@ internal fun SharedFoldersScreen(snapshot: SharedFoldersSnapshot?, error: String
                     }
                 }
                 if (snapshot.folders.isEmpty()) item { SettingsDescription(stringResource(R.string.shared_folders_empty)) }
-                if (snapshot.sources.isNotEmpty()) item {
-                    ProfileSection(R.string.shared_legacy_title) {
-                        snapshot.sources.forEach { (id, name) ->
-                            SettingsNavigationRow(stringResource(R.string.shared_legacy_import), name, enabled = !saving,
-                                onClick = { importing = id })
-                            SettingsNavigationRow(stringResource(R.string.shared_legacy_export), name, enabled = !saving,
-                                onClick = { onExport(id) })
-                        }
-                    }
-                    Text(stringResource(R.string.shared_legacy_summary), Modifier.padding(start = 4.dp, end = 4.dp, top = 8.dp),
-                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
                 if (snapshot.operations.isNotEmpty()) item {
                     ProfileSection(R.string.shared_operations) {
                         snapshot.operations.asReversed().forEach { operation ->
@@ -110,9 +97,6 @@ internal fun SharedFoldersScreen(snapshot: SharedFoldersSnapshot?, error: String
             }
         }
     }
-    importing?.let { id -> SharedFolderNameDialog(saving, onSave = { name ->
-        onOperation(JSONObject().put("mode", "IMPORT_LEGACY").put("sourceId", id).put("name", name)) { importing = null }
-    }, onDismiss = { importing = null }) }
 }
 
 @Composable
@@ -243,20 +227,5 @@ internal fun SharedFolderEditor(encoded: String, snapshot: SharedFoldersSnapshot
         confirmButton = { TextButton(onClick = { onDelete(original.getString("id")) }, enabled = !saving,
             shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.delete), color = MaterialTheme.colorScheme.error) } },
         dismissButton = { TextButton(onClick = { deleting = false }, enabled = !saving,
-            shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } })
-}
-
-@Composable
-private fun SharedFolderNameDialog(saving: Boolean, onSave: (String) -> Unit, onDismiss: () -> Unit) {
-    var name by rememberSaveable { mutableStateOf("") }
-    AlertDialog(onDismissRequest = { if (!saving) onDismiss() }, title = { Text(stringResource(R.string.shared_legacy_import)) }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(name, { name = it }, label = { Text(stringResource(R.string.workspace_name)) }, singleLine = true,
-                enabled = !saving, isError = name.isNotEmpty() && !SharedFolder.NAME.matches(name), modifier = Modifier.fillMaxWidth())
-            Text(stringResource(R.string.shared_folder_name_rules), style = MaterialTheme.typography.bodySmall)
-        }
-    }, confirmButton = { Button(onClick = { onSave(name) }, enabled = !saving && SharedFolder.NAME.matches(name),
-        shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.shared_start_copy)) } },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !saving,
             shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } })
 }

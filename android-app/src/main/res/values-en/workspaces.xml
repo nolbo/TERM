@@ -59,8 +59,6 @@
     <string name="shared_relative_file">Relative file path within directory</string>
     <string name="shared_transfer_limits">VM path: /home/droid/term-transfers/directory-name/relative-path. One regular file, up to 64 MiB/2 minutes. No directories, links, path escapes or overwrites; SHA-256 checked before applying.</string>
     <string name="shared_start_copy">Start copy</string>
-    <string name="shared_legacy_title">Existing /workspace data</string>
-    <string name="shared_legacy_summary">Lists environment, legacy common and retained folders separately. Stop affected environments and file writes before copying; other sessions and original paths remain. Recover interrupted Rootless migrations first. Copy/ZIP export: regular files/directories only, up to 2 GiB/100,000 entries. Links/special files fail with originals kept. Workspace links block environment deletion; use Full backup to preserve link targets.</string>
     <string name="shared_legacy_import">Copy into a new shared directory</string>
     <string name="shared_legacy_export">Export as ZIP</string>
     <string name="shared_operations">File operations</string>

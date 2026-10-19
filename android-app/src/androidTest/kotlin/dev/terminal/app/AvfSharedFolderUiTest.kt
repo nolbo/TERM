@@ -25,7 +25,7 @@ class AvfSharedFolderUiTest {
         val context = instrumentation.targetContext
         val environment = Environment.create(SessionRuntime.AVF, "AVF conversion preview")
         val folder = SharedFolder(UUID.randomUUID().toString(), "Project", setOf(environment.id))
-        val snapshot = SharedFoldersSnapshot(emptyList(), emptyMap(), listOf(environment), emptyList(), emptyList())
+        val snapshot = SharedFoldersSnapshot(emptyList(), emptyMap(), listOf(environment), emptyList())
         var saved = 0
         fun find(text: String): AccessibilityNodeInfo? {
             instrumentation.uiAutomation.clearCache()
@@ -92,7 +92,7 @@ class AvfSharedFolderUiTest {
         val context = instrumentation.targetContext
         val environment = Environment.create(SessionRuntime.AVF, "AVF sharing preview")
         val folder = SharedFolder(UUID.randomUUID().toString(), "Project", setOf(environment.id))
-        val snapshot = SharedFoldersSnapshot(listOf(folder), emptyMap(), listOf(environment), emptyList(), emptyList())
+        val snapshot = SharedFoldersSnapshot(listOf(folder), emptyMap(), listOf(environment), emptyList())
         var direction: String? = null
         fun find(text: String): AccessibilityNodeInfo? {
             instrumentation.uiAutomation.clearCache()
