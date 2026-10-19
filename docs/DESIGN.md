@@ -21,7 +21,7 @@
 | 앱 업데이트 | 업데이트 상태 카드와 주요 버튼 또는 진행률, 릴리즈노트 카드 순서다. | [AppUpdatesActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/AppUpdatesActivity.kt) |
 | 앱 정보·라이선스 | 앱 메타데이터는 읽기 전용 행으로, 라이선스는 디렉터리 목록과 선택 가능한 원문으로 표시한다. | [AppInfoActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/AppInfoActivity.kt) |
 | 진단 및 리포트 | 진입점의 런타임(Android Native·Userspace Linux·AVF Linux), 시스템(메모리), 리포트(크래시 리포트) 카테고리에서 독립 Activity를 연다. 카테고리는 공통 섹션 제목과 각각의 설정 그룹으로 구분한다. 각 상세는 공통 앱바와 테마를 사용한다. 런타임 상세의 새로고침과 읽기 전용 행은 공통 설정 UI를 사용하며, 메모리는 장치·앱 요약 카드와 구성별 막대 카드 및 새로고침 버튼으로 표시한다. 크래시 원문은 기존 상세에서 읽고 복사하며 닫아도 보관한다. | [DiagnosticsActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/DiagnosticsActivity.kt), [MemoryDiagnosticsScreen.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/MemoryDiagnosticsScreen.kt), [CrashReportActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/CrashReportActivity.kt) |
-| 초기 설정·크래시 | 초기 설정은 짧은 소개, 터미널 시작 버튼을 포함한 Android Native 카드, 선택적인 Linux 환경 안내 그룹 순서다. 크래시 본문은 복사할 수 있는 고정폭 텍스트를 사용한다. | [ComposeUi.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/ComposeUi.kt)의 `SetupScreen`, `CrashScreen` |
+| 초기 설정·크래시 | 초기 설정은 앱바 없이 로고의 둥근 계단형 윤곽을 활용한 장식, 소개, 읽기 전용 Android Native 카드, 선택적인 Linux 안내 그룹을 배치하고 하단에 **시작하기** 버튼을 고정한다. 크래시 본문은 복사할 수 있는 고정폭 텍스트를 사용한다. | [SetupScreen.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/SetupScreen.kt), [ComposeUi.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/ComposeUi.kt)의 `CrashScreen` |
 
 세션 툴의 **새 세션**은 현재 비모달 BottomSheet를 펼치고 같은 시트 안에서 프로필 선택 페이지로 전환한다. 상단 뒤로가기와 Android 뒤로가기는 세션 페이지로 돌아간다. 프로필 선택 중 시트를 기본 크기로 줄여도 뒤로가기 전환 애니메이션과 현재 시트 크기를 유지한다. 프로필 선택 중에는 부모 툴바의 가로 도구 전환을 잠시 막아 세로 스크롤·플링과 충돌하지 않게 하며, 일시적인 조작 비활성화는 페이지를 닫지 않는다. 기본 크기에서 진입할 때 시트는 테마의 spatial motion으로 확장한다. 세션 페이지와 프로필 선택 페이지는 진입·뒤로가기 방향에 맞춘 가로 슬라이드와 페이드로 전환하며 RTL에서는 방향을 반전한다. 프로필 선택 후 크기 복원·편집 진입에도 같은 높이 모션을 사용한다. 프로필은 기존 아이콘·이름과 연결된 실행환경 이름·런타임을 표시하는 Material `ListItem`으로 제공하며 목록은 세로로 스크롤한다. 목록 끝의 **새 프로필 만들기**는 보조 텍스트 버튼으로 기존 편집 화면을 연다. 프로필 선택은 기존 세션 생성·선택 경로로 전달한 뒤 시트를 새 세션 버튼을 누르기 전의 기본·확장 크기로 되돌리고 세션 페이지를 표시한다. 프로필 편집 진입 때는 시트를 숨긴다. 세션과 워크스페이스가 모두 없는 초기 화면에서도 하단 세션 툴바와 핸들을 유지한다. 빈 화면에는 안내만 표시하고 워크스페이스·새 세션·설정 진입은 툴바에 둔다. 초기 화면의 새 세션도 같은 툴바 내부 프로필 선택 페이지를 사용한다.
 
@@ -96,7 +96,7 @@ Hotkeys의 Shift·Alt·Ctrl 선택 상태와 조합은 터치 및 마우스·트
 
 ### 앱 바와 스크롤
 
-설정 홈과 하위 설정·관리·편집 화면은 `SettingsPageScaffold`를 사용한다. 진단과 호스트 도구 입력처럼 설정에서 이어지는 화면 및 크래시 리포트 상세에도 같은 scaffold를 사용한다. 새 설정 화면에 별도 작은 앱 바나 자체 뒤로가기 헤더를 만들지 않는다. 초기 설정 등 다른 일반 화면의 표준 앱 바는 `AppScaffold`를 따른다.
+설정 홈과 하위 설정·관리·편집 화면은 `SettingsPageScaffold`를 사용한다. 진단과 호스트 도구 입력처럼 설정에서 이어지는 화면 및 크래시 리포트 상세에도 같은 scaffold를 사용한다. 새 설정 화면에 별도 작은 앱 바나 자체 뒤로가기 헤더를 만들지 않는다. 다른 일반 화면의 표준 앱 바는 `AppScaffold`를 따른다. 초기 설정은 예외로 앱바 없는 전용 `Scaffold`와 하단 고정 **시작하기** 버튼을 사용한다. 소개 콘텐츠만 스크롤하며 시스템 안전 영역과 버튼 높이를 반영해 마지막 안내가 가려지지 않게 한다.
 
 크래시 리포트의 안내와 오류 원문은 같은 세로 스크롤 영역에 배치한다. 원문은 선택 가능한 Google Sans Code의 `bodySmall`(12sp, 줄 높이 16sp)로 표시한다. 하단 중앙의 공통 `HorizontalFloatingToolbar`에 삭제·오류 복사 아이콘을 두고 툴팁·접근성 설명으로 동작 이름을 제공한다. 삭제는 error 색의 휴지통 아이콘과 복원 가능한 확인창을 사용한다. 선택한 리포트만 백그라운드에서 삭제하며 성공하면 이전 화면으로 돌아가고 목록은 복귀 시 다시 읽는다. 취소하면 기록을 유지하고 실패하면 상세에 Snackbar를 표시한다. 리포트가 없거나 삭제 중이면 삭제·복사를 비활성화하며, 복사 후에는 완료 메시지를 표시한다. 기록을 유지한 채 나가려면 공통 뒤로가기를 사용한다. 원문 끝에는 툴바 높이와 화면 경계 여백을 확보한다.
 

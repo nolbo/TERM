@@ -35,15 +35,20 @@ class SetupScreenUiTest {
         val preferences = context.getSharedPreferences("setup-state", Context.MODE_PRIVATE)
         val original = preferences.all.toMap()
         ActivityScenario.launch<SetupActivity>(setupIntent()).use { scenario ->
-            val start = waitFor { it.text?.toString() == label(R.string.start_terminal) }
+            val start = waitFor { it.text?.toString() == label(R.string.setup_title) }
+            val windowBounds = bounds(instrumentation.uiAutomation.rootInActiveWindow)
+            val startBounds = bounds(requireNotNull(clickableAncestor(start)))
+            assertTrue("Get started is anchored at the bottom of the screen",
+                startBounds.centerY() > windowBounds.bottom - windowBounds.height() / 5)
+            val native = waitFor { it.text?.toString() == label(R.string.runtime_native_title) }
+            assertNull("The Native introduction has no launch action", clickableAncestor(native))
             find { it.text?.toString() == label(R.string.setup_linux_title) }?.let { optional ->
-                val startBounds = Rect().also(start::getBoundsInScreen)
-                val optionalBounds = Rect().also(optional::getBoundsInScreen)
-                assertTrue("Start is presented before optional Linux setup", startBounds.bottom < optionalBounds.top)
+                assertTrue("The bottom action follows the introductory content",
+                    bounds(optional).bottom <= startBounds.top)
             }
             assertEquals(original, preferences.all)
             scenario.recreate()
-            waitFor { it.text?.toString() == label(R.string.start_terminal) }
+            waitFor { it.text?.toString() == label(R.string.setup_title) }
             assertEquals("Viewing or recreating setup does not complete it", original, preferences.all)
         }
     }
@@ -65,11 +70,18 @@ class SetupScreenUiTest {
                     }
                 }
             }
-            waitFor { it.contentDescription?.toString() == "Compact setup fixture" }
-            click(scrollTo(R.string.start_terminal))
-            assertEquals(1, starts.get())
+            val fixture = waitFor { it.contentDescription?.toString() == "Compact setup fixture" }
+            val start = waitFor { it.text?.toString() == label(R.string.setup_title) }
+            val startBounds = bounds(requireNotNull(clickableAncestor(start)))
+            assertTrue("Get started fits inside the compact viewport", bounds(fixture).contains(startBounds))
             scrollTo(R.string.setup_rootless_description)
             scrollTo(R.string.setup_avf_description)
+            val pinnedStart = waitFor { it.text?.toString() == label(R.string.setup_title) }
+            assertEquals("Scrolling the introduction does not move the bottom action",
+                startBounds, bounds(requireNotNull(clickableAncestor(pinnedStart))))
+            assertEquals("Reading guidance does not start the terminal", 0, starts.get())
+            click(pinnedStart)
+            assertEquals(1, starts.get())
         }
     }
 
@@ -106,10 +118,16 @@ class SetupScreenUiTest {
         error("Expected setup content was not visible")
     }
 
-    private fun click(node: AccessibilityNodeInfo) {
+    private fun bounds(node: AccessibilityNodeInfo): Rect = Rect().also(node::getBoundsInScreen)
+
+    private fun clickableAncestor(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
         var target: AccessibilityNodeInfo? = node
         while (target != null && !target.isClickable) target = target.parent
-        assertTrue(requireNotNull(target).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+        return target
+    }
+
+    private fun click(node: AccessibilityNodeInfo) {
+        assertTrue(requireNotNull(clickableAncestor(node)).performAction(AccessibilityNodeInfo.ACTION_CLICK))
         instrumentation.waitForIdleSync()
     }
 }
