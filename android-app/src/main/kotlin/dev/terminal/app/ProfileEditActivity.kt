@@ -84,7 +84,7 @@ class ProfileEditActivity : TerminalActivity() {
             var cwd by rememberSaveable { mutableStateOf(initial.workingDirectory) }
             var startup by rememberSaveable { mutableStateOf(initial.startupCommand) }
             var environment by rememberSaveable { mutableStateOf(initial.environment.entries.joinToString("\n") { "${it.key}=${it.value}" }) }
-            var error by rememberSaveable { mutableStateOf<String?>(null) }
+            var error by remember { mutableStateOf<String?>(null) }
             var storageId by rememberSaveable { mutableStateOf(initial.storageId) }
             var storageChoice by rememberSaveable { mutableStateOf(when {
                 source == null -> "fresh"
@@ -100,7 +100,7 @@ class ProfileEditActivity : TerminalActivity() {
             val scope = rememberCoroutineScope()
             var saving by remember { mutableStateOf(false) }
             LaunchedEffect(environmentRevision) {
-                runCatching { withContext(Dispatchers.IO) { store.environments() } }
+                runStorageOperation { withContext(Dispatchers.IO) { store.environments() } }
                     .onSuccess { environments = it }.onFailure { error = it.message }
             }
             var icon by rememberSaveable { mutableStateOf(initial.icon) }
@@ -144,27 +144,31 @@ class ProfileEditActivity : TerminalActivity() {
             val rootless = runtime in listOf("ROOTLESS", "ROOTLESS_UBUNTU", "ROOTLESS_ARCH")
             val saveProfile: () -> Unit = {
                 saving = true
+                error = null
                 scope.launch {
-                    val fresh = storageChoice == "fresh"
-                    runCatching {
-                        val profile = SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
-                            parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon, palette?.split(','),
-                            if (fresh) null else selectedEnvironmentId.takeIf(String::isNotEmpty)?.let(::EnvironmentId))
-                        withContext(Dispatchers.IO) {
-                            if (fresh) store.save(profile, Environment.create(profile.runtime,
-                                freshStorageName.ifBlank { EnvironmentRegistry.defaultEnvironmentName(name) }, freshStorageId, EnvironmentId(freshEnvironmentId),
-                                internalStorageAccess = freshInternalStorageAccess,
-                                avfDistribution = EnvironmentDistribution.valueOf(avfDistribution)))
-                            else { store.save(profile); requireNotNull(store.find(profile.id)) }
-                        }
-                    }.onSuccess { profile ->
-                        if (fresh && profile.runtime == SessionRuntime.AVF) {
-                            startActivity(EnvironmentDetailActivity.intent(this@ProfileEditActivity, requireNotNull(profile.environmentId).value)
-                                .putExtra(EXTRA_CONFIRM_IMAGE_INSTALL, true))
-                        }
-                        finish()
-                    }.onFailure { error = it.message }
-                    saving = false
+                    try {
+                        val fresh = storageChoice == "fresh"
+                        runStorageOperation {
+                            val profile = SessionProfile(id, name.trim(), SessionRuntime.valueOf(runtime), shell,
+                                parseProfileArguments(arguments), cwd, parseProfileEnvironment(environment), startup, storageId, icon, palette?.split(','),
+                                if (fresh) null else selectedEnvironmentId.takeIf(String::isNotEmpty)?.let(::EnvironmentId))
+                            withContext(Dispatchers.IO) {
+                                if (fresh) store.save(profile, Environment.create(profile.runtime,
+                                    freshStorageName.ifBlank { EnvironmentRegistry.defaultEnvironmentName(name) }, freshStorageId, EnvironmentId(freshEnvironmentId),
+                                    internalStorageAccess = freshInternalStorageAccess,
+                                    avfDistribution = EnvironmentDistribution.valueOf(avfDistribution)))
+                                else { store.save(profile); requireNotNull(store.find(profile.id)) }
+                            }
+                        }.onSuccess { profile ->
+                            if (fresh && profile.runtime == SessionRuntime.AVF) {
+                                startActivity(EnvironmentDetailActivity.intent(this@ProfileEditActivity, requireNotNull(profile.environmentId).value)
+                                    .putExtra(EXTRA_CONFIRM_IMAGE_INSTALL, true))
+                            }
+                            finish()
+                        }.onFailure { error = it.message }
+                    } finally {
+                        saving = false
+                    }
                 }
             }
             BackHandler { back() }
@@ -306,8 +310,9 @@ class ProfileEditActivity : TerminalActivity() {
                 title = { Text(stringResource(R.string.profile_delete)) },
                 text = { Text(stringResource(R.string.profile_delete_message, source?.name.orEmpty())) },
                 confirmButton = { TextButton(onClick = {
+                    error = null
                     scope.launch {
-                        runCatching { withContext(Dispatchers.IO) { store.delete(id) } }
+                        runStorageOperation { withContext(Dispatchers.IO) { store.delete(id) } }
                             .onSuccess { finish() }.onFailure { error = it.message; deleting = false }
                     }
                 }) { Text(stringResource(R.string.profile_delete), color = MaterialTheme.colorScheme.error) } },

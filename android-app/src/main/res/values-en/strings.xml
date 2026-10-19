@@ -321,6 +321,13 @@
     <string name="history_completed_code">Completed · exit code %1$d</string>
     <string name="history_exit_code">Exit code %1$d</string>
     <string name="history_command_unavailable">Command text unavailable</string>
+    <string name="history_output_expand">Expand command output: %1$s</string>
+    <string name="history_output_collapse">Collapse command output: %1$s</string>
+    <string name="history_output_expanded">Expanded</string>
+    <string name="history_output_collapsed">Collapsed</string>
+    <string name="history_copy_command">Copy command</string>
+    <string name="history_output_unavailable">No saved output.</string>
+    <string name="history_output_empty">No output.</string>
     <string name="environment_permissions">Permissions</string>
     <string name="environment_storage_access">Internal storage access</string>
     <string name="environment_storage_android_permission">Android all-files access</string>

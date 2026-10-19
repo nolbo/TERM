@@ -49,6 +49,9 @@
     <string name="avf_diagnostics_description">Check each requirement for AVF Linux on this device and app.</string>
     <string name="avf_prerequisites">AVF prerequisites</string>
     <string name="avf_overall">Overall result</string>
+    <string name="avf_storage_sharing">Internal storage and shared directories</string>
+    <string name="avf_check_sharing_api">SharedPath API access and compatibility</string>
+    <string name="avf_sharing_diagnostics_caveat">Storage sharing uses APIs separate from basic VM execution. This inspection checks API access without creating files or VMs. Satisfied does not certify a successful shared mount.</string>
     <string name="avf_check_android">Android 15 or later</string>
     <string name="avf_check_feature">AVF system feature</string>
     <string name="avf_check_manage">MANAGE_VIRTUAL_MACHINE permission</string>

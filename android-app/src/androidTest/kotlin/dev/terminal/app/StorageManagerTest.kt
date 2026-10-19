@@ -123,7 +123,7 @@ class StorageManagerTest {
                 }
                 clickContaining(context.getString(R.string.profile_storage))
                 clickContaining(context.getString(R.string.profile_storage_existing))
-                clickContaining(context.getString(R.string.save))
+                clickContaining(context.getString(R.string.confirm))
                 await { find { it.text?.toString() == context.getString(R.string.cancel) } == null }
                 assertNull(find { it.text?.toString() == context.getString(R.string.profile_storage_name) })
                 await {
@@ -263,7 +263,7 @@ class StorageManagerTest {
                 }
                 assertTrue("Last profile stays clear of the floating toolbar", profileBounds.bottom <= toolbarBounds.top)
                 assertNull(find { it.text?.toString() == context.getString(R.string.storage_sessions) })
-                assertTrue(defaultName.startsWith(profile.name))
+                assertEquals("env-${profile.name}", defaultName)
                 fun editName(value: String, save: Boolean) {
                     clickContaining(renameLabel)
                     await { find { it.isEditable } != null }
@@ -362,6 +362,7 @@ class StorageManagerTest {
     private fun find(predicate: (android.view.accessibility.AccessibilityNodeInfo) -> Boolean): android.view.accessibility.AccessibilityNodeInfo? {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         instrumentation.waitForIdleSync()
+        instrumentation.uiAutomation.clearCache()
         fun search(node: android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
             if (node == null) return null
             if (predicate(node)) return node

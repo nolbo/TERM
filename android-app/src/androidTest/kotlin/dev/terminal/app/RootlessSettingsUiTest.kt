@@ -13,7 +13,7 @@ import org.junit.runner.RunWith
 /** Global engine settings must not offer destructive operations on distribution instances. */
 @RunWith(AndroidJUnit4::class)
 class RootlessSettingsUiTest {
-    @Test fun rootlessSettingsShowEngineSupportAndLimitationsWithoutEnvironmentActions() {
+    @Test fun rootlessSettingsShowGlobalDnsPolicyWithoutDiagnosticsOrEnvironmentActions() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
         fun labels(): Set<String> {
@@ -32,18 +32,21 @@ class RootlessSettingsUiTest {
         ActivityScenario.launch<SettingsDetailActivity>(Intent(context, SettingsDetailActivity::class.java)
             .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, SettingsDetailActivity.ROOTLESS)).use {
             val deadline = SystemClock.elapsedRealtime() + 10_000
-            while (context.getString(R.string.userspace_proot) !in labels()) {
+            while (context.getString(R.string.userspace_dns) !in labels()) {
                 check(SystemClock.elapsedRealtime() < deadline) { "Rootless engine settings did not appear" }
                 SystemClock.sleep(100)
             }
             val text = labels()
+            assertTrue(context.getString(R.string.settings_userspace_title) in text)
+            assertTrue(context.getString(R.string.settings_rootless_description) in text)
+            assertTrue(context.getString(R.string.userspace_network) in text)
             assertTrue(context.getString(R.string.userspace_dns) in text)
-            assertTrue(context.getString(R.string.userspace_architecture) in text)
-            assertTrue(context.getString(R.string.userspace_acceleration) in text)
-            assertTrue(context.getString(R.string.userspace_runtime_info) in text)
-            assertTrue("Userspace Linux" in text)
+            assertFalse(context.getString(R.string.userspace_proot) in text)
+            assertFalse(context.getString(R.string.userspace_architecture) in text)
+            assertFalse(context.getString(R.string.userspace_acceleration) in text)
+            assertFalse(context.getString(R.string.userspace_runtime_info) in text)
             assertFalse(context.getString(R.string.rootless_limitations) in text)
-            assertTrue(context.getString(R.string.userspace_limitations_note) in text)
+            assertFalse(context.getString(R.string.userspace_limitations_note) in text)
             assertFalse(context.getString(R.string.storage_title) in text)
             assertFalse(context.getString(R.string.rootless_installed_distributions) in text)
             assertFalse(context.getString(R.string.rootless_uninstalled_distributions) in text)

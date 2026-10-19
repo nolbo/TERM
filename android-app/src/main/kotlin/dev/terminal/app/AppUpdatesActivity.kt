@@ -15,6 +15,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
@@ -24,7 +25,6 @@ import dev.terminal.app.ui.TerminalActivity
 import dev.terminal.app.ui.TerminalStatusBlue
 import dev.terminal.app.update.AppUpdateState
 import dev.terminal.app.update.UpdateChannel
-import java.util.Locale
 
 /** Dedicated subclass follows FileProvider's device compatibility contract. */
 class AppUpdateFileProvider : FileProvider()
@@ -90,11 +90,12 @@ class AppUpdatesActivity : TerminalActivity() {
                             when (state) {
                                 AppUpdateState.Checking -> LinearWavyProgressIndicator(Modifier.fillMaxWidth(), color = TerminalStatusBlue)
                                 is AppUpdateState.Downloading -> {
+                                    val locale = LocalConfiguration.current.locales[0]
                                     val progress = (state.completed.toFloat() / state.manifest.size).coerceIn(0f, 1f)
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                        Text(String.format(Locale.getDefault(), "%.0f%%", progress * 100),
+                                        Text(String.format(locale, "%.0f%%", progress * 100),
                                             style = MaterialTheme.typography.bodyMedium, color = TerminalStatusBlue)
-                                        Text(String.format(Locale.getDefault(), "%.1f / %.1f MiB", state.completed / 1048576.0, state.manifest.size / 1048576.0),
+                                        Text(String.format(locale, "%.1f / %.1f MiB", state.completed / 1048576.0, state.manifest.size / 1048576.0),
                                             style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
                                     LinearWavyProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth(), color = TerminalStatusBlue)

@@ -27,7 +27,7 @@
     <string name="haptic_scroll_support">스크롤백 이동 중 설정한 밀도에 따라 진동합니다.</string>
     <string name="terminal_padding">쉘 화면 여백</string>
     <string name="terminal_padding_support">상하좌우 0~32dp · 기본 4dp. 터미널로 돌아가면 적용됩니다.</string>
-    <string name="unit_dp">dp</string>
+    <string name="unit_dp" translatable="false">dp</string>
     <string name="app_name">TERM</string>
     <string name="runtime_disconnected">런타임 서비스 연결이 끊어졌습니다</string>
     <string name="back">뒤로</string>
@@ -168,9 +168,9 @@
     <string name="follow_tui_background">전체 화면 TUI 배경색 따르기</string>
     <string name="follow_tui_background_support">전체 화면 터미널 앱의 배경에 툴바·시스템 아이콘 색상을 맞추고 종료 시 복원합니다.</string>
     <string name="color_palette_support">전경, 배경, 커서와 ANSI 16색을 함께 변경합니다.</string>
-    <string name="palette_neutral_dark">Neutral Dark</string>
-    <string name="palette_solarized_dark">Solarized Dark</string>
-    <string name="palette_amoled">AMOLED Black</string>
+    <string name="palette_neutral_dark" translatable="false">Neutral Dark</string>
+    <string name="palette_solarized_dark" translatable="false">Solarized Dark</string>
+    <string name="palette_amoled" translatable="false">AMOLED Black</string>
     <string name="palette_custom">사용자 지정</string>
     <string name="customize_palette">팔레트 색상 편집</string>
     <string name="customize_palette_support">전경·배경·커서·ANSI 16색을 미리 보고 색상 도구나 HEX·RGB로 편집합니다.</string>
@@ -305,13 +305,13 @@
     <string name="shared_workspace_support">Userspace Linux 배포판들은 /workspace 작업 파일을 공유하고 홈과 패키지는 별도로 보관합니다. rootfs는 AVF와 공유하지 않습니다.</string>
     <string name="rootless_limitations">제약 사항</string>
     <string name="rootless_limitations_support">PRoot 기반 Userspace Linux의 기술적 제약 사항입니다.</string>
-    <string name="unit_sp">sp</string>
-    <string name="unit_mib">MiB</string>
+    <string name="unit_sp" translatable="false">sp</string>
+    <string name="unit_mib" translatable="false">MiB</string>
     <string name="unit_count">개</string>
     <string name="unit_rows">행</string>
-    <string name="term_xterm_256">xterm-256color</string>
-    <string name="term_xterm">xterm</string>
-    <string name="term_screen_256">screen-256color</string>
+    <string name="term_xterm_256" translatable="false">xterm-256color</string>
+    <string name="term_xterm" translatable="false">xterm</string>
+    <string name="term_screen_256" translatable="false">screen-256color</string>
     <string name="range_support">%1$d~%2$d 범위로 입력하세요.</string>
     <string name="refresh">새로고침</string>
     <string name="crash_report_title">크래시 리포트</string>
@@ -320,27 +320,27 @@
     <string name="copy_error">오류 복사</string>
     <string name="copy_complete">크래시 보고서를 클립보드에 복사했습니다.</string>
     <string name="shell_default_title">셸</string>
-    <string name="runtime_badge_native">ANDROID</string>
-    <string name="runtime_badge_rootless">LINUX</string>
-    <string name="runtime_badge_avf">AVF</string>
+    <string name="runtime_badge_native" translatable="false">ANDROID</string>
+    <string name="runtime_badge_rootless" translatable="false">LINUX</string>
+    <string name="runtime_badge_avf" translatable="false">AVF</string>
     <string name="session_state_created">생성됨</string>
     <string name="session_state_running">실행 중</string>
     <string name="session_state_exited">종료됨</string>
     <string name="session_state_unknown">상태 확인 중</string>
-    <string name="key_escape">ESC</string>
-    <string name="key_slash">/</string>
-    <string name="key_minus">-</string>
-    <string name="key_home">HOME</string>
-    <string name="key_end">END</string>
-    <string name="key_page_up">PGUP</string>
-    <string name="key_tab">TAB</string>
-    <string name="key_control">CTRL</string>
-    <string name="key_alt">ALT</string>
-    <string name="key_up">↑</string>
-    <string name="key_down">↓</string>
-    <string name="key_left">←</string>
-    <string name="key_right">→</string>
-    <string name="key_page_down">PGDN</string>
+    <string name="key_escape" translatable="false">ESC</string>
+    <string name="key_slash" translatable="false">/</string>
+    <string name="key_minus" translatable="false">-</string>
+    <string name="key_home" translatable="false">HOME</string>
+    <string name="key_end" translatable="false">END</string>
+    <string name="key_page_up" translatable="false">PGUP</string>
+    <string name="key_tab" translatable="false">TAB</string>
+    <string name="key_control" translatable="false">CTRL</string>
+    <string name="key_alt" translatable="false">ALT</string>
+    <string name="key_up" translatable="false">↑</string>
+    <string name="key_down" translatable="false">↓</string>
+    <string name="key_left" translatable="false">←</string>
+    <string name="key_right" translatable="false">→</string>
+    <string name="key_page_down" translatable="false">PGDN</string>
     <string name="section_shared_storage">공유 내부저장소</string>
     <string name="shared_storage_access">내부저장소 접근 설정</string>
     <string name="shared_storage_enabled">사용 중 · 눌러 Android 공통 권한을 끄세요. Native에 적용되며 Userspace Linux·AVF는 환경별 접근도 켜야 합니다.</string>

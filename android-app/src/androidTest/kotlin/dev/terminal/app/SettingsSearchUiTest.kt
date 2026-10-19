@@ -102,7 +102,7 @@ class SettingsSearchUiTest {
                 screenshot = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
             }
             try {
-                val last = rows[4]
+                val last = rows[labels.indexOf(R.string.settings_terminal_title)]
                 val surface = screenshot.getPixel(first.right - inset, first.centerY())
                 val gap = screenshot.getPixel(first.centerX(), (first.bottom + adjacent.top) / 2)
                 assertNotEquals("Gaps expose the page background; rows=$rows bitmap=${screenshot.width}x${screenshot.height}", surface, gap)
@@ -110,7 +110,7 @@ class SettingsSearchUiTest {
                 assertEquals("Adjacent bottom corners stay small", surface, screenshot.getPixel(first.left + inset, first.bottom - inset))
                 assertEquals("Adjacent top corners stay small", surface, screenshot.getPixel(adjacent.left + inset, adjacent.top + inset))
                 assertEquals("Outer bottom corners remain rounded", gap, screenshot.getPixel(last.left + inset, last.bottom - inset))
-                val language = rows[5]
+                val language = rows[labels.indexOf(R.string.settings_language_title)]
                 for (x in (20f * density).toInt()..(36f * density).toInt()) {
                     for (y in -(8f * density).toInt()..(8f * density).toInt()) {
                         assertEquals("Category trailing area has no arrow", surface,

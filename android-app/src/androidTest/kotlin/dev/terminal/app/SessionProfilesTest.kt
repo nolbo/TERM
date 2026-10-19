@@ -6,6 +6,13 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.os.IBinder
 import android.os.SystemClock
+import android.view.View
+import android.view.ViewGroup
+import androidx.compose.ui.platform.ViewRootForTest
+import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsNode
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
@@ -62,13 +69,27 @@ class SessionProfilesTest {
                 return null
             }
             instrumentation.waitForIdleSync()
+            instrumentation.uiAutomation.clearCache()
             return walk(instrumentation.uiAutomation.rootInActiveWindow)
         }
         fun click(label: Int) {
             await {
-                var node = find { it.hasLabel(context.getString(label)) }
+                var node = find { it.isVisibleToUser && it.hasLabel(context.getString(label)) }
                 while (node != null && !node.isClickable) node = node.parent
-                node?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) == true
+                node?.isEnabled == true && node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
+            }
+        }
+        fun scrollTo(label: Int) {
+            await {
+                if (find { it.isVisibleToUser && it.text?.toString() == context.getString(label) } != null) true
+                else {
+                    val list = requireNotNull(find { it.isScrollable })
+                    assertTrue("Scroll to ${context.getString(label)}", list.performAction(
+                        android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD))
+                    // Wait for scroll events to settle before checking the next viewport.
+                    instrumentation.uiAutomation.waitForIdle(100, 3_000)
+                    false
+                }
             }
         }
         fun typeName(value: String = name) {
@@ -96,20 +117,19 @@ class SessionProfilesTest {
                 assertTrue(store.all().none { it.name == name })
                 activity.recreate()
                 await { find { it.text?.toString() == name } != null }
-                await {
-                    if (find { it.text?.toString() == context.getString(R.string.profile_storage_name) } != null) true
-                    else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
-                }
+                scrollTo(R.string.profile_storage_name)
                 click(R.string.profile_storage_name); typeName(storageName); click(R.string.save)
                 await { find { it.isEditable } == null }
                 val registry = dev.terminal.runtime.session.EnvironmentRegistry(context.filesDir)
                 assertFalse(registry.transaction { all().any { it.name == storageName } })
                 activity.recreate()
                 await { find { it.text?.toString() == storageName } != null }
-                await {
-                    if (find { it.isVisibleToUser && it.hasLabel(context.getString(R.string.profile_save)) } != null) true
-                    else { find { it.isScrollable }?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_SCROLL_FORWARD); false }
-                }
+                scrollTo(R.string.profile_save)
+                assertNull("Activity recreation must not expose coroutine cancellation as an error", find {
+                    it.text?.toString()?.let { text ->
+                        text.contains("The coroutine scope left the composition") || text.contains("StandaloneCoroutine was cancelled")
+                    } == true
+                })
                 var saveButton = requireNotNull(find { it.isVisibleToUser && it.text?.toString() == context.getString(R.string.profile_save) })
                 while (!saveButton.isClickable) saveButton = requireNotNull(saveButton.parent)
                 val saveBounds = android.graphics.Rect().also(saveButton::getBoundsInScreen)
@@ -145,6 +165,7 @@ class SessionProfilesTest {
                 return null
             }
             InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+            automation.clearCache()
             return walk(automation.rootInActiveWindow)
         }
         fun scrollStorageList() {
@@ -169,6 +190,7 @@ class SessionProfilesTest {
             SystemClock.sleep(200)
             touch(android.view.MotionEvent.ACTION_MOVE, end)
             touch(android.view.MotionEvent.ACTION_UP, end)
+            automation.waitForIdle(100, 3_000)
         }
         fun click(text: String) {
             await {
@@ -182,13 +204,51 @@ class SessionProfilesTest {
                 else node.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK)
             }
         }
+        fun bringEnvironmentIntoView(scenario: ActivityScenario<ProfileEditActivity>) {
+            fun root(view: View): ViewRootForTest? {
+                if (view is ViewRootForTest) return view
+                if (view is ViewGroup) for (index in 0 until view.childCount) root(view.getChildAt(index))?.let { return it }
+                return null
+            }
+            fun environment(node: SemanticsNode): SemanticsNode? {
+                if (node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == storageName } == true) return node
+                return node.children.firstNotNullOfOrNull(::environment)
+            }
+            // A Column retains the target's semantics even when Android prunes it from accessibility.
+            // ScrollBy accepts a request without guaranteeing its entire distance is consumed.
+            await {
+                var scrolled = false
+                var visible = false
+                scenario.onActivity { activity ->
+                    val target = root(activity.window.decorView)?.semanticsOwner?.unmergedRootSemanticsNode
+                        ?.let(::environment) ?: return@onActivity
+                    var viewport = target.parent
+                    while (viewport != null && viewport.config.getOrNull(SemanticsActions.ScrollBy) == null) {
+                        viewport = viewport.parent
+                    }
+                    val list = requireNotNull(viewport)
+                    val bounds = list.boundsInRoot
+                    val top = target.positionInRoot.y
+                    val bottom = top + target.size.height
+                    visible = top >= bounds.top && bottom <= bounds.bottom
+                    if (!visible) {
+                        val distance = ((top + bottom) / 2f - bounds.center.y)
+                            .coerceIn(-bounds.height * 0.8f, bounds.height * 0.8f)
+                        scrolled = requireNotNull(list.config.getOrNull(SemanticsActions.ScrollBy)?.action).invoke(0f, distance)
+                        assertTrue("The environment list must accept scrolling toward its target", scrolled)
+                    }
+                }
+                if (scrolled) automation.waitForIdle(100, 3_000)
+                visible
+            }
+        }
         try {
             store.save(profile); store.save(target, newStorageName = storageName)
             ActivityScenario.launch<ProfileEditActivity>(Intent(context, ProfileEditActivity::class.java)
-                .putExtra("profileId", profile.id)).use {
+                .putExtra("profileId", profile.id)).use { scenario ->
                 click(context.getString(R.string.profile_storage))
                 click(context.getString(R.string.profile_storage_new))
-                click(context.getString(R.string.save))
+                click(context.getString(R.string.confirm))
                 await { find { it.hasLabel(context.getString(R.string.cancel)) } == null }
                 click(context.getString(R.string.profile_runtime))
                 click(context.getString(R.string.runtime_rootless_title))
@@ -206,13 +266,15 @@ class SessionProfilesTest {
                 await { find { it.text?.toString() == context.getString(R.string.cancel) } == null }
                 click(context.getString(R.string.profile_storage))
                 click(context.getString(R.string.profile_storage_existing))
-                click(context.getString(R.string.save))
-                // Only environments with the selected runtime/distribution can be connected.
+                click(context.getString(R.string.confirm))
+                bringEnvironmentIntoView(scenario)
+                // Choosing an existing environment adopts its runtime and storage together.
                 await {
-                    var storage = find { it.isVisibleToUser && it.text?.toString() == storageName }
+                    // Radio rows merge the title and runtime summary into one accessibility label.
+                    var storage = find { it.isVisibleToUser &&
+                        it.text?.toString()?.lineSequence()?.any { line -> line == storageName } == true }
                     while (storage != null && !storage.isClickable) storage = storage.parent
-                    if (storage?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) == true) true
-                    else { scrollStorageList(); false }
+                    storage?.performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK) == true
                 }
                 await {
                     if (find { it.hasLabel(context.getString(R.string.profile_save)) } != null) true
@@ -402,6 +464,7 @@ class SessionProfilesTest {
                         return null
                     }
                     InstrumentationRegistry.getInstrumentation().waitForIdleSync()
+                    InstrumentationRegistry.getInstrumentation().uiAutomation.clearCache()
                     return search(InstrumentationRegistry.getInstrumentation().uiAutomation.rootInActiveWindow)
                 }
                 await { node("Editor original", false) != null }
@@ -421,7 +484,7 @@ class SessionProfilesTest {
                     while (!button.isClickable) button = requireNotNull(button.parent)
                     return button
                 }
-                assertTrue(action(R.string.save).performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
+                assertTrue(action(R.string.confirm).performAction(android.view.accessibility.AccessibilityNodeInfo.ACTION_CLICK))
                 await { node("Unsaved profile draft", false)?.isEditable == false }
                 activity.recreate()
                 await { node("Unsaved profile draft", false) != null }

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="install_error_copied">Installation error copied.</string>
     <string name="install_step_done">Done</string>
     <string name="install_step_stopped">Stopped</string>
     <string name="install_step_running">In progress</string>

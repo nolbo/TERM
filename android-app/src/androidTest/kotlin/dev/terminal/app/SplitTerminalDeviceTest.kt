@@ -130,9 +130,19 @@ class SplitTerminalDeviceTest {
     private fun expandToolbar(scenario: ActivityScenario<MainActivity>) {
         var handle: AccessibilityNodeInfo? = null
         var label = ""
-        scenario.onActivity { label = it.getString(R.string.toolbar_expand) }
+        var expandedLabel = ""
+        scenario.onActivity {
+            label = it.getString(R.string.toolbar_expand)
+            expandedLabel = it.getString(R.string.toolbar_expanded)
+        }
         await("Toolbar expand action") { handle = node { it.actionList.any { a -> a.label?.toString() == label } }; handle != null }
         assertTrue(handle!!.performAction(handle!!.actionList.first { it.label?.toString() == label }.id))
+        // The compact tabs are replaced during expansion. Wait for the sheet's settled state
+        // before opening a menu on a tab that could otherwise leave the composition.
+        await("Toolbar expansion settled") {
+            node { it.stateDescription?.toString() == expandedLabel &&
+                it.actionList.any { action -> action.label?.toString() == label } } != null
+        }
     }
     private fun menu(scenario: ActivityScenario<MainActivity>, title: String, action: Int) {
         var label = ""
@@ -511,6 +521,9 @@ class SplitTerminalDeviceTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             check(scenario, "Initial session visible") { it.focusedTerminalView() != null }
             scenario.onActivity { call(it, "attach", fixture.id("A")) }
+            check(scenario, "Fixture session attached before opening the split menu") {
+                paneState(it).focusedSessionId == fixture.id("A") && it.focusedTerminalView()?.currentSession != null
+            }
             expandToolbar(scenario)
             menu(scenario, "B", R.string.terminal_open_split)
             check(scenario, "Independent terminal panes") {
