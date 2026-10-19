@@ -10,10 +10,8 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.R
 
@@ -66,7 +64,8 @@ fun SetupScreen(onStart: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 item {
-                    SetupBrandArtwork()
+                    Icon(painterResource(R.drawable.ic_notification_terminal), null,
+                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
                     Spacer(Modifier.height(20.dp))
                     Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -103,29 +102,6 @@ fun SetupScreen(onStart: () -> Unit) {
                         }
                     }
                 }
-            }
-        }
-    }
-}
-
-/** Reuse the logo's rounded steps and cursor at two scales, without another bitmap or path. */
-@Composable
-private fun SetupBrandArtwork() {
-    val logo = painterResource(R.drawable.ic_notification_terminal)
-    Box(Modifier.fillMaxWidth().height(144.dp).clipToBounds().clearAndSetSemantics {}) {
-        Icon(
-            painter = logo,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.surfaceContainerHigh,
-            modifier = Modifier.align(Alignment.CenterEnd).offset(x = 48.dp).requiredSize(280.dp),
-        )
-        Surface(
-            modifier = Modifier.align(Alignment.CenterStart).size(112.dp),
-            shape = RoundedCornerShape(topStart = 32.dp, topEnd = 12.dp, bottomEnd = 32.dp, bottomStart = 12.dp),
-            color = MaterialTheme.colorScheme.primaryContainer,
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(logo, null, tint = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.size(80.dp))
             }
         }
     }
