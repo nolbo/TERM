@@ -25,6 +25,44 @@ class AvfSharedDirectoriesTest {
         assertEquals("original", keep.readText())
     }
 
+    @Test fun android17ExportsOnlySelectedFuseFoldersAndFuseIndexWithPrivateSocketsAndNoSdcard() {
+        val files = temporary.newFolder()
+        val publicRoot = temporary.newFolder()
+        val shared = folder(publicRoot, "Project")
+        val unconnected = folder(publicRoot, "Unconnected")
+        val data = File(shared.directory, "keep").apply { writeText("shared bytes") }
+        val plan = AvfSharedDirectories.create(files, listOf(shared), publicRoot = publicRoot, requirePublicFolders = true)!!
+        assertTrue(plan.requiresStoragePermission)
+        assertFalse(plan.hasAndroidStorage)
+        assertEquals(2, plan.exports.size)
+        assertTrue(plan.exports.all { it.directory.toPath().startsWith(publicRoot.toPath()) })
+        assertTrue(plan.exports.all { it.socket.toPath().startsWith(files.toPath()) })
+        assertTrue(plan.exports.none { it.directory == publicRoot || it.directory.path == unconnected.directory })
+        assertEquals("1\nts-${shared.id.replace("-", "")}\tProject\n", File(plan.exports.first().directory, "mounts").readText())
+        val another = AvfSharedDirectories.create(files, listOf(shared), publicRoot = publicRoot, requirePublicFolders = true)!!
+        AvfSharedDirectories.cleanup(files, plan.artifact, publicRoot)
+        assertFalse(plan.exports.first().directory.exists())
+        assertTrue(another.exports.first().directory.exists())
+        assertEquals("shared bytes", data.readText())
+        another.close()
+    }
+
+    @Test fun android17RejectsPrivateIndexSourcesBeforeProvisioningAndRejectsUnexpectedPublicPaths() {
+        val files = temporary.newFolder()
+        val publicRoot = temporary.newFolder()
+        val privateFolder = folder(files, "Private")
+        assertTrue(runCatching { AvfSharedDirectories.create(files, listOf(privateFolder), publicRoot = publicRoot,
+            requirePublicFolders = true) }.exceptionOrNull()!!.message!!.contains("공유 저장소"))
+        assertFalse(File(files, ".virtiofs").exists())
+        assertTrue(publicRoot.listFiles()!!.isEmpty())
+        val shared = folder(publicRoot, "Public")
+        assertTrue(runCatching { AvfSharedDirectories.create(files, listOf(shared.copy(directory = publicRoot.path)),
+            publicRoot = publicRoot, requirePublicFolders = true) }.isFailure)
+        File(shared.directory).delete()
+        Files.createSymbolicLink(File(shared.directory).toPath(), temporary.newFolder().toPath())
+        assertTrue(runCatching { AvfSharedDirectories.validate(files, listOf(shared), publicRoot, true) }.isFailure)
+    }
+
     @Test fun storageAndMaximumFolderConnectionsHaveDistinctTagsAndAllSocketsAreCleaned() {
         val files = temporary.newFolder()
         val folders = (1..128).map { folder(files, "Folder$it") }

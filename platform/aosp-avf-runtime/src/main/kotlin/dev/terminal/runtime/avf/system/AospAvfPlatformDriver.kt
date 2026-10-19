@@ -80,9 +80,10 @@ class AospAvfPlatformDriver(
             Log.i(TAG, "image.verify duration_ms=${SystemClock.elapsedRealtime() - verificationStartedAt} ready=${verification is ImageVerification.Ready}")
             when (verification) {
                 is ImageVerification.Ready -> {
-                    AvfSharedDirectories.validate(appContext.filesDir.canonicalFile, config.sharedFolders)
                     supportsVirtiofs = verification.manifest.virtiofsVersion == 1
                     supportsAndroidStorage = verification.manifest.androidStorageVersion == 1
+                    AvfSharedDirectories.validate(appContext.filesDir.canonicalFile, config.sharedFolders, publicSharesRoot(),
+                        supportsVirtiofs && android.os.Build.VERSION.SDK_INT >= 37)
                     require(!supportsVirtiofs || config.sharedFolders.isEmpty() || !config.protectedVm) {
                         "virtiofs 공유 디렉토리는 비보호 AVF VM에서만 사용할 수 있습니다."
                     }
@@ -120,19 +121,23 @@ class AospAvfPlatformDriver(
                     releaseStoppedShares(config.instanceId)
                     val storage = if (config.enableInternalStorage && supportsAndroidStorage && storageGranted && !config.protectedVm)
                         android.os.Environment.getExternalStorageDirectory().canonicalFile else null
+                    val publicFolders = config.sharedFolders.any { java.io.File(it.directory).parentFile ==
+                        java.io.File(publicSharesRoot(), "shared-folders") }
+                    if (supportsVirtiofs && publicFolders) sharedStorage.requirePermission()
                     stagedShares = if (supportsVirtiofs)
-                        AvfSharedDirectories.create(appContext.filesDir.canonicalFile, config.sharedFolders, storage) else null
+                        AvfSharedDirectories.create(appContext.filesDir.canonicalFile, config.sharedFolders, storage,
+                            publicSharesRoot(), android.os.Build.VERSION.SDK_INT >= 37) else null
                     requireAvfPlatformApi { vm.setConfig(buildConfig(config, stagedShares)) }
                     val shares = stagedShares
                     if (shares != null) {
                         // Persist before run: a lost host owner must never make a live export deletable.
-                        if (shares.hasAndroidStorage) sharedStorage.requirePermission()
-                        shareLeases.record(config.instanceId, config.sharedFolders.map { it.id }, shares.artifact, shares.hasAndroidStorage)
+                        if (shares.requiresStoragePermission) sharedStorage.requirePermission()
+                        shareLeases.record(config.instanceId, config.sharedFolders.map { it.id }, shares.artifact, shares.requiresStoragePermission)
                         sharedBoot.set(SharedBoot(vm, config.instanceId, shares))
                         stagedShares = null
                     }
                     startedHere = true
-                    if (shares?.hasAndroidStorage == true) sharedStorage.requirePermission()
+                    if (shares?.requiresStoragePermission == true) sharedStorage.requirePermission()
                     vm.run()
                 }
             }
@@ -396,8 +401,12 @@ class AospAvfPlatformDriver(
     }
 
     private fun releaseStoppedShares(instanceId: String) {
-        shareLeases.release(instanceId)?.let { AvfSharedDirectories.cleanup(appContext.filesDir.canonicalFile, it) }
+        shareLeases.release(instanceId) { artifact -> artifact?.let {
+            AvfSharedDirectories.cleanup(appContext.filesDir.canonicalFile, it, publicSharesRoot())
+        } }
     }
+
+    private fun publicSharesRoot() = dev.terminal.runtime.storage.AndroidSharedFolderStorage.root(appContext)
 
     private fun vmName(config: RuntimeConfig): String = "droid-${config.instanceId}"
 

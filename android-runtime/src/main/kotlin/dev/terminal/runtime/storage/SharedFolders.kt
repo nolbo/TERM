@@ -8,7 +8,7 @@ import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.util.UUID
 
-data class SharedFolder(val id: String, val name: String, val environments: Set<EnvironmentId>) {
+data class SharedFolder(val id: String, val name: String, val environments: Set<EnvironmentId>, val androidStorage: Boolean = false) {
     init {
         require(UUID.fromString(id).toString() == id)
         require(NAME.matches(name)) { "Use 1–64 ASCII letters, digits, underscores or hyphens; start with a letter" }
@@ -16,18 +16,22 @@ data class SharedFolder(val id: String, val name: String, val environments: Set<
     }
     val guestPath get() = "/mnt/term-shares/$name"
     fun json() = JSONObject().put("id", id).put("name", name).put("environments", JSONArray(environments.map { it.value }))
+        .put("androidStorage", androidStorage)
     companion object {
         val NAME = Regex("[A-Za-z][A-Za-z0-9_-]{0,63}")
         fun parse(json: JSONObject) = SharedFolder(json.getString("id"), json.getString("name"), json.getJSONArray("environments").let { array ->
             List(array.length()) { EnvironmentId(array.getString(it)) }.toSet()
-        })
+        }, if (json.has("androidStorage")) (json.get("androidStorage").also { require(it is Boolean) } as Boolean) else false)
     }
 }
 
 data class SharedFolderBinding(val folder: SharedFolder, val directory: File)
 
 /** A single :vmhost writer. UUID paths never derive from a display name or Environment path. */
-class SharedFolderRegistry(private val files: File, private val read: () -> String?, private val write: (String) -> Unit) {
+class SharedFolderRegistry(private val files: File, private val read: () -> String?, private val write: (String) -> Unit,
+    private val androidRoot: () -> File = { error("Android shared storage is unavailable") },
+    private val storageGranted: () -> Boolean = { false },
+) {
     val root = File(files, "shared-folders")
     @Synchronized fun all(): List<SharedFolder> {
         val encoded = read() ?: return emptyList()
@@ -45,8 +49,43 @@ class SharedFolderRegistry(private val files: File, private val read: () -> Stri
     }
     @Synchronized fun save(folder: SharedFolder, create: Boolean = true) {
         val encoded = encodedWith(folder)
-        if (create) directory(folder)
+        if (create && !folder.androidStorage) directory(folder)
         write(encoded)
+    }
+    /** Call under the preparation reservation after proving every session, VM and file writer idle.
+     * Publication is last. The private original is retained, even after a successful conversion.
+     * A durable private marker permits retrying only our own unpublished destination after a crash.
+     */
+    @Synchronized fun promoteToAndroidStorage(folder: SharedFolder,
+        copyVerified: (File, File) -> Unit = SharedFolderTree::copyVerified,
+    ) {
+        check(storageGranted()) { "Android 17 AVF 공유에는 모든 파일 접근 권한이 필요합니다. 공유 디렉토리 설정에서 권한을 허용하세요." }
+        val current = all().firstOrNull { it.id == folder.id }
+        require(current?.androidStorage != true && !folder.androidStorage)
+        val promoted = folder.copy(androidStorage = true)
+        val encoded = encodedWith(promoted) // Validate before touching user data.
+        val publicRoot = androidRoot().absoluteFile
+        AndroidSharedFolderStorage.ensureRoot(publicRoot)
+        val parent = File(publicRoot, "shared-folders").also(::ensureDirectory)
+        val destination = File(parent, folder.id)
+        val journal = File(files, ".shared-folder-promotions").also(::ensureDirectory)
+        val marker = File(journal, folder.id)
+        if (Files.exists(marker.toPath(), NOFOLLOW_LINKS)) {
+            require(Files.isRegularFile(marker.toPath(), NOFOLLOW_LINKS) && marker.length() == 0L)
+            clearChildIfPresent(parent, folder.id)
+        } else {
+            require(Files.notExists(destination.toPath(), NOFOLLOW_LINKS)) { "Shared storage destination already exists; original data was preserved" }
+            java.io.FileOutputStream(marker).use { it.fd.sync() }
+            ScopedDirectory.open(journal).use { it.sync() }
+        }
+        // Never recover or delete an unmarked directory. A failure leaves the marker for a retry.
+        Files.createDirectory(destination.toPath())
+        val source = directory(folder)
+        copyVerified(source, destination)
+        ScopedDirectory.open(parent).use { it.sync() }
+        check(storageGranted()) { "공유 디렉토리 전환 중 모든 파일 접근 권한이 해제되었습니다. 원본은 보존됩니다." }
+        write(encoded)
+        Files.deleteIfExists(marker.toPath())
     }
     private fun encodedWith(folder: SharedFolder): String {
         val rows = all()
@@ -71,11 +110,28 @@ class SharedFolderRegistry(private val files: File, private val read: () -> Stri
     /** Caller has proved all owners idle and excluded creation and transfers. */
     @Synchronized fun delete(id: String) {
         val folder = requireFolder(id)
-        ScopedDirectory.open(directory(folder)).use { it.clear() }
-        ScopedDirectory.open(root).use { dev.terminal.emulator.ScopedFileAccess.unlink(it.fd, id, true) }
+        val marker = File(File(files, ".shared-folder-promotions"), id)
+        val pending = Files.exists(marker.toPath(), NOFOLLOW_LINKS)
+        if (pending) require(Files.isRegularFile(marker.toPath(), NOFOLLOW_LINKS) && marker.length() == 0L)
+        if (folder.androidStorage || pending) {
+            check(storageGranted()) { "공유 디렉토리 데이터를 삭제하려면 모든 파일 접근 권한이 필요합니다." }
+            clearChildIfPresent(File(androidRoot(), "shared-folders"), id)
+        }
+        clearChildIfPresent(root, id) // Includes the retained private original after conversion.
+        Files.deleteIfExists(marker.toPath())
         write(JSONArray(all().filterNot { it.id == id }.map { it.json() }).toString())
     }
+    /** Metadata/UI lookup must remain possible after permission revocation or volume loss. */
+    fun path(folder: SharedFolder) = File(if (folder.androidStorage) File(androidRoot(), "shared-folders") else root, folder.id)
     fun directory(folder: SharedFolder): File {
+        if (folder.androidStorage) {
+            check(storageGranted()) { "공유 디렉토리의 모든 파일 접근 권한이 해제되었습니다. Android 설정에서 다시 허용하세요." }
+            val target = path(folder)
+            require(Files.isDirectory(target.toPath(), NOFOLLOW_LINKS) && target.canonicalFile == target.absoluteFile) {
+                "Android 공유 디렉토리가 없습니다. 데이터를 보호하기 위해 빈 폴더를 다시 만들지 않습니다."
+            }
+            return target
+        }
         ensureDirectory(root)
         val target = File(root, folder.id)
         ensureDirectory(target)
@@ -89,6 +145,16 @@ class SharedFolderRegistry(private val files: File, private val read: () -> Stri
     private fun ensureDirectory(path: File) {
         if (Files.notExists(path.toPath(), NOFOLLOW_LINKS)) Files.createDirectory(path.toPath())
         require(Files.isDirectory(path.toPath(), NOFOLLOW_LINKS) && path.canonicalFile == path.absoluteFile) { "Unsafe Shared Directory root" }
+    }
+    private fun clearChildIfPresent(parent: File, name: String) {
+        if (Files.notExists(parent.toPath(), NOFOLLOW_LINKS)) return
+        ScopedDirectory.open(parent).use { directory ->
+            if (name in directory.names()) {
+                directory.child(name).use { it.clear() }
+                dev.terminal.emulator.ScopedFileAccess.unlink(directory.fd, name, true)
+                directory.sync()
+            }
+        }
     }
 }
 

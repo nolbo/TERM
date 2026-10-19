@@ -65,13 +65,14 @@ class AvfSharedDirectoryLeases(files: File) {
     }
 
     /** Only call after the platform proves this VM stopped or absent. */
-    fun release(instanceId: String): String? = synchronized(LOCK) {
+    fun release(instanceId: String, cleanup: (String?) -> Unit = {}): String? = synchronized(LOCK) {
         validateInstance(instanceId)
         val root = root(create = false) ?: return@synchronized null
         val file = File(root, key(instanceId))
         if (Files.notExists(file.toPath(), NOFOLLOW_LINKS)) return@synchronized null
         val lease = readLease(file)
         require(lease.instanceId == instanceId)
+        cleanup(lease.artifact) // Keep the record if revoked storage is temporarily inaccessible.
         Files.delete(file.toPath())
         lease.artifact
     }

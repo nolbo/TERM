@@ -18,7 +18,7 @@ internal class AvfSharedStorageCoordinator(
         operation(granted)
     }
 
-    fun requirePermission() = check(accessGranted()) { "내부저장소 접근 권한이 해제되었습니다. VM을 다시 시작하세요." }
+    fun requirePermission() = check(accessGranted()) { "AVF 공유 저장소의 모든 파일 접근 권한이 해제되었습니다. Android 설정에서 권한을 허용한 뒤 VM을 다시 시작하세요." }
 
     suspend fun revoke(): Unit = bootLock.withLock {
         if (accessGranted()) return@withLock

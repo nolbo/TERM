@@ -260,10 +260,25 @@ class VmRuntimeService : Service() {
     private val sharedFolders by lazy {
         val preferences = getSharedPreferences("shared-folders", MODE_PRIVATE)
         dev.terminal.runtime.storage.SharedFolderRegistry(filesDir.canonicalFile, { preferences.getString("folders", null) },
-            { check(preferences.edit().putString("folders", it).commit()) { "Shared Directory save failed" } })
+            { check(preferences.edit().putString("folders", it).commit()) { "Shared Directory save failed" } },
+            { dev.terminal.runtime.storage.AndroidSharedFolderStorage.root(applicationContext) },
+            android.os.Environment::isExternalStorageManager)
     }
     private fun legacyWorkspaceSources() = dev.terminal.runtime.storage.LegacyWorkspaces.sources(filesDir,
         environmentRegistry.transaction(storageDefaults()) { all() })
+    /** Preparation locks and sharedFolderManagement must both be held by the caller. */
+    private suspend fun verifySharedFolderIdle(id: String, directory: java.io.File?) {
+        val registry = ensureSessionRegistry() ?: error("Cannot verify sessions")
+        check(registry.verifiedWorkspaceSessions(workspaces.snapshot().memberships.keys)?.isEmpty() == true) {
+            "공유 저장소로 전환하기 전에 모든 세션을 닫으세요."
+        }
+        dev.terminal.runtime.storage.AvfSharedDirectoryLeases(filesDir).owners(id).forEach {
+            avfSharedDirectoryVerifier.verifyStoppedInstance(it).getOrThrow()
+        }
+        if (directory != null) dev.terminal.runtime.backup.EnvironmentWriterProbe(android.os.Process.myUid(), android.os.Process.myPid())
+            .verify(listOf(directory.toPath(), java.io.File(dev.terminal.runtime.storage.AndroidSharedFolderStorage.root(applicationContext),
+                "shared-folders/$id").toPath()))
+    }
     private val sharedFolderJobs by lazy {
         dev.terminal.runtime.storage.SharedFolderJobs(applicationContext, scope, sharedFolders, ::legacyWorkspaceSources,
             withLegacyLease = ::withLegacyWorkspaceLease, openVm = { id ->
@@ -333,7 +348,7 @@ class VmRuntimeService : Service() {
         override fun getSharedFoldersJson(): String {
             enforceHostToolUi()
             val environments = environmentRegistry.transaction(storageDefaults()) { all() }
-            return JSONObject().put("folders", JSONArray(sharedFolders.all().map { folder -> folder.json().put("hostPath", sharedFolders.directory(folder).path) }))
+            return JSONObject().put("folders", JSONArray(sharedFolders.all().map { folder -> folder.json().put("hostPath", sharedFolders.path(folder).path) }))
                 .put("environments", JSONArray(environments.map { it.toJson() }))
                 .put("legacySources", JSONArray(legacyWorkspaceSources().map { it.json() }))
                 .put("operations", JSONArray(sharedFolderJobs.snapshots())).toString()
@@ -342,11 +357,25 @@ class VmRuntimeService : Service() {
             enforceHostToolUi()
             return runCatching { synchronized(sharedFolderManagement) {
                 require(folderJson.toByteArray().size <= 16 * 1024)
-                val folder = dev.terminal.runtime.storage.SharedFolder.parse(JSONObject(folderJson))
-                val ids = environmentRegistry.transaction(storageDefaults()) { all().mapTo(mutableSetOf()) { it.id } }
-                require(folder.environments.all { it in ids }) { "Environment was removed" }
-                sharedFolderJobs.revokeFolder(folder.id)
-                sharedFolders.save(folder)
+                val requested = dev.terminal.runtime.storage.SharedFolder.parse(JSONObject(folderJson))
+                val environments = environmentRegistry.transaction(storageDefaults()) { all() }
+                require(requested.environments.all { id -> environments.any { it.id == id } }) { "Environment was removed" }
+                // Backing storage is host-owned metadata; an edit cannot move it back or invent a path.
+                val existing = sharedFolders.all().firstOrNull { it.id == requested.id }
+                val folder = requested.copy(androidStorage = existing?.androidStorage == true)
+                val promote = android.os.Build.VERSION.SDK_INT >= 37 && !folder.androidStorage &&
+                    environments.any { it.id in folder.environments && it.runtime == dev.terminal.runtime.session.EnvironmentRuntime.AVF }
+                if (promote) {
+                    check(android.os.Environment.isExternalStorageManager()) { "Android 17 AVF 공유에는 모든 파일 접근 권한이 필요합니다. 공유 디렉토리 설정에서 허용하세요." }
+                    check(!sharedFolderJobs.hasActive()) { "공유 저장소로 전환하기 전에 파일 작업을 완료하거나 취소하세요." }
+                    kotlinx.coroutines.runBlocking(Dispatchers.IO) { preparationLocks.withAll {
+                        verifySharedFolderIdle(folder.id, existing?.let { sharedFolders.directory(it) })
+                        sharedFolders.promoteToAndroidStorage(folder)
+                    } }
+                } else {
+                    sharedFolderJobs.revokeFolder(folder.id)
+                    sharedFolders.save(folder)
+                }
             }; "" }.exceptionOrNull()?.userMessage().orEmpty()
         }
         override fun deleteSharedFolder(folderId: String): String {
@@ -364,8 +393,12 @@ class VmRuntimeService : Service() {
                             ?: avfSharedDirectoryVerifier
                         owners.forEach { avf.verifyStoppedInstance(it).getOrThrow() }
                     }
+                    // Cover active public data, its retained original, and an interrupted conversion.
+                    sharedFolders.requireFolder(folderId)
                     dev.terminal.runtime.backup.EnvironmentWriterProbe(android.os.Process.myUid(), android.os.Process.myPid())
-                        .verify(listOf(sharedFolders.directory(sharedFolders.requireFolder(folderId)).toPath()))
+                        .verify(listOf(java.io.File(sharedFolders.root, folderId).toPath(),
+                            java.io.File(dev.terminal.runtime.storage.AndroidSharedFolderStorage.root(applicationContext),
+                                "shared-folders/$folderId").toPath()))
                     sharedFolders.delete(folderId)
                 } }
             }; "" }.exceptionOrNull()?.userMessage().orEmpty()

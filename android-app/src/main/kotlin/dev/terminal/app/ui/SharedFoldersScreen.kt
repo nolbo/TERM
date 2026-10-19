@@ -2,6 +2,8 @@
 package dev.terminal.app.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
@@ -10,9 +12,14 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.LifecycleOwner
 import dev.terminal.app.R
 import dev.terminal.app.ProfileSection
+import dev.terminal.app.openInternalStorageSettings
 import dev.terminal.runtime.session.*
 import dev.terminal.runtime.storage.*
 import org.json.JSONArray
@@ -130,21 +137,36 @@ internal fun SharedFolderTransferDialog(request: String, saving: Boolean, canSub
 internal fun SharedFolderEditor(encoded: String, snapshot: SharedFoldersSnapshot?, error: String?, saving: Boolean,
     onSave: (SharedFolder) -> Unit, onDelete: ((String) -> Unit)? = null,
     onTransfer: ((SharedFolder, Environment, String) -> Unit)? = null, onBack: () -> Unit,
-    canSubmit: Boolean = true) {
+    canSubmit: Boolean = true, requiresPublicAvfStorage: Boolean = android.os.Build.VERSION.SDK_INT >= 37) {
     val original = remember(encoded) { JSONObject(encoded) }
     val newItem = original.optBoolean("_new")
     var name by rememberSaveable(encoded) { mutableStateOf(original.getString("name")) }
     var selected by rememberSaveable(encoded) { mutableStateOf(original.getJSONArray("environments").toString()) }
     var deleting by rememberSaveable { mutableStateOf(false) }
+    var converting by rememberSaveable { mutableStateOf(false) }
     val selectedIds = JSONArray(selected).let { array -> List(array.length()) { EnvironmentId(array.getString(it)) }.toSet() }
     val ids = if (snapshot == null) selectedIds else selectedIds.intersect(snapshot.environments.mapTo(mutableSetOf()) { it.id })
     val originalIds = original.getJSONArray("environments").let { array -> List(array.length()) { EnvironmentId(array.getString(it)) }.toSet() }
     val dirty = name != original.getString("name") || ids != originalIds
     val persisted = snapshot?.folders?.firstOrNull { it.id == original.getString("id") }
+    val needsPublicStorage = persisted?.androidStorage == true || (requiresPublicAvfStorage &&
+        snapshot?.environments?.any { it.id in ids && it.runtime == EnvironmentRuntime.AVF } == true)
+    val needsConversion = needsPublicStorage && persisted?.androidStorage != true
+    val context = LocalContext.current
+    var storageGranted by remember { mutableStateOf(android.os.Environment.isExternalStorageManager()) }
+    val lifecycle = (context as? LifecycleOwner)?.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) storageGranted = android.os.Environment.isExternalStorageManager()
+        }
+        lifecycle?.addObserver(observer)
+        onDispose { lifecycle?.removeObserver(observer) }
+    }
+    val save = { onSave(SharedFolder(original.getString("id"), name, ids)) }
     SettingsEditorPage(stringResource(if (newItem) R.string.shared_folder_create else R.string.shared_folder_settings),
         stringResource(R.string.shared_folder_connections_summary), error, saving, newItem, dirty,
-        canSave = canSubmit && SharedFolder.NAME.matches(name), onBack = onBack,
-        onSave = { onSave(SharedFolder(original.getString("id"), name, ids)) },
+        canSave = canSubmit && SharedFolder.NAME.matches(name) && (!needsConversion || storageGranted), onBack = onBack,
+        onSave = { if (needsConversion) converting = true else save() },
         onDelete = if (newItem || onDelete == null) null else { { deleting = true } }) {
         ProfileSection(R.string.workspace_information) {
             SettingsTextRow(R.string.workspace_name, name, hint = R.string.shared_folder_name_rules,
@@ -194,9 +216,28 @@ internal fun SharedFolderEditor(encoded: String, snapshot: SharedFoldersSnapshot
                     shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth()) { Text(environment.name) }
             }
         }
+        if (needsPublicStorage) {
+            ProfileSection(R.string.shared_folder_android_storage) {
+                SettingsNavigationRow(stringResource(R.string.environment_storage_android_permission),
+                    stringResource(if (storageGranted) R.string.environment_storage_os_enabled else R.string.environment_storage_os_disabled),
+                    enabled = !saving, onClick = { openInternalStorageSettings(context) })
+            }
+            Text(stringResource(if (needsConversion) R.string.shared_folder_android_conversion_summary else R.string.shared_folder_android_storage_summary),
+                Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         Text(stringResource(R.string.shared_folders_security), Modifier.padding(horizontal = 4.dp),
             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
+    if (converting && needsConversion) AlertDialog(onDismissRequest = { if (!saving) converting = false },
+        title = { Text(stringResource(R.string.shared_folder_android_storage)) },
+        text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+            Text(stringResource(R.string.shared_folder_android_conversion_summary))
+        } },
+        confirmButton = { TextButton(onClick = { converting = false; save() }, enabled = !saving && storageGranted,
+            shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.save)) } },
+        dismissButton = { TextButton(onClick = { converting = false }, enabled = !saving,
+            shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } })
     if (deleting && onDelete != null) AlertDialog(onDismissRequest = { if (!saving) deleting = false }, title = { Text(stringResource(R.string.shared_folder_delete)) },
         text = { Text(stringResource(R.string.shared_folder_delete_summary)) },
         confirmButton = { TextButton(onClick = { onDelete(original.getString("id")) }, enabled = !saving,

@@ -41,6 +41,9 @@
     <string name="shared_folders_title">Shared Directory</string>
     <string name="shared_folders_summary">Directories independent of environments. Native uses host paths; Userspace Linux/supported AVF use /mnt/term-shares/&lt;name&gt;. Applies to new local sessions or next VM boot.</string>
     <string name="shared_folders_security">Connections do not isolate access. Native and Userspace Linux share an Android UID.</string>
+    <string name="shared_folder_android_storage">Android shared storage</string>
+    <string name="shared_folder_android_conversion_summary">AVF sharing on Android 17 requires all-files access. Saving copies this folder into TERM on primary shared storage; all connected environments then use that copy. File managers and other apps with storage access can see it. First close all sessions, VMs using this folder, and file operations. The private original is retained. Links and special files cannot be converted. Limited to 2 GiB and 100,000 entries. Connecting a folder does not also give the VM access to all primary storage.</string>
+    <string name="shared_folder_android_storage_summary">This folder is stored in TERM on primary shared storage. All connected environments use the same data. File managers and other apps with storage access can see it. Revoking all-files access stops AVF VMs sharing this storage. Disconnecting a folder does not move its data back into private storage.</string>
     <string name="shared_folder_create">Create shared directory</string>
     <string name="shared_folder_manage">Name and connected environments</string>
     <string name="shared_folder_missing">The shared directory was deleted or does not exist.</string>

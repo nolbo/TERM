@@ -54,6 +54,19 @@ class AvfSharedDirectoryLeasesTest {
         assertEquals(listOf("vm"), store.owners(next))
     }
 
+    @Test fun inaccessiblePublicArtifactsRetainTheLeaseUntilCleanupSucceeds() {
+        val store = AvfSharedDirectoryLeases(temporary.newFolder())
+        val folder = UUID.randomUUID().toString()
+        store.record("vm", listOf(folder), "v-p-123", androidStorage = true)
+        assertTrue(runCatching { store.release("vm") { error("Permission revoked") } }.isFailure)
+        assertEquals(listOf("vm"), store.owners(folder))
+        assertEquals(listOf("vm"), store.androidStorageOwners())
+        var cleaned: String? = null
+        assertEquals("v-p-123", store.release("vm") { cleaned = it })
+        assertEquals("v-p-123", cleaned)
+        assertTrue(store.owners(folder).isEmpty())
+    }
+
     @Test fun noAvfUsageRequiresNoPlatformAccessAndUnsafeRecordsFailClosed() {
         val files = temporary.newFolder()
         val store = AvfSharedDirectoryLeases(files)

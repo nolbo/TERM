@@ -20,9 +20,11 @@ class AvfSharedStorageCoordinatorTest {
         store.record("storage-only", emptyList(), androidStorage = true)
         store.record("mixed", listOf(UUID.randomUUID().toString()), androidStorage = true)
         store.record("folders-only", listOf(folder))
+        // Android 17 folder-only boots need the same grant, without exporting /sdcard.
+        store.record("public-folders-only", listOf(UUID.randomUUID().toString()), "v-p-123", androidStorage = true)
         val stopped = mutableSetOf<String>()
         AvfSharedStorageCoordinator(store, { false }, { stopped.add(it); store.release(it); Unit }).revoke()
-        assertEquals(setOf("storage-only", "mixed"), stopped)
+        assertEquals(setOf("storage-only", "mixed", "public-folders-only"), stopped)
         assertTrue(store.androidStorageOwners().isEmpty())
         assertEquals(listOf("folders-only"), store.owners(folder))
     }

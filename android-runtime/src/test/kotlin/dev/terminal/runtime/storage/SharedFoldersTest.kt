@@ -11,6 +11,45 @@ import java.util.UUID
 
 class SharedFoldersTest {
     @get:Rule val temporary = TemporaryFolder()
+
+    @Test fun missingPermissionPreservesPrivateDataAndDoesNotCreateAnExternalDestination() {
+        val files = temporary.newFolder(); val storage = temporary.newFolder(); var saved: String? = null
+        val registry = SharedFolderRegistry(files, { saved }, { saved = it }, { storage })
+        val folder = SharedFolder(UUID.randomUUID().toString(), "Project", emptySet())
+        registry.save(folder)
+        val data = File(registry.directory(folder), "keep").apply { writeText("original") }
+        val before = saved
+        assertTrue(runCatching { registry.promoteToAndroidStorage(folder) }.isFailure)
+        assertEquals(before, saved)
+        assertEquals("original", data.readText())
+        assertTrue(storage.listFiles()!!.isEmpty())
+    }
+
+    @Test fun publicBackingSurvivesRenameAndMissingStorageIsNeverRecreated() {
+        val files = temporary.newFolder(); val storage = temporary.newFolder(); var saved: String? = null
+        var granted = true
+        val registry = SharedFolderRegistry(files, { saved }, { saved = it }, { storage }, { granted })
+        val folder = SharedFolder(UUID.randomUUID().toString(), "Project", emptySet(), androidStorage = true)
+        val directory = File(storage, "shared-folders/${folder.id}").apply { mkdirs() }
+        registry.save(folder)
+        assertEquals(directory, registry.directory(folder))
+        registry.save(folder.copy(name = "Renamed"))
+        granted = false
+        assertEquals(directory, registry.path(registry.all().single()))
+        assertTrue(runCatching { registry.directory(folder) }.isFailure)
+        granted = true
+        directory.delete()
+        assertTrue(runCatching { registry.directory(folder) }.isFailure)
+        assertFalse(directory.exists())
+        assertFalse(registry.root.exists())
+    }
+
+    @Test fun legacyRecordsRemainPrivateAndMalformedBackingMetadataIsRejected() {
+        val folder = SharedFolder(UUID.randomUUID().toString(), "Project", emptySet())
+        val legacy = folder.json().apply { remove("androidStorage") }
+        assertEquals(folder, SharedFolder.parse(legacy))
+        assertTrue(runCatching { SharedFolder.parse(legacy.put("androidStorage", "true")) }.isFailure)
+    }
     @Test fun avfBootSnapshotExportsOnlyExplicitConnectionsAndKeepsUuidPathsOnRename() {
         var saved: String? = null
         val registry = SharedFolderRegistry(temporary.newFolder(), { saved }, { saved = it })

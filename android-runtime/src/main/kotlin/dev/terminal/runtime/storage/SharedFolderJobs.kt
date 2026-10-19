@@ -12,7 +12,6 @@ import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.*
-import java.security.MessageDigest
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicReference
@@ -192,8 +191,8 @@ class SharedFolderJobs(
             try {
                 val target = parent.child(temporary, create = true)
                 staged = true
-                val expected = ScopedDirectory.open(source.directory).use { origin -> target.use { copyTree(origin, it, job::ensureActive, progress) } }
-                val actual = ScopedDirectory.open(source.directory).use { copyTree(it, null, job::ensureActive, progress = {}) }
+                val expected = ScopedDirectory.open(source.directory).use { origin -> target.use { SharedFolderTree.copyTree(origin, it, job::ensureActive, progress) } }
+                val actual = ScopedDirectory.open(source.directory).use { SharedFolderTree.copyTree(it, null, job::ensureActive, progress = {}) }
                 FileTransfer.verify(expected, actual)
                 folders.publishImport(folder) {
                     job.ensureActive()
@@ -214,6 +213,14 @@ class SharedFolderJobs(
     private fun recoverUnpublished(record: JSONObject) {
         val id = record.getString("id")
         require(UUID.fromString(id).toString() == id)
+        if (record.getString("mode") == "FROM_VM") {
+            val folder = folders.all().firstOrNull { it.id == record.optString("folderId") } ?: return
+            val parts = SharedRelativePath.components(record.getString("path"))
+            ScopedDirectory.open(folders.directory(folder)).use { folderRoot -> folderRoot.parent(parts.dropLast(1)).use { parent ->
+                if (".term-transfer-$id" in parent.names()) ScopedFileAccess.unlink(parent.fd, ".term-transfer-$id", false)
+            } }
+            return
+        }
         if (!folders.root.exists()) return
         ScopedDirectory.open(folders.root).use { root ->
             if (record.getString("mode") == "IMPORT_LEGACY") {
@@ -222,13 +229,6 @@ class SharedFolderJobs(
                 unpublished.filter { it in root.names() }.forEach { name ->
                     root.child(name).use { it.clear() }; ScopedFileAccess.unlink(root.fd, name, true)
                 }
-            } else if (record.getString("mode") == "FROM_VM") {
-                val folderId = record.optString("folderId")
-                val folder = folders.all().firstOrNull { it.id == folderId } ?: return
-                val parts = SharedRelativePath.components(record.getString("path"))
-                runCatching { root.child(folder.id).use { folderRoot -> folderRoot.parent(parts.dropLast(1)).use { parent ->
-                    if (".term-transfer-$id" in parent.names()) ScopedFileAccess.unlink(parent.fd, ".term-transfer-$id", false)
-                } } }
             }
         }
     }
@@ -242,7 +242,7 @@ class SharedFolderJobs(
             job.ensureActive()
             ZipOutputStream(BufferedOutputStream(raw)).use { zip ->
                 ScopedDirectory.open(source.directory).use { origin ->
-                    val digest = copyTree(origin, null, job::ensureActive, progress, zip)
+                    val digest = SharedFolderTree.copyTree(origin, null, job::ensureActive, progress, zip)
                     job.ensureActive()
                     zip.putNextEntry(ZipEntry("TERM-SHA256")); zip.write(digest.joinToString("") { "%02x".format(it) }.toByteArray()); zip.closeEntry()
                 }
@@ -250,59 +250,4 @@ class SharedFolderJobs(
         } finally { active[id]?.stream?.compareAndSet(raw, null); raw.close() }
     }
 
-    /** Reject links/special files, preserve every source byte, and verify the full tree before activation. */
-    private fun copyTree(source: ScopedDirectory, destination: ScopedDirectory?, check: () -> Unit,
-        progress: (Long) -> Unit, zip: ZipOutputStream? = null): ByteArray {
-        val tree = MessageDigest.getInstance("SHA-256")
-        var total = 0L
-        var nodes = 0
-        fun walk(origin: ScopedDirectory, target: ScopedDirectory?, prefix: String, depth: Int) {
-            require(depth <= 64) { "Legacy workspace directory depth exceeds limit" }
-            val names = origin.names()
-            for (name in names) {
-                check(); require(++nodes <= 100_000 && name.none(Char::isISOControl)) { "Legacy workspace exceeds safe import limits" }
-                val path = prefix + name
-                val directory = runCatching { origin.child(name) }.getOrNull()
-                val encoded = path.toByteArray()
-                tree.update(java.nio.ByteBuffer.allocate(4).putInt(encoded.size).array()); tree.update(encoded)
-                if (directory != null) {
-                    tree.update(1)
-                    zip?.putNextEntry(ZipEntry("data/$path/")); zip?.closeEntry()
-                    directory.use { child ->
-                        val next = target?.child(name, true)
-                        try { walk(child, next, "$path/", depth + 1); next?.sync() } finally { next?.close() }
-                    }
-                } else {
-                    tree.update(2)
-                    val descriptor = origin.file(name)
-                    ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { input ->
-                        val size = Os.fstat(descriptor.fileDescriptor).st_size
-                        tree.update(java.nio.ByteBuffer.allocate(8).putLong(size).array())
-                        require(size >= 0 && size <= MAX_LEGACY_BYTES - total) { "Legacy workspace exceeds 2 GiB import limit" }
-                        zip?.putNextEntry(ZipEntry("data/$path"))
-                        val output = target?.create(name)
-                        try {
-                            val buffer = ByteArray(64 * 1024)
-                            var remaining = size
-                            while (remaining > 0) {
-                                check()
-                                val n = input.read(buffer, 0, minOf(remaining, buffer.size.toLong()).toInt())
-                                require(n > 0) { "Source changed during copy" }
-                                tree.update(buffer, 0, n); output?.write(buffer, 0, n); zip?.write(buffer, 0, n)
-                                remaining -= n; total += n; progress(total)
-                            }
-                            require(input.read() == -1) { "Source changed during copy" }
-                            (output as? FileOutputStream)?.let { it.flush(); it.fd.sync() }
-                        } finally { output?.close() }
-                    }
-                    tree.update(0); zip?.closeEntry()
-                }
-            }
-            require(origin.names() == names) { "Source changed during copy" }
-        }
-        walk(source, destination, "", 0)
-        destination?.sync()
-        return tree.digest()
-    }
-    companion object { private const val MAX_LEGACY_BYTES = 2L * 1024 * 1024 * 1024 }
 }
