@@ -1,5 +1,11 @@
 # Privileged AOSP deployment
 
+Stable TERM uses `dev.terminal.app`; TERM Preview uses
+`dev.terminal.app.prerelease` (debug remains `dev.terminal.app.debug`). Provision
+any package-specific platform allowlists and AVF permission grants for each
+installed package separately. Installing Preview does not copy the stable app's
+permissions, VM state or private files.
+
 Run the automated image producer or its ARM64 workflow described in `IMAGE_RELEASE.md`. It builds the Rust guest, installs and enables `droid-sessiond`, `droid-agent`, and `droid-port-agent`, prepares the persistent overlay image, and generates the manifest and approved catalog. End users do not prepare a rootfs or checksum manifest.
 
 The APK now includes the AVF execution driver and keeps `TerminalApplication` in the manifest; a separate `AospRuntimeApplication` is no longer used. Product deployment must supply the optional `android.system.virtualmachine` library, authorize its hidden custom-image APIs, and grant both AVF permissions described in `platform/aosp-avf-runtime`. Platform/OEM signing or an explicitly authorized development platform remains a deployment concern, not something APK packaging grants. Compile against the target product's full ABI with `-PavfFrameworkJar=...` when it differs from the bundled compile-only declarations. Once public downloads have been verified and `image/catalog-approved.properties` committed, both ordinary debug/release builds include the default image catalog automatically. Candidate builds can override it with `-PavfImageCatalog=...`; without an approved default or override, the catalog remains empty. The application implements WorkManager's on-demand main-process configuration; retain the manifest removal of `WorkManagerInitializer` and include `work-multiprocess` when compiling the product driver.

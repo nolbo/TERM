@@ -10,10 +10,19 @@ import java.io.IOException
 class AppUpdateManifestTest {
     private val commit = "1".repeat(40)
     private val payload = "signed APK test payload".toByteArray()
-    private fun json() = JSONObject().put("schemaVersion", 1).put("applicationId", "dev.terminal.app")
-        .put("commit", commit).put("versionCode", 32).put("versionName", "0.1.0+main.32.${commit.take(12)}")
+    private fun json(channel: UpdateChannel = UpdateChannel.MAIN) = JSONObject().put("schemaVersion", 1)
+        .put("applicationId", channel.applicationId)
+        .put("commit", commit).put("versionCode", 32).put("versionName", "0.1.0+${channel.wireName}.32.${commit.take(12)}")
         .put("size", payload.size).put("sha256", payload.sha256Hex()).put("minSdk", 31)
-    private fun manifest() = AppUpdateManifest.parse(json().toString())
+        .apply { if (channel != UpdateChannel.MAIN) put("channel", channel.wireName) }
+    private fun manifest(channel: UpdateChannel = UpdateChannel.MAIN) = AppUpdateManifest.parse(json(channel).toString(), channel)
+
+    @Test fun installedProductionPackagesHaveExactlyOneChannelAndDebugHasNone() {
+        assertEquals(UpdateChannel.MAIN, UpdateChannel.fromApplicationId("dev.terminal.app"))
+        assertEquals(UpdateChannel.DEV, UpdateChannel.fromApplicationId("dev.terminal.app.prerelease"))
+        assertNull(UpdateChannel.fromApplicationId("dev.terminal.app.debug"))
+        assertNull(UpdateChannel.fromApplicationId("other.app"))
+    }
 
     @Test fun releaseNotesArePinnedToTheSameChannelAndCommitAsTheApk() {
         for (channel in UpdateChannel.entries) {
@@ -76,21 +85,27 @@ class AppUpdateManifestTest {
     }
 
     @Test fun releaseMustMatchTheAppVersionAndEveryCurrentSigningCertificate() {
-        val update = manifest()
-        validateUpdateIdentity(update, "dev.terminal.app", 32, update.versionName, setOf("trusted"), setOf("trusted"))
-        for (signers in listOf(emptySet(), setOf("other"), setOf("trusted", "other"))) {
-            assertEquals(UpdateRejection.SIGNATURE, assertThrows(UpdateRejected::class.java) {
-                validateUpdateIdentity(update, "dev.terminal.app", 32, update.versionName, setOf("trusted"), signers)
+        for (channel in UpdateChannel.entries) {
+            val update = manifest(channel)
+            validateUpdateIdentity(update, channel.applicationId, 32, update.versionName, setOf("trusted"), setOf("trusted"))
+            for (signers in listOf(emptySet(), setOf("other"), setOf("trusted", "other"))) {
+                assertEquals(UpdateRejection.SIGNATURE, assertThrows(UpdateRejected::class.java) {
+                    validateUpdateIdentity(update, channel.applicationId, 32, update.versionName, setOf("trusted"), signers)
+                }.reason)
+            }
+            assertThrows(UpdateRejected::class.java) { validateUpdateIdentity(update, channel.applicationId, 32, update.versionName, emptySet(), setOf("trusted")) }
+            assertThrows(UpdateRejected::class.java) { validateUpdateIdentity(update, "other.app", 32, update.versionName, setOf("trusted"), setOf("trusted")) }
+            assertThrows(UpdateRejected::class.java) { validateUpdateIdentity(update, channel.applicationId, 31, update.versionName, setOf("trusted"), setOf("trusted")) }
+            assertThrows(UpdateRejected::class.java) { validateUpdateIdentity(update, channel.applicationId, 32, "spoofed", setOf("trusted"), setOf("trusted")) }
+            val otherPackage = UpdateChannel.entries.single { it != channel }.applicationId
+            assertEquals(UpdateRejection.IDENTITY, assertThrows(UpdateRejected::class.java) {
+                validateUpdateIdentity(update, otherPackage, 32, update.versionName, setOf("trusted"), setOf("trusted"))
             }.reason)
         }
-        assertThrows(UpdateRejected::class.java) { validateUpdateIdentity(update, "dev.terminal.app", 32, update.versionName, emptySet(), setOf("trusted")) }
-        assertThrows(UpdateRejected::class.java) { validateUpdateIdentity(update, "other.app", 32, update.versionName, setOf("trusted"), setOf("trusted")) }
-        assertThrows(UpdateRejected::class.java) { validateUpdateIdentity(update, "dev.terminal.app", 31, update.versionName, setOf("trusted"), setOf("trusted")) }
-        assertThrows(UpdateRejected::class.java) { validateUpdateIdentity(update, "dev.terminal.app", 32, "spoofed", setOf("trusted"), setOf("trusted")) }
     }
 
     @Test fun developmentManifestCannotLeakIntoTheStableChannelOrUseAnotherEndpoint() {
-        val dev = json().put("channel", "dev").put("versionName", "0.1.0+dev.32.${commit.take(12)}").toString()
+        val dev = json(UpdateChannel.DEV).toString()
         val update = AppUpdateManifest.parse(dev, UpdateChannel.DEV)
         assertEquals("https://github.com/nolbo/TERM/releases/download/dev-$commit/TERM.apk", update.apkUrl)
         assertEquals("https://github.com/nolbo/TERM/releases/download/dev-latest/update.json", update.channel.manifestUrl)
@@ -99,12 +114,24 @@ class AppUpdateManifestTest {
         assertThrows(IllegalArgumentException::class.java) { AppUpdateManifest.parse(json().put("channel", "../latest").toString()) }
     }
 
-    @Test fun legacyStableManifestsRemainReadableAndSharedCiCodesAllowChannelTransitions() {
+    @Test fun channelAndPackageMustMatchIncludingHistoricalDevelopmentManifests() {
+        for (channel in UpdateChannel.entries) {
+            val otherPackage = UpdateChannel.entries.single { it != channel }.applicationId
+            assertThrows(IllegalArgumentException::class.java) {
+                AppUpdateManifest.parse(json(channel).put("applicationId", otherPackage).toString(), channel)
+            }
+        }
+        assertThrows(IllegalArgumentException::class.java) {
+            AppUpdateManifest.parse(json(UpdateChannel.DEV).put("applicationId", "dev.terminal.app.debug").toString(), UpdateChannel.DEV)
+        }
+    }
+
+    @Test fun legacyStableManifestsRemainReadableAndVersionOrderingStaysForwardOnly() {
         assertEquals(UpdateChannel.MAIN, manifest().channel)
-        val dev = manifest().copy(channel = UpdateChannel.DEV, versionCode = 1000004)
+        assertEquals(UpdateChannel.MAIN, AppUpdateManifest.parse(json().put("channel", "main").toString()).channel)
         val main = manifest().copy(versionCode = 1000005)
-        assertEquals(UpdateAvailability.AVAILABLE, updateAvailability(36, commit, 35, dev))
-        assertEquals(UpdateAvailability.AVAILABLE, updateAvailability(dev.versionCode, commit, 35, main))
-        assertEquals(UpdateAvailability.OLDER, updateAvailability(dev.versionCode, commit, 35, manifest()))
+        assertEquals(UpdateAvailability.AVAILABLE, updateAvailability(36, commit, 35, main))
+        assertEquals(UpdateAvailability.AVAILABLE, updateAvailability(1000004, commit, 35, main))
+        assertEquals(UpdateAvailability.OLDER, updateAvailability(1000004, commit, 35, manifest()))
     }
 }

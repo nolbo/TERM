@@ -3,14 +3,20 @@
 ## Application update channel
 
 TERM reads public `nolbo/TERM` release metadata without credentials. The app
-keeps main/stable and dev/prerelease discovery separate, validates the manifest's
-channel against the user's selection, and never downgrades across channels.
+keeps main/stable (`dev.terminal.app`) and dev/prerelease
+(`dev.terminal.app.prerelease`) as separate installed apps. Each release app is
+bound to its build channel and validates both the manifest channel and the
+channel's exact package ID; a stored channel preference cannot redirect it.
+Higher version codes never authorize replacing the other app. Debug keeps
+`dev.terminal.app.debug` and does not offer release updates.
 The dev-latest manifest is a mutable pointer to an immutable dev commit APK;
 it cannot provide an arbitrary download URL or bypass signing verification.
 The app constructs fixed, commit-specific HTTPS APK URLs; bounds manifest/download
 sizes, redirects and transfer time; and requires exact SHA-256/bytes plus the
 installed app's package/version and current signing certificates before offering
-installation. The system package installer independently validates the APK.
+installation. Both release packages retain the existing release signing key;
+sharing that key does not bypass package/channel checks. The system package
+installer independently validates the APK.
 Signing and cross-repository publisher secrets stay in CI, never in APKs.
 App channel release credentials are scoped to trusted main/dev push steps. Their build job
 publishes directly from its verified signed output after all verification gates,
@@ -18,8 +24,11 @@ under the shared publication concurrency group. Actions artifact uploads are
 optional archives and are not used as the publication input.
 A non-exported FileProvider exposes only the dedicated update cache with a
 temporary read grant; the user must grant unknown-app installation and confirm
-the system installer. The app never uninstalls a conflicting debug build or
-terminates sessions itself. APK replacement may kill runtime processes, so the
+the system installer. The app never uninstalls another app, migrates its private
+data automatically, or terminates sessions itself. Historical development
+installs under the stable package ID remain intact when the separate prerelease
+app is installed. Each package has its own private data and update cache. APK
+replacement may kill runtime processes, so the
 installation confirmation explains that live work can be interrupted. See
 [APP_UPDATES.md](APP_UPDATES.md) for limits and publisher setup.
 

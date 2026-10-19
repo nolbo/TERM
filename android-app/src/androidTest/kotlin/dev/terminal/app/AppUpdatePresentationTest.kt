@@ -24,6 +24,7 @@ class AppUpdatePresentationTest {
     }
 
     private fun find(text: String): AccessibilityNodeInfo? {
+        instrumentation.uiAutomation.clearCache()
         fun search(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
             if (node == null) return null
             if (node.isVisibleToUser && node.text?.toString() == text) return node
@@ -66,7 +67,22 @@ class AppUpdatePresentationTest {
                 assertNull(find(label(R.string.update_current)))
                 val channelBounds = Rect().also { waitFor(label(R.string.update_channel_label)).getBoundsInScreen(it) }
                 val statusBounds = Rect().also { waitFor(initial).getBoundsInScreen(it) }
-                assertTrue("Channel selection must precede the state card", channelBounds.bottom < statusBounds.top)
+                assertTrue("Installed channel must precede the state card", channelBounds.bottom < statusBounds.top)
+                val channel = label(when {
+                    !controller.releaseUpdatesSupported -> R.string.update_channel_debug
+                    controller.channel == UpdateChannel.MAIN -> R.string.update_channel_main
+                    else -> R.string.update_channel_dev
+                })
+                var channelNode: AccessibilityNodeInfo? = waitFor(channel)
+                while (channelNode != null) {
+                    assertFalse("Installed channel is read-only", channelNode.isClickable || channelNode.isCheckable)
+                    channelNode = channelNode.parent
+                }
+                if (controller.releaseUpdatesSupported) waitFor(label(R.string.update_separate_apps))
+                listOf(R.string.update_channel_main, R.string.update_channel_dev, R.string.update_channel_debug)
+                    .map(::label).filter { it != channel }.forEach { assertNull(find(it)) }
+                scenario.recreate()
+                waitFor(channel)
                 scenario.onActivity { setState(AppUpdateState.Current) }
                 waitFor(label(R.string.update_current_title))
                 waitFor(label(R.string.update_current))
@@ -83,12 +99,17 @@ class AppUpdatePresentationTest {
 
     @Test fun newVersionPersistsThroughProgressAndInstallationRequiresConfirmation() {
         val original = controller.state
-        val manifest = AppUpdateManifest.parse("""{"schemaVersion":1,"applicationId":"dev.terminal.app","channel":"dev","commit":"${"1".repeat(40)}","versionCode":1000100,"versionName":"1.5.0+dev.1000100.${"1".repeat(12)}","size":10485760,"sha256":"${"0".repeat(64)}","minSdk":31}""", UpdateChannel.DEV)
-        val version = context.getString(R.string.update_available, manifest.versionName)
-        val installed = context.getString(R.string.update_installed_version, BuildConfig.VERSION_NAME)
+        val manifest = AppUpdateManifest.parse("""{"schemaVersion":1,"applicationId":"dev.terminal.app.prerelease","channel":"dev","commit":"${"1".repeat(40)}","versionCode":1000100,"versionName":"1.5.0+dev.1000100.${"1".repeat(12)}","size":10485760,"sha256":"${"0".repeat(64)}","minSdk":31}""", UpdateChannel.DEV)
         ActivityScenario.launch(AppUpdatesActivity::class.java).use { scenario ->
             try {
-                scenario.onActivity { setState(AppUpdateState.Available(manifest)) }
+                var version = ""
+                var installed = ""
+                scenario.onActivity {
+                    // AppCompat applies the app locale when the Activity is created.
+                    version = it.getString(R.string.update_available, manifest.versionName)
+                    installed = it.getString(R.string.update_installed_version, BuildConfig.VERSION_NAME)
+                    setState(AppUpdateState.Available(manifest))
+                }
                 waitFor(label(R.string.update_available_title))
                 waitFor(version)
                 assertNull(find(installed))

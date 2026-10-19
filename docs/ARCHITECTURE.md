@@ -159,6 +159,11 @@ Storage exposure is explicit and minimal. Keep runtime roots and package
 databases separate. Expose only explicitly connected shared directories rather than the entire
 app-private directory. Logical Workspaces never expose filesystem paths.
 
+Stable TERM and TERM Preview use distinct Android application IDs and independent
+app-private settings, profiles, environments and runtime services. They do not
+share an Android UID or automatically migrate data. User-selected shared folders
+can still refer to the same external files in both apps.
+
 AVF raw disks retain their published logical lengths and SHA-256 hashes while
 installation omits writes of zero-filled 4 KiB blocks. Online downloads and
 offline imports use owned sibling staging directories; verification and receipt

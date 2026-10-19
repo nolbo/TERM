@@ -2,6 +2,23 @@
 
 The user's release or prerelease deployment request defines the scope. Follow the Git and authorization policy in [AGENTS.md](../AGENTS.md); required supporting images are part of that deployment request and do not require separate approval.
 
+## Independently installed channels
+
+Release builds use `TERMINAL_UPDATE_CHANNEL=main` for **TERM** (`dev.terminal.app`)
+and `TERMINAL_UPDATE_CHANNEL=dev` for **TERM Preview**
+(`dev.terminal.app.prerelease`). Debug remains **TERM Debug**
+(`dev.terminal.app.debug`). A base version containing a prerelease suffix must
+use the dev channel. The namespace, signing key, version-name format, shared
+versionCode sequence and release output paths remain unchanged.
+
+Verify the built APK's package, launcher label and provider authorities for its
+channel, and require the same package/channel pairing in `update.json`. Each
+installed release app updates only its own channel. Existing prereleases with
+the former shared `dev.terminal.app` ID retain their data in that app; installing
+Preview creates a separate data area and does not migrate or delete anything.
+Include this transition in the first separated prerelease's Korean patch notes.
+See [APP_UPDATES.md](APP_UPDATES.md) for backup and installation guidance.
+
 ## Versioning and patch notes
 
 App base-version decisions MUST follow `docs/VERSIONING.md`. Assess the complete

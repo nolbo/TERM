@@ -28,6 +28,7 @@ class ManifestTest(unittest.TestCase):
         self.assertEqual(result["commit"], self.commit)
         self.assertEqual(result["versionCode"], 32)
         self.assertEqual(result["minSdk"], 31)
+        self.assertEqual(result["applicationId"], "dev.terminal.app")
 
     def test_cannot_publish_an_apk_versioned_from_a_different_main_commit(self):
         with self.assertRaises(ValueError):
@@ -61,14 +62,40 @@ class ManifestTest(unittest.TestCase):
 
     def test_dev_release_is_bound_to_the_selected_channel(self):
         metadata = copy.deepcopy(self.metadata)
+        metadata["applicationId"] = "dev.terminal.app.prerelease"
         metadata["elements"][0]["versionName"] = f"0.1.0+dev.32.{self.commit[:12]}"
-        self.assertEqual(module.create_manifest(self.apk, metadata, self.commit, "dev")["channel"], "dev")
+        result = module.create_manifest(self.apk, metadata, self.commit, "dev")
+        self.assertEqual(result["channel"], "dev")
+        self.assertEqual(result["applicationId"], "dev.terminal.app.prerelease")
         with self.assertRaises(ValueError):
             module.create_manifest(self.apk, metadata, self.commit)
         with self.assertRaises(ValueError):
             module.create_manifest(self.apk, self.metadata, self.commit, "dev")
         with self.assertRaises(ValueError):
             module.create_manifest(self.apk, metadata, self.commit, "other")
+
+    def test_channel_cannot_publish_the_other_app_debug_or_a_legacy_dev_package(self):
+        for channel, invalid_ids in {
+            "main": ("dev.terminal.app.prerelease", "dev.terminal.app.debug"),
+            "dev": ("dev.terminal.app", "dev.terminal.app.debug"),
+        }.items():
+            metadata = copy.deepcopy(self.metadata)
+            metadata["elements"][0]["versionName"] = f"0.1.0+{channel}.32.{self.commit[:12]}"
+            for application_id in invalid_ids:
+                metadata["applicationId"] = application_id
+                with self.subTest(channel=channel, application_id=application_id), self.assertRaises(ValueError):
+                    module.create_manifest(self.apk, metadata, self.commit, channel)
+
+    def test_correct_package_still_requires_matching_version_channel(self):
+        for channel, application_id, wrong_channel in (
+            ("main", "dev.terminal.app", "dev"),
+            ("dev", "dev.terminal.app.prerelease", "main"),
+        ):
+            metadata = copy.deepcopy(self.metadata)
+            metadata["applicationId"] = application_id
+            metadata["elements"][0]["versionName"] = f"0.1.0+{wrong_channel}.32.{self.commit[:12]}"
+            with self.subTest(channel=channel), self.assertRaises(ValueError):
+                module.create_manifest(self.apk, metadata, self.commit, channel)
 
 
 if __name__ == "__main__":

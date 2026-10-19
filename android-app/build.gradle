@@ -82,6 +82,9 @@ if (!updateCodeText.matches('[0-9]+') || updateCodeText.toBigInteger() < 1 || up
 }
 def updateVersionCode = updateCodeText.toInteger()
 def appBaseVersion = project.properties.appBaseVersion
+if (updateChannel == 'main' && appBaseVersion.contains('-')) {
+    throw new GradleException('Prerelease versions require TERMINAL_UPDATE_CHANNEL=dev.')
+}
 def appVersionName = "${appBaseVersion}+${updateChannel}.${updateVersionCode}.${updateRevision.take(12)}"
 
 // Keep private signing material outside the worktree. PKCS12 uses the store
@@ -129,6 +132,7 @@ android {
         buildConfigField 'String', 'UPDATE_REVISION', "\"${updateRevision}\""
         buildConfigField 'String', 'UPDATE_CHANNEL', "\"${updateChannel}\""
         resValue 'color', 'app_icon_foreground', '#E3E4E8'
+        resValue 'string', 'app_launcher_name', 'TERM'
 
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
@@ -146,6 +150,7 @@ android {
         debug {
             applicationIdSuffix '.debug'
             versionNameSuffix '-debug'
+            resValue 'string', 'app_launcher_name', 'TERM Debug'
             resValue 'color', 'app_icon_foreground', updateChannel == 'main' ? '#00FFA1' : '#FF0062'
         }
         release {
@@ -154,8 +159,10 @@ android {
             optimization {
                 enable = true
             }
-            // Signed dev updates and versions with a prerelease suffix are prereleases.
-            if (updateChannel == 'dev' || appBaseVersion.contains('-')) {
+            // Keep stable installs and their private data separate from prereleases.
+            if (updateChannel == 'dev') {
+                applicationIdSuffix '.prerelease'
+                resValue 'string', 'app_launcher_name', 'TERM Preview'
                 resValue 'color', 'app_icon_foreground', '#FF8400'
             }
             signingConfig unsignedRelease ? null : signingConfigs.release

@@ -1,5 +1,6 @@
 package dev.terminal.app
 
+import android.content.Context
 import android.content.pm.PackageManager
 import dev.terminal.app.update.updateStagingFile
 import dev.terminal.app.update.AppUpdateController
@@ -62,19 +63,29 @@ class AppUpdateDeviceTest {
         } finally { fixture.delete() }
     }
 
-    @Test fun selectedUpdateChannelSurvivesRecreationAndControllerReconstruction() {
+    @Test fun installedPackagePinsTheUpdateChannelDespiteLegacyPreferencesAndRecreation() {
         val controller = (context.applicationContext as TerminalApplication).appUpdates
-        val original = controller.channel
-        val selected = if (original == UpdateChannel.MAIN) UpdateChannel.DEV else UpdateChannel.MAIN
-        ActivityScenario.launch(AppUpdatesActivity::class.java).use { scenario ->
-            try {
-                scenario.onActivity { controller.selectChannel(selected) }
+        val installedChannel = UpdateChannel.fromApplicationId(context.packageName)
+        val expectedChannel = installedChannel ?: UpdateChannel.fromWire(BuildConfig.UPDATE_CHANNEL)
+        val preferences = context.getSharedPreferences("app-updates", Context.MODE_PRIVATE)
+        val original = preferences.getString("channel", null)
+        val staleChannel = if (expectedChannel == UpdateChannel.MAIN) UpdateChannel.DEV else UpdateChannel.MAIN
+        try {
+            assertTrue(preferences.edit().putString("channel", staleChannel.wireName).commit())
+            ActivityScenario.launch(AppUpdatesActivity::class.java).use { scenario ->
                 scenario.recreate()
                 scenario.onActivity {
-                    assertEquals(selected, controller.channel)
-                    assertEquals(selected, AppUpdateController(context).channel)
+                    assertEquals(expectedChannel, controller.channel)
+                    assertEquals(installedChannel != null, controller.releaseUpdatesSupported)
+                    val rebuilt = AppUpdateController(context)
+                    assertEquals(expectedChannel, rebuilt.channel)
+                    assertEquals(installedChannel != null, rebuilt.releaseUpdatesSupported)
                 }
-            } finally { scenario.onActivity { controller.selectChannel(original) } }
+            }
+        } finally {
+            assertTrue(preferences.edit().apply {
+                if (original == null) remove("channel") else putString("channel", original)
+            }.commit())
         }
     }
 }

@@ -1,8 +1,10 @@
 <resources>
     <string name="update_channel_label">업데이트 채널</string>
     <string name="update_channel_main">정식 릴리스</string>
-    <string name="update_channel_dev">개발 릴리스</string>
-    <string name="update_dev_warning">개발 릴리스는 최신 변경을 포함하며 불안정할 수 있습니다. 설치 전 작업을 저장하세요.</string>
+    <string name="update_channel_dev">프리릴리즈</string>
+    <string name="update_channel_debug">디버그 빌드</string>
+    <string name="update_separate_apps">TERM과 TERM Preview는 함께 설치할 수 있으며 앱 데이터는 따로 보관됩니다. 각 앱은 자신의 채널에서만 업데이트합니다.</string>
+    <string name="update_dev_warning">프리릴리즈는 최신 변경을 포함하며 불안정할 수 있습니다. 설치 전 작업을 저장하세요.</string>
     <string name="update_channel_older">채널 버전이 설치된 앱보다 이전입니다. 새 버전을 기다리세요. 삭제 후 이전 버전을 설치하면 데이터가 손실될 수 있습니다.</string>
     <string name="app_updates">앱 업데이트</string>
     <string name="update_settings_summary">새 버전 확인과 설치</string>
@@ -22,7 +24,7 @@
     <string name="update_failed_title">업데이트를 진행할 수 없습니다</string>
     <string name="update_download_before_install">다운로드가 완료되면 설치할 수 있습니다.</string>
     <string name="update_save_work">설치 전에 실행 중인 터미널 작업을 저장하세요.</string>
-    <string name="update_debug_manual">TERM Debug는 별도 앱이며 같은 디버그 키의 APK로 직접 업데이트하세요. 정식·개발 채널은 적용되지 않습니다.</string>
+    <string name="update_debug_manual">TERM Debug는 별도 앱이며 같은 디버그 키의 APK로 직접 업데이트하세요. 정식·프리릴리즈 채널은 적용되지 않습니다.</string>
     <string name="update_check">업데이트 확인</string>
     <string name="update_checking">새 버전을 확인하고 있습니다…</string>
     <string name="update_no_release">아직 배포된 업데이트가 없습니다.</string>

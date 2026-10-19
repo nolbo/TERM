@@ -37,23 +37,13 @@ internal class AppUpdateController(context: Context) {
     private val app = context.applicationContext
     private val handler = Handler(Looper.getMainLooper())
     private val worker = Executors.newSingleThreadExecutor()
-    private val preferences = app.getSharedPreferences("app-updates", Context.MODE_PRIVATE)
-    val releaseUpdatesSupported = BuildConfig.APPLICATION_ID == "dev.terminal.app"
-    var channel: UpdateChannel by mutableStateOf(
-        UpdateChannel.entries.firstOrNull { it.wireName == preferences.getString("channel", BuildConfig.UPDATE_CHANNEL) }
-            ?: UpdateChannel.fromWire(BuildConfig.UPDATE_CHANNEL)
-    )
-        private set
+    private val installedChannel = UpdateChannel.fromApplicationId(app.packageName)
+    val releaseUpdatesSupported = installedChannel != null
+    // Old channel preferences must never turn a package update into another app's installation.
+    val channel: UpdateChannel = installedChannel ?: UpdateChannel.fromWire(BuildConfig.UPDATE_CHANNEL)
     var state: AppUpdateState by mutableStateOf(AppUpdateState.Idle)
         private set
     val busy: Boolean get() = state is AppUpdateState.Checking || state is AppUpdateState.Downloading
-
-    fun selectChannel(value: UpdateChannel) {
-        if (!releaseUpdatesSupported || busy || value == channel) return
-        preferences.edit().putString("channel", value.wireName).apply()
-        channel = value
-        state = AppUpdateState.Idle
-    }
 
     fun check() {
         if (!releaseUpdatesSupported || busy) return

@@ -72,7 +72,7 @@ class ReleaseNotesMarkdownDeviceTest {
     @Test fun updateScreenKeepsRenderedNotesAcrossProgressRecreationAndReplacement() {
         val controller = (context.applicationContext as TerminalApplication).appUpdates
         val original = controller.state
-        val manifest = AppUpdateManifest.parse("""{"schemaVersion":1,"applicationId":"dev.terminal.app","channel":"dev","commit":"${"1".repeat(40)}","versionCode":1000100,"versionName":"0.5.0+dev.1000100.${"1".repeat(12)}","size":1,"sha256":"${"0".repeat(64)}","minSdk":31}""", UpdateChannel.DEV)
+        val manifest = AppUpdateManifest.parse("""{"schemaVersion":1,"applicationId":"dev.terminal.app.prerelease","channel":"dev","commit":"${"1".repeat(40)}","versionCode":1000100,"versionName":"0.5.0+dev.1000100.${"1".repeat(12)}","size":1,"sha256":"${"0".repeat(64)}","minSdk":31}""", UpdateChannel.DEV)
             .copy(releaseNotes = fixture)
         // Supply an update without enabling networking or APK installation in the debug app.
         val setter = controller.javaClass.getDeclaredMethod("setState", AppUpdateState::class.java).apply { isAccessible = true }

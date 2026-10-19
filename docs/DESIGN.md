@@ -18,7 +18,7 @@
 | 프로필 | 관리 화면은 프로필 추가와 기존 프로필 목록을 구분한다. 툴바 설정과 같은 편집·완료 FAB로 순서 편집을 전환하며 드래그 핸들로 정렬한다. 편집 화면은 이름·아이콘, 팔레트, 실행환경, 셸·시작 설정, 환경 변수 등의 섹션으로 구성한다. | [ProfilesActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/ProfilesActivity.kt), [ProfileEditActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/ProfileEditActivity.kt) |
 | 실행환경 | 사용 중인 실행환경과 연결된 프로필이 없는 실행환경을 구분하고, 목록 행에는 이름·런타임·용량만 표시한다. AVF 용량은 희소 디스크의 실제 할당량을 표시한다. 목록의 백업 및 복원 섹션에서 독립된 파일을 가져와 새 실행환경을 만든다. 상세에는 실행환경 정보·백업 만들기·연결된 프로필·세션·배포판 또는 이미지 관리가 있고, 화면 하단에는 실행환경 작업 툴바가 있다. | [EnvironmentActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/EnvironmentActivity.kt) |
 | USB 디바이스 | 대기 중인 접근 요청을 우선하며, 기기·허용된 접근·이동식 저장장치·호스트 도구·도움말 및 진단을 섹션으로 구분한다. 긴 기기 정보와 도움말은 펼침 행으로 제공한다. | [UsbSettingsScreen.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/UsbSettingsScreen.kt) |
-| 앱 업데이트 | 최상단 채널 선택, 업데이트 상태 카드와 주요 버튼 또는 진행률, 릴리즈노트 카드 순서다. | [AppUpdatesActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/AppUpdatesActivity.kt) |
+| 앱 업데이트 | 최상단의 읽기 전용 설치 채널, 업데이트 상태 카드와 주요 버튼 또는 진행률, 릴리즈노트 카드 순서다. | [AppUpdatesActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/AppUpdatesActivity.kt) |
 | 앱 정보·라이선스 | 앱 메타데이터는 읽기 전용 행으로, 라이선스는 디렉터리 목록과 선택 가능한 원문으로 표시한다. | [AppInfoActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/AppInfoActivity.kt) |
 | 진단 및 리포트 | 진입점의 런타임(Android Native·Userspace Linux·AVF Linux), 시스템(메모리), 리포트(크래시 리포트) 카테고리에서 독립 Activity를 연다. 카테고리는 공통 섹션 제목과 각각의 설정 그룹으로 구분한다. 각 상세는 공통 앱바와 테마를 사용한다. 런타임 상세의 새로고침과 읽기 전용 행은 공통 설정 UI를 사용하며, 메모리는 장치·앱 요약 카드와 구성별 막대 카드 및 새로고침 버튼으로 표시한다. 크래시 원문은 기존 상세에서 읽고 복사하며 닫아도 보관한다. | [DiagnosticsActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/DiagnosticsActivity.kt), [MemoryDiagnosticsScreen.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/MemoryDiagnosticsScreen.kt), [CrashReportActivity.kt](../android-app/src/main/kotlin/dev/terminal/app/CrashReportActivity.kt) |
 | 초기 설정·크래시 | 초기 설정은 실행 방식별 안내 카드와 시작 동작을 구분한다. 크래시 본문은 복사할 수 있는 고정폭 텍스트를 사용한다. | [ComposeUi.kt](../android-app/src/main/kotlin/dev/terminal/app/ui/ComposeUi.kt)의 `SetupScreen`, `CrashScreen` |
@@ -151,7 +151,9 @@ scaffold가 전달한 padding과 시스템 inset을 적용한다. 상태 표시�
 | 단순 안내 | 카드 밖 보조 텍스트 | 클릭·탐색 화살표·옵션 사이 구분선을 부여하지 않는다. |
 | 펼침 정보 | 제목과 아래 방향 꺾쇠 | `SettingsExpansionContent`·`SettingsExpansionIcon`을 재사용한다. 펼침·접힘 상태를 접근성으로 알린다. |
 
-선택지가 적고 화면 전체 상태를 즉시 전환하는 경우에는 기존 업데이트 채널의 `FilterChip`이나 사용자 글꼴 스타일의 `SecondaryTabRow` 패턴을 사용할 수 있다. 일반 단일 선택 설정은 라디오 대화상자를 기본으로 한다. 칩을 쓰는 경우 Material 기본 크기를 유지하고 좁은 화면에서는 줄바꿈한다.
+선택지가 적고 화면 전체 상태를 즉시 전환하는 경우에는 `FilterChip`이나 사용자 글꼴 스타일의 `SecondaryTabRow` 패턴을 사용할 수 있다. 일반 단일 선택 설정은 라디오 대화상자를 기본으로 한다. 칩을 쓰는 경우 Material 기본 크기를 유지하고 좁은 화면에서는 줄바꿈한다.
+
+앱 업데이트 화면 상단에는 설치된 앱의 업데이트 채널을 읽기 전용으로 표시한다. 정식 **TERM**과 프리릴리즈 **TERM Preview**는 함께 설치할 수 있고 앱 데이터와 업데이트가 분리된다는 짧은 안내를 제공하며, 채널 전환 컨트롤은 두지 않는다. 프리릴리즈에는 불안정 가능성 안내를 유지한다. **TERM Debug**는 디버그 빌드로 표시하고 같은 디버그 키의 APK로 직접 업데이트하도록 안내한다.
 
 조건부 설정은 관련 옵션 가까이에 배치한다. 사용할 수 없는 이유를 설명에 표시하고 `enabled = false`와 공통 비활성 색상을 사용한다. 확인 중·측정 불가·지원 불가를 꺼짐이나 0으로 표시하지 않는다. 실제로 제공하지 않는 동작을 정상 버튼처럼 노출하거나 UI에서 성공 상태를 추정하지 않는다.
 

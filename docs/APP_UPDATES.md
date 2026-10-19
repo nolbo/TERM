@@ -9,11 +9,20 @@ local development and prerelease preparation use `dev`.
 see [repository consolidation](REPOSITORY_MIGRATION.md) for the preserved history
 and former private source archive.
 
-There are two explicit channels: **main → stable** and **dev → development**.
-Both use application ID `dev.terminal.app` and the persistent release key.
-The update screen stores the selected channel; its initial default comes from
-the installed APK. A switch resets stale availability/installation state, and
-is disabled while checking/downloading. It never changes runtime selection.
+There are two independently installed release apps: **main → stable** uses
+`dev.terminal.app`, and **dev → prerelease** uses `dev.terminal.app.prerelease`.
+Both retain the persistent release signing key. Debug builds keep
+`dev.terminal.app.debug`. Each installed release checks only its own build
+channel; the update screen displays that channel without a channel selector.
+Stable and prerelease can coexist with separate Android app data, settings,
+execution environments and update caches.
+
+Older development APKs used `dev.terminal.app`, the same ID as stable. They are
+preserved in place: installing the new prerelease app creates a separate, empty
+private data directory and does not replace or uninstall them. No automatic data
+migration occurs. Users may explicitly use supported environment backup/restore
+to copy environments; this does not imply automatic migration of all app settings
+or live sessions. Historical APKs, manifests and release tags remain unchanged.
 
 ### Version ordering and compatibility
 
@@ -21,9 +30,8 @@ Base-version promotion follows [Versioning policy](VERSIONING.md). The base
 describes product changes; Android installation ordering still uses the shared
 `versionCode` sequence below. Increasing the base does not authorize publication.
 
-Independent branch commit counts can collide or make returning from dev to
-main impossible until main catches up. Commit timestamps also allow collisions
-and clock regressions. Published CI APKs therefore use
+Independent branch commit counts and commit timestamps can collide or regress.
+Published CI APKs retain the existing shared sequence:
 `versionCode = 1000000 + TERMINAL_VERSION_CODE_OFFSET + GITHUB_RUN_NUMBER`,
 shared by both branches of `android.yml`. The repository variable
 `TERMINAL_VERSION_CODE_OFFSET=70` preserves ordering after moving from
@@ -36,10 +44,13 @@ the epoch or offset; any future sequence migration must exceed all published cod
 The version name is `<base>+<main|dev>.<code>.<12-character source SHA>`.
 Legacy schema-1 main manifests without a channel remain readable, and legacy
 stable clients can consume new main manifests/names. Development metadata is
-never accepted when checking the stable channel, or vice versa. A higher code
-can update across channels; an older channel reports that a newer release is
-needed, rather than claiming the installed app is up to date. No uninstall or
-downgrade is attempted. A same-code different commit is rejected as non-forward.
+never accepted when checking the stable channel, or vice versa. Metadata must
+also match the exact package for that channel. A higher code cannot cross the
+stable/prerelease package boundary; version ordering applies within each app.
+An older release reports that a newer release is needed, rather than claiming
+the installed app is up to date. No uninstall or downgrade is attempted. A
+same-code different commit is rejected as non-forward. Legacy development
+manifests for `dev.terminal.app` cannot update the new prerelease package.
 
 Local builds use `origin/dev` on the dev branch, otherwise `origin/main`, unless
 `TERMINAL_UPDATE_CHANNEL` overrides it. Their fallback code is the selected
@@ -61,7 +72,7 @@ stable history does not promote development features or publish a stable APK.
 After canonical verification, app tests and the USB safety gate, CI uses the
 persistent release key to build one APK. `tools/updates/create-manifest.py`
 derives size/hash and version information from that built APK and its Gradle
-metadata, rejecting a commit/version mismatch. The artifact contains:
+metadata, rejecting a commit/version or channel/package mismatch. The artifact contains:
 
 - `TERM.apk`
 - `update.json` (schema 1, application ID, channel, source commit, code/name, minimum SDK,
@@ -142,10 +153,11 @@ For a local signed build with caching, use `bash tools/build-release.sh --build-
 
 ## App behavior and boundaries
 
-**Settings → App updates → Update channel → Check for updates** retrieves
+**Settings → App updates → Check for updates** retrieves
 `https://github.com/nolbo/TERM/releases/latest/download/update.json` for stable,
 or `https://github.com/nolbo/TERM/releases/download/dev-latest/update.json` for
-development. Development releases show an instability warning.
+prerelease. The installed app determines this endpoint; prerelease builds show
+an instability warning.
 The first-release 404 is shown as “No updates have been published yet,” not as
 an up-to-date claim. Newer supported versions can be downloaded; older versions
 are not offered. APK URLs are constructed from validated commit IDs and fixed
@@ -161,8 +173,9 @@ bounded redirect count and connection/read/transfer deadlines.
 The app enforces exact file size and SHA-256, checks the APK's package/version,
 minimum SDK and **every current installed signing certificate**, and rejects
 unsigned/differently signed APKs. Signing-key rotation is not supported in this
-initial fixed-key update channel. A debug installation needs a matching debug
-key or an explicit first migration; the app never uninstalls it automatically.
+initial fixed-key update channel. Debug builds do not offer release updates and
+remain a separate installation; the app never uninstalls another app to install
+an update.
 
 Verified APKs stay in a dedicated app cache directory. The non-exported
 FileProvider exposes only that directory, using a temporary URI read grant to

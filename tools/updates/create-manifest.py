@@ -7,6 +7,7 @@ from pathlib import Path
 import re
 
 MAX_APK_BYTES = 128 * 1024 * 1024
+APPLICATION_IDS = {"main": "dev.terminal.app", "dev": "dev.terminal.app.prerelease"}
 
 
 def create_manifest(apk: Path, metadata: dict, commit: str, channel: str = "main") -> dict:
@@ -14,8 +15,9 @@ def create_manifest(apk: Path, metadata: dict, commit: str, channel: str = "main
         raise ValueError("Invalid update channel")
     if not re.fullmatch(r"[0-9a-f]{40}", commit):
         raise ValueError("Invalid source commit")
-    if metadata.get("applicationId") != "dev.terminal.app" or len(metadata.get("elements", [])) != 1:
-        raise ValueError("Expected one TERM APK")
+    application_id = APPLICATION_IDS[channel]
+    if metadata.get("applicationId") != application_id or len(metadata.get("elements", [])) != 1:
+        raise ValueError("Expected one TERM APK for the selected channel")
     element = metadata["elements"][0]
     code = element["versionCode"]
     if type(code) is not int or not 1 <= code <= 2147483647:
@@ -37,7 +39,7 @@ def create_manifest(apk: Path, metadata: dict, commit: str, channel: str = "main
     with apk.open("rb") as stream:
         for chunk in iter(lambda: stream.read(64 * 1024), b""):
             digest.update(chunk)
-    return dict(schemaVersion=1, applicationId="dev.terminal.app", commit=commit, channel=channel,
+    return dict(schemaVersion=1, applicationId=application_id, commit=commit, channel=channel,
                 versionCode=code, versionName=name, minSdk=min_sdk, size=size,
                 sha256=digest.hexdigest())
 

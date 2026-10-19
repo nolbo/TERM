@@ -3,6 +3,8 @@
 The `v0.1.0-rootless.N` source tag runs the signing job in `android.yml`.
 It does not run the ordinary main/dev publisher or replace `dev-latest`.
 All preparation and commits stay on `dev`; the source tag identifies that commit.
+New candidates use the separate `dev.terminal.app.prerelease` package (TERM Preview).
+Previously published tags and APKs keep their original package and are not rewritten.
 
 1. Complete the runtime checks and performance report, and commit Korean notes
    under `docs/release-notes/<tag>.md` before creating the source tag.

@@ -34,7 +34,7 @@ test "$(sha256sum unsigned.apk | cut -d ' ' -f 1)" = "$(jq -r .apkSha256 request
 terminal_build_tools=$(find "$ANDROID_HOME/build-tools" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)
 "$terminal_build_tools/aapt" dump badging unsigned.apk > badging.txt
 head -1 badging.txt > package.txt
-grep -F "name='dev.terminal.app'" package.txt
+grep -F "name='dev.terminal.app.prerelease'" package.txt
 grep -F "versionCode='$terminal_code'" package.txt
 grep -F "versionName='${terminal_tag#v}+dev.$terminal_code.${GITHUB_SHA:0:12}'" package.txt
 "$terminal_build_tools/zipalign" -c -P 16 4 unsigned.apk

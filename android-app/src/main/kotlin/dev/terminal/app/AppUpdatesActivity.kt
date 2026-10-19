@@ -37,7 +37,6 @@ class AppUpdatesActivity : TerminalActivity() {
         compose {
             val state = updates.state
             var installConfirmation by rememberSaveable { mutableStateOf(false) }
-            LaunchedEffect(updates.channel) { installConfirmation = false }
             SettingsPageScaffold(stringResource(R.string.app_updates), { finish() }) { padding ->
                 val manifest = when (state) {
                     is AppUpdateState.Available -> state.manifest
@@ -50,14 +49,15 @@ class AppUpdatesActivity : TerminalActivity() {
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Text(stringResource(R.string.update_channel_label), style = MaterialTheme.typography.labelLarge,
                             modifier = Modifier.padding(horizontal = 4.dp))
-                        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            UpdateChannel.entries.forEach { channel ->
-                                FilterChip(selected = updates.channel == channel, enabled = updates.releaseUpdatesSupported && !updates.busy,
-                                    onClick = { updates.selectChannel(channel) },
-                                    label = { Text(stringResource(if (channel == UpdateChannel.MAIN) R.string.update_channel_main else R.string.update_channel_dev)) })
-                            }
-                        }
-                        if (updates.channel == UpdateChannel.DEV) Text(stringResource(R.string.update_dev_warning),
+                        Text(stringResource(when {
+                            !updates.releaseUpdatesSupported -> R.string.update_channel_debug
+                            updates.channel == UpdateChannel.MAIN -> R.string.update_channel_main
+                            else -> R.string.update_channel_dev
+                        }), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.padding(horizontal = 4.dp))
+                        if (updates.releaseUpdatesSupported) Text(stringResource(R.string.update_separate_apps),
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 4.dp))
+                        if (updates.releaseUpdatesSupported && updates.channel == UpdateChannel.DEV) Text(stringResource(R.string.update_dev_warning),
                             style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 4.dp))
                     }

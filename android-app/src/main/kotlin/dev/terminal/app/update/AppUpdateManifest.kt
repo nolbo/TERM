@@ -8,8 +8,8 @@ import java.io.IOException
 import java.security.MessageDigest
 
 internal const val UPDATE_REPOSITORY = "nolbo/TERM"
-internal enum class UpdateChannel(val wireName: String) {
-    MAIN("main"), DEV("dev");
+internal enum class UpdateChannel(val wireName: String, val applicationId: String) {
+    MAIN("main", "dev.terminal.app"), DEV("dev", "dev.terminal.app.prerelease");
 
     val manifestUrl: String get() = "https://github.com/$UPDATE_REPOSITORY/releases/" +
         if (this == MAIN) "latest/download/update.json" else "download/dev-latest/update.json"
@@ -17,6 +17,8 @@ internal enum class UpdateChannel(val wireName: String) {
     companion object {
         fun fromWire(value: String): UpdateChannel = entries.firstOrNull { it.wireName == value }
             ?: throw IllegalArgumentException("Unknown update channel")
+
+        fun fromApplicationId(value: String): UpdateChannel? = entries.firstOrNull { it.applicationId == value }
     }
 }
 internal const val MAX_UPDATE_APK_BYTES = 128L * 1024 * 1024
@@ -46,9 +48,9 @@ internal data class AppUpdateManifest(
                 return value.toString().toLong()
             }
             require(integer("schemaVersion") == 1L)
-            require(json.get("applicationId") == "dev.terminal.app")
             val channel = UpdateChannel.fromWire(json.optString("channel", "main"))
             require(channel == expectedChannel)
+            require(json.get("applicationId") == channel.applicationId)
             val commit = json.getString("commit")
             require(commit.matches(Regex("[0-9a-f]{40}")))
             val code = integer("versionCode")
@@ -102,7 +104,7 @@ internal fun validateUpdateIdentity(
     installedSigners: Set<String>,
     updateSigners: Set<String>,
 ) {
-    if (packageName != "dev.terminal.app" || versionCode != manifest.versionCode.toLong() || versionName != manifest.versionName) {
+    if (packageName != manifest.channel.applicationId || versionCode != manifest.versionCode.toLong() || versionName != manifest.versionName) {
         throw UpdateRejected(UpdateRejection.IDENTITY)
     }
     if (installedSigners.isEmpty() || updateSigners.isEmpty() || installedSigners != updateSigners) {
