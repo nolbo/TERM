@@ -309,7 +309,7 @@ private data class SetupRuntime(
 )
 
 @Composable
-fun SetupScreen(onStart: () -> Unit, onImage: () -> Unit) {
+fun SetupScreen(onStart: () -> Unit) {
     val linuxRuntimes = listOf(
         SetupRuntime(R.string.runtime_rootless_title, R.string.runtime_rootless_setup, R.string.setup_rootless_description, R.drawable.ic_material_symbol_download_24),
         SetupRuntime(R.string.runtime_avf_title, R.string.runtime_avf_setup, R.string.setup_avf_description, R.drawable.ic_material_symbol_memory_24),
@@ -359,16 +359,6 @@ fun SetupScreen(onStart: () -> Unit, onImage: () -> Unit) {
                                 }
                             }
                         }
-                    }
-                }
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = onImage, shapes = ButtonDefaults.shapes(),
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                            Text(stringResource(R.string.setup_import_image))
-                        }
-                        Text(stringResource(R.string.avf_image_note), style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
                     }
                 }
             }

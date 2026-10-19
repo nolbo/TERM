@@ -24,10 +24,6 @@ class SetupActivity : TerminalActivity() {
             completeSetup()
             launchMain(startRuntime = true)
             finish()
-        }, onImage = {
-            completeSetup()
-            launchMain(openImagePicker = true)
-            finish()
         }) }
     }
 
@@ -39,11 +35,10 @@ class SetupActivity : TerminalActivity() {
         .putBoolean(KEY_COMPLETED, true)
         .apply()
 
-    private fun launchMain(startRuntime: Boolean = false, openImagePicker: Boolean = false) {
+    private fun launchMain(startRuntime: Boolean = false) {
         startActivity(
             Intent(this, MainActivity::class.java)
                 .putExtra(MainActivity.EXTRA_START_RUNTIME, startRuntime)
-                .putExtra(MainActivity.EXTRA_OPEN_IMAGE_PICKER, openImagePicker)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         )
     }

@@ -3,18 +3,15 @@ package dev.terminal.app
 import android.content.Context
 import android.content.Intent
 import android.os.SystemClock
-import android.view.KeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import androidx.test.runner.lifecycle.ActivityLifecycleMonitorRegistry
-import androidx.test.runner.lifecycle.Stage
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
 
-/** Checks navigation and one-shot picker behavior without installing an image or starting AVF. */
+/** Checks legacy AVF settings navigation without installing an image or starting AVF. */
 @RunWith(AndroidJUnit4::class)
 class AvfImageSettingsTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
@@ -46,16 +43,7 @@ class AvfImageSettingsTest {
         assertTrue(node!!.performAction(AccessibilityNodeInfo.ACTION_CLICK))
     }
 
-    private fun mainActivity(): MainActivity? {
-        var activity: MainActivity? = null
-        instrumentation.runOnMainSync {
-            activity = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
-                .filterIsInstance<MainActivity>().singleOrNull()
-        }
-        return activity
-    }
-
-    @Test fun imageSettingsAndOfflinePickerDoNotReopenInitialSetup() {
+    @Test fun imageSettingsOpenEnvironmentsWithoutChangingInitialSetup() {
         val setupBefore = context.getSharedPreferences("setup-state", Context.MODE_PRIVATE).all.toMap()
         val intent = Intent(context, SettingsDetailActivity::class.java)
             .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, SettingsDetailActivity.AVF_IMAGE)
@@ -66,15 +54,18 @@ class AvfImageSettingsTest {
             assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_image_current_build)))
             scenario.recreate()
             waitUntil { find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_image_profile_support)) != null }
-            click(label(R.string.select_avf_image))
-            waitUntil { instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString()?.endsWith(".documentsui") == true }
-            assertEquals(setupBefore, context.getSharedPreferences("setup-state", Context.MODE_PRIVATE).all)
-            instrumentation.sendKeyDownUpSync(KeyEvent.KEYCODE_BACK)
-            waitUntil { mainActivity() != null && instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == context.packageName }
-            val original = mainActivity()!!
-            instrumentation.runOnMainSync { original.recreate() }
-            waitUntil { mainActivity()?.let { it !== original } == true &&
-                instrumentation.uiAutomation.rootInActiveWindow?.packageName?.toString() == context.packageName }
+            val monitor = instrumentation.addMonitor(EnvironmentActivity::class.java.name, null, false)
+            try {
+                click(label(R.string.avf_image_profile_support))
+                val environments = monitor.waitForActivityWithTimeout(5000)
+                assertNotNull("AVF image settings open execution environments", environments)
+                assertEquals(setupBefore, context.getSharedPreferences("setup-state", Context.MODE_PRIVATE).all)
+                instrumentation.runOnMainSync { requireNotNull(environments).finish() }
+                waitUntil { find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_image_profile_support)) != null }
+                assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.setup_headline)))
+            } finally {
+                instrumentation.removeMonitor(monitor)
+            }
         }
     }
 }

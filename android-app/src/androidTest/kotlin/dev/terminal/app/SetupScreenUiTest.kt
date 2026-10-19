@@ -48,9 +48,8 @@ class SetupScreenUiTest {
         }
     }
 
-    @Test fun compactLargeTextKeepsBothActionsReachableAndSeparate() {
+    @Test fun compactLargeTextKeepsStartAndLinuxGuidanceReachable() {
         val starts = AtomicInteger()
-        val imports = AtomicInteger()
         ActivityScenario.launch<SetupActivity>(setupIntent()).use { scenario ->
             scenario.onActivity { activity ->
                 activity.setContent {
@@ -60,7 +59,7 @@ class SetupScreenUiTest {
                             Box(Modifier.width(320.dp).height(420.dp).semantics {
                                 contentDescription = "Compact setup fixture"
                             }) {
-                                SetupScreen(onStart = { starts.incrementAndGet() }, onImage = { imports.incrementAndGet() })
+                                SetupScreen(onStart = { starts.incrementAndGet() })
                             }
                         }
                     }
@@ -69,10 +68,8 @@ class SetupScreenUiTest {
             waitFor { it.contentDescription?.toString() == "Compact setup fixture" }
             click(scrollTo(R.string.start_terminal))
             assertEquals(1, starts.get())
-            assertEquals(0, imports.get())
-            click(scrollTo(R.string.setup_import_image))
-            assertEquals(1, starts.get())
-            assertEquals(1, imports.get())
+            scrollTo(R.string.setup_rootless_description)
+            scrollTo(R.string.setup_avf_description)
         }
     }
 

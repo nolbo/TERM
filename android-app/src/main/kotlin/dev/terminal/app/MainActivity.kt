@@ -57,7 +57,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
-import androidx.documentfile.provider.DocumentFile
 import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 import dev.terminal.view.TerminalView
@@ -96,13 +95,9 @@ import dev.terminal.app.ui.reconcileSessionTabs
 import dev.terminal.app.ui.requestSessionTermination
 import dev.terminal.app.ui.runtimeSelectionAction
 import dev.terminal.app.ui.validatedSessionTitle
-import dev.terminal.image.AvfImageInstaller
-import dev.terminal.image.AvfImageLayout
-import dev.terminal.image.ImageInstallResult
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.ipc.IRuntimeStateListener
 import dev.terminal.runtime.lifecycle.VmRuntimeService
-import java.nio.file.Files
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -360,10 +355,6 @@ class MainActivity : TerminalActivity() {
 
     private val notificationPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (!granted) feedbackMessage = "세션 알림을 보려면 앱 설정에서 알림을 허용해 주세요."
-    }
-
-    private val imagePicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-        uri?.let { importImage(DocumentFile.fromTreeUri(this, it) ?: return@let) }
     }
 
     private fun createRuntimeListener(generation: Long) = object : IRuntimeStateListener.Stub() {
@@ -1690,11 +1681,6 @@ class MainActivity : TerminalActivity() {
             // Never create a replacement if the PTY owner has already lost this session.
             intent.removeExtra(dev.terminal.runtime.notifications.SessionNotificationSettings.EXTRA_SESSION_ID)
         }
-        if (intent.getBooleanExtra(EXTRA_OPEN_IMAGE_PICKER, false)) {
-            // Navigation actions are one-shot; rotation must not reopen the picker.
-            intent.removeExtra(EXTRA_OPEN_IMAGE_PICKER)
-            imagePicker.launch(null)
-        }
     }
 
     private fun safeRuntimeCall(action: (IRuntimeService) -> Unit) {
@@ -1756,33 +1742,7 @@ class MainActivity : TerminalActivity() {
         }
     }
 
-    private fun importImage(directory: DocumentFile) = Thread {
-        val destination = filesDir.toPath().resolve("vm/default")
-        val staging = AvfImageInstaller.newStagingPath(destination)
-        val message = runCatching {
-            Files.createDirectories(destination.parent)
-            Files.createDirectories(staging)
-            val layout = AvfImageLayout(staging)
-            listOf(layout.manifest, layout.kernelImage, layout.initrdImage, layout.systemImage, layout.homeImage, layout.configImage)
-                .forEach { target ->
-                    val source = directory.findFile(target.fileName.toString())
-                        ?: error(getString(R.string.image_required_file_missing, target.fileName))
-                    contentResolver.openInputStream(source.uri)?.use { input -> dev.terminal.image.AvfSparseFiles.copy(input, target) }
-                        ?: error(getString(R.string.image_open_failed, target.fileName))
-                }
-            when (val result = AvfImageInstaller.install(staging, destination, expectedDistribution = dev.terminal.image.AvfDistribution.DEBIAN,
-                consumeStagingDirectory = true)) {
-                is ImageInstallResult.Installed -> getString(R.string.image_imported)
-                is ImageInstallResult.AlreadyInstalled -> getString(R.string.image_already_installed)
-                is ImageInstallResult.Failed -> error(result.reason)
-            }
-        }.getOrElse { getString(R.string.image_import_failed, it.message ?: it.javaClass.simpleName) }
-        runOnUiThread { feedbackMessage = message }
-        runCatching { Files.walk(staging).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach(Files::deleteIfExists) } }
-    }.start()
-
     companion object {
-        const val EXTRA_OPEN_IMAGE_PICKER = "open_image_picker"
         const val EXTRA_START_RUNTIME = "start_runtime"
     }
 }

@@ -46,7 +46,6 @@
     <string name="setup_linux_later">설정 → 프로필에서 사용할 Linux 환경을 선택하고 설치할 수 있습니다.</string>
     <string name="setup_rootless_description">Debian·Ubuntu 등의 배포판과 패키지 관리자를 사용합니다. 루트 권한이 필요하지 않습니다.</string>
     <string name="setup_avf_description">실제 Linux 커널을 가상 머신에서 실행합니다. 지원 기기와 특권 설정이 필요합니다.</string>
-    <string name="setup_import_image">로컬 AVF Debian 이미지 가져오기</string>
     <string name="runtime_native_title">Android Native</string>
     <string name="runtime_native_setup">즉시 실행</string>
     <string name="runtime_native_description">Android/Bionic 셸 · 추가 권한 없음</string>
@@ -64,8 +63,6 @@
     <string name="runtime_avf_setup">지원 기기 필요</string>
     <string name="runtime_avf_description">실제 Linux 커널 · 지원 기기와 특권 제품 설정 필요</string>
     <string name="start_terminal">터미널 시작</string>
-    <string name="select_avf_image">기본 AVF Debian 이미지 선택</string>
-    <string name="avf_image_note">로컬 이미지가 있을 때만 선택하세요. 지원 기기와 특권 설정이 필요합니다.</string>
     <string name="new_session">새 세션</string>
     <string name="select_profile">프로필 선택</string>
     <string name="create_profile">새 프로필 만들기</string>
@@ -124,11 +121,6 @@
     <string name="install_cancel">설치 취소</string>
     <string name="install_cancelling">설치 취소 중…</string>
     <string name="install_cancelled">설치 취소됨</string>
-    <string name="image_imported">Debian 이미지를 가져왔습니다</string>
-    <string name="image_already_installed">Debian 이미지가 이미 설치되어 있습니다</string>
-    <string name="image_import_failed">이미지 가져오기 실패: %1$s</string>
-    <string name="image_required_file_missing">필수 파일 누락: %1$s</string>
-    <string name="image_open_failed">파일을 열 수 없음: %1$s</string>
     <string name="settings_search_hint">설정 검색</string>
     <string name="settings_search_clear">검색어 지우기</string>
     <string name="settings_search_no_results">일치하는 설정이 없습니다.</string>
