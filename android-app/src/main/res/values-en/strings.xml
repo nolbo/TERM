@@ -208,6 +208,8 @@
     <string name="toolbar_loading">Measuring…</string>
     <string name="toolbar_page_position">Tool %1$d of %2$d</string>
     <string name="app_info">App info</string>
+    <string name="debug_open_setup">Open initial setup</string>
+    <string name="debug_open_setup_summary">Temporary debug-only shortcut</string>
     <string name="app_info_summary">Version and licenses</string>
     <string name="app_version">App version</string>
     <string name="app_package_name">Package name</string>

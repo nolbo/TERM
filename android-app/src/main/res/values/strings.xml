@@ -490,6 +490,8 @@
     <string name="toolbar_loading">측정 중…</string>
     <string name="toolbar_page_position">도구 %2$d개 중 %1$d번째</string>
     <string name="app_info">앱 정보</string>
+    <string name="debug_open_setup">초기 설정 화면 열기</string>
+    <string name="debug_open_setup_summary">디버그 전용 임시 버튼</string>
     <string name="app_info_summary">버전 정보와 라이선스</string>
     <string name="app_version">앱 버전</string>
     <string name="app_package_name">패키지명</string>
