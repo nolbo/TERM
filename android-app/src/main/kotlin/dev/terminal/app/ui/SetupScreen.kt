@@ -17,7 +17,6 @@ import dev.terminal.app.R
 
 private data class SetupRuntime(
     val title: Int,
-    val label: Int,
     val description: Int,
     @param:DrawableRes val icon: Int,
 )
@@ -25,11 +24,11 @@ private data class SetupRuntime(
 @Composable
 fun SetupScreen(onStart: () -> Unit) {
     val runtimes = listOf(
-        SetupRuntime(R.string.runtime_native_title, R.string.runtime_native_setup,
+        SetupRuntime(R.string.runtime_native_title,
             R.string.setup_native_description, profileIconDrawable("native")),
-        SetupRuntime(R.string.runtime_rootless_title, R.string.runtime_rootless_setup,
+        SetupRuntime(R.string.runtime_rootless_title,
             R.string.setup_rootless_description, profileIconDrawable("rootless")),
-        SetupRuntime(R.string.runtime_avf_title, R.string.runtime_avf_setup,
+        SetupRuntime(R.string.runtime_avf_title,
             R.string.setup_avf_description, profileIconDrawable("avf")),
     )
     Scaffold(
@@ -98,8 +97,6 @@ private fun SetupRuntimeSummary(runtime: SetupRuntime) {
         }
         Spacer(Modifier.width(16.dp))
         Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(stringResource(runtime.label), color = MaterialTheme.colorScheme.onSurfaceVariant,
-                style = MaterialTheme.typography.labelMedium)
             Text(stringResource(runtime.title), style = MaterialTheme.typography.titleMedium)
             Text(stringResource(runtime.description), style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
