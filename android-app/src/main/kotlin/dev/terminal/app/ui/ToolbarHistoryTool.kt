@@ -55,13 +55,6 @@ import dev.terminal.app.R
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
-private val HistorySearchScope.icon: Int
-    get() = when (this) {
-        HistorySearchScope.Commands -> R.drawable.ic_material_symbol_terminal_24
-        HistorySearchScope.Output -> R.drawable.ic_material_symbol_subject_24
-        HistorySearchScope.All -> R.drawable.ic_material_symbol_layers_24
-    }
-
 private data class HistoryToolSnapshot(
     val commands: List<HistoryCommand> = emptyList(),
     val row: Int = 0,
@@ -257,10 +250,8 @@ internal fun ToolbarHistoryTool(active: Boolean, onReturnToTerminal: () -> Unit,
                                 shapes = MenuDefaults.itemShape(index, HistorySearchScope.entries.size),
                                 text = { Text(stringResource(scope.title)) },
                                 onClick = { searchScope = scope; menu = false },
-                                leadingIcon = { Icon(painterResource(scope.icon), null,
-                                    modifier = Modifier.size(MenuDefaults.LeadingIconSize)) },
                                 trailingContent = { if (scope == searchScope) Icon(
-                                    painterResource(R.drawable.ic_material_symbol_check_circle_24), null,
+                                    painterResource(R.drawable.ic_material_symbol_check_24), null,
                                     modifier = Modifier.size(MenuDefaults.TrailingIconSize)) })
                         }
                     }
