@@ -46,6 +46,11 @@ COPY image/scripts/image-selftest /payload/image-selftest
 COPY image/scripts/image-apt-selftest /payload/image-apt-selftest
 COPY image/scripts/image-pacman-selftest /payload/image-pacman-selftest
 COPY image/scripts/image-user-selftest /payload/image-user-selftest
+COPY image/scripts/image-update-selftest /payload/image-update-selftest
+COPY image/scripts/build-guest-package.py /payload/build-guest-package.py
+COPY image/scripts/maintain-avf-image.sh /payload/maintain-avf-image.sh
+COPY image/scripts/migrate-avf-state.py /payload/migrate-avf-state.py
+COPY image/scripts/check-avf-image.sh /payload/check-avf-image.sh
 COPY image/scripts/smoke-avf-image.py /usr/local/bin/smoke-avf-image.py
 COPY image/scripts/assemble-avf-image.sh /usr/local/bin/assemble-avf-image
 COPY image/scripts/provision-debian-shares.sh /usr/local/bin/provision-debian-shares

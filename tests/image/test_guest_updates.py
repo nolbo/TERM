@@ -1,6 +1,8 @@
 import importlib.util
 import contextlib
 from pathlib import Path
+import re
+import shlex
 import subprocess
 import tarfile
 import tempfile
@@ -22,6 +24,24 @@ packaging = load("build-guest-package")
 
 
 class GuestUpdatesTest(unittest.TestCase):
+    def test_factory_payload_supplies_every_guest_configuration_input(self):
+        # Check the producer/consumer boundary without requiring an appliance boot.
+        dockerfile = (REPO / "image/scripts/Dockerfile").read_text()
+        payload = set()
+        for line in dockerfile.splitlines():
+            if line.startswith("COPY "):
+                fields = shlex.split(line)
+                destination = Path(fields[-1])
+                if str(destination).startswith("/payload/"):
+                    payload.add(destination.name)
+                    if not fields[1].startswith("--from="):
+                        for source in fields[1:-1]:
+                            self.assertTrue((REPO / source).is_file(), source)
+        configure = (REPO / "image/scripts/configure-avf-guest.sh").read_text()
+        required = set(re.findall(r"/tmp/term-avf/([\w.-]+)", configure))
+        required.update(shlex.split(re.search(r"for script in ([^;]+); do", configure).group(1)))
+        self.assertFalse(required - payload, f"Missing guest payload: {sorted(required - payload)}")
+
     def test_component_update_installs_exact_approved_local_version_even_if_hash_sorts_earlier(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
