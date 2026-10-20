@@ -37,6 +37,8 @@ class GuestUpdatesTest(unittest.TestCase):
                 "Version: 1\nDescription: fixture\n\n")
             config = root / "apt.conf"
             config.write_text(
+                # Model the ARM64 guest independently of the test host's architecture.
+                'APT::Architecture "arm64";\nAPT::Architectures { "arm64"; };\n'
                 f'Dir "{root}";\nDir::State "var/lib/apt";\n'
                 f'Dir::State::status "{root}/var/lib/dpkg/status";\n'
                 'Dir::Cache "var/cache/apt";\nDir::Cache::pkgcache "pkgcache.bin";\n'
