@@ -54,7 +54,8 @@ def build(root, distribution):
                 for file in sorted(staging.rglob("*")):
                     archive.add(file, arcname=str(file.relative_to(staging)), recursive=False)
     # Capture the factory's baseline, so full transitions replay user selections only.
-    command = ["apt-mark", "showmanual"] if distribution in ("debian", "ubuntu") else ["pacman", "-Qqe"]
+    command = (["apt-mark", "-o", "Dir::Cache::pkgcache=", "-o", "Dir::Cache::srcpkgcache=", "showmanual"]
+               if distribution in ("debian", "ubuntu") else ["pacman", "-Qqe"])
     (output / "base-packages").write_bytes(subprocess.check_output(command))
 
 

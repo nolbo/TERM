@@ -1,5 +1,6 @@
 import importlib.util
 import contextlib
+import os
 from pathlib import Path
 import re
 import shlex
@@ -24,6 +25,31 @@ packaging = load("build-guest-package")
 
 
 class GuestUpdatesTest(unittest.TestCase):
+    def test_apt_baseline_records_manual_packages_without_recreating_sealed_caches(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for directory in ("var/lib/apt/lists/partial", "var/lib/dpkg", "var/cache/apt",
+                              "etc/apt/apt.conf.d", "etc/apt/sources.list.d", "etc/apt/preferences.d"):
+                (root / directory).mkdir(parents=True, exist_ok=True)
+            (root / "var/lib/dpkg/status").write_text(
+                "Package: term-fixture\nStatus: install ok installed\nPriority: optional\n"
+                "Section: misc\nInstalled-Size: 1\nMaintainer: TERM\nArchitecture: arm64\n"
+                "Version: 1\nDescription: fixture\n\n")
+            config = root / "apt.conf"
+            config.write_text(
+                f'Dir "{root}";\nDir::State "var/lib/apt";\n'
+                f'Dir::State::status "{root}/var/lib/dpkg/status";\n'
+                'Dir::Cache "var/cache/apt";\nDir::Cache::pkgcache "pkgcache.bin";\n'
+                'Dir::Cache::srcpkgcache "srcpkgcache.bin";\nDir::Etc "etc/apt";\n')
+            binary = root / "usr/local/lib/droid/droid-sessiond"
+            binary.parent.mkdir(parents=True)
+            binary.write_bytes(b"guest binary")
+            binary.chmod(0o755)
+            with patch.dict(os.environ, {"APT_CONFIG": str(config)}):
+                packaging.build(root, "debian")
+            self.assertEqual((root / "usr/share/term/base-packages").read_text(), "term-fixture\n")
+            self.assertEqual(list((root / "var/cache/apt").iterdir()), [])
+
     def test_factory_payload_supplies_every_guest_configuration_input(self):
         # Check the producer/consumer boundary without requiring an appliance boot.
         dockerfile = (REPO / "image/scripts/Dockerfile").read_text()
