@@ -5,6 +5,25 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SettingsSearchTest {
+    @Test fun debugCategoriesAndActionsAreHiddenInReleaseAndSearchOnlyOpensTheDebugScreen() {
+        for (hasAvf in listOf(false, true)) {
+            val release = visibleSettingsSearchEntries(hasAvf, isDebug = false)
+            assertFalse(release.any { it.target.screen == "debug" })
+            val debug = visibleSettingsSearchEntries(hasAvf, isDebug = true)
+            assertEquals(release + debugSettingsSearchEntries, debug)
+            val entries = debug.filter { it.target.screen == "debug" }
+            assertEquals(8, entries.size)
+            assertEquals(listOf(R.string.settings_debug_title), entries.filter { it.path.isEmpty() }.map { it.title })
+            assertTrue(entries.filter { it.path.isNotEmpty() }.all { it.path == listOf(R.string.settings_debug_title) })
+            assertEquals(SettingsSearchTarget("debug", 1), entries.single { it.title == R.string.debug_open_setup }.target)
+            assertEquals(SettingsSearchTarget("debug", 1), entries.single { it.title == R.string.debug_recreate_activity }.target)
+            assertEquals(SettingsSearchTarget("debug", 2), entries.single { it.title == R.string.debug_copy_info }.target)
+            assertEquals(SettingsSearchTarget("debug", 3), entries.single { it.title == R.string.debug_build_device }.target)
+            val keys = debug.map { it.target.screen to it.title }
+            assertEquals(keys.size, keys.toSet().size)
+        }
+    }
+
     @Test fun hapticSearchIncludesOnlyTheMasterAndScrollSwitches() {
         val haptics = settingsSearchEntries.filter { R.string.section_haptics in it.path }
         assertEquals(listOf(R.string.haptic_feedback, R.string.haptic_scroll), haptics.map { it.title })

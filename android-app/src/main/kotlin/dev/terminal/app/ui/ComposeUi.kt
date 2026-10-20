@@ -671,7 +671,7 @@ internal fun sessionStateLabel(state: String): String = stringResource(
 
 @Composable
 internal fun SettingsOverview(onBack: () -> Unit, onOpen: (SettingsSearchTarget) -> Unit, hasAvfPrivileges: Boolean) {
-    val rows = visibleSettingsSearchEntries(hasAvfPrivileges).map { entry ->
+    val rows = visibleSettingsSearchEntries(hasAvfPrivileges, dev.terminal.app.BuildConfig.DEBUG).map { entry ->
         LocalizedSettingsEntry(entry, stringResource(entry.title),
             entry.summary?.let { stringResource(it) }.orEmpty(),
             entry.path.map { stringResource(it) }.joinToString(" › "))
@@ -726,7 +726,7 @@ internal fun SettingsOverview(onBack: () -> Unit, onOpen: (SettingsSearchTarget)
             } else if (query.isBlank()) {
                 val groups = listOf(listOf("environments", "profiles", "workspaces"),
                     listOf("shared-folders"), listOf("language", "terminal"),
-                    listOf("rootless", "avf"), listOf("diagnostics", "updates", "about"))
+                    listOf("rootless", "avf"), listOf("diagnostics", "updates", "about"), listOf("debug"))
                     .map { screens -> visibleRows.filter { it.entry.target.screen in screens } }
                     .filter { it.isNotEmpty() }
                 items(groups, key = { "group:${it.first().entry.target.screen}" }) { group ->

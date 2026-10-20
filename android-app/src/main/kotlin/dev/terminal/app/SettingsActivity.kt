@@ -25,6 +25,13 @@ class SettingsActivity : TerminalActivity() {
     }
 
     private fun open(target: SettingsSearchTarget) {
+        if (target.screen == "debug") {
+            if (BuildConfig.DEBUG) {
+                startActivity(Intent().setClassName(this, "dev.terminal.app.DebugSettingsActivity")
+                    .putExtra(SettingsDetailActivity.EXTRA_SECTION_INDEX, target.sectionIndex))
+            }
+            return
+        }
         if (target.screen == SettingsDetailActivity.AVF && !SessionProfiles(this).hasAvfPrivileges()) return
         val activity = when (target.screen) {
             "environments", "storage" -> EnvironmentActivity::class.java

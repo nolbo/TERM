@@ -5,8 +5,9 @@ import dev.terminal.app.R
 /** A search result opens a screen, never executes a setting's action. */
 internal data class SettingsSearchTarget(val screen: String, val sectionIndex: Int = 0)
 
-internal fun visibleSettingsSearchEntries(hasAvfPrivileges: Boolean): List<SettingsSearchEntry> =
-    settingsSearchEntries.filter { hasAvfPrivileges || it.target.screen != "avf" &&
+internal fun visibleSettingsSearchEntries(hasAvfPrivileges: Boolean, isDebug: Boolean = false): List<SettingsSearchEntry> =
+    (settingsSearchEntries + if (isDebug) debugSettingsSearchEntries else emptyList())
+        .filter { hasAvfPrivileges || it.target.screen != "avf" &&
         it.title !in setOf(R.string.avf_check_updates, R.string.avf_rollback_image) }
 
 internal data class SettingsSearchEntry(
@@ -16,6 +17,23 @@ internal data class SettingsSearchEntry(
     val target: SettingsSearchTarget,
     val icon: Int,
 )
+
+/** Every debug result opens the debug screen; searching never executes its action. */
+internal val debugSettingsSearchEntries: List<SettingsSearchEntry> = buildList {
+    fun entry(title: Int, summary: Int?, section: Int) {
+        add(SettingsSearchEntry(title, summary, listOf(R.string.settings_debug_title),
+            SettingsSearchTarget("debug", section), R.drawable.ic_material_symbol_code_24))
+    }
+    add(SettingsSearchEntry(R.string.settings_debug_title, R.string.settings_debug_summary, emptyList(),
+        SettingsSearchTarget("debug"), R.drawable.ic_material_symbol_code_24))
+    entry(R.string.debug_open_setup, R.string.debug_open_setup_summary, 1)
+    entry(R.string.debug_recreate_activity, R.string.debug_recreate_activity_summary, 1)
+    entry(R.string.debug_copy_info, R.string.debug_copy_info_summary, 2)
+    entry(R.string.debug_app_settings, R.string.debug_app_settings_summary, 2)
+    entry(R.string.memory_diagnostics_title, R.string.memory_diagnostics_description, 2)
+    entry(R.string.crash_reports_title, R.string.crash_reports_summary, 2)
+    entry(R.string.debug_build_device, null, 3)
+}
 
 internal data class LocalizedSettingsEntry(
     val entry: SettingsSearchEntry,

@@ -56,15 +56,6 @@ class AppInfoActivity : TerminalActivity() {
             LazyColumn(Modifier.fillMaxSize().padding(padding),
                 contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp)) {
-                // Temporary debug shortcut for checking the first-launch UI.
-                if (BuildConfig.DEBUG) item {
-                    SettingsGroup {
-                        NavigationRow(stringResource(R.string.debug_open_setup), stringResource(R.string.debug_open_setup_summary)) {
-                            startActivity(Intent(this@AppInfoActivity, SetupActivity::class.java)
-                                .putExtra(SetupActivity.EXTRA_SHOW_SETUP, true))
-                        }
-                    }
-                }
                 item {
                     SettingsGroup {
                         InfoRow(R.string.app_version, BuildConfig.VERSION_NAME)
