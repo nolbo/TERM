@@ -27,7 +27,7 @@ internal fun rootlessInstallationSteps(phase: String?, active: Boolean,
 }
 
 @Composable
-internal fun RootlessInstallCard(
+internal fun RootlessInstallProgress(
     title: String?,
     status: String,
     detail: String,
@@ -39,10 +39,11 @@ internal fun RootlessInstallCard(
     cancelled: Boolean = false,
     onRetry: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    onDismiss: (() -> Unit)? = null,
 ) {
     val wasCancelled = cancelled || progress?.phase == "CANCELLED"
     val active = running && error == null && !wasCancelled
-    InstallationProgressCard(
+    InstallationProgress(
         title = title,
         status = when {
             active && cancelling -> stringResource(R.string.install_cancelling)
@@ -55,6 +56,7 @@ internal fun RootlessInstallCard(
         progress = progress,
         steps = rootlessInstallationSteps(progress?.phase, active, failed = error != null, cancelled = wasCancelled),
         note = when {
+            active && onDismiss != null -> stringResource(R.string.install_background_note)
             active -> stringResource(R.string.rootless_setup_description) + "\n\n" + stringResource(R.string.rootless_install_note)
             wasCancelled -> stringResource(R.string.rootless_install_cancelled_note)
             error != null -> stringResource(R.string.rootless_install_note)
@@ -66,5 +68,6 @@ internal fun RootlessInstallCard(
         cancelling = cancelling,
         onRetry = onRetry?.takeIf { error != null || wasCancelled },
         modifier = modifier,
+        onDismiss = onDismiss,
     )
 }

@@ -43,9 +43,9 @@ internal fun installationSteps(titles: List<Int>, current: Int?, active: Boolean
     }
 }
 
-/** Runtime adapters supply observed state and commands; this card never owns installation work. */
+/** Runtime adapters supply observed state and commands; the UI never owns installation work. */
 @Composable
-internal fun InstallationProgressCard(
+internal fun InstallationProgress(
     title: String?,
     status: String,
     active: Boolean,
@@ -60,15 +60,13 @@ internal fun InstallationProgressCard(
     cancelling: Boolean = false,
     cancelError: String? = null,
     onRetry: (() -> Unit)? = null,
+    onDismiss: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
-    Card(modifier.fillMaxWidth(),
-        shape = if (LocalSettingsGroup.current) SettingsItemShape else MaterialTheme.shapes.extraLarge,
-        colors = if (LocalSettingsGroup.current)
-            CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
-        else CardDefaults.cardColors()) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            title?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
+    val dialog = onDismiss != null
+    val content: @Composable () -> Unit = {
+        Column(if (dialog) modifier else Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (!dialog) title?.let { Text(it, style = MaterialTheme.typography.titleMedium) }
             Text(status, style = MaterialTheme.typography.bodyLarge,
                 color = if (error != null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
             (error ?: detail)?.takeIf { it.isNotBlank() && it != status }?.let {
@@ -88,19 +86,19 @@ internal fun InstallationProgressCard(
             else if (active) LinearWavyProgressIndicator(Modifier.fillMaxWidth())
             progressNote?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant) }
-            // Keep installation controls visible before a long list of stages.
-            if (active && onCancel != null) {
+            // Dialog actions remain fixed in the standard footer, outside the scrollable body.
+            if (!dialog && active && onCancel != null) {
                 OutlinedButton(onClick = onCancel, enabled = !cancelling,
                     modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                     Text(stringResource(if (cancelling) R.string.install_cancelling else R.string.install_cancel))
                 }
-            } else if (!active && onRetry != null) {
+            } else if (!dialog && !active && onRetry != null) {
                 Button(onClick = onRetry, modifier = Modifier.fillMaxWidth(), shapes = ButtonDefaults.shapes()) {
                     Text(stringResource(R.string.retry))
                 }
             }
             cancelError?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error) }
-            steps.forEachIndexed { index, step ->
+            if (!dialog) steps.forEachIndexed { index, step ->
                 val color = when (step.state) {
                     InstallationStepState.RUNNING -> TerminalStatusBlue
                     InstallationStepState.COMPLETE -> MaterialTheme.colorScheme.primary
@@ -129,10 +127,22 @@ internal fun InstallationProgressCard(
             Text(note, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
+    if (onDismiss != null) {
+        InstallationProgressDialog(title = requireNotNull(title), onDismiss = onDismiss,
+            onCancel = onCancel.takeIf { active }, cancelling = cancelling,
+            onRetry = onRetry.takeIf { !active }, content = content)
+    } else {
+        Card(modifier.fillMaxWidth(),
+            shape = if (LocalSettingsGroup.current) SettingsItemShape else MaterialTheme.shapes.extraLarge,
+            colors = if (LocalSettingsGroup.current)
+                CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow)
+            else CardDefaults.cardColors()) { content() }
+    }
 }
 
 @Composable
-internal fun InstallationProgressDialog(title: String, onDismiss: () -> Unit, content: @Composable () -> Unit) {
+private fun InstallationProgressDialog(title: String, onDismiss: () -> Unit,
+    onCancel: (() -> Unit)?, cancelling: Boolean, onRetry: (() -> Unit)?, content: @Composable () -> Unit) {
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(title) },
@@ -141,9 +151,17 @@ internal fun InstallationProgressDialog(title: String, onDismiss: () -> Unit, co
                 Column(Modifier.verticalScroll(rememberScrollState())) { content() }
             }
         },
-        confirmButton = {},
-        dismissButton = {
+        confirmButton = {
             TextButton(onClick = onDismiss, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.close)) }
+        },
+        dismissButton = {
+            if (onCancel != null) {
+                TextButton(onClick = onCancel, enabled = !cancelling, shapes = ButtonDefaults.shapes()) {
+                    Text(stringResource(if (cancelling) R.string.install_cancelling else R.string.install_cancel))
+                }
+            } else if (onRetry != null) {
+                TextButton(onClick = onRetry, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.retry)) }
+            }
         },
     )
 }

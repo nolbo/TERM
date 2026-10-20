@@ -18,7 +18,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
-import dev.terminal.app.ui.AvfImageInstallCard
+import dev.terminal.app.ui.AvfImageInstallProgress
 import dev.terminal.app.ui.DroidTheme
 import dev.terminal.app.ui.RootlessSetupDialog
 import androidx.compose.runtime.mutableStateOf
@@ -121,7 +121,7 @@ class InstallCancellationTest {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 scenario.onActivity { activity -> activity.setContent {
                     DroidTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
-                        AvfImageInstallCard(AvfImageInstallSnapshot(first.id.toString(), UUID.randomUUID().toString(),
+                        AvfImageInstallProgress(AvfImageInstallSnapshot(first.id.toString(), UUID.randomUUID().toString(),
                             AvfImageInstallState.WAITING, AvfImageInstallPhase.PREPARING))
                     } }
                 } }

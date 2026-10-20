@@ -29,8 +29,8 @@ private fun phaseTitle(phase: AvfImageInstallPhase) = when (phase) {
 
 /** The dialog and settings render the same persisted snapshot, without owning its work. */
 @Composable
-internal fun AvfImageInstallCard(snapshot: AvfImageInstallSnapshot, modifier: Modifier = Modifier,
-    onCancel: (suspend (String) -> Unit)? = null, showTitle: Boolean = true) {
+internal fun AvfImageInstallProgress(snapshot: AvfImageInstallSnapshot, modifier: Modifier = Modifier,
+    onCancel: (suspend (String) -> Unit)? = null, onDismiss: (() -> Unit)? = null) {
     val context = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     var cancelling by remember(snapshot.workId) { mutableStateOf(false) }
@@ -56,8 +56,8 @@ internal fun AvfImageInstallCard(snapshot: AvfImageInstallSnapshot, modifier: Mo
     val phases = AvfImageInstallPhase.entries.filter {
         if (snapshot.operation == "install") it != AvfImageInstallPhase.UPDATE else it != AvfImageInstallPhase.APT_REFRESH
     }
-    InstallationProgressCard(
-        title = if (showTitle) stringResource(R.string.avf_install_title) else null,
+    InstallationProgress(
+        title = stringResource(R.string.avf_install_title),
         status = stringResource(if (snapshot.active && cancelling) R.string.install_cancelling else stateTitle),
         detail = artifact,
         active = snapshot.active,
@@ -90,6 +90,7 @@ internal fun AvfImageInstallCard(snapshot: AvfImageInstallSnapshot, modifier: Mo
             }
         },
         modifier = modifier,
+        onDismiss = onDismiss,
     )
 }
 
@@ -105,8 +106,6 @@ internal fun AvfImageInstallationUi(snapshots: List<AvfImageInstallSnapshot>) {
             dismissedIds = (dismissedIds + snapshot.workId).distinct()
             visibleId = null
         }
-        InstallationProgressDialog(title = stringResource(R.string.avf_install_title), onDismiss = ::dismiss) {
-            AvfImageInstallCard(snapshot, showTitle = false)
-        }
+        AvfImageInstallProgress(snapshot, onDismiss = ::dismiss)
     }
 }

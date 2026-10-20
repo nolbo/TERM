@@ -649,13 +649,12 @@ fun RootlessSetupDialog(
     cancelled: Boolean = false,
     onDismiss: () -> Unit,
 ) {
-    InstallationProgressDialog(
+    RootlessInstallProgress(
         title = stringResource(R.string.rootless_installation_title, stringResource(runtimeTitleResource(runtimeType))),
+        status = status, detail = detail, running = running, progress = progress,
+        error = error, onCancelInstall = onCancelInstall, cancelling = cancelling, cancelled = cancelled, onRetry = onRetry,
         onDismiss = onDismiss,
-    ) {
-        RootlessInstallCard(title = null, status = status, detail = detail, running = running, progress = progress,
-            error = error, onCancelInstall = onCancelInstall, cancelling = cancelling, cancelled = cancelled, onRetry = onRetry)
-    }
+    )
 }
 
 @Composable

@@ -8,7 +8,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
-import dev.terminal.app.ui.AvfImageInstallCard
+import dev.terminal.app.ui.AvfImageInstallProgress
 import dev.terminal.app.ui.settingsItemSurface
 import dev.terminal.app.ui.terminalSettingsListItemColors
 import dev.terminal.image.BundledAvfImageCatalog
@@ -75,7 +75,7 @@ import kotlinx.coroutines.withContext
         }
         val progress = snapshot?.takeIf { it.active ||
             it.state in setOf(AvfImageInstallState.FAILED, AvfImageInstallState.CANCELLED) }
-        if (progress != null) AvfImageInstallCard(progress)
+        if (progress != null) AvfImageInstallProgress(progress)
         if ((installed == false || aptPending) && progress?.active != true) {
             val available = BundledAvfImageCatalog.find(distribution) != null
             EnvironmentActionSetting(if (aptPending) R.string.avf_apt_retry else R.string.avf_image_install, R.drawable.ic_material_symbol_download_24,

@@ -5,7 +5,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import dev.terminal.app.ui.RootlessInstallCard
+import dev.terminal.app.ui.RootlessInstallProgress
 import dev.terminal.app.ui.parseRootlessProgress
 import dev.terminal.app.ui.settingsItemSurface
 import dev.terminal.app.ui.terminalSettingsListItemColors
@@ -34,7 +34,7 @@ import org.json.JSONObject
             })
             val progress = parseRootlessProgress(status)
             if (busy || state == "ERROR" || state == "CANCELLED") {
-                RootlessInstallCard(title = stringResource(R.string.environment_distribution_installation),
+                RootlessInstallProgress(title = stringResource(R.string.environment_distribution_installation),
                     status = progress?.label ?: statusLabel, detail = status.optString("detail"), running = busy,
                     progress = progress, error = status.optString("detail").takeIf { state == "ERROR" },
                     onCancelInstall = onCancelInstall.takeIf { status.optBoolean("canCancel") || status.optBoolean("cancelling") },

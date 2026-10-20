@@ -11,7 +11,7 @@ import androidx.compose.ui.Modifier
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
-import dev.terminal.app.ui.AvfImageInstallCard
+import dev.terminal.app.ui.AvfImageInstallProgress
 import dev.terminal.app.ui.AvfImageInstallationUi
 import dev.terminal.app.ui.DroidTheme
 import dev.terminal.app.ui.InstallationConfirmationDialog
@@ -56,6 +56,35 @@ class AvfImageInstallUiTest {
         }
         assertNull("Unexpected visible text: $text", find(instrumentation.uiAutomation.rootInActiveWindow, text))
     }
+    private fun footerButton(text: String): AccessibilityNodeInfo {
+        waitFor(text)
+        fun findButton(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
+            if (node == null) return null
+            if (node.isVisibleToUser && node.text?.toString() == text) {
+                var candidate: AccessibilityNodeInfo? = node
+                while (candidate != null) {
+                    if (candidate.isClickable) return candidate
+                    candidate = candidate.parent
+                }
+            }
+            for (index in 0 until node.childCount) findButton(node.getChild(index))?.let { return it }
+            return null
+        }
+        val button = requireNotNull(findButton(instrumentation.uiAutomation.rootInActiveWindow))
+        var ancestor = button.parent
+        while (ancestor != null) {
+            assertFalse("Dialog action must stay outside the scrollable body: $text", ancestor.isScrollable)
+            ancestor = ancestor.parent
+        }
+        return button
+    }
+    private fun assertCompactDialog() {
+        for (number in 1..9) assertNull("Numbered installation step remains: $number",
+            find(instrumentation.uiAutomation.rootInActiveWindow, number.toString()))
+        assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.install_step_pending)))
+        footerButton(label(R.string.install_cancel))
+        footerButton(label(R.string.close))
+    }
     private fun snapshot(state: AvfImageInstallState = AvfImageInstallState.RUNNING,
         phase: AvfImageInstallPhase = AvfImageInstallPhase.DOWNLOAD, total: Long? = 100L * 1024 * 1024,
         error: String? = null): AvfImageInstallSnapshot {
@@ -99,7 +128,7 @@ class AvfImageInstallUiTest {
         }
     }
 
-    @Test fun userspaceDialogRetainsMeasuredStagesAndStopsElapsedTimeOnCompletion() {
+    @Test fun userspaceDialogKeepsCompactProgressAndFooterAcrossRecreationAndCompletion() {
         val now = SystemClock.elapsedRealtime()
         val recording = RootlessProgressUi("DOWNLOAD", label(R.string.install_stage_distribution_download),
             "Debian ARM64", .4f, 40L * 1024 * 1024, 100L * 1024 * 1024, now - 5000, now, null)
@@ -110,12 +139,14 @@ class AvfImageInstallUiTest {
             } }
             render()
             waitFor(context.getString(R.string.rootless_stage_percent, 40), contains = true)
-            waitFor(label(R.string.install_cancel))
+            assertCompactDialog()
+            assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.install_stage_packages)))
             scenario.recreate()
             render()
             waitFor(context.getString(R.string.rootless_stage_percent, 40), contains = true)
-            waitFor(label(R.string.install_stage_distribution_download))
-            waitFor(label(R.string.close))
+            // The snapshot retains its reported label across recreation, including locale changes.
+            waitFor(recording.label)
+            assertCompactDialog()
             SystemClock.sleep(1000)
             instrumentation.waitForIdleSync()
             val screenshot = instrumentation.uiAutomation.takeScreenshot()
@@ -144,11 +175,14 @@ class AvfImageInstallUiTest {
             } }
             render()
             waitFor(label(R.string.avf_install_title))
+            assertCompactDialog()
+            assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_install_booting)))
             waitFor(context.getString(R.string.rootless_stage_percent, 40), contains = true)
             waitFor(context.getString(R.string.avf_install_artifact, label(R.string.avf_install_system), 3))
             scenario.recreate()
             render()
             waitFor(context.getString(R.string.rootless_stage_percent, 40), contains = true)
+            assertCompactDialog()
             // Accessibility can update before the recreated dialog's first rendered frame.
             SystemClock.sleep(1000)
             instrumentation.waitForIdleSync()
@@ -158,9 +192,9 @@ class AvfImageInstallUiTest {
             }
             screenshot.recycle()
             if (InstrumentationRegistry.getArguments().getString("preview") == "true") SystemClock.sleep(20_000)
-            var close = find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.close))
-            while (close != null && !close.isClickable) close = close.parent
-            assertTrue(close!!.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            if (InstrumentationRegistry.getArguments().getString("externalClose") != "true") {
+                assertTrue(footerButton(label(R.string.close)).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            }
             waitForGone(label(R.string.avf_install_title))
             assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_install_open_progress)))
             assertEquals(AvfImageInstallState.RUNNING, recording.state)
@@ -174,10 +208,34 @@ class AvfImageInstallUiTest {
         }
     }
 
+    @Test fun avfFooterCancellationTargetsObservedWorkAndDisablesRepeatedRequests() {
+        val cancellations = java.util.concurrent.atomic.AtomicInteger()
+        val state = androidx.compose.runtime.mutableStateOf(snapshot())
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { AvfImageInstallProgress(state.value, onDismiss = {}, onCancel = { workId ->
+                    assertEquals("fixture-job", workId)
+                    cancellations.incrementAndGet()
+                }) }
+            } }
+            assertCompactDialog()
+            assertTrue(footerButton(label(R.string.install_cancel)).performAction(AccessibilityNodeInfo.ACTION_CLICK))
+            waitFor(label(R.string.install_cancelling))
+            assertFalse(footerButton(label(R.string.install_cancelling)).isEnabled)
+            assertTrue(footerButton(label(R.string.close)).isEnabled)
+            assertEquals(1, cancellations.get())
+            scenario.onActivity { state.value = snapshot(AvfImageInstallState.CANCELLED) }
+            waitFor(label(R.string.avf_install_cancelled))
+            waitForGone(label(R.string.install_cancel))
+            waitForGone(label(R.string.install_cancelling))
+            footerButton(label(R.string.close))
+        }
+    }
+
     @Test fun unknownDownloadAndFailureDoNotShowInventedPercentages() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             fun show(state: AvfImageInstallSnapshot) = scenario.onActivity { activity -> activity.setContent {
-                DroidTheme { Column(Modifier.verticalScroll(rememberScrollState())) { AvfImageInstallCard(state) } }
+                DroidTheme { Column(Modifier.verticalScroll(rememberScrollState())) { AvfImageInstallProgress(state) } }
             } }
             show(snapshot(total = null))
             waitFor(label(R.string.avf_install_download_note))
@@ -193,7 +251,7 @@ class AvfImageInstallUiTest {
     @Test fun aptRefreshFailureStaysDistinctFromCompletedImageInstallation() {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             fun show(state: AvfImageInstallSnapshot) = scenario.onActivity { activity -> activity.setContent {
-                DroidTheme { Column(Modifier.verticalScroll(rememberScrollState())) { AvfImageInstallCard(state) } }
+                DroidTheme { Column(Modifier.verticalScroll(rememberScrollState())) { AvfImageInstallProgress(state) } }
             } }
             show(snapshot(phase = AvfImageInstallPhase.APT_REFRESH))
             waitFor(label(R.string.avf_install_apt_refresh))
@@ -220,7 +278,7 @@ class AvfImageInstallUiTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 DroidTheme { Column(Modifier.verticalScroll(rememberScrollState())) {
-                    AvfImageInstallCard(snapshot(AvfImageInstallState.FAILED, AvfImageInstallPhase.BOOT, error = error))
+                    AvfImageInstallProgress(snapshot(AvfImageInstallState.FAILED, AvfImageInstallPhase.BOOT, error = error))
                 } }
             } }
             waitFor(error)
