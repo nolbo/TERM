@@ -17,7 +17,7 @@ FROM debian:bookworm-slim
 ARG AVF_DISTRIBUTION=debian
 ENV AVF_DISTRIBUTION=$AVF_DISTRIBUTION
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
-      libguestfs-tools linux-image-arm64 qemu-system-arm e2fsprogs python3 ca-certificates xz-utils openssh-sftp-server && \
+      libguestfs-tools linux-image-arm64 qemu-system-arm ipxe-qemu e2fsprogs python3 ca-certificates xz-utils openssh-sftp-server && \
     rm -rf /var/lib/apt/lists/*
 RUN useradd --uid 1000 --no-create-home --shell /usr/sbin/nologin term-share-probe
 COPY image/scripts/prepare-avf-rootfs.py image/scripts/avf-distributions.json /usr/local/lib/term-factory/
