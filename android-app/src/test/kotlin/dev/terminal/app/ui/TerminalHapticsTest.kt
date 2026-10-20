@@ -13,22 +13,28 @@ class TerminalHapticsTest {
         }
     }
 
-    @Test fun scrollTicksRespectMasterSwitchAndDensity() {
-        assertEquals(0, TerminalHapticSettings(false, TerminalHapticDensity.HIGH, true).scrollRowsPerTick())
-        assertEquals(0, TerminalHapticSettings(true, TerminalHapticDensity.HIGH, false).scrollRowsPerTick())
-        assertEquals(6, TerminalHapticSettings(true, TerminalHapticDensity.LOW, true).scrollRowsPerTick())
-        assertEquals(3, TerminalHapticSettings(true, TerminalHapticDensity.STANDARD, true).scrollRowsPerTick())
-        assertEquals(1, TerminalHapticSettings(true, TerminalHapticDensity.HIGH, true).scrollRowsPerTick())
+    @Test fun scrollTicksRespectBothSwitchesAndUseEveryRowWhenEnabled() {
+        assertEquals(0, TerminalHapticSettings(false, true).scrollRowsPerTick())
+        assertEquals(0, TerminalHapticSettings(false, false).scrollRowsPerTick())
+        assertEquals(0, TerminalHapticSettings(true, false).scrollRowsPerTick())
+        assertEquals(1, TerminalHapticSettings(true, true).scrollRowsPerTick())
     }
 
-    @Test fun masterSwitchAndDensityGateComposeHaptics() {
+    @Test fun enablingHapticsIncludesKeyboardTapsAndContinuousAdjustments() {
         val recording = RecordingHaptics()
-        TerminalHaptics(recording, TerminalHapticSettings(false, TerminalHapticDensity.HIGH, true))
-            .performHapticFeedback(HapticFeedbackType.Confirm)
-        TerminalHaptics(recording, TerminalHapticSettings(true, TerminalHapticDensity.LOW, true))
-            .performHapticFeedback(HapticFeedbackType.KeyboardTap)
-        TerminalHaptics(recording, TerminalHapticSettings(true, TerminalHapticDensity.STANDARD, true))
-            .performHapticFeedback(HapticFeedbackType.KeyboardTap)
-        assertEquals(listOf(HapticFeedbackType.KeyboardTap), recording.events)
+        val haptics = TerminalHaptics(recording, TerminalHapticSettings(true, false))
+        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+        haptics.performDenseHapticFeedback(HapticFeedbackType.KeyboardTap)
+        assertEquals(listOf(HapticFeedbackType.Confirm, HapticFeedbackType.KeyboardTap, HapticFeedbackType.KeyboardTap), recording.events)
+    }
+
+    @Test fun masterSwitchDisablesBothNormalAndContinuousFeedback() {
+        val recording = RecordingHaptics()
+        val haptics = TerminalHaptics(recording, TerminalHapticSettings(false, true))
+        haptics.performHapticFeedback(HapticFeedbackType.Confirm)
+        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+        haptics.performDenseHapticFeedback(HapticFeedbackType.KeyboardTap)
+        assertEquals(emptyList<HapticFeedbackType>(), recording.events)
     }
 }

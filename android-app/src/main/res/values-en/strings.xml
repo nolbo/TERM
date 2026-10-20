@@ -28,14 +28,9 @@
     <string name="smooth_scrolling">Smooth scrolling</string>
     <string name="smooth_scrolling_support">Smooth pixel-based scrolling with inertia. Off by default; applies on return to the terminal.</string>
     <string name="haptic_feedback">Use haptic feedback</string>
-    <string name="haptic_feedback_support">Turn tactile feedback for hotkeys, tabs, and completed actions on or off.</string>
-    <string name="haptic_density">Haptic density</string>
-    <string name="haptic_density_support">Low: completion and long press · Standard: primary controls · High: continuous adjustments too</string>
-    <string name="haptic_density_low">Low</string>
-    <string name="haptic_density_standard">Standard</string>
-    <string name="haptic_density_high">High</string>
+    <string name="haptic_feedback_support">Turn tactile feedback for hotkeys, tabs, continuous adjustments, and completed actions on or off.</string>
     <string name="haptic_scroll">Scroll haptics</string>
-    <string name="haptic_scroll_support">Vibrate at the selected density while scrolling through history.</string>
+    <string name="haptic_scroll_support">Provide tactile feedback for each row while scrolling through history.</string>
     <string name="terminal_padding">Terminal padding</string>
     <string name="terminal_padding_support">0–32 dp on each side; 4 dp by default. Applied when you return to the terminal.</string>
     <string name="app_name">TERM</string>

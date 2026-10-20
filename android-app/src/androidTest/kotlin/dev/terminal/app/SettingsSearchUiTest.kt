@@ -8,6 +8,10 @@ import android.view.accessibility.AccessibilityNodeInfo
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import dev.terminal.app.ui.TerminalHapticPreferences
+import dev.terminal.app.ui.TerminalHaptics
+import androidx.compose.ui.hapticfeedback.HapticFeedback
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -47,6 +51,64 @@ class SettingsSearchUiTest {
             current = current.parent
         }
         throw AssertionError("Settings result is not clickable")
+    }
+
+    @Test fun legacyHapticDensityValuesDoNotLimitEnabledFeedback() {
+        val context = instrumentation.targetContext
+        val name = "haptic-compat-${java.util.UUID.randomUUID()}"
+        val preferences = context.getSharedPreferences(name, android.content.Context.MODE_PRIVATE)
+        try {
+            for (legacy in listOf(null, "LOW", "STANDARD", "HIGH", "unknown")) {
+                assertTrue(preferences.edit().clear().putBoolean(TerminalHapticPreferences.KEY_ENABLED, true)
+                    .putBoolean(TerminalHapticPreferences.KEY_SCROLL, true)
+                    .putString("haptic-feedback-density", legacy).commit())
+                val settings = TerminalHapticPreferences.read(preferences)
+                assertEquals("Legacy value: $legacy", 1, settings.scrollRowsPerTick())
+                val events = mutableListOf<HapticFeedbackType>()
+                val haptics = TerminalHaptics(object : HapticFeedback {
+                    override fun performHapticFeedback(hapticFeedbackType: HapticFeedbackType) { events += hapticFeedbackType }
+                }, settings)
+                haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                haptics.performDenseHapticFeedback(HapticFeedbackType.KeyboardTap)
+                assertEquals(listOf(HapticFeedbackType.KeyboardTap, HapticFeedbackType.KeyboardTap), events)
+            }
+            assertTrue(preferences.edit().putBoolean(TerminalHapticPreferences.KEY_ENABLED, false).commit())
+            assertEquals(0, TerminalHapticPreferences.read(preferences).scrollRowsPerTick())
+        } finally { context.deleteSharedPreferences(name) }
+    }
+
+    @Test fun hapticSettingsOfferOnlyMasterAndScrollAndKeepTheMasterSwitchAfterRecreation() {
+        val context = instrumentation.targetContext
+        val preferences = context.getSharedPreferences(TerminalHapticPreferences.PREFERENCES_NAME, android.content.Context.MODE_PRIVATE)
+        val hadEnabled = preferences.contains(TerminalHapticPreferences.KEY_ENABLED)
+        val wasEnabled = preferences.getBoolean(TerminalHapticPreferences.KEY_ENABLED, true)
+        assertTrue(preferences.edit().putBoolean(TerminalHapticPreferences.KEY_ENABLED, false).commit())
+        try {
+            val intent = Intent(context, SettingsDetailActivity::class.java)
+                .putExtra(SettingsDetailActivity.EXTRA_CATEGORY, SettingsDetailActivity.TERMINAL)
+                .putExtra(SettingsDetailActivity.EXTRA_SECTION_INDEX, 5)
+            ActivityScenario.launch<SettingsDetailActivity>(intent).use { scenario ->
+                waitFor { it.text?.toString() == context.getString(R.string.haptic_feedback) }
+                waitFor { it.text?.toString() == context.getString(R.string.haptic_scroll) }
+                assertNull(find { it.text?.toString() in listOf("햅틱 밀도", "Haptic density") })
+                if (InstrumentationRegistry.getArguments().getString("externalToggle") != "true") {
+                    click(waitFor { it.text?.toString() == context.getString(R.string.haptic_feedback) })
+                }
+                val deadline = SystemClock.elapsedRealtime() + 60_000
+                while (!TerminalHapticPreferences.read(preferences).enabled && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(100)
+                assertTrue(TerminalHapticPreferences.read(preferences).enabled)
+                scenario.recreate()
+                waitFor { it.text?.toString() == context.getString(R.string.haptic_feedback) }
+                waitFor { it.text?.toString() == context.getString(R.string.haptic_scroll) }
+                assertTrue(TerminalHapticPreferences.read(preferences).enabled)
+                assertNull(find { it.text?.toString() in listOf("햅틱 밀도", "Haptic density") })
+            }
+        } finally {
+            assertTrue(preferences.edit().apply {
+                if (hadEnabled) putBoolean(TerminalHapticPreferences.KEY_ENABLED, wasEnabled)
+                else remove(TerminalHapticPreferences.KEY_ENABLED)
+            }.commit())
+        }
     }
 
     @Test fun removedNativeSettingsEntryOpensCommonTerminalSettings() {

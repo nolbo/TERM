@@ -84,7 +84,6 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("terminal", R.string.smooth_scrolling, R.string.smooth_scrolling_support, terminal + R.string.section_history, section = 4)
     entry("terminal", R.string.scrollback, R.string.scrollback_support, terminal + R.string.section_history, section = 4)
     entry("terminal", R.string.haptic_feedback, R.string.haptic_feedback_support, terminal + R.string.section_haptics, section = 5)
-    entry("terminal", R.string.haptic_density, R.string.haptic_density_support, terminal + R.string.section_haptics, section = 5)
     entry("terminal", R.string.haptic_scroll, R.string.haptic_scroll_support, terminal + R.string.section_haptics, section = 5)
     entry("terminal", R.string.shared_storage_access, null, terminal + R.string.section_shared_storage, section = 6)
     entry("terminal", R.string.wake_policy, R.string.wake_policy_support, terminal + R.string.section_background_execution, section = 7)

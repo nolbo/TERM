@@ -5,6 +5,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SettingsSearchTest {
+    @Test fun hapticSearchIncludesOnlyTheMasterAndScrollSwitches() {
+        val haptics = settingsSearchEntries.filter { R.string.section_haptics in it.path }
+        assertEquals(listOf(R.string.haptic_feedback, R.string.haptic_scroll), haptics.map { it.title })
+        assertTrue(haptics.all { it.target == SettingsSearchTarget("terminal", 5) })
+    }
+
     @Test fun avfCategoriesAndNestedSearchResultsRequirePrivileges() {
         val unprivileged = visibleSettingsSearchEntries(false)
         assertFalse(unprivileged.any { it.target.screen == "avf" })

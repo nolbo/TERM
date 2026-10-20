@@ -43,7 +43,6 @@ import androidx.documentfile.provider.DocumentFile
 import dev.terminal.app.ui.FloatingToolbarAction
 import dev.terminal.app.ui.SettingsPageScaffold
 import dev.terminal.app.ui.TerminalActivity
-import dev.terminal.app.ui.TerminalHapticDensity
 import dev.terminal.app.ui.TerminalHapticPreferences
 import dev.terminal.app.ui.runtimeTitleResource
 import dev.terminal.app.ui.SettingsGroup
@@ -517,19 +516,6 @@ class SettingsDetailActivity : TerminalActivity() {
                     terminalPreferences.getBoolean(TerminalHapticPreferences.KEY_ENABLED, true),
                 ) {
                     terminalPreferences.edit().putBoolean(TerminalHapticPreferences.KEY_ENABLED, it).apply()
-                }
-                ChoiceSetting(
-                    R.string.haptic_density,
-                    R.string.haptic_density_support,
-                    listOf(
-                        Choice(R.string.haptic_density_low, TerminalHapticDensity.LOW.name),
-                        Choice(R.string.haptic_density_standard, TerminalHapticDensity.STANDARD.name),
-                        Choice(R.string.haptic_density_high, TerminalHapticDensity.HIGH.name),
-                    ),
-                    terminalPreferences.getString(TerminalHapticPreferences.KEY_DENSITY, TerminalHapticDensity.STANDARD.name)
-                        ?: TerminalHapticDensity.STANDARD.name,
-                ) {
-                    terminalPreferences.edit().putString(TerminalHapticPreferences.KEY_DENSITY, it).apply()
                 }
                 BooleanSetting(
                     R.string.haptic_scroll,

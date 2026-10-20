@@ -17,14 +17,9 @@
     <string name="smooth_scrolling">부드러운 스크롤</string>
     <string name="smooth_scrolling_support">픽셀 단위로 부드럽게 스크롤합니다. 기본 꺼짐이며 터미널로 돌아가면 적용됩니다.</string>
     <string name="haptic_feedback">햅틱 피드백 사용</string>
-    <string name="haptic_feedback_support">핫키, 탭, 완료 동작의 촉각 피드백을 켜거나 끕니다.</string>
-    <string name="haptic_density">햅틱 밀도</string>
-    <string name="haptic_density_support">낮음: 완료·길게 누름 · 표준: 주요 조작 · 높음: 연속 조절 포함</string>
-    <string name="haptic_density_low">낮음</string>
-    <string name="haptic_density_standard">표준</string>
-    <string name="haptic_density_high">높음</string>
+    <string name="haptic_feedback_support">핫키, 탭, 연속 조절과 완료 동작의 촉각 피드백을 켜거나 끕니다.</string>
     <string name="haptic_scroll">스크롤 햅틱</string>
-    <string name="haptic_scroll_support">스크롤백 이동 중 설정한 밀도에 따라 진동합니다.</string>
+    <string name="haptic_scroll_support">스크롤백 이동 중 한 행마다 촉각 피드백을 제공합니다.</string>
     <string name="terminal_padding">쉘 화면 여백</string>
     <string name="terminal_padding_support">상하좌우 0~32dp · 기본 4dp. 터미널로 돌아가면 적용됩니다.</string>
     <string name="unit_dp" translatable="false">dp</string>
