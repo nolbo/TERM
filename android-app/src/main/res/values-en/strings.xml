@@ -252,6 +252,13 @@
     <string name="avf_install_booting">Preparing Linux for initial startup</string>
     <string name="avf_install_apt_refresh">Retrieving current package lists</string>
     <string name="avf_install_updating">Updating guest and migrating data</string>
+    <string name="avf_check_updates">Check for updates</string>
+    <string name="avf_update_check_help">Compare the installed image with the image provided by this app.</string>
+    <string name="avf_update_checking">Checking for updates…</string>
+    <string name="avf_update_check_failed">Could not check for updates. Try again.</string>
+    <string name="avf_update_current">The latest image provided by this app is installed.</string>
+    <string name="avf_update_available">An update is available.</string>
+    <string name="avf_update_unsupported">The image provided by this app does not support updates.</string>
     <string name="avf_update_components">Update guest components</string>
     <string name="avf_update_components_help">Stop the VM first. Update TERM services while keeping packages and settings. Internet and space for a copy are required. The previous state is retained for recovery.</string>
     <string name="avf_update_image">Update full image</string>

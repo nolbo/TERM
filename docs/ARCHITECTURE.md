@@ -139,6 +139,10 @@ silently redirect the command or session to another runtime.
 
 Explicit AVF component/full-image updates use an isolated service-owned VM with
 copied state, then a separate normal candidate boot and health/sync check.
+The Environment first checks installed base/component metadata against its
+APK-pinned target. A differing supported target exposes one action: components
+when kernels match, otherwise a full image transition. Checks fetch
+at most the pinned manifest, never disks or an unsigned replacement catalog.
 Generation-fenced activation retains matching old base/state for rollback.
 Ordinary installation still refuses replacement; session startup never requests
 updates. Migration scope, package authentication and recovery are specified in

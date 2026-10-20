@@ -253,6 +253,13 @@
     <string name="avf_install_booting">배포판 초기 실행 준비</string>
     <string name="avf_install_apt_refresh">최신 패키지 목록 가져오기</string>
     <string name="avf_install_updating">게스트 갱신 및 데이터 이전</string>
+    <string name="avf_check_updates">업데이트 확인</string>
+    <string name="avf_update_check_help">현재 설치된 이미지와 이 앱에서 제공하는 이미지를 비교합니다.</string>
+    <string name="avf_update_checking">업데이트 확인 중…</string>
+    <string name="avf_update_check_failed">업데이트를 확인하지 못했습니다. 다시 시도하세요.</string>
+    <string name="avf_update_current">이 앱에서 제공하는 최신 이미지입니다.</string>
+    <string name="avf_update_available">사용할 수 있는 업데이트가 있습니다.</string>
+    <string name="avf_update_unsupported">이 앱에서 제공하는 이미지는 업데이트 기능을 지원하지 않습니다.</string>
     <string name="avf_update_components">게스트 구성요소 업데이트</string>
     <string name="avf_update_components_help">VM을 중지한 후 실행하세요. 패키지와 설정을 유지하며 TERM 서비스를 갱신합니다. 인터넷과 복사본을 위한 추가 저장공간이 필요합니다. 이전 상태는 복구용으로 보관합니다.</string>
     <string name="avf_update_image">전체 이미지 업데이트</string>

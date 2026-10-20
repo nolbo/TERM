@@ -16,9 +16,17 @@ object AvfGuestComponents {
     }
 
     fun effective(root: Path, base: AvfImageManifest): AvfImageManifest {
+        val installed = source(root, base) ?: return base
+        // Kernel/initrd-dependent capabilities continue to come from the installed boot image.
+        return base.copy(shareBrokerVersion = installed.shareBrokerVersion,
+            packageInitializationVersion = installed.packageInitializationVersion)
+    }
+
+    /** The verified source generation, rather than the unchanged base, identifies applied components. */
+    fun source(root: Path, base: AvfImageManifest): AvfImageManifest? {
         val manifest = root.resolve(MANIFEST)
         val receipt = root.resolve(RECEIPT)
-        if (!Files.exists(receipt, NOFOLLOW_LINKS)) return base
+        if (!Files.exists(receipt, NOFOLLOW_LINKS)) return null
         require(Files.isRegularFile(receipt, NOFOLLOW_LINKS) && Files.size(receipt) == 64L &&
             Files.isRegularFile(manifest, NOFOLLOW_LINKS) && Files.size(manifest) <= 65536 &&
             Files.readAllBytes(receipt).toString(Charsets.US_ASCII) == AvfImageVerifier.sha256(manifest)) {
@@ -26,8 +34,6 @@ object AvfGuestComponents {
         }
         val installed = AvfImageVerifier.parse(manifest)
         require(installed.distribution == base.distribution && installed.kernelSha256 == base.kernelSha256)
-        // Kernel/initrd-dependent capabilities continue to come from the installed boot image.
-        return base.copy(shareBrokerVersion = installed.shareBrokerVersion,
-            packageInitializationVersion = installed.packageInitializationVersion)
+        return installed
     }
 }

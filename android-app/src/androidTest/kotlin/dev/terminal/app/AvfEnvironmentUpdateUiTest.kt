@@ -6,17 +6,23 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.test.core.app.ActivityScenario
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.terminal.app.ui.DroidTheme
 import dev.terminal.image.AvfDistribution
-import dev.terminal.image.AvfImageVerifier
+import dev.terminal.image.AvfImageUpdateKind
+import dev.terminal.image.AvfImageUpdateResult
+import dev.terminal.image.BundledAvfImageCatalog
 import dev.terminal.runtime.session.SessionRuntime
 import dev.terminal.runtime.session.SessionStorage
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.*
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -65,43 +71,104 @@ class AvfEnvironmentUpdateUiTest {
         fail("Missing clickable action: $text")
     }
 
-    @Test fun debugApprovesBothUpdateActionsAndKeepsConfirmation() {
+    private fun absent(resource: Int) {
+        instrumentation.waitForIdleSync()
+        instrumentation.uiAutomation.clearCache()
+        assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, context.getString(resource)))
+    }
+
+    @Test fun checkingShowsOnlyTheAvailableUpdateKindAndNoActionForOtherResults() {
         assertTrue(BuildConfig.DEBUG)
-        val storage = UUID.randomUUID().toString()
-        val root = SessionStorage.root(context.filesDir, SessionRuntime.AVF, storage)
-        root.mkdirs()
-        val artifacts = mapOf("kernel" to "vmlinuz", "initrd" to "initrd.img", "system" to "system.img",
-            "home" to "home.img", "config" to "config.img")
-        artifacts.values.forEach { root.resolve(it).writeText("UI fixture") }
-        root.resolve("manifest.properties").writeText("formatVersion=1\ndistribution=debian\narchitecture=arm64\n" +
-            artifacts.entries.joinToString("\n") { (key, file) ->
-                "$key.sha256=${AvfImageVerifier.sha256(root.resolve(file).toPath())}"
-            })
-        val action = AtomicReference("")
+        for (result in listOf(AvfImageUpdateResult.Available(AvfImageUpdateKind.COMPONENTS),
+            AvfImageUpdateResult.Available(AvfImageUpdateKind.IMAGE), AvfImageUpdateResult.UpToDate,
+            AvfImageUpdateResult.Unsupported, null)) {
+            val action = AtomicReference("")
+            val calls = AtomicInteger()
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity -> activity.setContent {
+                    DroidTheme {
+                        Column(Modifier.verticalScroll(rememberScrollState())) {
+                            AvfImageUpdateSetting(context.cacheDir.toPath(),
+                                BundledAvfImageCatalog.find(AvfDistribution.DEBIAN), revision = 0,
+                                working = false, canManage = true, onUpdate = action::set,
+                                checkUpdate = { _, _, _, _ ->
+                                    calls.incrementAndGet()
+                                    result ?: throw java.io.IOException("offline fixture")
+                                })
+                        }
+                    }
+                } }
+                visible(context.getString(R.string.avf_check_updates))
+                absent(R.string.avf_update_components)
+                absent(R.string.avf_update_image)
+                assertEquals(0, calls.get())
+                click(context.getString(R.string.avf_check_updates))
+                visible(context.getString(when (result) {
+                    is AvfImageUpdateResult.Available -> R.string.avf_update_available
+                    AvfImageUpdateResult.UpToDate -> R.string.avf_update_current
+                    AvfImageUpdateResult.Unsupported -> R.string.avf_update_unsupported
+                    null -> R.string.avf_update_check_failed
+                }))
+                assertEquals(1, calls.get())
+                assertEquals("", action.get())
+                if (result is AvfImageUpdateResult.Available) {
+                    val components = result.kind == AvfImageUpdateKind.COMPONENTS
+                    val title = if (components) R.string.avf_update_components else R.string.avf_update_image
+                    absent(if (components) R.string.avf_update_image else R.string.avf_update_components)
+                    click(context.getString(title))
+                    assertEquals(if (components) "UPDATE_COMPONENTS" else "UPDATE_IMAGE", action.get())
+                } else {
+                    absent(R.string.avf_update_components)
+                    absent(R.string.avf_update_image)
+                }
+            }
+        }
+    }
+
+    @Test fun checkingAndActiveWorkHideActionsAndKeepManagementLocks() {
+        val releaseCheck = CountDownLatch(1)
+        val working = mutableStateOf(false)
+        val canManage = mutableStateOf(false)
+        val root = context.cacheDir.toPath()
+        val candidate = BundledAvfImageCatalog.find(AvfDistribution.DEBIAN)
+        fun disabled(resource: Int) {
+            repeat(30) {
+                var node: AccessibilityNodeInfo? = visible(context.getString(resource))
+                while (node != null) {
+                    if (!node.isEnabled) return
+                    node = node.parent
+                }
+                // Compose publishes the new enabled semantics on the next frame.
+                SystemClock.sleep(50)
+            }
+            fail("Action is enabled: ${context.getString(resource)}")
+        }
         try {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 scenario.onActivity { activity -> activity.setContent {
                     DroidTheme {
                         Column(Modifier.verticalScroll(rememberScrollState())) {
-                            AvfEnvironmentImageSetting(storage, AvfDistribution.DEBIAN, null, 0,
-                                savedStorage = true, requesting = false, onInstall = {},
-                                canManage = true, onManage = action::set)
+                            AvfImageUpdateSetting(root, candidate, 0, working.value, canManage.value, onUpdate = {},
+                                checkUpdate = { _, _, _, _ ->
+                                    check(releaseCheck.await(10, TimeUnit.SECONDS))
+                                    AvfImageUpdateResult.Available(AvfImageUpdateKind.IMAGE)
+                                })
                         }
                     }
                 } }
-                for ((title, operation) in listOf(R.string.avf_update_components to "UPDATE_COMPONENTS",
-                    R.string.avf_update_image to "UPDATE_IMAGE")) {
-                    click(context.getString(title))
-                    assertEquals("", action.get())
-                    click(context.getString(android.R.string.cancel))
-                    assertEquals("", action.get())
-                    click(context.getString(title))
-                    click(context.getString(android.R.string.ok))
-                    assertEquals(operation, action.get())
-                    action.set("")
-                }
+                click(context.getString(R.string.avf_check_updates))
+                visible(context.getString(R.string.avf_update_checking))
+                disabled(R.string.avf_check_updates)
+                absent(R.string.avf_update_components)
+                absent(R.string.avf_update_image)
+                releaseCheck.countDown()
+                disabled(R.string.avf_update_image)
+                scenario.onActivity { working.value = true }
+                disabled(R.string.avf_check_updates)
+                absent(R.string.avf_update_components)
+                absent(R.string.avf_update_image)
             }
-        } finally { root.deleteRecursively() }
+        } finally { releaseCheck.countDown() }
     }
 
     @Test fun historyActionsRequireConfirmationAndDoNotDeleteOnCancel() {

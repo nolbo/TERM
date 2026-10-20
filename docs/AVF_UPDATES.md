@@ -8,7 +8,21 @@ either a package installed on a copy of the existing state, or a new base with
 fresh state and explicit migration. Originals are never attached writable to an
 update VM. This also supports old images without a maintenance endpoint.
 
-Both actions belong to the saved Environment's Distribution image section. They
+The saved Environment's Distribution image section first offers **Check for updates**.
+It compares the installed base/component source with the APK-pinned manifest and
+fetches only that bounded manifest when the pin differs. It never discovers an
+unsigned remote catalog or downloads disks during a check. A matching source is
+up to date even when the writable disk has changed. A verified component receipt
+prevents offering the same component update again.
+
+Only a differing, maintenance-capable target exposes one update action. Matching
+kernel hashes select components, retaining the installed kernel/initrd/config and
+base; a different kernel selects the full image. Factory initrd/config disk hashes
+can differ between builds without a semantic change, so they do not select a full
+transition. A check failure or unsupported target exposes no update
+action. An APK's catalog is the available version boundary; checking does not
+claim to discover images absent from that APK. Checks are read-only and can run
+while a VM is active. Applying the selected action continues to
 require confirmation, a stopped non-protected VM, no live/disconnected sessions,
 an APK-approved maintenance image, Internet and space for candidate/state copies.
 The storage-specific WorkManager job owns downloads/progress/cancellation;
@@ -17,8 +31,8 @@ not stop an existing VM. Environment/Profile/storage/normal VM identities remain
 
 `maintenanceVersion=1` is optional in image manifests and APK catalogs. Old
 catalogs retain installation behavior; release APKs disable update actions until
-an approved maintenance catalog is embedded. Debug APKs approve both update
-actions for every distribution present in their bundled catalog, without waiting
+an approved maintenance catalog is embedded. Debug APKs approve update checks
+for every distribution present in their bundled catalog, without waiting
 for its maintenance approval marker. This does not add missing guest features:
 the service still requires `maintenanceVersion=1` in the actual pinned manifest
 before starting maintenance. Missing catalogs remain unavailable, and both builds
@@ -43,7 +57,8 @@ An Arch component update can therefore upgrade distribution packages too.
 The resulting generation keeps original kernel/initrd/system/config plus updated
 state. A host-created receipt binds component capabilities to the approved source
 manifest. Immutable hashes remain unchanged; kernel-dependent capabilities still
-come from the base manifest. Component updates require an identical kernel hash.
+come from the base manifest. Component updates require an identical kernel hash,
+rechecked by the service before a maintenance boot.
 
 ## Full image transition
 

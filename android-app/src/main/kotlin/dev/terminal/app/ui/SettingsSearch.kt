@@ -7,7 +7,7 @@ internal data class SettingsSearchTarget(val screen: String, val sectionIndex: I
 
 internal fun visibleSettingsSearchEntries(hasAvfPrivileges: Boolean): List<SettingsSearchEntry> =
     settingsSearchEntries.filter { hasAvfPrivileges || it.target.screen != "avf" &&
-        it.title !in setOf(R.string.avf_update_components, R.string.avf_update_image, R.string.avf_rollback_image) }
+        it.title !in setOf(R.string.avf_check_updates, R.string.avf_rollback_image) }
 
 internal data class SettingsSearchEntry(
     val title: Int,
@@ -101,8 +101,7 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("avf", R.string.protected_vm, R.string.protected_vm_support, listOf(R.string.settings_avf_title) + R.string.section_resources, section = 1)
     entry("avf", R.string.guest_network, R.string.guest_network_support, listOf(R.string.settings_avf_title) + R.string.section_resources, section = 1)
     entry("environments", R.string.avf_image_section, R.string.avf_image_profile_support, listOf(R.string.storage_title))
-    entry("environments", R.string.avf_update_components, R.string.avf_update_components_help, listOf(R.string.storage_title))
-    entry("environments", R.string.avf_update_image, R.string.avf_update_image_help, listOf(R.string.storage_title))
+    entry("environments", R.string.avf_check_updates, R.string.avf_update_check_help, listOf(R.string.storage_title))
     entry("environments", R.string.avf_rollback_image, R.string.avf_rollback_image_help, listOf(R.string.storage_title))
     entry("avf", R.string.local_services_title, R.string.local_services_summary, listOf(R.string.settings_avf_title) + R.string.section_execution, section = 2,
         icon = R.drawable.ic_material_symbol_lan_24)

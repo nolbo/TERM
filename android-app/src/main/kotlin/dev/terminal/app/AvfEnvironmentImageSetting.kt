@@ -87,17 +87,11 @@ import kotlinx.coroutines.withContext
                 }, onClick = onInstall)
         }
         if (installed == true || hasData) {
-            val approved = avfImageUpdatesApproved(BundledAvfImageCatalog.find(distribution), BuildConfig.DEBUG)
             val enabled = canManage && !requesting && progress?.active != true
             if (installed == true) {
-                EnvironmentActionSetting(R.string.avf_update_components, R.drawable.ic_material_symbol_download_24,
-                    enabled = enabled && approved,
-                    supporting = if (approved) R.string.avf_update_components_help else R.string.avf_update_approval_required,
-                    onClick = { confirmedAction = "UPDATE_COMPONENTS" })
-                EnvironmentActionSetting(R.string.avf_update_image, R.drawable.ic_material_symbol_download_24,
-                    enabled = enabled && approved,
-                    supporting = if (approved) R.string.avf_update_image_help else R.string.avf_update_approval_required,
-                    onClick = { confirmedAction = "UPDATE_IMAGE" })
+                AvfImageUpdateSetting(SessionStorage.root(context.filesDir, SessionRuntime.AVF, storageId).toPath(),
+                    BundledAvfImageCatalog.find(distribution), revision, requesting || progress?.active == true,
+                    canManage, onUpdate = { confirmedAction = it })
             }
             if (hasPrevious) {
                 EnvironmentActionSetting(R.string.avf_rollback_image, R.drawable.ic_material_symbol_download_24,
