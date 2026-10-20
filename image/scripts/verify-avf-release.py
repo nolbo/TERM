@@ -47,9 +47,11 @@ def release_id(value):
 def catalog(data):
     approved = properties(data)
     required = {'id', 'releaseId', 'manifestUri', 'manifestSha256', 'maxArtifactBytes', 'compression'}
-    if set(approved) != required or approved['id'] not in {d + '-arm64-current' for d in ('debian', 'ubuntu', 'archlinux')}:
+    if not required <= set(approved) or set(approved) - required - {'maintenanceVersion'} or approved['id'] not in {d + '-arm64-current' for d in ('debian', 'ubuntu', 'archlinux')}:
         raise ValueError('Invalid approved catalog fields')
     tag = release_id(approved['releaseId'])
+    if 'maintenanceVersion' in approved and approved['maintenanceVersion'] != '1':
+        raise ValueError('Unsupported catalog maintenance version')
     if approved['manifestUri'] != f'{PUBLIC_BASE}{tag}/manifest.properties':
         raise ValueError('Catalog must use the public immutable TERM release URL')
     if not re.fullmatch(r'[0-9a-f]{64}', approved['manifestSha256']):
@@ -101,7 +103,7 @@ def manifest(data, approved):
         raise ValueError('Manifest differs from the pinned catalog hash')
     values = properties(data)
     required = {'formatVersion', 'distribution', 'architecture'} | {key + '.sha256' for key in ARTIFACTS}
-    optional = {'aptInitializationVersion', 'packageInitializationVersion', 'virtiofsVersion', 'androidStorageVersion', 'shareBrokerVersion'}
+    optional = {'aptInitializationVersion', 'packageInitializationVersion', 'virtiofsVersion', 'androidStorageVersion', 'shareBrokerVersion', 'maintenanceVersion'}
     if (not required <= set(values) or not set(values) <= required | optional
             or (values['formatVersion'], values['distribution'], values['architecture']) != ('1', approved.get('id', 'debian-arm64-current').removesuffix('-arm64-current'), 'arm64')):
         raise ValueError('Expected catalog-selected Linux ARM64 image manifest v1')
@@ -115,6 +117,8 @@ def manifest(data, approved):
         raise ValueError('Unsupported Android storage version')
     if 'shareBrokerVersion' in values and values['shareBrokerVersion'] != '1':
         raise ValueError('Unsupported private share broker version')
+    if 'maintenanceVersion' in values and values['maintenanceVersion'] != '1':
+        raise ValueError('Unsupported guest maintenance version')
     if any(not re.fullmatch(r'[0-9a-f]{64}', values[key + '.sha256']) for key in ARTIFACTS):
         raise ValueError('Invalid artifact hash')
     return values
@@ -151,7 +155,8 @@ class BoundedReader:
         return chunk
 
 
-def verify_directory(root, metadata_only=False, expected_commit=None, expected_manifest_sha=None):
+def verify_directory(root, metadata_only=False, expected_commit=None, expected_manifest_sha=None,
+                     require_private_shares_boot=False):
     approved = catalog(read_metadata(root / 'catalog.properties'))
     if expected_manifest_sha is not None and approved['manifestSha256'] != expected_manifest_sha:
         raise ValueError('Catalog differs from the producer job manifest hash')
@@ -165,6 +170,17 @@ def verify_directory(root, metadata_only=False, expected_commit=None, expected_m
         raise ValueError('Invalid source image hash or disk mapping')
     if provenance.get('distribution', 'debian') != values['distribution']:
         raise ValueError('Rootfs provenance distribution differs from manifest')
+    if require_private_shares_boot:
+        report = provenance.get('normalBootVerification') or {}
+        boots = report.get('boots') or []
+        if (values.get('shareBrokerVersion') != '1' or report.get('mode') != 'normal-systemd'
+                or report.get('transport') != 'host-vsock' or report.get('network') != 'disabled'
+                or len(boots) != 2 or [boot.get('boot') for boot in boots] != [1, 2]
+                or any(boot.get('sessionListRpc') != 'passed' or boot.get('packageInitializationPort') != 'passed'
+                       for boot in boots)
+                or boots[1].get('privateShareReadWrite') != 'passed'
+                or boots[1].get('privateShareOwnerLoss') != 'passed'):
+            raise ValueError('Missing verified private-share normal-boot evidence')
     if values['distribution'] != 'debian':
         profile = json.loads(Path(__file__).with_name('avf-distributions.json').read_text())[values['distribution']]
         if provenance.get('rootfs') != profile:
@@ -250,11 +266,13 @@ def main():
     parser.add_argument('--metadata-only', action='store_true')
     parser.add_argument('--expected-commit')
     parser.add_argument('--expected-manifest-sha')
+    parser.add_argument('--require-private-shares-boot', action='store_true')
     parser.add_argument('--approve', type=Path, help='Verify public downloads before writing the tracked default catalog')
     parser.add_argument('--apk', type=Path)
     parser.add_argument('--apk-catalog', type=Path, help='Exact merged catalog expected inside the candidate APK')
     args = parser.parse_args()
-    checks = dict(expected_commit=args.expected_commit, expected_manifest_sha=args.expected_manifest_sha)
+    checks = dict(expected_commit=args.expected_commit, expected_manifest_sha=args.expected_manifest_sha,
+                  require_private_shares_boot=args.require_private_shares_boot)
     approved = approve(args.directory, args.approve, **checks) if args.approve else verify_directory(args.directory, args.metadata_only, **checks)
     if args.apk:
         verify_apk(args.apk, read_metadata(args.apk_catalog or args.directory / 'catalog.properties'))

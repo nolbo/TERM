@@ -31,6 +31,13 @@ on:
       source_sha256:
         description: Optional reviewed SHA-256 of Google's upstream archive
         required: false
+      reuse_candidate:
+        description: Reuse the exact verified assets in this release ID's unpublished draft
+        type: boolean
+        default: false
+      candidate_commit:
+        description: Required original 40-character producer commit when reusing a verified draft
+        required: false
 
 permissions:
   contents: read
@@ -50,6 +57,7 @@ jobs:
     outputs:
       release_id: ${{ steps.metadata.outputs.release_id }}
       manifest_sha256: ${{ steps.metadata.outputs.manifest_sha256 }}
+      source_commit: ${{ steps.metadata.outputs.source_commit }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,6 +67,8 @@ jobs:
         env:
           AVF_RELEASE_ID: ${{ inputs.release_id }}
           AVF_PUBLISH: ${{ inputs.publish }}
+          AVF_REUSE: ${{ inputs.reuse_candidate }}
+          AVF_CANDIDATE_COMMIT: ${{ inputs.candidate_commit }}
           GH_TOKEN: ${{ github.token }}
         run: |
           avf_release_id=${AVF_RELEASE_ID:-avf-$AVF_DISTRIBUTION-$GITHUB_SHA}
@@ -69,6 +79,14 @@ jobs:
           echo "AVF_RELEASE_ID=$avf_release_id" >> "$GITHUB_ENV"
           git fetch --no-tags origin dev
           git merge-base --is-ancestor "$GITHUB_SHA" origin/dev
+          avf_source_commit=$GITHUB_SHA
+          if [ "$AVF_REUSE" = true ]; then
+            test "$AVF_PUBLISH" = true
+            [[ "$AVF_CANDIDATE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+            git merge-base --is-ancestor "$AVF_CANDIDATE_COMMIT" "$GITHUB_SHA"
+            avf_source_commit=$AVF_CANDIDATE_COMMIT
+          fi
+          echo "AVF_IMAGE_SOURCE_COMMIT=$avf_source_commit" >> "$GITHUB_ENV"
           if [ "$AVF_PUBLISH" = true ]; then
             test "$GITHUB_REPOSITORY" = nolbo/TERM
             test -s "docs/release-notes/$avf_release_id.md"
@@ -76,6 +94,7 @@ jobs:
             test "$(gh api repos/nolbo/TERM --jq '.private')" = false
           fi
       - name: Build image, guest services, disks and pinned catalog
+        if: ${{ !inputs.reuse_candidate }}
         env:
           AVF_SOURCE_SHA256: ${{ inputs.source_sha256 }}
         run: |
@@ -92,18 +111,32 @@ jobs:
             --base-uri "https://github.com/nolbo/TERM/releases/download/$AVF_RELEASE_ID/" \
             --output image/build/approved "${avf_arguments[@]}"
           python3 image/scripts/verify-avf-release.py --directory image/build/approved --expected-commit "$GITHUB_SHA"
+      - name: Reuse the verified bytes of an unpublished candidate
+        if: inputs.reuse_candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          test "$(gh release view "$AVF_RELEASE_ID" --repo nolbo/TERM --json isDraft --jq '.isDraft')" = true
+          gh release download "$AVF_RELEASE_ID" --repo nolbo/TERM --dir image/build/approved \
+            --pattern '*.gz' --pattern '*.properties' --pattern provenance.json --pattern SHA256SUMS
+          python3 image/scripts/verify-avf-release.py --directory image/build/approved \
+            --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --require-private-shares-boot
       - name: Record verified metadata
         id: metadata
         run: |
           python3 - <<'PY'
           import os, pathlib, runpy
           verify = runpy.run_path('image/scripts/verify-avf-release.py')
-          approved = verify['verify_directory'](pathlib.Path('image/build/approved'), metadata_only=True, expected_commit=os.environ['GITHUB_SHA'])
+          approved = verify['verify_directory'](pathlib.Path('image/build/approved'), metadata_only=True,
+                                               expected_commit=os.environ['AVF_IMAGE_SOURCE_COMMIT'], require_private_shares_boot=True)
+          if approved['releaseId'] != os.environ['AVF_RELEASE_ID'] or approved['id'] != os.environ['AVF_DISTRIBUTION'] + '-arm64-current':
+              raise ValueError('Candidate release/distribution differs from the dispatch')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
               output.write(f"release_id={approved['releaseId']}\nmanifest_sha256={approved['manifestSha256']}\n")
+              output.write(f"source_commit={os.environ['AVF_IMAGE_SOURCE_COMMIT']}\n")
           PY
       - name: Stage verified image assets in an unpublished release
-        if: github.event_name == 'workflow_dispatch' && inputs.publish
+        if: github.event_name == 'workflow_dispatch' && inputs.publish && !inputs.reuse_candidate
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -140,9 +173,13 @@ jobs:
     needs: image
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    permissions:
+      # GitHub requires write access to read unpublished release drafts.
+      contents: write
     env:
       TERMINAL_UPDATE_CHANNEL: dev
       TERMINAL_UPDATE_REVISION: ${{ github.sha }}
+      AVF_IMAGE_SOURCE_COMMIT: ${{ needs.image.outputs.source_commit }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -168,7 +205,7 @@ jobs:
           AVF_MANIFEST_SHA256: ${{ needs.image.outputs.manifest_sha256 }}
         run: |
           python3 image/scripts/verify-avf-release.py --directory image/build/approved --metadata-only \
-            --expected-commit "$GITHUB_SHA" --expected-manifest-sha "$AVF_MANIFEST_SHA256"
+            --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --expected-manifest-sha "$AVF_MANIFEST_SHA256"
           python3 image/scripts/merge-avf-catalog.py --existing image/catalog-approved.properties \
             --candidate image/build/approved/catalog.properties --output image/build/approved/catalog-merged.properties
           echo "ORG_GRADLE_PROJECT_avfImageCatalog=$GITHUB_WORKSPACE/image/build/approved/catalog-merged.properties" >> "$GITHUB_ENV"
@@ -207,7 +244,7 @@ jobs:
           python3 tools/avf/verify-driver-apk.py android-app/build/outputs/apk/debug/android-app-debug.apk
           python3 tools/rootless/prepare-release-runtime.py --verify-apk android-app/build/outputs/apk/debug/android-app-debug.apk
           python3 image/scripts/verify-avf-release.py --directory image/build/approved --metadata-only \
-            --expected-commit "$GITHUB_SHA" --expected-manifest-sha "$AVF_MANIFEST_SHA256" \
+            --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --expected-manifest-sha "$AVF_MANIFEST_SHA256" \
             --apk android-app/build/outputs/apk/debug/android-app-debug.apk \
             --apk-catalog image/build/approved/catalog-merged.properties
       - uses: actions/upload-artifact@v4
@@ -228,6 +265,8 @@ jobs:
     concurrency:
       group: avf-public-image-release
       cancel-in-progress: false
+    env:
+      AVF_IMAGE_SOURCE_COMMIT: ${{ needs.image.outputs.source_commit }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -251,17 +290,18 @@ jobs:
           test -n "$GH_TOKEN"
           git fetch --no-tags origin dev
           git merge-base --is-ancestor "$GITHUB_SHA" origin/dev
+          git merge-base --is-ancestor "$AVF_IMAGE_SOURCE_COMMIT" "$GITHUB_SHA"
           test -s "docs/release-notes/$AVF_RELEASE_ID.md"
           test "$(gh api repos/nolbo/TERM --jq '.private')" = false
           python3 image/scripts/verify-avf-release.py --directory image/build/approved \
-            --expected-commit "$GITHUB_SHA" --expected-manifest-sha "$AVF_MANIFEST_SHA256"
+            --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --expected-manifest-sha "$AVF_MANIFEST_SHA256"
           # Both factory and catalog-bearing APK gates have passed. Publish the
           # existing draft without replacing any verified image bytes.
           test "$(gh release view "$AVF_RELEASE_ID" --repo nolbo/TERM --json isDraft --jq '.isDraft')" = true
           gh release edit "$AVF_RELEASE_ID" --repo nolbo/TERM --draft=false --prerelease --latest=false \
             --notes-file "docs/release-notes/$AVF_RELEASE_ID.md"
           python3 image/scripts/verify-avf-release.py --directory image/build/approved --metadata-only \
-            --expected-commit "$GITHUB_SHA" --expected-manifest-sha "$AVF_MANIFEST_SHA256" \
+            --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --expected-manifest-sha "$AVF_MANIFEST_SHA256" \
             --approve image/catalog-approved.properties
       - uses: actions/upload-artifact@v4
         continue-on-error: true

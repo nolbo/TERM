@@ -75,6 +75,26 @@ class CatalogVerificationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'share broker version'):
                     verifier.manifest(data, approved)
 
+    def test_reused_private_share_candidate_requires_real_two_boot_and_owner_loss_evidence(self):
+        with self.assertRaisesRegex(ValueError, 'normal-boot evidence'):
+            verifier.verify_directory(self.root, metadata_only=True, require_private_shares_boot=True)
+        provenance = json.loads((self.root / 'provenance.json').read_bytes())
+        report = {'mode': 'normal-systemd', 'transport': 'host-vsock', 'network': 'disabled',
+                  'boots': [{'boot': n, 'sessionListRpc': 'passed', 'packageInitializationPort': 'passed'} for n in [1, 2]]}
+        report['boots'][1].update(privateShareReadWrite='passed', privateShareOwnerLoss='passed')
+        provenance['normalBootVerification'] = report
+        (self.root / 'provenance.json').write_text(json.dumps(provenance))
+        self.refresh_checksums()
+        verifier.verify_directory(self.root, metadata_only=True, require_private_shares_boot=True)
+        for field in ['privateShareReadWrite', 'privateShareOwnerLoss', 'sessionListRpc']:
+            with self.subTest(field=field):
+                report['boots'][1][field] = 'failed'
+                (self.root / 'provenance.json').write_text(json.dumps(provenance))
+                self.refresh_checksums()
+                with self.assertRaisesRegex(ValueError, 'normal-boot evidence'):
+                    verifier.verify_directory(self.root, metadata_only=True, require_private_shares_boot=True)
+                report['boots'][1][field] = 'passed'
+
     def test_metadata_transfer_is_checked_against_producer_outputs(self):
         for name in verifier.ARTIFACTS.values():
             (self.root / (name + '.gz')).unlink()
