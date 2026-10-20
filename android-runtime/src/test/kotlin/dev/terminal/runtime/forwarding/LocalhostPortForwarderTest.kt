@@ -4,7 +4,6 @@ import dev.terminal.runtime.api.GuestByteStream
 import org.junit.Assert.*
 import org.junit.Test
 import java.net.BindException
-import java.net.ConnectException
 import java.net.InetAddress
 import java.net.InetSocketAddress
 import java.net.ServerSocket
@@ -91,12 +90,19 @@ class LocalhostPortForwarderTest {
         assertTrue(budget.tryAcquire(5, TimeUnit.SECONDS))
         assertEquals(1, listenerBudget.availablePermits())
         // The accept thread can retain the listener's final OS reference after close().
+        // Rebinding proves release without racing a connect against the closing listener.
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
         while (true) {
-            try { Socket().use { it.connect(InetSocketAddress(loopback, hostPort), 200) } }
-            catch (_: ConnectException) { break }
-            assertTrue("The closed proxy must refuse new connections", System.nanoTime() < deadline)
-            Thread.sleep(10)
+            try {
+                ServerSocket().use {
+                    it.reuseAddress = true
+                    it.bind(InetSocketAddress(loopback, hostPort), 16)
+                }
+                break
+            } catch (failure: BindException) {
+                if (System.nanoTime() >= deadline) throw failure
+                Thread.sleep(10)
+            }
         }
     }
 }
