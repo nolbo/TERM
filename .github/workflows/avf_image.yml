@@ -92,6 +92,10 @@ jobs:
             test -s "docs/release-notes/$avf_release_id.md"
             test -n "$GH_TOKEN"
             test "$(gh api repos/nolbo/TERM --jq '.private')" = false
+            # An authorized publisher pins the immutable image tag first. A
+            # workflow token cannot authorize new workflow-containing refs.
+            gh api "repos/nolbo/TERM/git/ref/tags/$avf_release_id" >/dev/null
+            test "$(gh api "repos/nolbo/TERM/commits/$avf_release_id" --jq '.sha')" = "$avf_source_commit"
           fi
       - name: Build image, guest services, disks and pinned catalog
         if: ${{ !inputs.reuse_candidate }}
@@ -142,8 +146,7 @@ jobs:
         run: |
           # Draft assets carry the verified bytes between jobs without depending
           # on Actions artifact storage. Duplicate release IDs fail closed.
-          gh release create "$AVF_RELEASE_ID" --repo nolbo/TERM --draft --prerelease --latest=false \
-            --target "$GITHUB_SHA" \
+          gh release create "$AVF_RELEASE_ID" --repo nolbo/TERM --draft --prerelease --latest=false --verify-tag \
             --title "AVF Linux $AVF_RELEASE_ID" --notes-file "docs/release-notes/$AVF_RELEASE_ID.md" \
             image/build/approved/*.gz image/build/approved/*.properties \
             image/build/approved/provenance.json image/build/approved/SHA256SUMS
