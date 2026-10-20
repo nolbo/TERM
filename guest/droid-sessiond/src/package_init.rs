@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 
 pub const PORT: u32 = 40_503;
 const INITIALIZE: u8 = 0x40;
+const MAINTAIN: u8 = 0x41;
+const HEALTH: u8 = 0x42;
 
 pub fn serve() -> Result<(), VsockError> {
     let listener = VsockListener::bind(PORT)?;
@@ -38,32 +40,54 @@ fn initialize(connection: &mut VsockConnection) -> Result<(), VsockError> {
         return connection.write_frame(&reply(&request, FrameKind::Error,
             encode_error(ErrorCode::Unsupported, "Only initial package refresh is supported")?));
     }
-    let mut task = Task(Command::new("/bin/sh").arg("/usr/local/lib/droid/initialize-avf-packages.sh")
-        .stdin(Stdio::null()).process_group(0).spawn()?);
+    let maintenance = request.payload == [MAINTAIN];
+    if maintenance && !maintenance_boot(&std::fs::read_to_string("/proc/cmdline")?) {
+        return connection.write_frame(&reply(&request, FrameKind::Error,
+            encode_error(ErrorCode::Unsupported, "A dedicated maintenance boot is required")?));
+    }
+    let (script, receipt, timeout_seconds) = if request.payload == [HEALTH] {
+        ("/usr/local/lib/droid/check-avf-image.sh", "/var/lib/droid/health/complete", 120)
+    } else if maintenance {
+        ("/usr/local/lib/droid/maintain-avf-image.sh", "/var/lib/droid/maintenance/complete", 1800)
+    } else {
+        ("/usr/local/lib/droid/initialize-avf-packages.sh", "/var/lib/droid/package-initialization/complete", 340)
+    };
+    let log = std::fs::File::create("/var/log/term-maintenance.log")?;
+    let mut task = Task(Command::new("/bin/sh").arg(script)
+        .stdin(Stdio::null()).stdout(log.try_clone()?).stderr(log).process_group(0).spawn()?);
     let started = Instant::now();
     loop {
         if let Some(status) = task.0.try_wait()? {
-            let timestamp = std::fs::read_to_string("/var/lib/droid/package-initialization/complete")
+            let timestamp = std::fs::read_to_string(receipt)
                 .ok().and_then(|value| value.trim().parse::<u64>().ok()).filter(|value| *value > 0);
             let response = match (status.success(), timestamp) {
                 (true, Some(timestamp)) => reply(&request, FrameKind::Response, timestamp.to_be_bytes().to_vec()),
-                _ => reply(&request, FrameKind::Error,
-                    encode_error(ErrorCode::GuestError, "package index refresh failed; check guest network and retry initialization")?),
+                _ => {
+                    let log = std::fs::read_to_string("/var/log/term-maintenance.log").unwrap_or_default();
+                    let detail: String = log.chars().rev().take(1800).collect::<String>().chars().rev().collect();
+                    reply(&request, FrameKind::Error, encode_error(ErrorCode::GuestError,
+                        &format!("Guest maintenance failed; original environment retained. {detail}"))?)
+                },
             };
             return connection.write_frame(&response);
         }
-        if started.elapsed() > Duration::from_secs(340) {
+        if started.elapsed() > Duration::from_secs(timeout_seconds) {
             return Err(io::Error::new(io::ErrorKind::TimedOut, "package initialization timed out").into());
         }
         // A closed host connection cancels the process group, including package's
         // methods. A cancelled refresh cannot report host-side completion.
-        connection.write_frame(&reply(&request, FrameKind::Stream, vec![INITIALIZE]))?;
+        connection.write_frame(&reply(&request, FrameKind::Stream, request.payload.clone()))?;
         thread::sleep(Duration::from_millis(250));
     }
 }
 
 fn valid_request(frame: &Frame) -> bool {
-    frame.service == Service::Lifecycle && frame.kind == FrameKind::Request && frame.payload == [INITIALIZE]
+    frame.service == Service::Lifecycle && frame.kind == FrameKind::Request &&
+        (frame.payload == [INITIALIZE] || frame.payload == [MAINTAIN] || frame.payload == [HEALTH])
+}
+
+fn maintenance_boot(cmdline: &str) -> bool {
+    cmdline.split_whitespace().any(|word| matches!(word, "term.maintenance=components" | "term.maintenance=rebase"))
 }
 
 fn reply(request: &Frame, kind: FrameKind, payload: Vec<u8>) -> Frame {
@@ -96,6 +120,18 @@ mod tests {
         assert!(!valid_request(&frame));
         frame.payload = vec![INITIALIZE];
         frame.service = Service::Session;
+        assert!(!valid_request(&frame));
+    }
+    #[test]
+    fn maintenance_requires_exact_boot_mode_and_argument_free_request() {
+        assert!(maintenance_boot("root=/dev/vda term.maintenance=components"));
+        assert!(maintenance_boot("term.maintenance=rebase quiet"));
+        assert!(!maintenance_boot("term.maintenance=rebase-extra"));
+        assert!(!maintenance_boot("untrusted=term.maintenance=rebase"));
+        let mut frame = Frame { service: Service::Lifecycle, kind: FrameKind::Request,
+            flags: 0, request_id: 1, payload: vec![MAINTAIN] };
+        assert!(valid_request(&frame));
+        frame.payload.push(0);
         assert!(!valid_request(&frame));
     }
     #[test]

@@ -22,6 +22,17 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AvfPackageInitializerTest {
+    @Test fun updateAndHealthRequestsHaveDistinctArgumentFreeOpcodes() = runBlocking {
+        for (health in listOf(false, true)) {
+            val connection = Connection()
+            val initialized = async { AvfPackageInitializer.initialize(connection, maintenance = !health, healthCheck = health) }
+            val request = connection.sent.receive()
+            assertArrayEquals(byteArrayOf(if (health) 0x42 else 0x41), request.payload)
+            connection.frames.send(reply(FrameKind.RESPONSE, ByteBuffer.allocate(8).putLong(123).array()))
+            assertEquals(123L, initialized.await())
+            assertTrue(connection.closed)
+        }
+    }
     @Test fun sendsOnlyTheFixedRequestAndAcceptsACompletedRefreshAfterProgress() = runBlocking {
         val connection = Connection()
         val initialized = async { AvfPackageInitializer.initialize(connection) }

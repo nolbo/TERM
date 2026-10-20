@@ -89,4 +89,5 @@ interface IRuntimeService {
     String deleteEmptyTemporaryWorkspace(String workspaceId);
     String setEnvironmentInternalStorageAccess(String environmentId, boolean enabled);
     String getRuntimeAppMemoryJson();
+    void updateAvfImage(String storageId, String requestId, long generation, String operation, IAvfImageInitializationCallback callback);
 }

@@ -55,7 +55,13 @@ data class RuntimeConfig(
     val enableInternalStorage: Boolean = false,
     /** Host-selected distribution; drivers reject a different verified image before boot. */
     val imageDistribution: String = "debian",
+    /** Service-created maintenance boot. Never populated from launch JSON or guest requests. */
+    val avfMaintenance: AvfMaintenanceBoot? = null,
 )
+
+data class AvfMaintenanceBoot(val operation: String, val sourceSystem: String, val copiedState: String) {
+    init { require(operation in setOf("components", "rebase")) }
+}
 
 data class SharedDirectoryExport(val id: String, val name: String, val directory: String)
 

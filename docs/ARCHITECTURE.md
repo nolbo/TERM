@@ -137,6 +137,13 @@ Image-related pushes to `dev` prepare an image candidate and a debug APK embeddi
 Runtime selection is explicit. A failure in one selected runtime MUST NOT
 silently redirect the command or session to another runtime.
 
+Explicit AVF component/full-image updates use an isolated service-owned VM with
+copied state, then a separate normal candidate boot and health/sync check.
+Generation-fenced activation retains matching old base/state for rollback.
+Ordinary installation still refuses replacement; session startup never requests
+updates. Migration scope, package authentication and recovery are specified in
+[AVF_UPDATES.md](AVF_UPDATES.md).
+
 Explicit installation cancellation targets the observed AVF WorkManager attempt or the selected Rootless backend's preparation job. Rootless preparation owns a separate child job, retains its lease through process and staging cleanup, and never cancels a live session or another environment. Downloads, hashing, extraction and AVF image copying check cancellation before promotion. Cancelled Rootless package preparation retains the activated rootfs, home and any pre-existing workspace data; retry uses the existing package recovery path. Closing or recreating UI still only detaches observation.
 
 Rootless and AVF do not share a complete rootfs or dpkg database. Share only

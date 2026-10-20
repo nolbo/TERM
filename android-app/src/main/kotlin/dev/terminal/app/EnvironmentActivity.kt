@@ -358,7 +358,9 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                                 onInstall = { imageInstallTargetId = detail.id },
                                 canRemove = software?.optBoolean("canRemove") == true && operating == null && deleting == null,
                                 hasData = software?.optBoolean("hasData") == true,
-                                onRemove = { removeHome = false; removeSoftwareTargetId = detail.id })
+                                onRemove = { removeHome = false; removeSoftwareTargetId = detail.id },
+                                canManage = runtime != null && operating == null && deleting == null && software?.optBoolean("busy") != true,
+                                onManage = { operating = detail to it })
                         }
                     } else if (selectedKey == null && entries != null) {
                         listOf(true, false).forEach { used ->

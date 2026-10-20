@@ -64,7 +64,7 @@ def extract_source(archive, destination):
 def write_release(root, release_id, base_uri, source_url, source_sha, distribution="debian", source_commit=None, boot_verification=None):
     if distribution not in ("debian", "ubuntu", "archlinux"):
         raise ValueError("Unsupported AVF distribution")
-    manifest = f"formatVersion=1\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nvirtiofsVersion=1\nandroidStorageVersion=1\nshareBrokerVersion=1\n"
+    manifest = f"formatVersion=1\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nvirtiofsVersion=1\nandroidStorageVersion=1\nshareBrokerVersion=1\nmaintenanceVersion=1\n"
     if distribution in ("debian", "ubuntu"):
         manifest += "aptInitializationVersion=1\n"
     for key, name in ARTIFACTS.items():
@@ -77,7 +77,7 @@ def write_release(root, release_id, base_uri, source_url, source_sha, distributi
     (root / "catalog.properties").write_text(
         f"id={distribution}-arm64-current\nreleaseId={release_id}\n"
         f"manifestUri={base_uri}manifest.properties\n"
-        f"manifestSha256={sha256(root / 'manifest.properties')}\n"
+        f"manifestSha256={sha256(root / 'manifest.properties')}\nmaintenanceVersion=1\n"
         f"maxArtifactBytes={limit}\ncompression=gzip\n")
     (root / "provenance.json").write_text(json.dumps({
         "distribution": distribution, "releaseId": release_id, "sourceUri": source_url, "sourceSha256": source_sha,

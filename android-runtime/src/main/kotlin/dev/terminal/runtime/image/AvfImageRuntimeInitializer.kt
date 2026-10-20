@@ -15,8 +15,9 @@ import kotlinx.coroutines.withTimeout
 
 /** The installer observes service-owned VM work; its cancellation targets this attempt only. */
 internal suspend fun initializeAvfImage(context: Context, storageId: String,
+    updateId: String? = null, generation: Long = 0, operation: String = "install",
     onProgress: (AvfImageInstallPhase) -> Unit) {
-    val requestId = UUID.randomUUID().toString()
+    val requestId = updateId ?: UUID.randomUUID().toString()
     val connected = CompletableDeferred<IRuntimeService>()
     val finished = CompletableDeferred<String>()
     var remote: IRuntimeService? = null
@@ -36,16 +37,18 @@ internal suspend fun initializeAvfImage(context: Context, storageId: String,
         "AVF 초기화 서비스에 연결할 수 없습니다."
     }
     try {
-        withTimeout(450_000) {
+        withTimeout(if (updateId == null) 450_000 else 2_100_000) {
             remote = connected.await()
-            remote!!.initializeAvfImage(storageId, requestId, object : IAvfImageInitializationCallback.Stub() {
+            val callback = object : IAvfImageInitializationCallback.Stub() {
                 override fun onProgress(phase: String) {
                     val parsed = runCatching { AvfImageInstallPhase.valueOf(phase) }.getOrNull()
-                    if (parsed == AvfImageInstallPhase.BOOT || parsed == AvfImageInstallPhase.APT_REFRESH)
+                    if (parsed != null)
                         runCatching { onProgress(parsed) }.onFailure { finished.completeExceptionally(it) }
                 }
                 override fun onComplete(error: String) { finished.complete(error) }
-            })
+            }
+            if (updateId == null) remote!!.initializeAvfImage(storageId, requestId, callback)
+            else remote!!.updateAvfImage(storageId, requestId, generation, operation, callback)
             val error = finished.await()
             if (error.isNotEmpty()) throw IllegalStateException(error)
         }

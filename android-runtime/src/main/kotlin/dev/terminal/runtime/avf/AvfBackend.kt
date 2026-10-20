@@ -86,6 +86,7 @@ class AvfBackend(
     /** Provider must verify a stopped persistent instance, including after host process restart. */
     suspend fun deleteStorage(instanceId: String): Result<Unit> = mutex.withLock { driver.deleteStorage(instanceId) }
     suspend fun verifyStoppedInstance(instanceId: String): Result<Unit> = driver.verifyStoppedInstance(instanceId)
+    suspend fun discardMaintenance(instanceId: String): Result<Unit> = driver.discardMaintenance(instanceId)
     suspend fun revokeSharedStorage(): Result<Unit> = driver.revokeSharedStorage()
     /** Called only after a provider proves the recorded instances stopped or absent. */
     suspend fun confirmSharedStorageRevocation(instances: Set<String>) = mutex.withLock {
@@ -107,6 +108,9 @@ class AvfBackend(
 
 /** Implemented in the AOSP/system-SDK deployment module in the next spike. */
 interface AvfPlatformDriver {
+    /** Stops/deletes only the reserved maintenance VM, including recovery after owner death. */
+    suspend fun discardMaintenance(instanceId: String): Result<Unit> = Result.failure(
+        UnsupportedOperationException("AVF maintenance cleanup is unavailable"))
     suspend fun revokeSharedStorage(): Result<Unit> = Result.failure(
         UnsupportedOperationException("AVF provider cannot revoke internal storage exports"))
     suspend fun verifyStoppedInstance(instanceId: String): Result<Unit> = Result.failure(

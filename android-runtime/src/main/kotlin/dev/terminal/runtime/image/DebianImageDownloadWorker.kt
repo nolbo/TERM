@@ -49,6 +49,8 @@ class DebianImageDownloadWorker(
         val release = BundledAvfImageCatalog.find(releaseId) ?: return@withContext failure("Unknown approved AVF release")
         val storageId = inputData.getString(KEY_STORAGE_ID) ?: "legacy"
         val generation = inputData.getLong(KEY_IMAGE_GENERATION, 0L)
+        val operation = inputData.getString(KEY_OPERATION) ?: "install"
+        if (operation !in setOf("install", "components", "rebase")) return@withContext failure("Invalid image operation")
         val target = runCatching {
             dev.terminal.runtime.session.SessionStorage.root(applicationContext.filesDir,
                 dev.terminal.runtime.session.SessionRuntime.AVF, storageId).toPath()
@@ -66,7 +68,7 @@ class DebianImageDownloadWorker(
                     .get(10, TimeUnit.SECONDS)
                 previous != null && !previous.state.isFinished
             }
-            if (Files.exists(target)) {
+            if (operation == "install" && Files.exists(target)) {
                 report(AvfImageInstallPhase.VERIFY)
                 return@withContext if (AvfImageVerifier.verifyInstalled(target, release.distribution, ::checkCancellation) is ImageVerification.Ready) {
                     initializeInstalledImage(storageId)
@@ -89,7 +91,10 @@ class DebianImageDownloadWorker(
             report(AvfImageInstallPhase.VERIFY)
             when (val verification = AvfImageVerifier.verify(stagingRoot, release.distribution, ::checkCancellation)) {
                 is ImageVerification.Invalid -> failure(verification.reason)
-                is ImageVerification.Ready -> when (
+                is ImageVerification.Ready -> if (operation != "install") {
+                    initializeAvfImage(applicationContext, storageId, id.toString(), generation, operation) { report(it) }
+                    success("updated")
+                } else when (
                     val installed = installImage(stagingRoot, target, storageId, generation, release.distribution)
                 ) {
                     is ImageInstallResult.Installed -> initializeInstalledImage(storageId)
@@ -192,6 +197,7 @@ class DebianImageDownloadWorker(
                 "INSTALL" -> "이미지 설치 및 최종 검증 중"
                 "BOOT" -> "배포판 초기 실행 준비 중"
                 "APT_REFRESH" -> "최신 패키지 목록을 가져오는 중"
+                "UPDATE" -> "게스트 구성요소 갱신 및 사용자 데이터 이전 중"
                 "COMPLETE" -> "이미지 설치 완료"
                 else -> "이미지 설치 준비 중"
             })
@@ -209,6 +215,7 @@ class DebianImageDownloadWorker(
         private const val KEY_RELEASE_ID = "release_id"
         private const val KEY_STORAGE_ID = "storage_id"
         private const val KEY_IMAGE_GENERATION = "image_generation"
+        private const val KEY_OPERATION = "image_operation"
         private const val KEY_STATUS = "status"
         internal const val KEY_ERROR = "error"
         // WorkManager Data is limited to 10 KiB, including progress and serialized string overhead.
@@ -228,13 +235,15 @@ class DebianImageDownloadWorker(
             return if (storageId == "legacy") UNIQUE_WORK_NAME else "$UNIQUE_WORK_NAME-$storageId"
         }
 
-        internal fun request(releaseId: String, storageId: String, generation: Long = 0L): androidx.work.OneTimeWorkRequest {
+        internal fun request(releaseId: String, storageId: String, generation: Long = 0L,
+            operation: String = "install"): androidx.work.OneTimeWorkRequest {
             dev.terminal.runtime.session.SessionStorage.validate(storageId)
             return OneTimeWorkRequestBuilder<DebianImageDownloadWorker>()
+                .addTag("${AvfImageInstallMonitor.OPERATION_TAG}$operation")
                 .addTag("${AvfImageInstallMonitor.STORAGE_TAG}$storageId")
                 .addTag("${AvfImageInstallMonitor.REQUESTED_TAG}${System.currentTimeMillis()}")
                 .setInputData(Data.Builder().putString(KEY_RELEASE_ID, releaseId).putString(KEY_STORAGE_ID, storageId)
-                    .putLong(KEY_IMAGE_GENERATION, generation).build())
+                    .putLong(KEY_IMAGE_GENERATION, generation).putString(KEY_OPERATION, operation).build())
                 .setConstraints(Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build())
                 .build()
         }

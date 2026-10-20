@@ -251,6 +251,16 @@
     <string name="avf_install_installing">Installing images and final verification</string>
     <string name="avf_install_booting">Preparing Linux for initial startup</string>
     <string name="avf_install_apt_refresh">Retrieving current package lists</string>
+    <string name="avf_install_updating">Updating guest and migrating data</string>
+    <string name="avf_update_components">Update guest components</string>
+    <string name="avf_update_components_help">Stop the VM first. Update TERM services while keeping packages and settings. Internet and space for a copy are required. The previous state is retained for recovery.</string>
+    <string name="avf_update_image">Update full image</string>
+    <string name="avf_update_image_help">Stop the VM first. Move home and user data folders and reinstall additional packages on a new image. Configuration conflicts or package failures preserve the existing environment. Databases and other /var/lib data stay in the retained old image and need separate migration. Internet and additional storage are required.</string>
+    <string name="avf_update_approval_required">Available after a maintenance image is approved for this app version.</string>
+    <string name="avf_rollback_image">Restore previous image</string>
+    <string name="avf_rollback_image_help">Stop the VM first. Restore the image and user state together to the previous point. The current state is also retained; changes since the update are not merged into the old environment.</string>
+    <string name="avf_discard_history">Delete retained images</string>
+    <string name="avf_discard_history_help">Permanently delete all retained images and their user data. Keep the current image. Previous states cannot be restored after deletion.</string>
     <string name="avf_apt_status">Package list initialization</string>
     <string name="avf_apt_pending">Refresh needed · Connect to the Internet and retry.</string>
     <string name="avf_apt_updated_at">Initial refresh completed · %1$s</string>

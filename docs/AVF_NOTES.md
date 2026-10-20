@@ -38,7 +38,7 @@ architecture, distribution, non-empty files, and hashes before installation. The
 The installer accepts only a complete staging directory, copies it into a
 sibling temporary directory, verifies it again, and then promotes it to the VM
 location. It never replaces an existing image; upgrade/rollback policy remains
-a separate future design decision.
+the separate explicit stopped-VM procedure in [AVF_UPDATES.md](AVF_UPDATES.md).
 
 New producer manifests declare optional `aptInitializationVersion=1`, which identifies the fixed host-only guest APT initializer. Online installs of those verified images refresh the full indexes through `:vmhost` before reporting completion and preserve the disks for retry on failure. Older manifests omit this field and retain file-only installation; unknown initialization versions are rejected. Existing installed images are not migrated.
 
@@ -105,7 +105,7 @@ The session daemon runs as `droid`, whose home and default AVF session directory
 
 Newly produced images also give this single-user guest account passwordless sudo while locking password login. `/etc/sudoers.d/90-term-droid` is root-owned mode 0440 and checked by `visudo`; the producer requires the base image's sudo, APT and dpkg tools rather than silently producing an incomplete guest. `droid-sessiond` explicitly uses `NoNewPrivileges=no` to allow setuid sudo in its shells. The offline image gate runs as `droid`, proves sudo reaches UID 0, updates APT's normal list/cache directories from a temporary local repository, installs and removes a probe package, and checks this on both overlay boots. It does not change the guest's configured upstream sources or certify Android TAP networking, DNS, or live upstream downloads. This policy is baked into newly generated images only; APK updates do not retrofit existing system images or change the approved catalog.
 
-AVF `getOrCreate` retains an existing VM configuration. The driver calls `setConfig` only on stopped instances before starting them, so existing installations also receive the short `localhost` guest hostname on their next boot. AOSP checks configuration compatibility; incompatible identity changes fail without deleting or recreating the VM. Running guests are reconnected without changing their configuration. Persistent VM names, including `droid-default` and independent storage IDs, remain unchanged. Image upgrade/reset is deliberately deferred to an explicit migration design; the runtime does not replace an image under an existing VM instance.
+AVF `getOrCreate` retains an existing VM configuration. The driver calls `setConfig` only on stopped instances before starting them, so existing installations also receive the short `localhost` guest hostname on their next boot. AOSP checks configuration compatibility; incompatible identity changes fail without deleting or recreating the VM. Running guests are reconnected without changing their configuration. Persistent VM names, including `droid-default` and independent storage IDs, remain unchanged. Explicit image changes require the stopped-VM migration and rollback procedure in [AVF_UPDATES.md](AVF_UPDATES.md); ordinary startup never replaces installed disks.
 
 Legacy storage adoption assigns a registry UUID without moving the image or replacing
 `droid-default`. It waits until the service can reach that VM's PTY owner and prove no

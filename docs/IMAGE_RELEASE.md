@@ -8,6 +8,13 @@ New producer manifests include the optional `aptInitializationVersion=1` field, 
 
 ## Automated producer
 
+New maintenance-capable images/catalogs declare `maintenanceVersion=1`. Their
+sealed system contains distribution-native TERM guest packages and fixed
+maintenance/health scripts. Both offline boots must adopt the local package and
+emit `TERM_AVF_GUEST_PACKAGE_OK`. Explicit component updates, image migration and
+rollback follow [AVF_UPDATES.md](AVF_UPDATES.md). Old pins remain valid and are not
+automatically replaced; approving/publishing a new image is still required.
+
 The producer also performs two normal systemd boots with a real vhost-vsock
 device, separately from the PID-1 filesystem/package fixture boots. On each boot
 the host verifies an empty session-list RPC on 40500 and the package initializer's

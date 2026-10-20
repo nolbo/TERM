@@ -12,6 +12,7 @@ data class AvfImageRelease(
     val maxArtifactBytes: Long,
     val gzipArtifacts: Boolean = false,
     val distribution: AvfDistribution = AvfDistribution.DEBIAN,
+    val maintenanceVersion: Int = 0,
 ) {
     init {
         require(id.matches(Regex("[a-z0-9][a-z0-9._-]{0,63}"))) { "Invalid image release ID" }
@@ -20,6 +21,7 @@ data class AvfImageRelease(
             manifestUri.path.endsWith("/manifest.properties")) { "Invalid HTTPS image manifest URI" }
         require(manifestSha256.matches(Regex("[0-9a-f]{64}"))) { "Invalid manifest checksum" }
         require(maxArtifactBytes in 1..MAX_ARTIFACT_BYTES) { "Invalid artifact size limit" }
+        require(maintenanceVersion in 0..1) { "Unsupported guest maintenance version" }
     }
 
     companion object { const val MAX_ARTIFACT_BYTES = 32L * 1024 * 1024 * 1024 }
@@ -50,7 +52,7 @@ object BundledAvfImageCatalog : AvfImageCatalog {
         val ids = properties.getProperty("distributions")?.split(',') ?: error("Missing catalog distributions")
         require(ids.isNotEmpty() && ids.distinct().size == ids.size) { "Duplicate catalog distribution" }
         val distributions = ids.map(AvfDistribution::fromId)
-        val keys = setOf("id", "releaseId", "manifestUri", "manifestSha256", "maxArtifactBytes", "compression")
+        val keys = setOf("id", "releaseId", "manifestUri", "manifestSha256", "maxArtifactBytes", "compression", "maintenanceVersion")
         require(properties.stringPropertyNames().all { key -> key in setOf("formatVersion", "distributions") ||
             distributions.any { key.startsWith("${it.id}.") && key.removePrefix("${it.id}.") in keys } }) { "Unknown catalog entry" }
         return distributions.map { distribution ->
@@ -69,6 +71,6 @@ object BundledAvfImageCatalog : AvfImageCatalog {
         AvfImageRelease(id, URI(getProperty("manifestUri") ?: error("Missing manifest URI")),
             getProperty("manifestSha256") ?: error("Missing manifest checksum"),
             getProperty("maxArtifactBytes")?.toLongOrNull() ?: error("Missing artifact size limit"),
-            compression == "gzip", distribution)
+            compression == "gzip", distribution, getProperty("maintenanceVersion", "0").toInt())
     }
 }

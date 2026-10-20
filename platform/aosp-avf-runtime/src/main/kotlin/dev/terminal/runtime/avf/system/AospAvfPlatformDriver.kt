@@ -83,9 +83,14 @@ class AospAvfPlatformDriver(
             Log.i(TAG, "image.verify duration_ms=${SystemClock.elapsedRealtime() - verificationStartedAt} ready=${verification is ImageVerification.Ready}")
             when (verification) {
                 is ImageVerification.Ready -> {
-                    supportsVirtiofs = verification.manifest.virtiofsVersion == 1
-                    supportsAndroidStorage = verification.manifest.androidStorageVersion == 1
-                    supportsShareBroker = verification.manifest.shareBrokerVersion == 1
+                    val capabilities = dev.terminal.image.AvfGuestComponents.effective(Paths.get(config.imageDirectory), verification.manifest)
+                    supportsVirtiofs = capabilities.virtiofsVersion == 1
+                    supportsAndroidStorage = capabilities.androidStorageVersion == 1
+                    supportsShareBroker = capabilities.shareBrokerVersion == 1
+                    if (config.avfMaintenance != null) {
+                        require(!config.protectedVm && config.sharedFolders.isEmpty() && !config.enableInternalStorage)
+                        require(verification.manifest.maintenanceVersion == 1) { "새 관리 기능을 포함한 이미지가 필요합니다." }
+                    }
                     AvfSharedDirectories.validate(appContext.filesDir.canonicalFile, config.sharedFolders, publicSharesRoot(),
                         false)
                     require(config.sharedFolders.isEmpty() || supportsShareBroker) {
@@ -236,6 +241,19 @@ class AospAvfPlatformDriver(
 
     override suspend fun revokeSharedStorage(): Result<Unit> = runCatching { sharedStorage.revoke(); Unit }
 
+    override suspend fun discardMaintenance(instanceId: String): Result<Unit> = mutex.withLock {
+        runCatching {
+            require(instanceId.matches(Regex("maintenance-[a-f0-9]{32}")))
+            val name = "droid-$instanceId"
+            manager.get(name)?.let { vm ->
+                if (vm.status != VirtualMachine.STATUS_STOPPED) vm.stop()
+                check(vm.status == VirtualMachine.STATUS_STOPPED) { "관리 VM의 중지를 확인할 수 없습니다." }
+                manager.delete(name)
+            }
+            Unit
+        }
+    }
+
     private fun stopStorageInstance(instanceId: String) {
         val vm = manager.get("droid-$instanceId")
         if (vm != null) {
@@ -351,6 +369,11 @@ class AospAvfPlatformDriver(
             .addDisk(VirtualMachineCustomImageConfig.Disk.RODisk(image.systemImage.toString()))
             .addDisk(VirtualMachineCustomImageConfig.Disk.RWDisk(image.homeImage.toString()))
             .addDisk(VirtualMachineCustomImageConfig.Disk.RODisk(image.configImage.toString()))
+        config.avfMaintenance?.let { maintenance ->
+            customImage.addParam("term.maintenance=${maintenance.operation}")
+                .addDisk(VirtualMachineCustomImageConfig.Disk.RODisk(maintenance.sourceSystem))
+                .addDisk(VirtualMachineCustomImageConfig.Disk.RWDisk(maintenance.copiedState))
+        }
         if (config.sharedFolders.isNotEmpty()) customImage.addParam("term.share-broker=1")
         if (shares != null) {
             if (shares.hasFolders) customImage.addParam(AvfSharedDirectories.BOOT_PARAM)

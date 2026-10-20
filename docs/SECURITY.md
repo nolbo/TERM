@@ -99,6 +99,16 @@ The APK packages the direct AOSP AVF driver, but its compile-only platform API d
 
 The guest APT initializer is a root service restricted to host-CID vsock port 40503 and one fixed operation. It accepts no arbitrary executable, shell text, path, source or environment. It invokes the guest APT tool with signature verification intact, disables PDiffs only for the initial full refresh, fails on repository errors and bounds lock/network/overall waits. Cancellation kills only its dedicated process group. This is guest administration and grants no Android capability. The host verifies all original image artifacts and records the installation receipt before allowing writable initialization; it never rewrites manifest hashes to accommodate guest state.
 
+## AVF update boundary
+
+Explicit AVF updates authenticate local TERM packages through the signed APK's
+pinned manifest/system image. Dependency repository signatures remain enabled.
+A fixed guest maintenance opcode runs only in the host-selected temporary boot;
+it accepts no paths/commands. Old system is read-only and only copied state is
+writable. Temporary VMs export no private folders or Android storage. Activation,
+recovery and history deletion require service-owned leases and platform stop
+proof; a journal blocks boot until recovery. See [AVF_UPDATES.md](AVF_UPDATES.md).
+
 ## Executable policy
 
 Environment backup is an explicit SAF operation; Android automatic backup remains disabled. Backup files may contain credentials and private keys. Password protection uses framed AES-256-GCM with PBKDF2-HMAC-SHA256; passwords are never journaled. Plain exports detect corruption but do not authenticate their source. Imports require a source-trust acknowledgement and default to excluding Profiles, whose launch settings may execute commands later. Extraction accepts only bounded fixed components, never follows archive-controlled parents, validates all link relationships and rejects special files, traversal and excess expansion. New-only staging, hidden registry reservations and atomic activation protect existing storage on failure/cancellation/process death. See [BACKUP_RESTORE.md](BACKUP_RESTORE.md) for cryptographic framing, limits and recovery guarantees.

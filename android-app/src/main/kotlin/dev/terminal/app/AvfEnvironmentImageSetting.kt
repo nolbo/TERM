@@ -4,6 +4,7 @@ package dev.terminal.app
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
@@ -32,15 +33,20 @@ import kotlinx.coroutines.withContext
     canRemove: Boolean = false,
     hasData: Boolean = false,
     onRemove: () -> Unit = {},
+    canManage: Boolean = false,
+    onManage: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     var installed by remember(storageId) { mutableStateOf<Boolean?>(null) }
     var aptPending by remember(storageId) { mutableStateOf(false) }
     var aptCompletedAt by remember(storageId) { mutableStateOf<Long?>(null) }
+    var hasPrevious by remember(storageId) { mutableStateOf(false) }
+    var confirmedAction by rememberSaveable(storageId) { mutableStateOf<String?>(null) }
     LaunchedEffect(storageId, snapshot, revision) {
         do {
             val state = withContext(Dispatchers.IO) {
                 val root = SessionStorage.root(context.filesDir, SessionRuntime.AVF, storageId).toPath()
+                hasPrevious = dev.terminal.image.AvfImageTransitions.previous(root) != null
                 Triple(AvfImageVerifier.hasInstalledImage(root, distribution), AvfPackageInitialization.isRequired(root),
                     AvfPackageInitialization.completedAt(root))
             }
@@ -67,7 +73,7 @@ import kotlinx.coroutines.withContext
                 Text(stringResource(R.string.avf_apt_status))
             }
         }
-        val progress = snapshot?.takeIf { it.active || (installed == false || aptPending) &&
+        val progress = snapshot?.takeIf { it.active ||
             it.state in setOf(AvfImageInstallState.FAILED, AvfImageInstallState.CANCELLED) }
         if (progress != null) AvfImageInstallCard(progress)
         if ((installed == false || aptPending) && progress?.active != true) {
@@ -81,9 +87,47 @@ import kotlinx.coroutines.withContext
                 }, onClick = onInstall)
         }
         if (installed == true || hasData) {
+            val approved = BundledAvfImageCatalog.find(distribution)?.maintenanceVersion == 1
+            val enabled = canManage && !requesting && progress?.active != true
+            if (installed == true) {
+                EnvironmentActionSetting(R.string.avf_update_components, R.drawable.ic_material_symbol_download_24,
+                    enabled = enabled && approved,
+                    supporting = if (approved) R.string.avf_update_components_help else R.string.avf_update_approval_required,
+                    onClick = { confirmedAction = "UPDATE_COMPONENTS" })
+                EnvironmentActionSetting(R.string.avf_update_image, R.drawable.ic_material_symbol_download_24,
+                    enabled = enabled && approved,
+                    supporting = if (approved) R.string.avf_update_image_help else R.string.avf_update_approval_required,
+                    onClick = { confirmedAction = "UPDATE_IMAGE" })
+            }
+            if (hasPrevious) {
+                EnvironmentActionSetting(R.string.avf_rollback_image, R.drawable.ic_material_symbol_download_24,
+                    enabled = enabled, supporting = R.string.avf_rollback_image_help,
+                    onClick = { confirmedAction = "ROLLBACK_IMAGE" })
+                EnvironmentActionSetting(R.string.avf_discard_history, R.drawable.ic_material_symbol_delete_24,
+                    enabled = enabled, supporting = R.string.avf_discard_history_help, destructive = true,
+                    onClick = { confirmedAction = "DISCARD_IMAGE_HISTORY" })
+            }
             EnvironmentActionSetting(R.string.environment_distribution_remove, R.drawable.ic_material_symbol_delete_24,
                 enabled = canRemove && !requesting && progress?.active != true,
                 supporting = R.string.environment_software_protected, destructive = true, onClick = onRemove)
         }
+    }
+    confirmedAction?.let { action ->
+        val title = when (action) {
+            "UPDATE_COMPONENTS" -> R.string.avf_update_components
+            "UPDATE_IMAGE" -> R.string.avf_update_image
+            "ROLLBACK_IMAGE" -> R.string.avf_rollback_image
+            else -> R.string.avf_discard_history
+        }
+        val help = when (action) {
+            "UPDATE_COMPONENTS" -> R.string.avf_update_components_help
+            "UPDATE_IMAGE" -> R.string.avf_update_image_help
+            "ROLLBACK_IMAGE" -> R.string.avf_rollback_image_help
+            else -> R.string.avf_discard_history_help
+        }
+        AlertDialog(onDismissRequest = { confirmedAction = null }, title = { Text(stringResource(title)) },
+            text = { Text(stringResource(help)) },
+            confirmButton = { TextButton(onClick = { confirmedAction = null; onManage(action) }) { Text(stringResource(android.R.string.ok)) } },
+            dismissButton = { TextButton(onClick = { confirmedAction = null }) { Text(stringResource(android.R.string.cancel)) } })
     }
 }

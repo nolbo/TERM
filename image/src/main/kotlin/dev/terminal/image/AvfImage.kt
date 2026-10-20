@@ -21,6 +21,7 @@ data class AvfImageManifest(
     val androidStorageVersion: Int = 0,
     val packageInitializationVersion: Int = 0,
     val shareBrokerVersion: Int = 0,
+    val maintenanceVersion: Int = 0,
 ) {
     val guestDistribution: AvfDistribution get() = AvfDistribution.fromId(distribution)
     val initializesPackageIndexes: Boolean get() = packageInitializationVersion == 1 || aptInitializationVersion == 1
@@ -77,6 +78,7 @@ object AvfImageVerifier {
     /** A writable VM disk changes after first boot; immutable artifacts remain pinned. */
     fun verifyInstalled(root: Path, expectedDistribution: AvfDistribution? = null, checkCancellation: () -> Unit = {}): ImageVerification {
         checkCancellation()
+        if (AvfImageTransitions.interrupted(root)) return ImageVerification.Invalid("AVF 이미지 전환 복구가 필요합니다.")
         val receipt = root.resolve(INSTALL_RECEIPT)
         val manifest = root.resolve(AvfImageLayout.MANIFEST_FILE)
         val hasReceipt = runCatching {
@@ -96,7 +98,7 @@ object AvfImageVerifier {
     private fun verify(root: Path, verifyHome: Boolean, checkCancellation: () -> Unit, expectedDistribution: AvfDistribution?): ImageVerification {
         checkCancellation()
         val layout = AvfImageLayout(root)
-        if (!Files.isDirectory(root)) return ImageVerification.Invalid("AVF image directory is missing")
+        if (!Files.isDirectory(root, java.nio.file.LinkOption.NOFOLLOW_LINKS)) return ImageVerification.Invalid("AVF image directory is missing")
         val required = listOf(layout.manifest, layout.kernelImage, layout.initrdImage, layout.systemImage, layout.homeImage, layout.configImage)
         if (required.any { !layout.isContained(it) || !Files.isRegularFile(it, java.nio.file.LinkOption.NOFOLLOW_LINKS) }) {
             return ImageVerification.Invalid("AVF image is incomplete")
@@ -159,6 +161,10 @@ object AvfImageVerifier {
             } ?: 0,
             shareBrokerVersion = getProperty("shareBrokerVersion")?.let {
                 require(it == "1") { "Unsupported private share broker version" }
+                1
+            } ?: 0,
+            maintenanceVersion = getProperty("maintenanceVersion")?.let {
+                require(it == "1") { "Unsupported guest maintenance version" }
                 1
             } ?: 0,
         )

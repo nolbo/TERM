@@ -195,7 +195,7 @@ class ImageFactoryTests(unittest.TestCase):
     def test_smoke_requires_sealed_network_configuration_on_each_boot(self):
         boots = [b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"]
         for failed_boot in range(2):
-            results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_VIRTIOFS_CONFIG_OK\nTERM_AVF_ANDROID_STORAGE_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK\nTERM_AVF_PACKAGE_INIT_OK" +
+            results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_GUEST_PACKAGE_OK\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_VIRTIOFS_CONFIG_OK\nTERM_AVF_ANDROID_STORAGE_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK\nTERM_AVF_PACKAGE_INIT_OK" +
                        (b"\nTERM_AVF_NETWORK_CONFIG_OK" if index != failed_boot else b""))
                        for index, marker in enumerate(boots)]
             with self.subTest(failed_boot=failed_boot), mock.patch('subprocess.run', side_effect=results), \
@@ -205,7 +205,7 @@ class ImageFactoryTests(unittest.TestCase):
 
     def test_smoke_rejects_missing_android_storage_configuration_on_either_boot(self):
         for missing in range(2):
-            results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_VIRTIOFS_CONFIG_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK\nTERM_AVF_PACKAGE_INIT_OK" +
+            results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_GUEST_PACKAGE_OK\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_VIRTIOFS_CONFIG_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK\nTERM_AVF_PACKAGE_INIT_OK" +
                                 (b"\nTERM_AVF_ANDROID_STORAGE_CONFIG_OK" if index != missing else b""))
                        for index, marker in enumerate([b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"])]
             with self.subTest(missing=missing), mock.patch('subprocess.run', side_effect=results), mock.patch('sys.stdout', new_callable=io.StringIO):
@@ -213,7 +213,7 @@ class ImageFactoryTests(unittest.TestCase):
                     runpy.run_path(str(REPO / "image/scripts/smoke-avf-image.py"))
 
     def test_smoke_accepts_both_offline_boots_only_after_user_setup_succeeds(self):
-        results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_VIRTIOFS_CONFIG_OK\nTERM_AVF_ANDROID_STORAGE_CONFIG_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK\nTERM_AVF_PACKAGE_INIT_OK")
+        results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_GUEST_PACKAGE_OK\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_VIRTIOFS_CONFIG_OK\nTERM_AVF_ANDROID_STORAGE_CONFIG_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK\nTERM_AVF_PACKAGE_INIT_OK")
                    for marker in [b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"]]
         with mock.patch('subprocess.run', side_effect=results) as qemu, mock.patch('sys.stdout', new_callable=io.StringIO):
             runpy.run_path(str(REPO / "image/scripts/smoke-avf-image.py"))

@@ -59,6 +59,7 @@ test -x /usr/local/lib/droid/initialize-avf-packages.sh
 systemctl --root=/ is-enabled --quiet droid-apt-init.service
 echo TERM_AVF_PACKAGE_BASE_CLEAN_OK
 /usr/local/lib/droid/image-user-selftest
+/usr/local/lib/droid/image-update-selftest
 mkdir -p /var/lib/droid-image-test
 if [ -e /var/lib/droid-image-test/persistent ]; then
   test "$(cat /var/lib/droid-image-test/persistent)" = survives-reboot

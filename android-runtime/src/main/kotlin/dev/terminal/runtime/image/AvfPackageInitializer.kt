@@ -16,7 +16,8 @@ import kotlinx.coroutines.withTimeout
 
 /** Uses a dedicated maintenance connection, never a terminal or capability RPC. */
 internal object AvfPackageInitializer {
-    suspend fun initialize(connection: GuestConnection, timeoutMillis: Long = 360_000): Long =
+    suspend fun initialize(connection: GuestConnection, timeoutMillis: Long = 360_000,
+        maintenance: Boolean = false, healthCheck: Boolean = false): Long =
         withTimeout(timeoutMillis) {
             coroutineScope {
                 // Closing the descriptor on cancellation unblocks the IO flow producer.
@@ -25,7 +26,7 @@ internal object AvfPackageInitializer {
                 }
                 try {
                     connection.send(ProtocolFrame(service = Service.LIFECYCLE, kind = FrameKind.REQUEST,
-                        requestId = 1, payload = byteArrayOf(0x40))).getOrThrow()
+                        requestId = 1, payload = byteArrayOf(if (healthCheck) 0x42 else if (maintenance) 0x41 else 0x40))).getOrThrow()
                     val response = connection.incomingFrames().first { frame ->
                         require(frame.service == Service.LIFECYCLE && frame.requestId == 1L) { "Invalid package initialization response" }
                         frame.kind != FrameKind.STREAM

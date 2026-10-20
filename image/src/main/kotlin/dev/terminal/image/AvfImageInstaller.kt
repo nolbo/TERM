@@ -14,8 +14,8 @@ sealed interface ImageInstallResult {
 
 /**
  * Promotes a complete, verified staging directory to a VM image directory.
- * It deliberately refuses replacement: upgrades and rollback require a later
- * versioned-image design rather than silently deleting user data.
+ * Ordinary installation refuses replacement. Explicit updates and rollback
+ * use AvfImageTransitions under the runtime service's stopped-VM storage lease.
  */
 object AvfImageInstaller {
     /** A fresh path owned by an installation attempt, on the destination filesystem. */

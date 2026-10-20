@@ -20,7 +20,7 @@ install -d -m 0755 /etc/droid
 printf '%s\n' "$distribution" > /etc/droid/distribution
 bash /tmp/term-avf/install-droid-guest.sh / /tmp/term-avf/bin
 install -m 0755 /tmp/term-avf/image-selftest /usr/local/lib/droid/image-selftest
-for script in image-user-selftest image-apt-selftest image-pacman-selftest initialize-avf-packages.sh; do
+for script in image-user-selftest image-apt-selftest image-pacman-selftest image-update-selftest initialize-avf-packages.sh maintain-avf-image.sh migrate-avf-state.py check-avf-image.sh; do
   install -m 0755 "/tmp/term-avf/$script" "/usr/local/lib/droid/$script"
 done
 sh /tmp/term-avf/configure-avf-user.sh /tmp/term-avf/droid.sudoers
@@ -49,5 +49,6 @@ for service in droid-sessiond droid-agent droid-port-agent droid-apt-init droid-
   systemd-analyze verify "/etc/systemd/system/$service.service"
 done
 /usr/local/lib/droid/droid-sessiond --self-check
+python3 /tmp/term-avf/build-guest-package.py / "$distribution"
 # Preserve only TERM's PTY owner, no browser terminal or passwordless console.
 systemctl mask serial-getty@hvc0.service getty@tty1.service ttyd.service

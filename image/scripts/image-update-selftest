@@ -1,0 +1,18 @@
+#!/bin/sh
+# Offline local-package adoption is tested on both disposable factory boots.
+set -eu
+case "$(cat /etc/droid/distribution)" in
+  debian|ubuntu)
+    dpkg --install /usr/share/term/term-guest.deb
+    test "$(dpkg-query -W -f='${Status}' term-guest)" = 'install ok installed'
+    ;;
+  archlinux)
+    overwrite=$(sed 's@^/@@' /usr/share/term/managed-files | paste -sd, -)
+    pacman -U --noconfirm --overwrite "$overwrite" /usr/share/term/term-guest.pkg.tar
+    pacman -Q term-guest
+    ;;
+  *) exit 1;;
+esac
+/usr/local/lib/droid/droid-sessiond --self-check
+/usr/local/lib/droid/check-avf-image.sh
+echo TERM_AVF_GUEST_PACKAGE_OK

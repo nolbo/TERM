@@ -5,7 +5,7 @@ import androidx.lifecycle.LifecycleOwner
 import androidx.work.WorkInfo
 import androidx.work.WorkManager
 
-enum class AvfImageInstallPhase { PREPARING, MANIFEST, DOWNLOAD, VERIFY, INSTALL, BOOT, APT_REFRESH, COMPLETE }
+enum class AvfImageInstallPhase { PREPARING, MANIFEST, DOWNLOAD, VERIFY, INSTALL, BOOT, APT_REFRESH, UPDATE, COMPLETE }
 enum class AvfImageInstallState { WAITING, RUNNING, RETRYING, SUCCEEDED, FAILED, CANCELLED }
 
 data class AvfImageInstallSnapshot(
@@ -20,6 +20,7 @@ data class AvfImageInstallSnapshot(
     val updatedAtElapsedMs: Long? = null,
     val error: String? = null,
     val requestedAtEpochMs: Long = 0L,
+    val operation: String = "install",
 ) {
     val active get() = state in setOf(AvfImageInstallState.WAITING, AvfImageInstallState.RUNNING, AvfImageInstallState.RETRYING)
     // This measures the current compressed download, never the entire installation.
@@ -41,6 +42,7 @@ class AvfImageInstallMonitor(context: Context) {
     companion object {
         internal const val STORAGE_TAG = "avf-image-storage:"
         internal const val REQUESTED_TAG = "avf-image-requested:"
+        internal const val OPERATION_TAG = "avf-image-operation:"
         internal const val KEY_STORAGE = "storage_id"
         internal const val KEY_PHASE = "phase"
         internal const val KEY_ARTIFACT = "artifact_index"
@@ -74,7 +76,8 @@ class AvfImageInstallMonitor(context: Context) {
                 number(KEY_BYTES), number(KEY_TOTAL), number(KEY_STARTED), number(KEY_UPDATED),
                 data.getString(DebianImageDownloadWorker.KEY_ERROR),
                 work.tags.firstOrNull { it.startsWith(REQUESTED_TAG) }?.removePrefix(REQUESTED_TAG)
-                    ?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L)
+                    ?.toLongOrNull()?.coerceAtLeast(0L) ?: 0L,
+                work.tags.firstOrNull { it.startsWith(OPERATION_TAG) }?.removePrefix(OPERATION_TAG) ?: "install")
         }
     }
 }

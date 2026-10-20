@@ -117,6 +117,10 @@ Host unit tests alone do not establish these production/runtime criteria.
 
 ## Decision and alternatives
 
+Explicit same-distribution component/image updates are specified in
+[AVF_UPDATES.md](AVF_UPDATES.md). They require a catalog declaring
+`maintenanceVersion=1` and retain complete previous generations.
+
 Use one AVF backend and a shared boot/guest contract with distribution adapters.
 Separate AVF runtime variants would duplicate lifecycle/storage dispatch and
 persisted identities. Per-distribution kernels/initramfs systems would add

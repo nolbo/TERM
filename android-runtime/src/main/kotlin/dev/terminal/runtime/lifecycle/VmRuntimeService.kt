@@ -583,6 +583,50 @@ class VmRuntimeService : Service() {
             enforceHostToolUi()
             imageInitializationJobs[requestId]?.cancel()
         }
+        override fun updateAvfImage(storageId: String, requestId: String, generation: Long, operation: String,
+            callback: dev.terminal.runtime.ipc.IAvfImageInitializationCallback) {
+            enforceHostToolUi()
+            dev.terminal.runtime.session.SessionStorage.validate(storageId)
+            val workId = java.util.UUID.fromString(requestId)
+            require(workId.toString() == requestId && operation in setOf("components", "rebase"))
+            val job = scope.launch(start = kotlinx.coroutines.CoroutineStart.LAZY) {
+                var error = ""
+                try {
+                    trackedEnvironmentOperation {
+                        preparationLocks.withStorage(SessionRuntime.AVF, storageId) {
+                            val environment = environmentForStorage(SessionRuntime.AVF, storageId)
+                            val client = ensureSessionRegistry() ?: error("Runtime unavailable")
+                            client.deleteStorageIfIdle(SessionRuntime.AVF, storageId) { release ->
+                                val owner = newAvfMaintenanceBackend()
+                                val instance = requireNotNull(environment.runtimeMetadata.vmInstanceId)
+                                owner.verifyStoppedInstance(instance).getOrThrow()
+                                storageRegistry.transaction { validateImageGeneration(environment.storageKey, generation) }
+                                release(); clearEnvironmentStart(environment.id)
+                                environmentBackends.remove(environment.id)
+                                val root = dev.terminal.runtime.session.SessionStorage.root(filesDir, SessionRuntime.AVF, storageId).toPath()
+                                dev.terminal.runtime.image.AvfEnvironmentUpdater(owner).update(root, instance,
+                                    requireNotNull(environment.distribution).avfDistribution,
+                                    dev.terminal.runtime.image.AvfImageDownloadStaging.path(root, workId), operation,
+                                    progress = { callback.onProgress(it.name) }, activate = { promote ->
+                                        storageRegistry.transaction {
+                                            validateImageGeneration(environment.storageKey, generation)
+                                            promote()
+                                        }
+                                    })
+                            }
+                        }
+                    }
+                } catch (failure: Exception) {
+                    error = if (failure is kotlinx.coroutines.CancellationException) "AVF 업데이트가 중단되었습니다. 기존 환경은 보존됩니다."
+                        else failure.userMessage()
+                } finally {
+                    imageInitializationJobs.remove(requestId)
+                    runCatching { callback.onComplete(error) }
+                }
+            }
+            check(imageInitializationJobs.putIfAbsent(requestId, job) == null) { "Duplicate update request" }
+            job.start()
+        }
         override fun measureEnvironmentUsageJson(environmentId: String): String {
             enforceHostToolUi()
             val environment = environmentRegistry.transaction(storageDefaults()) { requireEnvironment(EnvironmentId(environmentId)) }
@@ -638,8 +682,34 @@ class VmRuntimeService : Service() {
                             }
                         }
                         "INSTALL", "REPAIR" -> installRootlessEnvironment(environment, client)
+                        "UPDATE_COMPONENTS", "UPDATE_IMAGE" -> {
+                            check(environment.sessionRuntime == SessionRuntime.AVF && hasAvfPrivileges())
+                            check(!getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE).getBoolean(KEY_AVF_PROTECTED, false)) {
+                                "이미지 업데이트는 비보호 AVF VM에서만 지원됩니다."
+                            }
+                            RuntimeSetupCoordinator(applicationContext).requestImageUpdate(environment.storage.id,
+                                if (operation == "UPDATE_COMPONENTS") "components" else "rebase")
+                        }
                         "REMOVE_SOFTWARE", "REMOVE_SOFTWARE_AND_HOME" -> removeEnvironmentSoftware(environment, client,
                             removeHome = operation == "REMOVE_SOFTWARE_AND_HOME")
+                        "ROLLBACK_IMAGE", "DISCARD_IMAGE_HISTORY" -> {
+                            check(environment.sessionRuntime == SessionRuntime.AVF)
+                            preparationLocks.withStorage(SessionRuntime.AVF, environment.storage.id) {
+                                check(!RuntimeSetupCoordinator(applicationContext).isInstallationActive(environment.storage.id)) { "이미지 작업 중입니다." }
+                                client.deleteStorageIfIdle(SessionRuntime.AVF, environment.storage.id) { release ->
+                                    val owner = newAvfMaintenanceBackend()
+                                    val instance = requireNotNull(environment.runtimeMetadata.vmInstanceId)
+                                    owner.verifyStoppedInstance(instance).getOrThrow()
+                                    val root = dev.terminal.runtime.session.SessionStorage.root(filesDir, SessionRuntime.AVF, environment.storage.id).toPath()
+                                    dev.terminal.runtime.image.AvfEnvironmentUpdater(owner).recover(root, instance)
+                                    release(); clearEnvironmentStart(environment.id)
+                                    environmentBackends.remove(environment.id)
+                                    if (operation == "ROLLBACK_IMAGE") dev.terminal.image.AvfImageTransitions.rollback(root,
+                                        requireNotNull(environment.distribution).avfDistribution)
+                                    else dev.terminal.image.AvfImageTransitions.discardHistory(root)
+                                }
+                            }
+                        }
                         else -> error("Unsupported environment operation")
                     }
                     refreshSessions(client)
@@ -1355,6 +1425,12 @@ class VmRuntimeService : Service() {
         }
     }
 
+    private fun newAvfMaintenanceBackend(): dev.terminal.runtime.avf.AvfBackend {
+        check(hasAvfPrivileges()) { "AVF requires privileged custom VM access" }
+        return (applicationContext as? RuntimeBackendProvider)?.createRuntimeBackend(applicationContext)
+            as? dev.terminal.runtime.avf.AvfBackend ?: error("AVF system runtime provider is unavailable")
+    }
+
     private suspend fun ensureAvfPackageIndexes(owner: dev.terminal.runtime.api.RuntimeBackend, root: java.nio.file.Path,
         progress: (dev.terminal.runtime.image.AvfImageInstallPhase) -> Unit = {}) {
         if (!dev.terminal.image.AvfPackageInitialization.isRequired(root) ||
@@ -1649,6 +1725,9 @@ class VmRuntimeService : Service() {
             }
             val avf = owner ?: (applicationContext as? RuntimeBackendProvider)?.createRuntimeBackend(applicationContext)
             check(avf is dev.terminal.runtime.avf.AvfBackend) { "AVF removal requires a privileged runtime provider" }
+            dev.terminal.runtime.image.AvfEnvironmentUpdater(avf).recover(
+                dev.terminal.runtime.session.SessionStorage.root(filesDir, SessionRuntime.AVF, environment.storage.id).toPath(),
+                requireNotNull(environment.runtimeMetadata.vmInstanceId))
             // The platform must prove the persisted VM stopped before either deletion path touches disks.
             avf.deleteStorage(environment.storage.id).getOrThrow()
             release()
@@ -1849,6 +1928,8 @@ class VmRuntimeService : Service() {
         }
         if (spec.runtime == SessionRuntime.AVF && key !in startedEnvironmentBackends) {
             RuntimeSetupCoordinator(applicationContext).awaitInstalledImage(root.toPath(), spec.storageId)
+            dev.terminal.runtime.image.AvfEnvironmentUpdater(owner as dev.terminal.runtime.avf.AvfBackend).recover(
+                root.toPath(), requireNotNull(executionEnvironment.runtimeMetadata.vmInstanceId))
         }
         val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
         var startedForInitialization = false

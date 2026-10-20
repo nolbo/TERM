@@ -15,6 +15,24 @@ import kotlin.coroutines.resumeWithException
 
 /** Explicit installation downloads the selected distribution and requests service-owned initialization. */
 class RuntimeSetupCoordinator(private val context: Context) {
+    /** Explicit Environment action only; never called from session startup. */
+    suspend fun requestImageUpdate(storageId: String, operation: String) {
+        require(operation in setOf("components", "rebase"))
+        val distribution = distributionForStorage(context, storageId)
+        check(BundledAvfImageCatalog.find(distribution) != null) { "승인된 AVF 이미지가 없습니다." }
+        dev.terminal.runtime.session.StorageRegistry(context.filesDir).transaction {
+            val key = dev.terminal.runtime.session.StorageRegistry.Key(dev.terminal.runtime.session.SessionRuntime.AVF, storageId)
+            validateConnection(key)
+            kotlinx.coroutines.runBlocking {
+                val manager = RemoteWorkManager.getInstance(context)
+                check(manager.getWorkInfos(WorkQuery.fromUniqueWorkNames(installationWorkNames(storageId)))
+                    .awaitImageOperation().none { !it.state.isFinished }) { "이미지 작업이 이미 진행 중입니다." }
+                manager.enqueueUniqueWork(DebianImageDownloadWorker.workName(storageId), androidx.work.ExistingWorkPolicy.KEEP,
+                    listOf(DebianImageDownloadWorker.request(distribution.releaseId, storageId, imageGeneration(key), operation)))
+                    .awaitImageOperation()
+            }
+        }
+    }
     /** Called only after installation consent, including the initial VM/package preparation. */
     suspend fun requestImageInstallation(storageId: String, releaseId: String? = null) {
         if (releaseId != null) check(BundledAvfImageCatalog.find(releaseId) != null) {

@@ -23,6 +23,7 @@ private fun phaseTitle(phase: AvfImageInstallPhase) = when (phase) {
     AvfImageInstallPhase.INSTALL -> R.string.avf_install_installing
     AvfImageInstallPhase.BOOT -> R.string.avf_install_booting
     AvfImageInstallPhase.APT_REFRESH -> R.string.avf_install_apt_refresh
+    AvfImageInstallPhase.UPDATE -> R.string.avf_install_updating
     AvfImageInstallPhase.COMPLETE -> R.string.avf_install_complete
 }
 
@@ -52,13 +53,16 @@ internal fun AvfImageInstallCard(snapshot: AvfImageInstallSnapshot, modifier: Mo
     val progress = if (started != null && updated != null) RootlessProgressUi(snapshot.phase.name, "AVF", "",
         snapshot.fraction, snapshot.downloadedBytes.takeIf { downloading }, snapshot.totalBytes.takeIf { downloading },
         started, updated, if (snapshot.active) null else updated) else null
+    val phases = AvfImageInstallPhase.entries.filter {
+        if (snapshot.operation == "install") it != AvfImageInstallPhase.UPDATE else it != AvfImageInstallPhase.APT_REFRESH
+    }
     InstallationProgressCard(
         title = if (showTitle) stringResource(R.string.avf_install_title) else null,
         status = stringResource(if (snapshot.active && cancelling) R.string.install_cancelling else stateTitle),
         detail = artifact,
         active = snapshot.active,
         progress = progress,
-        steps = installationSteps(AvfImageInstallPhase.entries.map(::phaseTitle), snapshot.phase.ordinal,
+        steps = installationSteps(phases.map(::phaseTitle), phases.indexOf(snapshot.phase).coerceAtLeast(0),
             active = snapshot.state == AvfImageInstallState.RUNNING,
             succeeded = snapshot.state == AvfImageInstallState.SUCCEEDED,
             failed = snapshot.state == AvfImageInstallState.FAILED),

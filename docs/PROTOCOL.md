@@ -318,6 +318,19 @@ UI ignores that field for non-exited sessions even if an older producer sends
 it. Explicit process-exit events still carry the actual exit code.
 # Protocol
 
+## AVF image maintenance
+
+AVF maintenance extends the existing host-CID-only 40503 listener with exact,
+argument-free LIFECYCLE opcodes `0x41` (update/migrate) and `0x42` (health/sync).
+The former requires host-set boot parameter `term.maintenance=components|rebase`;
+guest data never selects host paths or a command. Both retain `0x40` framing,
+progress and positive epoch-second completion semantics. Maintenance is bounded
+to 1800 seconds and cancellation terminates its process group. The appended
+host-only `updateAvfImage(storageId, requestId, generation, operation, callback)`
+consumes only that work UUID's verified staging directory. Environment operations
+`UPDATE_COMPONENTS`, `UPDATE_IMAGE`, `ROLLBACK_IMAGE`, `DISCARD_IMAGE_HISTORY`
+require the same UI caller checks. See [AVF_UPDATES.md](AVF_UPDATES.md).
+
 ## Bridge service
 
 Service `BRIDGE` uses typed request/response payloads in `BridgePayloadCodec`.
