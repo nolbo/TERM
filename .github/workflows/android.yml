@@ -17,6 +17,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    outputs:
+      release_tag: ${{ steps.publish.outputs.release_tag }}
     concurrency:
       group: ${{ github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && 'term-public-release' || format('term-verification-{0}', github.run_id) }}
       cancel-in-progress: false
@@ -137,19 +139,22 @@ jobs:
           path: android-app/build/update/
 
       - name: Publish verified update to TERM
+        id: publish
         if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
         env:
           GH_TOKEN: ${{ github.token }}
-        run: bash tools/updates/publish.sh android-app/build/update
+        run: |
+          bash tools/updates/publish.sh android-app/build/update
+          echo "release_tag=${TERMINAL_UPDATE_CHANNEL}-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
 
   notify-release:
     needs: build-and-unit-test
-    if: github.repository == 'nolbo/TERM' && github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')
+    if: github.repository == 'nolbo/TERM' && needs.build-and-unit-test.outputs.release_tag != ''
     permissions:
       contents: read
     uses: ./.github/workflows/discord-release.yml
     with:
-      release_tag: ${{ format('{0}-{1}', github.ref_name, github.sha) }}
+      release_tag: ${{ needs.build-and-unit-test.outputs.release_tag }}
     secrets:
       DISCORD_BOT_TOKEN: ${{ secrets.DISCORD_BOT_TOKEN }}
       DISCORD_CHANNEL_ID: ${{ secrets.DISCORD_CHANNEL_ID }}

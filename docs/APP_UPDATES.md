@@ -94,8 +94,13 @@ Publication uses the repository's short-lived `GITHUB_TOKEN` with job-scoped
 No credentials are compiled into an APK or included in artifacts. Signed
 packaging verifies the existing certificate SHA-256:
 `7f639e70cc1969415beab27cfb10db6d10bf553b1f956a2f9d68d55ebf3785ba`.
-The reusable Discord workflow runs only after successful push publication;
-manual verification sends no notification. Prepare Korean channel notes under
+The reusable Discord workflow receives the actual published tag after successful
+push publication; manual verification sends no notification. For an explicitly
+requested notification of an existing stable release, dispatch
+`gh workflow run discord-release.yml --ref main -f release_tag=main-<source SHA>`.
+The required tag must resolve to a published release; its current notes are sent
+without rebuilding or republishing the APK. An absent tag never sends a test
+message. Prepare Korean channel notes under
 [RELEASING.md](RELEASING.md) before an explicitly authorized publication.
 
 ## App behavior and boundaries

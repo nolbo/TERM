@@ -5,6 +5,11 @@ on:
   release:
     types: [published]
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Existing published release tag to notify without rebuilding the app'
+        required: true
+        type: string
   workflow_call:
     inputs:
       release_tag:
@@ -72,31 +77,21 @@ jobs:
               if release.get("draft") or release["tag_name"] != requested_tag:
                   raise RuntimeError("Requested release is not published")
 
-          # Release information
-          if release:
-              name = (
-                  release.get("name")
-                  or release["tag_name"]
-              )
-              tag = release["tag_name"]
-              notes = (
-                  release.get("body")
-                  or "릴리즈 노트가 없습니다."
-              )
-              url = release["html_url"]
-              prerelease = release.get("prerelease", False)
+          if not release:
+              raise RuntimeError("No published release was selected")
 
-          else:
-              name = "[TEST] Discord 연결 테스트"
-              tag = "test"
-              notes = (
-                  "GitHub Actions에서 전송한 "
-                  "테스트 알림입니다."
-              )
-              url = (
-                  f"https://github.com/{repo}/releases"
-              )
-              prerelease = False
+          # Release information
+          name = (
+              release.get("name")
+              or release["tag_name"]
+          )
+          tag = release["tag_name"]
+          notes = (
+              release.get("body")
+              or "릴리즈 노트가 없습니다."
+          )
+          url = release["html_url"]
+          prerelease = release.get("prerelease", False)
 
           if prerelease:
               name = f"[Pre-release] {name}"
