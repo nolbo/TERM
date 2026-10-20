@@ -239,9 +239,12 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                 floatingActionButtonPosition = FabPosition.Center,
                 floatingActionButton = {
                     detail?.let { row ->
+                        val starting = row.environment.runtime == EnvironmentRuntime.AVF &&
+                            ((operating?.first?.id == row.id && operating?.second == "START") ||
+                                row.runtimeState in setOf("PREPARING", "BOOTING"))
                         EnvironmentActions(
-                            enabled = runtime != null && renaming == null && deleting == null && operating == null && !softwareBusy,
-                            canStart = row.canStart, canStop = row.canStop,
+                            enabled = runtime != null && renaming == null && deleting == null && operating == null && !softwareBusy && !starting,
+                            canStart = row.canStart, canStop = row.canStop, starting = starting,
                             onStart = { operating = row to "START" }, onStop = { operating = row to "STOP" },
                             canDelete = row.canDelete,
                             onRename = { nameDraft = row.name.orEmpty(); editingName = true },
@@ -484,12 +487,14 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
             Text(stringResource(label))
         }
     }
-    @Composable private fun EnvironmentActions(enabled: Boolean, canDelete: Boolean, canStart: Boolean, canStop: Boolean,
+    @Composable private fun EnvironmentActions(enabled: Boolean, canDelete: Boolean, canStart: Boolean, canStop: Boolean, starting: Boolean,
         onStart: () -> Unit, onStop: () -> Unit, onRename: () -> Unit, onDelete: () -> Unit) {
         HorizontalFloatingToolbar(expanded = true) {
-            if (canStart) FloatingToolbarAction(stringResource(R.string.environment_start), R.drawable.ic_material_symbol_play_arrow_24,
-                enabled = enabled, onClick = onStart, iconSize = 32.dp)
-            if (canStop) FloatingToolbarAction(stringResource(R.string.environment_stop), R.drawable.ic_material_symbol_close_24,
+            if (canStart || starting) FloatingToolbarAction(
+                stringResource(if (starting) R.string.environment_starting else R.string.environment_start),
+                R.drawable.ic_material_symbol_play_arrow_24,
+                enabled = enabled && !starting, onClick = onStart, iconSize = 32.dp, loading = starting)
+            if (canStop && !starting) FloatingToolbarAction(stringResource(R.string.environment_stop), R.drawable.ic_material_symbol_close_24,
                 enabled = enabled, onClick = onStop)
             FloatingToolbarAction(stringResource(R.string.storage_rename), R.drawable.ic_toolbar_edit,
                 enabled = enabled, onClick = onRename)

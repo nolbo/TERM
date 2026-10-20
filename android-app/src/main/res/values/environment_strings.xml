@@ -9,6 +9,7 @@
     <string name="environment_preparing">런타임 작업 중</string>
     <string name="environment_unknown">상태 확인 불가</string>
     <string name="environment_start">실행환경 시작</string>
+    <string name="environment_starting">실행환경 시작 중</string>
     <string name="environment_stop">실행환경 중지</string>
     <string name="environment_vm_identity">VM ID</string>
     <string name="environment_disks">영속 디스크</string>

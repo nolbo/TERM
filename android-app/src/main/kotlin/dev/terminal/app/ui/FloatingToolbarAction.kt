@@ -11,6 +11,7 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.paneTitle
 import androidx.compose.ui.semantics.semantics
@@ -24,6 +25,7 @@ internal fun FloatingToolbarAction(
     onClick: () -> Unit,
     destructive: Boolean = false,
     iconSize: Dp = 24.dp,
+    loading: Boolean = false,
 ) {
     // Material3 1.5.0-alpha27 can retain the anchor's merged disabled semantics after
     // its IconButton becomes enabled. Recreate the anchor when availability changes.
@@ -46,7 +48,11 @@ internal fun FloatingToolbarAction(
                 colors = if (destructive) IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.error)
                     else IconButtonDefaults.iconButtonColors(),
             ) {
-                Icon(painterResource(icon), contentDescription = label, modifier = Modifier.size(iconSize))
+                if (loading) {
+                    CircularProgressIndicator(Modifier.size(24.dp).semantics { contentDescription = label }, strokeWidth = 2.dp)
+                } else {
+                    Icon(painterResource(icon), contentDescription = label, modifier = Modifier.size(iconSize))
+                }
             }
         }
     }

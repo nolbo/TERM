@@ -103,6 +103,84 @@ class EnvironmentSoftwareTest {
     private fun activityRuntime(activity: EnvironmentScreenActivity) = EnvironmentScreenActivity::class.java.getDeclaredField("runtime\$delegate")
         .apply { isAccessible = true }.get(activity) as MutableState<IRuntimeService?>
 
+    @Test fun avfStartKeepsACircularIndicatorInTheToolbarUntilTheOwnerIsReady() {
+        val (environment, profile) = fixture(SessionRuntime.AVF)
+        val ownerState = java.util.concurrent.atomic.AtomicReference("STOPPED")
+        val releaseStart = java.util.concurrent.CountDownLatch(1)
+        val requests = java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()
+        val proxy = Proxy.newProxyInstance(IRuntimeService::class.java.classLoader, arrayOf(IRuntimeService::class.java)) { instance, method, args ->
+            when (method.name) {
+                "equals" -> instance === args?.get(0)
+                "hashCode" -> System.identityHashCode(instance)
+                "toString" -> "AVF startup UI fixture"
+                "asBinder" -> null
+                "getEnvironmentsJson" -> JSONArray().put(environment.toJson()
+                    .put("profiles", JSONArray().put(JSONObject().put("id", profile.id).put("name", profile.name)))
+                    .put("sessions", JSONArray()).put("bytes", 0).put("canDelete", false)
+                    .put("runtimeState", ownerState.get())).toString()
+                "measureEnvironmentUsageJson" -> "{\"bytes\":0,\"incomplete\":false}"
+                "getEnvironmentSoftwareJson" -> JSONObject().put("installed", true).put("busy", ownerState.get() == "BOOTING").toString()
+                "operateEnvironment" -> {
+                    requests += args!![0] as String to args[1] as String
+                    ownerState.set("BOOTING")
+                    check(releaseStart.await(45, TimeUnit.SECONDS))
+                    ""
+                }
+                else -> error("Unexpected AVF startup UI call: ${method.name}")
+            }
+        } as IRuntimeService
+        fun action(label: Int) = clickable(find { it.contentDescription?.toString() == context.getString(label) })
+        fun bounds(node: AccessibilityNodeInfo) = android.graphics.Rect().also(node::getBoundsInScreen)
+        fun bind(scenario: ActivityScenario<EnvironmentDetailActivity>) {
+            await { var bound = false; scenario.onActivity { bound = activityRuntime(it).value != null }; bound }
+            scenario.onActivity { activityRuntime(it).value = proxy }
+        }
+        try {
+            ActivityScenario.launch<EnvironmentDetailActivity>(EnvironmentDetailActivity.intent(context, environment.id.value)).use { scenario ->
+                bind(scenario)
+                await { action(R.string.environment_start)?.isEnabled == true }
+                val startBounds = bounds(requireNotNull(action(R.string.environment_start)))
+                val renameBounds = bounds(requireNotNull(action(R.string.storage_rename)))
+                val deleteBounds = bounds(requireNotNull(action(R.string.storage_delete)))
+                assertTrue(action(R.string.environment_start)!!.performAction(AccessibilityNodeInfo.ACTION_CLICK))
+                await { requests.size == 1 && find { it.contentDescription?.toString() == context.getString(R.string.environment_starting) } != null }
+                assertEquals(environment.id.value to "START", requests.single())
+                // Polling removes canStart, but the loading slot and neighbouring buttons stay put.
+                SystemClock.sleep(2200)
+                if (InstrumentationRegistry.getArguments().getString("preview") == "true") SystemClock.sleep(15_000)
+                fun assertLoading() {
+                    val indicator = requireNotNull(find { it.contentDescription?.toString() == context.getString(R.string.environment_starting) })
+                    val indicatorBounds = bounds(indicator)
+                    assertFalse(requireNotNull(clickable(indicator)).isEnabled)
+                    assertEquals(startBounds.centerX(), indicatorBounds.centerX())
+                    assertEquals(startBounds.centerY(), indicatorBounds.centerY())
+                    assertTrue(startBounds.contains(indicatorBounds))
+                    assertNull(action(R.string.environment_start))
+                    assertNull(action(R.string.environment_stop))
+                    assertFalse(requireNotNull(action(R.string.storage_rename)).isEnabled)
+                    assertEquals(renameBounds, bounds(requireNotNull(action(R.string.storage_rename))))
+                    assertEquals(deleteBounds, bounds(requireNotNull(action(R.string.storage_delete))))
+                }
+                assertLoading()
+                releaseStart.countDown()
+                scenario.recreate()
+                bind(scenario)
+                await { find { it.contentDescription?.toString() == context.getString(R.string.environment_starting) } != null }
+                assertLoading()
+                assertEquals(1, requests.size)
+                ownerState.set("READY")
+                await { action(R.string.environment_stop)?.isEnabled == true }
+                assertNull(find { it.contentDescription?.toString() == context.getString(R.string.environment_starting) })
+                assertEquals(startBounds, bounds(requireNotNull(action(R.string.environment_stop))))
+                assertEquals(1, requests.size)
+            }
+        } finally {
+            releaseStart.countDown()
+            SessionProfiles(context).delete(profile.id)
+            EnvironmentRegistry(context.filesDir).transaction { delete(environment.id) }
+        }
+    }
+
     @Test fun rootlessInstallationUsesTheEnvironmentIdAndShowsOwnerProgressWithoutCreatingASession() {
         val (environment, profile) = fixture(SessionRuntime.ROOTLESS_UBUNTU)
         val requested = java.util.concurrent.CopyOnWriteArrayList<Pair<String, String>>()

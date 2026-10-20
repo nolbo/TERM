@@ -9,6 +9,7 @@
     <string name="environment_preparing">Runtime operation in progress</string>
     <string name="environment_unknown">State unavailable</string>
     <string name="environment_start">Start execution environment</string>
+    <string name="environment_starting">Starting execution environment</string>
     <string name="environment_stop">Stop execution environment</string>
     <string name="environment_vm_identity">VM ID</string>
     <string name="environment_disks">Persistent disks</string>
