@@ -124,6 +124,16 @@ title/code. Retrying after a pointer upload failure preserves the published APK
 and completes only the pointer. First-pointer uploads stay drafts until ready.
 Only this discovery manifest is an exception to release asset immutability.
 
+After a channel publication succeeds, the Android workflow passes the actual
+published tag to the reusable Discord notifier. This covers both channel pushes
+and explicit manual publication from `dev`; verification-only and failed runs
+do not notify. An authorized missing-notification recovery can dispatch
+`discord-release.yml` on `dev` with its required `release_tag` input, for example
+`gh workflow run discord-release.yml --ref dev -f release_tag=main-<source SHA>`.
+The notifier requires an existing published release and sends its current notes
+without rebuilding or republishing the APK. This explicitly sends another
+message, so use it only when a notification is requested.
+
 The TERM repository needs these GitHub Actions secrets:
 
 - `TERMINAL_SIGNING_KEYSTORE_BASE64`: existing PKCS12 keystore, alias `terminal`.
