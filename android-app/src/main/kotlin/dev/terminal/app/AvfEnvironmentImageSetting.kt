@@ -58,6 +58,8 @@ import kotlinx.coroutines.withContext
             if (aptPending) kotlinx.coroutines.delay(2_000)
         } while (aptPending)
     }
+    val progress = snapshot?.takeIf { it.active ||
+        it.state in setOf(AvfImageInstallState.FAILED, AvfImageInstallState.CANCELLED) }
     EnvironmentSection(R.string.avf_image_section) {
         ListItem(modifier = Modifier.settingsItemSurface(), colors = terminalSettingsListItemColors(),
             supportingContent = { Text(stringResource(when (installed) {
@@ -73,8 +75,6 @@ import kotlinx.coroutines.withContext
                 Text(stringResource(R.string.avf_apt_status))
             }
         }
-        val progress = snapshot?.takeIf { it.active ||
-            it.state in setOf(AvfImageInstallState.FAILED, AvfImageInstallState.CANCELLED) }
         if (progress != null) AvfImageInstallProgress(progress)
         if ((installed == false || aptPending) && progress?.active != true) {
             val available = BundledAvfImageCatalog.find(distribution) != null
@@ -87,23 +87,25 @@ import kotlinx.coroutines.withContext
                 }, onClick = onInstall)
         }
         if (installed == true || hasData) {
-            val enabled = canManage && !requesting && progress?.active != true
             if (installed == true) {
                 AvfImageUpdateSetting(SessionStorage.root(context.filesDir, SessionRuntime.AVF, storageId).toPath(),
                     BundledAvfImageCatalog.find(distribution), revision, requesting || progress?.active == true,
                     canManage, onUpdate = { confirmedAction = it })
             }
-            if (hasPrevious) {
-                EnvironmentActionSetting(R.string.avf_rollback_image, R.drawable.ic_material_symbol_download_24,
-                    enabled = enabled, supporting = R.string.avf_rollback_image_help,
-                    onClick = { confirmedAction = "ROLLBACK_IMAGE" })
-                EnvironmentActionSetting(R.string.avf_discard_history, R.drawable.ic_material_symbol_delete_24,
-                    enabled = enabled, supporting = R.string.avf_discard_history_help, destructive = true,
-                    onClick = { confirmedAction = "DISCARD_IMAGE_HISTORY" })
-            }
             EnvironmentActionSetting(R.string.environment_distribution_remove, R.drawable.ic_material_symbol_delete_24,
                 enabled = canRemove && !requesting && progress?.active != true,
                 supporting = R.string.environment_software_protected, destructive = true, onClick = onRemove)
+        }
+    }
+    if ((installed == true || hasData) && hasPrevious) {
+        EnvironmentSection(R.string.avf_recovery_section) {
+            val enabled = canManage && !requesting && progress?.active != true
+            EnvironmentActionSetting(R.string.avf_rollback_image, R.drawable.ic_material_symbol_download_24,
+                enabled = enabled, supporting = R.string.avf_rollback_image_help,
+                onClick = { confirmedAction = "ROLLBACK_IMAGE" })
+            EnvironmentActionSetting(R.string.avf_discard_history, R.drawable.ic_material_symbol_delete_24,
+                enabled = enabled, supporting = R.string.avf_discard_history_help, destructive = true,
+                onClick = { confirmedAction = "DISCARD_IMAGE_HISTORY" })
         }
     }
     confirmedAction?.let { action ->

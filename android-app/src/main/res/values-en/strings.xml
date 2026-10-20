@@ -264,6 +264,7 @@
     <string name="avf_update_image">Update full image</string>
     <string name="avf_update_image_help">Stop the VM first. Move home and user data folders and reinstall additional packages on a new image. Configuration conflicts or package failures preserve the existing environment. Databases and other /var/lib data stay in the retained old image and need separate migration. Internet and additional storage are required.</string>
     <string name="avf_update_approval_required">Available after a maintenance image is approved for this app version.</string>
+    <string name="avf_recovery_section">Recovery</string>
     <string name="avf_rollback_image">Restore previous image</string>
     <string name="avf_rollback_image_help">Stop the VM first. Restore the image and user state together to the previous point. The current state is also retained; changes since the update are not merged into the old environment.</string>
     <string name="avf_discard_history">Delete retained images</string>
