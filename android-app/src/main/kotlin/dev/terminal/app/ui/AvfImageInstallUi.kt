@@ -70,7 +70,7 @@ internal fun AvfImageInstallProgress(snapshot: AvfImageInstallSnapshot, modifier
             else if (snapshot.state == AvfImageInstallState.SUCCEEDED) R.string.avf_install_complete_note
             else if (snapshot.state == AvfImageInstallState.CANCELLED) R.string.avf_install_cancelled_note
             else R.string.avf_install_retry_note),
-        progressNote = if (downloading) stringResource(R.string.avf_install_download_note) else null,
+        progressNote = if (downloading && onDismiss == null) stringResource(R.string.avf_install_download_note) else null,
         error = snapshot.error ?: stringResource(R.string.avf_install_failed).takeIf { snapshot.state == AvfImageInstallState.FAILED },
         cancelling = cancelling,
         cancelError = cancelError,

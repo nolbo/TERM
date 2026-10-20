@@ -79,6 +79,7 @@ class AvfImageInstallUiTest {
         return button
     }
     private fun assertCompactDialog() {
+        assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.avf_install_download_note)))
         for (number in 1..9) assertNull("Numbered installation step remains: $number",
             find(instrumentation.uiAutomation.rootInActiveWindow, number.toString()))
         assertNull(find(instrumentation.uiAutomation.rootInActiveWindow, label(R.string.install_step_pending)))
