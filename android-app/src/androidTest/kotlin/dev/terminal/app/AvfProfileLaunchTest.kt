@@ -9,6 +9,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.terminal.app.ui.RuntimeChoiceUi
 import dev.terminal.app.ui.SessionUi
+import dev.terminal.app.ui.TerminalPaneState
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.ipc.IRuntimeStateListener
 import dev.terminal.runtime.session.SessionLaunchSpec
@@ -59,12 +60,12 @@ class AvfProfileLaunchTest {
                     arrayOf(IRuntimeService::class.java)) { _, method, args ->
                     when (method.name) {
                         "getEnvironmentSoftwareJson" -> """{"installed":true,"busy":false}"""
-                        "createSessionFromSpecWithRequestId" -> {
+                        "createSessionFromSpecWithRequestId", "createSessionInWorkspace" -> {
                             requested += SessionLaunchSpec.fromJson(args!![0] as String)
                             requestIds += args[1] as String
                             assertEquals("/home/droid", requested.last().workingDirectory)
                             val tabId = "avf-launch:${requestIds.last()}"
-                            assertEquals(tabId, state<String?>(activity, "activeSessionId").value)
+                            assertEquals(tabId, activeSessionId(activity))
                             assertTrue(state<List<SessionUi>>(activity, "sessions").value.single { it.id == tabId }.pendingLaunch)
                             null
                         }
@@ -106,7 +107,7 @@ class AvfProfileLaunchTest {
                     val listener = MainActivity::class.java.getDeclaredField("listener").apply { isAccessible = true }
                         .get(activity) as IRuntimeStateListener
                     listener.onSessionFocusRequested("avf-ui-ready")
-                    assertEquals("Completion must keep the user's selected tab", first.id, state<String?>(activity, "activeSessionId").value)
+                    assertEquals("Completion must keep the user's selected tab", first.id, activeSessionId(activity))
                 }
             } finally {
                 scenario.onActivity { activity -> runtimeField.set(activity, original); render(activity, original.sessionsJson) }
@@ -128,6 +129,7 @@ class AvfProfileLaunchTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             awaitService(scenario)
             scenario.onActivity { activity ->
+                state<String?>(activity, "avfLaunchFailure").value = null
                 selectProfile.invoke(activity, SessionProfile("avf-error", "AVF", SessionRuntime.AVF,
                     "/bin/bash", emptyList(), "/home/droid"))
             }
@@ -140,17 +142,96 @@ class AvfProfileLaunchTest {
             assertNotNull("The service's AVF permission failure must be shown",
                 find(automation.rootInActiveWindow, "AVF requires privileged custom VM access"))
             scenario.onActivity { activity ->
-                val tab = state<List<SessionUi>>(activity, "sessions").value.single { it.id == state<String?>(activity, "activeSessionId").value }
+                val tab = state<List<SessionUi>>(activity, "sessions").value.single { it.id == activeSessionId(activity) }
                 assertTrue(tab.pendingLaunch)
                 assertEquals("LAUNCH_FAILED", tab.state)
                 assertEquals("AVF requires privileged custom VM access", tab.launchError)
-                state<String?>(activity, "avfLaunchFailure").value = null
+                assertNull("AVF errors must not enqueue a snackbar", state<String?>(activity, "feedbackMessage").value)
+                assertFalse(state<String>(activity, "runtimeMessage").value.contains(tab.launchError!!))
             }
+            scenario.recreate()
+            awaitService(scenario)
             awaitText(title)
-            assertNotNull("The failed tab must retain the error after dismissing the dialog",
+            assertNotNull("An open error dialog must survive recreation",
                 find(automation.rootInActiveWindow, "AVF requires privileged custom VM access"))
             if (InstrumentationRegistry.getArguments().getString("preview") == "true") SystemClock.sleep(20_000)
+            if (InstrumentationRegistry.getArguments().getString("externalDismiss") != "true") closeDialog()
+            awaitGone("AVF requires privileged custom VM access")
+            awaitGone(title)
+            assertNull(find(automation.rootInActiveWindow, context.getString(R.string.avf_session_loading), contentDescription = true))
+            scenario.recreate()
+            awaitService(scenario)
+            instrumentation.waitForIdleSync()
+            automation.clearCache()
+            assertNull("Dismissed errors must not reopen from owner snapshot replay",
+                find(automation.rootInActiveWindow, "AVF requires privileged custom VM access"))
+            scenario.onActivity { activity ->
+                assertNull(state<String?>(activity, "avfLaunchFailure").value)
+                assertNull(state<String?>(activity, "feedbackMessage").value)
+            }
         }
+    }
+
+    @Test fun ownerFailureAndRepeatedCallbacksShareOnlyOneDismissibleDialog() {
+        val requestId = UUID.randomUUID().toString()
+        val message = "Fixture AVF startup failure $requestId"
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            awaitService(scenario)
+            lateinit var original: IRuntimeService
+            lateinit var snapshot: String
+            lateinit var listener: IRuntimeStateListener
+            scenario.onActivity { activity ->
+                original = runtimeField.get(activity) as IRuntimeService
+                snapshot = JSONArray(original.sessionsJson).put(JSONObject()
+                    .put("id", "avf-launch:$requestId").put("runtime", "AVF").put("title", "Fixture VM")
+                    .put("state", "LAUNCH_FAILED").put("pendingLaunch", true)
+                    .put("launchRequestId", requestId).put("launchError", message)).toString()
+                listener = MainActivity::class.java.getDeclaredField("listener").apply { isAccessible = true }
+                    .get(activity) as IRuntimeStateListener
+                state<String?>(activity, "feedbackMessage").value = null
+                render(activity, snapshot)
+                listener.onOperationError("세션 생성:AVF:legacy:$requestId", message)
+                assertNull(state<String?>(activity, "feedbackMessage").value)
+                assertFalse(state<String>(activity, "runtimeMessage").value.contains(message))
+            }
+            try {
+                awaitText(message)
+                closeDialog()
+                awaitGone(message)
+                scenario.onActivity { activity ->
+                    render(activity, snapshot)
+                    listener.onOperationError("세션 생성:AVF:legacy:$requestId", message)
+                    listener.onOperationError("세션 생성:AVF:legacy", message)
+                    assertNull(state<String?>(activity, "avfLaunchFailure").value)
+                    assertNull(state<String?>(activity, "feedbackMessage").value)
+                    // Other runtimes retain their existing error feedback.
+                    listener.onOperationError("세션 생성:NATIVE:legacy", "Fixture native failure")
+                    assertTrue(state<String?>(activity, "feedbackMessage").value!!.contains("Fixture native failure"))
+                    assertNull(state<String?>(activity, "avfLaunchFailure").value)
+                }
+            } finally {
+                scenario.onActivity { activity -> render(activity, original.sessionsJson) }
+            }
+        }
+    }
+
+    private fun activeSessionId(activity: MainActivity) = state<TerminalPaneState>(activity, "paneState").value.focusedSessionId
+
+    private fun closeDialog() {
+        var close = find(automation.rootInActiveWindow, instrumentation.targetContext.getString(R.string.close))
+        while (close != null && !close.isClickable) close = close.parent
+        assertTrue(close?.performAction(AccessibilityNodeInfo.ACTION_CLICK) == true)
+    }
+
+    private fun awaitGone(text: String) {
+        val deadline = SystemClock.elapsedRealtime() + 10_000
+        while (SystemClock.elapsedRealtime() < deadline) {
+            instrumentation.waitForIdleSync()
+            automation.clearCache()
+            if (find(automation.rootInActiveWindow, text) == null) return
+            SystemClock.sleep(50)
+        }
+        fail("Error is still visible outside the dismissed dialog: $text")
     }
 
     @Suppress("UNCHECKED_CAST")

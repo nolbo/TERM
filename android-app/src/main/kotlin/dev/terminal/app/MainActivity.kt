@@ -278,6 +278,7 @@ class MainActivity : TerminalActivity() {
     private var sessionProfilePickerReturnMode = ToolbarSheetMode.Default
     private var unavailableChoice by mutableStateOf<RuntimeChoiceUi?>(null)
     private var avfLaunchFailure by mutableStateOf<String?>(null)
+    private val presentedAvfLaunchFailures = mutableSetOf<String>()
     private var pendingRename by mutableStateOf<SessionUi?>(null)
     private var pendingTermination by mutableStateOf<SessionUi?>(null)
     private data class WorkspaceTerminationRequest(val filter: String, val name: String, val sessionIds: List<String>)
@@ -427,13 +428,17 @@ class MainActivity : TerminalActivity() {
 
         override fun onOperationError(operation: String, message: String) = runOnUiThread {
             if (generation != bindingGeneration) return@runOnUiThread
+            if (operation.substringBefore(':') == "세션 생성" &&
+                operation.substringAfter(':', "").substringBefore(':') == "AVF") {
+                val requestId = operation.split(':').getOrNull(3)
+                    ?: sessions.lastOrNull { it.runtime == "AVF" && it.pendingLaunch && it.launchError == message }
+                        ?.let { it.launchRequestId ?: it.id }
+                showAvfLaunchFailure(message, requestId)
+                return@runOnUiThread
+            }
             val feedback = getString(R.string.operation_failed, operation.substringBefore(':'), message)
             runtimeMessage = getString(R.string.runtime_error_prompt, feedback)
             feedbackMessage = feedback
-            if (operation.substringBefore(':') == "세션 생성" &&
-                operation.substringAfter(':', "").substringBefore(':') == "AVF") {
-                avfLaunchFailure = message
-            }
             if ((rootlessInstallInFlight || rootlessVisible) && operation.substringAfter(':', "").substringBefore(':') == rootlessInstallRuntime &&
                 operation.substringAfter(':', "").substringAfter(':', "legacy") == (rootlessLaunchSpec?.storageId ?: "legacy")) {
                 rootlessInstallInFlight = false
@@ -515,6 +520,8 @@ class MainActivity : TerminalActivity() {
         }.toString())
         outState.putStringArrayList("submitted-avf-launches", ArrayList(submittedAvfLaunches))
         outState.putStringArrayList("installation-approved-avf-launches", ArrayList(installationApprovedAvfLaunches))
+        outState.putString("avf-launch-failure", avfLaunchFailure)
+        outState.putStringArrayList("presented-avf-launch-failures", ArrayList(presentedAvfLaunchFailures))
         outState.putString("launch-workspace", selectedLaunchWorkspace)
         outState.putString("workspace-startup-queue", org.json.JSONArray().apply {
             workspaceStartupQueue.forEach { launch ->
@@ -599,6 +606,8 @@ class MainActivity : TerminalActivity() {
         }.getOrDefault(emptyList())
         submittedAvfLaunches += savedInstanceState?.getStringArrayList("submitted-avf-launches").orEmpty()
         installationApprovedAvfLaunches += savedInstanceState?.getStringArrayList("installation-approved-avf-launches").orEmpty()
+        avfLaunchFailure = savedInstanceState?.getString("avf-launch-failure")
+        presentedAvfLaunchFailures += savedInstanceState?.getStringArrayList("presented-avf-launch-failures").orEmpty()
         sessions = orderSessionTabs(unconfirmedAvfLaunches, sessionTabOrder)
         runtimeMessage = getString(R.string.runtime_connecting_prompt)
         rootlessStatus = getString(R.string.rootless_setup_required)
@@ -825,8 +834,7 @@ class MainActivity : TerminalActivity() {
                     } else if (sessions.firstOrNull { it.id == activeSessionId }?.pendingLaunch == true) {
                         val loadingSession = sessions.first { it.id == activeSessionId }
                         dev.terminal.app.ui.AvfSessionLaunchPane(loadingSession,
-                            Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(topInsets),
-                            onDismiss = { terminate(loadingSession.id) })
+                            Modifier.weight(1f).fillMaxWidth().windowInsetsPadding(topInsets))
                     } else {
                         val paneComposition = androidx.compose.runtime.rememberCompositionContext()
                         val paneHaptics = androidx.compose.runtime.rememberUpdatedState(dev.terminal.app.ui.LocalTerminalHaptics.current)
@@ -1109,6 +1117,11 @@ class MainActivity : TerminalActivity() {
         renderSessionProjection()
     }
 
+    /** Both operation callbacks and owner snapshots report a failure through the same dialog. */
+    private fun showAvfLaunchFailure(message: String, requestId: String?) {
+        if (requestId == null || presentedAvfLaunchFailures.add(requestId)) avfLaunchFailure = message
+    }
+
     private fun renderSessionProjection() {
         val combined = runtimeSessionRows + unconfirmedAvfLaunches
         val replacements = dev.terminal.app.ui.avfLaunchTabReplacements(combined)
@@ -1121,6 +1134,9 @@ class MainActivity : TerminalActivity() {
         val tabUpdate = reconcileSessionTabs(sessions, activeSessionId, terminatingSessionIds, updated)
         val removedSessionIds = tabUpdate.removedSessionIds
         sessions = updated
+        updated.filter { it.runtime == "AVF" && it.pendingLaunch }.forEach { launch ->
+            launch.launchError?.let { showAvfLaunchFailure(it, launch.launchRequestId ?: launch.id) }
+        }
         selectVisibleWorkspaceSession(tabUpdate.activeSessionId)
         notificationSessionId?.let { requested ->
             if (updated.any { it.id == requested }) {
