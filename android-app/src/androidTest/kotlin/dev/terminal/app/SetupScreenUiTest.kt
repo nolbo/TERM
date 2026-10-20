@@ -40,11 +40,14 @@ class SetupScreenUiTest {
             val startBounds = bounds(requireNotNull(clickableAncestor(start)))
             assertTrue("Get started is anchored at the bottom of the screen",
                 startBounds.centerY() > windowBounds.bottom - windowBounds.height() / 5)
-            val native = waitFor { it.text?.toString() == label(R.string.runtime_native_title) }
-            assertNull("The Native introduction has no launch action", clickableAncestor(native))
-            find { it.text?.toString() == label(R.string.setup_linux_title) }?.let { optional ->
-                assertTrue("The bottom action follows the introductory content",
-                    bounds(optional).bottom <= startBounds.top)
+            listOf(R.string.runtime_native_title, R.string.runtime_rootless_title, R.string.runtime_avf_title).forEach { id ->
+                val runtime = waitFor { it.text?.toString() == label(id) }
+                assertNull("Runtime introductions have no launch action", clickableAncestor(runtime))
+                assertTrue("Runtime introductions precede the bottom action", bounds(runtime).bottom <= startBounds.top)
+            }
+            listOf(R.string.setup_intro, R.string.setup_linux_title, R.string.setup_linux_later).forEach { id ->
+                assertNull("Removed onboarding guidance stays hidden: ${label(id)}",
+                    find { it.text?.toString() == label(id) })
             }
             assertEquals(original, preferences.all)
             scenario.recreate()

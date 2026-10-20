@@ -24,11 +24,13 @@ private data class SetupRuntime(
 
 @Composable
 fun SetupScreen(onStart: () -> Unit) {
-    val linuxRuntimes = listOf(
+    val runtimes = listOf(
+        SetupRuntime(R.string.runtime_native_title, R.string.runtime_native_setup,
+            R.string.setup_native_description, profileIconDrawable("native")),
         SetupRuntime(R.string.runtime_rootless_title, R.string.runtime_rootless_setup,
-            R.string.setup_rootless_description, R.drawable.ic_material_symbol_download_24),
+            R.string.setup_rootless_description, profileIconDrawable("rootless")),
         SetupRuntime(R.string.runtime_avf_title, R.string.runtime_avf_setup,
-            R.string.setup_avf_description, R.drawable.ic_material_symbol_memory_24),
+            R.string.setup_avf_description, profileIconDrawable("avf")),
     )
     Scaffold(
         containerColor = MaterialTheme.colorScheme.background,
@@ -60,44 +62,23 @@ fun SetupScreen(onStart: () -> Unit) {
             contentAlignment = Alignment.TopCenter) {
             LazyColumn(
                 Modifier.widthIn(max = 640.dp).fillMaxSize().padding(horizontal = 20.dp),
-                contentPadding = PaddingValues(top = 20.dp, bottom = 12.dp),
+                contentPadding = PaddingValues(top = 56.dp, bottom = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(24.dp),
             ) {
                 item {
                     Icon(painterResource(R.drawable.ic_notification_terminal), null,
-                        tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(48.dp))
+                        tint = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.size(32.dp))
                     Spacer(Modifier.height(20.dp))
                     Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.height(8.dp))
                     Text(stringResource(R.string.setup_headline), style = MaterialTheme.typography.headlineLarge)
-                    Spacer(Modifier.height(12.dp))
-                    Text(stringResource(R.string.setup_intro), style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 item {
-                    Card(
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = MaterialTheme.shapes.extraLarge,
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-                    ) {
-                        Box(Modifier.padding(20.dp)) {
-                            SetupRuntimeSummary(SetupRuntime(R.string.runtime_native_title, R.string.runtime_native_setup,
-                                R.string.setup_native_description, R.drawable.ic_material_symbol_terminal_24))
-                        }
-                    }
-                }
-                item {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        Text(stringResource(R.string.setup_linux_title), style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.padding(horizontal = 4.dp))
-                        Text(stringResource(R.string.setup_linux_later), style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 4.dp))
-                        SettingsGroup {
-                            linuxRuntimes.forEach { runtime ->
-                                Box(Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp)) {
-                                    SetupRuntimeSummary(runtime)
-                                }
+                    SettingsGroup {
+                        runtimes.forEach { runtime ->
+                            Box(Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp)) {
+                                SetupRuntimeSummary(runtime)
                             }
                         }
                     }
