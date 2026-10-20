@@ -63,11 +63,12 @@ fun SetupScreen(onStart: () -> Unit) {
             LazyColumn(
                 Modifier.widthIn(max = 640.dp).fillMaxSize().padding(horizontal = 20.dp),
                 contentPadding = PaddingValues(top = 56.dp, bottom = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(24.dp),
+                verticalArrangement = Arrangement.spacedBy(72.dp),
             ) {
                 item {
                     Icon(painterResource(R.drawable.ic_notification_terminal), null,
-                        tint = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.size(32.dp))
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                        modifier = Modifier.size(32.dp))
                     Spacer(Modifier.height(20.dp))
                     Text(stringResource(R.string.app_name), style = MaterialTheme.typography.titleMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant)
