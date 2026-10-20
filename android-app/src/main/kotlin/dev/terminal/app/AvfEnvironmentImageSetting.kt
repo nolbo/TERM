@@ -87,7 +87,7 @@ import kotlinx.coroutines.withContext
                 }, onClick = onInstall)
         }
         if (installed == true || hasData) {
-            val approved = BundledAvfImageCatalog.find(distribution)?.maintenanceVersion == 1
+            val approved = avfImageUpdatesApproved(BundledAvfImageCatalog.find(distribution), BuildConfig.DEBUG)
             val enabled = canManage && !requesting && progress?.active != true
             if (installed == true) {
                 EnvironmentActionSetting(R.string.avf_update_components, R.drawable.ic_material_symbol_download_24,

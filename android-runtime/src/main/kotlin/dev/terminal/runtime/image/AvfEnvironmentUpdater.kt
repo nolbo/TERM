@@ -40,7 +40,7 @@ internal class AvfEnvironmentUpdater(private val backend: AvfBackend, private va
             ?: error("새 AVF 이미지의 무결성을 확인할 수 없습니다.")
         check(AvfImageVerifier.sha256(downloaded.resolve(AvfImageLayout.MANIFEST_FILE)) ==
             catalog.find(distribution.releaseId)?.manifestSha256) { "승인된 이미지 카탈로그와 일치하지 않습니다." }
-        check(next.manifest.maintenanceVersion == 1) { "관리 기능을 포함한 새 AVF 이미지가 아직 승인되지 않았습니다." }
+        check(next.manifest.maintenanceVersion == 1) { "새 AVF 이미지가 게스트 관리 기능을 지원하지 않습니다." }
         if (operation == "components") check(old.manifest.kernelSha256 == next.manifest.kernelSha256) {
             "커널이 다른 이미지입니다. 전체 이미지 업데이트를 사용하세요."
         }

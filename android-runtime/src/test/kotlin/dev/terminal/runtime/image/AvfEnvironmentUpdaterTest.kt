@@ -15,11 +15,12 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AvfEnvironmentUpdaterTest {
-    private fun image(path: Path, version: String): Path {
+    private fun image(path: Path, version: String, maintenance: Boolean = true): Path {
         Files.createDirectories(path)
         val artifacts = mapOf("kernel" to "vmlinuz", "initrd" to "initrd.img", "system" to "system.img", "home" to "home.img", "config" to "config.img")
         artifacts.forEach { (_, file) -> Files.write(path.resolve(file), (if (file == "vmlinuz") "same kernel" else "$file:$version").toByteArray()) }
-        Files.write(path.resolve("manifest.properties"), ("formatVersion=1\ndistribution=debian\narchitecture=arm64\nmaintenanceVersion=1\n" +
+        Files.write(path.resolve("manifest.properties"), ("formatVersion=1\ndistribution=debian\narchitecture=arm64\n" +
+            (if (maintenance) "maintenanceVersion=1\n" else "") +
             artifacts.entries.joinToString("\n") { (key, file) -> "$key.sha256=${AvfImageVerifier.sha256(path.resolve(file))}" }).toByteArray())
         check(AvfImageInstaller.verifyForStartup(path) is ImageVerification.Ready)
         return path
@@ -62,6 +63,23 @@ class AvfEnvironmentUpdaterTest {
                 assertFalse(Files.exists(root.resolve(AvfImageTransitions.MAINTENANCE)))
             } finally { temp.toFile().deleteRecursively() }
         }
+    }
+
+    @Test fun pinnedImageWithoutMaintenanceIsRejectedBeforeBootOrStateCopy() = runBlocking {
+        val temp = Files.createTempDirectory("avf-update-unsupported")
+        try {
+            val root = image(temp.resolve("installed"), "old")
+            val staged = image(temp.resolve("download"), "legacy", maintenance = false)
+            val driver = Driver(root)
+            val failure = runCatching {
+                updater(driver, staged).update(root, "test", AvfDistribution.DEBIAN, staged, "rebase", {}, { it() })
+            }.exceptionOrNull()
+            assertEquals("새 AVF 이미지가 게스트 관리 기능을 지원하지 않습니다.", failure?.message)
+            assertEquals(0, driver.starts)
+            assertEquals("home.img:old", String(Files.readAllBytes(root.resolve("home.img"))))
+            assertTrue(Files.isDirectory(staged))
+            assertFalse(Files.exists(root.resolve(AvfImageTransitions.MAINTENANCE)))
+        } finally { temp.toFile().deleteRecursively() }
     }
 
     private fun updater(driver: Driver, staged: Path): AvfEnvironmentUpdater {

@@ -12,6 +12,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.terminal.app.ui.DroidTheme
 import dev.terminal.image.AvfDistribution
+import dev.terminal.image.AvfImageVerifier
 import dev.terminal.runtime.session.SessionRuntime
 import dev.terminal.runtime.session.SessionStorage
 import java.util.UUID
@@ -62,6 +63,45 @@ class AvfEnvironmentUpdateUiTest {
             SystemClock.sleep(50)
         }
         fail("Missing clickable action: $text")
+    }
+
+    @Test fun debugApprovesBothUpdateActionsAndKeepsConfirmation() {
+        assertTrue(BuildConfig.DEBUG)
+        val storage = UUID.randomUUID().toString()
+        val root = SessionStorage.root(context.filesDir, SessionRuntime.AVF, storage)
+        root.mkdirs()
+        val artifacts = mapOf("kernel" to "vmlinuz", "initrd" to "initrd.img", "system" to "system.img",
+            "home" to "home.img", "config" to "config.img")
+        artifacts.values.forEach { root.resolve(it).writeText("UI fixture") }
+        root.resolve("manifest.properties").writeText("formatVersion=1\ndistribution=debian\narchitecture=arm64\n" +
+            artifacts.entries.joinToString("\n") { (key, file) ->
+                "$key.sha256=${AvfImageVerifier.sha256(root.resolve(file).toPath())}"
+            })
+        val action = AtomicReference("")
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                scenario.onActivity { activity -> activity.setContent {
+                    DroidTheme {
+                        Column(Modifier.verticalScroll(rememberScrollState())) {
+                            AvfEnvironmentImageSetting(storage, AvfDistribution.DEBIAN, null, 0,
+                                savedStorage = true, requesting = false, onInstall = {},
+                                canManage = true, onManage = action::set)
+                        }
+                    }
+                } }
+                for ((title, operation) in listOf(R.string.avf_update_components to "UPDATE_COMPONENTS",
+                    R.string.avf_update_image to "UPDATE_IMAGE")) {
+                    click(context.getString(title))
+                    assertEquals("", action.get())
+                    click(context.getString(android.R.string.cancel))
+                    assertEquals("", action.get())
+                    click(context.getString(title))
+                    click(context.getString(android.R.string.ok))
+                    assertEquals(operation, action.get())
+                    action.set("")
+                }
+            }
+        } finally { root.deleteRecursively() }
     }
 
     @Test fun historyActionsRequireConfirmationAndDoNotDeleteOnCancel() {

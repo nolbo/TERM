@@ -16,9 +16,14 @@ The storage-specific WorkManager job owns downloads/progress/cancellation;
 not stop an existing VM. Environment/Profile/storage/normal VM identities remain.
 
 `maintenanceVersion=1` is optional in image manifests and APK catalogs. Old
-catalogs retain installation behavior; update actions stay disabled until an
-approved maintenance catalog is embedded in an app. Source changes do not update
-released catalogs or authorize publication. See `IMAGE_RELEASE.md`.
+catalogs retain installation behavior; release APKs disable update actions until
+an approved maintenance catalog is embedded. Debug APKs approve both update
+actions for every distribution present in their bundled catalog, without waiting
+for its maintenance approval marker. This does not add missing guest features:
+the service still requires `maintenanceVersion=1` in the actual pinned manifest
+before starting maintenance. Missing catalogs remain unavailable, and both builds
+keep checksum, stopped-VM, session, confirmation and state-copy checks. Source
+changes do not update released catalogs or authorize publication. See `IMAGE_RELEASE.md`.
 
 ## Guest components
 
