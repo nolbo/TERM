@@ -24,6 +24,10 @@ on:
         description: Publish verified assets to public TERM (requires committed Korean patch notes)
         type: boolean
         default: false
+      notify:
+        description: Send an image publication notification to Discord
+        type: boolean
+        default: false
       source_sha256:
         description: Optional reviewed SHA-256 of Google's upstream archive
         required: false
@@ -268,7 +272,7 @@ jobs:
 
   notify-release:
     needs: [image, publish]
-    if: github.repository == 'nolbo/TERM' && github.event_name == 'workflow_dispatch' && inputs.publish
+    if: github.repository == 'nolbo/TERM' && github.event_name == 'workflow_dispatch' && inputs.publish && inputs.notify
     permissions:
       contents: read
     uses: ./.github/workflows/discord-release.yml

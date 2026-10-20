@@ -8,6 +8,9 @@ install -D -m 0755 "$source/private-share-broker.py" "$root/usr/local/lib/droid/
 install -D -m 0644 "$source/term-share-broker.service" "$root/etc/systemd/system/term-share-broker.service"
 install -d "$root/etc/systemd/system/multi-user.target.wants"
 ln -sf /etc/systemd/system/term-share-broker.service "$root/etc/systemd/system/multi-user.target.wants/term-share-broker.service"
+install -D -m 0755 "$source/image-share-selftest.py" "$root/usr/local/lib/droid/image-share-selftest.py"
+install -D -m 0644 "$source/term-share-selftest.service" "$root/etc/systemd/system/term-share-selftest.service"
+ln -sf /etc/systemd/system/term-share-selftest.service "$root/etc/systemd/system/multi-user.target.wants/term-share-selftest.service"
 # The unprivileged sshfs client uses the distro's narrow fusermount3 helper.
 touch "$root/etc/fuse.conf"
 grep -qx 'user_allow_other' "$root/etc/fuse.conf" || printf '\nuser_allow_other\n' >> "$root/etc/fuse.conf"

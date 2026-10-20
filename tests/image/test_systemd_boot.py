@@ -80,6 +80,32 @@ class NormalSystemdBootTests(unittest.TestCase):
             self.assertEqual(1, boot_once.call_count)
             self.assertEqual(b'original-state', (directory / 'home.img').read_bytes())
 
+    def test_private_probe_rejects_incomplete_guest_files_and_verifies_live_host_update(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            probe = object.__new__(boot.PrivateShareProbe)
+            probe.root = Path(temporary)
+            process = mock.Mock(); process.poll.return_value = None
+            (probe.root / 'host-created').write_bytes(b'host-to-guest\n')
+            (probe.root / 'guest-ready').write_text('ready\n')
+            (probe.root / 'guest-renamed').write_bytes(b'incomplete')
+            with self.assertRaises(AssertionError):
+                probe.verify_files(process)
+            (probe.root / 'guest-renamed').write_bytes(bytes(range(256)) * 1024)
+            (probe.root / 'guest-finished').write_text('passed\n')
+            probe.verify_files(process)
+            self.assertEqual(b'host-update\n', (probe.root / 'host-created').read_bytes())
+
+    def test_owner_loss_probe_disconnects_only_control_and_requires_clean_guest_exit(self):
+        probe = object.__new__(boot.PrivateShareProbe)
+        control, data = mock.Mock(), mock.Mock()
+        probe.control, probe.data = control, data
+        process = mock.Mock(); process.returncode = 1
+        with self.assertRaisesRegex(RuntimeError, 'shut down cleanly'):
+            probe.verify_owner_loss(process)
+        control.close.assert_called_once()
+        data.close.assert_not_called()
+        process.wait.assert_called_once_with(timeout=30)
+
 
 if __name__ == '__main__':
     unittest.main()

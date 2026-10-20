@@ -6,6 +6,7 @@ QEMU keeps that policy and runs with only its vhost-vsock device and image mount
 The factory's writable image is never changed: both boots use a scratch copy.
 """
 import argparse
+import os
 import json
 from pathlib import Path
 import secrets
@@ -14,7 +15,9 @@ import stat
 import struct
 import subprocess
 import tempfile
+import threading
 import time
+import uuid
 
 HEADER = struct.Struct('>IHBBHHQI')
 MAGIC = 0x44505459
@@ -67,16 +70,134 @@ def stop_boot(process, cidfile):
     process.wait(timeout=20)
 
 
+class PrivateShareProbe:
+    """Real guest SSHFS against an isolated, unprivileged reference SFTP server.
+
+    Android's scoped server is tested separately on Android. This fixture gives
+    the guest only a disposable bind mount, no host tree, network or credentials.
+    """
+    def __init__(self, cid, docker_image, scratch, process, deadline):
+        self.control = None
+        self.data = None
+        self.server = None
+        self.workers = []
+        self.log = (scratch / 'sftp-server.log').open('wb')
+        self.root = scratch / 'share-fixture'
+        self.root.mkdir(mode=0o777)
+        self.root.chmod(0o777)
+        (self.root / 'host-created').write_bytes(b'host-to-guest\n')
+        try:
+            while process.poll() is None and time.monotonic() < deadline:
+                connection = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
+                connection.settimeout(3)
+                try:
+                    connection.connect((cid, 40506))
+                    self.control = connection
+                    break
+                except OSError:
+                    connection.close()
+                    time.sleep(0.2)
+            if self.control is None:
+                raise TimeoutError('Guest private share coordinator did not listen')
+            self.control.settimeout(50)
+            token, identity = secrets.token_bytes(16), uuid.uuid4().bytes
+            self.control.sendall(b'TSB1' + struct.pack('!HH', 1, 1) + token + identity + b'\x05Smoke')
+            if receive_exact(self.control, 1) != b'\0':
+                raise RuntimeError('Guest rejected private share fixture')
+            self.data = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
+            self.data.settimeout(10)
+            self.data.connect((cid, 40506))
+            self.data.sendall(b'TSF1' + token + identity)
+            if receive_exact(self.data, 1) != b'\0':
+                raise RuntimeError('Guest rejected private SFTP stream')
+            self.data.settimeout(None)
+            command = ['docker', 'run', '--rm', '-i', '--network', 'none', '--read-only',
+                       '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
+                       '--user', f'1000:{os.getgid()}', '-v', f'{self.root}:/export:rw',
+                       '--entrypoint', '/usr/lib/openssh/sftp-server', docker_image, '-e', '-d', '/export', '-u', '000']
+            self.server = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=self.log)
+            self.workers = [threading.Thread(target=self.to_server, daemon=True),
+                            threading.Thread(target=self.to_guest, daemon=True)]
+            for worker in self.workers:
+                worker.start()
+            if receive_exact(self.control, 1) != b'\0':
+                raise RuntimeError('Guest private FUSE mount was not ready')
+        except Exception:
+            self.close()
+            raise
+
+    def to_server(self):
+        try:
+            while data := self.data.recv(128 * 1024):
+                self.server.stdin.write(data)
+                self.server.stdin.flush()
+        except (OSError, ValueError):
+            pass
+        finally:
+            try:
+                self.server.stdin.close()
+            except OSError:
+                pass
+
+    def to_guest(self):
+        try:
+            while data := self.server.stdout.read1(128 * 1024):
+                self.data.sendall(data)
+        except (OSError, ValueError):
+            pass
+
+    def verify_files(self, process):
+        deadline = time.monotonic() + 30
+        while time.monotonic() < deadline and process.poll() is None:
+            if (self.root / 'guest-ready').exists():
+                assert (self.root / 'guest-renamed').read_bytes() == bytes(range(256)) * 1024
+                (self.root / 'host-created').write_bytes(b'host-update\n')
+            if (self.root / 'guest-finished').exists():
+                assert (self.root / 'guest-finished').read_text() == 'passed\n'
+                assert not (self.root / 'guest-link').exists()
+                return
+            time.sleep(0.1)
+        raise RuntimeError('Guest FUSE read/write/rename/symlink/host-update probe failed')
+
+    def verify_owner_loss(self, process):
+        self.control.shutdown(socket.SHUT_RDWR)
+        self.control.close()
+        self.control = None
+        # Closing only control must power off this disposable VM.
+        process.wait(timeout=30)
+        if process.returncode != 0:
+            raise RuntimeError('Guest did not shut down cleanly after private owner loss')
+
+    def close(self):
+        for connection in [self.control, self.data]:
+            if connection is not None:
+                try:
+                    connection.shutdown(socket.SHUT_RDWR)
+                except OSError:
+                    pass
+                connection.close()
+        if self.server is not None:
+            try:
+                self.server.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                self.server.terminate()
+                self.server.wait(timeout=10)
+        for worker in self.workers:
+            worker.join(timeout=2)
+        self.log.close()
+
+
 def boot(directory, state, docker_image, scratch, number, timeout=600):
     cid = secrets.randbelow(2 ** 31 - 1024) + 1024
     cidfile = scratch / f'boot-{number}.container'
     console = scratch / f'boot-{number}.log'
+    parameters = BOOT_PARAMS + (' term.share-broker=1 term.share-selftest=1' if number == 2 else '')
     command = ['docker', 'run', '--rm', '--network', 'none', '--device', '/dev/vhost-vsock',
                '--entrypoint', 'qemu-system-aarch64',
                '--cidfile', str(cidfile), '-v', f'{directory}:/images:ro', '-v', f'{state.parent}:/state',
                docker_image, '-machine', 'virt', '-cpu', 'max', '-accel', 'tcg',
                '-m', '2048', '-display', 'none', '-monitor', 'none', '-no-reboot', '-nic', 'none',
-               '-kernel', '/images/vmlinuz', '-initrd', '/images/initrd.img', '-append', BOOT_PARAMS,
+               '-kernel', '/images/vmlinuz', '-initrd', '/images/initrd.img', '-append', parameters,
                '-device', 'virtio-serial-pci', '-chardev', 'stdio,id=console,signal=off',
                '-device', 'virtconsole,chardev=console', '-device', f'vhost-vsock-pci,guest-cid={cid}']
     for index, (path, readonly) in enumerate([('/images/system.img', True), ('/state/home.img', False),
@@ -88,7 +209,11 @@ def boot(directory, state, docker_image, scratch, number, timeout=600):
     last_error = None
     with console.open('wb') as output:
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT)
+        sharing = None
         try:
+            if number == 2:
+                sharing = PrivateShareProbe(cid, docker_image, scratch, process, started + timeout)
+                sharing.verify_files(process)
             while pending and process.poll() is None and time.monotonic() - started < timeout:
                 for port in sorted(pending):
                     try:
@@ -104,12 +229,18 @@ def boot(directory, state, docker_image, scratch, number, timeout=600):
                     time.sleep(1)
             if pending or process.poll() is not None:
                 raise RuntimeError(f'Normal systemd boot {number} did not serve vsock ports {sorted(pending)}; last error: {last_error}')
-            return {'boot': number, 'seconds': round(time.monotonic() - started, 2),
-                    'sessionListRpc': 'passed', 'packageInitializationPort': 'passed'}
+            result = {'boot': number, 'seconds': round(time.monotonic() - started, 2),
+                      'sessionListRpc': 'passed', 'packageInitializationPort': 'passed'}
+            if sharing is not None:
+                sharing.verify_owner_loss(process)
+                result.update(privateShareReadWrite='passed', privateShareOwnerLoss='passed')
+            return result
         except Exception:
             print(console.read_bytes()[-12000:].decode(errors='replace'), flush=True)
             raise
         finally:
+            if sharing is not None:
+                sharing.close()
             stop_boot(process, cidfile)
 
 
