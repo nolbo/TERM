@@ -106,6 +106,29 @@ class NormalSystemdBootTests(unittest.TestCase):
         data.close.assert_not_called()
         process.wait.assert_called_once_with(timeout=30)
 
+    def test_private_probe_waits_for_completion_contents_after_sftp_creates_the_file(self):
+        for incomplete in ('', 'pass'):
+            with self.subTest(incomplete=incomplete), tempfile.TemporaryDirectory() as temporary:
+                probe = object.__new__(boot.PrivateShareProbe)
+                probe.root = Path(temporary)
+                process = mock.Mock(); process.poll.return_value = None
+                finished = probe.root / 'guest-finished'
+                finished.write_text(incomplete)
+                with mock.patch.object(boot.time, 'sleep', side_effect=lambda _: finished.write_text('passed\n')) as wait:
+                    probe.verify_files(process)
+                wait.assert_called_once()
+
+    def test_private_probe_never_accepts_missing_or_incorrect_completion_contents(self):
+        for incomplete in ('', 'failed\n'):
+            with self.subTest(incomplete=incomplete), tempfile.TemporaryDirectory() as temporary:
+                probe = object.__new__(boot.PrivateShareProbe)
+                probe.root = Path(temporary)
+                process = mock.Mock(); process.poll.return_value = None
+                (probe.root / 'guest-finished').write_text(incomplete)
+                with mock.patch.object(boot.time, 'monotonic', side_effect=[0, 0, 31]), \
+                        mock.patch.object(boot.time, 'sleep'), self.assertRaisesRegex(RuntimeError, 'probe failed'):
+                    probe.verify_files(process)
+
 
 if __name__ == '__main__':
     unittest.main()

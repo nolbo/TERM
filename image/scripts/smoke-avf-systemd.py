@@ -152,8 +152,10 @@ class PrivateShareProbe:
             if (self.root / 'guest-ready').exists():
                 assert (self.root / 'guest-renamed').read_bytes() == bytes(range(256)) * 1024
                 (self.root / 'host-created').write_bytes(b'host-update\n')
-            if (self.root / 'guest-finished').exists():
-                assert (self.root / 'guest-finished').read_text() == 'passed\n'
+            # SFTP creates the file before its write arrives. Require the full
+            # completion record within the existing deadline, not just its inode.
+            finished = self.root / 'guest-finished'
+            if finished.exists() and finished.read_text() == 'passed\n':
                 assert not (self.root / 'guest-link').exists()
                 return
             time.sleep(0.1)
