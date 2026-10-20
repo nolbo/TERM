@@ -109,6 +109,14 @@ writable. Temporary VMs export no private folders or Android storage. Activation
 recovery and history deletion require service-owned leases and platform stop
 proof; a journal blocks boot until recovery. See [AVF_UPDATES.md](AVF_UPDATES.md).
 
+Resumable AVF image caches are private to one WorkManager ID and never authorize
+boot. HTTP validators only bind range transfers; approved manifest/raw SHA-256
+checks still authenticate each artifact, and the installer/service independently
+checks stored files before use. Cache entries reject symlinks and enforce transfer
+and expansion limits. Retry retains owned temporary files only; cancellation,
+terminal failure and completion remove them. Extent-aware copying preserves
+independent writable inodes under the existing stopped-VM/storage lease.
+
 ## Executable policy
 
 Environment backup is an explicit SAF operation; Android automatic backup remains disabled. Backup files may contain credentials and private keys. Password protection uses framed AES-256-GCM with PBKDF2-HMAC-SHA256; passwords are never journaled. Plain exports detect corruption but do not authenticate their source. Imports require a source-trust acknowledgement and default to excluding Profiles, whose launch settings may execute commands later. Extraction accepts only bounded fixed components, never follows archive-controlled parents, validates all link relationships and rejects special files, traversal and excess expansion. New-only staging, hidden registry reservations and atomic activation protect existing storage on failure/cancellation/process death. See [BACKUP_RESTORE.md](BACKUP_RESTORE.md) for cryptographic framing, limits and recovery guarantees.

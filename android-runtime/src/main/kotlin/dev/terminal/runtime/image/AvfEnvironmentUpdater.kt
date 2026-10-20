@@ -15,7 +15,8 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 /** The caller holds this storage's preparation lease and excludes sessions. No host filesystem mounts. */
-internal class AvfEnvironmentUpdater(private val backend: AvfBackend, private val catalog: AvfImageCatalog = BundledAvfImageCatalog) {
+internal class AvfEnvironmentUpdater(private val backend: AvfBackend, private val catalog: AvfImageCatalog = BundledAvfImageCatalog,
+    private val copyFile: (Path, Path, () -> Unit) -> AvfSparseFiles.CopyResult = AndroidAvfSparseFiles::copy) {
     private fun maintenanceId(instanceId: String) = "maintenance-" +
         UUID.nameUUIDFromBytes(instanceId.toByteArray(Charsets.UTF_8)).toString().replace("-", "")
 
@@ -51,10 +52,10 @@ internal class AvfEnvironmentUpdater(private val backend: AvfBackend, private va
         val checkCancellation = { coroutine.ensureActive() }
         try {
             Files.move(downloaded, candidate)
-            check(AvfImageInstaller.verifyForStartup(candidate, distribution) is ImageVerification.Ready)
+            // prepare() owns full startup verification and records the installation receipt.
             progress(AvfImageInstallPhase.INSTALL)
             val state = work.resolve("old-state.img")
-            Files.newInputStream(root.resolve("home.img")).use { AvfSparseFiles.copy(it, state, checkCancellation = checkCancellation) }
+            copyFile(root.resolve("home.img"), state, checkCancellation)
             val id = maintenanceId(instanceId)
             backend.prepare(RuntimeConfig(instanceId = id, imageDirectory = candidate.toString(),
                 imageDistribution = distribution.id, avfMaintenance = AvfMaintenanceBoot(operation,
@@ -76,9 +77,7 @@ internal class AvfEnvironmentUpdater(private val backend: AvfBackend, private va
                     val source = root.resolve(name)
                     if (Files.exists(source, NOFOLLOW_LINKS)) {
                         require(Files.isRegularFile(source, NOFOLLOW_LINKS))
-                        Files.newInputStream(source).use {
-                            AvfSparseFiles.copy(it, result.resolve(name), checkCancellation = checkCancellation)
-                        }
+                        copyFile(source, result.resolve(name), checkCancellation)
                     }
                 }
                 Files.move(state, result.resolve("home.img"))

@@ -18,6 +18,27 @@ import org.junit.runner.RunWith
 /** Exercises real Android allocation and activation without requiring AVF hardware. */
 @RunWith(AndroidJUnit4::class)
 class AvfSparseImageDeviceTest {
+    @Test fun extentCopyUsesRealAndroidLseekAndNeverSharesWritableState() {
+        val context = InstrumentationRegistry.getInstrumentation().targetContext
+        val root = Files.createTempDirectory(context.filesDir.toPath(), "avf-extents-device-")
+        try {
+            val source = root.resolve("source.img")
+            val target = root.resolve("target.img")
+            val capacity = 64L * 1024 * 1024
+            RandomAccessFile(source.toFile(), "rw").use { f ->
+                f.setLength(capacity); f.write(73); f.seek(capacity - 1); f.write(91)
+            }
+            val result = AndroidAvfSparseFiles.copy(source, target)
+            assertEquals(capacity, result.bytes)
+            assertEquals(AvfImageVerifier.sha256(source), AvfImageVerifier.sha256(target))
+            assertNotEquals(Os.stat(source.toString()).st_ino, Os.stat(target.toString()).st_ino)
+            assertTrue(Os.stat(target.toString()).st_blocks * 512 < 128 * 1024)
+            if (result.usedExtents) assertTrue("Read ${result.readBytes} of $capacity bytes", result.readBytes < capacity)
+            RandomAccessFile(target.toFile(), "rw").use { it.write(12) }
+            assertEquals(73, RandomAccessFile(source.toFile(), "r").use { it.read() })
+        } finally { root.toFile().deleteRecursively() }
+    }
+
     @Test fun preservesRawBytesCapacityAndWritableStateWhileReportingAllocatedSpace() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val root = Files.createTempDirectory(instrumentation.targetContext.filesDir.toPath(), "avf-sparse-test-")

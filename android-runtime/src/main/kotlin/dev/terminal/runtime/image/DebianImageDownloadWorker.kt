@@ -56,6 +56,8 @@ class DebianImageDownloadWorker(
                 dev.terminal.runtime.session.SessionRuntime.AVF, storageId).toPath()
         }.getOrElse { return@withContext failure("Invalid storage ID") }
         val stagingRoot = AvfImageDownloadStaging.path(target, id)
+        val cacheRoot = AvfImageDownloadStaging.cachePath(target, id)
+        var retryDownload = false
         return@withContext try {
             check(distributionForStorage(applicationContext, storageId) == release.distribution) { "AVF catalog distribution differs from environment" }
             dev.terminal.runtime.session.StorageRegistry(applicationContext.filesDir).transaction {
@@ -63,7 +65,7 @@ class DebianImageDownloadWorker(
             }
             setForeground(foregroundInfo())
             report(AvfImageInstallPhase.PREPARING)
-            AvfImageDownloadStaging.clean(target, id) { previousId ->
+            AvfImageDownloadStaging.clean(target, id, preserveCurrent = true) { previousId ->
                 val previous = WorkManager.getInstance(applicationContext).getWorkInfoById(previousId)
                     .get(10, TimeUnit.SECONDS)
                 previous != null && !previous.state.isFinished
@@ -77,41 +79,45 @@ class DebianImageDownloadWorker(
             Files.createDirectories(target.parent)
             Files.createDirectories(stagingRoot)
             report(AvfImageInstallPhase.MANIFEST)
-            AvfArtifactDownloader { isStopped }.download(release.manifestUri,
-                stagingRoot.resolve(AvfImageLayout.MANIFEST_FILE), 64 * 1024)
+            AvfArtifactDownloader { isStopped }.downloadVerified(release.manifestUri,
+                stagingRoot.resolve(AvfImageLayout.MANIFEST_FILE), 64 * 1024, release.manifestSha256, cacheRoot)
             if (AvfImageVerifier.sha256(stagingRoot.resolve(AvfImageLayout.MANIFEST_FILE), ::checkCancellation) != release.manifestSha256) {
                 return@withContext failure("Downloaded manifest checksum does not match catalog")
             }
-            check(AvfImageVerifier.parse(stagingRoot.resolve(AvfImageLayout.MANIFEST_FILE)).guestDistribution == release.distribution) {
+            val manifest = AvfImageVerifier.parse(stagingRoot.resolve(AvfImageLayout.MANIFEST_FILE))
+            check(manifest.guestDistribution == release.distribution) {
                 "Downloaded manifest distribution differs from catalog"
             }
-            listOf(AvfImageLayout.KERNEL_IMAGE, AvfImageLayout.INITRD_IMAGE,
-                AvfImageLayout.SYSTEM_IMAGE, AvfImageLayout.HOME_IMAGE, AvfImageLayout.CONFIG_IMAGE)
-                .forEachIndexed { index, name -> downloadArtifact(release, name, stagingRoot, index + 1) }
+            listOf(AvfImageLayout.KERNEL_IMAGE to manifest.kernelSha256, AvfImageLayout.INITRD_IMAGE to manifest.initrdSha256,
+                AvfImageLayout.SYSTEM_IMAGE to manifest.systemSha256, AvfImageLayout.HOME_IMAGE to manifest.homeSha256,
+                AvfImageLayout.CONFIG_IMAGE to manifest.configSha256)
+                .forEachIndexed { index, (name, hash) -> downloadArtifact(release, name, hash, stagingRoot, cacheRoot, index + 1) }
             report(AvfImageInstallPhase.VERIFY)
-            when (val verification = AvfImageVerifier.verify(stagingRoot, release.distribution, ::checkCancellation)) {
-                is ImageVerification.Invalid -> failure(verification.reason)
-                is ImageVerification.Ready -> if (operation != "install") {
-                    initializeAvfImage(applicationContext, storageId, id.toString(), generation, operation) { report(it) }
-                    success("updated")
-                } else when (
-                    val installed = installImage(stagingRoot, target, storageId, generation, release.distribution)
-                ) {
-                    is ImageInstallResult.Installed -> initializeInstalledImage(storageId)
-                    is ImageInstallResult.AlreadyInstalled -> if (installed.verification is ImageVerification.Ready)
-                        initializeInstalledImage(storageId)
-                        else failure("Existing AVF image is invalid; refusing replacement")
-                    is ImageInstallResult.Failed -> failure(installed.reason)
-                }
+            // The installer/service hashes the stored files at its ownership boundary. The worker
+            // has already checked the expanded stream hashes; do not read every disk again here.
+            if (operation != "install") {
+                initializeAvfImage(applicationContext, storageId, id.toString(), generation, operation) { report(it) }
+                success("updated")
+            } else when (
+                val installed = installImage(stagingRoot, target, storageId, generation, release.distribution)
+            ) {
+                is ImageInstallResult.Installed -> initializeInstalledImage(storageId)
+                is ImageInstallResult.AlreadyInstalled -> if (installed.verification is ImageVerification.Ready)
+                    initializeInstalledImage(storageId)
+                    else failure("Existing AVF image is invalid; refusing replacement")
+                is ImageInstallResult.Failed -> failure(installed.reason)
             }
         } catch (error: CancellationException) {
             throw error
         } catch (error: java.io.IOException) {
-            if (runAttemptCount < MAX_RETRIES) Result.retry() else failure(error.message ?: "Download failed")
+            if (runAttemptCount < MAX_RETRIES) {
+                retryDownload = true
+                Result.retry()
+            } else failure(error.message ?: "Download failed")
         } catch (error: Exception) {
             failure(error.message ?: "Image download failed")
         } finally {
-            if (Files.exists(stagingRoot)) deleteTree(stagingRoot)
+            AvfImageDownloadStaging.finish(target, id, retryDownload, isStopped)
         }
     }
 
@@ -140,11 +146,11 @@ class DebianImageDownloadWorker(
         return success("initialized")
     }
 
-    private fun downloadArtifact(release: AvfImageRelease, name: String, stagingRoot: Path, index: Int) {
+    private fun downloadArtifact(release: AvfImageRelease, name: String, hash: String, stagingRoot: Path, cacheRoot: Path, index: Int) {
         val artifactUri = release.manifestUri.resolve(if (release.gzipArtifacts) "$name.gz" else name)
         report(AvfImageInstallPhase.DOWNLOAD, index)
-        AvfArtifactDownloader { isStopped }.download(artifactUri, stagingRoot.resolve(name),
-            release.maxArtifactBytes, release.gzipArtifacts) { bytes, total ->
+        AvfArtifactDownloader { isStopped }.downloadVerified(artifactUri, stagingRoot.resolve(name),
+            release.maxArtifactBytes, hash, cacheRoot, release.gzipArtifacts) { bytes, total ->
                 report(AvfImageInstallPhase.DOWNLOAD, index, bytes, total)
             }
     }
@@ -206,10 +212,6 @@ class DebianImageDownloadWorker(
     }
 
     private fun failure(message: String): Result = Result.failure(failureData(lastProgress, message))
-
-    private fun deleteTree(root: Path) {
-        Files.walk(root).use { paths -> paths.sorted(Comparator.reverseOrder()).forEach { Files.deleteIfExists(it) } }
-    }
 
     companion object {
         private const val KEY_RELEASE_ID = "release_id"

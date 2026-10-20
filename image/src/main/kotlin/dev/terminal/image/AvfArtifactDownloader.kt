@@ -9,6 +9,14 @@ import java.util.zip.GZIPInputStream
 /** Hashes pin the content even when an HTTPS asset host redirects to its CDN. */
 class AvfArtifactDownloader(private val cancelled: () -> Boolean = { false }) {
     internal var openConnection: (URI) -> HttpURLConnection = { it.toURL().openConnection() as HttpURLConnection }
+
+    /** Attempt-local compressed cache. Every expanded result is checked against the pinned raw hash. */
+    fun downloadVerified(uri: URI, destination: Path, maxBytes: Long, expectedSha256: String,
+        cacheDirectory: Path, gzip: Boolean = false,
+        onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit = { _, _ -> }) {
+        AvfResumableDownload({ openConnection(it) }, ::checkCancelled)
+            .download(uri, destination, maxBytes, expectedSha256, cacheDirectory, gzip, onProgress)
+    }
     fun download(uri: URI, destination: Path, maxBytes: Long, gzip: Boolean = false,
         onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit = { _, _ -> }) {
         var next = uri

@@ -39,6 +39,39 @@ before starting maintenance. Missing catalogs remain unavailable, and both build
 keep checksum, stopped-VM, session, confirmation and state-copy checks. Source
 changes do not update released catalogs or authorize publication. See `IMAGE_RELEASE.md`.
 
+## Transfer and copy performance
+
+The existing signed catalogs, gzip assets and raw manifest hashes remain compatible.
+The worker calculates SHA-256 while expanding each downloaded artifact; a retry
+rehashes any retained raw file before reusing it. The installer or VM service
+still independently verifies the stored files at its ownership boundary. The
+worker no longer repeats that entire stored-file scan just before the handoff.
+The updater also leaves startup verification/receipt creation to driver `prepare`
+instead of adding another full check immediately before it. Every normal or
+maintenance boot retains the driver's immutable-artifact checks.
+
+Compressed files and bounded HTTP metadata live in work-ID-specific sibling
+cache directories, outside the installed environment. A strong ETag plus
+`Range`/`If-Range` permits resuming only an exact, matching `Content-Range` with
+identity HTTP encoding. A full 200 response replaces the old prefix; missing or
+weak validators restart the transfer. TLS redirects stay credential-free HTTPS.
+Neither an ETag nor cache metadata authenticates image contents: the approved raw
+SHA-256 remains mandatory. Gzip failures and raw checksum mismatches evict that
+cached artifact. Interrupted transfers and already verified raw files survive
+WorkManager retries; completion, cancellation and terminal failure clean both
+staging and cache. New work removes only inactive attempts for the same storage.
+The compressed cache temporarily requires additional disk space.
+
+Update state and immutable-file copies use Android's public `Os.lseek` with Linux
+`SEEK_DATA`/`SEEK_HOLE` on the same descriptor used for reads. Copies skip reported
+holes, retain the exact logical length, flush output and always create independent
+inodes. An unsupported filesystem falls back to the existing bounded zero-aware
+copy; invalid ranges and I/O errors fail instead of publishing partial output.
+VM-stop/storage leases still exclude writers. Writable state is never hardlinked.
+`TermAvfImage` logs logical bytes, bytes read and whether extent queries were used.
+Android instrumentation covers the real syscall path, sparse allocation, byte
+identity and independence; it does not establish end-to-end AVF update timings.
+
 ## Guest components
 
 The factory builds `term-guest.deb` for Debian/Ubuntu and `term-guest.pkg.tar` for
