@@ -60,12 +60,6 @@
     <string name="shared_start_copy">Start copy</string>
     <string name="shared_legacy_import">Copy into a new shared directory</string>
     <string name="shared_legacy_export">Export as ZIP</string>
-    <string name="shared_operations">File operations</string>
-    <string name="shared_running">Running</string>
-    <string name="shared_completed">Completed</string>
-    <string name="shared_cancelled">Cancelled</string>
-    <string name="shared_interrupted">Interrupted · originals preserved · retry explicitly</string>
-    <string name="shared_failed">Failed</string>
     <string name="workspace_list">Workspace list</string>
     <string name="workspace_settings">Workspace settings</string>
     <string name="workspace_information">General</string>

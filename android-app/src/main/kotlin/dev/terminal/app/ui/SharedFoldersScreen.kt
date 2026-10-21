@@ -26,23 +26,22 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 internal data class SharedFoldersSnapshot(val folders: List<SharedFolder>, val paths: Map<String, String>,
-    val environments: List<Environment>, val operations: List<JSONObject>) {
+    val environments: List<Environment>) {
     companion object {
         fun parse(encoded: String): SharedFoldersSnapshot {
             val json = JSONObject(encoded)
             fun rows(key: String): List<JSONObject> = json.getJSONArray(key).let { a -> List(a.length()) { a.getJSONObject(it) } }
             val folders = rows("folders")
             return SharedFoldersSnapshot(folders.map(SharedFolder::parse), folders.associate { it.getString("id") to it.getString("hostPath") },
-                rows("environments").map(Environment::fromJson), rows("operations"))
+                rows("environments").map(Environment::fromJson))
         }
     }
 }
 
 @Composable
-internal fun SharedFoldersScreen(snapshot: SharedFoldersSnapshot?, error: String?, saving: Boolean, onBack: () -> Unit,
+internal fun SharedFoldersScreen(snapshot: SharedFoldersSnapshot?, error: String?, onBack: () -> Unit,
     onCreate: () -> Unit,
-    onEdit: (SharedFolder) -> Unit,
-    onCancel: (String) -> Unit) {
+    onEdit: (SharedFolder) -> Unit) {
     SettingsPageScaffold(stringResource(R.string.shared_folders_title), onBack) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
@@ -53,47 +52,17 @@ internal fun SharedFoldersScreen(snapshot: SharedFoldersSnapshot?, error: String
             if (snapshot == null) item { LinearWavyProgressIndicator(Modifier.fillMaxWidth()) } else {
                 item {
                     ProfileSection(R.string.shared_folder_list) {
-                        SettingsNavigationRow(stringResource(R.string.shared_folder_create), enabled = !saving,
+                        SettingsNavigationRow(stringResource(R.string.shared_folder_create),
                             leadingIcon = R.drawable.ic_material_symbol_add_24, onClick = onCreate)
                         snapshot.folders.forEach { folder ->
                             val connections = snapshot.environments.filter { it.id in folder.environments }.joinToString { it.name }
                             SettingsNavigationRow(folder.name,
                                 supporting = connections.ifEmpty { stringResource(R.string.shared_folder_no_environments) },
-                                enabled = !saving, onClick = { onEdit(folder) })
+                                onClick = { onEdit(folder) })
                         }
                     }
                 }
                 if (snapshot.folders.isEmpty()) item { SettingsDescription(stringResource(R.string.shared_folders_empty)) }
-                if (snapshot.operations.isNotEmpty()) item {
-                    ProfileSection(R.string.shared_operations) {
-                        snapshot.operations.asReversed().forEach { operation ->
-                            Column(Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                val mode = when (operation.getString("mode")) {
-                                    "TO_VM" -> R.string.shared_to_vm
-                                    "FROM_VM" -> R.string.shared_from_vm
-                                    "IMPORT_LEGACY" -> R.string.shared_legacy_import
-                                    else -> R.string.shared_legacy_export
-                                }
-                                Text(stringResource(mode), style = MaterialTheme.typography.bodyLarge)
-                                val state = when (operation.getString("state")) {
-                                    "RUNNING" -> R.string.shared_running
-                                    "COMPLETED" -> R.string.shared_completed
-                                    "CANCELLED" -> R.string.shared_cancelled
-                                    "INTERRUPTED" -> R.string.shared_interrupted
-                                    else -> R.string.shared_failed
-                                }
-                                Text(stringResource(state) + " · " + operation.optLong("bytes") + " B",
-                                    style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                if (!operation.isNull("error")) Text(operation.getString("error"), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
-                                if (operation.getString("state") == "RUNNING") {
-                                    LinearWavyProgressIndicator(Modifier.fillMaxWidth())
-                                    TextButton(onClick = { onCancel(operation.getString("id")) }, enabled = !saving,
-                                        shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) }
-                                }
-                            }
-                        }
-                    }
-                }
             }
         }
     }

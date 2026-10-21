@@ -24,7 +24,7 @@ class AvfSharedFolderUiTest {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val environment = Environment.create(SessionRuntime.AVF, "Private AVF")
         val folder = SharedFolder(UUID.randomUUID().toString(), "Code", setOf(environment.id))
-        val snapshot = SharedFoldersSnapshot(listOf(folder), emptyMap(), listOf(environment), emptyList())
+        val snapshot = SharedFoldersSnapshot(listOf(folder), emptyMap(), listOf(environment))
         var saved: SharedFolder? = null
         ActivityScenario.launch(ProfilesActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
@@ -61,7 +61,7 @@ class AvfSharedFolderUiTest {
         val context = instrumentation.targetContext
         val environment = Environment.create(SessionRuntime.AVF, "AVF conversion preview")
         val folder = SharedFolder(UUID.randomUUID().toString(), "Project", setOf(environment.id), androidStorage = true)
-        val snapshot = SharedFoldersSnapshot(listOf(folder), emptyMap(), listOf(environment), emptyList())
+        val snapshot = SharedFoldersSnapshot(listOf(folder), emptyMap(), listOf(environment))
         var saved = 0
         fun find(text: String): AccessibilityNodeInfo? {
             instrumentation.uiAutomation.clearCache()
@@ -128,7 +128,7 @@ class AvfSharedFolderUiTest {
         val context = instrumentation.targetContext
         val environment = Environment.create(SessionRuntime.AVF, "AVF sharing preview")
         val folder = SharedFolder(UUID.randomUUID().toString(), "Project", setOf(environment.id))
-        val snapshot = SharedFoldersSnapshot(listOf(folder), emptyMap(), listOf(environment), emptyList())
+        val snapshot = SharedFoldersSnapshot(listOf(folder), emptyMap(), listOf(environment))
         var direction: String? = null
         fun find(text: String): AccessibilityNodeInfo? {
             instrumentation.uiAutomation.clearCache()

@@ -61,12 +61,6 @@
     <string name="shared_start_copy">복사 시작</string>
     <string name="shared_legacy_import">새 공유 디렉토리로 복사</string>
     <string name="shared_legacy_export">ZIP으로 내보내기</string>
-    <string name="shared_operations">파일 작업</string>
-    <string name="shared_running">처리 중</string>
-    <string name="shared_completed">완료</string>
-    <string name="shared_cancelled">취소됨</string>
-    <string name="shared_interrupted">중단됨 · 원본 보존 · 다시 실행하세요</string>
-    <string name="shared_failed">실패</string>
     <string name="workspace_list">워크스페이스 목록</string>
     <string name="workspace_settings">워크스페이스 설정</string>
     <string name="workspace_information">기본 설정</string>
