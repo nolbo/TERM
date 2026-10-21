@@ -52,7 +52,7 @@ avf_manifest=$(python3 -c 'import json; print(json.load(open("../../kernel/sourc
 avf_common=$(python3 -c 'import json; print(json.load(open("../../kernel/source.json"))["commonRevision"])')
 repo init --depth=1 -u https://android.googlesource.com/kernel/manifest -b "$avf_manifest"
 repo sync -c --no-tags --no-clone-bundle --fail-fast -j4
-git -C common fetch --depth=1 origin "$avf_common"
+git -C common fetch --depth=1 https://android.googlesource.com/kernel/common "$avf_common"
 git -C common switch --detach "$avf_common"
 cd ../../..
 python3 image/scripts/build-avf-kernel.py --checkout image/build/kernel-checkout \
