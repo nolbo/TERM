@@ -60,9 +60,16 @@ class ContainerKernelTests(unittest.TestCase):
         for flag in ('PID_NS', 'IPC_NS', 'SYSVIPC', 'POSIX_MQUEUE', 'CGROUP_PIDS',
                      'NETFILTER_XT_MATCH_ADDRTYPE', 'DMABUF_HEAPS_SYSTEM', 'NFT_COMPAT',
                      'NF_TABLES', 'BRIDGE_NETFILTER', 'USER_NS', 'CGROUP_DEVICE',
-                     'ANDROID_BINDERFS', 'MEMFD_CREATE', 'SECCOMP_FILTER', 'IPV6',
+                     'ANDROID_BINDER_IPC', 'ANDROID_BINDERFS', 'MEMFD_CREATE', 'SECCOMP_FILTER', 'IPV6',
                      'OVERLAY_FS', 'ARM64_4K_PAGES', 'VIRTIO_VSOCKETS', 'CFI_CLANG'):
             self.assertEqual('y', required['CONFIG_' + flag])
+
+    def test_ipc_namespaces_use_official_c_binder_without_the_unlinkable_rust_module(self):
+        values = kernel.requirements()
+        self.assertEqual('n', values['CONFIG_ANDROID_BINDER_IPC_RUST'])
+        values['CONFIG_ANDROID_BINDER_IPC_RUST'] = 'm'
+        with self.assertRaisesRegex(ValueError, 'ANDROID_BINDER_IPC_RUST'):
+            kernel.validate_config(config_bytes(values))
 
     def test_parser_accepts_real_kconfig_lowercase_symbols_and_rejects_duplicates(self):
         self.assertEqual({'CONFIG_FONT_8x8': 'y'}, kernel.parse_config('CONFIG_FONT_8x8=y\n'))

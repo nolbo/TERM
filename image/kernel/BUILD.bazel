@@ -5,8 +5,9 @@ load("@rules_pkg//pkg:mappings.bzl", "pkg_files", "strip_prefix")
 load("//build/kernel/kleaf:kernel.bzl", "initramfs", "kernel_build", "kernel_modules_install")
 load("//common:modules.bzl", "get_gki_modules_list", "get_kunit_modules_list")
 
-# These drivers are built in by the approved direct-boot AVF configuration.
-_BUILTIN = [
+# Built-in boot drivers and the disabled experimental Rust Binder module.
+_NON_MODULES = [
+    "rust_binder.ko",
     "virtio_balloon.ko",
     "virtio_blk.ko",
     "virtio_console.ko",
@@ -32,7 +33,7 @@ kernel_build(
     module_implicit_outs = [
         module
         for module in get_gki_modules_list("arm64") + get_kunit_modules_list("arm64")
-        if paths.basename(module) not in _BUILTIN
+        if paths.basename(module) not in _NON_MODULES
     ],
     # This private guest kernel rebuilds every module; it is not a host GKI ABI.
     trim_nonlisted_kmi = False,

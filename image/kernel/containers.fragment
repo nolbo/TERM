@@ -1,4 +1,4 @@
-# Only additions to the approved AVF 6.12 configuration; all are built in so
+# Container features for the approved AVF 6.12 configuration; additions are built in so
 # containers never depend on a host module loader or mismatched Google modules.
 CONFIG_LOCALVERSION="-term-containers"
 CONFIG_NAMESPACES=y
@@ -72,6 +72,9 @@ CONFIG_DMABUF_HEAPS=y
 CONFIG_DMABUF_HEAPS_SYSTEM=y
 CONFIG_ANDROID_BINDER_IPC=y
 CONFIG_ANDROID_BINDERFS=y
+# The official Linux distro target uses C Binder. Its experimental Rust module
+# references unexported IPC-namespace symbols when CONFIG_IPC_NS is enabled.
+# CONFIG_ANDROID_BINDER_IPC_RUST is not set
 CONFIG_MEMFD_CREATE=y
 CONFIG_SECCOMP=y
 CONFIG_SECCOMP_FILTER=y

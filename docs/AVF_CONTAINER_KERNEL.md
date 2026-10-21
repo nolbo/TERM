@@ -11,15 +11,16 @@ are unavailable because their IPC prerequisites are disabled. Installing Docker
 packages cannot repair these kernel limitations.
 
 This implementation is a build/packaging path, **not a published or
-device-verified kernel**. On the available ARM64 host, the exact official common
-source plus the fragment passes `make olddefconfig` and all 100 configuration
-assertions. Host Clang 18 was used solely for Kconfig dependency checks; Rust
-availability differs from the official toolchain. This is not the release
-`.config`, and no Image or matching modules have been compiled. Official Kleaf's
-Linux x86_64 prebuilts cannot execute on this host. The connected ReDroid Android
-15 target has no AVF feature/APEX. No new AVF Ubuntu boot, container feature
-runtime probe, Docker `hello-world`, LXC container or nested ReDroid launch has
-passed. The approved catalog and existing installations retain the old kernel.
+device-verified kernel**. Official source synchronization and Kleaf compilation
+now run on x86_64 CI. The first compilation reached modpost and exposed the
+experimental Rust Binder module's unexported IPC namespace references; the
+recipe now follows the official Linux distro target by disabling that module
+and retaining built-in C Binder/BinderFS. A complete verified Image/module bundle
+and QEMU runtime gates are still pending. Local ARM64 `olddefconfig` checks are
+only dependency checks, not a substitute for that bundle. The connected ReDroid
+Android 15 target has no AVF feature/APEX. No new AVF Ubuntu boot, container
+feature runtime probe, Docker `hello-world`, LXC container or nested ReDroid
+launch has passed. The approved catalog retains the old kernel.
 
 ## Build and packaging
 
@@ -35,6 +36,11 @@ applies. Bridge/veth, conntrack, IPv4/IPv6 NAT, addrtype and nftables/xtables
 compatibility cover iptables-nft and iptables-legacy. The system DMA-BUF heap
 is added while retaining BinderFS, memfd, seccomp, IPv6, OverlayFS, 4 KiB pages,
 virtio/vsock/FUSE, SELinux, CFI and module signatures.
+
+The optional Rust Binder module is excluded because its IPC namespace references
+fail modpost in the pinned 6.12 source. This matches Google's Linux distro
+fragment; the built-in C Binder driver and BinderFS remain enabled. No IPC symbol
+exports or other kernel source patches are added for this workaround.
 
 New features are built in to avoid module-autoload/version problems. No
 Docker/LXC/ReDroid packages, ashmem, CMA heap or Swarm/IPVS/VXLAN drivers are
