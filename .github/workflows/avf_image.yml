@@ -215,6 +215,10 @@ jobs:
 
   apk:
     needs: image
+    # Reusing a verified candidate intentionally skips the ancestor kernel job.
+    # Override implicit success() while still requiring the image gate to pass.
+    if: >-
+      !cancelled() && needs.image.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
@@ -301,7 +305,9 @@ jobs:
 
   publish:
     needs: [image, apk]
-    if: github.event_name == 'workflow_dispatch' && inputs.publish
+    if: >-
+      !cancelled() && github.event_name == 'workflow_dispatch' && inputs.publish &&
+      needs.image.result == 'success' && needs.apk.result == 'success'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     permissions:
