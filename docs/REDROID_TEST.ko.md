@@ -55,7 +55,7 @@ cgroup controller, BinderFS, DMA heap, bridge/veth와 두 iptables backend의 NA
 zcat /proc/config.gz | grep -E '^CONFIG_(PID_NS|IPC_NS|SYSVIPC|POSIX_MQUEUE|CGROUP_PIDS|NETFILTER_XT_MATCH_ADDRTYPE|DMABUF_HEAPS_SYSTEM)='
 cat /sys/fs/cgroup/cgroup.controllers
 ls -l /dev/dma_heap/system
-findmnt -T /.droid/state
+sudo findmnt -T /.droid/state
 ip -br address
 ip route
 resolvectl status
@@ -69,11 +69,13 @@ resolvectl status
 
 검증에 사용한 ARM64 Docker 29.1.3을 새 테스트 데이터 디렉터리와 전용 소켓으로
 실행합니다. 기존 Docker 설정과 데이터를 수정하지 않습니다. Ubuntu 세션에서 Bash를
-사용하세요. 패키지 설치는 Ubuntu의 서명된 저장소를 사용합니다.
+사용하세요. 네트워크 규칙은 게스트 전체에서 공유하므로 다른 Docker daemon이 실행
+중이지 않은 별도 테스트 환경에서 진행합니다. 패키지 설치는 Ubuntu의 서명된 저장소를
+사용합니다.
 
 ```sh
 sudo apt-get update
-sudo apt-get install -y curl ca-certificates python3 iptables
+sudo apt-get install -y curl ca-certificates python3 iptables iproute2
 mkdir -p "$HOME/term-redroid-downloads"
 cd "$HOME/term-redroid-downloads"
 curl -fL --proto '=https' -o docker-29.1.3.tgz \
@@ -90,30 +92,62 @@ sudo test ! -e /.droid/state/term-redroid-test
 sudo install -d -m 0755 /.droid/state/term-redroid-test/bin
 sudo tar -xzf docker-29.1.3.tgz --strip-components=1 \
   -C /.droid/state/term-redroid-test/bin
-sudo install -d -m 0700 /run/term-redroid-test
 printf '%s\n' '{"features":{"containerd-snapshotter":false}}' | \
   sudo tee /.droid/state/term-redroid-test/daemon.json >/dev/null
-sudo sh -c 'PATH=/.droid/state/term-redroid-test/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-  nohup dockerd --config-file=/.droid/state/term-redroid-test/daemon.json \
-    --host=unix:///run/term-redroid-test/docker.sock \
-    --exec-root=/run/term-redroid-test/exec --pidfile=/run/term-redroid-test/dockerd.pid \
-    --data-root=/.droid/state/term-redroid-test/docker --storage-driver=overlay2 \
-    --bridge=termtest0 --exec-opt=native.cgroupdriver=cgroupfs \
-    > /.droid/state/term-redroid-test/dockerd.log 2>&1 < /dev/null &'
+```
+
+### daemon 시작·재시작
+
+위 설치를 마쳤거나 이전 안내에서 `bridge device with non default name termtest0
+must be created manually`로 실패했다면 **아래 블록부터** 실행합니다. 기존 데이터
+디렉터리를 삭제하거나 Docker 압축을 다시 풀 필요가 없습니다.
+
+`--bridge=termtest0`은 미리 만든 브리지를 사용합니다. 이전 안내에는 생성 단계가
+빠져 있었습니다. [Docker 공식 설명](https://docs.docker.com/reference/cli/dockerd/#run-multiple-daemons)에
+따라 브리지를 준비한 뒤 같은 전용 daemon을 시작합니다. `termtest0`은 이 테스트에서만
+사용하는 이름이어야 합니다.
+
+```sh
 docker_test() {
   sudo /.droid/state/term-redroid-test/bin/docker \
     --host unix:///run/term-redroid-test/docker.sock "$@"
 }
-# daemon 초기화가 끝나면 실행합니다.
-docker_test info
-docker_test run --rm --pids-limit=32 --memory=64m hello-world
+(
+  set -e
+  sudo install -d -m 0700 /run/term-redroid-test
+  if ! docker_test info >/dev/null 2>&1; then
+    if ! sudo ip link show dev termtest0 >/dev/null 2>&1; then
+      sudo ip link add name termtest0 type bridge
+    fi
+    sudo test -d /sys/class/net/termtest0/bridge
+    sudo ip link set dev termtest0 up
+    sudo sh -c 'PATH=/.droid/state/term-redroid-test/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+      nohup dockerd --config-file=/.droid/state/term-redroid-test/daemon.json \
+        --host=unix:///run/term-redroid-test/docker.sock \
+        --exec-root=/run/term-redroid-test/exec --pidfile=/run/term-redroid-test/dockerd.pid \
+        --data-root=/.droid/state/term-redroid-test/docker --storage-driver=overlay2 \
+        --bridge=termtest0 --exec-opt=native.cgroupdriver=cgroupfs \
+        > /.droid/state/term-redroid-test/dockerd.log 2>&1 < /dev/null &'
+  fi
+  for attempt in $(seq 1 60); do
+    if docker_test info >/dev/null 2>&1; then break; fi
+    sleep 1
+  done
+  if ! docker_test info; then
+    sudo tail -n 80 /.droid/state/term-redroid-test/dockerd.log
+    exit 1
+  fi
+  docker_test run --rm --pids-limit=32 --memory=64m hello-world
+)
 ```
 
 `Hello from Docker!`가 출력되어야 합니다. 이 기기의 이미지 pull 성공은 외부 통신
 검증도 추가하지만, 모든 NAT 전달 경로를 증명하지는 않습니다. daemon이 시작하지
 않으면 `sudo tail -n 100 /.droid/state/term-redroid-test/dockerd.log`를 확인합니다.
-이 테스트 daemon은 자동 시작 서비스로 등록하지 않으며 VM 재시작 후에는 위의
-디렉터리 생성·압축 해제를 반복하지 않고 daemon 실행부터 다시 수행합니다.
+`info` 또는 `hello-world`가 실패하면 ReDroid 단계로 진행하지 않습니다. 파일시스템
+확인은 `sudo findmnt -T /.droid/state/term-redroid-test/docker`로 실행합니다.
+이 테스트 daemon은 자동 시작 서비스로 등록하지 않으며 VM 재시작 후에는
+**daemon 시작·재시작** 블록만 다시 실행해 브리지와 `/run` 디렉터리도 복구합니다.
 
 ## 4. ReDroid 실행과 화면 확인
 
