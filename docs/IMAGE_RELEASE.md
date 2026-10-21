@@ -29,7 +29,18 @@ New manifests also declare `virtiofsVersion=1`. Factory configuration requires t
 
 The repository's `Build approved AVF Linux image` workflow automatically prepares a candidate when image, guest, or related verification files are pushed to `dev`; promoting only `image/catalog-approved.properties` does not rebuild an unchanged producer. It can also be dispatched on `dev` with an explicit immutable release ID. An ARM64 runner builds the guest binaries, downloads Google's official AVF Debian archive, rejects unsafe archive entries, installs the TERM services and CLI, creates the three disks, rebuilds the matching initrd and creates the manifest and pinned catalog. It records the upstream archive SHA-256 and repository commit in `provenance.json`. An optional reviewed source SHA-256 rejects upstream changes. Unsupported archive formats or missing overlay kernel support fail instead of producing an apparently usable image.
 
-The dependent APK job receives the factory metadata, verifies its source commit and the manifest hash supplied by the producer job, and builds a debug APK containing that exact catalog. It checks the embedded catalog, AVF driver, and Rootless payload before uploading the candidate APK. This review APK reuses the canonical Android workflow's version-code sequence; it is not a separate app channel release. Candidate production alone does not publish image assets or make their URLs usable.
+The dependent APK job receives the factory metadata, verifies its source commit and the manifest hash supplied by the producer job, and builds a debug APK containing that exact catalog. It checks the embedded catalog, AVF driver, and Rootless payload before uploading the candidate APK. Debug variants use the timestamp/state allocator in `tools/updates/debug-version-code.py`; the supplied canonical release sequence is only a minimum. This review APK is not a separate app channel release. Candidate production alone does not publish image assets or make their URLs usable.
+
+The default CI Debug signing key is generated on that runner. A higher version
+code does not make its APK an update for a Debug installation signed elsewhere.
+Before recommending an in-place update, compare package ID, version code and
+signing certificate with the installed APK. For an authorized test handoff, the
+verified APK may be re-signed locally with the retained matching Debug key.
+Verify the new signature and equality of every non-signature ZIP entry, then test
+replacement installation and private-data preservation on a suitable target.
+Publish it under a new filename with its checksum; preserve the original artifact
+and image assets. Do not upload the private signing key or replace installed apps
+by uninstalling them. See [the Debug update contract](APP_UPDATES.md#debug-installations).
 
 Filesystem parsing and guest configuration run in a libguestfs appliance inside an unprivileged container, without host mounts or a writable source checkout. Debian's signed `python3`, `sshfs` and `fuse3` dependencies are provisioned against the actual upstream dpkg state in a separate network-enabled appliance/container phase. Ubuntu/Arch install their matching packages during their existing networked rootfs preparation. Final assembly and both boot checks remain network-isolated. No packages are installed on the host. Production requires Docker, an ARM64 host (or configured emulation), `/dev/vhost-vsock` for normal-boot verification and at least 24 GiB free plus Docker storage. Offline boot tests verify persistence, guest user/package configuration and installed sharing prerequisites. The separate normal-systemd probe verifies real Linux FUSE/vsock I/O; neither gate proves Android AVF behavior.
 

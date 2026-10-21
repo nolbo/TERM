@@ -53,9 +53,10 @@ same-code different commit is rejected as non-forward. Legacy development
 manifests for `dev.terminal.app` cannot update the new prerelease package.
 
 Local builds use `origin/dev` on the dev branch, otherwise `origin/main`, unless
-`TERMINAL_UPDATE_CHANNEL` overrides it. Their fallback code is the selected
-ref's full commit count, so they cannot replace a newer CI APK; an explicitly
-supplied `TERMINAL_UPDATE_VERSION_CODE` must be a positive Android integer.
+`TERMINAL_UPDATE_CHANNEL` overrides it. Local release variants use the selected
+ref's full commit count as their fallback code, so they cannot replace a newer
+CI release APK; an explicitly supplied `TERMINAL_UPDATE_VERSION_CODE` must be a
+positive Android integer. Debug outputs use the independent allocator below.
 Complete Git history is still required. No local count-based build is published
 automatically. For main/dev push events, CI sets `TERMINAL_UPDATE_REVISION` to
 the event's checked-out `GITHUB_SHA`; it never labels older checked-out source
@@ -69,6 +70,26 @@ branch and importing stable history does not promote development features or
 publish a stable APK.
 
 ## Publishing
+
+### Debug installations
+
+`dev.terminal.app.debug` has an independent install sequence allocated by
+`tools/updates/debug-version-code.py`: the maximum of seconds since 2020-01-01,
+the previous locally allocated code plus one and the supplied minimum plus one.
+`TERMINAL_DEBUG_MIN_VERSION_CODE` can set that minimum to the installed code.
+Debug variant outputs use this value even when a release workflow code is supplied.
+
+Android updates also require a compatible signing identity. The local retained
+Debug keystore and the default key generated on a fresh CI runner are different;
+a larger version code cannot resolve that mismatch. A CI review artifact is
+therefore not automatically a replacement for an existing Debug installation.
+Compare actual APK certificates before recommending installation. A local test
+handoff can re-sign the verified APK with the matching retained key and check
+that all non-signature contents remain identical. Existing apps and data must
+not be deleted to work around a signing mismatch. Release signing remains
+independent of Debug signing.
+
+### Release channels
 
 An explicitly authorized release can publish either channel from shared `dev`
 history without merging or changing `main`. Dispatch `android.yml` on `dev` with
