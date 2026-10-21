@@ -38,15 +38,19 @@ the second boot also passed private-share read/write and owner-loss checks.
 The downloaded image ZIP and the complete five-artifact bundle passed local
 release verification with container-kernel and private-share gates required.
 The candidate APK build and embedded candidate-catalog verification passed.
-Publishing and notification jobs were skipped; the approved catalog is unchanged.
+That candidate-only run skipped publication and notification. The image-only
+publication reuses its exact verified bytes; see the committed
+[Korean release notes](release-notes/avf-ubuntu-containers-20261021-r1.md).
+The default catalog remains unchanged while physical AVF testing is pending.
 
 These are QEMU results, **not physical Android AVF results**. The connected
 ReDroid Android 15 target exposes neither the AVF feature nor its VM tool.
 A real AVF guest boot, an LXC container and device-level networking remain
 unverified. An additional QEMU run passed Docker `hello-world` with ext4-backed
-`overlay2`; nested ReDroid reached Android framework initialization but failed
-the full-boot check with repeated watchdog resets. Details are recorded below;
-kernel/config verification alone does not establish container compatibility.
+`overlay2`. The final isolated ReDroid comparison passed Android boot, core
+services, a resumed Settings activity and an inspected Settings screenshot.
+Earlier comparisons failed with watchdog resets, black output or Settings ANRs;
+details and the limits of the successful comparison are recorded below.
 
 ## Build and packaging
 
@@ -69,8 +73,8 @@ fragment; the built-in C Binder driver and BinderFS remain enabled. No IPC symbo
 exports or other kernel source patches are added for this workaround.
 
 New features are built in to avoid module-autoload/version problems. No
-Docker/LXC/ReDroid packages, ashmem, CMA heap or Swarm/IPVS/VXLAN drivers are
-added. Ubuntu adds iproute2/iptables for the probe. Kernel assets remain image
+Docker/LXC/ReDroid packages, CMA heap or Swarm/IPVS/VXLAN drivers are added.
+Existing baseline ashmem options are retained. Ubuntu adds iproute2/iptables for the probe. Kernel assets remain image
 downloads, not APK payloads. The Android host kernel, AVF authorization,
 protection mode and boot parameters are unchanged.
 
@@ -195,9 +199,15 @@ and these daemon settings are not preinstalled in the candidate image.
 The nested Android test uses the locally cached ARM64
 `redroid/redroid:15.0.0-latest` image ID
 `sha256:81889852444606824d33eb0232fa5813bce3f0993afe871785120af0d7c991ad`.
+The host's containerd image store reports the manifest digest as its image ID;
+the guest's classic store reports config ID
+`sha256:c9c5cfdc4671d32340b5305f623e286c29da971b5f22d382e78829c9282a16d0`.
+Both report the same ARM64 root filesystem layer
+`sha256:34d4e23df9cf7e91546ce4522d21f082759a29112e83dd0420e1651754a90476`.
 It starts a guest-local privileged container with a new `/data`,
-`androidboot.use_memfd=1`, `androidboot.redroid_gpu_mode=guest`, a 360x640
-software display and 10 FPS. The outer QEMU container has no network, no extra
+`androidboot.use_memfd=1` and `androidboot.redroid_gpu_mode=guest`. The initial
+comparison used a 360x640 software display; the final profile uses 240x320 at
+10 FPS. The outer QEMU container has no network, no extra
 capabilities or host device passthrough. ReDroid therefore receives privileges
 only within the disposable Ubuntu VM; Android AVF authorization is unchanged.
 
@@ -221,12 +231,100 @@ establish a permanent Binder deadlock. Both runs were stopped after watchdog
 failure to preserve their records. No watchdog behavior or AVF security policy
 was changed.
 
-Reducing display load and adding a virtual CPU did not make the full boot pass.
-CPU starvation remains a supported hypothesis, not an isolated root-cause
-proof. This host has no `/dev/kvm`, and no connected Android target exposes AVF.
-A hardware-accelerated or physical AVF comparison is still required to distinguish
-TCG performance from any remaining ReDroid/kernel compatibility issue. Do not
-promote this diagnostic run into a ReDroid full-boot or physical AVF success.
+Those changes alone did not make the full boot pass. Later comparisons isolated
+additional issues without modifying the kernel or disabling Android watchdogs:
+
+- Android 15 SurfaceFlinger waits for eager shader-cache priming at boot.
+  The optional launcher disables only `service.sf.prime_shader_cache` in a
+  read-only, per-container copy of the original `/system/build.prop`.
+- QEMU 10's standard TCG `max` CPU is substantially faster here than QEMU 7.2.
+  Priming disabled on QEMU 7.2, and stock priming on QEMU 10, both still failed.
+  Their combination reached boot with two vCPUs, but black output and a later
+  Settings ANR in SwiftShader/ANGLE presentation prevented a GUI success claim.
+- A diagnostic-channel bug truncated large virtio-serial writes at 32 KiB.
+  The test control now handles partial writes and kills timed-out command
+  process groups. This was a test-transport defect, not proof of a Binder stall.
+- The final cold-data run used QEMU 10.0.13, four vCPUs, 4 GiB guest memory,
+  240x320 at 10 FPS, priming disabled and 240 seconds of settling after boot.
+  Android boot completed in 242.21 seconds. Activity/package/display services,
+  Settings launch and final resumed activity passed. The 307,216-byte raw frame
+  had 654 RGB colors, and the PNG was inspected: it displays Settings and its
+  Network & internet row. Total test time was 560.35 seconds. No full
+  `system_server_watchdog` record was present; a pre-watchdog warning remained.
+
+This establishes one cold boot and a rendered Settings screen under the stated
+software-emulation profile. It does not establish long-running stability, a warm
+reboot of that final profile, or an isolated root cause for every earlier ANR.
+This host has no `/dev/kvm`, and no connected Android target exposes AVF.
+Physical AVF performance, networking, hardware/security behavior and ReDroid
+stability remain to be checked using the [device test guide](REDROID_TEST.ko.md).
+
+## Reproducing the isolated ReDroid check
+
+`tests/integration/redroid_probe.py` reproduces the additional container test;
+it is separate from the mandatory factory systemd/vsock acceptance boots.
+It verifies candidate metadata and hashes the actual kernel, boot ramdisk,
+system and config disks before booting. It always creates a new work directory
+and clones the fixture state. The candidate disks stay read-only; the installed
+environment and its home disk are not opened.
+
+Build the small host test appliance once:
+
+```sh
+docker build -t term-redroid-probe - < tests/integration/redroid-probe.Dockerfile
+```
+
+Provide the eight unpacked official **ARM64** Docker static binaries and
+`docker save` archives of ARM64 `hello-world:latest` and
+`redroid/redroid:15.0.0-latest`. The tested Docker version is 29.1.3; its official
+`docker-29.1.3.tgz` ARM64 archive SHA-256 is
+`2219f3ac48727d8c5546b13d5d271a58856188ecb8ff1f71f9e2f9aefde3ea76`.
+Preserve the ReDroid image identity above: the mutable `latest` tag alone does
+not identify the tested image. Importing these fixtures requires additional
+disk space and can take considerably longer under TCG than an ordinary boot.
+
+```sh
+python3 tests/integration/redroid_probe.py \
+  --image-dir image/build/container-candidate-8de06c0 \
+  --work-dir image/build/redroid-fixture --tool-image term-redroid-probe \
+  --docker-bin /path/to/arm64/docker \
+  --hello-archive /path/to/hello-world.tar \
+  --redroid-archive /path/to/redroid.tar --prepare-only --sudo
+
+python3 tests/integration/redroid_probe.py \
+  --image-dir image/build/container-candidate-8de06c0 \
+  --fixture-state image/build/redroid-fixture/state.img \
+  --work-dir image/build/redroid-cold --tool-image term-redroid-probe \
+  --data-name redroid-check --cpus 4 --fps 10 --settle-seconds 240 --sudo
+```
+
+The default diagnostic launch disables SurfaceFlinger's eager shader-cache
+priming; `--prime-shader-cache` provides the stock-setting comparison. It keeps
+the standard QEMU `max` CPU, wall clock and Android watchdog behavior. The
+guest-only `image/scripts/launch-redroid.py` reads `/system/build.prop` from a
+stopped inspection container, preserves its other properties and imports, and
+binds the modified copy read-only into the new Android container. It requires
+the verified running container kernel, an ext4-backed Docker data-root and
+Android data directory, a local Docker Unix socket and a locally cached image.
+It refuses to replace an existing named container. The helper and container
+packages are **not preinstalled** in the candidate image.
+
+The test records `result.json`, console output and a PNG. It requires
+`sys.boot_completed=1`, activity/package/display services, a successful Settings
+activity launch, final resumed Settings activity, a complete non-flat raw frame
+and no full `system_server_watchdog` record. A PNG header is not proof of a
+rendered Settings UI: inspect the captured screen separately. For a persisted
+data reboot, use the cold run's `state.img` as the next fixture and the same
+`--data-name`, with a new work directory. Pre-watchdog warnings are recorded
+separately and do not count as full watchdog resets.
+
+The private structured-argv diagnostic channel and replacement test PID 1 are
+installed only in that independent state disk and require the test boot flag.
+They are not release-image payloads or production guest RPC endpoints. The outer
+appliance drops all capabilities and has no network or device passthrough;
+ReDroid's privileged mode applies only inside this disposable VM. This does not
+change Android-host capabilities, AVF protection, kernel hardening or installed
+image hashes. The probe never publishes or changes an approved catalog.
 
 ## Primary references
 

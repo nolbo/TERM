@@ -1,0 +1,73 @@
+#!/bin/bash
+# Test-only PID 1, copied into a fresh/independent QEMU state image.
+set -Eeuo pipefail
+test "$$" -eq 1
+mountpoint -q /proc || mount -t proc proc /proc
+grep -qw 'term.redroid-test=1' /proc/cmdline
+export PATH=/usr/local/lib/droid-container-test/bin:/usr/sbin:/usr/bin:/sbin:/bin
+export DOCKER_HOST=unix:///run/term-test-docker.sock
+finish() {
+  echo "TERM_REDROID_TEST_FAILED=$?"
+  tail -80 /var/log/term-test-dockerd.log 2>/dev/null || true
+  sync
+  poweroff -f
+}
+trap finish EXIT
+mountpoint -q /proc || mount -t proc proc /proc
+mountpoint -q /sys || mount -t sysfs sysfs /sys
+mountpoint -q /dev || mount -t devtmpfs devtmpfs /dev
+mkdir -p /run /dev/shm /sys/fs/cgroup /var/log
+mountpoint -q /dev/shm || mount -t tmpfs -o mode=1777 tmpfs /dev/shm
+mountpoint -q /sys/fs/cgroup || mount -t cgroup2 none /sys/fs/cgroup
+printf '+pids +memory +cpu +io\n' > /sys/fs/cgroup/cgroup.subtree_control
+test "$(findmnt -n -o FSTYPE -T /.droid/state)" = ext4
+data_name=
+display_fps=
+for argument in $(cat /proc/cmdline); do
+  case "$argument" in
+    term.redroid-data=*) data_name=${argument#*=} ;;
+    term.redroid-fps=*) display_fps=${argument#*=} ;;
+  esac
+done
+[[ "$data_name" =~ ^[a-z0-9-]{1,64}$ ]]
+[[ "$display_fps" =~ ^[0-9]{1,3}$ ]]
+((10#$display_fps >= 1 && 10#$display_fps <= 120))
+python3 - <<'PY'
+import gzip,hashlib,json,os
+from pathlib import Path
+m=json.loads(Path('/usr/share/term/kernel-build.json').read_text())
+c=gzip.decompress(Path('/proc/config.gz').read_bytes())
+assert hashlib.sha256(c).hexdigest()==m['artifacts']['kernel.config']
+assert os.uname().release==m['kernelRelease']
+print('TERM_RUNTIME_KERNEL='+os.uname().release,flush=True)
+PY
+rm -f /run/term-start-docker /run/term-run-redroid /run/term-fixture-ready
+python3 "$(dirname "$0")/redroid-guest-control.py" > /dev/hvc0 2>&1 &
+while ! test -e /run/term-start-docker; do sleep .1; done
+printf '{"features":{"containerd-snapshotter":false}}\n' > /run/term-test-docker.json
+dockerd --config-file=/run/term-test-docker.json --host="$DOCKER_HOST" --group=root \
+  --pidfile=/run/term-test-docker.pid --data-root=/.droid/state/container-test/docker \
+  --storage-driver=overlay2 --exec-opt native.cgroupdriver=cgroupfs \
+  > /var/log/term-test-dockerd.log 2>&1 &
+daemon_pid=$!
+for attempt in $(seq 1 120); do
+  if docker info >/dev/null 2>&1; then break; fi
+  kill -0 "$daemon_pid"
+  sleep 1
+done
+docker info --format 'Kernel={{.KernelVersion}} Driver={{.Driver}} Cgroup={{.CgroupVersion}} Security={{json .SecurityOptions}}'
+docker image inspect hello-world:latest >/dev/null 2>&1 || docker load -i /.droid/state/fixtures/hello-world.tar
+docker run --rm --pull=never --pids-limit=32 --memory=64m hello-world:latest > /run/term-hello.log 2>&1
+grep -q 'Hello from Docker!' /run/term-hello.log
+echo TERM_DOCKER_HELLO_WORLD_OK
+docker image inspect redroid/redroid:15.0.0-latest >/dev/null 2>&1 || docker load -i /.droid/state/fixtures/redroid.tar
+touch /run/term-fixture-ready
+while ! test -e /run/term-run-redroid; do sleep .1; done
+docker rm -f term-redroid-test >/dev/null 2>&1 || true
+data=/.droid/state/container-test/$data_name
+mkdir -p "$data"
+launch_arguments=()
+if grep -qw 'term.redroid-prime=1' /proc/cmdline; then launch_arguments+=(--prime-shader-cache); fi
+python3 "$(dirname "$0")/launch-redroid.py" --name term-redroid-test --data "$data" --fps "$display_fps" "${launch_arguments[@]}"
+echo TERM_REDROID_STARTED
+wait
