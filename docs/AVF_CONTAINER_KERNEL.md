@@ -10,17 +10,43 @@ PIDs/device cgroups, xtables addrtype and the system DMA-BUF heap. IPC namespace
 are unavailable because their IPC prerequisites are disabled. Installing Docker
 packages cannot repair these kernel limitations.
 
-This implementation is a build/packaging path, **not a published or
-device-verified kernel**. Official source synchronization and Kleaf compilation
-now run on x86_64 CI. The first compilation reached modpost and exposed the
-experimental Rust Binder module's unexported IPC namespace references; the
-recipe now follows the official Linux distro target by disabling that module
-and retaining built-in C Binder/BinderFS. A complete verified Image/module bundle
-and QEMU runtime gates are still pending. Local ARM64 `olddefconfig` checks are
-only dependency checks, not a substitute for that bundle. The connected ReDroid
-Android 15 target has no AVF feature/APEX. No new AVF Ubuntu boot, container
-feature runtime probe, Docker `hello-world`, LXC container or nested ReDroid
-launch has passed. The approved catalog retains the old kernel.
+Official x86_64 Kleaf compilation and bundle verification passed in
+[run 39561229552](https://github.com/nolbo/TERM/actions/runs/39561229552) from
+TERM commit `8de06c098580f6724dd9f5d07b5a28b8cab7e92d`. The downloaded artifact ZIP
+and all bundle hashes were checked locally. The actual Image's embedded config
+equals the final Kleaf config and passes all 101 requirements. Its recorded
+common source revision is `f33ca06267f86f1974bd273c0cce78f614d6949e`.
+
+| Built artifact | Verified value |
+| --- | --- |
+| Kernel release | `6.12.60-android16-6-maybe-dirty-term-containers` |
+| Raw Image SHA-256 | `f367657afa4b9ef56217ef16a95cbe51d4c3a07301c42cc5075ff5360b390ff8` |
+| Final config SHA-256 | `06d4c21e1beab6461816d6f19b1d2aab18743a517dc908755d183ad927128c21` |
+| Module ramdisk SHA-256 | `4d0ddeccfe9e450ecf8760860debe091e8fb7e544a27065682bee85fde16bf45` |
+| Image size | 42,981,888 bytes; 606,208 bytes (592 KiB) larger than the approved baseline |
+| Artifact | `avf-ubuntu-kernel-8de06c098580f6724dd9f5d07b5a28b8cab7e92d`, ID `12328869941` |
+
+The recipe follows the official Linux distro target by disabling the optional
+Rust Binder module and retaining built-in C Binder/BinderFS; the Rust module
+failed modpost with unexported IPC namespace references in an earlier attempt.
+No IPC namespace symbol exports or kernel source patches were introduced.
+
+The same run assembled `avf-ubuntu-containers-20261021-r1` and passed both
+QEMU offline container probes using the new Image and generated boot ramdisk.
+Both normal systemd/vsock session and package-initialization boots passed;
+the second boot also passed private-share read/write and owner-loss checks.
+The downloaded image ZIP and the complete five-artifact bundle passed local
+release verification with container-kernel and private-share gates required.
+The candidate APK build and embedded candidate-catalog verification passed.
+Publishing and notification jobs were skipped; the approved catalog is unchanged.
+
+These are QEMU results, **not physical Android AVF results**. The connected
+ReDroid Android 15 target exposes neither the AVF feature nor its VM tool.
+A real AVF guest boot, an LXC container and device-level networking remain
+unverified. An additional QEMU run passed Docker `hello-world` with ext4-backed
+`overlay2`; nested ReDroid reached Android framework initialization but failed
+the full-boot check with repeated watchdog resets. Details are recorded below;
+kernel/config verification alone does not establish container compatibility.
 
 ## Build and packaging
 
@@ -134,6 +160,74 @@ ARM64 ReDroid version with its documented BinderFS/memfd/graphics settings.
 Container privileges remain guest-local and grant no Android capability.
 Report every runtime result separately.
 
+## Additional offline container run
+
+A separate disposable QEMU guest used the verified candidate Image, boot ramdisk
+and read-only system disk with a new ext4 state disk. No existing environment
+was overwritten. The running config hash and kernel release matched packaged
+metadata before starting the daemon. Docker 29.1.3 ARM64 static binaries used
+classic image storage (`features.containerd-snapshotter=false`), `overlay2` and
+the cgroupfs driver on cgroup v2. The daemon reported its built-in seccomp
+profile. A preloaded ARM64 `hello-world` image printed `Hello from Docker!` with
+`--pids-limit=32 --memory=64m` on Docker's default bridge. The VM had no network
+uplink, so this does not verify Internet access or end-to-end NAT forwarding.
+
+Storage placement matters independently of kernel feature support. Forcing
+`overlay2` under the guest's OverlayFS root failed with
+`filesystem ... not supported as upperdir`. The successful run used
+`/.droid/state/container-test/docker` directly on the ext4 state mount. For a
+fresh daemon, a dedicated directory on that same mount can be configured as:
+
+```json
+{
+  "data-root": "/.droid/state/docker",
+  "storage-driver": "overlay2",
+  "features": {"containerd-snapshotter": false}
+}
+```
+
+These are daemon settings for the tested Docker version, to merge with the
+installation's own configuration. Use an empty data-root and preserve/migrate
+existing Docker data separately before changing a populated installation.
+ReDroid `/data` also belongs on ext4-backed guest storage. Container packages
+and these daemon settings are not preinstalled in the candidate image.
+
+The nested Android test uses the locally cached ARM64
+`redroid/redroid:15.0.0-latest` image ID
+`sha256:81889852444606824d33eb0232fa5813bce3f0993afe871785120af0d7c991ad`.
+It starts a guest-local privileged container with a new `/data`,
+`androidboot.use_memfd=1`, `androidboot.redroid_gpu_mode=guest`, a 360x640
+software display and 10 FPS. The outer QEMU container has no network, no extra
+capabilities or host device passthrough. ReDroid therefore receives privileges
+only within the disposable Ubuntu VM; Android AVF authorization is unchanged.
+
+The first ReDroid run did **not** reach `sys.boot_completed=1`. It was stopped
+for diagnosis after repeated Android watchdog resets. Offline ext4 journal
+recovery and extraction of the newly created `/data/system/dropbox` and ANR
+records identified `system_server` main-thread watchdog timeouts of 60–70 s.
+CPU PSI `some avg10` was 75–91%, memory PSI was zero and I/O PSI was below 1%.
+Main-thread snapshots progressed through SQLite/settings initialization,
+`RoleService` and Binder service registration rather than remaining at one
+call. CPU starvation in TCG with software rendering is the leading explanation;
+these observations do not prove that every Binder/kernel path is correct.
+Binder device allocation and Android's BPF loader had completed successfully.
+The repeated watchdog/ANR timeouts are a failed full-boot check, not a ReDroid
+success. A comparison run used the same kernel, fresh Android data, three
+virtual CPUs and a 240x320, 1 FPS software display. It reproduced a 63 s
+main-thread watchdog timeout, with CPU PSI 83.81%, memory PSI zero and I/O PSI
+0.60%. Its ANR snapshots showed a Binder service lookup during notification
+initialization and later runnable storage/user initialization, so they do not
+establish a permanent Binder deadlock. Both runs were stopped after watchdog
+failure to preserve their records. No watchdog behavior or AVF security policy
+was changed.
+
+Reducing display load and adding a virtual CPU did not make the full boot pass.
+CPU starvation remains a supported hypothesis, not an isolated root-cause
+proof. This host has no `/dev/kvm`, and no connected Android target exposes AVF.
+A hardware-accelerated or physical AVF comparison is still required to distinguish
+TCG performance from any remaining ReDroid/kernel compatibility issue. Do not
+promote this diagnostic run into a ReDroid full-boot or physical AVF success.
+
 ## Primary references
 
 - [Official Android kernel builds](https://source.android.com/docs/setup/build/building-kernels)
@@ -141,4 +235,6 @@ Report every runtime result separately.
 - [Official Linux server target](https://android.googlesource.com/kernel/common-modules/virtual-device/+/refs/heads/android16-6.12/BUILD.bazel)
 - [Kleaf config ordering](https://android.googlesource.com/kernel/build/+/refs/heads/main-kernel-2025/kleaf/docs/kernel_config.md)
 - [Docker feature checker](https://github.com/moby/moby/blob/master/contrib/check-config.sh)
+- [ReDroid memfd/software-rendering configuration](https://github.com/remote-android/redroid-doc/blob/master/README.md)
+- [Android 15 watchdog timeout and SysRq behavior](https://github.com/aosp-mirror/platform_frameworks_base/blob/android15-release/services/core/java/com/android/server/Watchdog.java)
 - [ReDroid heap/BinderFS requirements](https://github.com/remote-android/redroid-doc/blob/master/deploy/openeuler.md)
