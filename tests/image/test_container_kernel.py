@@ -135,16 +135,21 @@ class ContainerKernelTests(unittest.TestCase):
             for name in ('vmlinuz', 'initrd.img', 'kernel.config', 'kernel-build.json'):
                 self.assertEqual((bundle / name).read_bytes(), (inputs / name).read_bytes())
 
-    def test_ubuntu_without_built_kernel_fails_before_docker_or_download(self):
-        with mock.patch('sys.argv', ['factory', '--distribution', 'ubuntu', '--release-id', 'test',
-                                    '--base-uri', 'https://example.invalid/test/', '--output', '/tmp/unused']), \
-                mock.patch.object(factory.subprocess, 'run') as docker, \
-                mock.patch.object(factory.urllib.request, 'urlopen') as download, \
-                mock.patch('sys.stderr', new_callable=io.StringIO):
-            with self.assertRaises(SystemExit):
-                factory.main()
-            docker.assert_not_called()
-            download.assert_not_called()
+    def test_every_distribution_requires_built_kernel_before_docker_or_download(self):
+        for distribution in ('debian', 'ubuntu', 'archlinux', None):
+            args = ['factory', '--release-id', 'test', '--base-uri',
+                    'https://example.invalid/test/', '--output', '/tmp/unused']
+            if distribution:
+                args += ['--distribution', distribution]
+            with self.subTest(distribution=distribution), mock.patch('sys.argv', args), \
+                    mock.patch.object(factory.subprocess, 'run') as docker, \
+                    mock.patch.object(factory.urllib.request, 'urlopen') as download, \
+                    mock.patch('sys.stderr', new_callable=io.StringIO) as errors:
+                with self.assertRaises(SystemExit):
+                    factory.main()
+                self.assertIn('--kernel-bundle', errors.getvalue())
+                docker.assert_not_called()
+                download.assert_not_called()
 
     def test_new_kernel_provenance_cannot_refer_to_another_published_image(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -184,15 +189,18 @@ class ContainerKernelTests(unittest.TestCase):
                     runpy.run_path(str(REPO / 'image/scripts/smoke-avf-image.py'))
                 self.assertEqual(2, boots.call_count)
 
-    def test_legacy_ubuntu_cannot_be_reused_as_a_container_kernel_candidate(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            for name in factory.ARTIFACTS.values():
-                (root / name).write_bytes(b'legacy')
-            factory.write_release(root, 'avf-ubuntu-test', verifier.PUBLIC_BASE + 'avf-ubuntu-test/',
-                                  factory.SOURCE_URL, 'a' * 64, 'ubuntu')
-            with self.assertRaisesRegex(ValueError, 'container kernel'):
-                verifier.verify_directory(root, require_container_kernel=True)
+    def test_legacy_images_remain_readable_but_cannot_be_reused_as_container_candidates(self):
+        for distribution in ('debian', 'ubuntu', 'archlinux'):
+            with self.subTest(distribution=distribution), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                for name in factory.ARTIFACTS.values():
+                    (root / name).write_bytes(b'legacy' * 100)
+                tag = 'avf-' + distribution + '-test'
+                factory.write_release(root, tag, verifier.PUBLIC_BASE + tag + '/',
+                                      factory.SOURCE_URL, 'a' * 64, distribution)
+                self.assertEqual(tag, verifier.verify_directory(root)['releaseId'])
+                with self.assertRaisesRegex(ValueError, 'container kernel'):
+                    verifier.verify_directory(root, require_container_kernel=True)
 
 
 if __name__ == '__main__':

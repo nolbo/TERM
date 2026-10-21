@@ -1,4 +1,4 @@
-# AVF Ubuntu container kernel
+# AVF Linux container kernel
 
 ## Baseline and validation status
 
@@ -77,7 +77,8 @@ exports or other kernel source patches are added for this workaround.
 
 New features are built in to avoid module-autoload/version problems. No
 Docker/LXC/ReDroid packages, CMA heap or Swarm/IPVS/VXLAN drivers are added.
-Existing baseline ashmem options are retained. Ubuntu adds iproute2/iptables for the probe. Kernel assets remain image
+Existing baseline ashmem options are retained. Every distribution installs
+iproute2/iptables for the probe. Kernel assets remain image
 downloads, not APK payloads. The Android host kernel, AVF authorization,
 protection mode and boot parameters are unchanged.
 
@@ -119,7 +120,7 @@ python3 image/scripts/build-avf-image.py --distribution ubuntu \
   --output image/build/<new-immutable-id>
 ```
 
-Ubuntu production rejects a missing/invalid bundle before Docker/downloads. The
+Debian, Ubuntu and Arch production reject a missing/invalid bundle before Docker/downloads. The
 factory replaces **both** Google kernel/module inputs. Inside the existing
 isolated appliance, the module-tree release must match the new kernel metadata,
 then depmod and the existing overlay initramfs generation run. Final config and
@@ -127,11 +128,15 @@ build identity are installed in the immutable system's `/usr/share/term/`.
 The existing five-artifact manifest hashes the actual new kernel and generated
 boot ramdisk. No host mounts or privileged build container are introduced.
 
-The Ubuntu workflow builds the kernel on x86_64 before ARM64 image production
-and refuses to reuse old candidates without new kernel/probe provenance.
-Debian/Arch production retains its existing kernel path. Publication, public
+The workflow builds the same kernel recipe on x86_64 before ARM64 image production
+for every distribution and refuses to reuse old candidates without matching
+kernel/probe provenance. Both nft and legacy iptables frontends are required in
+each guest. On Arch, the signed `iptables` package supplies both; its default
+frontend uses nft ([upstream package change](https://archlinux.org/news/iptables-now-defaults-to-the-nft-backend/)).
+The new requirements apply to newly produced images; legacy published images
+remain readable and installed environments are preserved. Publication, public
 download verification, catalog promotion and signing follow
-[IMAGE_RELEASE.md](IMAGE_RELEASE.md); this change publishes nothing. Different
+[IMAGE_RELEASE.md](IMAGE_RELEASE.md). Different
 kernel hashes require an explicit **full image transition**, not a component
 update. Preserve existing system/state for rollback under
 [AVF_UPDATES.md](AVF_UPDATES.md). Never edit installed hashes or replace kernels

@@ -8,7 +8,7 @@ relevant Android releases. Declaring them in a normal APK does not grant them.
 
 ## Packaged driver and platform boundary
 
-New Ubuntu image production requires a rebuilt container-capable guest kernel;
+New Debian, Ubuntu and Arch image production requires a rebuilt container-capable guest kernel;
 the approved installed image is not changed by this source implementation.
 Build, packaging, validation status and full-transition requirements are in
 [AVF_CONTAINER_KERNEL.md](AVF_CONTAINER_KERNEL.md).

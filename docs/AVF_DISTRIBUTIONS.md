@@ -65,12 +65,18 @@ During image production, a rootfs bootstrap account at UID/GID 1000 is renamed t
 ownership. The factory locks its password and validates passwordless sudo.
 This normalization never runs against an installed environment.
 
-The paired Google AVF kernel and modules supply the common initramfs/overlay
-boot layer. `configure-avf-boot.sh` creates that layer independently of
+All new Debian, Ubuntu and Arch images require the same container-capable AVF
+kernel recipe and its matching modules under [AVF_CONTAINER_KERNEL.md](AVF_CONTAINER_KERNEL.md).
+The factory replaces both Google boot inputs before generating the common
+initramfs/overlay boot layer. `configure-avf-boot.sh` creates that layer independently of
 `configure-avf-guest.sh`, which installs the common session/capability/port/file
 services and validates the selected userspace. No Debian package database is
 transplanted into Ubuntu or Arch. Runtime disk assembly and guest configuration
 remain inside libguestfs, with no host mount or privileged container.
+Each rootfs explicitly installs iproute2 and iptables, including the legacy and
+nft frontends, for the two-boot namespace/IPC/cgroup/BinderFS/DMA-heap/NAT checks.
+Docker, LXC and ReDroid remain optional guest packages. ReDroid uses the official
+ARM64 64only image when the AVF CPU does not provide AArch32 execution.
 
 New images declare `packageInitializationVersion=1`. The fixed host-CID-only
 maintenance operation on 40503 runs `initialize-avf-packages.sh`: strict full APT

@@ -49,7 +49,7 @@ env:
 
 jobs:
   kernel:
-    if: github.ref == 'refs/heads/dev' && (inputs.distribution == 'ubuntu') && !inputs.reuse_candidate
+    if: github.ref == 'refs/heads/dev' && !inputs.reuse_candidate
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
@@ -72,7 +72,7 @@ jobs:
             --output image/build/kernel-bundle
       - uses: actions/upload-artifact@v4
         with:
-          name: avf-ubuntu-kernel-${{ github.sha }}
+          name: avf-container-kernel-${{ github.sha }}
           compression-level: 0
           if-no-files-found: error
           path: image/build/kernel-bundle/
@@ -81,7 +81,7 @@ jobs:
     needs: [kernel]
     if: >-
       always() && github.ref == 'refs/heads/dev' &&
-      (needs.kernel.result == 'success' || needs.kernel.result == 'skipped')
+      (needs.kernel.result == 'success' || (inputs.reuse_candidate && needs.kernel.result == 'skipped'))
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
@@ -96,9 +96,9 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/download-artifact@v4
-        if: inputs.distribution == 'ubuntu' && !inputs.reuse_candidate
+        if: ${{ !inputs.reuse_candidate }}
         with:
-          name: avf-ubuntu-kernel-${{ github.sha }}
+          name: avf-container-kernel-${{ github.sha }}
           path: image/build/kernel-bundle
       - name: Validate release inputs and shared dev history
         env:
@@ -141,10 +141,7 @@ jobs:
         run: |
           sudo modprobe vhost_vsock
           python3 -m unittest discover -s tests/image -p 'test_*.py'
-          avf_arguments=()
-          if [ "$AVF_DISTRIBUTION" = ubuntu ]; then
-            avf_arguments+=(--kernel-bundle image/build/kernel-bundle)
-          fi
+          avf_arguments=(--kernel-bundle image/build/kernel-bundle)
           if [ -n "$AVF_SOURCE_SHA256" ]; then
             avf_arguments+=(--source-sha256 "$AVF_SOURCE_SHA256")
           fi
@@ -154,7 +151,8 @@ jobs:
             --release-id "$AVF_RELEASE_ID" \
             --base-uri "https://github.com/nolbo/TERM/releases/download/$AVF_RELEASE_ID/" \
             --output image/build/approved "${avf_arguments[@]}"
-          python3 image/scripts/verify-avf-release.py --directory image/build/approved --expected-commit "$GITHUB_SHA"
+          python3 image/scripts/verify-avf-release.py --directory image/build/approved \
+            --expected-commit "$GITHUB_SHA" --require-container-kernel
       - name: Reuse the verified bytes of an unpublished candidate
         if: inputs.reuse_candidate
         env:
@@ -164,7 +162,7 @@ jobs:
           gh release download "$AVF_RELEASE_ID" --repo nolbo/TERM --dir image/build/approved \
             --pattern '*.gz' --pattern '*.properties' --pattern provenance.json --pattern SHA256SUMS
           python3 image/scripts/verify-avf-release.py --directory image/build/approved \
-            --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --require-private-shares-boot
+            --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --require-private-shares-boot --require-container-kernel
       - name: Record verified metadata
         id: metadata
         run: |
@@ -173,7 +171,7 @@ jobs:
           verify = runpy.run_path('image/scripts/verify-avf-release.py')
           approved = verify['verify_directory'](pathlib.Path('image/build/approved'), metadata_only=True,
                                                expected_commit=os.environ['AVF_IMAGE_SOURCE_COMMIT'], require_private_shares_boot=True,
-                                               require_container_kernel=os.environ['AVF_DISTRIBUTION'] == 'ubuntu')
+                                               require_container_kernel=True)
           if approved['releaseId'] != os.environ['AVF_RELEASE_ID'] or approved['id'] != os.environ['AVF_DISTRIBUTION'] + '-arm64-current':
               raise ValueError('Candidate release/distribution differs from the dispatch')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:
@@ -253,7 +251,8 @@ jobs:
           AVF_MANIFEST_SHA256: ${{ needs.image.outputs.manifest_sha256 }}
         run: |
           python3 image/scripts/verify-avf-release.py --directory image/build/approved --metadata-only \
-            --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --expected-manifest-sha "$AVF_MANIFEST_SHA256"
+            --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --expected-manifest-sha "$AVF_MANIFEST_SHA256" \
+            --require-container-kernel
           python3 image/scripts/merge-avf-catalog.py --existing image/catalog-approved.properties \
             --candidate image/build/approved/catalog.properties --output image/build/approved/catalog-merged.properties
           echo "ORG_GRADLE_PROJECT_avfImageCatalog=$GITHUB_WORKSPACE/image/build/approved/catalog-merged.properties" >> "$GITHUB_ENV"
@@ -294,7 +293,7 @@ jobs:
           python3 image/scripts/verify-avf-release.py --directory image/build/approved --metadata-only \
             --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --expected-manifest-sha "$AVF_MANIFEST_SHA256" \
             --apk android-app/build/outputs/apk/debug/android-app-debug.apk \
-            --apk-catalog image/build/approved/catalog-merged.properties
+            --apk-catalog image/build/approved/catalog-merged.properties --require-container-kernel
       - uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
@@ -344,7 +343,8 @@ jobs:
           test -s "docs/release-notes/$AVF_RELEASE_ID.md"
           test "$(gh api repos/nolbo/TERM --jq '.private')" = false
           python3 image/scripts/verify-avf-release.py --directory image/build/approved \
-            --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --expected-manifest-sha "$AVF_MANIFEST_SHA256"
+            --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --expected-manifest-sha "$AVF_MANIFEST_SHA256" \
+            --require-container-kernel
           # Both factory and catalog-bearing APK gates have passed. Publish the
           # existing draft without replacing any verified image bytes.
           test "$(gh release view "$AVF_RELEASE_ID" --repo nolbo/TERM --json isDraft --jq '.isDraft')" = true
@@ -352,7 +352,7 @@ jobs:
             --notes-file "docs/release-notes/$AVF_RELEASE_ID.md"
           python3 image/scripts/verify-avf-release.py --directory image/build/approved --metadata-only \
             --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --expected-manifest-sha "$AVF_MANIFEST_SHA256" \
-            --approve image/catalog-approved.properties
+            --approve image/catalog-approved.properties --require-container-kernel
       - uses: actions/upload-artifact@v4
         continue-on-error: true
         with:

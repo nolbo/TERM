@@ -13,5 +13,5 @@ EOF
 virt-customize --format raw -a /output/root_part --network \
   --run-command 'test "$(. /etc/os-release; echo "$ID")" = debian' \
   --run-command 'apt-get -o APT::Update::Error-Mode=any update' \
-  --run-command 'DEBIAN_FRONTEND=noninteractive apt-get -y --no-install-recommends install python3 sshfs fuse3'
+  --run-command 'DEBIAN_FRONTEND=noninteractive apt-get -y --no-install-recommends install python3 sshfs fuse3 iproute2 iptables'
 cp /input/vmlinuz /input/initrd.img /output/

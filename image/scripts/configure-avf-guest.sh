@@ -28,6 +28,9 @@ sh /tmp/term-avf/configure-avf-user.sh /tmp/term-avf/droid.sudoers
 test "$(id -u droid)" -eq 1000
 # Dependencies are provisioned before this offline assembly phase.
 command -v sshfs fusermount3 python3 setpriv >/dev/null
+for tool in ip iptables-legacy ip6tables-legacy iptables-nft ip6tables-nft; do
+  command -v "$tool" >/dev/null
+done
 sh /tmp/term-avf/configure-avf-shares.sh / /tmp/term-avf
 sh /tmp/term-avf/configure-avf-network.sh / /tmp/term-avf/term-virtio.network
 command -v timeout flock >/dev/null

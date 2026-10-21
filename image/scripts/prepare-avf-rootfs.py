@@ -71,7 +71,7 @@ def prepare(distribution, destination):
                    'sudo util-linux kmod ca-certificates python3 sshfs fuse3 iproute2 iptables; apt-get clean')
     else:
         command = ('pacman -Syu --needed --noconfirm systemd systemd-sysvcompat sudo util-linux '
-                   'shadow pacman archlinuxarm-keyring libarchive tar gzip ca-certificates python sshfs fuse3; '
+                   'shadow pacman archlinuxarm-keyring libarchive tar gzip ca-certificates python sshfs fuse3 iproute2 iptables; '
                    "sed -i '/^[[:space:]]*DisableSandbox[[:space:]]*$/d' /etc/pacman.conf")
     subprocess.run(['chroot', str(root), '/bin/bash', '-eu', '-c', command], check=True)
     (root / 'etc/mtab').unlink()
