@@ -23,7 +23,7 @@
 
 - 기존 `1.1.0+dev.214718078.36bfa1021b9a-debug`와 같은 Debug 서명을 사용하는 `TERM-Debug-AVF-214751243-6da6868.apk`를 추가합니다. 기존 앱 위에 설치할 수 있으며 이미지 카탈로그를 포함한 새 버전은 `1.2.0+dev.214751243.6da68682aa79-debug`입니다.
 - 이전에 안내한 검토용 APK와 기존 Debug 앱의 서명이 달라 업데이트 설치가 거부되던 문제를 보완했습니다. [호환 APK](https://github.com/nolbo/TERM/releases/download/avf-ubuntu-containers-20261021-r1/TERM-Debug-AVF-214751243-6da6868.apk)를 사용하고 기존 앱은 제거하지 마세요. 다른 키로 서명된 Debug 설치본에는 별도 서명 확인이 필요합니다.
-- 설치와 ReDroid 테스트에는 [수정된 테스트 안내](https://github.com/nolbo/TERM/releases/download/avf-ubuntu-containers-20261021-r1/REDROID_TEST-daemon-fix.ko.md)를 사용하세요.
+- 설치와 ReDroid 테스트에는 [수정된 테스트 안내](https://github.com/nolbo/TERM/releases/download/avf-ubuntu-containers-20261021-r1/REDROID_TEST-64only.ko.md)를 사용하세요.
 - Ubuntu 이미지와 ReDroid 실행 도구의 내용은 그대로 유지합니다. APK 설치 전에 진행 중인 작업을 저장하세요. 정식·Preview 앱 채널에는 배포하지 않습니다.
 
 ## 2026-10-21 Docker daemon 실행 안내 수정
@@ -31,4 +31,12 @@
 - 사용자 기기 로그에서 확인한 `bridge device with non default name termtest0 must be created manually` 오류를 수정합니다. 이전 안내에 빠진 전용 브리지 생성 단계를 추가하고 daemon 준비 완료를 확인한 뒤 `hello-world`를 실행합니다.
 - 이미 설치한 Docker와 테스트 데이터는 그대로 사용합니다. 실패한 사용자는 수정 안내의 **daemon 시작·재시작** 블록부터 실행하면 됩니다. VM 재시작 시 필요한 브리지와 `/run` 디렉터리도 이 블록에서 복구합니다.
 - 배포한 커널·Ubuntu 이미지를 사용하는 별도 QEMU 게스트에서 같은 실패를 재현하고, 브리지 생성 후 같은 daemon 명령으로 `docker info`와 PIDs·메모리 제한을 둔 `hello-world` 실행을 확인했습니다. 사용자 AVF 기기에서의 수정 후 결과는 추가 확인이 필요합니다.
-- 커널·Ubuntu 이미지·APK·ReDroid 실행 도구를 교체하는 변경은 아닙니다. 최신 안내는 `REDROID_TEST-daemon-fix.ko.md`이며 이전 안내 파일도 기록으로 유지합니다.
+- 이 daemon 수정은 커널·Ubuntu 이미지·APK·ReDroid 실행 도구를 교체하지 않습니다. 해당 안내는 `REDROID_TEST-daemon-fix.ko.md`로 기록을 유지합니다.
+
+## 2026-10-22 AArch64 전용 AVF의 ReDroid 실행 수정
+
+- 32비트 실행을 제공하지 않는 AVF 가상 CPU에서 혼합 ABI 이미지의 BoringSSL 32비트 자체 검사가 `Exec format error`로 종료되어 Android가 재부팅하는 문제에 대응합니다. 커널의 `CONFIG_COMPAT=y`만으로 CPU의 실행 모드가 추가되지는 않습니다.
+- 기본 ReDroid 이미지를 공식 Android 15 `64only` ARM64 manifest `sha256:dc2024a999dd0acb1112a23cddc9537ec8cb60a0dbe5a87ce9fbd75a2f5e94d2`로 고정한 `launch-redroid-64only.py`와 새 안내 `REDROID_TEST-64only.ko.md`를 추가합니다. 공식 이미지의 64비트 보안 자체 검사를 유지하며 32비트 앱·네이티브 라이브러리는 지원하지 않습니다.
+- 기존 `term-redroid-test`와 `android-data`를 보존하고 `term-redroid-test64`와 새 `android-data64`를 사용합니다. 이전 실행 도구도 새 이미지 digest를 `--image`로 명시하면 사용할 수 있습니다.
+- 사용자 제공 실제 AVF 게스트 결과에서 새 컨테이너의 `Running=true`와 `sys.boot_completed=1`을 확인했습니다. Settings 화면·장시간 안정성·재시작은 별도 검증 항목입니다.
+- Ubuntu 커널·디스크·APK·승인 카탈로그는 그대로 사용합니다. 기존 공개 파일을 덮어쓰거나 AVF 보안 설정을 변경하지 않습니다.

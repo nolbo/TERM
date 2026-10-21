@@ -37,6 +37,13 @@ def data_name(value):
     return value
 
 
+def image_reference(value):
+    # This value also travels in the private guest's kernel command line.
+    if not re.fullmatch('[a-zA-Z0-9][a-zA-Z0-9._/:@-]*', value):
+        raise argparse.ArgumentTypeError('Invalid local Docker image reference')
+    return value
+
+
 def check_services(output):
     return all(f'Service {name}: found' in output.splitlines()
                for name in ('activity', 'package', 'display'))
@@ -168,6 +175,8 @@ def main():
     parser.add_argument('--docker-bin', type=Path, help='Official static ARM64 Docker binaries')
     parser.add_argument('--hello-archive', type=Path)
     parser.add_argument('--redroid-archive', type=Path)
+    parser.add_argument('--redroid-image', type=image_reference, default='redroid/redroid:15.0.0_64only-latest',
+                        help='Image reference present in the offline archive or fixture')
     parser.add_argument('--prepare-only', action='store_true', help='Import fixtures, then stop without Android')
     parser.add_argument('--prime-shader-cache', action='store_true', help='Enable shader priming for A/B diagnosis')
     parser.add_argument('--fps', type=int, default=10, help='Android virtual display refresh rate')
@@ -240,6 +249,7 @@ def main():
                         '-append', 'root=/dev/vda rootfstype=ext4 ro console=hvc0 term.redroid-test=1 '
                         f'term.redroid-data={args.data_name} term.redroid-prime={int(args.prime_shader_cache)} '
                         f'term.redroid-fps={args.fps} '
+                        f'term.redroid-image={args.redroid_image} '
                         f'init={PREFIX.removeprefix("/upper")}/redroid-guest-init',
                         '-device', 'virtio-serial-pci', '-chardev', 'stdio,id=console,signal=off',
                         '-device', 'virtconsole,chardev=console', '-device', 'virtio-rng-pci',
@@ -250,6 +260,7 @@ def main():
         command += ['-drive', f'if=none,id=disk{i},file={path},format=raw,readonly={"on" if readonly else "off"}',
                     '-device', f'virtio-blk-pci,drive=disk{i}']
     result = {'mode': 'qemu-tcg-wall-clock', 'cpu': 'max',
+              'redroidImage': args.redroid_image,
               'kernelSha256': manifest['kernel.sha256'], 'redroidBootCompleted': False,
               'preparedOnly': args.prepare_only, 'androidData': args.data_name,
               'primeShaderCache': args.prime_shader_cache, 'displayFps': args.fps,
@@ -262,6 +273,10 @@ def main():
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=console, stderr=subprocess.STDOUT)
         try:
             control = Control(work / 'control.sock', process, time.monotonic() + 300)
+            _, cpu_info = control.run(['env', 'LC_ALL=C', 'lscpu'], check=True)
+            result['cpuInfo'] = '\n'.join(line for line in cpu_info.decode().splitlines()
+                                          if line.startswith(('Architecture:', 'CPU op-mode(s):', 'Model name:')))
+            print(result['cpuInfo'], flush=True)
             begin = time.monotonic()
             control.run(['python3', '-c', 'import os; [os.getpid() for _ in range(10000)]'], check=True)
             result['getpid10000WallSeconds'] = round(time.monotonic() - begin, 4)
@@ -275,10 +290,10 @@ def main():
             result['fixturePrepared'] = True
             _, version = control.run(['docker', 'version', '--format', '{{.Server.Version}}'], check=True)
             result['dockerVersion'] = version.decode().strip()
-            _, identity = control.run(['docker', 'image', 'inspect', 'redroid/redroid:15.0.0-latest',
+            _, identity = control.run(['docker', 'image', 'inspect', args.redroid_image,
                                        '--format', '{{.Id}}'], check=True)
             result['redroidImageId'] = identity.decode().strip()
-            _, layers = control.run(['docker', 'image', 'inspect', 'redroid/redroid:15.0.0-latest',
+            _, layers = control.run(['docker', 'image', 'inspect', args.redroid_image,
                                      '--format', '{{json .RootFS.Layers}}'], check=True)
             result['redroidRootfsLayers'] = json.loads(layers)
             if not args.prepare_only:
@@ -300,6 +315,9 @@ def main():
                     raise RuntimeError('ReDroid boot deadline')
                 result['redroidBootCompleted'] = True
                 result['bootWallSeconds'] = round(time.monotonic() - boot_start, 2)
+                for property_name in ('ro.product.cpu.abilist', 'ro.product.cpu.abilist32'):
+                    _, value = control.run(['docker', 'exec', 'term-redroid-test', 'getprop', property_name], check=True)
+                    result[property_name] = value.decode().strip()
                 _, applied = control.run(['docker', 'exec', 'term-redroid-test', 'getprop',
                                           'service.sf.prime_shader_cache'], check=True)
                 result['appliedPrimeShaderCache'] = applied.decode().strip()

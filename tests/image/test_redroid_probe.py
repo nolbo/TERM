@@ -160,6 +160,13 @@ class RedroidProbeTests(unittest.TestCase):
                 probe.data_name(name)
         self.assertEqual('redroid-test1', probe.data_name('redroid-test1'))
 
+    def test_image_reference_cannot_inject_guest_kernel_arguments(self):
+        for image in ('redroid:test init=/bin/sh', 'image\nterm.redroid-prime=1', '-debug', '', 'x;poweroff'):
+            with self.subTest(image=image), self.assertRaises(argparse.ArgumentTypeError):
+                probe.image_reference(image)
+        for image in ('redroid/redroid:15.0.0_64only-latest', launcher.DEFAULT_IMAGE):
+            self.assertEqual(image, probe.image_reference(image))
+
     def test_wrong_architecture_docker_binary_is_rejected_before_mkfs(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)

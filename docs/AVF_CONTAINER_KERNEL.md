@@ -288,6 +288,7 @@ python3 tests/integration/redroid_probe.py \
   --image-dir image/build/container-candidate-8de06c0 \
   --work-dir image/build/redroid-fixture --tool-image term-redroid-probe \
   --docker-bin /path/to/arm64/docker \
+  --redroid-image redroid/redroid:15.0.0-latest \
   --hello-archive /path/to/hello-world.tar \
   --redroid-archive /path/to/redroid.tar --prepare-only --sudo
 
@@ -295,6 +296,7 @@ python3 tests/integration/redroid_probe.py \
   --image-dir image/build/container-candidate-8de06c0 \
   --fixture-state image/build/redroid-fixture/state.img \
   --work-dir image/build/redroid-cold --tool-image term-redroid-probe \
+  --redroid-image redroid/redroid:15.0.0-latest \
   --data-name redroid-check --cpus 4 --fps 10 --settle-seconds 240 --sudo
 ```
 
@@ -326,6 +328,46 @@ ReDroid's privileged mode applies only inside this disposable VM. This does not
 change Android-host capabilities, AVF protection, kernel hardening or installed
 image hashes. The probe never publishes or changes an approved catalog.
 
+## AArch64-only AVF compatibility
+
+The earlier QEMU `max` comparison does not establish AArch32 availability on a
+physical AVF virtual CPU. The released kernel already has `CONFIG_COMPAT=y` and
+`CONFIG_COMPAT_BINFMT_ELF=y`, but those options cannot provide a CPU execution
+mode that the guest does not expose. A mixed-ABI Android image can fail before
+boot when a required 32-bit executable, such as `boringssl_self_test32_vendor`,
+cannot run. Android init's `reboot_on_failure` then requests a container reboot.
+An exit code alone, or missing cgroup files during shutdown, does not establish
+the initiating failure; inspect the earlier guest kernel log.
+
+The launcher now defaults to the official Android 15 ARM64 `64only` manifest
+`sha256:dc2024a999dd0acb1112a23cddc9537ec8cb60a0dbe5a87ce9fbd75a2f5e94d2`
+from `redroid/redroid:15.0.0_64only-latest`. Its rootfs layer is
+`sha256:a0ddf7bcfc59d8dbbb796d2d6202d5135a365deda42859e081daae598ceed342`.
+This uses the upstream 64-bit product and its security self-tests, rather than
+editing init's failure policy. It does not support 32-bit apps/native libraries.
+Use a new container name and new Android data directory, preserving the previous
+mixed-ABI container and data. No kernel, immutable Ubuntu image, catalog or APK
+replacement is required for this image selection.
+
+The offline probe accepts `--redroid-image` to select the image imported from
+the fixture archive. It records guest CPU execution modes and Android ABI
+properties in addition to the existing boot, services, watchdog and Settings
+checks. Its QEMU `max` CPU remains a mixed-mode test. The older commands above
+explicitly select the mixed-ABI image to preserve their original test.
+
+On 2026-10-22, the device tester reported `CONFIG_COMPAT=y`,
+`CONFIG_COMPAT_BINFMT_ELF=y` and CPU mode `64-bit` in the AVF guest. The original
+mixed-ABI image stopped after its 32-bit BoringSSL program returned an exec
+format error. With the pinned 64only image and a fresh container/data path,
+the same guest reported `Running=true` and `sys.boot_completed=1`. This is
+user-supplied device evidence; no direct agent connection was available. It
+does not yet establish rendered Settings UI, long-term stability or reboot.
+An additional local AArch64-only QEMU model attempt lost its diagnostic
+connection before guest readiness and supplies no successful runtime evidence.
+
+Current device instructions and immutable helper downloads are in
+[REDROID_TEST.ko.md](REDROID_TEST.ko.md).
+
 ## Primary references
 
 - [Official Android kernel builds](https://source.android.com/docs/setup/build/building-kernels)
@@ -334,5 +376,6 @@ image hashes. The probe never publishes or changes an approved catalog.
 - [Kleaf config ordering](https://android.googlesource.com/kernel/build/+/refs/heads/main-kernel-2025/kleaf/docs/kernel_config.md)
 - [Docker feature checker](https://github.com/moby/moby/blob/master/contrib/check-config.sh)
 - [ReDroid memfd/software-rendering configuration](https://github.com/remote-android/redroid-doc/blob/master/README.md)
+- [ReDroid AArch64-only deployment](https://github.com/remote-android/redroid-doc/blob/master/deploy/README.md)
 - [Android 15 watchdog timeout and SysRq behavior](https://github.com/aosp-mirror/platform_frameworks_base/blob/android15-release/services/core/java/com/android/server/Watchdog.java)
 - [ReDroid heap/BinderFS requirements](https://github.com/remote-android/redroid-doc/blob/master/deploy/openeuler.md)

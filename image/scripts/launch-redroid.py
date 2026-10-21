@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Start CPU-rendered ReDroid inside a TERM Ubuntu container-kernel guest.
+"""Start 64-bit CPU-rendered ReDroid inside a TERM Ubuntu container-kernel guest.
 
 This optional guest-root tool is not installed in the base image. It preserves
 the image's build properties and disables only eager shader-cache priming.
@@ -14,6 +14,10 @@ import re
 import stat
 import subprocess
 import tempfile
+
+# Official Android 15 64only ARM64 manifest. CONFIG_COMPAT alone does not make
+# AArch32 executable on an AVF virtual CPU that exposes only AArch64.
+DEFAULT_IMAGE = 'redroid/redroid@sha256:dc2024a999dd0acb1112a23cddc9537ec8cb60a0dbe5a87ce9fbd75a2f5e94d2'
 
 
 def build_properties(original, prime_cache=False):
@@ -69,7 +73,8 @@ def image_properties(run, image):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--image', default='redroid/redroid:15.0.0-latest')
+    parser.add_argument('--image', default=DEFAULT_IMAGE,
+                        help='Locally cached image; defaults to pinned official Android 15 ARM64 64only')
     parser.add_argument('--name', default='redroid')
     parser.add_argument('--data', type=Path, required=True)
     parser.add_argument('--width', type=int, default=240)

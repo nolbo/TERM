@@ -23,15 +23,18 @@ printf '+pids +memory +cpu +io\n' > /sys/fs/cgroup/cgroup.subtree_control
 test "$(findmnt -n -o FSTYPE -T /.droid/state)" = ext4
 data_name=
 display_fps=
+redroid_image=
 for argument in $(cat /proc/cmdline); do
   case "$argument" in
     term.redroid-data=*) data_name=${argument#*=} ;;
     term.redroid-fps=*) display_fps=${argument#*=} ;;
+    term.redroid-image=*) redroid_image=${argument#*=} ;;
   esac
 done
 [[ "$data_name" =~ ^[a-z0-9-]{1,64}$ ]]
 [[ "$display_fps" =~ ^[0-9]{1,3}$ ]]
 ((10#$display_fps >= 1 && 10#$display_fps <= 120))
+[[ "$redroid_image" =~ ^[a-zA-Z0-9][a-zA-Z0-9._/:@-]*$ ]]
 python3 - <<'PY'
 import gzip,hashlib,json,os
 from pathlib import Path
@@ -60,7 +63,8 @@ docker image inspect hello-world:latest >/dev/null 2>&1 || docker load -i /.droi
 docker run --rm --pull=never --pids-limit=32 --memory=64m hello-world:latest > /run/term-hello.log 2>&1
 grep -q 'Hello from Docker!' /run/term-hello.log
 echo TERM_DOCKER_HELLO_WORLD_OK
-docker image inspect redroid/redroid:15.0.0-latest >/dev/null 2>&1 || docker load -i /.droid/state/fixtures/redroid.tar
+docker image inspect "$redroid_image" >/dev/null 2>&1 || docker load -i /.droid/state/fixtures/redroid.tar
+docker image inspect "$redroid_image" >/dev/null
 touch /run/term-fixture-ready
 while ! test -e /run/term-run-redroid; do sleep .1; done
 docker rm -f term-redroid-test >/dev/null 2>&1 || true
@@ -68,6 +72,6 @@ data=/.droid/state/container-test/$data_name
 mkdir -p "$data"
 launch_arguments=()
 if grep -qw 'term.redroid-prime=1' /proc/cmdline; then launch_arguments+=(--prime-shader-cache); fi
-python3 "$(dirname "$0")/launch-redroid.py" --name term-redroid-test --data "$data" --fps "$display_fps" "${launch_arguments[@]}"
+python3 "$(dirname "$0")/launch-redroid.py" --image "$redroid_image" --name term-redroid-test --data "$data" --fps "$display_fps" "${launch_arguments[@]}"
 echo TERM_REDROID_STARTED
 wait

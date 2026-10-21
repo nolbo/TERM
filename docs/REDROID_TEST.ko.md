@@ -3,7 +3,7 @@
 테스트 이미지: [avf-ubuntu-containers-20261021-r1](https://github.com/nolbo/TERM/releases/tag/avf-ubuntu-containers-20261021-r1).
 정식·Preview 앱 채널 배포와 기본 카탈로그 변경은 포함하지 않습니다. 이미지의 커널·초기 부팅
 이미지·디스크는 검증한 후보의 바이트를 그대로 공개합니다. 별도 실행 도구는
-릴리즈의 `launch-redroid.py`이며 이미지 안에 기본 설치되어 있지 않습니다.
+릴리즈의 `launch-redroid-64only.py`이며 이미지 안에 기본 설치되어 있지 않습니다.
 
 ## 1. 별도 Ubuntu 테스트 환경 준비
 
@@ -152,20 +152,32 @@ docker_test() {
 ## 4. ReDroid 실행과 화면 확인
 
 실행 도구는 내려받은 파일의 해시를 확인한 다음 실행합니다. Android 15 컨테이너는
-검증에 사용한 이미지 digest로 고정합니다. 게스트 밖 Android 호스트의 권한이나
-보안 설정을 바꾸지 않습니다.
+공식 `15.0.0_64only-latest`의 ARM64 digest로 고정합니다. `CONFIG_COMPAT=y`여도
+AVF 가상 CPU가 AArch64만 제공하면 32비트 실행을 지원하지 않습니다. 이전 혼합 ABI
+이미지의 `boringssl_self_test32_vendor`가 `Exec format error`로 실패하고
+`reboot,boringssl-self-check-failed`로 종료된 경우 이 경로를 사용합니다.
+
+공식 64비트 전용 빌드의 보안 자체 검사를 그대로 사용하며 32비트 앱·네이티브
+라이브러리는 지원하지 않습니다. [업스트림 안내](https://github.com/remote-android/redroid-doc/blob/master/deploy/README.md)도
+AArch64 전용 플랫폼에 `64only` 이미지를 지정합니다. 게스트 밖 Android 호스트의
+권한이나 보안 설정을 바꾸지 않습니다.
+
+이전 `term-redroid-test` 컨테이너와 `android-data`는 보존합니다. 아래에서는 별도
+이름 `term-redroid-test64`와 새 `android-data64`를 사용합니다. 이미 이 새 이름도
+존재하면 다시 생성하지 말고 상태부터 확인하세요. 이전에 받은 `launch-redroid.py`도
+아래 `--image`를 명시하면 사용할 수 있습니다.
 
 ```sh
-curl -fL --proto '=https' -o launch-redroid.py \
-  https://github.com/nolbo/TERM/releases/download/avf-ubuntu-containers-20261021-r1/launch-redroid.py
-echo 'c9e1e90e3b826ffc54d31eee1beb8443d661d51efdde9d3a7e5be4c683e2cefe  launch-redroid.py' | sha256sum -c -
+curl -fL --proto '=https' -o launch-redroid-64only.py \
+  https://github.com/nolbo/TERM/releases/download/avf-ubuntu-containers-20261021-r1/launch-redroid-64only.py
+echo '1c63595aea28235eebce5bc1d52230f34431d2d5f0d9602996e213cbd90f280a  launch-redroid-64only.py' | sha256sum -c -
 docker_test pull --platform linux/arm64 \
-  redroid/redroid@sha256:81889852444606824d33eb0232fa5813bce3f0993afe871785120af0d7c991ad
+  redroid/redroid@sha256:dc2024a999dd0acb1112a23cddc9537ec8cb60a0dbe5a87ce9fbd75a2f5e94d2
 sudo env DOCKER_HOST=unix:///run/term-redroid-test/docker.sock \
   PATH=/.droid/state/term-redroid-test/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-  python3 launch-redroid.py --name term-redroid-test \
-    --data /.droid/state/term-redroid-test/android-data \
-    --image redroid/redroid@sha256:81889852444606824d33eb0232fa5813bce3f0993afe871785120af0d7c991ad \
+  python3 launch-redroid-64only.py --name term-redroid-test64 \
+    --data /.droid/state/term-redroid-test/android-data64 \
+    --image redroid/redroid@sha256:dc2024a999dd0acb1112a23cddc9537ec8cb60a0dbe5a87ce9fbd75a2f5e94d2 \
     --width 240 --height 320 --dpi 120 --fps 10
 ```
 
@@ -177,22 +189,26 @@ sudo env DOCKER_HOST=unix:///run/term-redroid-test/docker.sock \
 있지만 watchdog 시간 제한이나 보안 설정은 변경하지 않습니다.
 
 ```sh
-docker_test exec term-redroid-test getprop sys.boot_completed
-docker_test exec term-redroid-test getprop service.sf.prime_shader_cache
-docker_test exec term-redroid-test sh -c \
+docker_test inspect term-redroid-test64 --format '{{json .State}}'
+docker_test exec term-redroid-test64 getprop sys.boot_completed
+docker_test exec term-redroid-test64 getprop ro.product.cpu.abilist
+docker_test exec term-redroid-test64 getprop ro.product.cpu.abilist32
+docker_test exec term-redroid-test64 getprop service.sf.prime_shader_cache
+docker_test exec term-redroid-test64 sh -c \
   'service check activity; service check package; service check display'
 ```
 
-부팅 완료는 `1`, 셰이더 설정은 `0`, 서비스 세 개는 `found`여야 합니다. 첫 부팅은
-시간이 걸립니다. 성공한 QEMU 비교에서는 약 4분이었으며 이후 4분을 더 기다려
-Settings를 확인했습니다. 실제 기기에서도 완료 후 백그라운드 초기화를 기다리세요.
+상태는 `Running=true`, 부팅 완료는 `1`, ABI는 `arm64-v8a`, 32비트 ABI는 빈 값,
+셰이더 설정은 `0`, 서비스 세 개는 `found`여야 합니다. 실행 도구가 컨테이너 ID를
+출력한 것만으로 Android 부팅 성공을 의미하지 않습니다. `Running=false`이면 아래
+실패 진단부터 확인합니다. 첫 부팅과 백그라운드 초기화에는 시간이 걸립니다.
 
 ```sh
-docker_test exec term-redroid-test input keyevent WAKEUP
-docker_test exec term-redroid-test am start -W -a android.settings.SETTINGS
-docker_test exec term-redroid-test screencap -p > "$HOME/redroid-settings.png"
-docker_test exec term-redroid-test dumpsys activity activities | grep -E 'topResumedActivity|mResumedActivity|ResumedActivity'
-docker_test exec term-redroid-test find /data/system/dropbox -maxdepth 1 -name '*watchdog*'
+docker_test exec term-redroid-test64 input keyevent WAKEUP
+docker_test exec term-redroid-test64 am start -W -a android.settings.SETTINGS
+docker_test exec term-redroid-test64 screencap -p > "$HOME/redroid-settings.png"
+docker_test exec term-redroid-test64 dumpsys activity activities | grep -E 'topResumedActivity|mResumedActivity|ResumedActivity'
+docker_test exec term-redroid-test64 find /data/system/dropbox -maxdepth 1 -name '*watchdog*'
 ```
 
 `Status: ok`와 현재 `com.android.settings` activity를 확인하고 PNG를 TERM 파일 전송
@@ -200,8 +216,8 @@ docker_test exec term-redroid-test find /data/system/dropbox -maxdepth 1 -name '
 보이는 것은 Settings 성공으로 간주하지 않습니다. `system_server_watchdog@...`가
 있으면 실패이며 `system_server_pre_watchdog@...` 경고와 구분합니다.
 
-같은 `/data` 재시작도 확인하려면 `docker_test stop term-redroid-test` 후
-`docker_test start term-redroid-test`를 수행하고 부팅·서비스·화면 검사를 반복합니다.
+같은 `/data` 재시작도 확인하려면 `docker_test stop term-redroid-test64` 후
+`docker_test start term-redroid-test64`를 수행하고 부팅·서비스·화면 검사를 반복합니다.
 일반 Ubuntu 셸·sudo·네트워크·파일 유지·공유 폴더도 VM 재시작 전후에 확인합니다.
 이 문서의 절차는 실제 LXC 컨테이너 실행을 검증하지 않습니다.
 
@@ -212,12 +228,17 @@ Settings 실행 결과·PNG, watchdog 파일 목록을 보내주세요. 실패 �
 추가합니다. 공유 전 개인 정보가 들어 있는 줄은 제거하세요.
 
 ```sh
-docker_test logs --tail 200 term-redroid-test
-docker_test exec term-redroid-test logcat -b all -d -t 300
+docker_test inspect term-redroid-test64 --format '{{json .State}}'
+docker_test logs --tail 200 term-redroid-test64
 sudo tail -n 100 /.droid/state/term-redroid-test/dockerd.log
+sudo dmesg --ctime | grep -E -B 12 -A 5 'sys.powerctl|CANNOT LINK EXECUTABLE|reboot_on_failure|Fatal|FATAL|No space left'
 ```
 
-종료는 `docker_test stop term-redroid-test`로 수행합니다. daemon은
+`docker logs`가 비어 있어도 Android 초기화 오류가 게스트 커널 로그에 남을 수
+있습니다. 컨테이너가 실행 중이면 `docker_test exec term-redroid-test64 logcat -b all -d -t 300`도
+확인합니다. 종료 코드만으로 OOM이나 특정 커널 옵션 부족을 단정하지 않습니다.
+
+종료는 `docker_test stop term-redroid-test64`로 수행합니다. daemon은
 `sudo kill -TERM "$(sudo cat /run/term-redroid-test/dockerd.pid)"`로 종료할 수 있습니다.
 이 명령은 앞에서 만든 전용 daemon에만 사용합니다. 데이터·컨테이너·기존 환경은
 자동 삭제하지 않습니다. 실제 AVF의 장시간 안정성·재부팅·네트워크 결과는 아직
