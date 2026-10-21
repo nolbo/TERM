@@ -94,15 +94,19 @@ class ToolbarUiTest {
         walk(instrumentation.uiAutomation.rootInActiveWindow)
         return values.joinToString().take(4000)
     }
-    private fun click(node: AccessibilityNodeInfo) {
+    private fun click(node: AccessibilityNodeInfo, pressMillis: Long = 0, settleAfter: Boolean = true) {
         val rect = bounds(node)
+        tap(rect.exactCenterX(), rect.exactCenterY(), pressMillis, settleAfter)
+    }
+    private fun tap(x: Float, y: Float, pressMillis: Long = 0, settleAfter: Boolean = true) {
         val now = SystemClock.uptimeMillis()
         listOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP).forEach { action ->
-            val event = MotionEvent.obtain(now, SystemClock.uptimeMillis(), action, rect.exactCenterX(), rect.exactCenterY(), 0)
+            val event = MotionEvent.obtain(now, SystemClock.uptimeMillis(), action, x, y, 0)
             event.source = InputDevice.SOURCE_TOUCHSCREEN
             try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, true)) } finally { event.recycle() }
+            if (action == MotionEvent.ACTION_DOWN && pressMillis > 0) SystemClock.sleep(pressMillis)
         }
-        settle()
+        if (settleAfter) settle()
     }
     private fun drag(x: Float, y: Float, dx: Float, dy: Float, cancel: Boolean = false, longPress: Boolean = false, holdAtEnd: Long = 0, duringDrag: (() -> Unit)? = null) {
         val start = SystemClock.uptimeMillis()
@@ -1111,7 +1115,7 @@ class ToolbarUiTest {
                 settle()
                 val compact = size == ToolbarSheetMode.Default
                 if (compact) {
-                    // Expose the saved group even when C's initial reveal scrolled it out of view.
+                    // Expose the saved group independently of prior manual tab scrolling.
                     scenario.onActivity { requireNotNull(showFirstTabs)() }
                     settle()
                 }
@@ -1187,6 +1191,7 @@ class ToolbarUiTest {
     @Test fun defaultSessionToolShowsHorizontalTabsAndExpandsToVerticalTabs() {
         val mode = mutableStateOf(ToolbarSheetMode.Default)
         val selected = mutableStateOf("second")
+        var showLastTab: (() -> Unit)? = null
         val sessions = mutableStateOf(listOf(
             SessionUi("first", "NATIVE", "First shell", "RUNNING"),
             SessionUi("second", "NATIVE", "Pinned work", "RUNNING",
@@ -1199,6 +1204,9 @@ class ToolbarUiTest {
         ActivityScenario.launch(MainActivity::class.java).use { scenario ->
             scenario.onActivity { activity -> activity.setContent {
                 DroidTheme { TerminalHapticFeedbackProvider {
+                    val scroll = rememberScrollState()
+                    val scope = rememberCoroutineScope()
+                    SideEffect { showLastTab = { scope.launch { scroll.scrollTo(scroll.maxValue) }; Unit } }
                     Column(Modifier.fillMaxSize()) {
                         Spacer(Modifier.weight(1f))
                         TerminalToolbar(ToolbarConfig(tools = listOf(SESSIONS_TOOL)), mode.value,
@@ -1206,11 +1214,14 @@ class ToolbarUiTest {
                             ToolbarSessionsTool(sessions.value, selected.value, active, emptySet(), emptyList(),
                                 {}, {}, false, { selected.value = it }, { renamed = it.id },
                                 { terminated = it.id }, { newClicks++ }, {},
-                                { settingsClicks++ })
+                                { settingsClicks++ }, headerTabScroll = scroll)
                         }
                     }
                 } }
             } }
+            settle()
+            // Selection keeps the viewport in place; position the tab explicitly for this UI test.
+            scenario.onActivity { showLastTab!!() }
             settle()
             val defaultHandle = bounds(handle())
             val title = bounds(tabText("Pinned work"))
@@ -1262,6 +1273,8 @@ class ToolbarUiTest {
             assertEquals("second", selected.value)
             action(label(R.string.toolbar_default))
             assertEquals(defaultHandle, bounds(handle()))
+            scenario.onActivity { showLastTab!!() }
+            settle()
             tabText("Pinned work")
             tabText("Updated automatic title")
             assertNull(find { it.text?.toString() == context.getString(R.string.toolbar_session_count, 2) })
@@ -1269,6 +1282,71 @@ class ToolbarUiTest {
                 if (it.id == "second") it.copy(title = "") else it
             } }
             tabText(label(R.string.shell_default_title))
+        }
+    }
+
+    @Test fun defaultSessionTabsSwitchOncePerTouchWithoutAutoScrolling() {
+        val selected = mutableStateOf("first")
+        val selections = mutableListOf<String>()
+        var positionTabs: ((Boolean) -> Unit)? = null
+        var headerScroll: ScrollState? = null
+        val sessions = listOf(
+            SessionUi("first", "NATIVE", "A", "RUNNING"),
+            SessionUi("second", "NATIVE", "B", "RUNNING"),
+        )
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    val scroll = rememberScrollState()
+                    val scope = rememberCoroutineScope()
+                    SideEffect {
+                        headerScroll = scroll
+                        positionTabs = { end -> scope.launch { scroll.scrollTo(if (end) scroll.maxValue else 0) }; Unit }
+                    }
+                    Column(Modifier.fillMaxSize()) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(ToolbarConfig(tools = listOf(SESSIONS_TOOL, HOTKEY_TOOL)),
+                            ToolbarSheetMode.Default, {}, 400.dp, TerminalChromeColors(Color.Black)) { tool, active ->
+                            if (tool == SESSIONS_TOOL) ToolbarSessionsTool(sessions, selected.value, active,
+                                emptySet(), emptyList(), {}, {}, false,
+                                { selected.value = it; selections += it }, {}, {}, {}, {}, {}, headerTabScroll = scroll)
+                        }
+                    }
+                } }
+            } }
+            settle()
+            val clippedIcon = waitForNode("inactive tab icon at the viewport edge") { node ->
+                node.contentDescription?.toString() == label(R.string.runtime_native_title) &&
+                    generateSequence(node.parent) { it.parent }.none { it.isSelected }
+            }
+            var scrollNode: AccessibilityNodeInfo? = clippedIcon
+            while (scrollNode != null && !scrollNode.isScrollable) scrollNode = scrollNode.parent
+            val viewport = bounds(requireNotNull(scrollNode))
+            val beforeSelection = requireNotNull(headerScroll).value
+            click(clippedIcon, pressMillis = 120, settleAfter = false)
+            assertEquals("One touch on a partially visible tab selects it", "second", selected.value)
+            assertEquals(listOf("second"), selections)
+            // Let the selected tab recompose before the next touch, without waiting out a scroll animation.
+            instrumentation.waitForIdleSync()
+            SystemClock.sleep(32)
+            tap(viewport.left + 8 * context.resources.displayMetrics.density, viewport.exactCenterY(), pressMillis = 120)
+            assertEquals("The next touch immediately selects the other tab", "first", selected.value)
+            assertEquals(listOf("second", "first"), selections)
+            assertEquals("Tab selection keeps the viewport in place", beforeSelection, requireNotNull(headerScroll).value)
+            repeat(8) { index ->
+                val target = sessions[(index + 1) % sessions.size]
+                scenario.onActivity { positionTabs!!(target.id == "second") }
+                settle()
+                // Keep the finger down through recomposition and the pressed-shape animation.
+                click(tabText(target.title), pressMillis = 120)
+                assertEquals("One touch selects ${target.title} on attempt $index", target.id, selected.value)
+                assertEquals("A touch dispatches exactly one selection", index + 3, selections.size)
+            }
+            val manualPosition = requireNotNull(headerScroll).value
+            scenario.onActivity { selected.value = "second" }
+            settle()
+            assertEquals("External selection keeps the manually positioned viewport", manualPosition,
+                requireNotNull(headerScroll).value)
         }
     }
 

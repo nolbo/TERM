@@ -27,8 +27,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.relocation.BringIntoViewRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -115,8 +113,6 @@ internal fun ToolbarSessionsTool(
     // Keep each list's position when switching between the default and expanded headers.
     val tabScroll = rememberScrollState()
     val profileScroll = rememberLazyListState()
-    val focusedTabRequester = remember { BringIntoViewRequester() }
-    var revealedSessionId by remember { mutableStateOf<String?>(null) }
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val sessionsActive = active && !profilePickerVisible
     BackHandler(enabled = active && profilePickerVisible, onBack = onDismissProfilePicker)
@@ -221,14 +217,6 @@ internal fun ToolbarSessionsTool(
             // Keep near-expanded drags eligible through that geometry change.
             val tabsDraggable = sessionsActive && (progress >= 0.95f || LocalToolbarExpandedContentHeight.current != null)
             val showWorkspaceName = progress == 1f || sessions.isEmpty()
-            // Reveal a new selection once. Manual scrolling and output updates retain the viewport.
-            LaunchedEffect(activeSessionId, progress == 0f, sessionsActive) {
-                if (progress == 0f && sessionsActive && activeSessionId != null && activeSessionId != revealedSessionId) {
-                    withFrameNanos { }
-                    revealedSessionId = activeSessionId
-                    focusedTabRequester.bringIntoView()
-                }
-            }
             val selectedWorkspace = workspaceState.workspaces.firstOrNull { it.id == workspaceState.selected }
             val emptyPermanentWorkspace = selectedWorkspace?.takeIf { !it.temporary && sessions.isEmpty() }
             val emptyTemporaryWorkspace = selectedWorkspace
@@ -250,7 +238,7 @@ internal fun ToolbarSessionsTool(
                     if (progress < 1f && sessions.isNotEmpty()) {
                         Box(Modifier.weight(1f).height(48.dp).clipToBounds().graphicsLayer { alpha = 1f - progress }) {
                             CompactSessionTabs(sessions, activeSessionId, paneState.splitSessionIds,
-                                headerTabScroll, focusedTabRequester, colors, Modifier.fillMaxSize()) { session, segment, expansion ->
+                                headerTabScroll, colors, Modifier.fillMaxSize()) { session, segment, expansion ->
                                 SessionToolTab(session, session.id == activeSessionId, sessionsActive && progress == 0f,
                                     terminatingSessionIds, onSelect, onRename, onMove, onTerminate, colors, onInfo = onInfo, horizontal = true,
                                     paneState = paneState, canSplit = canSplit(session), onSplit = onSplit,
@@ -318,7 +306,7 @@ internal fun ToolbarSessionsTool(
 
 @Composable
 private fun CompactSessionTabs(sessions: List<SessionUi>, activeSessionId: String?, pair: List<String>,
-    scroll: ScrollState, focusedTabRequester: BringIntoViewRequester, colors: TerminalChromeColors,
+    scroll: ScrollState, colors: TerminalChromeColors,
     modifier: Modifier, content: @Composable (SessionUi, Int?, Float?) -> Unit) {
     val rows = sessionTabRows(sessions.map { it.id }, pair)
     val byId = sessions.associateBy { it.id }
@@ -364,8 +352,7 @@ private fun CompactSessionTabs(sessions: List<SessionUi>, activeSessionId: Strin
                         val fraction = if (focusedPair) firstExpansion.coerceIn(0f, 1f) else 0f
                         // One fraction and one remaining-width slot keep the group's width fixed.
                         val firstWidth = 48.dp + (pairWidth - 106.dp) * fraction
-                        Box(Modifier.width(pairWidth).padding(horizontal = 4.dp).then(
-                            if (focusedPair) Modifier.bringIntoViewRequester(focusedTabRequester) else Modifier)) {
+                        Box(Modifier.width(pairWidth).padding(horizontal = 4.dp)) {
                             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
                                 row.forEachIndexed { segment, id ->
                                     val size = if (segment == 0) Modifier.width(firstWidth) else Modifier.weight(1f)
@@ -379,8 +366,7 @@ private fun CompactSessionTabs(sessions: List<SessionUi>, activeSessionId: Strin
                         }
                     } else {
                         val id = row.single()
-                        Box(Modifier.widthIn(max = 220.dp).height(48.dp).then(
-                            if (id == activeSessionId) Modifier.bringIntoViewRequester(focusedTabRequester) else Modifier)) {
+                        Box(Modifier.widthIn(max = 220.dp).height(48.dp)) {
                             content(byId.getValue(id), null, null)
                         }
                     }
