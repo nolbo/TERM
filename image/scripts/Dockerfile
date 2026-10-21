@@ -43,6 +43,7 @@ COPY image/scripts/term-virtio.network /payload/term-virtio.network
 COPY image/scripts/droid.sudoers /payload/droid.sudoers
 COPY image/scripts/droid-overlay /payload/droid-overlay
 COPY image/scripts/image-selftest /payload/image-selftest
+COPY image/scripts/image-container-selftest /payload/image-container-selftest
 COPY image/scripts/image-apt-selftest /payload/image-apt-selftest
 COPY image/scripts/image-pacman-selftest /payload/image-pacman-selftest
 COPY image/scripts/image-user-selftest /payload/image-user-selftest

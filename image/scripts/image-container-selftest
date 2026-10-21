@@ -1,0 +1,69 @@
+#!/bin/bash
+# Explicit, offline probe. Never enabled as a normal-boot service.
+set -euo pipefail
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+test "$(id -u)" -eq 0
+if [ "${1:-}" != --inside ]; then
+  python3 - <<'PY'
+import gzip, hashlib, json, os
+from pathlib import Path
+metadata = json.loads(Path('/usr/share/term/kernel-build.json').read_text())
+running = gzip.decompress(Path('/proc/config.gz').read_bytes())
+assert running == Path('/usr/share/term/kernel.config').read_bytes(), 'Running config differs from packaged config'
+assert hashlib.sha256(running).hexdigest() == metadata['artifacts']['kernel.config']
+assert os.uname().release == metadata['kernelRelease'], 'Running kernel release differs from build'
+assert os.sysconf('SC_PAGE_SIZE') == 4096
+fd = os.memfd_create('term-kernel-test')
+os.write(fd, b'memfd')
+os.close(fd)
+assert Path('/dev/dma_heap/system').is_char_device(), 'Missing DMA-BUF system heap'
+PY
+  exec unshare --mount --propagation private --pid --fork --ipc --net --mount-proc "$0" --inside
+fi
+test "$$" -eq 1
+scratch=$(mktemp -d /tmp/term-containers.XXXXXX)
+cleanup() {
+  for point in binder mqueue cgroup; do
+    if mountpoint -q "$scratch/$point"; then
+      umount "$scratch/$point" || return
+    fi
+  done
+  rmdir "$scratch/binder" "$scratch/mqueue" "$scratch/cgroup" "$scratch"
+}
+trap cleanup EXIT
+mkdir "$scratch/binder" "$scratch/mqueue" "$scratch/cgroup"
+mount -t mqueue mqueue "$scratch/mqueue"
+mount -t binder binder "$scratch/binder"
+test -c "$scratch/binder/binder-control"
+mount -t cgroup2 none "$scratch/cgroup"
+grep -qw pids "$scratch/cgroup/cgroup.controllers"
+grep -qw memory "$scratch/cgroup/cgroup.controllers"
+python3 - <<'PY'
+import ctypes, os
+libc = ctypes.CDLL(None, use_errno=True)
+# IPC_PRIVATE + IPC_CREAT, confined to this disposable IPC namespace.
+segment = libc.shmget(0, 4096, 0o1000 | 0o600)
+assert segment >= 0, os.strerror(ctypes.get_errno())
+assert libc.shmctl(segment, 0, None) == 0  # IPC_RMID
+queue = libc.mq_open(b'/term-kernel-test', os.O_CREAT | os.O_RDWR, 0o600, None)
+assert queue >= 0, os.strerror(ctypes.get_errno())
+assert libc.mq_close(queue) == 0
+assert libc.mq_unlink(b'/term-kernel-test') == 0
+PY
+ip link add termbr0 type bridge
+ip link add termv0 type veth peer name termv1
+ip link set termv0 master termbr0
+ip link set termbr0 up
+test -e /proc/sys/net/bridge/bridge-nf-call-iptables
+for backend in legacy nft; do
+  for family in iptables ip6tables; do
+    tool="$family-$backend"
+    "$tool" -w 5 -t nat -N TERM_TEST
+    "$tool" -w 5 -t nat -A TERM_TEST -m addrtype --dst-type LOCAL -j RETURN
+    "$tool" -w 5 -t nat -A POSTROUTING -m conntrack --ctstate NEW -j MASQUERADE
+    "$tool" -w 5 -t nat -A OUTPUT -p tcp --dport 18080 -j REDIRECT --to-ports 18081
+    "$tool" -w 5 -A FORWARD -i termv0 -o termbr0 -j ACCEPT
+    "$tool" -w 5 -t nat -S TERM_TEST
+  done
+done
+echo TERM_AVF_CONTAINERS_OK

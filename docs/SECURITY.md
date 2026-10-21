@@ -101,6 +101,13 @@ The guest APT initializer is a root service restricted to host-CID vsock port 40
 
 ## AVF update boundary
 
+The Ubuntu container-kernel recipe enables guest-local namespaces, IPC and
+networking while retaining guest hardening and existing AVF authorization.
+Guest root and containers remain untrusted at the Android capability boundary.
+Kernel/module replacement is a new verified image plus an explicit full image
+transition, never an in-place guest write to host boot artifacts. The build and
+runtime acceptance gates are described in [AVF_CONTAINER_KERNEL.md](AVF_CONTAINER_KERNEL.md).
+
 Explicit AVF updates authenticate local TERM packages through the signed APK's
 pinned manifest/system image. Dependency repository signatures remain enabled.
 A fixed guest maintenance opcode runs only in the host-selected temporary boot;

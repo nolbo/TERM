@@ -6,6 +6,7 @@ import hashlib
 import json
 from pathlib import Path
 import re
+import runpy
 import tempfile
 import urllib.parse
 import urllib.request
@@ -156,7 +157,7 @@ class BoundedReader:
 
 
 def verify_directory(root, metadata_only=False, expected_commit=None, expected_manifest_sha=None,
-                     require_private_shares_boot=False):
+                     require_private_shares_boot=False, require_container_kernel=False):
     approved = catalog(read_metadata(root / 'catalog.properties'))
     if expected_manifest_sha is not None and approved['manifestSha256'] != expected_manifest_sha:
         raise ValueError('Catalog differs from the producer job manifest hash')
@@ -170,6 +171,13 @@ def verify_directory(root, metadata_only=False, expected_commit=None, expected_m
         raise ValueError('Invalid source image hash or disk mapping')
     if provenance.get('distribution', 'debian') != values['distribution']:
         raise ValueError('Rootfs provenance distribution differs from manifest')
+    kernel_build = provenance.get('kernelBuild')
+    if require_container_kernel and not kernel_build:
+        raise ValueError('Missing built container kernel provenance')
+    if kernel_build:
+        kernel = runpy.run_path(str(Path(__file__).with_name('avf_kernel.py')))
+        kernel['validate_provenance'](kernel_build, values['kernel.sha256'])
+        kernel['validate_boot_report'](provenance.get('containerBootVerification'))
     if require_private_shares_boot:
         report = provenance.get('normalBootVerification') or {}
         boots = report.get('boots') or []
@@ -267,12 +275,14 @@ def main():
     parser.add_argument('--expected-commit')
     parser.add_argument('--expected-manifest-sha')
     parser.add_argument('--require-private-shares-boot', action='store_true')
+    parser.add_argument('--require-container-kernel', action='store_true')
     parser.add_argument('--approve', type=Path, help='Verify public downloads before writing the tracked default catalog')
     parser.add_argument('--apk', type=Path)
     parser.add_argument('--apk-catalog', type=Path, help='Exact merged catalog expected inside the candidate APK')
     args = parser.parse_args()
     checks = dict(expected_commit=args.expected_commit, expected_manifest_sha=args.expected_manifest_sha,
-                  require_private_shares_boot=args.require_private_shares_boot)
+                  require_private_shares_boot=args.require_private_shares_boot,
+                  require_container_kernel=args.require_container_kernel)
     approved = approve(args.directory, args.approve, **checks) if args.approve else verify_directory(args.directory, args.metadata_only, **checks)
     if args.apk:
         verify_apk(args.apk, read_metadata(args.apk_catalog or args.directory / 'catalog.properties'))

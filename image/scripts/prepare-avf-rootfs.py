@@ -68,7 +68,7 @@ def prepare(distribution, destination):
         policy.chmod(0o755)
         command = ('export DEBIAN_FRONTEND=noninteractive; apt-get -o APT::Update::Error-Mode=any update; '
                    'apt-get -y --no-install-recommends install systemd systemd-sysv systemd-resolved udev '
-                   'sudo util-linux kmod ca-certificates python3 sshfs fuse3; apt-get clean')
+                   'sudo util-linux kmod ca-certificates python3 sshfs fuse3 iproute2 iptables; apt-get clean')
     else:
         command = ('pacman -Syu --needed --noconfirm systemd systemd-sysvcompat sudo util-linux '
                    'shadow pacman archlinuxarm-keyring libarchive tar gzip ca-certificates python sshfs fuse3; '

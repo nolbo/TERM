@@ -20,6 +20,7 @@ install -d -m 0755 /etc/droid
 printf '%s\n' "$distribution" > /etc/droid/distribution
 bash /tmp/term-avf/install-droid-guest.sh / /tmp/term-avf/bin
 install -m 0755 /tmp/term-avf/image-selftest /usr/local/lib/droid/image-selftest
+install -m 0755 /tmp/term-avf/image-container-selftest /usr/local/lib/droid/image-container-selftest
 for script in image-user-selftest image-apt-selftest image-pacman-selftest image-update-selftest initialize-avf-packages.sh maintain-avf-image.sh migrate-avf-state.py check-avf-image.sh; do
   install -m 0755 "/tmp/term-avf/$script" "/usr/local/lib/droid/$script"
 done

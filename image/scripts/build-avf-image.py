@@ -7,6 +7,7 @@ import json
 import os
 from pathlib import Path, PurePosixPath
 import re
+import runpy
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,14 @@ ARTIFACTS = {"kernel": "vmlinuz", "initrd": "initrd.img", "system": "system.img"
              "home": "home.img", "config": "config.img"}
 MAX_BYTES = 32 * 1024 ** 3
 REPO = Path(__file__).resolve().parents[2]
+KERNEL = runpy.run_path(str(Path(__file__).with_name("avf_kernel.py")))
+
+
+def stage_kernel_bundle(bundle, inputs):
+    metadata = KERNEL["validate_bundle"](bundle)
+    for name in ("vmlinuz", "initrd.img", "kernel.config", "kernel-build.json"):
+        shutil.copyfile(Path(bundle) / name, inputs / name)
+    return metadata
 
 
 def sha256(path):
@@ -61,9 +70,12 @@ def extract_source(archive, destination):
         raise ValueError("Google archive must contain root_part, vmlinuz and initrd.img (direct-kernel boot)")
 
 
-def write_release(root, release_id, base_uri, source_url, source_sha, distribution="debian", source_commit=None, boot_verification=None):
+def write_release(root, release_id, base_uri, source_url, source_sha, distribution="debian", source_commit=None, boot_verification=None, kernel_build=None, container_verification=None):
     if distribution not in ("debian", "ubuntu", "archlinux"):
         raise ValueError("Unsupported AVF distribution")
+    if kernel_build:
+        KERNEL["validate_provenance"](kernel_build, sha256(root / "vmlinuz"))
+        KERNEL["validate_boot_report"](container_verification)
     manifest = f"formatVersion=1\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nvirtiofsVersion=1\nandroidStorageVersion=1\nshareBrokerVersion=1\nmaintenanceVersion=1\n"
     if distribution in ("debian", "ubuntu"):
         manifest += "aptInitializationVersion=1\n"
@@ -85,6 +97,8 @@ def write_release(root, release_id, base_uri, source_url, source_sha, distributi
         "rootfs": json.loads((REPO / "image/scripts/avf-distributions.json").read_text()).get(distribution),
         "diskMapping": ["system.img:ro", "home.img:rw", "config.img:ro"],
         "normalBootVerification": boot_verification,
+        "kernelBuild": kernel_build,
+        "containerBootVerification": container_verification,
     }, indent=2) + "\n")
     for name in ARTIFACTS.values():
         with (root / name).open("rb") as source, (root / (name + ".gz")).open("xb") as raw:
@@ -102,11 +116,15 @@ def main():
     parser.add_argument("--base-uri", required=True, type=validate_base_uri)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--source-sha256", help="Optional reviewed upstream checksum; always recorded in provenance")
+    parser.add_argument("--kernel-bundle", type=Path, help="Verified build-avf-kernel.py output; required for new Ubuntu images")
     args = parser.parse_args()
     if not re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", args.release_id):
         parser.error("invalid release ID")
     if args.source_sha256 and not re.fullmatch(r"[0-9a-f]{64}", args.source_sha256):
         parser.error("invalid source SHA-256")
+    if args.distribution == "ubuntu" and args.kernel_bundle is None:
+        parser.error("Ubuntu production requires --kernel-bundle; refusing the container-incomplete Google kernel")
+    kernel_build = KERNEL["validate_bundle"](args.kernel_bundle) if args.kernel_bundle else None
     output = args.output.resolve()
     if output.exists():
         parser.error("output already exists; refusing to replace a release")
@@ -158,6 +176,8 @@ def main():
                                 "--entrypoint", "chown", factory_image,
                                 "-R", f"{os.getuid()}:{os.getgid()}", "/output"], check=True)
             inputs = prepared
+        if args.kernel_bundle:
+            stage_kernel_bundle(args.kernel_bundle, inputs)
         command = ["docker", "run", "--rm", "--platform", "linux/arm64", "--network", "none",
                    "-v", f"{inputs}:/input:ro", "-v", f"{release}:/output"]
         if Path("/dev/kvm").exists():
@@ -174,7 +194,8 @@ def main():
         subprocess.run([sys.executable, str(boot_check), '--directory', str(release),
                         '--docker-image', factory_image, '--report', str(boot_report)], check=True)
         write_release(release, args.release_id, args.base_uri, SOURCE_URL, source_sha, args.distribution,
-                      source_commit, json.loads(boot_report.read_text()))
+                      source_commit, json.loads(boot_report.read_text()), kernel_build,
+                      json.loads((release / 'container-boot-verification.json').read_text()) if kernel_build else None)
         release.rename(output)
     print(f"Verified release directory: {output}", flush=True)
 

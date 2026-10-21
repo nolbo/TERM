@@ -48,8 +48,40 @@ env:
   TERMINAL_VERSION_CODE_OFFSET: ${{ vars.TERMINAL_VERSION_CODE_OFFSET || '0' }}
 
 jobs:
+  kernel:
+    if: github.ref == 'refs/heads/dev' && (inputs.distribution == 'ubuntu') && !inputs.reuse_candidate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+      - name: Sync official Android kernel sources and pinned common commit
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y repo
+          mkdir -p image/build/kernel-checkout
+          cd image/build/kernel-checkout
+          avf_manifest=$(python3 -c 'import json; print(json.load(open("../../kernel/source.json"))["manifestRevision"])')
+          avf_common=$(python3 -c 'import json; print(json.load(open("../../kernel/source.json"))["commonRevision"])')
+          repo init --depth=1 -u https://android.googlesource.com/kernel/manifest -b "$avf_manifest"
+          repo sync -c --no-tags --no-clone-bundle --fail-fast -j4
+          git -C common fetch --depth=1 origin "$avf_common"
+          git -C common switch --detach "$avf_common"
+      - name: Build and verify the Image, final config and matching module ramdisk
+        run: |
+          python3 image/scripts/build-avf-kernel.py --checkout image/build/kernel-checkout \
+            --output image/build/kernel-bundle
+      - uses: actions/upload-artifact@v4
+        with:
+          name: avf-ubuntu-kernel-${{ github.sha }}
+          compression-level: 0
+          if-no-files-found: error
+          path: image/build/kernel-bundle/
+
   image:
-    if: github.ref == 'refs/heads/dev'
+    needs: [kernel]
+    if: >-
+      always() && github.ref == 'refs/heads/dev' &&
+      (needs.kernel.result == 'success' || needs.kernel.result == 'skipped')
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
@@ -63,6 +95,11 @@ jobs:
         with:
           ref: ${{ github.sha }}
           fetch-depth: 0
+      - uses: actions/download-artifact@v4
+        if: inputs.distribution == 'ubuntu' && !inputs.reuse_candidate
+        with:
+          name: avf-ubuntu-kernel-${{ github.sha }}
+          path: image/build/kernel-bundle
       - name: Validate release inputs and shared dev history
         env:
           AVF_RELEASE_ID: ${{ inputs.release_id }}
@@ -105,6 +142,9 @@ jobs:
           sudo modprobe vhost_vsock
           python3 -m unittest discover -s tests/image -p 'test_*.py'
           avf_arguments=()
+          if [ "$AVF_DISTRIBUTION" = ubuntu ]; then
+            avf_arguments+=(--kernel-bundle image/build/kernel-bundle)
+          fi
           if [ -n "$AVF_SOURCE_SHA256" ]; then
             avf_arguments+=(--source-sha256 "$AVF_SOURCE_SHA256")
           fi
@@ -132,7 +172,8 @@ jobs:
           import os, pathlib, runpy
           verify = runpy.run_path('image/scripts/verify-avf-release.py')
           approved = verify['verify_directory'](pathlib.Path('image/build/approved'), metadata_only=True,
-                                               expected_commit=os.environ['AVF_IMAGE_SOURCE_COMMIT'], require_private_shares_boot=True)
+                                               expected_commit=os.environ['AVF_IMAGE_SOURCE_COMMIT'], require_private_shares_boot=True,
+                                               require_container_kernel=os.environ['AVF_DISTRIBUTION'] == 'ubuntu')
           if approved['releaseId'] != os.environ['AVF_RELEASE_ID'] or approved['id'] != os.environ['AVF_DISTRIBUTION'] + '-arm64-current':
               raise ValueError('Candidate release/distribution differs from the dispatch')
           with open(os.environ['GITHUB_OUTPUT'], 'a') as output:

@@ -29,6 +29,10 @@ for candidate in "$ramdisk"/lib/modules/* "$ramdisk"/usr/lib/modules/* \
   kernel=$version
 done
 test -n "$kernel"
+if [ -f /tmp/term-avf/kernel-build.json ]; then
+  expected=$(python3 -c 'import json; print(json.load(open("/tmp/term-avf/kernel-build.json"))["kernelRelease"])')
+  test "$kernel" = "$expected" || { echo 'Kernel/module release mismatch' >&2; exit 1; }
+fi
 depmod -a "$kernel"
 modprobe --set-version "$kernel" --show-depends overlay >/dev/null
 modprobe --set-version "$kernel" --show-depends virtiofs >/dev/null

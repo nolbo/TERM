@@ -1,0 +1,9 @@
+{
+  "manifestRepository": "https://android.googlesource.com/kernel/manifest",
+  "manifestRevision": "1e6983be370c1baf010f37ca80f93abb419ebc39",
+  "manifestBranch": "common-android16-6.12",
+  "commonRevision": "f33ca06267f86f1974bd273c0cce78f614d6949e",
+  "baseKernelUri": "https://github.com/nolbo/TERM/releases/download/avf-ubuntu-20261020-r4/vmlinuz.gz",
+  "baseKernelSha256": "121fcef9c308fa5bbf2722417880bc805d6c0858608634fe4ee834f567e4ac07",
+  "baseKernelVersion": "6.12.60-android16-6-gf33ca06267f8-ab14749849-4k"
+}

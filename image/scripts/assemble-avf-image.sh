@@ -7,6 +7,9 @@ if [ "$(stat -c %s /output/system.img)" -lt $((6 * 1024 * 1024 * 1024)) ]; then
 fi
 cp /input/vmlinuz /payload/source-vmlinuz
 cp /input/initrd.img /payload/source-initrd.img
+if [ -f /input/kernel.config ]; then
+  cp /input/kernel.config /input/kernel-build.json /payload/
+fi
 # libguestfs isolates filesystem parsing and guest commands in an appliance VM.
 # No host loop mount, privileged container, network or source tree write access.
 tar -cf /tmp/payload.tar -C /payload .
@@ -36,6 +39,14 @@ mkdir-p /tmp/term-avf
 tar-in /tmp/payload.tar /tmp/term-avf
 EOF_ROOT
 fi
+if [ -f /input/kernel.config ]; then
+  # Keep the final config and build identity in the immutable system image.
+  guestfish --rw --format=raw -a /output/system.img -m /dev/sda <<'EOF_KERNEL'
+mkdir-p /usr/share/term
+upload /input/kernel.config /usr/share/term/kernel.config
+upload /input/kernel-build.json /usr/share/term/kernel-build.json
+EOF_KERNEL
+fi
 virt-customize --format raw -a /output/system.img --no-network \
   --run-command "bash /tmp/term-avf/configure-avf-guest.sh ${AVF_DISTRIBUTION:-debian}" \
   --run-command 'rm -rf /tmp/term-avf'
@@ -45,6 +56,10 @@ rm-f /etc/resolv.conf
 ln-s /run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
 EOF_RESOLVER
 cp /input/vmlinuz /output/vmlinuz
+if [ -f /input/kernel-build.json ]; then
+  # Factory-only marker makes the two-boot probe require its runtime result.
+  cp /input/kernel-build.json /output/kernel-build.json
+fi
 truncate -s 8G /output/home.img
 mkfs.ext4 -F -L droid-state -O '^metadata_csum_seed,^orphan_file' /output/home.img
 mkdir -p /tmp/config

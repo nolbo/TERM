@@ -1,0 +1,50 @@
+# Installed as //term_avf in an official common-android16-6.12 checkout.
+load("@bazel_skylib//lib:paths.bzl", "paths")
+load("@rules_pkg//pkg:install.bzl", "pkg_install")
+load("@rules_pkg//pkg:mappings.bzl", "pkg_files", "strip_prefix")
+load("//build/kernel/kleaf:kernel.bzl", "initramfs", "kernel_build", "kernel_modules_install")
+load("//common:modules.bzl", "get_gki_modules_list", "get_kunit_modules_list")
+
+# These drivers are built in by the approved direct-boot AVF configuration.
+_BUILTIN = [
+    "virtio_balloon.ko",
+    "virtio_blk.ko",
+    "virtio_console.ko",
+    "virtio_pci.ko",
+    "virtio_pci_legacy_dev.ko",
+    "virtio_pci_modern_dev.ko",
+    "vmw_vsock_virtio_transport.ko",
+    "zram.ko",
+    "zsmalloc.ko",
+]
+
+kernel_build(
+    name = "kernel",
+    srcs = ["//common:kernel_aarch64_sources"],
+    outs = ["Image", ".config", "System.map", "modules.builtin", "modules.builtin.modinfo"],
+    arch = "arm64",
+    defconfig = "base_defconfig",
+    # This is a full config extracted from a pinned binary, not savedefconfig.
+    check_defconfig = "disabled",
+    post_defconfig_fragments = ["containers.fragment"],
+    makefile = "//common:Makefile",
+    make_goals = ["Image", "modules"],
+    module_implicit_outs = [
+        module
+        for module in get_gki_modules_list("arm64") + get_kunit_modules_list("arm64")
+        if paths.basename(module) not in _BUILTIN
+    ],
+    # This private guest kernel rebuilds every module; it is not a host GKI ABI.
+    trim_nonlisted_kmi = False,
+    kmi_symbol_list_strict_mode = False,
+    strip_modules = True,
+)
+
+kernel_modules_install(name = "modules", kernel_build = ":kernel")
+initramfs(name = "ramdisk", kernel_modules_install = ":modules")
+pkg_files(
+    name = "files",
+    srcs = [":kernel", ":ramdisk"],
+    strip_prefix = strip_prefix.files_only(),
+)
+pkg_install(name = "dist", srcs = [":files"])

@@ -18,6 +18,9 @@ test -x /usr/local/lib/droid/droid-port-agent
 test -x /usr/local/bin/droid
 id droid
 /usr/local/lib/droid/droid-sessiond --self-check
+if [ -f /usr/share/term/kernel-build.json ]; then
+  /usr/local/lib/droid/image-container-selftest
+fi
 test "$(readlink /etc/resolv.conf)" = /run/systemd/resolve/stub-resolv.conf
 grep -qx 'Driver=virtio_net' /etc/systemd/network/10-term-virtio.network
 grep -qx 'DHCP=yes' /etc/systemd/network/10-term-virtio.network

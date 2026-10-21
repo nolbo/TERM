@@ -8,6 +8,11 @@ relevant Android releases. Declaring them in a normal APK does not grant them.
 
 ## Packaged driver and platform boundary
 
+New Ubuntu image production requires a rebuilt container-capable guest kernel;
+the approved installed image is not changed by this source implementation.
+Build, packaging, validation status and full-transition requirements are in
+[AVF_CONTAINER_KERNEL.md](AVF_CONTAINER_KERNEL.md).
+
 Ordinary APK builds include `AospAvfPlatformDriver` through `:aosp-avf-runtime`. `TerminalApplication` supplies the runtime provider while retaining Native as the default owner. Selecting AVF creates a separate backend only after checking Android 15+, the AVF feature, and both actual permission grants. The optional `android.system.virtualmachine` shared library is supplied by the device; compile-only API declarations are never APK runtime classes.
 
 Custom-image configuration methods are hidden in AOSP and absent even from ordinary System SDK stubs. A compatible platform implementation and authorization to call those methods remain necessary in addition to the two permissions. Packaging the driver does not grant permissions or bypass API policy. Unsupported devices receive an explicit AVF error and continue using Native/Rootless. See `platform/aosp-avf-runtime/README.md` for ABI pinning, an exact OEM framework-jar override, and APK/device validation.
