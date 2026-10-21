@@ -8,7 +8,6 @@ import android.content.Intent
 import android.content.ServiceConnection
 import android.net.Uri
 import android.os.Bundle
-import android.os.Environment
 import android.os.IBinder
 import android.os.PowerManager
 import android.provider.Settings
@@ -69,7 +68,6 @@ class SettingsDetailActivity : TerminalActivity() {
     private var wakePolicy by mutableStateOf(DEFAULT_WAKE_POLICY)
     private var customFonts by mutableStateOf(emptyList<CustomTerminalFont>())
     private var pendingCustomFontStyle = CustomTerminalFontStyle.REGULAR
-    private var sharedStorageEnabled by mutableStateOf(false)
     private var batteryOptimizationsIgnored by mutableStateOf(false)
     private var paletteSelection by mutableStateOf("DROID_DARK")
 
@@ -156,8 +154,6 @@ class SettingsDetailActivity : TerminalActivity() {
 
     override fun onResume() {
         super.onResume()
-        // Never cache a separate boolean: Native processes share the app's OS grant.
-        sharedStorageEnabled = Environment.isExternalStorageManager()
         batteryOptimizationsIgnored = getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(packageName)
         paletteSelection = terminalPreferences.getString(KEY_PALETTE, "DROID_DARK") ?: "DROID_DARK"
     }
@@ -169,16 +165,6 @@ class SettingsDetailActivity : TerminalActivity() {
             startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
         }.onFailure {
             Toast.makeText(this, R.string.battery_optimization_settings_unavailable, Toast.LENGTH_LONG).show()
-        }
-    }
-
-    private fun openSharedStorageSettings() {
-        val appSettings = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-            Uri.fromParts("package", packageName, null))
-        runCatching { startActivity(appSettings) }.recoverCatching {
-            startActivity(Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION))
-        }.onFailure {
-            Toast.makeText(this, R.string.shared_storage_settings_unavailable, Toast.LENGTH_LONG).show()
         }
     }
 
@@ -526,7 +512,6 @@ class SettingsDetailActivity : TerminalActivity() {
                 }
             }
         }
-        sharedStorageItems()
         item {
             SettingsSection(R.string.section_background_execution) {
                 ChoiceSetting(
@@ -551,21 +536,6 @@ class SettingsDetailActivity : TerminalActivity() {
                 ActionSetting(R.string.android_permissions, R.string.android_permissions_support) {
                     startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
                 }
-            }
-        }
-    }
-
-    private fun androidx.compose.foundation.lazy.LazyListScope.sharedStorageItems() {
-        item {
-            SettingsSection(
-                R.string.section_shared_storage,
-                footer = { InfoSetting(R.string.shared_storage_usage, R.string.shared_storage_usage_support) },
-            ) {
-                ActionSetting(
-                    R.string.shared_storage_access,
-                    if (sharedStorageEnabled) R.string.shared_storage_enabled else R.string.shared_storage_disabled,
-                    action = ::openSharedStorageSettings,
-                )
             }
         }
     }

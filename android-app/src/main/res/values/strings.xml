@@ -352,12 +352,6 @@
     <string name="key_left" translatable="false">←</string>
     <string name="key_right" translatable="false">→</string>
     <string name="key_page_down" translatable="false">PGDN</string>
-    <string name="section_shared_storage">공유 내부저장소</string>
-    <string name="shared_storage_access">내부저장소 접근 설정</string>
-    <string name="shared_storage_enabled">사용 중 · 눌러 Android 공통 권한을 끄세요. Native에 적용되며 Userspace Linux·AVF는 환경별 접근도 켜야 합니다.</string>
-    <string name="shared_storage_disabled">사용 안 함 · 눌러 Android 공통 권한을 허용하세요. Userspace Linux·AVF는 환경별 접근도 켜야 합니다.</string>
-    <string name="shared_storage_usage">접근 범위와 적용 시점</string>
-    <string name="shared_storage_usage_support">Native와 접근을 켠 Userspace Linux 새 세션·지원 비보호 AVF의 다음 부팅에서 /sdcard를 읽고 씁니다. 다른 앱의 비공개 데이터·Android/data 등 보호 경로는 제외됩니다. 권한 해제 시 공유 AVF VM이 중지되고 Android가 앱·다른 세션도 종료할 수 있으므로 먼저 작업을 저장하세요.</string>
     <string name="shared_storage_settings_unavailable">이 기기에서 모든 파일 접근 설정을 열 수 없습니다.</string>
     <string name="settings_hotkeys_title">터미널 단축키</string>
     <string name="settings_hotkeys_summary">그리드 배치, 키 크기와 단축키 조합</string>
