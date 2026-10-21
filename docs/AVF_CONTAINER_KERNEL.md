@@ -41,12 +41,15 @@ The candidate APK build and embedded candidate-catalog verification passed.
 That candidate-only run skipped publication and notification. The image-only
 publication reuses its exact verified bytes; see the committed
 [Korean release notes](release-notes/avf-ubuntu-containers-20261021-r1.md).
-The default catalog remains unchanged while physical AVF testing is pending.
+The default catalog remains unchanged while broader physical AVF acceptance is
+pending.
 
 These are QEMU results, **not physical Android AVF results**. The connected
 ReDroid Android 15 target exposes neither the AVF feature nor its VM tool.
-A real AVF guest boot, an LXC container and device-level networking remain
-unverified. An additional QEMU run passed Docker `hello-world` with ext4-backed
+Later user-supplied AVF boot and ReDroid results are recorded in the
+AArch64-only compatibility section below. An LXC container and device-level
+network forwarding remain unverified. An additional QEMU run passed Docker
+`hello-world` with ext4-backed
 `overlay2`. The final isolated ReDroid comparison passed Android boot, core
 services, a resumed Settings activity and an inspected Settings screenshot.
 Earlier comparisons failed with watchdog resets, black output or Settings ANRs;
@@ -355,13 +358,23 @@ properties in addition to the existing boot, services, watchdog and Settings
 checks. Its QEMU `max` CPU remains a mixed-mode test. The older commands above
 explicitly select the mixed-ABI image to preserve their original test.
 
+A separate `--prepare-only` run with the released kernel and QEMU 10.0.13
+passed Docker `hello-world` and imported the 64only archive into the guest's
+classic image store. The selected image reported config ID
+`sha256:3a20877461836b2c22092660a4bcf09ffac0528c324e74237ce099d9e9262191`
+and the rootfs layer above. Its result recorded `fixturePrepared=true` and
+`passed=true`; it did not start Android and is only an image-selection/import
+check, not another ReDroid boot result.
+
 On 2026-10-22, the device tester reported `CONFIG_COMPAT=y`,
 `CONFIG_COMPAT_BINFMT_ELF=y` and CPU mode `64-bit` in the AVF guest. The original
 mixed-ABI image stopped after its 32-bit BoringSSL program returned an exec
 format error. With the pinned 64only image and a fresh container/data path,
-the same guest reported `Running=true` and `sys.boot_completed=1`. This is
-user-supplied device evidence; no direct agent connection was available. It
-does not yet establish rendered Settings UI, long-term stability or reboot.
+the same guest reported `Running=true` and `sys.boot_completed=1`. The tester
+also confirmed that activity/package/display service checks and Settings launch
+completed normally. This is user-supplied device evidence; no direct agent
+connection was available, and no device screenshot was independently inspected.
+Long-term stability and reboot remain unverified.
 An additional local AArch64-only QEMU model attempt lost its diagnostic
 connection before guest readiness and supplies no successful runtime evidence.
 
