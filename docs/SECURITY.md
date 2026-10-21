@@ -233,6 +233,26 @@ anonymous socketpairs. Pair records are no-backup, bounded and atomically stored
 neither pairing-record APIs nor generic service connections are guest operations.
 This prevents API-level credential disclosure, not malicious same-UID access.
 
+## Native CLI resources and diagnostics
+
+The fixed Native CLI allowlist adds jq, curl, ssh, ssh-keygen, rg and vim; Git is
+excluded. Command links resolve to the canonical APK native library directory.
+Only versioned Vim/CA data is extracted into a managed no-backup directory, with
+SHA-256 checks and atomic activation; user home and existing sessions are not
+rewritten. Native library search paths are kept separate from Rootless and AVF.
+curl retains trust-chain and hostname verification, and OpenSSH retains known
+hosts and key permissions. Native Diagnostics uses disposable cache files and
+bounded child processes without session/backend creation. Clipboard copy reuses
+OSC 52; storage listing reuses the existing authenticated USB/file broker and
+per-session approvals. No new capability, daemon or downloaded code authority is
+introduced. Native clipboard writes require the default-off switch in the existing
+terminal Android-permissions section and the existing capability broker's fixed
+`host-native-clipboard` write grant, distinct from VM grants. Only live output
+from the focused Native session in the resumed, focused Activity is eligible.
+Background, Rootless, AVF, oversized text and clipboard reads remain denied.
+Checkpoint restoration is data restoration, not a replay of clipboard requests.
+See [NATIVE_SHELL.md](NATIVE_SHELL.md).
+
 ## Local service dashboard boundary
 
 AVF local service reads, forwarding changes and callback subscriptions use non-exported Activities and same-UID/verified-main-process Binder checks. Guests cannot choose an Environment identity, register Native/Rootless services, request host interface addresses or invoke these APIs. The host associates each report stream with its owning backend. Native/Rootless manual registration APIs are removed. Older manual records are ignored during preference loading, and only AVF Environment metadata is included in dashboard snapshots.

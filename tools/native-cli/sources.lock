@@ -1,0 +1,8 @@
+# name version sha256 official-source
+openssl 3.5.9 603f5602e2eef00d77fbd429d34dcd5822bb301757a1bc9cdb24c670f1eb859a https://www.openssl.org/source/openssl-3.5.9.tar.gz
+ncurses 6.5 136d91bc269a9a5785e5f9e980bc76ab57428f604ce3e5a5a90cebc767971cc6 https://ftp.gnu.org/gnu/ncurses/ncurses-6.5.tar.gz
+jq 1.8.2 71b8d6e8f5fe81f6c6d0d110e3892251f6ce76ed095abd315e26e6e1193af3af https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-1.8.2.tar.gz
+curl 8.23.0 8dadd7d2536a314f982ad05a651b713f426bf7d02cc2c76cffb9796f2218e6c5 https://curl.se/download/curl-8.23.0.tar.xz
+openssh 10.6p1 a9dc9565dffe8640f64d863cd29a32bc4a3dbdec0566a7fc44c5d6ee767d5f39 https://cdn.openbsd.org/pub/OpenBSD/OpenSSH/portable/openssh-10.6p1.tar.gz
+rg 15.2.0 7605249d3eb0d5f170e3414498e3344e26b1e7a147aec518b57090b80036a562 https://codeload.github.com/BurntSushi/ripgrep/tar.gz/refs/tags/15.2.0
+vim 9.2.1217 83b004ddff23a7d9e33e9a2fa97eb8052e1ebfcdcfa61d647ce048b473f785d1 https://codeload.github.com/vim/vim/tar.gz/refs/tags/v9.2.1217

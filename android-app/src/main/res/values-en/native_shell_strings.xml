@@ -1,0 +1,4 @@
+<resources>
+    <string name="native_clipboard_write">Allow Native clipboard writes</string>
+    <string name="native_clipboard_write_support">Off by default. Command output from the focused Native terminal can write the Android clipboard while the terminal screen is active. Background terminals, other runtimes and clipboard reading remain blocked.</string>
+</resources>

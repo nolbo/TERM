@@ -43,6 +43,7 @@ internal class TerminalSessionStore(context: Context) {
     private var listener: IRuntimeStateListener? = null
     private var observerOwner: Any? = null
     private var observer: ((String) -> Unit)? = null
+    private var copyText: ((String, String) -> Unit)? = null
     private val retry = dev.terminal.runtime.lifecycle.ReconnectBackoff()
     private val staleMirrors = mutableSetOf<String>()
     private val redrawIds = mutableSetOf<String>()
@@ -71,11 +72,12 @@ internal class TerminalSessionStore(context: Context) {
     companion object { const val BACKGROUND_GRACE_MS = 5_000L }
     private val exitCodes = mutableMapOf<String, Int>()
 
-    fun observe(owner: Any, changed: (String) -> Unit) {
+    fun observe(owner: Any, onCopy: (String, String) -> Unit = { _, _ -> }, changed: (String) -> Unit) {
         main.removeCallbacks(detachBackground)
         retry.reset()
         observerOwner = owner
         observer = changed
+        copyText = onCopy
         connect()
         val stale = staleMirrors.toList()
         staleMirrors.clear()
@@ -87,6 +89,7 @@ internal class TerminalSessionStore(context: Context) {
         if (observerOwner === owner) {
             observerOwner = null
             observer = null
+            copyText = null
             android.view.Choreographer.getInstance().removeFrameCallback(redrawFrame)
             redrawPending = false
             redrawIds.clear()
@@ -106,7 +109,15 @@ internal class TerminalSessionStore(context: Context) {
         )
         backends[id] = backend
         TerminalSession("", "/", emptyArray(), emptyArray(), transcriptRows,
-            TerminalCallbacks(redraw = { redraw(id) }), backend)
+            TerminalCallbacks(copyText = { text ->
+                val owner = observerOwner
+                val callback = copyText
+                val epoch = generation
+                main.post {
+                    if (owner === observerOwner && callback === copyText && epoch == generation && id in ready) callback?.invoke(id, text)
+                }
+            },
+                redraw = { redraw(id) }), backend)
     }
 
     fun attachWhenReady(id: String) {

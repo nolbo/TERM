@@ -2,7 +2,7 @@ package dev.terminal.bridge
 
 import android.content.Context
 
-/** Private host-side persistence for capability grants. Values are namespaced by VM identity. */
+/** Private host-side persistence, namespaced by host-selected VM or Native identity. */
 class SharedPreferencesCapabilityGrantStore(context: Context) : CapabilityGrantStore {
     private val preferences = context.applicationContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 

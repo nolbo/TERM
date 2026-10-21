@@ -33,6 +33,7 @@ class NativeSessionController(
     private val root: File,
     private val hostEnvironment: (String) -> Map<String, String> = { emptyMap() },
     private val releaseHostCapabilities: (String) -> Unit = {},
+    private val tools: Map<String, String> = emptyMap(),
 ) : SessionController, dev.terminal.runtime.session.SessionMemorySource {
     private class Entry(
         @Volatile var descriptor: SessionDescriptor,
@@ -70,26 +71,13 @@ class NativeSessionController(
         )
         val transport = KittyGraphicsTransport(media)
         val argv = dev.terminal.runtime.session.SessionCommand.decode(env)
-        val command = argv?.first() ?: shell.takeIf { it.startsWith('/') && File(it).canExecute() } ?: DEFAULT_NATIVE_SHELL
+        val effectiveShell = shell.takeIf { it.startsWith('/') && File(it).canExecute() } ?: DEFAULT_NATIVE_SHELL
+        val command = argv?.first() ?: effectiveShell
         val loginShell = env["DROID_LOGIN_SHELL"]?.toBooleanStrictOrNull() ?: true
         require(cwd.isEmpty() || (cwd.startsWith('/') && File(cwd).isDirectory)) { "Working directory does not exist: $cwd" }
         val capabilities = hostEnvironment(id)
-        val environment = buildList {
-            add("HOME=${home.absolutePath}")
-            add("TMPDIR=${File(root, "tmp").absolutePath}")
-            add("PATH=/system/bin:/system/xbin")
-            add("SHELL=$command")
-            add("TERM=xterm-256color")
-            add("COLORTERM=truecolor")
-            // Android's mksh resets PS1 from /system/etc/mkshrc. ENV is read
-            // after that startup file for every interactive shell, including a
-            // non-login shell, so it is the authoritative default prompt.
-            add("ENV=${shellRc.absolutePath}")
-            add("PS1=~ \\${'$'} ")
-            env.filterKeys { it != "DROID_LOGIN_SHELL" && it != dev.terminal.runtime.session.SessionCommand.KEY && !it.startsWith("TERMINAL_USB_") }.forEach { (key, value) -> add("$key=$value") }
-            capabilities.forEach { (key, value) -> add("$key=$value") }
-        }.associate { assignment -> assignment.substringBefore('=') to assignment.substringAfter('=') }
-            .map { (key, value) -> "$key=$value" }.toTypedArray()
+        val environment = nativeEnvironment(home, temporary, effectiveShell,
+            shellRc, env, tools, capabilities).map { (key, value) -> "$key=$value" }.toTypedArray()
         val workingDirectory = cwd.ifEmpty { home.absolutePath }
         val process = try { PtyProcess.start(
             command, workingDirectory, argv?.toTypedArray() ?: if (loginShell) arrayOf(command, "-l") else arrayOf(command), environment,
@@ -194,13 +182,12 @@ class NativeSessionController(
 }
 
 /** Writes the app-owned interactive-shell defaults without modifying a user's profile. */
-internal fun prepareNativeShellRc(home: File): File = File(home, ".droid-shrc").apply {
-    writeText(
+internal fun prepareNativeShellRc(home: File): File = File(home.parentFile, "shell/managed-shrc").apply {
+    parentFile!!.mkdirs()
+    val content =
         """
-        # The packaged Android client is an alias, not a writable-data executable.
-        if [ -n "${'$'}{TERMINAL_USB_CLIENT-}" ] && [ -x "${'$'}TERMINAL_USB_CLIENT" ]; then
-          alias terminal-usb='"${'$'}TERMINAL_USB_CLIENT"'
-        fi
+        # TERM managed defaults. User configuration belongs in ~/.termrc.
+        umask 077
         # Emit prompt boundaries directly to the PTY, outside PS1 width accounting.
         case ${'$'}- in *i*) DROID_PROMPT_MARKERS=1 ;; esac
         PS1='${'$'}(droid_status=${'$'}?
@@ -253,6 +240,16 @@ internal fun prepareNativeShellRc(home: File): File = File(home, ".droid-shrc").
           PS2="${'$'}PS2${'$'}droid_mark${'$'}droid_esc]133;B;droid=mksh-continuation${'$'}droid_bel${'$'}droid_mark"
           unset droid_mark droid_cr droid_esc droid_bel
         fi
-        """.trimIndent() + System.lineSeparator(),
-    )
+        # Legacy files may contain user additions after the former generated
+        # defaults. Preserve and source the whole file; never guess away edits.
+        if [ -f "${'$'}HOME/.droid-shrc" ]; then . "${'$'}HOME/.droid-shrc"; fi
+        if [ -f "${'$'}HOME/.termrc" ]; then . "${'$'}HOME/.termrc"; fi
+        """.trimIndent() + System.lineSeparator()
+    if (!isFile || readText() != content) {
+        val stage = File.createTempFile(".managed-shrc-", ".tmp", parentFile)
+        try {
+            stage.writeText(content)
+            check(stage.renameTo(this)) { "Cannot activate managed Native shell configuration" }
+        } finally { stage.delete() }
+    }
 }

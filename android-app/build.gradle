@@ -189,6 +189,7 @@ android {
         // These are verified runtime inputs, not newly linked JNI libraries.
         // Preserve exact bytes across local/CI strip-tool versions.
         jniLibs.keepDebugSymbols += ['**/libproot.so', '**/libproot-loader.so', '**/libproot-faststat.so']
+        jniLibs.keepDebugSymbols += ['**/libjq.so', '**/libcurl.so', '**/libssh.so', '**/libssh-keygen.so', '**/librg.so', '**/libvim.so', '**/libterm-crypto.so', '**/libterm-ssl.so']
     }
 }
 
@@ -247,6 +248,7 @@ dependencies {
     }
     implementation 'androidx.work:work-runtime-ktx:2.10.1'
     implementation project(':android-runtime')
+    implementation project(':android-bridge')
     implementation project(':image')
     implementation project(':terminal-view')
 

@@ -25,7 +25,7 @@ sealed interface BridgeResult<out T> {
     data class Unavailable(val reason: String) : BridgeResult<Nothing>
 }
 
-/** A VM-scoped store; implementations must never key grants by guest-provided labels alone. */
+/** Host-selected execution scopes: VM identity or a fixed host Native scope, never a guest-provided label. */
 interface CapabilityGrantStore {
     fun get(vmInstanceId: String, capability: Capability): CapabilityGrant
     fun set(vmInstanceId: String, capability: Capability, grant: CapabilityGrant)

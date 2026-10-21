@@ -21,12 +21,14 @@ internal fun terminalLinkIntent(url: String): Intent? {
 
 class TerminalCallbacks(
     private val titleChanged: (TerminalSession) -> Unit = {},
+    private val copyText: (String) -> Unit = {},
     private val redraw: () -> Unit,
 ) : TerminalSessionClient {
     override fun onTextChanged(s: TerminalSession) = redraw()
     override fun onTitleChanged(s: TerminalSession) { titleChanged(s); redraw() }
     override fun onSessionFinished(s: TerminalSession) = redraw()
-    override fun onCopyTextToClipboard(s: TerminalSession, t: String) = Unit; override fun onPasteTextFromClipboard(s: TerminalSession) = Unit; override fun onBell(s: TerminalSession) = Unit; override fun onColorsChanged(s: TerminalSession) = redraw(); override fun onTerminalCursorStateChange(s: Boolean) = redraw()
+    override fun onCopyTextToClipboard(s: TerminalSession, t: String) = copyText(t)
+    override fun onPasteTextFromClipboard(s: TerminalSession) = Unit; override fun onBell(s: TerminalSession) = Unit; override fun onColorsChanged(s: TerminalSession) = redraw(); override fun onTerminalCursorStateChange(s: Boolean) = redraw()
     override fun getTerminalCursorStyle(): Int? = null
     override fun logError(a:String,b:String)=Unit; override fun logWarn(a:String,b:String)=Unit; override fun logInfo(a:String,b:String)=Unit; override fun logDebug(a:String,b:String)=Unit; override fun logVerbose(a:String,b:String)=Unit; override fun logStackTraceWithMessage(a:String,b:String,e:Exception)=Unit; override fun logStackTrace(a:String,e:Exception)=Unit
 }

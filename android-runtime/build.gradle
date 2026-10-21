@@ -17,6 +17,18 @@ def rootlessPayloadSource = acceleratedRootless ? layout.projectDirectory.dir(ac
 def generatedRootlessJniDirectory = layout.buildDirectory.dir('generated/rootlessJniLibs')
 def iphoneBuildDirectory = layout.buildDirectory.dir('iphone-native')
 def iphoneToolsBuildDirectory = layout.buildDirectory.dir('iphone-tools')
+def nativeCliBuildDirectory = layout.buildDirectory.dir('native-cli')
+tasks.register('buildNativeCli', Exec) {
+    inputs.files(rootProject.fileTree('tools/native-cli'), rootProject.file('tools/iphone/android-clang.sh'))
+    inputs.property('ndkVersion', project.properties.ndkVersion)
+    outputs.dir(nativeCliBuildDirectory.map { it.dir('jniLibs') })
+    outputs.dir(nativeCliBuildDirectory.map { it.dir('assets') })
+    doFirst {
+        def sdk = androidComponents.sdkComponents.sdkDirectory.get().asFile
+        commandLine 'python3', rootProject.file('tools/native-cli/build.py'),
+            nativeCliBuildDirectory.get().asFile, new File(sdk, "ndk/${project.properties.ndkVersion}")
+    }
+}
 tasks.register('buildIphoneTools', Exec) {
     inputs.files(rootProject.fileTree('tools/iphone/connector'), rootProject.file('tools/iphone/android-clang.sh'))
     outputs.dir(iphoneToolsBuildDirectory.map { it.dir('jniLibs') })
@@ -154,6 +166,7 @@ android {
         // These are verified runtime inputs, not newly linked JNI libraries.
         // Preserve exact bytes across local/CI strip-tool versions.
         jniLibs.keepDebugSymbols += ['**/libproot.so', '**/libproot-loader.so', '**/libproot-faststat.so']
+        jniLibs.keepDebugSymbols += ['**/libjq.so', '**/libcurl.so', '**/libssh.so', '**/libssh-keygen.so', '**/librg.so', '**/libvim.so', '**/libterm-crypto.so', '**/libterm-ssl.so']
     }
 
     sourceSets.main.jniLibs.srcDirs = [generatedRootlessJniDirectory, iphoneBuildDirectory.get().dir('jniLibs').asFile, iphoneToolsBuildDirectory.get().dir('jniLibs').asFile]
@@ -162,9 +175,11 @@ android {
     sourceSets.main.java.srcDir(serialBuildDirectory.get().dir('java/java').asFile)
     sourceSets.main.assets.srcDir(serialBuildDirectory.get().dir('assets').asFile)
     sourceSets.main.assets.srcDir(usbClientAssets.get().asFile)
+    sourceSets.main.jniLibs.srcDir(nativeCliBuildDirectory.get().dir('jniLibs').asFile)
+    sourceSets.main.assets.srcDir(nativeCliBuildDirectory.get().dir('assets').asFile)
 }
 
-tasks.named('preBuild').configure { dependsOn('stageRootlessExecutables', 'verifyRootlessExecutables', 'bundleIphoneWorkerSources', 'prepareUsbSerial', 'buildUsbClient', 'buildIphoneTools') }
+tasks.named('preBuild').configure { dependsOn('stageRootlessExecutables', 'verifyRootlessExecutables', 'bundleIphoneWorkerSources', 'prepareUsbSerial', 'buildUsbClient', 'buildIphoneTools', 'buildNativeCli') }
 
 dependencies {
     api project(':protocol')

@@ -99,6 +99,7 @@ jobs:
           ./gradlew :android-app:assembleDebug :android-app:testDebugUnitTest :android-runtime:testDebugUnitTest :image:test --build-cache --console=plain
           python3 tools/rootless/prepare-release-runtime.py --verify-apk android-app/build/outputs/apk/debug/android-app-debug.apk
           python3 tools/avf/verify-driver-apk.py android-app/build/outputs/apk/debug/android-app-debug.apk
+          python3 tools/native-cli/verify.py --apk android-app/build/outputs/apk/debug/android-app-debug.apk
           python3 -m unittest discover -s tests/image -p 'test_*.py'
           python3 -m unittest discover -s tests/updates -p 'test_*.py'
       - name: USB host safety regression gate (not physical validation)
@@ -153,7 +154,9 @@ jobs:
             --apk android-app/build/outputs/apk/release/android-app-release.apk \
             --catalog image/catalog-approved.properties \
             --certificate-sha256 7f639e70cc1969415beab27cfb10db6d10bf553b1f956a2f9d68d55ebf3785ba
+          python3 tools/native-cli/verify.py --apk android-app/build/outputs/apk/release/android-app-release.apk
           mkdir -p android-app/build/update
+          python3 tools/native-cli/package-source.py android-runtime/build/native-cli android-app/build/update/native-cli-source.tar.gz
           python3 tools/updates/create-manifest.py \
             --apk android-app/build/outputs/apk/release/android-app-release.apk \
             --metadata android-app/build/outputs/apk/release/output-metadata.json \

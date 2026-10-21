@@ -46,10 +46,10 @@ impl Broker {
 struct Temporary(std::path::PathBuf);
 impl Drop for Temporary { fn drop(&mut self) { let _ = fs::remove_file(&self.0); } }
 
-fn download(broker: &mut Broker, device: &str, remote: &str, destination: &str) -> Result<Value> {
+fn download(broker: &mut Broker, request: Value, destination: &str) -> Result<Value> {
     let destination = std::path::absolute(destination)?;
     if fs::symlink_metadata(&destination).is_ok() { return Err("Destination already exists".into()); }
-    broker.send(json!({"op":"iphone","action":"afc-get","device":device,"path":remote}))?;
+    broker.send(request)?;
     let start = broker.receive()?; let size = start["size"].as_u64().filter(|s| *s <= FILE_LIMIT).ok_or("Invalid download size")?;
     if start["event"] != "start" { return Err("Invalid download header".into()); }
     let path = destination.parent().ok_or("Missing parent")?.join(format!(".terminal-download-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)?.as_nanos()));
@@ -70,24 +70,29 @@ fn download(broker: &mut Broker, device: &str, remote: &str, destination: &str) 
     output.sync_all()?; fs::hard_link(&temporary.0, &destination)?;
     Ok(json!({"completed":true,"bytes":size,"local":destination}))
 }
-fn upload(broker: &mut Broker, device: &str, source: &str, name: &str) -> Result<Value> {
+fn upload(broker: &mut Broker, mut request: Value, source: &str, name: &str) -> Result<Value> {
+    if name.is_empty() || name.len() > 100 || !name.as_bytes()[0].is_ascii_alphanumeric()
+        || !name.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b)) { return Err("Use an ASCII name of at most 100 characters".into()); }
+    let storage = request["op"] == "put";
     let mut file = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC).open(source)?;
     let before = file.metadata()?; let size = before.len();
     if !before.is_file() || size > FILE_LIMIT { return Err("Upload requires a regular file of at most 64 MiB".into()); }
-    broker.send(json!({"op":"iphone","action":"afc-put","device":device,"name":name,"size":size}))?;
+    request["name"] = name.into(); request["size"] = size.into(); broker.send(request)?;
     let ready = broker.receive()?;
-    if ready["event"] != "ready" || ready["size"].as_u64() != Some(size) || !ready["path"].as_str().unwrap_or("").starts_with("/TerminalImports/") { return Err("Invalid upload header".into()); }
+    if ready["event"] != "ready" || ready["size"].as_u64() != Some(size)
+        || (storage && !ready["id"].is_string()) || (!storage && !ready["path"].as_str().unwrap_or("").starts_with("/TerminalImports/")) { return Err("Invalid upload header".into()); }
     let mut offset = 0;
     while offset < size {
         let mut bytes = vec![0u8; (size - offset).min(16384) as usize]; file.read_exact(&mut bytes)?;
         let text = bytes.iter().map(|b| format!("{b:02x}")).collect::<String>();
-        broker.send(json!({"op":"iphone-data","offset":offset,"data":text}))?; offset += bytes.len() as u64;
+        broker.send(json!({"op":if storage {"file-data"} else {"iphone-data"},"offset":offset,"data":text}))?; offset += bytes.len() as u64;
         let result = broker.receive()?;
         if result["event"] != "accepted" || result["offset"].as_u64() != Some(offset) { return Err("Upload stream rejected".into()); }
     }
     let mut result = broker.receive()?; let after = file.metadata()?;
-    if result["completed"] != true || result["bytes"].as_u64() != Some(size) || before.len() != after.len() || before.mtime() != after.mtime() || before.mtime_nsec() != after.mtime_nsec() { return Err("Incomplete upload or changed source; remote partial data may remain".into()); }
-    result["path"] = ready["path"].clone(); Ok(result)
+    if result["completed"] != true || result["bytes"].as_u64() != Some(size) || (storage && result["id"] != ready["id"])
+        || before.len() != after.len() || before.mtime() != after.mtime() || before.mtime_nsec() != after.mtime_nsec() { return Err("Incomplete upload or changed source; remote partial data may remain".into()); }
+    if storage { result["name"] = ready["name"].clone(); } else { result["path"] = ready["path"].clone(); } Ok(result)
 }
 fn checked_probe(value: Value) -> Result<Value> {
     if value["tool"] != "idevice-check" || value["completed"] != true || value["privateConnector"] != true
@@ -98,10 +103,50 @@ fn checked_probe(value: Value) -> Result<Value> {
     Ok(value)
 }
 fn run(args: &[String]) -> Result<Value> {
+    if args == ["clipboard", "set"] {
+        // Reuse the renderer's existing OSC 52 clipboard policy. No broker
+        // token or background clipboard-reading service is introduced.
+        let mut input = Vec::new(); std::io::stdin().take(32769).read_to_end(&mut input)?;
+        if input.len() > 32768 { return Err("Clipboard input exceeds 32 KiB".into()); }
+        std::str::from_utf8(&input)?;
+        const ALPHABET: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let mut encoded = String::new();
+        for chunk in input.chunks(3) {
+            let value = (u32::from(chunk[0]) << 16) | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8) | u32::from(*chunk.get(2).unwrap_or(&0));
+            encoded.push(ALPHABET[((value >> 18) & 63) as usize] as char);
+            encoded.push(ALPHABET[((value >> 12) & 63) as usize] as char);
+            encoded.push(if chunk.len() > 1 { ALPHABET[((value >> 6) & 63) as usize] as char } else { '=' });
+            encoded.push(if chunk.len() > 2 { ALPHABET[(value & 63) as usize] as char } else { '=' });
+        }
+        let mut tty = OpenOptions::new().write(true).open("/dev/tty")?;
+        write!(tty, "\x1b]52;c;{encoded}\x07")?; tty.flush()?;
+        return Ok(json!({"emitted":true,"requiresAttachedTerminal":true,"requiresNativeClipboardPermission":true}));
+    }
     let mut broker = Broker::new()?;
     match args.iter().map(String::as_str).collect::<Vec<_>>().as_slice() {
         ["list"] => broker.call(json!({"op":"list"})),
         ["diagnostics"] => broker.call(json!({"op":"diagnostics"})),
+        ["storage", "roots"] => broker.call(json!({"op":"storage-roots"})),
+        ["storage", "ls", root] => {
+            broker.call(json!({"op":"files-open","root":root,"mode":"read"}))?;
+            broker.call(json!({"op":"ls","parent":""}))
+        },
+        ["storage", "ls", root, parent] => {
+            broker.call(json!({"op":"files-open","root":root,"mode":"read"}))?;
+            broker.call(json!({"op":"ls","parent":parent}))
+        },
+        ["storage", "get", root, handle, local] => {
+            broker.call(json!({"op":"files-open","root":root,"mode":"read"}))?;
+            download(&mut broker, json!({"op":"get","handle":handle}), local)
+        },
+        ["storage", "put", root, parent, local] => {
+            broker.call(json!({"op":"files-open","root":root,"mode":"write"}))?;
+            upload(&mut broker, json!({"op":"put","parent":parent}), local, Path::new(local).file_name().and_then(|s|s.to_str()).ok_or("Invalid filename")?)
+        },
+        ["storage", "put", root, parent, local, "--name", name] => {
+            broker.call(json!({"op":"files-open","root":root,"mode":"write"}))?;
+            upload(&mut broker, json!({"op":"put","parent":parent}), local, name)
+        },
         ["configuration",device,value] => {
             let configuration: u8 = value.parse()?;
             if configuration == 0 { return Err("Configuration must be 1..255".into()); }
@@ -112,15 +157,18 @@ fn run(args: &[String]) -> Result<Value> {
         ["iphone",action,device] if ["pair","info","unpair"].contains(action) => broker.call(json!({"op":"iphone","action":action,"device":device})),
         ["iphone","ls",device] => broker.call(json!({"op":"iphone","action":"afc-list","device":device,"path":"/"})),
         ["iphone","ls",device,path] => broker.call(json!({"op":"iphone","action":"afc-list","device":device,"path":path})),
-        ["iphone","get",device,remote,local] => download(&mut broker, device, remote, local),
-        ["iphone","put",device,local] => upload(&mut broker, device, local, Path::new(local).file_name().and_then(|s|s.to_str()).ok_or("Invalid filename")?),
-        ["iphone","put",device,local,"--name",name] => upload(&mut broker, device, local, name),
+        ["iphone","get",device,remote,local] => download(&mut broker, json!({"op":"iphone","action":"afc-get","device":device,"path":remote}), local),
+        ["iphone","put",device,local] => upload(&mut broker, json!({"op":"iphone","action":"afc-put","device":device}), local, Path::new(local).file_name().and_then(|s|s.to_str()).ok_or("Invalid filename")?),
+        ["iphone","put",device,local,"--name",name] => upload(&mut broker, json!({"op":"iphone","action":"afc-put","device":device}), local, name),
         _ => Err("Use terminal-usb --help".into()),
     }
 }
 fn main() {
     let args: Vec<_> = std::env::args().skip(1).collect();
     if args.is_empty() || args == ["--help"] {
+        println!("printf 'text' | terminal-usb clipboard set — sends OSC 52 to the focused Native terminal; max 32 KiB UTF-8. Enable Native clipboard writes in Terminal settings > Android permissions. Emission is not delivery confirmation.");
+        println!("terminal-usb storage roots | storage ls ROOT [PARENT_HANDLE] — uses existing Android folder grants and per-session approval.");
+        println!("terminal-usb storage get ROOT HANDLE LOCAL_FILE | storage put ROOT PARENT_HANDLE LOCAL_FILE [--name ASCII_NAME] — separate read/write approval; never overwrites a destination.");
         println!("terminal-usb configuration DEVICE VALUE — separate device-wide approval; list again afterward. Never automatic.");
         println!("terminal-usb list | diagnostics | tooling list | tooling check DEVICE\nterminal-usb iphone pair|info|unpair DEVICE\nterminal-usb iphone ls DEVICE [AFC_PATH]\nterminal-usb iphone get DEVICE AFC_PATH LOCAL_FILE\nterminal-usb iphone put DEVICE LOCAL_FILE [--name ASCII_NAME]\nEach device action requires separate approval in the app USB screen. No raw USB FD, pair records or usbmux endpoint enter the terminal."); return;
     }
@@ -130,6 +178,66 @@ fn main() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn request(stream: &mut UnixStream) -> Value {
+        let mut length = [0; 4]; stream.read_exact(&mut length).unwrap();
+        let mut data = vec![0; u32::from_be_bytes(length) as usize]; stream.read_exact(&mut data).unwrap();
+        serde_json::from_slice(&data).unwrap()
+    }
+    fn reply(stream: &mut UnixStream, result: Value) {
+        let data = serde_json::to_vec(&json!({"ok":true,"result":result})).unwrap();
+        stream.write_all(&(data.len() as u32).to_be_bytes()).unwrap(); stream.write_all(&data).unwrap();
+    }
+    fn path(name: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("terminal-native-{name}-{}-{}", std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()))
+    }
+    #[test] fn storage_download_validates_chunks_and_never_overwrites() {
+        let destination = path("download");
+        let (client, mut server) = UnixStream::pair().unwrap();
+        let worker = std::thread::spawn(move || {
+            let r = request(&mut server); assert_eq!(r["op"], "get"); assert_eq!(r["handle"], "opaque");
+            reply(&mut server, json!({"event":"start","size":3}));
+            reply(&mut server, json!({"event":"data","offset":0,"data":"616263"}));
+            reply(&mut server, json!({"completed":true,"bytes":3}));
+        });
+        let mut broker = Broker { stream: client, token: "test".into() };
+        assert!(download(&mut broker, json!({"op":"get","handle":"opaque"}), destination.to_str().unwrap()).is_ok());
+        assert_eq!(fs::read(&destination).unwrap(), b"abc");
+        assert!(download(&mut broker, json!({"op":"get","handle":"opaque"}), destination.to_str().unwrap()).is_err());
+        fs::remove_file(destination).unwrap(); worker.join().unwrap();
+    }
+    #[test] fn storage_download_rejects_out_of_order_data_without_publishing() {
+        let destination = path("bad-download");
+        let (client, mut server) = UnixStream::pair().unwrap();
+        let worker = std::thread::spawn(move || {
+            request(&mut server);
+            reply(&mut server, json!({"event":"start","size":3}));
+            reply(&mut server, json!({"event":"data","offset":1,"data":"616263"}));
+        });
+        let mut broker = Broker { stream: client, token: "test".into() };
+        assert!(download(&mut broker, json!({"op":"get","handle":"opaque"}), destination.to_str().unwrap()).is_err());
+        assert!(!destination.exists()); worker.join().unwrap();
+    }
+    #[test] fn storage_and_iphone_uploads_keep_their_separate_operations_and_receipts() {
+        for storage in [true, false] {
+            let source = path("upload"); fs::write(&source, b"abc").unwrap();
+            let (client, mut server) = UnixStream::pair().unwrap();
+            let worker = std::thread::spawn(move || {
+                let r = request(&mut server);
+                assert_eq!(r["op"], if storage { "put" } else { "iphone" }); assert_eq!(r["size"], 3);
+                reply(&mut server, json!({"event":"ready","size":3,"id":"opaque","name":"file.txt","path":"/TerminalImports/file.txt"}));
+                let r = request(&mut server);
+                assert_eq!(r["op"], if storage { "file-data" } else { "iphone-data" });
+                assert_eq!(r["offset"], 0); assert_eq!(r["data"], "616263");
+                reply(&mut server, json!({"event":"accepted","offset":3}));
+                reply(&mut server, json!({"completed":true,"bytes":3,"id":"opaque"}));
+            });
+            let mut broker = Broker { stream: client, token: "test".into() };
+            let r = if storage { json!({"op":"put","parent":"opaque-parent"}) } else { json!({"op":"iphone","action":"afc-put","device":"test"}) };
+            assert!(upload(&mut broker, r, source.to_str().unwrap(), "file.txt").is_ok());
+            fs::remove_file(source).unwrap(); worker.join().unwrap();
+        }
+    }
     #[test] fn check_rejects_non_probe_status_and_wrong_action() {
         assert!(checked_probe(json!({"tool":"other-tool","state":"FAILED"})).is_err());
         let mut valid = json!({"tool":"idevice-check","completed":true,"privateConnector":true,"publicMuxSocket":false});

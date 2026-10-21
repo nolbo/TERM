@@ -26,7 +26,7 @@ class NativeDiagnosticsActivity : TerminalActivity() {
         job?.cancel()
         job = lifecycleScope.launch {
             loading = true
-            information = withContext(Dispatchers.IO) { inspectNativeCompatibility() }
+            information = withContext(Dispatchers.IO) { inspectNativeCompatibility(applicationContext) }
             loading = false
         }
     }

@@ -37,6 +37,7 @@ internal class PackagedExecutableResolver(
     }
 
     private companion object {
-        val ALLOWED_EXECUTABLES = setOf("proot", "proot-loader", "rootless-notify-probe", "iphone-worker", "terminal-usb", "iphone-tool-probe")
+        val ALLOWED_EXECUTABLES = setOf("proot", "proot-loader", "rootless-notify-probe", "iphone-worker", "terminal-usb", "iphone-tool-probe",
+            "jq", "curl", "ssh", "ssh-keygen", "rg", "vim")
     }
 }

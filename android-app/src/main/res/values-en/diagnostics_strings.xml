@@ -37,7 +37,8 @@
     <string name="diagnostics_unknown">Unknown</string>
     <string name="diagnostics_compatibility">Compatibility and configuration</string>
     <string name="diagnostics_engine_details">Engine details</string>
-    <string name="native_diagnostics_description">Check the Native backend and default system shell execution. Running sessions stay active.</string>
+    <string name="native_diagnostics_description">Run the system shell and bundled tools in a temporary diagnostic HOME. User settings, files and running sessions stay unchanged.</string>
+    <string name="native_tools_checks">Bundled tools and environment checks</string>
     <string name="native_backend_available">Native backend availability</string>
     <string name="native_shell_executable">System shell execution</string>
     <string name="native_default_shell">Default shell path</string>

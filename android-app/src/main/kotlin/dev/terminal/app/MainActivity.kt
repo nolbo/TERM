@@ -532,7 +532,10 @@ class MainActivity : TerminalActivity() {
     }
 
     private fun observeTerminalSessions() {
-        terminalStore.observe(this) { id ->
+        terminalStore.observe(this, onCopy = { id, text ->
+            copyNativeClipboard(this, id, text,
+                activityResumed && window.decorView.hasWindowFocus() && activeSessionId == id)
+        }) { id ->
             val session = terminalSessions[id]
             if (session != null) {
                 updateApplicationTerminalTitle(id, session.title)

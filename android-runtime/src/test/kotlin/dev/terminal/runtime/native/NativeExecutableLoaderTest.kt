@@ -11,6 +11,18 @@ import org.junit.rules.TemporaryFolder
 class NativeExecutableLoaderTest {
     @get:Rule val temporary = TemporaryFolder()
 
+    @Test fun cliToolsAreApprovedButGitAndDownloadedToolsAreRejected() {
+        val directory = temporary.newFolder("cli")
+        val resolver = PackagedExecutableResolver(directory) { listOf("arm64-v8a") }
+        listOf("jq", "curl", "ssh", "ssh-keygen", "rg", "vim").forEach { name ->
+            val executable = File(directory, "lib$name.so").apply { writeText("fixture"); setExecutable(true) }
+            assertEquals(executable.canonicalFile, resolver.resolvePackagedExecutable(name).getOrThrow())
+        }
+        listOf("git", "git2", "../jq", "/data/local/tmp/jq").forEach {
+            assertEquals("Native executable is not allow-listed", resolver.resolvePackagedExecutable(it).exceptionOrNull()?.message)
+        }
+    }
+
     @Test fun resolvesOnlyExecutableAllowListedPayloadFromCanonicalLibraryDirectory() {
         val directory = temporary.newFolder("lib")
         val proot = File(directory, "libproot.so").apply {

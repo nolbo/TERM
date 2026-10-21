@@ -1,0 +1,8 @@
+" TERM defaults; Vim still reads the user's ~/.vimrc afterwards.
+set nocompatible
+set encoding=utf-8
+set backspace=indent,eol,start
+set ttimeout ttimeoutlen=100
+set nomodeline
+filetype plugin indent on
+syntax enable

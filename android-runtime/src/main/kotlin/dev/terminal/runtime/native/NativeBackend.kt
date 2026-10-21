@@ -41,7 +41,8 @@ class NativeBackend(context: Context, storageRoot: File? = null) : RuntimeBacken
             state.value = RuntimeState.Ready
             return@runCatching
         }
-        sessions = NativeSessionController(nativeRoot, hostEnvironment, releaseHostCapabilities)
+        val tools = if (android.os.Build.SUPPORTED_ABIS.contains("arm64-v8a")) NativeToolchain(appContext).prepare() else emptyMap()
+        sessions = NativeSessionController(nativeRoot, hostEnvironment, releaseHostCapabilities, tools)
         state.value = RuntimeState.Ready
     }.onFailure { state.value = RuntimeState.Failed(it.message ?: "Native shell startup failed") }
 

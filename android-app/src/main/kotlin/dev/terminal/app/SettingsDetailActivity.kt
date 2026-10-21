@@ -533,6 +533,10 @@ class SettingsDetailActivity : TerminalActivity() {
         }
         item {
             SettingsSection(R.string.android_permissions) {
+                BooleanSetting(R.string.native_clipboard_write, R.string.native_clipboard_write_support,
+                    nativeClipboardEnabled(this@SettingsDetailActivity)) {
+                    setNativeClipboardEnabled(this@SettingsDetailActivity, it)
+                }
                 ActionSetting(R.string.android_permissions, R.string.android_permissions_support) {
                     startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.fromParts("package", packageName, null)))
                 }

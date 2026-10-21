@@ -15,6 +15,13 @@ accepts only named, allow-listed executables installed with the APK under the
 read-only native library directory. A package download into app data is data,
 not executable code. This deliberately limits dynamic Native package breadth.
 
+The fixed Native CLI bundle (jq, curl, OpenSSH client, rg and Vim, excluding Git)
+is built from pinned NDK/Bionic sources by `tools/native-cli/build.py` as part of
+the APK build. Standard PATH names resolve to loader-approved APK executables;
+Vim runtime and CA roots are verified data resources. This is not a general
+Native package manager. See [NATIVE_SHELL.md](NATIVE_SHELL.md) for recipes,
+licenses, shell configuration, resource layout and validation.
+
 ## Rootless and AVF packages
 
 Debian and Ubuntu in Rootless or AVF use official `apt` and `dpkg`;

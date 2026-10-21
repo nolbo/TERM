@@ -19,7 +19,7 @@ import dev.terminal.runtime.avf.system.*
 import dev.terminal.runtime.native.NativeCompatibility
 import dev.terminal.runtime.rootless.RootlessEngineInfo
 
-internal data class DiagnosticRow(val title: Int, val value: String, val detail: String? = null)
+internal data class DiagnosticRow(val title: Int, val value: String, val detail: String? = null, val titleText: String? = null)
 internal data class DiagnosticSection(val title: Int, val rows: List<DiagnosticRow>, val note: String? = null)
 internal val diagnosticMenuCategories = listOf(
     R.string.diagnostics_category_runtime to listOf(
@@ -89,7 +89,7 @@ private fun DiagnosticPage(title: Int, description: Int, loading: Boolean, onBac
                                 trailingContent = { SelectionContainer { Text(row.value, Modifier.widthIn(max = 180.dp),
                                     style = MaterialTheme.typography.labelLarge) } },
                                 verticalAlignment = Alignment.CenterVertically, colors = terminalSettingsListItemColors(),
-                                modifier = Modifier.fillMaxWidth().settingsItemSurface()) { Text(stringResource(row.title)) }
+                                modifier = Modifier.fillMaxWidth().settingsItemSurface()) { Text(row.titleText ?: stringResource(row.title)) }
                     } }
                     section.note?.let { Text(it, Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -110,7 +110,9 @@ internal fun NativeDiagnosticsScreen(info: NativeCompatibility?, loading: Boolea
             DiagnosticRow(R.string.native_backend_available, observed(info?.backendAvailable), info?.backendError),
             DiagnosticRow(R.string.native_shell_executable, observed(info?.shellExecutable), info?.shellError),
             DiagnosticRow(R.string.native_default_shell, info?.shellPath ?: stringResource(R.string.diagnostics_unknown)),
-        ))))
+        )), DiagnosticSection(R.string.native_tools_checks, info?.checks.orEmpty().map {
+            DiagnosticRow(R.string.native_tools_checks, observed(it.passed), it.detail, it.name)
+        })))
 }
 
 @Composable

@@ -106,6 +106,7 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("terminal", R.string.wake_policy, R.string.wake_policy_support, terminal + R.string.section_background_execution, section = 6)
     entry("terminal", R.string.battery_optimization, R.string.battery_optimization_required, terminal + R.string.section_background_execution, section = 6)
     entry("terminal", R.string.android_permissions, R.string.android_permissions_support, terminal, section = 7)
+    entry("terminal", R.string.native_clipboard_write, R.string.native_clipboard_write_support, terminal + R.string.android_permissions, section = 7)
     entry("appearance", R.string.terminal_padding, R.string.terminal_padding_support, appearance + R.string.section_terminal_layout, section = 1)
     entry("appearance", R.string.font_size, R.string.font_size_support, appearance + R.string.section_text, section = 2)
     entry("appearance", R.string.add_custom_font, R.string.add_custom_font_support, appearance + R.string.section_custom_fonts, section = 3)

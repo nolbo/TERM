@@ -36,6 +36,83 @@ class TerminalTuiLifecycleTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
 
+    @Test fun nativeClipboardUsesExplicitGrantAndFocusedForegroundTerminal() = withSession { service, id ->
+        val grants = dev.terminal.bridge.SharedPreferencesCapabilityGrantStore(context)
+        val capability = dev.terminal.bridge.Capability.CLIPBOARD_WRITE
+        val previousGrant = grants.get(NATIVE_CLIPBOARD_SCOPE, capability)
+        val clipboard = context.getSystemService(android.content.ClipboardManager::class.java)
+        var previousClip: android.content.ClipData? = null
+        var clipboardCaptured = false
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val terminal = select(scenario, id)
+                scenario.onActivity {
+                    previousClip = clipboard.primaryClip
+                    clipboardCaptured = true
+                    clipboard.setPrimaryClip(android.content.ClipData.newPlainText("fixture", "native-clipboard-initial"))
+                }
+                setNativeClipboardEnabled(context, false)
+                service.writeSessionInput(id, "printf native-denied | terminal-usb clipboard set; printf '\\nCLIP_%s\\n' DENIED\n".toByteArray())
+                await("denied Native clipboard command completed") { screen(terminal).contains("CLIP_DENIED") }
+                scenario.onActivity { assertEquals("native-clipboard-initial", clipboard.primaryClip?.getItemAt(0)?.text?.toString()) }
+                setNativeClipboardEnabled(context, true)
+                service.writeSessionInput(id, "printf '한글 native-clipboard-allowed' | terminal-usb clipboard set\n".toByteArray())
+                await("foreground Native OSC 52 reaches the granted Android clipboard") {
+                    var copied = false
+                    scenario.onActivity { copied = clipboard.primaryClip?.getItemAt(0)?.text?.toString() == "한글 native-clipboard-allowed" }
+                    copied
+                }
+                assertFalse(copyNativeClipboard(context, id, "background", false))
+                assertFalse(copyNativeClipboard(context, "avf-fixture", "guest", true))
+                assertFalse(copyNativeClipboard(context, id, "x".repeat(32769), true))
+            }
+        } finally {
+            grants.set(NATIVE_CLIPBOARD_SCOPE, capability, previousGrant)
+            instrumentation.runOnMainSync {
+                if (clipboardCaptured) previousClip?.let(clipboard::setPrimaryClip) ?: clipboard.clearPrimaryClip()
+            }
+        }
+    }
+
+    @Test fun bundledVimAcceptsImeUtf8AndHardwareEscapeAndSavesAfterRecreation() = withSession { service, id ->
+        val output = java.io.File(context.cacheDir, "vim-ui-${java.util.UUID.randomUUID()}.json")
+        try {
+            ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+                val terminal = select(scenario, id)
+                service.writeSessionInput(id, "vim '${output.absolutePath}'\n".toByteArray())
+                await("Vim alternate screen: ${screen(terminal).takeLast(1000)}") {
+                    var alternate = false
+                    instrumentation.runOnMainSync { alternate = terminal.emulator.isAlternateBufferActive }
+                    alternate
+                }
+                scenario.onActivity {
+                    val target = checkNotNull(it.focusedTerminalView())
+                    assertTrue(target.onCreateInputConnection(android.view.inputmethod.EditorInfo()).commitText("i{\"한글\":42}", 1))
+                    assertTrue(target.onKeyDown(KeyEvent.KEYCODE_ESCAPE, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ESCAPE)))
+                    target.onKeyUp(KeyEvent.KEYCODE_ESCAPE, KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ESCAPE))
+                }
+                scenario.recreate()
+                select(scenario, id)
+                scenario.onActivity {
+                    val target = checkNotNull(it.focusedTerminalView())
+                    // A multiline IME commit is intentionally a bracketed paste.
+                    // Enter is a key event here, as it is when typing a Vim command.
+                    assertTrue(target.onCreateInputConnection(android.view.inputmethod.EditorInfo()).commitText(":wq", 1))
+                    assertTrue(target.onKeyDown(KeyEvent.KEYCODE_ENTER, KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_ENTER)))
+                    target.onKeyUp(KeyEvent.KEYCODE_ENTER, KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_ENTER))
+                }
+                try {
+                    await("Vim saved UTF-8 through IME after Activity recreation") {
+                        output.isFile && output.readText() == "{\"한글\":42}\n"
+                    }
+                } catch (failure: AssertionError) {
+                    throw AssertionError("Vim fixture file=${if (output.isFile) output.readText() else "missing"}; " +
+                        "screen=${screen(terminal).takeLast(1000)}", failure)
+                }
+            }
+        } finally { output.delete() }
+    }
+
     @Test fun idlePromptReleasesWakeLockButSilentCommandKeepsItAfterUiDetach() = withSession { service, id ->
         val oldPolicy = service.wakePolicy
         fun held(): Boolean = instrumentation.uiAutomation.executeShellCommand("dumpsys power").use { fd ->

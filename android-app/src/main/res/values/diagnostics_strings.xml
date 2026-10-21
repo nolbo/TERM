@@ -37,7 +37,8 @@
     <string name="diagnostics_unknown">확인 불가</string>
     <string name="diagnostics_compatibility">호환성 및 기본 구성</string>
     <string name="diagnostics_engine_details">엔진 상세</string>
-    <string name="native_diagnostics_description">Native 백엔드와 기본 시스템 셸의 실행 가능 여부를 확인합니다. 실행 중인 세션은 변경하지 않습니다.</string>
+    <string name="native_diagnostics_description">시스템 셸과 내장 CLI를 임시 진단 HOME에서 실행합니다. 사용자 설정·파일과 실행 중인 세션은 변경하지 않습니다.</string>
+    <string name="native_tools_checks">내장 도구 및 환경 검사</string>
     <string name="native_backend_available">Native 백엔드 제공</string>
     <string name="native_shell_executable">시스템 셸 실행 가능</string>
     <string name="native_default_shell">기본 셸 경로</string>

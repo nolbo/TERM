@@ -159,6 +159,26 @@ AVF 이미지는 **설정 → 실행환경**의 해당 AVF 실행환경 상세�
 
 > Native 모드는 일반 Android 셸 실행환경이며 systemd나 완전한 Debian 패키지 호환을 제공하지 않습니다. 실제 Debian VM은 OEM/플랫폼 서명 AOSP 배포 실행환경에서 동작합니다.
 
+Native에는 `jq`, `curl`, `ssh`, `ssh-keygen`, `rg`, `vim`이 내장되어 있어
+설치 없이 셸과 스크립트에서 같은 이름으로 실행할 수 있습니다. Git은 포함하지
+않습니다. 개인 셸 설정은 `~/.termrc`, Vim 설정은 `~/.vimrc`에 저장하세요.
+기존 파일은 유지되며 TERM의 기본 설정은 HOME 밖에서 관리합니다. 명령 기록은
+셸 메모리와 TERM의 명령 기록 도구에서 사용할 수 있습니다. AOSP의 기본 mksh는
+영구 기록 기능이 빠져 있어 `~/.sh_history`를 저장하지 않으며, 이를 지원하는
+제조사 셸에만 그 기본 경로가 적용됩니다. curl은 인증서 검증을 기본으로 사용하며 SSH의
+키·호스트 확인 파일은 HOME의 `.ssh`에서 관리합니다. Vim의 UTF-8 편집·문법
+강조·저장을 지원하며 GUI·내장 Python·맞춤법 사전·도움말 문서는 포함하지 않습니다.
+
+`terminal-usb storage roots`와 `terminal-usb storage ls ROOT`는 앱에서 선택한
+저장소와 기존 읽기 승인을 사용합니다. `printf '복사할 내용' | terminal-usb clipboard set`은
+열려 있는 터미널에서 클립보드 복사를 요청합니다. 먼저 **터미널 설정 → Android 권한 →
+Native 클립보드 쓰기 허용**을 켜세요(기본 꺼짐). 화면에서 포커스된 Native 세션만
+복사할 수 있으며 출력의 `emitted`는 요청 전송을 뜻하고 복사 완료 확인은 아닙니다.
+`terminal-usb storage get ROOT HANDLE LOCAL_FILE`과 `storage put ROOT PARENT_HANDLE LOCAL_FILE`은
+각각 기존 읽기·쓰기 승인을 사용합니다. Android 클립보드 읽기나
+새 저장소 권한을 부여하지 않습니다. 진단 및 리포트의 Native 검사에서는 임시 HOME으로
+내장 도구를 실행하며 사용자 파일과 세션은 건드리지 않습니다.
+
 ## 세션 작업 알림
 
 **설정 → 터미널 설정 → 셸 → 세션 작업 알림**에서 켜거나 끌 수 있습니다.

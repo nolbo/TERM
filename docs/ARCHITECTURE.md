@@ -103,6 +103,12 @@ Debian binary packages. Package support is recipe-driven, automation-first,
 tested, and bounded to structurally valuable tools. Do not create a giant
 popularity-based package distribution.
 
+The fixed APK Native toolchain includes jq, curl, the OpenSSH client, rg and Vim,
+with no Git payload. Its managed PATH contains only links to approved installed
+APK executables; CA/Vim resources are versioned data outside Environment home.
+Managed shell defaults and user `~/.termrc` are separate, preserving existing
+user files and session ownership. See [NATIVE_SHELL.md](NATIVE_SHELL.md).
+
 Modern Android executable restrictions are an architectural boundary. All
 dynamically installed or packaged native executables go through the centralized
 NativeExecutableLoader policy. Never pretend a package system is complete if
