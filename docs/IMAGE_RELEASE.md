@@ -52,12 +52,14 @@ The producer requires the guest's `systemd-networkd` and `systemd-resolved`, ins
 
 The direct-kernel smoke VM explicitly disables QEMU's default NIC with `-nic none`. It requires no network access or network boot ROM; the container can retain its minimal QEMU package set. The network configuration gate does not exercise a live NIC, DHCP lease, DNS lookup or Internet download. Android TAP/tethering and an upstream `apt-get update -o APT::Update::Error-Mode=any` still need a supported AVF target. Newly generated images receive this policy; existing installations and the approved catalog are not changed by modifying the producer.
 
-Google's current direct-boot rootfs does not contain `/boot/vmlinuz-*` or `/lib/modules`; its paired initrd contains the matching kernel modules without a userspace boot script. Debian/Arch production preserves Google's kernel. New Ubuntu production requires the rebuilt container-kernel bundle described in [AVF_CONTAINER_KERNEL.md](AVF_CONTAINER_KERNEL.md), replacing the paired kernel/module inputs together. The producer restores the single module tree inside the isolated guest, verifies overlay support through its module metadata, and generates an initramfs-tools ramdisk with the overlay hook. It rejects absent, ambiguous or mismatched module releases. New Ubuntu builds require both container feature probes; the approved Ubuntu image remains unchanged until a candidate passes production and publication. The system image grows to at least 6 GiB inside the appliance to hold modules, the generated initrd, and TERM services; larger inputs are never truncated. The two-boot gate remains mandatory to establish that this kernel and ramdisk actually boot and retain overlay writes.
+Google's current direct-boot rootfs does not contain `/boot/vmlinuz-*` or `/lib/modules`; its paired initrd contains the matching kernel modules without a userspace boot script. New Debian, Ubuntu and Arch production requires the rebuilt container-kernel bundle described in [AVF_CONTAINER_KERNEL.md](AVF_CONTAINER_KERNEL.md), replacing the paired kernel/module inputs together. The producer restores the single module tree inside the isolated guest, verifies overlay support through its module metadata, and generates an initramfs-tools ramdisk with the overlay hook. It rejects absent, ambiguous or mismatched module releases. Every distribution requires both container feature probes; existing approved images remain unchanged until new candidates pass production and publication. The system image grows to at least 6 GiB inside the appliance to hold modules, the generated initrd, and TERM services; larger inputs are never truncated. The two-boot gate remains mandatory to establish that this kernel and ramdisk actually boot and retain overlay writes.
 
-For local product development, the same pipeline is one command:
+For local product development, first build and verify the kernel bundle using
+[AVF_CONTAINER_KERNEL.md](AVF_CONTAINER_KERNEL.md), then run the same image pipeline:
 
 ```sh
 python3 image/scripts/build-avf-image.py \
+  --kernel-bundle image/build/kernel-bundle \
   --release-id avf-debian-1 \
   --base-uri https://github.com/nolbo/TERM/releases/download/avf-debian-1/ \
   --output image/build/approved

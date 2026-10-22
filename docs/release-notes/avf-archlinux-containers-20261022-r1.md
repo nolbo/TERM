@@ -1,6 +1,7 @@
 # TERM AVF Arch Linux ARM 컨테이너 테스트 이미지
 
 - 이미지 ID: `avf-archlinux-containers-20261022-r1`
+- 배포일: 2026-10-22
 - 대상: AVF Arch Linux ARM 실행환경
 - 사용자 기기 검증용 프리릴리즈이며 정식·Preview 앱 채널과 기본 카탈로그 승격은 포함하지 않습니다.
 
