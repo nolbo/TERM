@@ -104,7 +104,20 @@ Unavailable local/custom packages or repository failures abort the update.
 It copies `/home`, `/root`, `/srv`, `/opt`, `/workspace`, preserving Linux
 file/link/owner/mode/xattr/hardlink semantics without crossing mounts. `/etc` uses
 a conservative three-way merge: retain edits when new defaults match the old
-base, accept identical edits, abort conflicts. TERM-managed files, fstab,
+base, accept identical edits, abort conflicts. Local `passwd`, `group`, `shadow`
+and `gshadow` databases instead merge by account name and field, with three-way
+set merging for supplementary members and group administrators. Independent
+package-created accounts and user memberships therefore do not conflict merely
+because they share a file. Account deletion versus editing, conflicting fields,
+UID/GID collisions or renumbering, missing primary groups and inconsistent shadow
+entries abort without changing the original generation. Numeric ownership from
+both old user data and candidate package files must remain valid; migration does
+not renumber accounts or guess at password conflicts. All four databases are
+validated before private temporary files replace candidate entries, retaining
+candidate owner, mode and extended attributes. Account database symlinks are
+rejected. Generated `passwd-`, `group-`, `shadow-`, `gshadow-` backups and
+`.pwd.lock` stay candidate-local instead of being replayed as user configuration.
+Other `/etc` conflicts still require resolution. TERM-managed files, fstab,
 machine-id and resolver use new policy. Databases under `/var/lib`, custom
 `/usr/local` content and other root paths are not automatically migrated. They
 remain in the complete old generation and need application-aware migration.
@@ -145,6 +158,8 @@ already committed update with its previous generation retained.
 Host tests cover move interruption, matching state rollback, rejected/corrupt
 candidates, failed health/generation checks, opcode restrictions, package
 construction and configuration/package selection validation. Both disposable
-offline factory boots must adopt the package and emit `TERM_AVF_GUEST_PACKAGE_OK`.
+offline factory boots must adopt the package, test account merging against
+disposable copies of their distribution's real databases, and emit
+`TERM_AVF_ACCOUNT_MERGE_OK` followed by `TERM_AVF_GUEST_PACKAGE_OK`.
 Actual Android maintenance/validation boots, owner-death recovery and restore
 still require a privileged AVF target. Stock emulator checks do not prove them.

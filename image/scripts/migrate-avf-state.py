@@ -6,11 +6,15 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
+import tempfile
 
 OLD = Path("/run/term-maintenance/old")
 LOWER = Path("/run/term-maintenance/lower")
+ACCOUNT_FIELDS = {"passwd": 7, "group": 4, "shadow": 9, "gshadow": 4}
+ACCOUNT_LOCAL_FILES = set(ACCOUNT_FIELDS) | {name + "-" for name in ACCOUNT_FIELDS} | {".pwd.lock"}
 
 
 def run(*args):
@@ -25,13 +29,17 @@ def same(left, right):
     return left.is_file() and right.is_file() and filecmp.cmp(left, right, shallow=False)
 
 
-def copy_entry(source, target):
-    # Never follow a target symlink while copying privileged configuration.
-    parent = target.parent
+def reject_symlink_parents(path):
+    parent = path.parent
     while parent != parent.parent:
         if parent.is_symlink():
-            raise RuntimeError(f"Migration target has symlink parent: {target}")
+            raise RuntimeError(f"Migration path has symlink parent: {path}")
         parent = parent.parent
+
+
+def copy_entry(source, target):
+    # Never follow a target symlink while copying privileged configuration.
+    reject_symlink_parents(target)
     target.parent.mkdir(parents=True, exist_ok=True)
     if target.is_symlink() or target.is_file():
         target.unlink()
@@ -45,13 +53,143 @@ def copy_entry(source, target):
         raise RuntimeError(f"Unsupported migration entry: {source}")
 
 
+def account_conflict(database, name, reason):
+    # Do not include record contents: shadow/gshadow can contain password hashes.
+    raise RuntimeError(f"Account configuration conflict; old environment retained: /etc/{database} ({name}: {reason})")
+
+
+def read_accounts(directory, database):
+    path = directory / database
+    reject_symlink_parents(path)
+    if path.is_symlink() or (path.exists() and not path.is_file()):
+        account_conflict(database, "file", "expected a regular file")
+    records = {}
+    if path.exists():
+        for line in path.read_text().splitlines():
+            if not line:
+                continue
+            fields = tuple(line.split(":"))
+            name = fields[0]
+            if (len(fields) != ACCOUNT_FIELDS[database] or not name or
+                    name.startswith(("+", "-")) or name in records):
+                account_conflict(database, "record", "invalid or duplicate account entry")
+            if database in ("passwd", "group"):
+                indexes = (2, 3) if database == "passwd" else (2,)
+                if any(not re.fullmatch(r"[0-9]+", fields[i]) or int(fields[i]) >= 2**32 - 1 for i in indexes):
+                    account_conflict(database, name, "invalid numeric identity")
+            records[name] = fields
+    return records
+
+
+def merge_account_record(database, name, before, source, destination):
+    if source == before:
+        return destination
+    if source == destination or before == destination:
+        return source
+    if source is None or destination is None:
+        account_conflict(database, name, "deletion conflicts with an edited account")
+    merged = [name]
+    for index in range(1, ACCOUNT_FIELDS[database]):
+        base = before[index] if before is not None else None
+        old, new = source[index], destination[index]
+        if (database == "group" and index == 3) or (database == "gshadow" and index in (2, 3)):
+            # Three-way set edits preserve removals as well as independent additions.
+            members = lambda value: set(filter(None, (value or "").split(",")))
+            value = (members(new) - (members(base) - members(old))) | (members(old) - members(base))
+            merged.append(",".join(sorted(value)))
+        elif old == base:
+            merged.append(new)
+        elif old == new or new == base:
+            merged.append(old)
+        else:
+            account_conflict(database, name, f"both versions changed field {index + 1}")
+    return tuple(merged)
+
+
+def validate_accounts(merged, old, target):
+    # Both copied user data and new package files retain numeric ownership. Never
+    # silently remap either side, including IDs belonging to deleted accounts.
+    for database in ("passwd", "group"):
+        owners = {}
+        for name, fields in merged[database].items():
+            identity = int(fields[2])
+            if identity in owners:
+                account_conflict(database, name, "duplicate numeric identity")
+            owners[identity] = name
+        for records in (old[database], target[database]):
+            for name, fields in records.items():
+                identity = int(fields[2])
+                if identity in owners and owners[identity] != name:
+                    account_conflict(database, name, "numeric identity would belong to another account")
+                if name in merged[database] and int(merged[database][name][2]) != identity:
+                    account_conflict(database, name, "numeric identity differs between environments")
+    gids = {int(fields[2]) for fields in merged["group"].values()}
+    for name, fields in merged["passwd"].items():
+        if int(fields[3]) not in gids:
+            account_conflict("passwd", name, "primary group is missing")
+        if fields[1] == "x" and name not in merged["shadow"]:
+            account_conflict("shadow", name, "password entry is missing")
+    for name in merged["shadow"]:
+        if name not in merged["passwd"]:
+            account_conflict("shadow", name, "user is missing")
+    for name, fields in merged["gshadow"].items():
+        group = merged["group"].get(name)
+        if group is None or set(filter(None, group[3].split(","))) != set(filter(None, fields[3].split(","))):
+            account_conflict("gshadow", name, "group membership is inconsistent")
+    if merged["gshadow"]:
+        for name in merged["group"]:
+            if name not in merged["gshadow"]:
+                account_conflict("gshadow", name, "group entry is missing")
+
+
+def merge_accounts(old, lower, target):
+    versions = [{name: read_accounts(directory, name) for name in ACCOUNT_FIELDS}
+                for directory in (old, lower, target)]
+    source, before, destination = versions
+    merged = {}
+    for database in ACCOUNT_FIELDS:
+        merged[database] = {}
+        # Keep the candidate's order and append retained user additions.
+        names = dict.fromkeys([*destination[database], *source[database], *before[database]])
+        for name in names:
+            record = merge_account_record(database, name, before[database].get(name),
+                                          source[database].get(name), destination[database].get(name))
+            if record is not None:
+                merged[database][name] = record
+    validate_accounts(merged, source, destination)
+    staged = []
+    try:
+        for database, records in merged.items():
+            if records == destination[database]:
+                continue
+            path = target / database
+            template = path if path.exists() else old / database
+            # Create private files first; retain the candidate's owner/mode/xattrs,
+            # especially shadow/gshadow permissions, before atomic replacement.
+            fd, temporary = tempfile.mkstemp(prefix=f".{database}.term-", dir=target)
+            temporary = Path(temporary)
+            staged.append((temporary, path))
+            with os.fdopen(fd, "w") as output:
+                output.write("".join(":".join(fields) + "\n" for fields in records.values()))
+            metadata = template.stat()
+            os.chown(temporary, metadata.st_uid, metadata.st_gid)
+            shutil.copystat(template, temporary)
+            temporary.chmod(stat.S_IMODE(metadata.st_mode))
+        for temporary, path in staged:
+            temporary.replace(path)
+    finally:
+        for temporary, _ in staged:
+            temporary.unlink(missing_ok=True)
+
+
 def merge_config(old, lower, target, managed):
     """Three-way merge: preserve user changes only if the new base agrees, otherwise abort."""
+    merge_accounts(old, lower, target)
     paths = {p.relative_to(old) for p in old.rglob("*")} | {p.relative_to(lower) for p in lower.rglob("*")}
     for relative in sorted(paths):
         before, source, destination = lower / relative, old / relative, target / relative
         name = "/etc/" + str(relative)
-        if name in managed or str(relative) in ("machine-id", "fstab", "resolv.conf"):
+        if name in managed or str(relative) in ACCOUNT_LOCAL_FILES | {"machine-id", "fstab", "resolv.conf"}:
             continue
         if source.is_dir() and not source.is_symlink():
             continue

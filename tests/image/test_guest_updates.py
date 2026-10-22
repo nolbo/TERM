@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import re
 import shlex
+import stat
 import subprocess
 import tarfile
 import tempfile
@@ -22,6 +23,165 @@ def load(name):
 
 migration = load("migrate-avf-state")
 packaging = load("build-guest-package")
+
+
+class AccountMigrationTest(unittest.TestCase):
+    def setUp(self):
+        temporary = tempfile.TemporaryDirectory()
+        self.addCleanup(temporary.cleanup)
+        self.root = Path(temporary.name)
+        self.old, self.lower, self.target = [self.root / name for name in ("old", "lower", "new")]
+        baseline = {
+            "passwd": "root:x:0:0:root:/root:/bin/bash\ndroid:x:1000:1000::/home/droid:/bin/bash\n",
+            "shadow": "root:!:20000:0:99999:7:::\ndroid:!:20000:0:99999:7:::\n",
+            "group": "root:x:0:\ndroid:x:1000:\nsudo:x:27:droid\n",
+            "gshadow": "root:!::\ndroid:!::\nsudo:!::droid\n",
+        }
+        for directory in (self.old, self.lower, self.target):
+            directory.mkdir()
+            for name, contents in baseline.items():
+                path = directory / name
+                path.write_text(contents)
+                path.chmod(0o640 if name in ("shadow", "gshadow") else 0o644)
+
+    def group(self, directory, name, gid, members="", password="x"):
+        for database, record in (("group", f"{name}:{password}:{gid}:{members}\n"),
+                                 ("gshadow", f"{name}:!::{members}\n")):
+            path = directory / database
+            lines = [line for line in path.read_text().splitlines(True) if not line.startswith(name + ":")]
+            path.write_text("".join(lines) + record)
+
+    def user(self, directory, name, uid, gid):
+        with (directory / "passwd").open("a") as output:
+            output.write(f"{name}:x:{uid}:{gid}::/home/{name}:/bin/bash\n")
+        with (directory / "shadow").open("a") as output:
+            output.write(f"{name}:!:20000:0:99999:7:::\n")
+
+    def merge(self):
+        migration.merge_config(self.old, self.lower, self.target, set())
+
+    def snapshot(self, directory):
+        return {p.name: p.read_bytes() for p in directory.iterdir() if p.is_file() and not p.is_symlink()}
+
+    def assert_conflict_unchanged(self, reason):
+        before = self.snapshot(self.target)
+        original = self.snapshot(self.old)
+        with self.assertRaisesRegex(RuntimeError, reason):
+            self.merge()
+        self.assertEqual(self.snapshot(self.target), before)
+        self.assertEqual(self.snapshot(self.old), original)
+
+    def test_independent_package_groups_and_user_memberships_merge(self):
+        self.group(self.old, "docker", 1001, "droid")
+        self.group(self.target, "render", 109)
+        self.group(self.old, "sudo", 27, "")
+        self.group(self.target, "sudo", 27, "droid,root")
+        original, base = self.snapshot(self.old), self.snapshot(self.lower)
+        self.merge()
+        group = (self.target / "group").read_text()
+        self.assertIn("docker:x:1001:droid\n", group)
+        self.assertIn("render:x:109:\n", group)
+        self.assertIn("sudo:x:27:root\n", group)
+        self.assertIn("sudo:!::root\n", (self.target / "gshadow").read_text())
+        self.assertEqual(self.snapshot(self.old), original)
+        self.assertEqual(self.snapshot(self.lower), base)
+        merged = self.snapshot(self.target)
+        self.merge()
+        self.assertEqual(self.snapshot(self.target), merged)
+
+    def test_same_new_group_merges_members_without_losing_either_side(self):
+        self.group(self.old, "docker", 1001, "droid")
+        self.group(self.target, "docker", 1001, "root")
+        self.merge()
+        self.assertIn("docker:x:1001:droid,root\n", (self.target / "group").read_text())
+        self.assertIn("docker:!::droid,root\n", (self.target / "gshadow").read_text())
+
+    def test_user_account_password_and_new_service_account_are_retained(self):
+        self.group(self.old, "alice", 1001)
+        self.user(self.old, "alice", 1001, 1001)
+        self.group(self.target, "service", 109)
+        self.user(self.target, "service", 109, 109)
+        (self.old / "shadow").write_text((self.old / "shadow").read_text().replace("droid:!:", "droid:locked-test-value:"))
+        (self.target / "passwd").write_text((self.target / "passwd").read_text().replace("1000:1000::", "1000:1000:TERM user:"))
+        self.merge()
+        self.assertIn("alice:x:1001:1001:", (self.target / "passwd").read_text())
+        self.assertIn("service:x:109:109:", (self.target / "passwd").read_text())
+        self.assertIn("droid:x:1000:1000:TERM user:", (self.target / "passwd").read_text())
+        self.assertIn("droid:locked-test-value:", (self.target / "shadow").read_text())
+        for name in ("shadow", "gshadow"):
+            self.assertEqual(stat.S_IMODE((self.target / name).stat().st_mode), 0o640)
+            self.assertEqual((self.target / name).stat().st_uid, os.getuid())
+
+    def test_generated_account_backups_and_lock_are_not_replayed(self):
+        for name in ("group-", "gshadow-", "passwd-", "shadow-", ".pwd.lock"):
+            for directory, value in ((self.lower, "base"), (self.old, "old backup"), (self.target, "candidate backup")):
+                (directory / name).write_text(value)
+        self.group(self.old, "docker", 1001, "droid")
+        self.group(self.target, "render", 109)
+        self.merge()
+        for name in ("group-", "gshadow-", "passwd-", "shadow-", ".pwd.lock"):
+            self.assertEqual((self.target / name).read_text(), "candidate backup")
+
+    def test_nonconflicting_account_removal_is_preserved(self):
+        for name in ("group", "gshadow"):
+            path = self.old / name
+            path.write_text("".join(line for line in path.read_text().splitlines(True) if not line.startswith("sudo:")))
+        self.merge()
+        self.assertNotIn("sudo:", (self.target / "group").read_text())
+        self.assertNotIn("sudo:", (self.target / "gshadow").read_text())
+
+    def test_same_name_with_different_gid_is_not_silently_remapped(self):
+        self.group(self.old, "docker", 1001, "droid")
+        self.group(self.target, "docker", 1002)
+        self.assert_conflict_unchanged("both versions changed field 3")
+
+    def test_different_names_cannot_claim_the_same_gid(self):
+        self.group(self.old, "docker", 1001, "droid")
+        self.group(self.target, "service", 1001)
+        self.assert_conflict_unchanged("duplicate numeric identity")
+
+    def test_new_base_cannot_change_existing_uid_while_copying_old_home(self):
+        path = self.target / "passwd"
+        path.write_text(path.read_text().replace("droid:x:1000:", "droid:x:1001:"))
+        self.assert_conflict_unchanged("numeric identity differs")
+
+    def test_deleted_user_id_cannot_be_reassigned_to_new_service(self):
+        self.user(self.lower, "olduser", 1001, 1000)
+        self.user(self.old, "olduser", 1001, 1000)
+        self.user(self.target, "service", 1001, 1000)
+        self.assert_conflict_unchanged("numeric identity would belong to another account")
+
+    def test_password_conflict_is_reported_without_values(self):
+        path = self.old / "shadow"
+        path.write_text(path.read_text().replace("droid:!:", "droid:private-old-value:"))
+        path = self.target / "shadow"
+        path.write_text(path.read_text().replace("droid:!:", "droid:private-new-value:"))
+        with self.assertRaisesRegex(RuntimeError, "shadow.*both versions changed field 2") as error:
+            self.merge()
+        self.assertNotIn("private-", str(error.exception))
+
+    def test_missing_primary_group_and_inconsistent_shadow_membership_are_rejected(self):
+        for database, replacement, reason in (("passwd", ("1000:1000:", "1000:5555:"), "primary group is missing"),
+                                               ("gshadow", ("sudo:!::droid", "sudo:!::root"), "membership is inconsistent")):
+            with self.subTest(database=database):
+                path = self.old / database
+                original = path.read_text()
+                path.write_text(original.replace(*replacement))
+                self.assert_conflict_unchanged(reason)
+                path.write_text(original)
+
+    def test_symlink_and_malformed_database_are_rejected_without_writing(self):
+        external = self.root / "external"
+        external.write_text("sentinel")
+        path = self.target / "group"
+        original = path.read_text()
+        path.unlink()
+        path.symlink_to(external)
+        self.assert_conflict_unchanged("expected a regular file")
+        self.assertEqual(external.read_text(), "sentinel")
+        path.unlink()
+        path.write_text(original + "root:x:0:\n")
+        self.assert_conflict_unchanged("invalid or duplicate")
 
 
 class GuestUpdatesTest(unittest.TestCase):

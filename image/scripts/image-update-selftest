@@ -15,4 +15,50 @@ case "$(cat /etc/droid/distribution)" in
 esac
 /usr/local/lib/droid/droid-sessiond --self-check
 /usr/local/lib/droid/check-avf-image.sh
+# Exercise the shipped migration code against this distribution's actual account
+# databases, using disposable copies only. No live account or credential changes.
+python3 - <<'PY'
+import os
+from pathlib import Path
+import runpy
+import shutil
+import stat
+import tempfile
+
+migration = runpy.run_path('/usr/local/lib/droid/migrate-avf-state.py')
+with tempfile.TemporaryDirectory(prefix='term-account-merge-') as temporary:
+    old, lower, target = [Path(temporary) / name for name in ('old', 'lower', 'new')]
+    for directory in (old, lower, target):
+        directory.mkdir()
+        for name in migration['ACCOUNT_FIELDS']:
+            if (Path('/etc') / name).exists():
+                shutil.copy2(Path('/etc') / name, directory / name)
+                metadata = (Path('/etc') / name).stat()
+                os.chown(directory / name, metadata.st_uid, metadata.st_gid)
+    source = {p.name: p.read_bytes() for p in old.iterdir()}
+    groups = migration['read_accounts'](lower, 'group')
+    used = {int(record[2]) for record in groups.values()}
+    available = [gid for gid in range(50000, 60000) if gid not in used]
+    for directory, name, gid in ((old, 'term-old-probe', available[0]),
+                                 (target, 'term-new-probe', available[1])):
+        assert name not in groups
+        with (directory / 'group').open('a') as output:
+            output.write(f'{name}:x:{gid}:droid\n')
+        if (directory / 'gshadow').exists():
+            with (directory / 'gshadow').open('a') as output:
+                output.write(f'{name}:!::droid\n')
+    modified_old = {p.name: p.read_bytes() for p in old.iterdir()}
+    migration['merge_config'](old, lower, target, set())
+    merged = migration['read_accounts'](target, 'group')
+    assert merged['term-old-probe'][2:] == (str(available[0]), 'droid')
+    assert merged['term-new-probe'][2:] == (str(available[1]), 'droid')
+    assert {p.name: p.read_bytes() for p in old.iterdir()} == modified_old
+    assert {p.name: p.read_bytes() for p in lower.iterdir()} == source
+    for name in ('shadow', 'gshadow'):
+        if (target / name).exists():
+            assert stat.S_IMODE((target / name).stat().st_mode) == stat.S_IMODE((lower / name).stat().st_mode)
+            assert (target / name).stat().st_uid == os.getuid()
+            assert (target / name).stat().st_gid == (lower / name).stat().st_gid
+print('TERM_AVF_ACCOUNT_MERGE_OK')
+PY
 echo TERM_AVF_GUEST_PACKAGE_OK
