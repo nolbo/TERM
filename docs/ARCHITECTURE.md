@@ -92,6 +92,8 @@ vsock, or package-manager implementation details.
 
 Stopping an idle Environment releases only that Environment's backend and session registration. AVF transport read, frame-validation and cleanup failures must remain local to that connection; they must not escape as uncaught coroutine failures that kill the shared `:vmhost` process and its Native/Rootless or other AVF owners. Disconnecting never fabricates session exits or clears sibling terminal checkpoints.
 
+AVF session reconnection follows the Environment's owner even when Native is the primary runtime. Default/legacy AVF storage is excluded from the independent-owner retry pass only when the primary owner is AVF and its connection has already been attempted in that pass. A successful reconnect reattaches that Environment's running sessions while retaining terminal checkpoints and healthy sibling controllers; a failed connection remains eligible for the existing retry backoff.
+
 ### Runtime semantics
 
 Direct Native is a first-class Android/Bionic environment for immediate shell

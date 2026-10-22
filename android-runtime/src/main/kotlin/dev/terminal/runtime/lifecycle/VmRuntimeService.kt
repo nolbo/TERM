@@ -2045,20 +2045,11 @@ class VmRuntimeService : Service() {
             while (primaryReady() && hasReconnectWork()) {
                 val registry = ensureSessionRegistry()
                 if (registry != null) {
-                    // Reconnect only failed AVF transports, preserving Native/Rootless owners.
-                    for (id in registry.disconnectedStorages(SessionRuntime.AVF)) {
-                        // ensureSessionRegistry already attempted the primary transport once.
-                        if (id == defaultStorageId(SessionRuntime.AVF)) continue
-                        val owner = environmentBackends[environmentForStorage(SessionRuntime.AVF, id).id] ?: continue
-                        owner.connectSessionClient().getOrNull()?.let { controller ->
-                            registry.register(environmentForStorage(SessionRuntime.AVF, id), controller)
-                            guestRetry.reset()
-                            registry.list().getOrNull().orEmpty().filter { session ->
-                                registry.runtimeOf(session.id) == SessionRuntime.AVF && registry.storageOf(session.id) == id &&
-                                    session.state == dev.terminal.protocol.SessionStatus.RUNNING
-                            }.forEach { session -> registry.attach(session.id) }
-                        }
-                    }
+                    reconnectAvfSessions(registry, defaultStorageId(SessionRuntime.AVF),
+                        primaryIsAvf = backend !is NativeBackend,
+                        environmentForStorage = { environmentForStorage(SessionRuntime.AVF, it) },
+                        connect = { environment -> environmentBackends[environment.id]?.connectSessionClient()?.getOrNull() },
+                        onConnected = guestRetry::reset)
                     val primaryMissing = backend !is NativeBackend &&
                         !registry.isRegistered(SessionRuntime.AVF, defaultStorageId(SessionRuntime.AVF))
                     if (!primaryMissing && registry.disconnectedStorages(SessionRuntime.AVF).isEmpty()) {
