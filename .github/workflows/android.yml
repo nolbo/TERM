@@ -15,6 +15,11 @@ on:
           - none
           - main
           - dev
+      notify:
+        description: 'Send the published release notes to Discord'
+        type: boolean
+        required: true
+        default: false
 
 permissions:
   contents: read
@@ -216,7 +221,7 @@ jobs:
 
   notify-release:
     needs: build-and-unit-test
-    if: github.repository == 'nolbo/TERM' && needs.build-and-unit-test.outputs.release_tag != ''
+    if: github.repository == 'nolbo/TERM' && needs.build-and-unit-test.outputs.release_tag != '' && (github.event_name != 'workflow_dispatch' || inputs.notify)
     permissions:
       contents: read
     uses: ./.github/workflows/discord-release.yml

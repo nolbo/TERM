@@ -414,7 +414,8 @@ SHA-256 is `0d922960ef8091293ad0bc3af81586c7a8475da628be982cd66a2c3e66af0ab1`;
 the Arch manifest SHA-256 is
 `c1e746fb76d06579f7e74beb5c48560eae5821a087da7299e018e947bc0c5a92`.
 The combined test APK pins these verified manifests. The default approved
-catalog is unchanged.
+catalog was unchanged for that test handoff; the later app-channel promotion is
+recorded in [the 1.3.0 release validation](release-validation/1.3.0.md).
 
 The expanded Python image suite passed 102 tests. The canonical Debug build,
 runtime unit tests and image tests also passed with a candidate catalog containing

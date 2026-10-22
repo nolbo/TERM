@@ -212,3 +212,9 @@ Direct Linux 실험 커밋 22개는 이번 배포에서 제외한다. 필수 데
 직전 두 공개 앱 `1.1.0+main.1000087.6999b7acbed4`와 `1.1.0+dev.1000088.6999b7acbed4`의 공통 소스 `6999b7acbed44a77f16e2a131e0251d807a79201` 이후 공유 dev 이력과 Native 작업 트리의 전체 변경을 검토했습니다. Native에 jq·curl·OpenSSH·ripgrep·Vim을 내장하고 Android 저장소 CLI·명시적 클립보드 복사·확장 진단을 추가하므로 호환되는 사용자 기능 추가에 MINOR 증가 `1.1.0 → 1.2.0`을 두 채널에 적용합니다. 설치·첫 실행·복구 화면 정리, 이미지 전송·희소 상태 복사 성능, 햅틱·탭 동작 수정도 포함합니다. 기존 사용자 데이터와 Native·Userspace Linux 무특권 경로, 앱 ID·서명 키·공유 versionCode 정책은 유지합니다.
 
 직전 배포 이후 게스트 실행 파일·서비스·부팅/마운트 스크립트·이미지 제작 계약·승인 카탈로그 변경은 없습니다. 호스트에서의 이미지 전송/희소 복사 개선과 Native 전용 CLI는 새로운 게스트 기능을 요구하지 않으므로 Debian `avf-debian-20261020-r5`, Ubuntu `avf-ubuntu-20261020-r4`, Arch `avf-archlinux-20261020-r3` 승인 이미지를 재사용합니다. 기존 설치 이미지를 자동 교체하지 않습니다. 16 KiB 실제 Android·SELinux enforcing·다른 API 및 특권 AVF의 미검증 범위를 통과로 주장하지 않습니다. 출시 검증과 채널별 공개 산출물은 [1.2.0 출시 기록](release-validation/1.2.0.md)에 기록합니다.
+
+## 1.3.0 결정 (2026-10-22)
+
+직전 두 공개 앱 `1.2.0+main.1000090.d3df0da5a6af`와 `1.2.0+dev.1000089.d3df0da5a6af`의 공통 소스 `d3df0da5a6af8eadab38d205e57e8cd9f1637405` 이후 공유 dev 이력 전체를 검토했습니다. Debian·Ubuntu·Arch AVF에 Docker/LXC와 ReDroid 실행에 필요한 커널 기능을 추가하고 이를 기본 승인 이미지로 제공하므로 호환되는 실행 기능 확장에 MINOR 증가 `1.2.0 → 1.3.0`을 두 채널에 적용합니다. 기존 데이터와 Native·Userspace Linux 무특권 경로, 앱 ID·서명 키·공유 versionCode 정책은 유지합니다. 새 기능을 위한 전체 이미지 전환은 선택 사항이며 기존 환경을 자동 교체하지 않습니다.
+
+필요한 게스트 변경을 포함한 Debian·Arch `containers-20261022-r1`과 Ubuntu `containers-20261021-r1` 공개 산출물을 재검증하여 기본 카탈로그로 승격합니다. Ubuntu 제작 이후 변경은 다른 배포판 적용과 제작 검증·선택 설치 도구·문서이므로 기존 Ubuntu 산출물을 재사용합니다. ReDroid 안내는 공식 ARM64 64비트 전용 이미지를 사용합니다. 실제 Ubuntu AVF 사용자의 부팅·핵심 서비스·Settings 성공은 확인했으나 Debian·Arch 실제 AVF, LXC 워크로드·외부 네트워크·장시간 안정성은 별도 검증 범위로 남깁니다. 검증과 공개 산출물은 [1.3.0 출시 기록](release-validation/1.3.0.md)에 기록합니다.
