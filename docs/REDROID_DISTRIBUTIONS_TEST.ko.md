@@ -9,10 +9,19 @@ Docker·LXC·ReDroid를 이미지에 기본 설치하지 않으며, 앱의 AVF �
 | Arch Linux ARM | [avf-archlinux-containers-20261022-r1](https://github.com/nolbo/TERM/releases/tag/avf-archlinux-containers-20261022-r1) |
 | Ubuntu | [avf-ubuntu-containers-20261021-r1](https://github.com/nolbo/TERM/releases/tag/avf-ubuntu-containers-20261021-r1) |
 
-새 이미지의 카탈로그가 포함된 검토용 APK 또는 검증된 이미지 디렉터리를 사용합니다.
-기존 Ubuntu 전용 검토 APK는 새 Debian·Arch 카탈로그를 포함하지 않습니다.
-설치된 환경을 덮어쓰지 말고 별도 실행환경을 만들거나 [전체 이미지 전환](AVF_UPDATES.md)을
+[세 배포판을 포함한 TERM Debug APK](https://github.com/nolbo/TERM/releases/download/avf-archlinux-containers-20261022-r1/TERM-Debug-AVF-containers-20261022.apk)를
+내려받아 진행 중인 작업을 저장한 뒤 기존 TERM Debug 위에 설치합니다.
+버전은 `1.2.0+dev.214791050.27d5791d6b21-debug`이며, 이전에 제공한 호환 Debug APK와
+서명이 같습니다. [SHA-256 파일](https://github.com/nolbo/TERM/releases/download/avf-archlinux-containers-20261022-r1/TERM-Debug-AVF-containers-20261022.sha256)도 제공합니다.
+이 APK는 위 표의 세 이미지 카탈로그를 포함합니다. 기존 Ubuntu 전용 검토 APK는 새
+Debian·Arch 카탈로그를 포함하지 않습니다. 검증된 이미지 디렉터리를 가져오는 방법도
+사용할 수 있습니다.
+설치된 환경을 덮어쓰지 말고 별도 실행환경을 만들거나 [전체 이미지 전환](https://github.com/nolbo/TERM/blob/dev/docs/AVF_UPDATES.md)을
 사용하세요. 커널이 바뀌므로 구성요소 업데이트만으로는 적용되지 않습니다.
+
+연결된 Android 테스트 환경에서 이전 호환 Debug APK 위에 새 APK를 설치하고 앱의
+테스트 데이터가 유지되는 것을 확인했습니다. 이 환경은 AVF를 제공하지 않으므로,
+Debian·Arch의 실제 AVF 동작은 별도 기기 검증이 필요합니다.
 
 게스트 안에서 다음을 실행합니다. 마지막 표시는 `TERM_AVF_CONTAINERS_OK`여야 하며,
 페이지 크기는 `4096`, 상태 디스크의 파일시스템은 `ext4`여야 합니다.
@@ -28,7 +37,7 @@ sudo findmnt -T /.droid/state
 PID/IPC namespace, System V IPC, mqueue, cgroup, BinderFS, DMA heap,
 bridge/veth 및 IPv4·IPv6의 legacy/nft NAT 규칙 생성을 확인합니다.
 
-Docker·ReDroid 실행은 [공통 테스트 안내의 3절부터](REDROID_TEST.ko.md#3-독립-테스트용-docker-준비)
+Docker·ReDroid 실행은 [공통 테스트 안내의 3절부터](https://github.com/nolbo/TERM/blob/dev/docs/REDROID_TEST.ko.md#3-독립-테스트용-docker-준비)
 따릅니다. Debian에서는 안내의 APT 명령을 그대로 사용합니다. Arch에서는 APT 두 줄을
 다음 명령으로 대체한 뒤 Docker 파일 다운로드부터 이어서 실행합니다.
 

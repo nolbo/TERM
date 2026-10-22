@@ -386,6 +386,51 @@ connection before guest readiness and supplies no successful runtime evidence.
 Current device instructions and immutable helper downloads are in
 [REDROID_TEST.ko.md](REDROID_TEST.ko.md).
 
+## Debian and Arch build validation (2026-10-22)
+
+Producer commit `ab252f815438efd323ea29b6d1e1b8e4823da955` extends the required
+kernel/module bundle and container gates to all three distributions. Both new
+bundles passed validation of the Image's embedded config, module ramdisk and
+build metadata. Their final config is byte-identical to the verified Ubuntu
+config, SHA-256 `06d4c21e1beab6461816d6f19b1d2aab18743a517dc908755d183ad927128c21`.
+The rebuilt Image hashes differ and are pinned separately:
+
+| Distribution | Producer run | Image SHA-256 |
+| --- | --- | --- |
+| Debian | [39692316459](https://github.com/nolbo/TERM/actions/runs/39692316459) | `f673780210f4b9c80a125b8b745140bf35f5a9f91903f0f1df05ce11722da0e7` |
+| Arch Linux ARM | [39692322631](https://github.com/nolbo/TERM/actions/runs/39692322631) | `cdf39ec3f26e631df705382794950c5ce4c3c4116e99b6ef7d9f2b263c702a74` |
+
+Each image passed both offline container-feature boots and both normal
+systemd/vsock boots, including the session-list RPC, package initializer,
+private-share read/write and owner-loss shutdown checks. The image provenance
+matches the separately downloaded kernel bundle. These are real QEMU guest
+results; they do not establish physical Debian/Arch AVF behavior, a full
+Docker/LXC/ReDroid workload, external network forwarding or long-term stability.
+The earlier physical Ubuntu result remains specific to that tested environment.
+
+Both test releases passed anonymous public download verification of all five
+compressed image artifacts against their manifest hashes. The Debian manifest
+SHA-256 is `0d922960ef8091293ad0bc3af81586c7a8475da628be982cd66a2c3e66af0ab1`;
+the Arch manifest SHA-256 is
+`c1e746fb76d06579f7e74beb5c48560eae5821a087da7299e018e947bc0c5a92`.
+The combined test APK pins these verified manifests. The default approved
+catalog is unchanged.
+
+The expanded Python image suite passed 102 tests. The canonical Debug build,
+runtime unit tests and image tests also passed with a candidate catalog containing
+all three container images and the existing pinned accelerated Rootless payload.
+The combined APK was built at `27d5791d6b21207ce7cd2c1f8e1648a002d64c0e` and
+verified to embed the exact catalog, AVF driver and Rootless binaries. Its version
+is `1.2.0+dev.214791050.27d5791d6b21-debug`; its signing certificate matches the
+previous compatible Debug APK. Replacement installation and private test-data
+preservation passed on the connected native ReDroid Android 15 target, which
+does not provide AVF. APK size is 68,410,118 bytes, 281,412 bytes smaller than the
+previous compatible APK. No guest kernel, Docker, LXC or ReDroid payload is
+bundled into it.
+
+Installation and per-distribution package commands are in
+[REDROID_DISTRIBUTIONS_TEST.ko.md](REDROID_DISTRIBUTIONS_TEST.ko.md).
+
 ## Primary references
 
 - [Official Android kernel builds](https://source.android.com/docs/setup/build/building-kernels)
