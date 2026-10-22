@@ -38,6 +38,9 @@ on:
       candidate_commit:
         description: Required original 40-character producer commit when reusing a verified draft
         required: false
+      kernel_run_id:
+        description: Optional successful AVF workflow run with an identical kernel recipe
+        required: false
 
 permissions:
   contents: read
@@ -49,7 +52,7 @@ env:
 
 jobs:
   kernel:
-    if: github.ref == 'refs/heads/dev' && !inputs.reuse_candidate
+    if: github.ref == 'refs/heads/dev' && !inputs.reuse_candidate && !inputs.kernel_run_id
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
@@ -81,7 +84,7 @@ jobs:
     needs: [kernel]
     if: >-
       always() && github.ref == 'refs/heads/dev' &&
-      (needs.kernel.result == 'success' || (inputs.reuse_candidate && needs.kernel.result == 'skipped'))
+      (needs.kernel.result == 'success' || ((inputs.reuse_candidate || inputs.kernel_run_id) && needs.kernel.result == 'skipped'))
     runs-on: ubuntu-24.04-arm
     permissions:
       contents: write
@@ -96,9 +99,23 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 0
       - uses: actions/download-artifact@v4
-        if: ${{ !inputs.reuse_candidate }}
+        if: ${{ !inputs.reuse_candidate && !inputs.kernel_run_id }}
         with:
           name: avf-container-kernel-${{ github.sha }}
+          path: image/build/kernel-bundle
+      - name: Check the successful kernel producer and unchanged recipe
+        id: kernel-source
+        if: ${{ !inputs.reuse_candidate && inputs.kernel_run_id }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          AVF_KERNEL_RUN_ID: ${{ inputs.kernel_run_id }}
+        run: python3 image/scripts/reuse-avf-kernel.py "$AVF_KERNEL_RUN_ID"
+      - uses: actions/download-artifact@v4
+        if: ${{ !inputs.reuse_candidate && inputs.kernel_run_id }}
+        with:
+          name: ${{ steps.kernel-source.outputs.artifact }}
+          run-id: ${{ inputs.kernel_run_id }}
+          github-token: ${{ github.token }}
           path: image/build/kernel-bundle
       - name: Validate release inputs and shared dev history
         env:
