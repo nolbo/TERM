@@ -96,6 +96,21 @@ class AccountMigrationTest(unittest.TestCase):
         self.assertIn("docker:x:1001:droid,root\n", (self.target / "group").read_text())
         self.assertIn("docker:!::droid,root\n", (self.target / "gshadow").read_text())
 
+    def test_reported_ubuntu_ssh_and_docker_groups_survive_changed_entry_order(self):
+        # Reported old overlay appends _ssh:102 and docker:103. The new factory
+        # already contains _ssh:102 at a different position in the file.
+        self.group(self.old, "_ssh", 102)
+        self.group(self.old, "docker", 103)
+        for database, line in (("group", "_ssh:x:102:\n"), ("gshadow", "_ssh:!::\n")):
+            path = self.target / database
+            path.write_text(line + path.read_text())
+        self.merge()
+        records = migration.read_accounts(self.target, "group")
+        self.assertEqual(records["_ssh"], ("_ssh", "x", "102", ""))
+        self.assertEqual(records["docker"], ("docker", "x", "103", ""))
+        self.assertEqual((self.target / "group").read_text().count("_ssh:"), 1)
+        self.assertIn("docker:!::\n", (self.target / "gshadow").read_text())
+
     def test_user_account_password_and_new_service_account_are_retained(self):
         self.group(self.old, "alice", 1001)
         self.user(self.old, "alice", 1001, 1001)

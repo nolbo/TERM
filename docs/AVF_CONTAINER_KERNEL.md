@@ -432,6 +432,16 @@ bundled into it.
 Installation and per-distribution package commands are in
 [REDROID_DISTRIBUTIONS_TEST.ko.md](REDROID_DISTRIBUTIONS_TEST.ko.md).
 
+## Account migration correction in TERM 1.3.1
+
+The `avf-{debian,ubuntu,archlinux}-maintenance-20261022-r1` images retain the
+container configuration verified above and include the corrected account
+merge for full image transitions. The former whole-file comparison rejected
+independent group additions and different record order. The new merge preserves
+numeric identities and aborts real conflicts. See [1.3.1 validation](release-validation/1.3.1.md)
+for image provenance, publication pins and remaining device limitations. Previous
+image and device results above remain historical evidence for their exact builds.
+
 ## Primary references
 
 - [Official Android kernel builds](https://source.android.com/docs/setup/build/building-kernels)

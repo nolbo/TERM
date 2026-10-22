@@ -121,6 +121,10 @@ Other `/etc` conflicts still require resolution. TERM-managed files, fstab,
 machine-id and resolver use new policy. Databases under `/var/lib`, custom
 `/usr/local` content and other root paths are not automatically migrated. They
 remain in the complete old generation and need application-aware migration.
+This also includes data placed directly on the state disk outside the overlay,
+such as the optional Docker/ReDroid test path `/.droid/state/term-redroid-test`.
+It remains on the retained old state disk; users must back up and migrate it
+explicitly rather than expect it to appear in the new generation.
 
 This favors explicit conflicts over silently losing configuration. Alternatives
 rejected: old-upper reuse mixes package databases; copying package databases to
