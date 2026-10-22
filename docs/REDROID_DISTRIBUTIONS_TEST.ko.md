@@ -1,23 +1,24 @@
 # Debian·Arch Linux AVF 컨테이너 테스트
 
-Ubuntu에서 적용한 컨테이너 커널을 Debian과 Arch Linux ARM에도 적용하는 테스트 배포입니다.
+세 배포판의 컨테이너 커널과 전체 이미지 업데이트의 계정 병합 수정을 포함한 테스트 배포입니다.
 Docker·LXC·ReDroid를 이미지에 기본 설치하지 않으며, 앱의 AVF 권한과 기존 환경은 유지합니다.
 
 | 배포판 | 테스트 이미지 |
 | --- | --- |
-| Debian | [avf-debian-containers-20261022-r1](https://github.com/nolbo/TERM/releases/tag/avf-debian-containers-20261022-r1) |
-| Arch Linux ARM | [avf-archlinux-containers-20261022-r1](https://github.com/nolbo/TERM/releases/tag/avf-archlinux-containers-20261022-r1) |
-| Ubuntu | [avf-ubuntu-containers-20261021-r1](https://github.com/nolbo/TERM/releases/tag/avf-ubuntu-containers-20261021-r1) |
+| Debian | [avf-debian-maintenance-20261022-r1](https://github.com/nolbo/TERM/releases/tag/avf-debian-maintenance-20261022-r1) |
+| Arch Linux ARM | [avf-archlinux-maintenance-20261022-r1](https://github.com/nolbo/TERM/releases/tag/avf-archlinux-maintenance-20261022-r1) |
+| Ubuntu | [avf-ubuntu-maintenance-20261022-r1](https://github.com/nolbo/TERM/releases/tag/avf-ubuntu-maintenance-20261022-r1) |
 
-[세 배포판을 포함한 TERM Debug APK](https://github.com/nolbo/TERM/releases/download/avf-archlinux-containers-20261022-r1/TERM-Debug-AVF-containers-20261022.apk)를
+[세 배포판을 포함한 TERM Debug APK](https://github.com/nolbo/TERM/releases/download/avf-ubuntu-maintenance-20261022-r1/TERM-Debug-AVF-maintenance-20261022.apk)를
 내려받아 진행 중인 작업을 저장한 뒤 기존 TERM Debug 위에 설치합니다.
-버전은 `1.2.0+dev.214791050.27d5791d6b21-debug`이며, 이전에 제공한 호환 Debug APK와
-서명이 같습니다. [SHA-256 파일](https://github.com/nolbo/TERM/releases/download/avf-archlinux-containers-20261022-r1/TERM-Debug-AVF-containers-20261022.sha256)도 제공합니다.
+버전은 `1.3.1+dev.214805092.b0c6e5c1fa6e-debug`이며, 이전에 제공한 호환 Debug APK와
+서명이 같습니다. [SHA-256 파일](https://github.com/nolbo/TERM/releases/download/avf-ubuntu-maintenance-20261022-r1/TERM-Debug-AVF-maintenance-20261022.sha256)도 제공합니다.
 이 APK는 위 표의 세 이미지 카탈로그를 포함합니다. 기존 Ubuntu 전용 검토 APK는 새
 Debian·Arch 카탈로그를 포함하지 않습니다. 검증된 이미지 디렉터리를 가져오는 방법도
 사용할 수 있습니다.
 설치된 환경을 덮어쓰지 말고 별도 실행환경을 만들거나 [전체 이미지 전환](https://github.com/nolbo/TERM/blob/dev/docs/AVF_UPDATES.md)을
 사용하세요. 커널이 바뀌므로 구성요소 업데이트만으로는 적용되지 않습니다.
+전체 이미지 전환은 `/.droid/state/term-redroid-test`의 Docker·ReDroid 데이터를 자동으로 이전하지 않습니다. 중요한 데이터는 먼저 보관하세요. 원래 상태 디스크는 이전 환경과 함께 복구용으로 유지됩니다.
 
 연결된 Android 테스트 환경에서 이전 호환 Debug APK 위에 새 APK를 설치하고 앱의
 테스트 데이터가 유지되는 것을 확인했습니다. 이 환경은 AVF를 제공하지 않으므로,

@@ -9,4 +9,6 @@ Docker/LXC 및 ReDroid용 커널 지원을 유지합니다. 64비트 전용 AVF 
 
 이 이미지를 포함한 최신 TERM 또는 TERM Preview로 앱을 업데이트한 뒤, 기존 AVF 환경을 중지하고 환경 설정에서 이미지 업데이트를 다시 실행하세요. 실패한 환경을 삭제하거나 `/etc/group`을 수동으로 덮어쓸 필요는 없습니다. 새 이미지는 기존 환경에 자동으로 적용되지 않습니다.
 
-그 밖의 설정 충돌이나 패키지 저장소 오류는 업데이트를 중단할 수 있습니다. 전체 이미지 전환 시 `/var/lib`의 애플리케이션 데이터와 사용자 설치 `/usr/local` 파일은 자동 이전되지 않으며 이전 환경에 보존됩니다.
+기존 TERM Debug 사용자는 [호환 Debug APK](https://github.com/nolbo/TERM/releases/download/avf-ubuntu-maintenance-20261022-r1/TERM-Debug-AVF-maintenance-20261022.apk)를 덮어 설치할 수 있습니다. 버전은 `1.3.1+dev.214805092.b0c6e5c1fa6e-debug`이며 세 배포판의 수정 이미지 카탈로그를 포함합니다. [SHA-256 파일](https://github.com/nolbo/TERM/releases/download/avf-ubuntu-maintenance-20261022-r1/TERM-Debug-AVF-maintenance-20261022.sha256)도 제공합니다.
+
+그 밖의 설정 충돌이나 패키지 저장소 오류는 업데이트를 중단할 수 있습니다. 전체 이미지 전환 시 `/var/lib`의 애플리케이션 데이터, 사용자 설치 `/usr/local` 파일과 `/.droid/state/term-redroid-test`에 둔 Docker·ReDroid 데이터는 자동 이전되지 않으며 이전 환경에 보존됩니다.
