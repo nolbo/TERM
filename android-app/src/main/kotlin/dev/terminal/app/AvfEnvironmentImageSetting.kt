@@ -101,10 +101,10 @@ import kotlinx.coroutines.withContext
         EnvironmentSection(R.string.avf_recovery_section) {
             val enabled = canManage && !requesting && progress?.active != true
             EnvironmentActionSetting(R.string.avf_rollback_image, R.drawable.ic_material_symbol_download_24,
-                enabled = enabled, supporting = R.string.avf_rollback_image_help,
+                enabled = enabled, supporting = R.string.avf_rollback_image_summary,
                 onClick = { confirmedAction = "ROLLBACK_IMAGE" })
             EnvironmentActionSetting(R.string.avf_discard_history, R.drawable.ic_material_symbol_delete_24,
-                enabled = enabled, supporting = R.string.avf_discard_history_help, destructive = true,
+                enabled = enabled, supporting = R.string.avf_discard_history_summary, destructive = true,
                 onClick = { confirmedAction = "DISCARD_IMAGE_HISTORY" })
         }
     }
