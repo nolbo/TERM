@@ -15,6 +15,6 @@ if [ "$(stat -c %s "$root")" -lt "$minimum" ]; then
   truncate -s "$minimum" "$root"
 fi
 # A different filesystem identity prevents ambiguity with the attached RO seed.
-tune2fs -U random -L droid-root "$root"
 e2fsck -fp "$root" || [ "$?" -eq 1 ]
+tune2fs -U random -L droid-root "$root"
 resize2fs "$root"

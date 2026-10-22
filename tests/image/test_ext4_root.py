@@ -6,6 +6,7 @@ import shutil
 import stat
 import subprocess
 import tempfile
+import time
 import unittest
 
 REPO = Path(__file__).resolve().parents[2]
@@ -28,7 +29,14 @@ class Ext4RootTest(unittest.TestCase):
             seed, disk = root / "system.img", root / "home.img"
             with seed.open("wb") as output:
                 output.truncate(32 * 1024 * 1024)
-            subprocess.run(["mkfs.ext4", "-q", "-F", "-d", str(content), str(seed)], check=True, capture_output=True)
+            subprocess.run(["mkfs.ext4", "-q", "-F", "-O", "^metadata_csum_seed,^orphan_file",
+                            "-d", str(content), str(seed)], check=True, capture_output=True)
+            # libguestfs mounts/unmounts the seed during assembly. UUID changes
+            # with metadata checksums require a fresh check after that mount.
+            subprocess.run(["tune2fs", "-C", "1", str(seed)], check=True, capture_output=True)
+            for field, value in (("lastcheck", 1), ("mtime", int(time.time()))):
+                subprocess.run(["debugfs", "-w", "-R", f"set_super_value {field} {value}", str(seed)],
+                               check=True, capture_output=True)
             before = hashlib.sha256(seed.read_bytes()).digest()
             command = ["bash", str(REPO / "image/scripts/initialize-avf-root.sh"), str(seed), str(disk), str(48 * 1024 * 1024)]
             def debug(image, request, write=False):
