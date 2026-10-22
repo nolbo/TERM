@@ -38,10 +38,10 @@ class AvfImageUpdateChecker(private val cancelled: () -> Boolean = { false }) {
             require(Files.size(manifest) <= 64 * 1024 &&
                 AvfImageVerifier.sha256(manifest, ::checkCancelled) == release.manifestSha256) { "AVF manifest differs from catalog" }
             val next = AvfImageVerifier.parse(manifest)
-            require(next.formatVersion == 1 && next.architecture == "arm64" && next.guestDistribution == release.distribution &&
+            require(next.architecture == "arm64" && next.guestDistribution == release.distribution &&
                 listOf(next.kernelSha256, next.initrdSha256, next.systemSha256, next.homeSha256, next.configSha256)
                     .all { it.matches(Regex("[0-9a-f]{64}")) }) { "Invalid AVF update manifest" }
-            if (next.maintenanceVersion != 1) return AvfImageUpdateResult.Unsupported
+            if (next.maintenanceVersion != 1 || next.formatVersion < base.formatVersion) return AvfImageUpdateResult.Unsupported
             return AvfImageUpdateResult.Available(kind(base, next))
         } finally {
             Files.deleteIfExists(manifest)
@@ -54,10 +54,11 @@ class AvfImageUpdateChecker(private val cancelled: () -> Boolean = { false }) {
     }
 
     companion object {
-        /** Components retain the installed boot/base; a different kernel requires a full transition. */
+        /** Components retain the boot/base; kernel or root layout changes require a full transition. */
         fun kind(base: AvfImageManifest, next: AvfImageManifest): AvfImageUpdateKind {
             require(base.distribution == next.distribution && base.architecture == next.architecture)
-            return if (base.kernelSha256 == next.kernelSha256) AvfImageUpdateKind.COMPONENTS else AvfImageUpdateKind.IMAGE
+            return if (base.kernelSha256 == next.kernelSha256 && base.formatVersion == next.formatVersion)
+                AvfImageUpdateKind.COMPONENTS else AvfImageUpdateKind.IMAGE
         }
     }
 }

@@ -33,7 +33,8 @@ object AvfGuestComponents {
             "Invalid guest-component update receipt"
         }
         val installed = AvfImageVerifier.parse(manifest)
-        require(installed.distribution == base.distribution && installed.kernelSha256 == base.kernelSha256)
+        require(installed.distribution == base.distribution && installed.kernelSha256 == base.kernelSha256 &&
+            installed.formatVersion == base.formatVersion)
         return installed
     }
 }

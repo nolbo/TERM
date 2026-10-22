@@ -10,6 +10,28 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AvfImageVerifierTest {
+    @Test fun ext4RootIsWritableAfterInstallationWhileTheSeedRemainsVerified() {
+        for (distribution in AvfDistribution.entries) {
+            val root = Files.createTempDirectory("avf-ext4-root")
+            try {
+                val artifacts = mapOf("kernel" to "vmlinuz", "initrd" to "initrd.img",
+                    "system" to "system.img", "home" to "home.img", "config" to "config.img")
+                artifacts.values.forEach { Files.writeString(root.resolve(it), it) }
+                Files.writeString(root.resolve("manifest.properties"),
+                    "formatVersion=2\ndistribution=${distribution.id}\narchitecture=arm64\n" +
+                        artifacts.entries.joinToString("\n") { (key, name) -> "$key.sha256=${AvfImageVerifier.sha256(root.resolve(name))}" })
+                val installed = AvfImageInstaller.verifyForStartup(root, distribution) as ImageVerification.Ready
+                assertEquals("/dev/vdb", installed.manifest.rootDevice)
+                assertEquals("rw", installed.manifest.rootMountMode)
+                Files.writeString(root.resolve("home.img"), "package database, home and container data")
+                assertTrue(AvfImageVerifier.verifyInstalled(root, distribution) is ImageVerification.Ready)
+                assertTrue(AvfImageVerifier.verify(root, distribution) is ImageVerification.Invalid)
+                Files.writeString(root.resolve("system.img"), "changed seed")
+                assertTrue(AvfImageVerifier.verifyInstalled(root, distribution) is ImageVerification.Invalid)
+            } finally { root.toFile().deleteRecursively() }
+        }
+    }
+
     @Test fun privateSharingRequiresItsOwnVerifiedFeatureAndRejectsUnknownVersions() {
         for (version in listOf(null, "1", "0", "2")) {
             val root = Files.createTempDirectory("private-share-feature")

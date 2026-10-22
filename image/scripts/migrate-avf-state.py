@@ -13,6 +13,7 @@ import tempfile
 
 OLD = Path("/run/term-maintenance/old")
 LOWER = Path("/run/term-maintenance/lower")
+STATE = Path("/run/term-maintenance/state")
 ACCOUNT_FIELDS = {"passwd": 7, "group": 4, "shadow": 9, "gshadow": 4}
 ACCOUNT_LOCAL_FILES = set(ACCOUNT_FIELDS) | {name + "-" for name in ACCOUNT_FIELDS} | {".pwd.lock"}
 
@@ -224,6 +225,89 @@ def user_packages(old, lower, distribution):
     return sorted(packages)
 
 
+def copy_data(source, target, excluded, links, relative=Path("."), device=None):
+    """Copy quiescent Linux data without following links or crossing filesystems.
+
+    Keep hardlinks across all selected trees, ownership, modes and xattrs (which
+    include Linux ACLs/capabilities). Package databases and TERM policy are never
+    transplanted into the newly installed userspace.
+    """
+    if any(relative == name or name in relative.parents for name in excluded):
+        return
+    metadata = source.lstat()
+    if device is None:
+        device = metadata.st_dev
+    if metadata.st_dev != device or stat.S_ISSOCK(metadata.st_mode):
+        return
+    reject_symlink_parents(target)
+    directory = stat.S_ISDIR(metadata.st_mode)
+    if not directory and any(relative in name.parents for name in excluded):
+        raise RuntimeError(f"Persistent data would replace managed parent: {source}")
+    if target.is_symlink() or (target.exists() and not (directory and target.is_dir())):
+        if target.is_dir() and not target.is_symlink():
+            shutil.rmtree(target)
+        else:
+            target.unlink()
+    if directory:
+        target.mkdir(parents=True, exist_ok=True)
+        for entry in sorted(source.iterdir()):
+            copy_data(entry, target / entry.name, excluded, links, relative / entry.name, device)
+    else:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        identity = (metadata.st_dev, metadata.st_ino)
+        if stat.S_ISREG(metadata.st_mode) and identity in links:
+            os.link(links[identity], target)
+            return
+        if stat.S_ISLNK(metadata.st_mode):
+            target.symlink_to(os.readlink(source))
+        elif stat.S_ISREG(metadata.st_mode):
+            if metadata.st_blocks * 512 < metadata.st_size:
+                run("cp", "--sparse=always", "--", str(source), str(target))
+            else:
+                shutil.copyfile(source, target)
+            links[identity] = target
+        elif stat.S_ISFIFO(metadata.st_mode):
+            os.mkfifo(target)
+        elif stat.S_ISCHR(metadata.st_mode) or stat.S_ISBLK(metadata.st_mode):
+            os.mknod(target, metadata.st_mode, metadata.st_rdev)
+        else:
+            raise RuntimeError(f"Unsupported persistent data entry: {source}")
+    os.chown(target, metadata.st_uid, metadata.st_gid, follow_symlinks=False)
+    shutil.copystat(source, target, follow_symlinks=False)
+    # copystat may silently skip unsupported/denied xattrs. A migration must
+    # instead fail, retaining the old generation, rather than lose ACLs/caps.
+    attributes = {name: os.getxattr(source, name, follow_symlinks=False)
+                  for name in os.listxattr(source, follow_symlinks=False)}
+    for name in set(os.listxattr(target, follow_symlinks=False)) - attributes.keys():
+        os.removexattr(target, name, follow_symlinks=False)
+    for name, value in attributes.items():
+        os.setxattr(target, name, value, follow_symlinks=False)
+
+
+def migrate_data(old, lower, target, state, source_format):
+    excluded = {Path(name) for name in (
+        "var/lib/dpkg", "var/lib/apt", "var/lib/pacman", "var/lib/ucf",
+        "var/lib/droid", "var/lib/systemd", "var/lib/dbus")}
+    for root in (old, lower, target):
+        listing = root / "usr/share/term/managed-files"
+        if listing.is_file():
+            excluded.update(Path(name.lstrip("/")) for name in listing.read_text().splitlines())
+    links = {}
+    for name in ("home", "root", "srv", "opt", "workspace", "usr/local", "var/lib", "var/spool", "var/www"):
+        source = old / name
+        if source.exists() or source.is_symlink():
+            copy_data(source, target / name, excluded, links, Path(name))
+    # v1's direct state data is outside its merged root. v2 keeps the compatible
+    # path as an ordinary directory on the root ext4 filesystem.
+    source = state if source_format == 1 else old / ".droid/state"
+    if source.is_symlink():
+        raise RuntimeError("Persistent state directory must not be a symlink")
+    if source.exists():
+        ignored = {Path(name) for name in ("upper", "work", "lost+found")} if source_format == 1 else set()
+        for entry in sorted(source.iterdir()):
+            copy_data(entry, target / ".droid/state" / entry.name, ignored, links, Path(entry.name))
+
+
 @contextlib.contextmanager
 def offline_packages(root):
     # Capture live DNS before temporarily replacing it (root can be the running candidate itself).
@@ -292,10 +376,10 @@ def main(operation):
                 run("pacman", "-Syu", "--noconfirm", "--needed", *packages)
         managed = set(Path("/usr/share/term/managed-files").read_text().splitlines())
         merge_config(OLD / "etc", LOWER / "etc", Path("/etc"), managed)
-        # Preserve file/link/mode/owner/xattr/hardlink semantics without traversing other mounts.
-        for name in ("home", "root", "srv", "opt", "workspace"):
-            if (OLD / name).is_dir() and not (OLD / name).is_symlink():
-                run("cp", "-a", "--one-file-system", str(OLD / name) + "/.", "/" + name)
+        source_formats = re.findall(r"(?:^|\s)term.source-format=([12])(?=\s|$)", Path("/proc/cmdline").read_text())
+        if len(source_formats) != 1:
+            raise RuntimeError("Missing or ambiguous source disk format")
+        migrate_data(OLD, LOWER, Path("/"), STATE, int(source_formats[0]))
         Path("/var/lib/droid").mkdir(parents=True, exist_ok=True)
         Path("/var/lib/droid/migrated-packages").write_text("\n".join(packages) + "\n")
     else:

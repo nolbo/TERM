@@ -17,8 +17,18 @@ cleanup() {
 trap cleanup EXIT
 mount -t ext4 -o ro,noload /dev/vdd /run/term-maintenance/lower
 mount -t ext4 -o rw /dev/vde /run/term-maintenance/state
-mkdir -p /run/term-maintenance/state/upper /run/term-maintenance/state/work
-mount -t overlay -o lowerdir=/run/term-maintenance/lower,upperdir=/run/term-maintenance/state/upper,workdir=/run/term-maintenance/state/work overlay /run/term-maintenance/old
+case " $(cat /proc/cmdline) " in
+  *' term.source-format=2 '*)
+    mount --bind /run/term-maintenance/state /run/term-maintenance/old
+    ;;
+  *' term.source-format=1 '*)
+    # Only legacy source copies use overlay. The candidate always boots ext4.
+    test -d /run/term-maintenance/state/upper
+    mkdir -p /run/term-maintenance/state/work
+    mount -t overlay -o lowerdir=/run/term-maintenance/lower,upperdir=/run/term-maintenance/state/upper,workdir=/run/term-maintenance/state/work overlay /run/term-maintenance/old
+    ;;
+  *) echo 'Missing or unsupported source disk format' >&2; exit 1;;
+esac
 mount --rbind /dev /run/term-maintenance/old/dev
 mount --make-rslave /run/term-maintenance/old/dev
 mount -t proc proc /run/term-maintenance/old/proc

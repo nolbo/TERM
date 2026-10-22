@@ -60,18 +60,14 @@ if [ -f /input/kernel-build.json ]; then
   # Factory-only marker makes the two-boot probe require its runtime result.
   cp /input/kernel-build.json /output/kernel-build.json
 fi
-truncate -s 8G /output/home.img
-mkfs.ext4 -F -L droid-state -O '^metadata_csum_seed,^orphan_file' /output/home.img
+bash /usr/local/bin/initialize-avf-root /output/system.img /output/home.img
 mkdir -p /tmp/config
-printf 'formatVersion=1\nstateDevice=/dev/vdb\n' > /tmp/config/runtime.properties
+printf 'formatVersion=2\nrootDevice=/dev/vdb\nrootFilesystem=ext4\n' > /tmp/config/runtime.properties
 truncate -s 16M /output/config.img
 mkfs.ext4 -F -L droid-config -O '^metadata_csum_seed,^orphan_file' -d /tmp/config /output/config.img
 python3 /usr/local/bin/smoke-avf-image.py
-# Reset only the factory's scratch state after proving persistence on two boots.
-guestfish --rw --format=raw -a /output/home.img -m /dev/sda <<'EOF'
-rm-rf /upper
-rm-rf /work
-EOF
+# Remove every factory probe/package write by recreating the disposable root.
+bash /usr/local/bin/initialize-avf-root /output/system.img /output/home.img
 e2fsck -fn /output/system.img
 e2fsck -fn /output/home.img
 e2fsck -fn /output/config.img

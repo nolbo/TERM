@@ -56,6 +56,8 @@ class AospAvfPlatformDriver(
     private var supportsVirtiofs = false
     private var supportsAndroidStorage = false
     private var supportsShareBroker = false
+    private var rootDevice = "/dev/vda"
+    private var rootMountMode = "ro"
     @Volatile private var machine: VirtualMachine? = null
     private data class SharedBoot(val vm: VirtualMachine, val instanceId: String, val directories: AvfSharedDirectories)
     private val sharedBoot = AtomicReference<SharedBoot?>()
@@ -83,6 +85,8 @@ class AospAvfPlatformDriver(
             Log.i(TAG, "image.verify duration_ms=${SystemClock.elapsedRealtime() - verificationStartedAt} ready=${verification is ImageVerification.Ready}")
             when (verification) {
                 is ImageVerification.Ready -> {
+                    rootDevice = verification.manifest.rootDevice
+                    rootMountMode = verification.manifest.rootMountMode
                     val capabilities = dev.terminal.image.AvfGuestComponents.effective(Paths.get(config.imageDirectory), verification.manifest)
                     supportsVirtiofs = capabilities.virtiofsVersion == 1
                     supportsAndroidStorage = capabilities.androidStorageVersion == 1
@@ -358,9 +362,9 @@ class AospAvfPlatformDriver(
             .setName(vmName(config))
             .setKernelPath(image.kernelImage.toString())
             .setInitrdPath(image.initrdImage.toString())
-            .addParam("root=/dev/vda")
+            .addParam("root=$rootDevice")
             .addParam("rootfstype=ext4")
-            .addParam("ro")
+            .addParam(rootMountMode)
             .addParam("console=hvc0")
             .addParam("systemd.hostname=localhost")
             .useNetwork(config.enableNetwork)
@@ -371,6 +375,7 @@ class AospAvfPlatformDriver(
             .addDisk(VirtualMachineCustomImageConfig.Disk.RODisk(image.configImage.toString()))
         config.avfMaintenance?.let { maintenance ->
             customImage.addParam("term.maintenance=${maintenance.operation}")
+                .addParam("term.source-format=${maintenance.sourceFormatVersion}")
                 .addDisk(VirtualMachineCustomImageConfig.Disk.RODisk(maintenance.sourceSystem))
                 .addDisk(VirtualMachineCustomImageConfig.Disk.RWDisk(maintenance.copiedState))
         }

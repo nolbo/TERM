@@ -76,7 +76,7 @@ def write_release(root, release_id, base_uri, source_url, source_sha, distributi
     if kernel_build:
         KERNEL["validate_provenance"](kernel_build, sha256(root / "vmlinuz"))
         KERNEL["validate_boot_report"](container_verification)
-    manifest = f"formatVersion=1\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nvirtiofsVersion=1\nandroidStorageVersion=1\nshareBrokerVersion=1\nmaintenanceVersion=1\n"
+    manifest = f"formatVersion=2\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nvirtiofsVersion=1\nandroidStorageVersion=1\nshareBrokerVersion=1\nmaintenanceVersion=1\n"
     if distribution in ("debian", "ubuntu"):
         manifest += "aptInitializationVersion=1\n"
     for key, name in ARTIFACTS.items():
@@ -96,6 +96,7 @@ def write_release(root, release_id, base_uri, source_url, source_sha, distributi
         "sourceCommit": source_commit or subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO, text=True).strip(),
         "rootfs": json.loads((REPO / "image/scripts/avf-distributions.json").read_text()).get(distribution),
         "diskMapping": ["system.img:ro", "home.img:rw", "config.img:ro"],
+        "rootFilesystem": "ext4",
         "normalBootVerification": boot_verification,
         "kernelBuild": kernel_build,
         "containerBootVerification": container_verification,

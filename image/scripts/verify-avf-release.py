@@ -106,8 +106,9 @@ def manifest(data, approved):
     required = {'formatVersion', 'distribution', 'architecture'} | {key + '.sha256' for key in ARTIFACTS}
     optional = {'aptInitializationVersion', 'packageInitializationVersion', 'virtiofsVersion', 'androidStorageVersion', 'shareBrokerVersion', 'maintenanceVersion'}
     if (not required <= set(values) or not set(values) <= required | optional
-            or (values['formatVersion'], values['distribution'], values['architecture']) != ('1', approved.get('id', 'debian-arm64-current').removesuffix('-arm64-current'), 'arm64')):
-        raise ValueError('Expected catalog-selected Linux ARM64 image manifest v1')
+            or values['formatVersion'] not in ('1', '2')
+            or (values['distribution'], values['architecture']) != (approved.get('id', 'debian-arm64-current').removesuffix('-arm64-current'), 'arm64')):
+        raise ValueError('Expected catalog-selected Linux ARM64 image manifest v1 or v2')
     if 'aptInitializationVersion' in values and (values['aptInitializationVersion'] != '1' or values['distribution'] == 'archlinux'):
         raise ValueError('Unsupported APT initialization version')
     if 'packageInitializationVersion' in values and values['packageInitializationVersion'] != '1':
@@ -169,6 +170,8 @@ def verify_directory(root, metadata_only=False, expected_commit=None, expected_m
         raise ValueError('Image came from another source commit')
     if not re.fullmatch(r'[0-9a-f]{64}', provenance['sourceSha256']) or provenance['diskMapping'] != ['system.img:ro', 'home.img:rw', 'config.img:ro']:
         raise ValueError('Invalid source image hash or disk mapping')
+    if values['formatVersion'] == '2' and provenance.get('rootFilesystem') != 'ext4':
+        raise ValueError('Image v2 requires ext4 root provenance')
     if provenance.get('distribution', 'debian') != values['distribution']:
         raise ValueError('Rootfs provenance distribution differs from manifest')
     kernel_build = provenance.get('kernelBuild')

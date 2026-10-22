@@ -23,14 +23,41 @@ catalog entry never falls back to another distribution.
 
 `AvfImageManifest`, `AvfImageLayout`, `AvfImageVerifier`, `AvfImageInstaller` and
 `AvfImageRelease` implement one five-artifact disk contract. A release includes
-kernel, initrd, immutable system/config disks and a persistent writable home disk.
+kernel, initrd, immutable system/config disks and a persistent writable root disk
+(the compatible artifact name remains `home.img`).
 The manifest hash and artifact hashes remain pinned; normal guest writes never
 invalidate immutable artifacts. An installer never replaces an existing image.
 
+### EXT4 root (image format v2)
+
+New Debian, Ubuntu and Arch images boot `root=/dev/vdb rootfstype=ext4 rw`.
+`home.img` contains the complete root filesystem, including packages, settings,
+home and container data. `system.img` remains an immutable, independently verified
+baseline mounted at `/.droid/lower` with `ro,noload,nodev,nosuid,noexec`.
+`/.droid/state` is an ordinary directory on the writable root, retaining explicit
+Docker/ReDroid storage paths. There is no OverlayFS root or upper/work tree.
+
+The old root prevented Docker overlay upper/work directories under `/var/lib`.
+Direct EXT4 also avoids root-level copy-up. Keeping a separate sealed baseline
+preserves the existing hash and three-way update model; the cost is storing a
+full initial root as well as its baseline. Sparse storage avoids allocating zeros
+but does not deduplicate the root's nonzero data against the baseline.
+
+Format v2 makes old APKs reject the layout instead of booting the wrong disk.
+The new host continues to verify and boot installed v1 OverlayFS images using
+their original initrd and `vda ro` parameters. A v1 → v2 update requires a full
+transition even when kernel hashes match; components cannot change root format.
+Ordinary updates do not downgrade v2 to v1. Explicit rollback restores the whole
+old generation and its matching boot format. No installed environment is modified
+by an APK update alone. Approved v1 catalog pins stay valid until separately
+produced v2 images pass the release gates and are published/promoted.
+
 ### Installation storage
 
-The current raw ext4 contract retains a 6 GiB system disk and an 8 GiB writable
-state disk. Those logical capacities do not require allocating every host block.
+The raw EXT4 contract uses a system disk of at least 6 GiB. A v2 root disk adds
+8 GiB to the system disk's logical length (normally 14 GiB total), retaining room
+for the complete base plus the former writable-state budget. Legacy v1 state
+disks remain 8 GiB. Logical capacities do not require allocating every host block.
 The shared installer writes nonzero blocks, retains zero regions as sparse holes
 and explicitly sets the exact final file length, including trailing zeros.
 Online gzip extraction and offline imports use the same bounded/cancellable
@@ -44,7 +71,7 @@ copying API also preserves sparsity and retains its caller's source directory.
 Worker staging includes a stable work ID; retry cleanup excludes active work,
 offline imports, other environments and installed disks. Existing environments
 are neither replaced nor compacted. AVF environment usage counts allocated
-512-byte filesystem blocks; writable capacity remains 8 GiB. Guest writes grow
+512-byte filesystem blocks. Guest writes grow
 physical usage, and guest free space does not reserve Android storage in advance.
 Allocation savings depend on the target filesystem and package initialization;
 producer measurements are not device measurements.
@@ -68,7 +95,7 @@ This normalization never runs against an installed environment.
 All new Debian, Ubuntu and Arch images require the same container-capable AVF
 kernel recipe and its matching modules under [AVF_CONTAINER_KERNEL.md](AVF_CONTAINER_KERNEL.md).
 The factory replaces both Google boot inputs before generating the common
-initramfs/overlay boot layer. `configure-avf-boot.sh` creates that layer independently of
+initramfs EXT4 boot layer. `configure-avf-boot.sh` creates that layer independently of
 `configure-avf-guest.sh`, which installs the common session/capability/port/file
 services and validates the selected userspace. No Debian package database is
 transplanted into Ubuntu or Arch. Runtime disk assembly and guest configuration
@@ -86,14 +113,14 @@ process-group cancellation, flush-before-receipt and idempotent completion rules
 are common. No caller-selected command, path or repository is accepted. Arch
 users still use full `pacman -Syu` for normal rolling-release package upgrades.
 
-Offline factory gates boot twice and verify the RO lower layer, writable-overlay
+Offline factory gates boot twice and verify the RO baseline, writable-EXT4-root
 persistence, services/network/shares, non-root `droid` plus sudo, real local package
 installation/removal and initialization failure/success/idempotence. A candidate
 cannot be approved based only on host tests or a successful archive download.
 Two additional normal systemd boots use a disposable state-disk copy and a real
 vhost-vsock device. A host-CID session-list RPC on 40500 and a connection to the
 package initializer on 40503 must both succeed on each boot. The producer records
-these results in `provenance.json`; the distributed state disk stays clean.
+these results in `provenance.json`; the distributed root disk stays clean.
 Host-side probing preserves Docker's default seccomp policy, which blocks
 container AF_VSOCK sockets. Producers need the host `vhost_vsock` module enabled.
 

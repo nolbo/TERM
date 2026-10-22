@@ -2,8 +2,9 @@
 
 ## Decision and compatibility
 
-`home.img` contains the root OverlayFS upper/work trees, including packages and
-configuration. A new lower image cannot safely reuse that state. Updates use
+Format v1 `home.img` contains the root OverlayFS upper/work trees. Format v2
+contains a complete writable EXT4 root, with `system.img` retained as an immutable
+baseline. A new base cannot safely reuse either old writable disk. Updates use
 either a package installed on a copy of the existing state, or a new base with
 fresh state and explicit migration. Originals are never attached writable to an
 update VM. This also supports old images without a maintenance endpoint.
@@ -16,8 +17,8 @@ up to date even when the writable disk has changed. A verified component receipt
 prevents offering the same component update again.
 
 Only a differing, maintenance-capable target exposes one update action. Matching
-kernel hashes select components, retaining the installed kernel/initrd/config and
-base; a different kernel selects the full image. Factory initrd/config disk hashes
+kernel hashes and root formats select components, retaining the installed kernel/initrd/config and
+base; a different kernel or root format selects the full image. Factory initrd/config disk hashes
 can differ between builds without a semantic change, so they do not select a full
 transition. A check failure or unsupported target exposes no update
 action. An APK's catalog is the available version boundary; checking does not
@@ -82,7 +83,9 @@ has its own independent signature. Dependencies use normal signed repositories.
 
 A dedicated VM boots the approved new image, attaching old system RO as vdd and
 a copied old state RW as vde. The fixed maintenance operation mounts that old
-base with its matching copied upper and installs the local package. APT refreshes
+base with its matching copied upper for v1, or bind-mounts the copied complete
+EXT4 root for v2, then installs the local package. The host passes the verified
+source format explicitly; the guest never guesses from writable disk contents. APT refreshes
 repositories and dependencies. Arch performs full `pacman -Syu` to avoid partial
 upgrades; local overwrite permission names only exact producer-managed files.
 An Arch component update can therefore upgrade distribution packages too.
@@ -90,7 +93,7 @@ An Arch component update can therefore upgrade distribution packages too.
 The resulting generation keeps original kernel/initrd/system/config plus updated
 state. A host-created receipt binds component capabilities to the approved source
 manifest. Immutable hashes remain unchanged; kernel-dependent capabilities still
-come from the base manifest. Component updates require an identical kernel hash,
+come from the base manifest. Component updates require an identical kernel hash and root format,
 rechecked by the service before a maintenance boot.
 
 ## Full image transition
@@ -118,13 +121,22 @@ candidate owner, mode and extended attributes. Account database symlinks are
 rejected. Generated `passwd-`, `group-`, `shadow-`, `gshadow-` backups and
 `.pwd.lock` stay candidate-local instead of being replayed as user configuration.
 Other `/etc` conflicts still require resolution. TERM-managed files, fstab,
-machine-id and resolver use new policy. Databases under `/var/lib`, custom
-`/usr/local` content and other root paths are not automatically migrated. They
-remain in the complete old generation and need application-aware migration.
-This also includes data placed directly on the state disk outside the overlay,
-such as the optional Docker/ReDroid test path `/.droid/state/term-redroid-test`.
-It remains on the retained old state disk; users must back up and migrate it
-explicitly rather than expect it to appear in the new generation.
+machine-id and resolver use new policy. Application data under `/var/lib`,
+`/var/spool`, `/var/www` and user `/usr/local` content are also copied. Distribution
+package state (`dpkg`, `apt`, `pacman`, `ucf`), systemd/dbus state and TERM receipts
+under `/var/lib` retain the new image's state. TERM-managed files retain the new
+approved content. Copying preserves ownership, permissions, Linux xattrs/ACLs,
+symlinks, hardlinks across selected trees and special files, skips sockets and
+does not cross filesystems or follow destination symlink parents. A source link
+cannot replace a directory containing managed files.
+
+For v1 sources, direct state-disk data outside `upper`, `work` and `lost+found`
+is copied to the new root's `/.droid/state`; v2 sources retain that same directory.
+This includes explicitly configured Docker/ReDroid paths. The source merged
+OverlayFS is read as a filesystem, so raw whiteouts/upper trees are not copied as
+root data. Application database format upgrades are not performed by the copier;
+package reinstall/configuration and candidate health failures abort activation.
+Other customized root paths remain in the complete retained old generation.
 
 This favors explicit conflicts over silently losing configuration. Alternatives
 rejected: old-upper reuse mixes package databases; copying package databases to

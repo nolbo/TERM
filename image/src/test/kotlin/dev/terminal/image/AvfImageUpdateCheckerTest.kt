@@ -64,6 +64,18 @@ class AvfImageUpdateCheckerTest {
         assertEquals(AvfImageUpdateResult.Unsupported, checker(candidate).check(root, release(candidate), cache))
     }
 
+    @Test fun rootLayoutTransitionRequiresAFullImageEvenWithTheSameKernel() = fixture { temp, root, cache ->
+        val candidate = image(temp.resolve("ext4"), "new")
+        val manifest = candidate.resolve("manifest.properties")
+        Files.writeString(manifest, Files.readString(manifest).replace("formatVersion=1", "formatVersion=2"))
+        assertEquals(AvfImageUpdateResult.Available(AvfImageUpdateKind.IMAGE),
+            checker(candidate).check(root, release(candidate), cache))
+        assertEquals(AvfImageUpdateResult.Unsupported,
+            checker(root).check(candidate, release(root), cache))
+        AvfGuestComponents.record(root, candidate)
+        assertThrows(IllegalArgumentException::class.java) { AvfGuestComponents.source(root, AvfImageVerifier.parse(root.resolve("manifest.properties"))) }
+    }
+
     @Test fun wrongPinWrongDistributionAndFailedFetchNeverBecomeUpToDateAndCleanStaging() = fixture { temp, root, cache ->
         val candidate = image(temp.resolve("new"), "new")
         assertThrows(IllegalArgumentException::class.java) { checker(candidate).check(root, release(candidate).copy(manifestSha256 = "a".repeat(64)), cache) }

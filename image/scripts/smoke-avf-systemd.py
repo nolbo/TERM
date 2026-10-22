@@ -22,7 +22,7 @@ import uuid
 HEADER = struct.Struct('>IHBBHHQI')
 MAGIC = 0x44505459
 PORTS = (40500, 40503)
-BOOT_PARAMS = 'root=/dev/vda rootfstype=ext4 ro console=hvc0 systemd.hostname=localhost'
+BOOT_PARAMS = 'root=/dev/vdb rootfstype=ext4 rw console=hvc0 systemd.hostname=localhost'
 
 
 def check_host():

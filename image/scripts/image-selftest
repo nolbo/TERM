@@ -8,10 +8,14 @@ mountpoint -q /sys || mount -t sysfs sysfs /sys
 mountpoint -q /dev || mount -t devtmpfs devtmpfs /dev
 # Normal boot gets localhost from systemd.hostname; this PID 1 bypasses systemd.
 printf 'localhost\n' > /proc/sys/kernel/hostname
-grep -q ' / overlay ' /proc/mounts
+test "$(findmnt -n -o FSTYPE /)" = ext4
+grep ' / ext4 ' /proc/mounts | grep -q 'rw,'
+mount -t ext4 -o ro,noload,nodev,nosuid,noexec /dev/vda /.droid/lower
 grep ' /.droid/lower ext4 ' /proc/mounts | grep -q 'ro,'
+echo TERM_AVF_EXT4_ROOT_OK
 mount -t ext4 -o ro,nodev,nosuid,noexec /dev/vdc /etc/droid-config
-grep -q '^stateDevice=/dev/vdb$' /etc/droid-config/runtime.properties
+grep -q '^rootDevice=/dev/vdb$' /etc/droid-config/runtime.properties
+grep -q '^rootFilesystem=ext4$' /etc/droid-config/runtime.properties
 test -x /usr/local/lib/droid/droid-sessiond
 test -x /usr/local/lib/droid/droid-agent
 test -x /usr/local/lib/droid/droid-port-agent

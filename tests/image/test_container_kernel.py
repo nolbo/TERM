@@ -174,7 +174,7 @@ class ContainerKernelTests(unittest.TestCase):
                     kernel.validate_boot_report(report)
 
     def test_both_offline_boots_must_return_container_probe_marker(self):
-        markers = ('TERM_AVF_FIRST_BOOT_OK TERM_AVF_PERSISTENCE_OK TERM_AVF_USER_SETUP_OK '
+        markers = ('TERM_AVF_EXT4_ROOT_OK TERM_AVF_FIRST_BOOT_OK TERM_AVF_PERSISTENCE_OK TERM_AVF_USER_SETUP_OK '
                    'TERM_AVF_PACKAGE_BASE_CLEAN_OK TERM_AVF_PACKAGE_INIT_OK TERM_AVF_VIRTIOFS_CONFIG_OK '
                    'TERM_AVF_ANDROID_STORAGE_CONFIG_OK TERM_AVF_NETWORK_CONFIG_OK TERM_AVF_GUEST_PACKAGE_OK')
         with tempfile.TemporaryDirectory() as temporary:

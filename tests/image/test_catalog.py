@@ -64,6 +64,17 @@ class CatalogVerificationTests(unittest.TestCase):
         verifier.verify_directory(self.root, expected_commit=provenance['sourceCommit'],
                                   expected_manifest_sha=approved['manifestSha256'])
 
+    def test_v2_requires_ext4_provenance_and_legacy_v1_remains_readable(self):
+        data = (self.root / 'manifest.properties').read_bytes()
+        self.assertEqual(verifier.manifest(data, {'manifestSha256': verifier.digest(data)})['formatVersion'], '2')
+        legacy = data.replace(b'formatVersion=2', b'formatVersion=1')
+        self.assertEqual(verifier.manifest(legacy, {'manifestSha256': verifier.digest(legacy)})['formatVersion'], '1')
+        provenance = json.loads((self.root / 'provenance.json').read_bytes())
+        provenance.pop('rootFilesystem')
+        (self.root / 'provenance.json').write_text(json.dumps(provenance))
+        with self.assertRaisesRegex(ValueError, 'ext4 root provenance'):
+            verifier.verify_directory(self.root)
+
     def test_private_share_broker_version_is_optional_and_unknown_versions_fail(self):
         current = (self.root / 'manifest.properties').read_bytes()
         for version in [None, b'1', b'0', b'2']:

@@ -15,15 +15,48 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AvfEnvironmentUpdaterTest {
-    private fun image(path: Path, version: String, maintenance: Boolean = true, installed: Boolean = true): Path {
+    private fun image(path: Path, version: String, maintenance: Boolean = true, installed: Boolean = true, format: Int = 1): Path {
         Files.createDirectories(path)
         val artifacts = mapOf("kernel" to "vmlinuz", "initrd" to "initrd.img", "system" to "system.img", "home" to "home.img", "config" to "config.img")
         artifacts.forEach { (_, file) -> Files.write(path.resolve(file), (if (file == "vmlinuz") "same kernel" else "$file:$version").toByteArray()) }
-        Files.write(path.resolve("manifest.properties"), ("formatVersion=1\ndistribution=debian\narchitecture=arm64\n" +
+        Files.write(path.resolve("manifest.properties"), ("formatVersion=$format\ndistribution=debian\narchitecture=arm64\n" +
             (if (maintenance) "maintenanceVersion=1\n" else "") +
             artifacts.entries.joinToString("\n") { (key, file) -> "$key.sha256=${AvfImageVerifier.sha256(path.resolve(file))}" }).toByteArray())
         check((if (installed) AvfImageInstaller.verifyForStartup(path) else AvfImageVerifier.verify(path)) is ImageVerification.Ready)
         return path
+    }
+
+    @Test fun legacyOverlayTransitionsToExt4AndRollbackRestoresTheMatchingBootFormat() = runBlocking {
+        for (sourceFormat in listOf(1, 2)) {
+            val temp = Files.createTempDirectory("avf-ext4-update")
+            try {
+                val root = image(temp.resolve("installed"), "old", format = sourceFormat)
+                Files.writeString(root.resolve("home.img"), "original user files")
+                val staged = image(temp.resolve("download"), "new", installed = false, format = 2)
+                val driver = Driver(root)
+                updater(driver, staged).update(root, "test", AvfDistribution.DEBIAN, staged, "rebase", {}, { it() })
+                assertEquals(sourceFormat, driver.sourceFormat)
+                assertEquals(2, AvfImageVerifier.parse(root.resolve("manifest.properties")).formatVersion)
+                assertEquals("migrated state", Files.readString(root.resolve("home.img")))
+                AvfImageTransitions.rollback(root, AvfDistribution.DEBIAN)
+                assertEquals(sourceFormat, AvfImageVerifier.parse(root.resolve("manifest.properties")).formatVersion)
+                assertEquals("original user files", Files.readString(root.resolve("home.img")))
+            } finally { temp.toFile().deleteRecursively() }
+        }
+    }
+
+    @Test fun componentsCannotChangeTheRootLayout() = runBlocking {
+        val temp = Files.createTempDirectory("avf-ext4-components")
+        try {
+            val root = image(temp.resolve("installed"), "old")
+            val staged = image(temp.resolve("download"), "new", installed = false, format = 2)
+            val driver = Driver(root)
+            assertTrue(runCatching {
+                updater(driver, staged).update(root, "test", AvfDistribution.DEBIAN, staged, "components", {}, { it() })
+            }.isFailure)
+            assertEquals(0, driver.starts)
+            assertFalse(Files.exists(root.resolve(AvfImageTransitions.MAINTENANCE)))
+        } finally { temp.toFile().deleteRecursively() }
     }
 
     @Test fun bothModesKeepOriginalDisksUntilTheCandidatePassesASeparateBoot() = runBlocking {
@@ -93,6 +126,7 @@ class AvfEnvironmentUpdaterTest {
     private class Driver(val original: Path, val failHealth: Boolean = false) : AvfPlatformDriver {
         lateinit var config: RuntimeConfig
         var starts = 0
+        var sourceFormat: Int? = null
         override suspend fun prepare(config: RuntimeConfig): Result<Unit> {
             check(AvfImageInstaller.verifyForStartup(Path.of(config.imageDirectory)) is ImageVerification.Ready)
             this.config = config
@@ -109,6 +143,7 @@ class AvfEnvironmentUpdaterTest {
                 assertEquals("original user files", String(Files.readAllBytes(original.resolve("home.img"))))
                 if (frame.payload.contentEquals(byteArrayOf(0x41))) {
                     val maintenance = requireNotNull(config.avfMaintenance)
+                    sourceFormat = maintenance.sourceFormatVersion
                     Files.write(Path.of(maintenance.copiedState), "component state".toByteArray())
                     Files.write(Path.of(config.imageDirectory, "home.img"), "migrated state".toByteArray())
                 } else {

@@ -42,8 +42,9 @@ internal class AvfEnvironmentUpdater(private val backend: AvfBackend, private va
         check(AvfImageVerifier.sha256(downloaded.resolve(AvfImageLayout.MANIFEST_FILE)) ==
             catalog.find(distribution.releaseId)?.manifestSha256) { "승인된 이미지 카탈로그와 일치하지 않습니다." }
         check(next.manifest.maintenanceVersion == 1) { "새 AVF 이미지가 게스트 관리 기능을 지원하지 않습니다." }
-        if (operation == "components") check(old.manifest.kernelSha256 == next.manifest.kernelSha256) {
-            "커널이 다른 이미지입니다. 전체 이미지 업데이트를 사용하세요."
+        check(next.manifest.formatVersion >= old.manifest.formatVersion) { "이전 디스크 형식으로 업데이트할 수 없습니다. 이전 세대 복구를 사용하세요." }
+        if (operation == "components") check(AvfImageUpdateChecker.kind(old.manifest, next.manifest) == AvfImageUpdateKind.COMPONENTS) {
+            "커널 또는 루트 디스크 형식이 다른 이미지입니다. 전체 이미지 업데이트를 사용하세요."
         }
         val work = Files.createDirectory(root.resolve(AvfImageTransitions.MAINTENANCE))
         val candidate = work.resolve("candidate")
@@ -59,7 +60,7 @@ internal class AvfEnvironmentUpdater(private val backend: AvfBackend, private va
             val id = maintenanceId(instanceId)
             backend.prepare(RuntimeConfig(instanceId = id, imageDirectory = candidate.toString(),
                 imageDistribution = distribution.id, avfMaintenance = AvfMaintenanceBoot(operation,
-                    root.resolve("system.img").toString(), state.toString()))).getOrThrow()
+                    root.resolve("system.img").toString(), state.toString(), old.manifest.formatVersion))).getOrThrow()
             progress(AvfImageInstallPhase.BOOT)
             backend.start().getOrThrow()
             progress(AvfImageInstallPhase.UPDATE)

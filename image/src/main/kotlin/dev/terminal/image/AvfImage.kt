@@ -23,6 +23,10 @@ data class AvfImageManifest(
     val shareBrokerVersion: Int = 0,
     val maintenanceVersion: Int = 0,
 ) {
+    /** v1: overlay upper/work on home.img; v2: complete writable ext4 root on home.img. */
+    val usesExt4Root: Boolean get() = formatVersion == 2
+    val rootDevice: String get() = if (usesExt4Root) "/dev/vdb" else "/dev/vda"
+    val rootMountMode: String get() = if (usesExt4Root) "rw" else "ro"
     val guestDistribution: AvfDistribution get() = AvfDistribution.fromId(distribution)
     val initializesPackageIndexes: Boolean get() = packageInitializationVersion == 1 || aptInitializationVersion == 1
 }
@@ -53,7 +57,7 @@ sealed interface ImageVerification {
 }
 
 object AvfImageVerifier {
-    private const val EXPECTED_FORMAT_VERSION = 1
+    private val SUPPORTED_FORMAT_VERSIONS = 1..2
     private const val EXPECTED_ARCHITECTURE = "arm64"
     private val SHA256 = Regex("[0-9a-f]{64}")
     private const val HASH_BUFFER_BYTES = 256 * 1024
@@ -69,7 +73,7 @@ object AvfImageVerifier {
                 !Files.isRegularFile(it, java.nio.file.LinkOption.NOFOLLOW_LINKS) || Files.size(it) <= 0
             } || Files.size(layout.manifest) > 64 * 1024) return@runCatching false
         val manifest = parse(layout.manifest)
-        manifest.formatVersion == EXPECTED_FORMAT_VERSION &&
+        manifest.formatVersion in SUPPORTED_FORMAT_VERSIONS &&
             (expectedDistribution == null || manifest.guestDistribution == expectedDistribution) &&
             manifest.architecture == EXPECTED_ARCHITECTURE && listOf(manifest.kernelSha256, manifest.initrdSha256,
                 manifest.systemSha256, manifest.homeSha256, manifest.configSha256).all(SHA256::matches)
@@ -108,10 +112,10 @@ object AvfImageVerifier {
         }
         val manifest = runCatching { parse(layout.manifest) }
             .getOrElse { return ImageVerification.Invalid("Invalid AVF image manifest: ${it.message}") }
-        if (manifest.formatVersion != EXPECTED_FORMAT_VERSION ||
+        if (manifest.formatVersion !in SUPPORTED_FORMAT_VERSIONS ||
             (expectedDistribution != null && manifest.guestDistribution != expectedDistribution) ||
             manifest.architecture != EXPECTED_ARCHITECTURE
-        ) return ImageVerification.Invalid("Unsupported image: expected ${expectedDistribution?.displayName ?: "AVF Linux"} ARM64 format v1")
+        ) return ImageVerification.Invalid("Unsupported image: expected ${expectedDistribution?.displayName ?: "AVF Linux"} ARM64 format v1 or v2")
         val hashes = listOf(
             layout.kernelImage to manifest.kernelSha256,
             layout.initrdImage to manifest.initrdSha256,
@@ -130,12 +134,14 @@ object AvfImageVerifier {
 
     fun parse(manifestPath: Path): AvfImageManifest = Properties().run {
         Files.newInputStream(manifestPath).use(::load)
+        val formatVersion = getProperty("formatVersion")?.toIntOrNull() ?: error("formatVersion missing")
+        require(formatVersion in SUPPORTED_FORMAT_VERSIONS) { "Unsupported AVF image format" }
         val distribution = AvfDistribution.fromId(getProperty("distribution") ?: error("distribution missing"))
         require(getProperty("aptInitializationVersion") == null || distribution.packageManager == "apt") {
             "APT initialization requires an APT distribution"
         }
         AvfImageManifest(
-            formatVersion = getProperty("formatVersion")?.toIntOrNull() ?: error("formatVersion missing"),
+            formatVersion = formatVersion,
             distribution = getProperty("distribution") ?: error("distribution missing"),
             architecture = getProperty("architecture") ?: error("architecture missing"),
             kernelSha256 = getProperty("kernel.sha256") ?: error("kernel.sha256 missing"),

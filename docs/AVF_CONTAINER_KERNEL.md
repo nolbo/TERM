@@ -1,5 +1,8 @@
 # AVF Linux container kernel
 
+New image-format-v2 guests use a direct EXT4 root, so `/var/lib/docker` can supply container upper/work directories. The factory tests an actual OverlayFS mount there. The earlier OverlayFS-root experiments below describe v1 images; their `/.droid/state` workaround remains compatible as an ordinary EXT4 directory in v2.
+
+
 ## Baseline and validation status
 
 The approved `avf-ubuntu-20261020-r4` Image is Google's

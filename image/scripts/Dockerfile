@@ -41,7 +41,6 @@ COPY image/scripts/initialize-avf-packages.sh /payload/initialize-avf-packages.s
 COPY image/scripts/clean-avf-apt.sh /payload/clean-avf-apt.sh
 COPY image/scripts/term-virtio.network /payload/term-virtio.network
 COPY image/scripts/droid.sudoers /payload/droid.sudoers
-COPY image/scripts/droid-overlay /payload/droid-overlay
 COPY image/scripts/image-selftest /payload/image-selftest
 COPY image/scripts/image-container-selftest /payload/image-container-selftest
 COPY image/scripts/image-apt-selftest /payload/image-apt-selftest
@@ -54,6 +53,7 @@ COPY image/scripts/migrate-avf-state.py /payload/migrate-avf-state.py
 COPY image/scripts/check-avf-image.sh /payload/check-avf-image.sh
 COPY image/scripts/smoke-avf-image.py /usr/local/bin/smoke-avf-image.py
 COPY image/scripts/assemble-avf-image.sh /usr/local/bin/assemble-avf-image
+COPY image/scripts/initialize-avf-root.sh /usr/local/bin/initialize-avf-root
 COPY image/scripts/provision-debian-shares.sh /usr/local/bin/provision-debian-shares
 # Hosted ARM64 runners do not expose KVM. Avoid an unusable host GIC fallback.
 ENV LIBGUESTFS_BACKEND=direct LIBGUESTFS_BACKEND_SETTINGS=force_tcg LIBGUESTFS_DEBUG=1 LIBGUESTFS_TRACE=1

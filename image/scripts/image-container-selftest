@@ -22,7 +22,12 @@ PY
 fi
 test "$$" -eq 1
 scratch=$(mktemp -d /tmp/term-containers.XXXXXX)
+storage=$(mktemp -d /var/lib/term-overlay.XXXXXX)
 cleanup() {
+  if mountpoint -q "$storage/merged"; then
+    umount "$storage/merged" || return
+  fi
+  rm -rf "$storage"
   for point in binder mqueue cgroup; do
     if mountpoint -q "$scratch/$point"; then
       umount "$scratch/$point" || return
@@ -31,6 +36,18 @@ cleanup() {
   rmdir "$scratch/binder" "$scratch/mqueue" "$scratch/cgroup" "$scratch"
 }
 trap cleanup EXIT
+# Exercise container overlay upper/work on the real /var/lib backing filesystem,
+# not tmpfs. This failed when the guest root itself was an OverlayFS upper.
+test "$(findmnt -n -o FSTYPE -T /var/lib)" = ext4
+mkdir "$storage/lower" "$storage/upper" "$storage/work" "$storage/merged"
+printf 'lower\n' > "$storage/lower/probe"
+mount -t overlay -o "lowerdir=$storage/lower,upperdir=$storage/upper,workdir=$storage/work" overlay "$storage/merged"
+test "$(cat "$storage/merged/probe")" = lower
+printf 'copied-up\n' > "$storage/merged/probe"
+test "$(cat "$storage/upper/probe")" = copied-up
+test "$(cat "$storage/lower/probe")" = lower
+rm "$storage/merged/probe"
+test ! -e "$storage/merged/probe"
 mkdir "$scratch/binder" "$scratch/mqueue" "$scratch/cgroup"
 mount -t mqueue mqueue "$scratch/mqueue"
 mount -t binder binder "$scratch/binder"

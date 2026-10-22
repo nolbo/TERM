@@ -59,8 +59,12 @@ data class RuntimeConfig(
     val avfMaintenance: AvfMaintenanceBoot? = null,
 )
 
-data class AvfMaintenanceBoot(val operation: String, val sourceSystem: String, val copiedState: String) {
-    init { require(operation in setOf("components", "rebase")) }
+data class AvfMaintenanceBoot(val operation: String, val sourceSystem: String, val copiedState: String,
+    val sourceFormatVersion: Int = 1) {
+    init {
+        require(operation in setOf("components", "rebase"))
+        require(sourceFormatVersion in 1..2)
+    }
 }
 
 data class SharedDirectoryExport(val id: String, val name: String, val directory: String)
