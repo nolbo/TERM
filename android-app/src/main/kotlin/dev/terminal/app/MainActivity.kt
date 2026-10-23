@@ -428,6 +428,10 @@ class MainActivity : TerminalActivity() {
 
         override fun onOperationError(operation: String, message: String) = runOnUiThread {
             if (generation != bindingGeneration) return@runOnUiThread
+            if (operation == dev.terminal.runtime.lifecycle.BoundedCallbackQueue.RESYNC_REQUIRED) {
+                handleRuntimeDisconnect()
+                return@runOnUiThread
+            }
             if (operation.substringBefore(':') == "세션 생성" &&
                 operation.substringAfter(':', "").substringBefore(':') == "AVF") {
                 val requestId = operation.split(':').getOrNull(3)

@@ -12,8 +12,12 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** A boot-owned control stream and one scoped SFTP stream per folder. No Android storage grant. */
-internal class PrivateAvfShares(private val folders: List<SharedDirectoryExport>) : Closeable {
+internal class PrivateAvfShares(private val folders: List<SharedDirectoryExport>,
+    private val report: (String, Throwable?) -> Unit = { event, error ->
+        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(event, error = error)
+    }) : Closeable {
     private val closed = AtomicBoolean()
+    private val failureReported = AtomicBoolean()
     private val streams = CopyOnWriteArrayList<GuestByteStream>()
     private val workers = CopyOnWriteArrayList<Thread>()
     @Volatile private var acquired = false
@@ -21,8 +25,13 @@ internal class PrivateAvfShares(private val folders: List<SharedDirectoryExport>
         private set
 
     fun start(connect: () -> GuestByteStream) {
-        val timeout = WATCHDOG.schedule({ runCatching { close() } }, 50, TimeUnit.SECONDS)
-        try { attach(connect) } finally { timeout.cancel(false) }
+        val timeout = WATCHDOG.schedule({
+            failed("share.start.timeout", null)
+            runCatching { close() }
+        }, 50, TimeUnit.SECONDS)
+        try { attach(connect) }
+        catch (error: Exception) { failed("share.start.failed", error); throw error }
+        finally { timeout.cancel(false) }
     }
 
     private fun attach(connect: () -> GuestByteStream) {
@@ -50,8 +59,11 @@ internal class PrivateAvfShares(private val folders: List<SharedDirectoryExport>
             header.writeLong(id.mostSignificantBits); header.writeLong(id.leastSignificantBits); header.flush()
             check(stream.input.read() == 0) { "Guest rejected private share stream" }
             val worker = Thread(null, {
-                try { ScopedSftpServer(File(folder.directory)).use { it.serve(stream.input, stream.output) } }
-                catch (_: Exception) { /* Closing the control stream makes guest mounts fail closed. */ }
+                try {
+                    ScopedSftpServer(File(folder.directory)).use { it.serve(stream.input, stream.output) }
+                    if (!closed.get()) failed("share.data.eof", null)
+                }
+                catch (error: Exception) { if (!closed.get()) failed("share.data.failed", error) }
                 finally { runCatching { control.close() }; runCatching { stream.close() } }
             }, "avf-share", 256 * 1024).apply { isDaemon = true }
             startWorker(worker)
@@ -59,6 +71,11 @@ internal class PrivateAvfShares(private val folders: List<SharedDirectoryExport>
         check(control.input.read() == 0) { "Guest private share mounts did not become ready" }
         check(!closed.get() && workers.all(Thread::isAlive)) { "Private share connection was lost" }
         ready = true
+        runCatching { report("share.ready", null) }
+    }
+
+    private fun failed(event: String, error: Throwable?) {
+        if (failureReported.compareAndSet(false, true)) runCatching { report(event, error) }
     }
 
     @Synchronized private fun track(stream: GuestByteStream): GuestByteStream {
@@ -79,6 +96,7 @@ internal class PrivateAvfShares(private val folders: List<SharedDirectoryExport>
     }
 
     @Synchronized override fun close() {
+        if (!closed.get()) runCatching { report("share.close", null) }
         closed.set(true)
         streams.forEach { runCatching { it.close() } }
         workers.forEach(Thread::interrupt)

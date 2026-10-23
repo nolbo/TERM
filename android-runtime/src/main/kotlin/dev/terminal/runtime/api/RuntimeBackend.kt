@@ -98,5 +98,15 @@ interface GuestByteStream : Closeable {
 }
 
 /** Creates a session client only after a runtime backend has authenticated its guest connection. */
-suspend fun RuntimeBackend.connectSessionClient(): Result<ProtocolSessionClient> =
-    connectGuestAgent().map { connection -> ProtocolSessionClient(connection) }
+suspend fun RuntimeBackend.connectSessionClient(owner: String? = null): Result<ProtocolSessionClient> =
+    connectGuestAgent().onFailure {
+        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("session.connect.failed", owner, error = it)
+    }.map { connection ->
+        val connectionId = sessionConnectionIds.incrementAndGet().toString()
+        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("session.connected", owner, connectionId)
+        ProtocolSessionClient(connection, onDiagnostic = { event, error ->
+            dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(event, owner, connectionId, error)
+        })
+    }
+
+private val sessionConnectionIds = java.util.concurrent.atomic.AtomicLong()

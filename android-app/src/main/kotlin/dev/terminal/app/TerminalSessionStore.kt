@@ -36,6 +36,7 @@ internal class TerminalSessionStore(context: Context) {
     private val terminalListeners = ConcurrentHashMap<String, ITerminalStateListener>()
     private val palettes = mutableMapOf<String, Properties>()
     private val ready = ConcurrentHashMap.newKeySet<String>()
+    private val resyncAfter = mutableMapOf<String, Long>()
     private var service: IRuntimeService? = null
     private var binding = false
     @Volatile private var generation = 0L
@@ -122,21 +123,24 @@ internal class TerminalSessionStore(context: Context) {
 
     fun attachWhenReady(id: String) {
         val runtime = service ?: return
+        if (android.os.SystemClock.uptimeMillis() < (resyncAfter[id] ?: 0L)) return
+        resyncAfter.remove(id)
         if (observer == null && sessions.isEmpty()) return
         if (sessions[id]?.emulator == null || !attached.add(id)) return
         val currentGeneration = generation
         val backend = backends.getValue(id)
         val stream = object : ITerminalStateListener.Stub() {
+            private fun current() = currentGeneration == generation && terminalListeners[id] === this
             override fun onCheckpoint(state: ParcelFileDescriptor) {
                 try {
                     DataInputStream(ParcelFileDescriptor.AutoCloseInputStream(state)).use { input ->
                         val position = if (input.readBoolean()) TerminalView.ScrollPosition(input.readInt(), input.readFloat(), input.readLong()) else null
                         val emulator = TerminalCheckpoint.read(input)
-                        if (currentGeneration != generation) return
+                        if (!current()) return
                         backend.checkpoint(emulator)
                         ready.add(id)
                         main.post {
-                            if (currentGeneration != generation) return@post
+                            if (!current()) return@post
                             if (position != null) {
                                 sessions[id]?.let { scrollPositions[it] = position }
                                 sessions[id]?.let { restoredPositions.add(it) }
@@ -147,22 +151,34 @@ internal class TerminalSessionStore(context: Context) {
                 } catch (error: Exception) { onError(error.message ?: "체크포인트 오류") }
             }
             override fun onOutput(bytes: ByteArray) {
-                if (currentGeneration == generation && id in ready) backend.mirrorOutput(bytes)
+                if (current() && id in ready) backend.mirrorOutput(bytes)
             }
             override fun onResize(columns: Int, rows: Int, cellWidth: Int, cellHeight: Int) {
-                if (currentGeneration == generation && id in ready) backend.resized(columns, rows, cellWidth, cellHeight)
+                if (current() && id in ready) backend.resized(columns, rows, cellWidth, cellHeight)
             }
             override fun onExited(code: Int) {
-                if (currentGeneration == generation && id in ready) backend.exit(code)
+                if (current() && id in ready) backend.exit(code)
             }
             override fun onError(message: String) {
                 main.post {
-                    if (currentGeneration == generation && terminalListeners[id] === this) {
-                        ready.remove(id)
-                        attached.remove(id)
-                        terminalListeners.remove(id)
-                        runCatching { service?.detachTerminal(id, this) }
-                        android.widget.Toast.makeText(context, "터미널 화면 복원 실패: $message", android.widget.Toast.LENGTH_LONG).show()
+                    if (current()) {
+                        if (message == dev.terminal.runtime.lifecycle.BoundedCallbackQueue.RESYNC_REQUIRED) {
+                            // A new mirror also discards the old mirror's pending main-thread bytes.
+                            remove(id)
+                            resyncAfter[id] = android.os.SystemClock.uptimeMillis() + 2_000
+                            main.postDelayed({
+                                if (currentGeneration == generation && observer != null) {
+                                    observer?.invoke(id)
+                                    attachWhenReady(id)
+                                } else staleMirrors.add(id)
+                            }, 2_000)
+                        } else {
+                            ready.remove(id)
+                            attached.remove(id)
+                            terminalListeners.remove(id)
+                            runCatching { service?.detachTerminal(id, this) }
+                            android.widget.Toast.makeText(context, "터미널 화면 복원 실패: $message", android.widget.Toast.LENGTH_LONG).show()
+                        }
                     }
                 }
             }
@@ -200,6 +216,7 @@ internal class TerminalSessionStore(context: Context) {
     }
 
     fun remove(id: String) {
+        resyncAfter.remove(id)
         backends.remove(id)?.close()
         sessions.remove(id)?.let(restoredPositions::remove)
         attached.remove(id)
@@ -253,7 +270,11 @@ internal class TerminalSessionStore(context: Context) {
         override fun onSessionFocusRequested(sessionId: String) = Unit
         override fun onSessionTerminationFailed(sessionId: String, message: String) = Unit
         override fun onRootlessProgress(runtimeType: String, phase: String, detail: String) = Unit
-        override fun onOperationError(operation: String, message: String) = Unit
+        override fun onOperationError(operation: String, message: String) {
+            if (operation == dev.terminal.runtime.lifecycle.BoundedCallbackQueue.RESYNC_REQUIRED) main.post {
+                if (currentGeneration == generation) disconnected()
+            }
+        }
     }
 
     private val connection = object : ServiceConnection {

@@ -36,6 +36,106 @@ class TerminalTuiLifecycleTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val context get() = instrumentation.targetContext
 
+    @Test fun blockedUiCallbacksDoNotStallPtyAndFreshCheckpointKeepsBackgroundOutput() = withSession { service, id ->
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val legacyEntered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val checkpoint = java.util.concurrent.CountDownLatch(1)
+        val errors = LinkedBlockingQueue<String>()
+        val marker = java.io.File(context.cacheDir, "callback-isolation-${java.util.UUID.randomUUID()}")
+        fun readCheckpoint(fd: android.os.ParcelFileDescriptor): TerminalEmulator =
+            java.io.DataInputStream(android.os.ParcelFileDescriptor.AutoCloseInputStream(fd)).use { input ->
+                if (input.readBoolean()) { input.readInt(); input.readFloat(); input.readLong() }
+                dev.terminal.emulator.TerminalCheckpoint.read(input)
+            }
+        val slow = object : dev.terminal.runtime.ipc.ITerminalStateListener.Stub() {
+            override fun onCheckpoint(fd: android.os.ParcelFileDescriptor) { readCheckpoint(fd); checkpoint.countDown() }
+            override fun onOutput(bytes: ByteArray) { entered.countDown(); release.await(30, TimeUnit.SECONDS) }
+            override fun onResize(columns: Int, rows: Int, width: Int, height: Int) = Unit
+            override fun onExited(code: Int) = Unit
+            override fun onError(message: String) { errors.offer(message) }
+        }
+        val legacy = object : dev.terminal.runtime.ipc.IRuntimeStateListener.Stub() {
+            override fun onTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) {
+                if (sessionId == id) { legacyEntered.countDown(); release.await(30, TimeUnit.SECONDS) }
+            }
+            override fun onRuntimeStateChanged(state: String, detail: String) = Unit
+            override fun onSessionsChanged(revision: Long, sessions: String) = Unit
+            override fun onSessionExited(sessionId: String, exitCode: Int) = Unit
+            override fun onSessionTerminationFailed(sessionId: String, message: String) = Unit
+            override fun onRootlessProgress(runtimeType: String, phase: String, detail: String) = Unit
+            override fun onOperationError(operation: String, message: String) { errors.offer(message) }
+            override fun onSessionFocusRequested(sessionId: String) = Unit
+        }
+        val restored = LinkedBlockingQueue<String>()
+        val fresh = object : dev.terminal.runtime.ipc.ITerminalStateListener.Stub() {
+            override fun onCheckpoint(fd: android.os.ParcelFileDescriptor) {
+                restored.offer(readCheckpoint(fd).screen.transcriptText)
+            }
+            override fun onOutput(bytes: ByteArray) = Unit
+            override fun onResize(columns: Int, rows: Int, width: Int, height: Int) = Unit
+            override fun onExited(code: Int) = Unit
+            override fun onError(message: String) { errors.offer(message) }
+        }
+        try {
+            service.registerListener(legacy)
+            service.attachTerminal(id, slow, 24, 80, 8, 16, "{}")
+            assertTrue(checkpoint.await(5, TimeUnit.SECONDS))
+            service.writeSessionInput(id, ("printf 'BLOCK_BEGIN\\n'; dd if=/dev/zero bs=65536 count=40 2>/dev/null; " +
+                "printf '\\nAFTER_BLOCK\\n'; printf ready > '${marker.absolutePath}'\n").toByteArray())
+            assertTrue(entered.await(5, TimeUnit.SECONDS))
+            assertTrue(legacyEntered.await(5, TimeUnit.SECONDS))
+            await("PTY finishes while both UI callback workers remain blocked") { marker.isFile && marker.readText() == "ready" }
+            assertTrue(JSONArray(service.sessionsJson).let { array ->
+                (0 until array.length()).map(array::getJSONObject).any { it.getString("id") == id && it.getString("state") == "RUNNING" }
+            })
+            assertEquals(dev.terminal.runtime.lifecycle.BoundedCallbackQueue.RESYNC_REQUIRED, errors.poll(5, TimeUnit.SECONDS))
+            release.countDown()
+            service.detachTerminal(id, slow)
+            service.attachTerminal(id, fresh, 24, 80, 8, 16, "{}")
+            assertTrue(requireNotNull(restored.poll(5, TimeUnit.SECONDS)).contains("AFTER_BLOCK"))
+        } finally {
+            release.countDown()
+            service.detachTerminal(id, slow); service.detachTerminal(id, fresh)
+            service.unregisterListener(legacy)
+            marker.delete()
+        }
+    }
+
+    @Test fun frozenUiAutomaticallyReplacesOverloadedMirrorWithoutStoppingCommand() = withSession { service, id ->
+        val marker = java.io.File(context.cacheDir, "ui-resync-${java.util.UUID.randomUUID()}")
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val timedOut = java.util.concurrent.atomic.AtomicBoolean()
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            val original = select(scenario, id)
+            val store = (context.applicationContext as TerminalApplication).terminalSessions
+            try {
+                instrumentation.runOnMainSync {
+                    android.os.Handler(android.os.Looper.getMainLooper()).post {
+                        entered.countDown()
+                        if (!release.await(10, TimeUnit.SECONDS)) timedOut.set(true)
+                    }
+                }
+                assertTrue(entered.await(2, TimeUnit.SECONDS))
+                service.writeSessionInput(id, ("dd if=/dev/zero bs=65536 count=40 2>/dev/null; " +
+                    "printf '\\nUI_RESYNC_DONE\\n'; printf ready > '${marker.absolutePath}'\n").toByteArray())
+                await("command finishes before the frozen UI is released") { marker.isFile && marker.readText() == "ready" }
+                assertFalse("A UI timeout must not be what allowed the command to complete", timedOut.get())
+                release.countDown()
+                await("automatic replacement mirror restores authoritative output") {
+                    var restored = false
+                    instrumentation.runOnMainSync {
+                        val current = store.sessions[id]
+                        restored = current != null && current !== original &&
+                            current.emulator?.screen?.transcriptText?.contains("UI_RESYNC_DONE") == true
+                    }
+                    restored
+                }
+            } finally { release.countDown(); marker.delete() }
+        }
+    }
+
     @Test fun nativeClipboardUsesExplicitGrantAndFocusedForegroundTerminal() = withSession { service, id ->
         val grants = dev.terminal.bridge.SharedPreferencesCapabilityGrantStore(context)
         val capability = dev.terminal.bridge.Capability.CLIPBOARD_WRITE

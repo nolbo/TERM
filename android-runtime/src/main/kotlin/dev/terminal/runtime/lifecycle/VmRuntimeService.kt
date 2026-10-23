@@ -74,9 +74,17 @@ class VmRuntimeService : Service() {
     private val listenerLock = Any()
     private val notificationFocusByListener = mutableMapOf<android.os.IBinder, String?>()
     private val listeners = object : RemoteCallbackList<IRuntimeStateListener>() {
-        override fun onCallbackDied(callback: IRuntimeStateListener) = clearSessionNotificationFocus(callback)
+        override fun onCallbackDied(callback: IRuntimeStateListener) {
+            listenerDeliveries.remove(callback.asBinder())?.close()
+            clearSessionNotificationFocus(callback)
+        }
     }
     private val broadcastLock = Any()
+    private val callbackWorkers = java.util.concurrent.ThreadPoolExecutor(4, 4, 30,
+        java.util.concurrent.TimeUnit.SECONDS, java.util.concurrent.ArrayBlockingQueue<Runnable>(128),
+        { task -> Thread(null, task, "terminal-callback", 256 * 1024).apply { isDaemon = true } })
+        .apply { allowCoreThreadTimeOut(true) }
+    private val listenerDeliveries = ConcurrentHashMap<IBinder, BoundedCallbackQueue>()
     private lateinit var backend: RuntimeBackend
     private lateinit var rootlessBackends: Map<SessionRuntime, RootlessDebianBackend>
     private val environmentBackends = java.util.concurrent.ConcurrentHashMap<EnvironmentId, dev.terminal.runtime.api.RuntimeBackend>()
@@ -87,7 +95,7 @@ class VmRuntimeService : Service() {
     private val sessionClientMutex = Mutex()
     private val preparationLocks = StoragePreparationLocks()
     private val primaryPreparationMutex = Mutex()
-    private val terminalSinks = java.util.concurrent.ConcurrentHashMap<Pair<String, android.os.IBinder>, dev.terminal.runtime.session.RuntimeTerminalState.Sink>()
+    private val terminalSinks = java.util.concurrent.ConcurrentHashMap<Pair<String, android.os.IBinder>, dev.terminal.runtime.session.QueuedTerminalSink>()
     private val terminalDeaths = java.util.concurrent.ConcurrentHashMap<Pair<String, android.os.IBinder>, android.os.IBinder.DeathRecipient>()
     private val terminalOperations = kotlinx.coroutines.channels.Channel<suspend () -> Unit>(512)
     init {
@@ -937,47 +945,26 @@ class VmRuntimeService : Service() {
             val key = sessionId to listener.asBinder()
             try {
                 val registry = ensureSessionRegistry() ?: error("세션 런타임에 연결할 수 없습니다")
-                val sink = object : dev.terminal.runtime.session.RuntimeTerminalState.Sink {
-                    override fun checkpoint(emulator: dev.terminal.emulator.TerminalEmulator,
-                        viewport: dev.terminal.runtime.session.RuntimeTerminalState.Viewport?) {
-                        val pipe = android.os.ParcelFileDescriptor.createReliablePipe()
-                        val failure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
-                        // The caller holds the terminal-state mutex until this writer completes.
-                        // Binder receives the read end before any potentially pipe-sized write.
-                        val writer = Thread({
-                            try {
-                                java.io.DataOutputStream(java.io.BufferedOutputStream(
-                                    android.os.ParcelFileDescriptor.AutoCloseOutputStream(pipe[1]))).use { out ->
-                                    out.writeBoolean(viewport != null)
-                                    if (viewport != null) {
-                                        out.writeInt(viewport.row); out.writeFloat(viewport.offset); out.writeLong(viewport.transcriptShift)
-                                    }
-                                    dev.terminal.emulator.TerminalCheckpoint.write(emulator, out)
-                                }
-                            } catch (error: Throwable) {
-                                failure.set(error)
-                                runCatching { pipe[1].closeWithError("Terminal checkpoint failed") }
-                            }
-                        }, "TerminalCheckpointWriter")
-                        writer.start()
-                        try { listener.onCheckpoint(pipe[0]) }
-                        finally {
-                            // Closing the local read end also unblocks the writer after UI death.
-                            pipe[0].close()
-                            writer.join()
-                        }
-                        failure.get()?.let { throw java.io.IOException("Terminal checkpoint failed", it) }
+                lateinit var sink: dev.terminal.runtime.session.QueuedTerminalSink
+                sink = dev.terminal.runtime.session.QueuedTerminalSink(cacheDir, listener, callbackWorkers) { error ->
+                    ConnectionDiagnostics.record("terminal.delivery.failed", code = error.javaClass.simpleName)
+                    if (terminalSinks.remove(key, sink)) {
+                        terminalDeaths.remove(key)?.let { runCatching { key.second.unlinkToDeath(it, 0) } }
+                        scope.launch { registry.terminalStates.mutex.withLock { registry.terminalStates.unsubscribe(sessionId, sink) } }
+                        runCatching { listener.onError(BoundedCallbackQueue.RESYNC_REQUIRED) }
                     }
-
-                    override fun output(bytes: ByteArray) = listener.onOutput(bytes)
-                    override fun resized(columns: Int, rows: Int, cellWidth: Int, cellHeight: Int) = listener.onResize(columns, rows, cellWidth, cellHeight)
-                    override fun exited(code: Int) = listener.onExited(code)
                 }
-                terminalSinks.put(key, sink)?.let { old ->
+                val previous = synchronized(listenerLock) {
+                    check(terminalSinks.containsKey(key) || terminalSinks.size + listenerDeliveries.size < 64) { "Too many terminal observers" }
+                    terminalSinks.put(key, sink)
+                }
+                previous?.let { old ->
+                    old.close()
                     registry.terminalStates.mutex.withLock { registry.terminalStates.unsubscribe(sessionId, old) }
                 }
                 val death = android.os.IBinder.DeathRecipient {
                     if (terminalSinks.remove(key, sink)) {
+                        sink.close()
                         terminalDeaths.remove(key)
                         scope.launch { registry.terminalStates.mutex.withLock { registry.terminalStates.unsubscribe(sessionId, sink) } }
                     }
@@ -988,6 +975,7 @@ class VmRuntimeService : Service() {
             } catch (error: Exception) {
                 terminalDeaths.remove(key)?.let { runCatching { key.second.unlinkToDeath(it, 0) } }
                 terminalSinks.remove(key)?.let { sink ->
+                    sink.close()
                     (sessionClient as? UnifiedSessionRegistry)?.let { registry ->
                         registry.terminalStates.mutex.withLock { registry.terminalStates.unsubscribe(sessionId, sink) }
                     }
@@ -1001,6 +989,7 @@ class VmRuntimeService : Service() {
             val key = sessionId to listener.asBinder()
             terminalDeaths.remove(key)?.let { key.second.unlinkToDeath(it, 0) }
             terminalSinks.remove(key)?.let { sink ->
+                sink.close()
                 registry.terminalStates.mutex.withLock { registry.terminalStates.unsubscribe(sessionId, sink) }
             }
         }
@@ -1089,7 +1078,7 @@ class VmRuntimeService : Service() {
                     kittyTitles.remove(sessionId)
                     latestResizeRequests.forget(sessionId)
                     terminalSinks.keys.filter { it.first == sessionId }.forEach { key ->
-                        terminalSinks.remove(key)
+                        terminalSinks.remove(key)?.close()
                         terminalDeaths.remove(key)?.let { runCatching { key.second.unlinkToDeath(it, 0) } }
                     }
                     val snapshot = result.snapshot?.getOrNull()
@@ -1210,19 +1199,43 @@ class VmRuntimeService : Service() {
         }
 
         override fun registerListener(listener: IRuntimeStateListener) {
-            val snapshot = synchronized(listenerLock) {
+            val initialized = java.util.concurrent.CountDownLatch(1)
+            synchronized(listenerLock) {
+                val key = listener.asBinder()
+                check(listenerDeliveries.containsKey(key) || terminalSinks.size + listenerDeliveries.size < 64) { "Too many runtime observers" }
+                lateinit var delivery: BoundedCallbackQueue
+                delivery = BoundedCallbackQueue(callbackWorkers, { error ->
+                    ConnectionDiagnostics.record("runtime.delivery.failed", code = error.javaClass.simpleName)
+                    if (listenerDeliveries.remove(key, delivery)) {
+                        synchronized(listenerLock) { listeners.unregister(listener); clearSessionNotificationFocus(listener) }
+                        runCatching { listener.onOperationError(BoundedCallbackQueue.RESYNC_REQUIRED, BoundedCallbackQueue.RESYNC_REQUIRED) }
+                    }
+                })
+                listenerDeliveries.put(key, delivery)?.close()
                 if (listeners.register(listener)) notificationFocusByListener.putIfAbsent(listener.asBinder(), null)
-                publishedSessions
+                val snapshot = publishedSessions
+                val state = latestState
+                val sessions = pendingAvfLaunches.project(snapshot.json)
+                val focus = focusedSession
+                delivery.offer {
+                    try {
+                        listener.onRuntimeStateChanged(state.wireName, state.detail())
+                        listener.onSessionsChanged(snapshot.revision, sessions)
+                        focus?.let { listener.onSessionFocusRequested(it) }
+                    } finally { initialized.countDown() }
+                }
             }
-            runCatching {
-                listener.onRuntimeStateChanged(latestState.wireName, latestState.detail())
-                listener.onSessionsChanged(snapshot.revision, pendingAvfLaunches.project(snapshot.json))
-                focusedSession?.let { listener.onSessionFocusRequested(it) }
+            // Preserve registration's initial-replay boundary for UI selection restoration.
+            // Only this Binder caller waits; no runtime or emulator lock is held.
+            if (!initialized.await(5, java.util.concurrent.TimeUnit.SECONDS)) {
+                unregisterListener(listener)
+                error("Runtime observer initialization timed out")
             }
         }
 
         override fun unregisterListener(listener: IRuntimeStateListener) {
             synchronized(listenerLock) {
+                listenerDeliveries.remove(listener.asBinder())?.close()
                 listeners.unregister(listener)
                 clearSessionNotificationFocus(listener)
             }
@@ -1245,6 +1258,10 @@ class VmRuntimeService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        ConnectionDiagnostics.initialize(filesDir)
+        ConnectionDiagnostics.record("runtime.create")
+        cacheDir.listFiles { file -> file.name.startsWith("terminal-checkpoint-") && file.name.endsWith(".tmp") }
+            ?.forEach { it.delete() }
         getSharedPreferences("session-launches", MODE_PRIVATE).let { launches ->
             launches.edit().apply {
                 launches.all.keys.filter { SessionRuntime.fromSessionId(it) != SessionRuntime.AVF }.forEach { remove(it) }
@@ -1320,16 +1337,20 @@ class VmRuntimeService : Service() {
     }
 
     override fun onDestroy() {
+        ConnectionDiagnostics.record("runtime.destroy", code = publishedSessions.runningCount.toString())
         destroying = true
         sharedStorageAppOps.stopWatchingMode(sharedStorageWatcher)
         terminalOperations.close()
         usbBroker.close()
         stopForeground(STOP_FOREGROUND_REMOVE)
+        listenerDeliveries.values.forEach { it.close() }
+        listenerDeliveries.clear()
         listeners.kill()
         closeSessionClient()
         localServiceListeners.kill()
         wakeController.release()
         scope.cancel()
+        callbackWorkers.shutdownNow()
         super.onDestroy()
     }
 
@@ -1799,7 +1820,7 @@ class VmRuntimeService : Service() {
         val id = defaultStorageId(SessionRuntime.AVF)
         if (registry.isRegistered(SessionRuntime.AVF, id) && id !in registry.disconnectedStorages(SessionRuntime.AVF)) return
         if (runCatching { storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(SessionRuntime.AVF, id)) } }.isFailure) return
-        backend.connectSessionClient().getOrNull()?.let {
+        backend.connectSessionClient(defaultStorageId(SessionRuntime.AVF)).getOrNull()?.let {
             registry.register(environmentForStorage(SessionRuntime.AVF, id), it)
             guestRetry.reset()
             registry.list().getOrNull().orEmpty().filter { session ->
@@ -1968,7 +1989,7 @@ class VmRuntimeService : Service() {
         val controller = when (owner) {
             is NativeBackend -> requireNotNull(owner.sessionController())
             is RootlessDebianBackend -> requireNotNull(owner.sessionController())
-            else -> owner.connectSessionClient().getOrThrow()
+            else -> owner.connectSessionClient(spec.storageId).getOrThrow()
         }
         registry.register(executionEnvironment, controller)
         observeAvfPorts(executionEnvironment, owner)
@@ -2005,7 +2026,7 @@ class VmRuntimeService : Service() {
                     startedEnvironmentBackends.add(environment.id)
                     registry.register(environment, it); true
                 } == true
-                SessionRuntime.AVF -> backend !is NativeBackend && backend.connectSessionClient().getOrNull()?.let {
+                SessionRuntime.AVF -> backend !is NativeBackend && backend.connectSessionClient(defaultStorageId(SessionRuntime.AVF)).getOrNull()?.let {
                     val environment = environmentForStorage(runtime, "legacy")
                     environmentBackends[environment.id] = backend
                     startedEnvironmentBackends.add(environment.id)
@@ -2048,7 +2069,7 @@ class VmRuntimeService : Service() {
                     reconnectAvfSessions(registry, defaultStorageId(SessionRuntime.AVF),
                         primaryIsAvf = backend !is NativeBackend,
                         environmentForStorage = { environmentForStorage(SessionRuntime.AVF, it) },
-                        connect = { environment -> environmentBackends[environment.id]?.connectSessionClient()?.getOrNull() },
+                        connect = { environment -> environmentBackends[environment.id]?.connectSessionClient(environment.storage.id)?.getOrNull() },
                         onConnected = guestRetry::reset)
                     val primaryMissing = backend !is NativeBackend &&
                         !registry.isRegistered(SessionRuntime.AVF, defaultStorageId(SessionRuntime.AVF))
@@ -2144,7 +2165,11 @@ class VmRuntimeService : Service() {
     private fun notifyTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) {
         taskNotifications.output(sessionId, bytes, replay) { sessionNotificationTitle(sessionId) }
         if (!replay) updateWakeState()
-        broadcast { it.onTerminalOutput(sessionId, bytes, replay) }
+        synchronized(broadcastLock) {
+            callbackTargets().forEach { (target, delivery) ->
+                delivery.offerOutput(bytes, sessionId to replay) { target.onTerminalOutput(sessionId, it, replay) }
+            }
+        }
     }
 
     private fun notifyOperationError(operation: String, message: String) {
@@ -2155,17 +2180,16 @@ class VmRuntimeService : Service() {
         broadcast { it.onSessionTerminationFailed(sessionId, message) }
     }
 
-    private inline fun broadcast(action: (IRuntimeStateListener) -> Unit) {
+    private fun callbackTargets(): List<Pair<IRuntimeStateListener, BoundedCallbackQueue>> = synchronized(listenerLock) {
+        val count = listeners.beginBroadcast()
+        try { List(count) { listeners.getBroadcastItem(it) }.mapNotNull { target ->
+            listenerDeliveries[target.asBinder()]?.let { target to it }
+        } } finally { listeners.finishBroadcast() }
+    }
+
+    private fun broadcast(action: (IRuntimeStateListener) -> Unit) {
         synchronized(broadcastLock) {
-            val targets = synchronized(listenerLock) {
-                val count = listeners.beginBroadcast()
-                try { List(count) { listeners.getBroadcastItem(it) } }
-                finally { listeners.finishBroadcast() }
-            }
-            // A bounded terminal reader can wait for the UI to drain its queue. Never hold
-            // the registration lock over Binder calls: Activity recreation registers on
-            // that same UI thread and would otherwise deadlock against output backpressure.
-            targets.forEach { target -> runCatching { action(target) } }
+            callbackTargets().forEach { (target, delivery) -> delivery.offer { action(target) } }
         }
     }
 
@@ -2186,6 +2210,7 @@ class VmRuntimeService : Service() {
     private fun closeSessionClient() {
         terminalDeaths.forEach { (key, death) -> runCatching { key.second.unlinkToDeath(death, 0) } }
         terminalDeaths.clear()
+        terminalSinks.values.forEach { it.close() }
         terminalSinks.clear()
         kittyGrants.clear()
         kittyIdentities.clear()

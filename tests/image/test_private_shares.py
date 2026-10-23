@@ -1,5 +1,6 @@
 import importlib.util
 import io
+import json
 from pathlib import Path
 import struct
 import tempfile
@@ -23,6 +24,38 @@ class Stream:
 
 
 class PrivateShareTests(unittest.TestCase):
+    def setUp(self):
+        self.diagnostics = tempfile.TemporaryDirectory()
+        self.failure_file = Path(self.diagnostics.name) / 'failure.json'
+        self.failure_patch = patch.object(broker, 'FAILURE_RECORD', self.failure_file)
+        self.failure_patch.start()
+        self.addCleanup(self.diagnostics.cleanup)
+        self.addCleanup(self.failure_patch.stop)
+
+    def test_failure_record_preserves_first_stage_without_private_exception_details(self):
+        owner = broker.Broker()
+        with patch.object(broker.sys, 'stderr', new_callable=io.StringIO) as stderr:
+            owner.fail('share.control.eof', EOFError('/private/path/token=secret'))
+            original = self.failure_file.read_bytes()
+            owner.fail('share.attach.failed', ValueError('later cleanup'))
+        record = json.loads(original)
+        self.assertEqual('share.control.eof', record['event'])
+        self.assertEqual('EOFError', record['error'])
+        self.assertTrue(owner.failed.is_set())
+        self.assertEqual(original, self.failure_file.read_bytes())
+        self.assertNotIn('secret', original.decode())
+        self.assertNotIn('secret', stderr.getvalue())
+        self.assertEqual(0o600, self.failure_file.stat().st_mode & 0o777)
+
+    def test_unavailable_diagnostics_never_prevent_fail_closed(self):
+        owner = broker.Broker()
+        with patch.object(broker, 'FAILURE_RECORD', self.failure_file / 'missing' / 'record.json'), \
+                patch.object(broker.sys, 'stderr') as stderr:
+            stderr.write.side_effect = OSError('journal unavailable')
+            owner.fail('share.attach.failed', ValueError('invalid peer data'))
+        self.assertTrue(owner.failed.is_set())
+        self.assertEqual('share.attach.failed', owner.failure_reason)
+
     def manifest(self, entries, version=1):
         return struct.pack('!HH', version, len(entries)) + bytes(16) + b''.join(
             identity + bytes([len(name)]) + name for identity, name in entries)
@@ -96,6 +129,7 @@ class PrivateShareTests(unittest.TestCase):
                     thread.join(2)
                 self.assertFalse(thread.is_alive())
                 self.assertTrue(owner.failed.is_set())
+                self.assertEqual('share.control.eof', json.loads(self.failure_file.read_text())['event'])
 
     def test_failed_mount_cannot_publish_readiness(self):
         owner = broker.Broker()

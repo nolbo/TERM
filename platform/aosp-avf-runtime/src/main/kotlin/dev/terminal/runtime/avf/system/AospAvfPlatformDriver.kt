@@ -157,7 +157,9 @@ class AospAvfPlatformDriver(
                         // Merge the lease with an optional /sdcard export before VM run.
                         shareLeases.record(config.instanceId, config.sharedFolders.map { it.id }, shares?.artifact,
                             shares?.requiresStoragePermission == true)
-                        val owner = PrivateAvfShares(config.sharedFolders)
+                        val owner = PrivateAvfShares(config.sharedFolders) { event, error ->
+                            dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(event, config.instanceId, error = error)
+                        }
                         PrivateShareOwners.register(privateShareKey(config.instanceId), owner)
                         privateBoot.set(PrivateBoot(vm, config.instanceId, owner))
                     }
@@ -414,6 +416,7 @@ class AospAvfPlatformDriver(
 
             override fun onPayloadFinished(vm: VirtualMachine, exitCode: Int) {
                 if (activeBoot.get() !== token) return
+                dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.payload.finished", instanceId, exitCode.toString())
                 markMachineStopped(vm, instanceId)
                 if (exitCode == 0) {
                     boot.fail(IllegalStateException("Guest exited during boot"))
@@ -428,6 +431,7 @@ class AospAvfPlatformDriver(
 
             override fun onError(vm: VirtualMachine, errorCode: Int, message: String) {
                 if (activeBoot.get() !== token) return
+                dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.error", instanceId, errorCode.toString())
                 markMachineStopped(vm, instanceId)
                 val failure = IllegalStateException("AVF error $errorCode: $message")
                 boot.fail(failure)
@@ -437,6 +441,7 @@ class AospAvfPlatformDriver(
 
             override fun onStopped(vm: VirtualMachine, reason: Int) {
                 if (activeBoot.get() !== token) return
+                dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.stopped", instanceId, reason.toString())
                 markMachineStopped(vm, instanceId)
                 boot.fail(IllegalStateException("AVF stopped (reason $reason)"))
                 if (!failureReported.get()) events.tryEmit(AvfPlatformEvent.Stopped)

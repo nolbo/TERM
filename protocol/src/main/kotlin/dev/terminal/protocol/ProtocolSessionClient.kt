@@ -3,6 +3,7 @@ package dev.terminal.protocol
 import java.io.Closeable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -44,7 +45,9 @@ class ProtocolSessionClient(
     private val transport: FrameTransport,
     private val requestTimeoutMillis: Long = DEFAULT_REQUEST_TIMEOUT_MILLIS,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
+    private val onDiagnostic: (String, Throwable) -> Unit = { _, _ -> },
 ) : SessionController {
+    private val disconnected = AtomicBoolean()
     private val nextRequestId = AtomicLong(1)
     private val pending = ConcurrentHashMap<Long, CompletableDeferred<ProtocolFrame>>()
     private val mutableEvents = MutableSharedFlow<SessionEvent>(extraBufferCapacity = 64)
@@ -54,17 +57,21 @@ class ProtocolSessionClient(
 
     private val receiveJob = scope.launch {
         var disconnectReason: Throwable = ProtocolRequestException("Session transport disconnected")
+        var diagnostic = "session.eof"
         try {
             transport.incomingFrames().collect(::handleIncomingFrame)
         } catch (cancelled: CancellationException) {
+            disconnectReason = cancelled
+            diagnostic = "session.cancelled"
             throw cancelled
         } catch (failure: Exception) {
             // A stopped VM may reset vsock instead of returning EOF. Contain
             // transport/frame errors here: an uncaught launch exception would
             // kill the shared Android runtime process and its other PTY owners.
             disconnectReason = failure
+            diagnostic = "session.read.failed"
         } finally {
-            disconnect(disconnectReason)
+            disconnect(disconnectReason, diagnostic)
         }
     }
 
@@ -105,11 +112,13 @@ class ProtocolSessionClient(
         }.map { Unit }
 
     override fun close() {
+        disconnect(ProtocolRequestException("Session client closed"), "session.closed")
         receiveJob.cancel()
-        disconnect(ProtocolRequestException("Session client closed"))
     }
 
-    private fun disconnect(reason: Throwable) {
+    private fun disconnect(reason: Throwable, diagnostic: String) {
+        if (!disconnected.compareAndSet(false, true)) return
+        runCatching { onDiagnostic(diagnostic, reason) }
         mutableConnectionState.value = SessionConnectionState.DISCONNECTED
         pending.values.forEach { it.completeExceptionally(reason) }
         pending.clear()
@@ -132,7 +141,10 @@ class ProtocolSessionClient(
                     requestId = requestId,
                     payload = SessionPayloadCodec.encode(request),
                 ),
-            ).getOrElse { return Result.failure(it) }
+            ).getOrElse {
+                runCatching { onDiagnostic("session.send.failed", it) }
+                return Result.failure(it)
+            }
             val frame = withTimeout(requestTimeoutMillis) { waiting.await() }
             return when (frame.kind) {
                 FrameKind.RESPONSE -> runCatching { SessionResponseCodec.decode(frame.payload) }

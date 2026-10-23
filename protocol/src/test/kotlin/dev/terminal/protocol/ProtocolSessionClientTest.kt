@@ -125,6 +125,43 @@ class ProtocolSessionClientTest {
         }
     }
 
+    @Test fun readFailureRecordsItsOriginalStageOnceBeforeExplicitCleanup() = runBlocking {
+        val transport = ClosingTransport()
+        val records = mutableListOf<Pair<String, Throwable>>()
+        val client = ProtocolSessionClient(transport, scope = this, onDiagnostic = { event, error -> records += event to error })
+        val original = IOException("original reset")
+        transport.incoming.close(original)
+        withTimeout(1_000) { client.connectionState.first { it == SessionConnectionState.DISCONNECTED } }
+        client.close(); client.close()
+        assertEquals(1, records.size)
+        assertEquals("session.read.failed", records.single().first)
+        assertTrue(records.single().second is IOException)
+        assertEquals(original.message, records.single().second.message)
+    }
+
+    @Test fun explicitCloseIsDistinctFromEofAndDiagnosticFailureCannotCancelOwner() = runBlocking {
+        val transport = ClosingTransport()
+        val events = mutableListOf<String>()
+        val client = ProtocolSessionClient(transport, scope = this, onDiagnostic = { event, _ ->
+            events += event
+            throw IOException("diagnostic sink unavailable")
+        })
+        client.close()
+        yield()
+        assertEquals(listOf("session.closed"), events)
+        assertTrue(isActive)
+        assertEquals(SessionConnectionState.DISCONNECTED, client.connectionState.value)
+    }
+
+    @Test fun cleanEofIsRecordedWithoutInventingAGuestExit() = runBlocking {
+        val events = mutableListOf<String>()
+        ProtocolSessionClient(EndingTransport, scope = this, onDiagnostic = { event, _ -> events += event }).use { client ->
+            withTimeout(1_000) { client.connectionState.first { it == SessionConnectionState.DISCONNECTED } }
+            assertEquals(listOf("session.eof"), events)
+        }
+        assertEquals(listOf("session.eof"), events)
+    }
+
     private class ClosingTransport(private val closeFailure: IOException? = null) : FrameTransport {
         val sent = Channel<ProtocolFrame>(Channel.UNLIMITED)
         val incoming = Channel<ProtocolFrame>(Channel.UNLIMITED)

@@ -7,5 +7,5 @@ interface ITerminalStateListener {
     void onOutput(in byte[] bytes);
     void onResize(int columns, int rows, int cellWidth, int cellHeight);
     void onExited(int code);
-    void onError(String message);
+    oneway void onError(String message);
 }

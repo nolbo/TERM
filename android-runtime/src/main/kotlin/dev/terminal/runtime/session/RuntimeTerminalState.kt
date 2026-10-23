@@ -6,7 +6,8 @@ import java.util.Properties
 import kotlinx.coroutines.sync.Mutex
 
 /** Authoritative terminal state, independent of every renderer and UI-process connection.
- * All methods run under mutex, including checkpoint delivery and the next output frame.
+ * All methods run under mutex, including immutable checkpoint capture and ordered enqueue.
+ * Production sinks never wait for UI Binder calls while holding this mutex.
  */
 class RuntimeTerminalState(private val transcriptRows: Int = 10_000) {
     interface Sink {

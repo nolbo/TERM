@@ -7,6 +7,6 @@ interface IRuntimeStateListener {
     void onSessionExited(String sessionId, int exitCode);
     void onSessionTerminationFailed(String sessionId, String message);
     void onRootlessProgress(String runtimeType, String phase, String detail);
-    void onOperationError(String operation, String message);
+    oneway void onOperationError(String operation, String message);
     void onSessionFocusRequested(String sessionId);
 }

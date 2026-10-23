@@ -94,6 +94,10 @@ Stopping an idle Environment releases only that Environment's backend and sessio
 
 AVF session reconnection follows the Environment's owner even when Native is the primary runtime. Default/legacy AVF storage is excluded from the independent-owner retry pass only when the primary owner is AVF and its connection has already been attempted in that pass. A successful reconnect reattaches that Environment's running sessions while retaining terminal checkpoints and healthy sibling controllers; a failed connection remains eligible for the existing retry backoff.
 
+UI checkpoint/output and runtime-observer callbacks use bounded serial delivery queues rather than invoking Binder under the terminal-state lock or runtime event collector. Checkpoints are captured into immutable, read-only, unlinked temporary files before delivery. An overloaded or failed observer is invalidated and its UI registration/mirror reconnects from authoritative state; it cannot pause guest output processing or terminate a PTY. Callback threads, queued bytes, descriptors and observer counts are bounded. See `PROTOCOL.md` for limits and ordering.
+
+Connection diagnostics emit bounded metadata to logcat (`TermConnection`) and asynchronously retain up to 128 app-private records in `connection-events.log`. The file writer has a bounded queue and is best effort during overload or process death; logcat is the immediate event source. Records distinguish session EOF/read/send/explicit-close, private-share startup/data loss, AVF stop/error codes and owner-process startup/destruction, with wall and monotonic timestamps and connection/owner identities. They exclude terminal bytes, exception messages, paths and sharing tokens. Guest sharing failures retain their first reason in journald and `/var/log/term-share-failure.json`; diagnostic write failures do not weaken the existing fail-closed VM shutdown policy. This does not implement transparent shared-filesystem reconnection or output replay after host process death.
+
 ### Runtime semantics
 
 Direct Native is a first-class Android/Bionic environment for immediate shell

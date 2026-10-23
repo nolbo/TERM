@@ -245,9 +245,12 @@ resize and exit callbacks. `attachTerminal` configures dimensions/palette and
 subscribes atomically under the authoritative emulator lock. Terminal commands
 and viewport updates use an ordered service queue. No guest wire field changes.
 
-A checkpoint descriptor is the read-only end of an anonymous reliable pipe.
-Serialization runs on a writer while the caller holds the state lock; no file
-path is exposed or retained. EOF is checked before installing the graph. Its header
+A checkpoint descriptor is a read-only, immutable app-private temporary file,
+unlinked before delivery. Serialization runs under the state lock, with a 64 MiB
+compressed size limit; no UI reader, pipe writer or Binder call participates in
+capturing state. Descriptors close after delivery, cancellation or queue failure;
+startup removes interrupted capture files. No path is exposed or retained after
+capture. EOF is checked before installing the graph. Its header
 contains an optional viewport (row, fractional offset and
 transcript-shift counter), followed by `TSC1` and a gzip-compressed same-build
 terminal object graph. Only listed terminal/value/collection classes are allowed;
@@ -256,6 +259,23 @@ This format is neither persistent cross-version storage nor a guest input API.
 The UI installs the state without replaying queries or side effects. Its bounded
 byte queue processes subsequent mirror output at the exact checkpoint boundary.
 Runtime PTY readers drain final bytes before publishing process exit.
+
+Each host UI listener has an ordered, asynchronous callback queue limited to
+1 MiB of output bytes (including in-flight output) and 256 pending callbacks.
+The service admits at most 64 terminal/runtime subscriptions and uses four
+callback workers with a bounded scheduling queue. Adjacent output from the same
+session is batched into calls of at most 64 KiB without crossing checkpoint,
+resize or exit boundaries. Overloaded mirrors wait two seconds before requesting
+a replacement, preventing repeated captures during sustained output. No synchronous Binder callback executes
+under the authoritative terminal-state lock or on the runtime event collector.
+Overflow invalidates only that observer and sends the host-private
+`TERMINAL_RESYNC_REQUIRED` error; the UI discards the old mirror/registration and
+reattaches for an authoritative checkpoint/list. Old subscription generations
+cannot append to the replacement mirror. This is not silent loss of authoritative
+PTY bytes. Error notifications are oneway, so an unresponsive client cannot block
+invalidation. Runtime-listener registration still waits at most five seconds for
+its initial ordered replay, outside runtime/terminal locks, preserving UI selection
+restoration ordering. Guest protocol-v1 framing remains unchanged.
 
 The AVF guest streams every running PTY while the host is connected, independent
 of selected renderer attachment. Protocol v1 frame types and session IDs remain

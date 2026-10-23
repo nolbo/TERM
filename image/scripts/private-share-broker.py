@@ -1,6 +1,8 @@
 #!/usr/bin/python3
 """Root boot coordinator. SFTP/FUSE parsing runs as droid over app-initiated vsock only."""
 import os
+import json
+import sys
 from pathlib import Path
 import re
 import signal
@@ -14,6 +16,7 @@ import uuid
 PORT = 40506
 ROOT = Path('/mnt/term-shares')
 READY = Path('/run/term-share-broker.ready')
+FAILURE_RECORD = Path('/var/log/term-share-failure.json')
 NAME = re.compile(r'[A-Za-z][A-Za-z0-9_-]{0,63}', re.ASCII)
 
 
@@ -69,6 +72,32 @@ class Broker:
         self.streams = []
         self.lock = threading.Lock()
         self.failed = threading.Event()
+        self.failure_reason = None
+
+    def fail(self, event, error):
+        with self.lock:
+            if self.failure_reason is not None:
+                return
+            self.failure_reason = event
+            record = {'event': event, 'error': type(error).__name__,
+                      'time_ns': time.time_ns(), 'monotonic_ns': time.monotonic_ns()}
+            # No folder names, host paths, protocol bytes, tokens or exception messages.
+            try:
+                print('term-share ' + json.dumps(record, sort_keys=True), file=sys.stderr, flush=True)
+            except OSError:
+                pass
+            try:
+                temporary = FAILURE_RECORD.with_suffix('.tmp')
+                with temporary.open('w', encoding='utf-8') as output:
+                    os.chmod(temporary, 0o600)
+                    json.dump(record, output)
+                    output.flush()
+                    os.fsync(output.fileno())
+                temporary.replace(FAILURE_RECORD)
+            except OSError:
+                pass  # journald still has the event if the guest disk is unavailable.
+            finally:
+                self.failed.set()
 
     def attach(self, stream):
         stream.settimeout(15)
@@ -109,6 +138,7 @@ class Broker:
         READY.unlink(missing_ok=True)
 
     def watch(self):
+        stage = 'share.mount.failed'
         try:
             deadline = time.monotonic() + 40
             expected = {str(ROOT / name) for name in self.folders.values()}
@@ -124,13 +154,16 @@ class Broker:
                     READY.write_text('1\n')
                     self.control.sendall(b'\0')
                     self.control.settimeout(None)
+                    stage = 'share.control.eof'
                     if self.control.recv(1) != b'':
+                        stage = 'share.control.protocol'
                         raise ValueError('unexpected control data')
                     raise EOFError('private share owner disconnected')
                 time.sleep(0.05)
+            stage = 'share.mount.timeout'
             raise TimeoutError('private share mounts timed out')
-        except Exception:
-            self.failed.set()
+        except Exception as error:
+            self.fail(stage, error)
 
     def close(self):
         self.failed.set()
@@ -174,9 +207,9 @@ def serve():
                 continue
             try:
                 broker.attach(stream)
-            except Exception:
+            except Exception as error:
+                broker.fail('share.attach.failed', error)
                 stream.close()
-                broker.failed.set()
         # FailureAction=poweroff stops this VM, preventing ownerless private mounts.
         raise RuntimeError('private share connection stopped')
     finally:
