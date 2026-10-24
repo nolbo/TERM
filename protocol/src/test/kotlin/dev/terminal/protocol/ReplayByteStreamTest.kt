@@ -72,6 +72,8 @@ class ReplayByteStreamTest {
                 assertTrue(case.toString(), link.awaitClosed(1, TimeUnit.SECONDS))
                 val failure = requireNotNull(link.failure)
                 assertEquals(case.toString(), case.reason, failure.reason)
+                assertEquals("0", failure.details["sent_end"])
+                assertEquals("64", failure.details["capacity"])
                 assertNotNull(failure.cause)
                 link.close()
                 assertSame(failure, link.failure)

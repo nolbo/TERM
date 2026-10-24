@@ -10,6 +10,37 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ConnectionLogStoreTest {
+    @Test fun detailedFailuresKeepCauseTypesAndSourceLocationWithoutExceptionText() {
+        val failure = IllegalStateException("/private/path?token=secret", java.io.IOException("terminal content"))
+        failure.stackTrace = arrayOf(StackTraceElement("dev.terminal.runtime.vsock.Fixture", "connect", "Fixture.kt", 42))
+        val details = connectionErrorDetails(failure)
+        assertEquals("IllegalStateException:IOException", details["causes"])
+        assertEquals("dev.terminal.runtime.vsock.Fixture.connect:42", details["error_at"])
+        val line = connectionLogLine(42, 1, 1, "session.failed", "owner", null, "IllegalStateException", details)
+        assertFalse(line.contains("private")); assertFalse(line.contains("secret")); assertFalse(line.contains("terminal content"))
+    }
+
+    @Test fun structuredDetailsCannotOverwriteCoreFieldsInjectLinesOrExceedTheStoredLineBound() {
+        val line = connectionLogLine(42, 1, 1, "session.failed", "owner", null, "IOException",
+            linkedMapOf("event" to "fake", "operation" to "write", "bytes" to "123", "unsafe" to "x\ntoken=secret") +
+                (0..40).associate { "field_$it" to "x".repeat(160) })
+        assertTrue(line.contains("event=session.failed")); assertFalse(line.contains("event=fake"))
+        assertTrue(line.contains("operation=write bytes=123 unsafe=redacted"))
+        assertFalse(line.contains("secret")); assertFalse(line.contains('\n'))
+        assertTrue(line.length <= 768); assertTrue(line.endsWith("details_truncated=true"))
+    }
+
+    @Test fun inputErrorBurstsKeepTheFirstFailureAndReportSuppressedCountsWithBoundedKeys() {
+        val bursts = DiagnosticBursts()
+        assertEquals(0, bursts.admit("first", 0))
+        assertNull(bursts.admit("first", 1))
+        assertNull(bursts.admit("first", 2))
+        assertEquals(2, bursts.admit("first", 1_000_000_000))
+        assertEquals(0, bursts.admit("second", 1_000_000_000))
+        repeat(128) { bursts.admit("other-$it", 1_000_000_000) }
+        assertEquals(0, bursts.admit("first", 1_000_000_001))
+    }
+
     private fun fixture(work: (File, AtomicLong) -> Unit) {
         val root = Files.createTempDirectory("diagnostic-log-test").toFile()
         try { work(root, AtomicLong(1_000_000)) } finally { root.deleteRecursively() }

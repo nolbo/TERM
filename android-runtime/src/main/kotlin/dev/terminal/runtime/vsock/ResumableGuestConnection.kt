@@ -27,7 +27,7 @@ import kotlinx.coroutines.runInterruptible
 class ResumableGuestConnection(
     override val guestCid: Int,
     private val connect: () -> GuestByteStream,
-    private val report: (String, String?, Throwable?) -> Unit = { _, _, _ -> },
+    private val report: (String, String?, Throwable?, Map<String, String>) -> Unit = { _, _, _, _ -> },
     private val recoveryTimeoutMillis: Long = 60_000L,
     private val handshakeTimeoutMillis: Long = 10_000L,
 ) : GuestConnection {
@@ -51,6 +51,7 @@ class ResumableGuestConnection(
 
     private fun attach(deadline: Long = Long.MAX_VALUE, attempt: Int = 0): ReplayByteStream.Link {
         val started = System.nanoTime()
+        val resuming = established.get()
         var phase = "connect"
         var reply: Int? = null
         val timedOut = AtomicBoolean()
@@ -69,7 +70,7 @@ class ResumableGuestConnection(
                 val output = DataOutputStream(raw.output)
                 output.writeInt(0x54535231) // TSR1 + same process-owner token on every link
                 output.writeLong(token.mostSignificantBits); output.writeLong(token.leastSignificantBits)
-                output.writeByte(if (established.get()) 0 else 1); output.flush()
+                output.writeByte(if (resuming) 0 else 1); output.flush()
                 phase = "owner_status"
                 reply = raw.input.read()
                 when (reply) {
@@ -78,7 +79,12 @@ class ResumableGuestConnection(
                     else -> throw IOException("Guest session owner unavailable")
                 }
                 phase = "replay"
-                return replay.attach(raw.input, raw.output) { raw.close() }.also { established.set(true) }
+                return replay.attach(raw.input, raw.output) { raw.close() }.also {
+                    established.set(true)
+                    record("session.attach.completed", code = if (resuming) "resume" else "create",
+                        details = mapOf("attempt" to attempt.toString(),
+                            "elapsed_ms" to TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started).toString()))
+                }
             } catch (error: Throwable) {
                 runCatching { raw.close() }
                 throw error
@@ -92,7 +98,10 @@ class ResumableGuestConnection(
                 }
                 val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
                 record("session.attach.failed", error,
-                    "$phase.$reason.reply_${reply ?: "none"}.attempt_$attempt.elapsed_ms_$elapsed")
+                    "$phase.$reason.reply_${reply ?: "none"}.attempt_$attempt.elapsed_ms_$elapsed",
+                    ((error as? ReplayByteStream.HandshakeException)?.details ?: replay.diagnostics()) +
+                        mapOf("phase" to phase, "reply" to (reply?.toString() ?: "none"), "attempt" to attempt.toString(),
+                            "elapsed_ms" to elapsed.toString()))
             }
             throw error
         }
@@ -104,7 +113,8 @@ class ResumableGuestConnection(
             while (!closed.get()) {
                 while (!closed.get() && !link.awaitClosed(1, TimeUnit.SECONDS)) Unit
                 if (closed.get()) break
-                record("session.link.reconnecting", link.failure?.cause, link.failure?.reason?.code)
+                record("session.link.reconnecting", link.failure?.cause, link.failure?.reason?.code,
+                    link.failure?.details.orEmpty())
                 val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(recoveryTimeoutMillis)
                 var attempt = 0
                 while (!closed.get()) {
@@ -139,7 +149,9 @@ class ResumableGuestConnection(
         awaitClose { this@ResumableGuestConnection.close(); reader.cancel() }
     }
 
-    private fun record(event: String, error: Throwable? = null, code: String? = null) { runCatching { report(event, code, error) } }
+    private fun record(event: String, error: Throwable? = null, code: String? = null, details: Map<String, String> = emptyMap()) {
+        runCatching { report(event, code, error, details) }
+    }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return

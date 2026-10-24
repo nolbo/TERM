@@ -47,8 +47,8 @@ class AvfSessionDiagnosticsDeviceTest {
             try {
                 val failure = withContext(Dispatchers.IO) {
                     runCatching {
-                        ResumableGuestConnection(0, connect = { raw }, report = { event, code, error ->
-                            ConnectionDiagnostics.record(event, owner, code, error)
+                        ResumableGuestConnection(0, connect = { raw }, report = { event, code, error, details ->
+                            ConnectionDiagnostics.record(event, owner, code, error, details)
                         }, handshakeTimeoutMillis = 1_000)
                     }.exceptionOrNull()
                 }

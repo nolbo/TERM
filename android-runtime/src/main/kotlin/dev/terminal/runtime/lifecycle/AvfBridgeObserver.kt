@@ -26,6 +26,7 @@ internal class AvfBridgeObserver(
     private var generation = 0L
     private var worker: Job? = null
     private var connection: GuestConnection? = null
+    private var lastWork: Boolean? = null
     private val stateJob = scope.launch {
         owner.observeState().collect { state ->
             synchronized(this@AvfBridgeObserver) {
@@ -45,7 +46,10 @@ internal class AvfBridgeObserver(
                 var transport: GuestConnection? = null
                 try {
                     ConnectionDiagnostics.record("bridge.connect", environmentId)
-                    transport = owner.connectGuestBridge().getOrNull()
+                    transport = owner.connectGuestBridge().onFailure {
+                        ConnectionDiagnostics.record("bridge.connect.failed", environmentId, error = it,
+                            details = mapOf("generation" to epoch.toString()))
+                    }.getOrNull()
                     if (transport != null) {
                         synchronized(this@AvfBridgeObserver) {
                             if (!eligible(epoch)) { transport.close(); return@launch }
@@ -54,7 +58,12 @@ internal class AvfBridgeObserver(
                         retry.reset()
                         ConnectionDiagnostics.record("bridge.connected", environmentId)
                         serve(transport) { active -> synchronized(this@AvfBridgeObserver) {
-                            if (!closed && generation == epoch) onWorkChanged(active)
+                            if (!closed && generation == epoch) {
+                                if (lastWork != active) ConnectionDiagnostics.record("bridge.work", environmentId,
+                                    if (active) "ACTIVE" else "IDLE", details = mapOf("generation" to epoch.toString()))
+                                lastWork = active
+                                onWorkChanged(active)
+                            }
                         } }
                     }
                 } catch (cancelled: CancellationException) { throw cancelled }
@@ -67,7 +76,8 @@ internal class AvfBridgeObserver(
                         if (generation == epoch) onWorkChanged(false)
                     }
                 }
-                if (eligible(epoch)) retry.awaitRetry()
+                if (eligible(epoch)) retry.awaitRetry { delay -> ConnectionDiagnostics.record("bridge.retry.wait", environmentId,
+                    details = mapOf("delay_ms" to delay.toString(), "generation" to epoch.toString())) }
             }
         }.also { it.start() }
     }

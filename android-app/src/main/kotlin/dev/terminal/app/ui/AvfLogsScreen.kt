@@ -2,8 +2,9 @@
 package dev.terminal.app.ui
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.*
@@ -11,12 +12,12 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import dev.terminal.app.R
+import dev.terminal.app.avfLogText
 import dev.terminal.runtime.lifecycle.ConnectionLogSnapshot
 import dev.terminal.runtime.lifecycle.ConnectionLogStore
 
@@ -25,9 +26,9 @@ internal fun AvfLogsScreen(snapshot: ConnectionLogSnapshot?, loading: Boolean, c
     onBack: () -> Unit, onRefresh: () -> Unit, onEnabled: (Boolean) -> Unit, onClear: () -> Unit, onCopy: (String) -> Unit) {
     var query by rememberSaveable { mutableStateOf("") }
     var confirmingClear by rememberSaveable { mutableStateOf(false) }
-    val entries = remember(snapshot, query) { snapshot?.entries.orEmpty().filter { it.contains(query, ignoreCase = true) } }
+    val zone = java.time.ZoneId.systemDefault()
+    val logText = remember(snapshot, query, zone) { avfLogText(snapshot?.entries.orEmpty(), query, zone) }
     val busy = loading || changing
-    val locale = LocalConfiguration.current.locales[0]
     SettingsPageScaffold(stringResource(R.string.avf_logs_title), onBack,
         floatingActionButtonPosition = FabPosition.Center,
         floatingActionButton = {
@@ -36,7 +37,7 @@ internal fun AvfLogsScreen(snapshot: ConnectionLogSnapshot?, loading: Boolean, c
                 FloatingToolbarAction(stringResource(if (loading) R.string.diagnostics_refreshing else R.string.refresh),
                     R.drawable.ic_material_symbol_refresh_24, enabled = !busy, loading = loading, onClick = onRefresh)
                 FloatingToolbarAction(stringResource(R.string.avf_logs_copy), R.drawable.ic_material_symbol_content_copy_24,
-                    enabled = !busy && entries.isNotEmpty(), onClick = { onCopy(entries.joinToString("\n", postfix = "\n")) })
+                    enabled = !busy && logText.isNotEmpty(), onClick = { onCopy(logText) })
                 FloatingToolbarAction(stringResource(R.string.avf_logs_clear), R.drawable.ic_material_symbol_delete_24,
                     enabled = !busy && (snapshot == null || snapshot.entries.isNotEmpty()), destructive = true,
                     onClick = { confirmingClear = true })
@@ -66,20 +67,14 @@ internal fun AvfLogsScreen(snapshot: ConnectionLogSnapshot?, loading: Boolean, c
             error?.let { message -> item { SettingsOperationError(message) } }
             item { OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.avf_logs_search)) },
                 singleLine = true, modifier = Modifier.fillMaxWidth()) }
-            if (!loading && snapshot != null && entries.isEmpty()) item {
+            if (!loading && snapshot != null && logText.isEmpty()) item {
                 Text(stringResource(if (query.isEmpty()) R.string.avf_logs_empty else R.string.avf_logs_no_matches),
                     style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            itemsIndexed(entries.asReversed()) { _, line ->
-                val time = remember(line, locale) {
-                    line.substringAfter("time_ms=", "").substringBefore(' ').toLongOrNull()?.let {
-                        java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.MEDIUM, locale)
-                            .format(java.util.Date(it))
-                    }
-                }
-                Column(Modifier.fillMaxWidth()) {
-                    time?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
-                    SelectionContainer { Text(line, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
+            if (logText.isNotEmpty()) item {
+                SelectionContainer {
+                    Text(logText, Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), softWrap = false,
+                        fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }

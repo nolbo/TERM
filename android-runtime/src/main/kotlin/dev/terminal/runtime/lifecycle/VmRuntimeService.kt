@@ -104,7 +104,10 @@ class VmRuntimeService : Service() {
     @Volatile private var sessionClient: SessionController? = null
     // Native PTY writes may block: input must not occupy the runtime's CPU dispatcher.
     private val orderedSessionInput = OrderedSessionInput(CoroutineScope(scope.coroutineContext + Dispatchers.IO),
-        onFailure = { _, failure -> notifyOperationError("입력 전송", failure.userMessage()) })
+        onFailure = { id, failure ->
+            recordAvfSession("session.input.failed", id, error = failure, limited = true)
+            notifyOperationError("입력 전송", failure.userMessage())
+        })
     private val guestRetry = ReconnectBackoff()
     private var wakeExpiryJob: Job? = null
     private var reconnectJob: Job? = null
@@ -835,6 +838,9 @@ class VmRuntimeService : Service() {
                         key = { it.runtime to it.storageId },
                     ) { spec ->
                         val requestedRuntime = spec.runtime
+                        if (requestedRuntime == SessionRuntime.AVF) ConnectionDiagnostics.record("session.launch.request",
+                            spec.environmentId?.value, details = mapOf("storage" to spec.storageId,
+                                "rows" to rows.toString(), "cols" to cols.toString()))
                         Log.i(TAG, "session.create runtime=${requestedRuntime.wireName}")
                         if (!ensureEnvironmentControllerLocked(spec, client, installationApproved)) {
                             if (launch != null) {
@@ -873,6 +879,7 @@ class VmRuntimeService : Service() {
                         }
                         result.operation
                             .onSuccess { created ->
+                                recordAvfSession("session.created", created.id)
                                 // Publish the new session before requesting focus so the UI
                                 // can attach its renderer and move keyboard input to it.
                                 if (result.snapshot?.isSuccess == true) {
@@ -881,6 +888,8 @@ class VmRuntimeService : Service() {
                                 }
                             }
                             .onFailure {
+                                if (requestedRuntime == SessionRuntime.AVF) ConnectionDiagnostics.record("session.launch.failed",
+                                    spec.environmentId?.value, error = it, details = mapOf("storage" to spec.storageId))
                                 if (launch != null) {
                                     pendingAvfLaunches.fail(launch, it.userMessage())
                                     sessionSnapshots.republish()
@@ -1002,7 +1011,10 @@ class VmRuntimeService : Service() {
         override fun writeSessionInput(sessionId: String, bytes: ByteArray) {
             resetReconnectBackoff()
             val target = (sessionClient as? UnifiedSessionRegistry)?.inputTarget(sessionId)
-            if (target == null || !orderedSessionInput.offer(target, bytes)) {
+            val admission = target?.let { orderedSessionInput.offerResult(it, bytes) }
+            if (admission != OrderedSessionInput.Admission.ACCEPTED) {
+                recordAvfSession("session.input.rejected", sessionId, admission?.name ?: "UNAVAILABLE", limited = true,
+                    details = orderedSessionInput.diagnostics() + ("bytes" to bytes.size.toString()))
                 notifyOperationError("입력 전송", "입력 대기열이 가득 찼거나 세션 연결을 사용할 수 없습니다")
             }
         }
@@ -1265,6 +1277,13 @@ class VmRuntimeService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        recordRuntime("runtime.start_command", details = mapOf("start_id" to startId.toString(), "flags" to flags.toString(),
+            "action" to when (intent?.action) {
+                ACTION_TERMINATE_ALL_SESSIONS -> "terminate_all"
+                ACTION_RESTORE_SESSION_NOTIFICATION -> "restore_notification"
+                null -> "none"
+                else -> "other"
+            }))
         if (intent?.action == ACTION_TERMINATE_ALL_SESSIONS) terminateAllSessions()
         // Android 14+ allows swiping ongoing notifications away. Invalidate the
         // cached content so the lifetime check reposts only while work is live.
@@ -1281,9 +1300,17 @@ class VmRuntimeService : Service() {
             it.pid == pid && it.uid == uid && it.processName == packageName
         }) throw SecurityException("UNAUTHORIZED")
     }
-    override fun onBind(intent: Intent?): IBinder = binder
+    override fun onBind(intent: Intent?): IBinder { recordRuntime("runtime.bind"); return binder }
+
+    override fun onUnbind(intent: Intent?): Boolean { recordRuntime("runtime.unbind"); return super.onUnbind(intent) }
+
+    override fun onTrimMemory(level: Int) {
+        recordRuntime("runtime.memory_pressure", details = mapOf("level" to level.toString()))
+        super.onTrimMemory(level)
+    }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
+        recordRuntime("runtime.task_removed")
         // Intentionally empty. Task removal must not own or stop the VM.
         super.onTaskRemoved(rootIntent)
     }
@@ -1438,6 +1465,7 @@ class VmRuntimeService : Service() {
         run {
             val registry = UnifiedSessionRegistry(onDisconnected = { runtime, storageId ->
                 if (runtime == SessionRuntime.AVF) {
+                    recordRuntime("session.owner.disconnected", storageId)
                     runCatching { portObservers[environmentForStorage(runtime, storageId).id]?.second?.invalidate() }
                     scheduleGuestReconnect()
                 }
@@ -1915,6 +1943,7 @@ class VmRuntimeService : Service() {
         if (current.disconnectedStorages(SessionRuntime.AVF).none {
                 hasEnvironmentDemand(environmentForStorage(SessionRuntime.AVF, it).id) }) return
         reconnectJob = scope.launch {
+            recordRuntime("session.reconnect.start")
             while (!destroying && hasReconnectWork()) {
                 val registry = ensureSessionRegistry() ?: return@launch
                 reconnectAvfSessions(registry,
@@ -1935,7 +1964,8 @@ class VmRuntimeService : Service() {
                     refreshSessions(registry)
                     return@launch
                 }
-                guestRetry.awaitRetry()
+                guestRetry.awaitRetry { delay -> recordRuntime("session.reconnect.wait",
+                    details = mapOf("delay_ms" to delay.toString())) }
             }
         }
     }
@@ -2025,9 +2055,35 @@ class VmRuntimeService : Service() {
             }.serve(transport) })
     }
 
-    private fun recordAvfSession(event: String, sessionId: String, code: String? = null) {
-        if ((sessionClient as? UnifiedSessionRegistry)?.runtimeOf(sessionId) == SessionRuntime.AVF)
-            ConnectionDiagnostics.record(event, sessionId, code)
+    private fun recordAvfSession(event: String, sessionId: String, code: String? = null,
+        error: Throwable? = null, limited: Boolean = false, details: Map<String, String> = emptyMap()) {
+        val registry = sessionClient as? UnifiedSessionRegistry ?: return
+        if (registry.runtimeOf(sessionId) != SessionRuntime.AVF) return
+        val fields = buildMap {
+            registry.environmentOf(sessionId)?.let { put("environment", it.value) }
+            registry.storageOf(sessionId)?.let { put("storage", it) }
+            putAll(details)
+        }
+        if (limited) ConnectionDiagnostics.recordLimited(event, sessionId, code, error, fields)
+        else ConnectionDiagnostics.record(event, sessionId, code, error, fields)
+    }
+
+    private fun recordRuntime(event: String, owner: String? = null, details: Map<String, String> = emptyMap()) {
+        val fields = buildMap {
+            put("running_sessions", publishedSessions.runningCount.toString())
+            put("host_work", hostBackgroundOperationCount.get().toString())
+            put("guest_work", guestWorkEnvironments.size.toString())
+            put("started_environments", explicitlyStartedEnvironments.size.toString())
+            runCatching {
+                getSystemService(android.os.PowerManager::class.java)?.let { power ->
+                    put("device_idle", power.isDeviceIdleMode.toString()); put("power_save", power.isPowerSaveMode.toString())
+                    put("interactive", power.isInteractive.toString())
+                    put("battery_exempt", power.isIgnoringBatteryOptimizations(packageName).toString())
+                }
+            }
+            putAll(details)
+        }
+        ConnectionDiagnostics.record(event, owner, details = fields)
     }
 
     private fun notifyLocalServices() = synchronized(localServiceBroadcastLock) {

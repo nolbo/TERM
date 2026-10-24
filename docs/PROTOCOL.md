@@ -467,6 +467,28 @@ AVF diagnostic logging is host-only and changes no guest wire frames or image re
 
 Records contain wall/monotonic time, PID, symbolic event/error-class/code and stable owner identity; no terminal payload, command, path, exception message or token. Retention is at most 1,000 records and 256 KiB with atomic file replacement; the asynchronous writer queues at most 128 tasks and can drop records under overload or process death. Recording defaults on; disabling gates both this file and `TermConnection` logcat, retains history, and does not affect other Android logging. Viewing, copying and confirmed deletion need no Binder connection, AVF permission, VM startup or guest command. Guest journal collection is outside this feature.
 
+The viewer and clipboard render stored records as one chronological text block,
+with `[yyyy-MM-dd HH:mm:ss.SSS ±HH:mm]` local timestamps (UTC uses `Z`) followed
+by metadata. Legacy `time_ms` records remain readable; missing/invalid timestamps
+use `[unknown]`. Search matches displayed timestamps and original metadata.
+
+Bounded structured fields correlate Environment/storage/session/request IDs,
+operation and phase, byte counts, elapsed/deadline/backoff milliseconds and replay
+receive/send/credit positions. Up to four cause types, one source class/method/line
+and an available OS errno are recorded without exception messages or stack dumps.
+Core fields cannot be overwritten and oversized detail sets explicitly truncate
+within the 768-character line bound. Session RPC start/completion/failure events
+cover control operations; ordinary successful writes stay quiet, while failed,
+partial or one-second-plus writes include counts and phase. Invalid output event
+frames are also diagnosed. Connection/recovery stages include re-list/reattach
+results, bridge/port connection failures and retry waits. Runtime binding, task
+removal and memory pressure include work counts and Android power/idle/exemption
+state; wake-lock transitions and guest work boundaries are recorded. Repeated
+input failures are limited to once per second per event/session/reason with a
+suppressed count, using at most 128 retained limiter keys. No periodic resource
+polling, input/output content capture, additional VM work or guest update is
+introduced, and wire/retry/ownership semantics remain unchanged.
+
 ## Lifecycle service
 
 Guest agents may emit `WORK_ACTIVE` and `WORK_IDLE` stream events over their

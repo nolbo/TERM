@@ -18,9 +18,11 @@ class ReconnectBackoffTest {
 
     @Test fun explicitWorkInterruptsAnOutstandingLongDelay() = runBlocking {
         val retry = ReconnectBackoff(listOf(60_000))
-        val waiting = async { retry.awaitRetry() }
+        var observedDelay = 0L
+        val waiting = async { retry.awaitRetry { observedDelay = it; throw IllegalStateException("observer failure") } }
         delay(20)
         assertFalse(waiting.isCompleted)
+        assertEquals(60_000L, observedDelay)
         retry.reset()
         withTimeout(1_000) { waiting.await() }
     }

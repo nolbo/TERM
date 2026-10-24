@@ -59,6 +59,7 @@ class ProtocolSessionClient(
     private val requestTimeoutMillis: Long = transport.requestTimeoutMillis,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val onDiagnostic: (String, Throwable) -> Unit = { _, _ -> },
+    private val onRequestDiagnostic: (String, Map<String, String>, Throwable?) -> Unit = { _, _, _ -> },
 ) : SessionController {
     init { require(requestTimeoutMillis > 0) }
     private val disconnectFailure = AtomicReference<Throwable?>()
@@ -154,13 +155,20 @@ class ProtocolSessionClient(
     }
 
     private suspend fun request(request: SessionRequest, resizeBarrier: Any? = null): Result<SessionResponse> = coroutineScope {
-        if (disconnectFailure.get() != null) return@coroutineScope Result.failure(
-            ProtocolRequestException("Session transport disconnected"))
+        val started = System.nanoTime()
+        if (disconnectFailure.get() != null) {
+            val failure = ProtocolRequestException("Session transport disconnected")
+            requestDiagnostic(request, 0, "disconnected", started, failure)
+            return@coroutineScope Result.failure(failure)
+        }
         val requestId = nextRequestId.getAndIncrement()
         val requestFrame = try {
             ProtocolFrame(service = Service.SESSION, kind = FrameKind.REQUEST, requestId = requestId,
                 payload = SessionPayloadCodec.encode(request))
-        } catch (error: Exception) { return@coroutineScope Result.failure(error) }
+        } catch (error: Exception) {
+            requestDiagnostic(request, requestId, "encode", started, error)
+            return@coroutineScope Result.failure(error)
+        }
         val waiting = CompletableDeferred<ProtocolFrame>()
         pending[requestId] = waiting
         if (request is SessionRequest.Resize && resizeBarrier != null) resizeBarriers[requestId] = request to resizeBarrier
@@ -171,34 +179,80 @@ class ProtocolSessionClient(
             if (!waiting.isCompleted) failRequestConnection(ProtocolRequestTimeoutException(), "session.request.timeout")
         }
         var sender: Deferred<Result<Unit>>? = null
+        var stage = "send"
+        var failure: Throwable? = null
+        var acceptedBytes: Int? = null
+        if (request !is SessionRequest.Write) requestDiagnostic(request, requestId, "start", started, null)
         try {
-            if (disconnectFailure.get() != null) return@coroutineScope Result.failure(
-                ProtocolRequestException("Session transport disconnected"))
+            if (disconnectFailure.get() != null) {
+                val disconnected = ProtocolRequestException("Session transport disconnected")
+                failure = disconnected
+                return@coroutineScope Result.failure(disconnected)
+            }
             sender = async(Dispatchers.IO) {
                 runCatching { transport.send(requestFrame).getOrThrow() }
             }
             sender.await().getOrElse { error ->
                 failRequestConnection(error, "session.send.failed")
-                return@coroutineScope Result.failure(disconnectFailure.get() ?: error)
+                failure = disconnectFailure.get() ?: error
+                return@coroutineScope Result.failure(requireNotNull(failure))
             }
+            stage = "response"
             val frame = waiting.await()
+            stage = "decode"
             when (frame.kind) {
                 FrameKind.RESPONSE -> runCatching { SessionResponseCodec.decode(frame.payload) }
                 FrameKind.ERROR -> Result.failure(GuestRequestException(ProtocolErrorCodec.decode(frame.payload)))
                 else -> Result.failure(ProtocolRequestException("Unexpected response frame"))
+            }.also {
+                failure = it.exceptionOrNull()
+                acceptedBytes = (it.getOrNull() as? SessionResponse.Written)?.acceptedBytes
             }
         } catch (cancelled: CancellationException) {
+            failure = cancelled
             // A partially transmitted frame cannot be safely reused or retried.
             failRequestConnection(cancelled, "session.request.cancelled")
             throw cancelled
         } catch (error: Exception) {
+            failure = error
             Result.failure(error)
         } finally {
             deadline.cancel()
             sender?.cancel()
             pending.remove(requestId)
             resizeBarriers.remove(requestId)
+            if (request !is SessionRequest.Write || failure != null || acceptedBytes != request.bytes.size ||
+                System.nanoTime() - started >= 1_000_000_000)
+                requestDiagnostic(request, requestId, stage, started, failure, acceptedBytes)
         }
+    }
+
+    private fun requestDiagnostic(request: SessionRequest, id: Long, stage: String, started: Long, error: Throwable?, acceptedBytes: Int? = null) {
+        val fields = linkedMapOf("request_id" to id.toString(), "stage" to stage,
+            "elapsed_ms" to ((System.nanoTime() - started) / 1_000_000).toString(),
+            "timeout_ms" to requestTimeoutMillis.toString(), "pending" to pending.size.toString())
+        fields["operation"] = when (request) {
+            is SessionRequest.Create -> "create"
+            SessionRequest.List -> "list"
+            is SessionRequest.Attach -> "attach"
+            is SessionRequest.Detach -> "detach"
+            is SessionRequest.Resize -> "resize"
+            is SessionRequest.Write -> "write"
+            is SessionRequest.Terminate -> "terminate"
+        }
+        when (request) {
+            is SessionRequest.Attach -> fields["session"] = request.sessionId
+            is SessionRequest.Detach -> fields["session"] = request.sessionId
+            is SessionRequest.Resize -> { fields["session"] = request.sessionId; fields["rows"] = request.rows.toString(); fields["cols"] = request.cols.toString() }
+            is SessionRequest.Write -> { fields["session"] = request.sessionId; fields["bytes"] = request.bytes.size.toString() }
+            is SessionRequest.Terminate -> { fields["session"] = request.sessionId; fields["signal"] = request.signal.toString() }
+            is SessionRequest.Create -> { fields["rows"] = request.rows.toString(); fields["cols"] = request.cols.toString() }
+            SessionRequest.List -> Unit
+        }
+        if (error is GuestRequestException) fields["guest_error"] = error.error.code.name
+        acceptedBytes?.let { fields["accepted_bytes"] = it.toString() }
+        val event = if (stage == "start") "session.rpc.start" else if (error != null) "session.rpc.failed" else "session.rpc.completed"
+        runCatching { onRequestDiagnostic(event, fields, error) }
     }
 
     private suspend fun handleIncomingFrame(frame: ProtocolFrame) {
@@ -206,6 +260,7 @@ class ProtocolSessionClient(
         when (frame.kind) {
             FrameKind.STREAM -> runCatching { SessionEventCodec.decode(frame.payload) }
                 .onSuccess { mutableEvents.emit(it) }
+                .onFailure { runCatching { onDiagnostic("session.event.invalid", it) } }
             FrameKind.RESPONSE, FrameKind.ERROR -> {
                 val waiting = pending[frame.requestId] ?: return
                 val resize = resizeBarriers[frame.requestId]

@@ -80,7 +80,7 @@ class AvfLogsUiTest {
             ConnectionDiagnostics.record("test.avf.logs", marker)
             val deadline = SystemClock.elapsedRealtime() + 5000
             while (store.snapshot().entries.none { it.contains(marker) } && SystemClock.elapsedRealtime() < deadline) SystemClock.sleep(20)
-            val expected = store.snapshot().entries.single { it.contains(marker) } + "\n"
+            val expected = avfLogText(store.snapshot().entries.filter { it.contains(marker) })
             ActivityScenario.launch(AvfLogsActivity::class.java).use { scenario ->
                 click(waitFor { it.isCheckable && it.isChecked && it.isEnabled })
                 waitFor { it.isCheckable && !it.isChecked && it.isEnabled }
@@ -97,6 +97,32 @@ class AvfLogsUiTest {
             assertEquals(beforeProcess, vmhostRunning())
             assertEquals(beforeFiles, artifacts())
         } finally { store.setEnabled(originallyEnabled) }
+    }
+
+    @Test fun multipleRecordsAreOneSelectableTextAndCopyKeepsBracketedChronologicalLines() {
+        var copied = ""
+        ActivityScenario.launch(AvfLogsActivity::class.java).use { scenario ->
+            waitFor { it.isCheckable && it.isEnabled }
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { AvfLogsScreen(ConnectionLogSnapshot(true, listOf(
+                    "time_ms=42 event=vm.start owner=text-fixture-first",
+                    "time_ms=1000 event=session.connected owner=text-fixture-last")), false, false, null,
+                    {}, {}, {}, {}, { copied = it }) }
+            } }
+            val text = waitFor { it.text?.toString()?.let { text ->
+                text.contains("text-fixture-first") && text.contains("text-fixture-last") } == true }.text.toString()
+            assertEquals(2, text.lines().count { it.startsWith("[") })
+            assertTrue(text.indexOf("text-fixture-first") < text.indexOf("text-fixture-last"))
+            assertFalse(text.contains("time_ms="))
+            action(R.string.avf_logs_copy)
+            assertEquals(text, copied)
+            query("text-fixture-last")
+            waitFor { it.text?.toString()?.let { text ->
+                text.contains("text-fixture-last") && !text.contains("text-fixture-first") } == true && !it.isEditable }
+            action(R.string.avf_logs_copy)
+            assertFalse(copied.contains("text-fixture-first"))
+            assertTrue(copied.startsWith("["))
+        }
     }
 
     @Test fun deleteConfirmationCancelsSafelyAndSuccessfulClearShowsEmptyState() {

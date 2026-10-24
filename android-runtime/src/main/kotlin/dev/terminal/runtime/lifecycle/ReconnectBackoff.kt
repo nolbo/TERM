@@ -12,10 +12,12 @@ class ReconnectBackoff(private val delaysMs: List<Long> = listOf(2_000, 4_000, 8
         if (attempt < delaysMs.lastIndex) attempt++
     }
     @Synchronized fun reset() { attempt = 0; resetSignal.trySend(Unit) }
-    suspend fun awaitRetry() {
+    suspend fun awaitRetry(onWait: (Long) -> Unit = {}) {
         // A reset before this failed attempt already affected nextDelayMs().
         resetSignal.tryReceive()
-        withTimeoutOrNull(nextDelayMs()) { resetSignal.receive() }
+        val delay = nextDelayMs()
+        runCatching { onWait(delay) }
+        withTimeoutOrNull(delay) { resetSignal.receive() }
     }
 }
 

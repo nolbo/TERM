@@ -30,7 +30,7 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ResumableGuestConnectionTest {
-    private data class Diagnostic(val event: String, val code: String?, val error: Throwable?)
+    private data class Diagnostic(val event: String, val code: String?, val error: Throwable?, val details: Map<String, String> = emptyMap())
 
     private fun guest(input: InputStream, output: OutputStream = ByteArrayOutputStream(), close: () -> Unit = {}) =
         object : GuestByteStream {
@@ -73,8 +73,8 @@ class ResumableGuestConnectionTest {
         for (case in cases) {
             val diagnostics = CopyOnWriteArrayList<Diagnostic>()
             val failure = assertThrows(case.error) {
-                ResumableGuestConnection(0, case.connect, report = { event, code, error ->
-                    diagnostics += Diagnostic(event, code, error)
+                ResumableGuestConnection(0, case.connect, report = { event, code, error, details ->
+                    diagnostics += Diagnostic(event, code, error, details)
                     throw IllegalStateException("A broken diagnostic observer must not replace the real failure")
                 })
             }
@@ -84,10 +84,14 @@ class ResumableGuestConnectionTest {
             assertTrue(requireNotNull(diagnostic.code).matches(
                 Regex(Regex.escape("${case.phaseAndReason}.reply_${case.reply}.attempt_0.elapsed_ms_") + "[0-9]+")))
             val line = dev.terminal.runtime.lifecycle.connectionLogLine(0, 0, 1, diagnostic.event, "test-owner",
-                diagnostic.code, diagnostic.error?.javaClass?.simpleName)
+                diagnostic.code, diagnostic.error?.javaClass?.simpleName, diagnostic.details)
             assertTrue(line.contains("code=${diagnostic.code}"))
             assertFalse(line.contains("redacted"))
             assertFalse(line.contains(privateDetail))
+            if (case.phaseAndReason == "replay.handshake.offsets") {
+                assertEquals("1", diagnostic.details["peer_received"])
+                assertEquals("0", diagnostic.details["sent_end"])
+            }
         }
     }
 
@@ -129,7 +133,7 @@ class ResumableGuestConnectionTest {
             attempts.incrementAndGet()
             val socket = Socket("127.0.0.1", listener.localPort)
             guest(socket.getInputStream(), socket.getOutputStream()) { socket.close() }
-        }, report = { event, code, error -> diagnostics += Diagnostic(event, code, error) })
+        }, report = { event, code, error, _ -> diagnostics += Diagnostic(event, code, error) })
         try {
             assertTrue(ready.await(2, TimeUnit.SECONDS))
             serverFailure.get()?.let { throw it }
@@ -236,7 +240,7 @@ class ResumableGuestConnectionTest {
                     override fun close() { lateClosed.countDown() }
                 }
             }
-        }, report = { event, code, error -> diagnostics += Diagnostic(event, code, error) },
+        }, report = { event, code, error, _ -> diagnostics += Diagnostic(event, code, error) },
             recoveryTimeoutMillis = 300, handshakeTimeoutMillis = 200)
         try {
             assertTrue(ready.await(2, TimeUnit.SECONDS))

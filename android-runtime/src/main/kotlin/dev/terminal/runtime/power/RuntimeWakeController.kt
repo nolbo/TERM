@@ -18,6 +18,8 @@ class RuntimeWakeController(context: Context) {
             if (!holdRequested) return@synchronized
             if (wakeLock.isHeld) wakeLock.release()
             wakeLock.acquire(MAX_HOLD_MS)
+            dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("power.wake.renew",
+                details = mapOf("held" to wakeLock.isHeld.toString(), "timeout_ms" to MAX_HOLD_MS.toString()))
             handler.postDelayed(this, RENEW_AFTER_MS)
         }
     }
@@ -32,6 +34,9 @@ class RuntimeWakeController(context: Context) {
         if (shouldHold && !wakeLock.isHeld) wakeLock.acquire(MAX_HOLD_MS)
         if (!shouldHold && wakeLock.isHeld) wakeLock.release()
         if (shouldHold) handler.postDelayed(renewWakeLock, RENEW_AFTER_MS)
+        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(if (shouldHold) "power.wake.acquire" else "power.wake.release",
+            code = policy.name, details = mapOf("work" to guestWork.name, "held" to wakeLock.isHeld.toString(),
+                "timeout_ms" to MAX_HOLD_MS.toString()))
     }
 
     companion object {
@@ -46,9 +51,11 @@ class RuntimeWakeController(context: Context) {
 
     @Synchronized
     fun release() {
+        val wasHeld = wakeLock.isHeld || holdRequested
         holdRequested = false
         handler.removeCallbacks(renewWakeLock)
         if (wakeLock.isHeld) wakeLock.release()
+        if (wasHeld) dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("power.wake.release", code = "explicit")
     }
 
     enum class WakePolicy { BATTERY_OPTIMIZED, KEEP_ACTIVE_WORK_RUNNING, ALWAYS_AWAKE }

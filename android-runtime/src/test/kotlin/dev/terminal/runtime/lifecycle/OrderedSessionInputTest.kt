@@ -75,7 +75,8 @@ class OrderedSessionInputTest {
             assertTrue(input.offer(second, byteArrayOf(2)))
             withTimeout(5_000) { enteredA.await(); enteredB.await() }
             assertTrue(input.offer(queued, byteArrayOf(3)))
-            assertFalse(input.offer(third, byteArrayOf(4)))
+            assertEquals(OrderedSessionInput.Admission.FULL, input.offerResult(third, byteArrayOf(4)))
+            assertEquals("3", input.diagnostics()["queue_outstanding"])
             releaseB.complete(Unit)
             withTimeout(5_000) { while (!input.offer(third, byteArrayOf(4))) yield(); delivered.await() }
             assertFalse("Owner A remains suspended", releaseA.isCompleted)
@@ -100,7 +101,7 @@ class OrderedSessionInputTest {
             oldCurrent = false
             assertTrue(input.offer(replacement, byteArrayOf(3)))
             withTimeout(5_000) { replacementDone.await() }
-            assertFalse(input.offer(stale, byteArrayOf(4)))
+            assertEquals(OrderedSessionInput.Admission.STALE, input.offerResult(stale, byteArrayOf(4)))
             release.complete(Unit)
             withTimeout(5_000) { rejected.await() }
             assertEquals(listOf("new"), received)
@@ -141,7 +142,7 @@ class OrderedSessionInputTest {
             input.close(); input.close()
             withTimeout(5_000) { cancelled.await() }
             assertEquals(0, queuedWrites)
-            assertFalse(input.offer(queued, byteArrayOf(3)))
+            assertEquals(OrderedSessionInput.Admission.CLOSED, input.offerResult(queued, byteArrayOf(3)))
             assertTrue(worker.isActive)
         } finally { input.close(); worker.cancel() }
     }

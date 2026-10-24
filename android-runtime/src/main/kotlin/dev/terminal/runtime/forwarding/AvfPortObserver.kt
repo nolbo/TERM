@@ -43,7 +43,10 @@ class AvfPortObserver(
             while (ready && canReconnect() && generation == currentGeneration) {
                 manager.link(environmentId, "CONNECTING"); changed()
                 dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("ports.connect", environmentId)
-                val transport = backend.connectGuestPortAgent().getOrNull()
+                val transport = backend.connectGuestPortAgent().onFailure {
+                    dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("ports.connect.failed", environmentId, error = it,
+                        details = mapOf("generation" to currentGeneration.toString()))
+                }.getOrNull()
                 if (transport != null) {
                     synchronized(this@AvfPortObserver) {
                         if (closed || !ready || generation != currentGeneration) { transport.close(); return@launch }
@@ -70,7 +73,10 @@ class AvfPortObserver(
                 } else { synchronized(this@AvfPortObserver) {
                     if (generation == currentGeneration) { manager.disconnected(environmentId); changed() }
                 } }
-                if (ready && canReconnect()) retry.awaitRetry()
+                if (ready && canReconnect()) retry.awaitRetry { delay ->
+                    dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("ports.retry.wait", environmentId,
+                        details = mapOf("delay_ms" to delay.toString(), "generation" to currentGeneration.toString()))
+                }
             }
         }.also { it.start() }
     }

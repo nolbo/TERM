@@ -125,7 +125,11 @@ class AospAvfPlatformDriver(
     }
 
     override suspend fun start(config: RuntimeConfig): Result<Unit> = mutex.withLock {
-        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.start", config.instanceId)
+        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.start", config.instanceId,
+            details = mapOf("memory_mib" to config.memoryMib.toString(), "cpus" to config.cpuCount.toString(),
+                "network" to config.enableNetwork.toString(), "protected" to config.protectedVm.toString(),
+                "shared_folders" to config.sharedFolders.size.toString(), "internal_storage" to config.enableInternalStorage.toString(),
+                "share_version" to shareBrokerVersion.toString(), "resume_version" to sessionResumeVersion.toString()))
         startedNewVm = false
         val bootStartedAt = SystemClock.elapsedRealtime()
         var nextMachine: VirtualMachine? = null
@@ -325,8 +329,8 @@ class AospAvfPlatformDriver(
     private fun sessionConnection(vm: VirtualMachine): GuestConnection = if (sessionResumeVersion == 1) {
         dev.terminal.runtime.vsock.ResumableGuestConnection(GUEST_CID_UNAVAILABLE,
             connect = { ParcelFileDescriptorByteStream(vm.connectVsock(40_507)) },
-            report = { event, code, error -> dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(
-                event, prepared?.instanceId, code = code, error = error) })
+            report = { event, code, error, details -> dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(
+                event, prepared?.instanceId, code = code, error = error, details = details) })
     } else ParcelFileDescriptorFrameTransport(connectVsock(vm, DROID_SESSIOND_PORT), GUEST_CID_UNAVAILABLE)
 
     override suspend fun connectGuestBridge(): Result<GuestConnection> = connectGuestPort(DROID_AGENT_PORT)

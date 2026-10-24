@@ -106,6 +106,8 @@ suspend fun RuntimeBackend.connectSessionClient(owner: String? = null): Result<P
         dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("session.connected", owner, connectionId)
         ProtocolSessionClient(connection, onDiagnostic = { event, error ->
             dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(event, owner, connectionId, error)
+        }, onRequestDiagnostic = { event, fields, error ->
+            dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(event, owner, connectionId, error, fields)
         })
     }
 

@@ -27,8 +27,9 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
         FRAME_DATA("frame.data"), FRAME_CREDIT("frame.credit"), FRAME_PING("frame.ping"),
         FRAME_KIND("frame.kind"), WRITE_FRAME("write.frame"), HEARTBEAT_TIMEOUT("heartbeat.timeout"),
     }
-    class HandshakeException internal constructor(val reason: FailureReason, message: String) : IllegalArgumentException(message)
-    data class Failure(val reason: FailureReason, val cause: Exception? = null)
+    class HandshakeException internal constructor(val reason: FailureReason, message: String,
+        val details: Map<String, String> = emptyMap()) : IllegalArgumentException(message)
+    data class Failure(val reason: FailureReason, val cause: Exception? = null, val details: Map<String, String> = emptyMap())
 
     private class Ring(private val capacity: Int) {
         private val bytes = ByteArray(capacity)
@@ -81,6 +82,17 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
 
     val connected get() = synchronized(lock) { connection != null && !closed }
     val ownerClosed get() = synchronized(lock) { closed }
+    fun diagnostics(): Map<String, String> = synchronized(lock) { state(connection) }
+    private fun state(current: Connection?): Map<String, String> = buildMap {
+        put("sent_base", sent.base.toString()); put("sent_end", sent.end.toString())
+        put("received_base", received.base.toString()); put("received_end", received.end.toString())
+        put("capacity", capacity.toString())
+        current?.let {
+            put("send_cursor", it.cursor.toString()); put("peer_consumed", it.consumed.toString())
+            put("peer_window", it.window.toString())
+            put("read_idle_ms", TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - it.lastRead).toString())
+        }
+    }
     val input: InputStream = object : InputStream() {
         override fun read(): Int = ByteArray(1).let { if (read(it, 0, 1) < 0) -1 else it[0].toInt() and 255 }
         override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
@@ -139,9 +151,12 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
             val current = synchronized(lock) {
                 check(!closed)
                 if (window !in 1..WINDOW) throw HandshakeException(FailureReason.HANDSHAKE_WINDOW,
-                    "Replay peer lost its stream generation")
+                    "Replay peer lost its stream generation", state(null) + mapOf("peer_window" to window.toString(),
+                        "peer_received" to peerReceived.toString(), "peer_consumed" to peerConsumed.toString()))
                 if (peerConsumed < sent.base || peerConsumed > peerReceived || peerReceived > sent.end)
-                    throw HandshakeException(FailureReason.HANDSHAKE_OFFSETS, "Replay peer lost its stream generation")
+                    throw HandshakeException(FailureReason.HANDSHAKE_OFFSETS, "Replay peer lost its stream generation",
+                        state(null) + mapOf("peer_window" to window.toString(), "peer_received" to peerReceived.toString(),
+                            "peer_consumed" to peerConsumed.toString()))
                 sent.discard(peerConsumed)
                 Connection(source, sink, closeSocket, peerReceived, peerConsumed, window).also {
                     it.link = Link { detach(it) }
@@ -249,7 +264,7 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
         current.watchdog?.cancel(false)
         synchronized(lock) {
             if (connection === current) {
-                if (!closed) current.link.failure = failure
+                if (!closed) current.link.failure = failure?.copy(details = state(current))
                 connection = null
             }
             lock.notifyAll()

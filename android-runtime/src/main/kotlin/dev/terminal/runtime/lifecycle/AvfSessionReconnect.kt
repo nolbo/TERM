@@ -23,13 +23,26 @@ internal suspend fun reconnectAvfSessions(
             if (!canReconnect(environment)) continue
             withEnvironmentLease(environment) retry@{
                 if (id !in registry.disconnectedStorages(SessionRuntime.AVF) || !canReconnect(environment)) return@retry
+                ConnectionDiagnostics.record("session.reconnect.owner", environment.id.value, details = mapOf("storage" to id))
                 val controller = connect(environment) ?: return@retry
                 replacement = controller
                 registry.register(environment, controller)
-                val sessions = registry.refreshEnvironment(environment).getOrElse { runCatching { controller.close() }; return@retry }
-                for (session in sessions.filter { it.state == SessionStatus.RUNNING }) {
-                    if (registry.attach(session.id).isFailure) { runCatching { controller.close() }; return@retry }
+                val sessions = registry.refreshEnvironment(environment).getOrElse {
+                    ConnectionDiagnostics.record("session.reconnect.list.failed", environment.id.value, error = it,
+                        details = mapOf("storage" to id))
+                    runCatching { controller.close() }; return@retry
                 }
+                for (session in sessions.filter { it.state == SessionStatus.RUNNING }) {
+                    val attached = registry.attach(session.id)
+                    if (attached.isFailure) {
+                        ConnectionDiagnostics.record("session.reconnect.attach.failed", environment.id.value, error = attached.exceptionOrNull(),
+                            details = mapOf("storage" to id, "session" to session.id))
+                        runCatching { controller.close() }; return@retry
+                    }
+                }
+                ConnectionDiagnostics.record("session.reconnect.ready", environment.id.value,
+                    details = mapOf("storage" to id, "sessions" to sessions.size.toString(),
+                        "running" to sessions.count { it.state == SessionStatus.RUNNING }.toString()))
                 onConnected(environment)
             }
         } catch (cancelled: CancellationException) { throw cancelled }

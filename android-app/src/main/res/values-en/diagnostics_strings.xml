@@ -2,7 +2,7 @@
 <resources>
     <string name="avf_logs_title">AVF diagnostic logs</string>
     <string name="avf_logs_summary">Manage AVF event logs and investigate errors.</string>
-    <string name="avf_logs_description">View app-collected diagnostics for VM startup and shutdown, session connections, shared folders, and image operations.</string>
+    <string name="avf_logs_description">Read chronological text for VMs, sessions, connection recovery, sharing, image operations, and runtime and power state. Each line starts with [time]. Scroll horizontally or vertically, select multiple lines, or copy the text.</string>
     <string name="avf_logs_recording">Record diagnostic logs</string>
     <string name="avf_logs_recording_support">On by default. Changes apply immediately; turning it off keeps existing logs.</string>
     <string name="avf_logs_retention">Keeps up to %1$d records and %2$d KiB on this device. Terminal input/output, file paths, and tokens are excluded.</string>

@@ -22,6 +22,48 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ProtocolSessionClientTest {
+    @Test fun requestDiagnosticsCorrelateMutationResponseWithoutShellPathsOrEnvironmentValues() = runBlocking {
+        val transport = FakeTransport()
+        val records = mutableListOf<Pair<String, Map<String, String>>>()
+        ProtocolSessionClient(transport, scope = this, onRequestDiagnostic = { event, fields, _ ->
+            records += event to fields
+            throw IllegalStateException("diagnostic observers cannot fail requests")
+        }).use { client ->
+            val pending = async { client.create("/private/shell", "/private/cwd", mapOf("TOKEN" to "secret"), 24u, 80u) }
+            val frame = transport.sent.receive()
+            transport.receive(frame.copy(kind = FrameKind.RESPONSE, payload = SessionResponseCodec.encode(SessionResponse.Created(
+                SessionDescriptor("session-1", "Title", "/private/shell", "/private/cwd", 0, 24u, 80u, SessionStatus.RUNNING)))))
+            assertTrue(pending.await().isSuccess)
+            assertEquals(listOf("session.rpc.start", "session.rpc.completed"), records.map { it.first })
+            records.forEach { (_, fields) ->
+                assertEquals(frame.requestId.toString(), fields["request_id"])
+                assertEquals("create", fields["operation"])
+                assertEquals("80", fields["cols"])
+                assertFalse(fields.values.any { it.contains("private") || it.contains("secret") })
+            }
+        }
+    }
+
+    @Test fun healthyTypingIsQuietButPartialInputAcceptanceIsRecordedWithByteCounts() = runBlocking {
+        val transport = FakeTransport()
+        val records = mutableListOf<Map<String, String>>()
+        ProtocolSessionClient(transport, scope = this, onRequestDiagnostic = { _, fields, _ -> records += fields }).use { client ->
+            for (accepted in listOf(3, 1)) {
+                val sending = async { client.write("session-1", "abc".toByteArray()) }
+                val frame = transport.sent.receive()
+                transport.receive(frame.copy(kind = FrameKind.RESPONSE,
+                    payload = SessionResponseCodec.encode(SessionResponse.Written("session-1", accepted))))
+                assertEquals(accepted, sending.await().getOrThrow())
+                if (accepted == 3) assertTrue(records.isEmpty())
+            }
+            val partial = records.single()
+            assertEquals("write", partial["operation"])
+            assertEquals("3", partial["bytes"])
+            assertEquals("1", partial["accepted_bytes"])
+            assertEquals("session-1", partial["session"])
+        }
+    }
+
     @Test
     fun mapsAResponseToTheMatchingRequestId() = runBlocking {
         val transport = FakeTransport()

@@ -127,12 +127,25 @@ class ConnectionLogStore(private val root: File, private val uptimeNanos: () -> 
 }
 
 internal fun connectionLogLine(wallMillis: Long, uptimeNanos: Long, pid: Int,
-    event: String, owner: String?, code: String?, errorName: String?): String {
-    fun field(value: String?): String = when {
+    event: String, owner: String?, code: String?, errorName: String?, details: Map<String, String> = emptyMap()): String {
+    fun field(value: String?, maximum: Int = 96): String = when {
         value.isNullOrEmpty() -> "-"
-        value.length <= 96 && value.matches(Regex("[a-zA-Z0-9_.:-]+")) -> value
+        value.length <= maximum && value.matches(Regex("[a-zA-Z0-9_.:,+-]+")) -> value
         else -> "redacted"
     }
-    return "time_ms=$wallMillis uptime_ms=${uptimeNanos / 1_000_000} pid=$pid " +
+    val line = StringBuilder("time_ms=$wallMillis uptime_ms=${uptimeNanos / 1_000_000} pid=$pid " +
         "event=${field(event)} owner=${field(owner)} code=${field(code)} error=${field(errorName)}"
+    )
+    val reserved = setOf("time_ms", "uptime_ms", "pid", "event", "owner", "code", "error")
+    for ((index, entry) in details.entries.withIndex()) {
+        val (key, value) = entry
+        if (key in reserved || !key.matches(Regex("[a-z][a-z0-9_]{0,31}"))) continue
+        val addition = " $key=${field(value, 160)}"
+        if (index >= 24 || line.length + addition.length > 740) {
+            line.append(" details_truncated=true")
+            break
+        }
+        line.append(addition)
+    }
+    return line.toString()
 }
