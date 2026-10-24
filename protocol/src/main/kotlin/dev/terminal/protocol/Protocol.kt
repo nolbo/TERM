@@ -1,5 +1,6 @@
 package dev.terminal.protocol
 
+import java.io.DataInputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
@@ -32,8 +33,23 @@ object Protocol {
     }
 
     fun decode(bytes: ByteArray): ProtocolFrame {
-        require(bytes.size >= HEADER_SIZE) { "Frame is shorter than its header" }
         val buffer = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN)
+        return decodeFrame(buffer) { payloadSize ->
+            require(bytes.size == HEADER_SIZE + payloadSize) { "Frame length does not match header" }
+            ByteArray(payloadSize).also(buffer::get)
+        }
+    }
+
+    /** Owns one fresh payload array; never joins and then splits the wire frame. */
+    fun read(input: DataInputStream): ProtocolFrame {
+        val header = ByteArray(HEADER_SIZE).also(input::readFully)
+        return decodeFrame(ByteBuffer.wrap(header).order(ByteOrder.BIG_ENDIAN)) { payloadSize ->
+            ByteArray(payloadSize).also(input::readFully)
+        }
+    }
+
+    private inline fun decodeFrame(buffer: ByteBuffer, readPayload: (Int) -> ByteArray): ProtocolFrame {
+        require(buffer.remaining() >= HEADER_SIZE) { "Frame is shorter than its header" }
         require(buffer.int == MAGIC) { "Invalid protocol magic" }
         val version = buffer.short.toUShort()
         require(version == VERSION) { "Unsupported protocol version: $version" }
@@ -44,9 +60,7 @@ object Protocol {
         val requestId = buffer.long
         val payloadSize = buffer.int
         require(payloadSize in 0..MAX_PAYLOAD_BYTES) { "Invalid payload size: $payloadSize" }
-        require(bytes.size == HEADER_SIZE + payloadSize) { "Frame length does not match header" }
-        val payload = ByteArray(payloadSize)
-        buffer.get(payload)
+        val payload = readPayload(payloadSize)
         return ProtocolFrame(version, service, kind, flags, requestId, payload)
     }
 }

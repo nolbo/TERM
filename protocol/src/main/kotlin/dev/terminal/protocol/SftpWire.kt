@@ -28,10 +28,21 @@ object SftpWire {
         return Packet(ByteArray(size).also(input::readFully))
     }
     fun send(output: DataOutputStream, body: DataOutputStream.() -> Unit) {
-        val raw = ByteArrayOutputStream()
+        val raw = PacketBuffer()
         DataOutputStream(raw).use(body)
-        require(raw.size() in 5..MAX_PACKET)
-        output.writeInt(raw.size()); raw.writeTo(output); output.flush()
+        raw.send(output)
+    }
+    private class PacketBuffer : ByteArrayOutputStream() {
+        init { count = Int.SIZE_BYTES }
+        fun send(output: DataOutputStream) {
+            val size = count - Int.SIZE_BYTES
+            require(size in 5..MAX_PACKET)
+            buf[0] = (size ushr 24).toByte(); buf[1] = (size ushr 16).toByte()
+            buf[2] = (size ushr 8).toByte(); buf[3] = size.toByte()
+            // One application write, with no payload clone or batching delay.
+            writeTo(output)
+            output.flush()
+        }
     }
     fun DataOutputStream.bytes(value: ByteArray) { writeInt(value.size); write(value) }
     fun DataOutputStream.text(value: String) = bytes(value.toByteArray(Charsets.UTF_8))

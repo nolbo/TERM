@@ -61,8 +61,8 @@ class ResumableGuestConnectionTest {
             assertTrue(firstReady.await(2, TimeUnit.SECONDS))
             val frames = async { withTimeout(10_000) { client.incomingFrames().take(2).toList() } }
             val first = ProtocolFrame(service = Service.SESSION, kind = FrameKind.STREAM, requestId = 0,
-                payload = byteArrayOf(1))
-            val last = first.copy(payload = byteArrayOf(2))
+                payload = ByteArray(100_000) { it.toByte() })
+            val last = first.copy(payload = ByteArray(65_537) { (it * 17).toByte() })
             peer.output.write(Protocol.encode(first))
             current.get().close()
             peer.output.write(Protocol.encode(last))

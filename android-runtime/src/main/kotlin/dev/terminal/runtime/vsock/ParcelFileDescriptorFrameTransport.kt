@@ -6,6 +6,7 @@ import dev.terminal.protocol.ProtocolFrame
 import dev.terminal.runtime.api.GuestConnection
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
+import java.io.DataInputStream
 import java.io.EOFException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
@@ -27,7 +28,7 @@ class ParcelFileDescriptorFrameTransport(
 ) : GuestConnection {
     private val writeMutex = Mutex()
     private val stream = ParcelFileDescriptorByteStream(descriptor)
-    private val input = BufferedInputStream(stream.input)
+    private val input = DataInputStream(BufferedInputStream(stream.input))
     private val output = BufferedOutputStream(stream.output)
 
     override suspend fun send(frame: ProtocolFrame): Result<Unit> = runCatching {
@@ -42,16 +43,7 @@ class ParcelFileDescriptorFrameTransport(
     override fun incomingFrames(): Flow<ProtocolFrame> = channelFlow {
         try {
             while (isActive) {
-                val header = ByteArray(Protocol.HEADER_SIZE)
-                input.readExactly(header)
-                val payloadSize = ((header[20].toInt() and 0xff) shl 24) or
-                    ((header[21].toInt() and 0xff) shl 16) or
-                    ((header[22].toInt() and 0xff) shl 8) or
-                    (header[23].toInt() and 0xff)
-                require(payloadSize in 0..Protocol.MAX_PAYLOAD_BYTES) { "Invalid guest frame length" }
-                val wireFrame = header + ByteArray(payloadSize)
-                input.readExactly(wireFrame, Protocol.HEADER_SIZE, payloadSize)
-                send(Protocol.decode(wireFrame))
+                send(Protocol.read(input))
             }
         } catch (error: EOFException) {
             // A normal VM stop or guest daemon restart closes the vsock stream.
@@ -60,15 +52,5 @@ class ParcelFileDescriptorFrameTransport(
 
     override fun close() {
         stream.close()
-    }
-
-    private fun BufferedInputStream.readExactly(target: ByteArray, offset: Int = 0, length: Int = target.size) {
-        var nextOffset = offset
-        val end = offset + length
-        while (nextOffset < end) {
-            val count = read(target, nextOffset, end - nextOffset)
-            if (count < 0) throw EOFException("Guest vsock stream closed")
-            nextOffset += count
-        }
     }
 }

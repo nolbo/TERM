@@ -107,12 +107,7 @@ class ResumableGuestConnection(
         val reader = launch(Dispatchers.IO) {
             try {
                 while (!closed.get()) {
-                    val header = ByteArray(Protocol.HEADER_SIZE)
-                    input.readFully(header)
-                    val length = java.nio.ByteBuffer.wrap(header).getInt(20)
-                    require(length in 0..Protocol.MAX_PAYLOAD_BYTES) { "Invalid guest frame length" }
-                    val payload = ByteArray(length).also { input.readFully(it) }
-                    send(Protocol.decode(header + payload))
+                    send(Protocol.read(input))
                 }
             } catch (_: EOFException) { /* Permanent owner loss. */ }
             catch (error: Exception) { channel.close(error) }
