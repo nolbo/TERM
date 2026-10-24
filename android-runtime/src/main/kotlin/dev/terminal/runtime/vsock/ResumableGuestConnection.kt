@@ -27,7 +27,7 @@ import kotlinx.coroutines.runInterruptible
 class ResumableGuestConnection(
     override val guestCid: Int,
     private val connect: () -> GuestByteStream,
-    private val report: (String, Throwable?) -> Unit = { _, _ -> },
+    private val report: (String, String?, Throwable?) -> Unit = { _, _, _ -> },
     private val recoveryTimeoutMillis: Long = 60_000L,
     private val handshakeTimeoutMillis: Long = 10_000L,
 ) : GuestConnection {
@@ -49,31 +49,53 @@ class ResumableGuestConnection(
         thread.start()
     }
 
-    private fun attach(deadline: Long = Long.MAX_VALUE): ReplayByteStream.Link {
+    private fun attach(deadline: Long = Long.MAX_VALUE, attempt: Int = 0): ReplayByteStream.Link {
+        val started = System.nanoTime()
+        var phase = "connect"
+        var reply: Int? = null
+        val timedOut = AtomicBoolean()
         fun remaining(): Long = (if (deadline == Long.MAX_VALUE) handshakeTimeoutMillis else
             minOf(handshakeTimeoutMillis, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()))).also {
-            if (it <= 0) throw IOException("Session recovery budget expired")
+            if (it <= 0) { timedOut.set(true); throw IOException("Session recovery budget expired") }
         }
-        val raw = GuestConnectionOpener.open(remaining(), connect)
-        socket.set(raw)
-        if (closed.get()) { raw.close(); throw IOException("Session owner closed") }
-        val budget = try { remaining() } catch (error: Exception) { raw.close(); throw error }
-        val timeout = WATCHDOG.schedule({ runCatching { raw.close() } }, budget, TimeUnit.MILLISECONDS)
         try {
-            val output = DataOutputStream(raw.output)
-            output.writeInt(0x54535231) // TSR1 + same process-owner token on every link
-            output.writeLong(token.mostSignificantBits); output.writeLong(token.leastSignificantBits)
-            output.writeByte(if (established.get()) 0 else 1); output.flush()
-            when (raw.input.read()) {
-                0 -> Unit
-                2 -> throw IllegalArgumentException("Guest lost session replay generation")
-                else -> throw IOException("Guest session owner unavailable")
+            val raw = GuestConnectionOpener.open(remaining(), connect)
+            socket.set(raw)
+            if (closed.get()) { raw.close(); throw IOException("Session owner closed") }
+            val budget = try { remaining() } catch (error: Exception) { raw.close(); throw error }
+            val timeout = WATCHDOG.schedule({ timedOut.set(true); runCatching { raw.close() } }, budget, TimeUnit.MILLISECONDS)
+            try {
+                phase = "owner_write"
+                val output = DataOutputStream(raw.output)
+                output.writeInt(0x54535231) // TSR1 + same process-owner token on every link
+                output.writeLong(token.mostSignificantBits); output.writeLong(token.leastSignificantBits)
+                output.writeByte(if (established.get()) 0 else 1); output.flush()
+                phase = "owner_status"
+                reply = raw.input.read()
+                when (reply) {
+                    0 -> Unit
+                    2 -> throw IllegalArgumentException("Guest lost session replay generation")
+                    else -> throw IOException("Guest session owner unavailable")
+                }
+                phase = "replay"
+                return replay.attach(raw.input, raw.output) { raw.close() }.also { established.set(true) }
+            } catch (error: Throwable) {
+                runCatching { raw.close() }
+                throw error
+            } finally { timeout.cancel(false) }
+        } catch (error: Exception) {
+            if (!closed.get()) {
+                val reason = when {
+                    timedOut.get() || error is java.util.concurrent.TimeoutException -> "timeout"
+                    error is ReplayByteStream.HandshakeException -> error.reason.code
+                    else -> "error"
+                }
+                val elapsed = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - started)
+                record("session.attach.failed", error,
+                    "$phase.$reason.reply_${reply ?: "none"}.attempt_$attempt.elapsed_ms_$elapsed")
             }
-            return replay.attach(raw.input, raw.output) { raw.close() }.also { established.set(true) }
-        } catch (error: Throwable) {
-            runCatching { raw.close() }
             throw error
-        } finally { timeout.cancel(false) }
+        }
     }
 
     private fun reconnect(initial: ReplayByteStream.Link) {
@@ -82,11 +104,11 @@ class ResumableGuestConnection(
             while (!closed.get()) {
                 while (!closed.get() && !link.awaitClosed(1, TimeUnit.SECONDS)) Unit
                 if (closed.get()) break
-                record("session.link.reconnecting")
+                record("session.link.reconnecting", link.failure?.cause, link.failure?.reason?.code)
                 val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(recoveryTimeoutMillis)
                 var attempt = 0
                 while (!closed.get()) {
-                    try { link = attach(deadline); record("session.link.restored"); break }
+                    try { link = attach(deadline, attempt + 1); record("session.link.restored"); break }
                     catch (error: Exception) {
                         if (error is IllegalArgumentException || System.nanoTime() >= deadline) throw error
                         val remaining = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())
@@ -117,7 +139,7 @@ class ResumableGuestConnection(
         awaitClose { this@ResumableGuestConnection.close(); reader.cancel() }
     }
 
-    private fun record(event: String, error: Throwable? = null) { runCatching { report(event, error) } }
+    private fun record(event: String, error: Throwable? = null, code: String? = null) { runCatching { report(event, code, error) } }
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return

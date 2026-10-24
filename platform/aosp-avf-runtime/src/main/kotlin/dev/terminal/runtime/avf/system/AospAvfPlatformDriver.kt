@@ -325,8 +325,8 @@ class AospAvfPlatformDriver(
     private fun sessionConnection(vm: VirtualMachine): GuestConnection = if (sessionResumeVersion == 1) {
         dev.terminal.runtime.vsock.ResumableGuestConnection(GUEST_CID_UNAVAILABLE,
             connect = { ParcelFileDescriptorByteStream(vm.connectVsock(40_507)) },
-            report = { event, error -> dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(
-                event, prepared?.instanceId, error = error) })
+            report = { event, code, error -> dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(
+                event, prepared?.instanceId, code = code, error = error) })
     } else ParcelFileDescriptorFrameTransport(connectVsock(vm, DROID_SESSIOND_PORT), GUEST_CID_UNAVAILABLE)
 
     override suspend fun connectGuestBridge(): Result<GuestConnection> = connectGuestPort(DROID_AGENT_PORT)

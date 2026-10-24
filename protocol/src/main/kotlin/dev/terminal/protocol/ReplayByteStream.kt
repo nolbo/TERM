@@ -19,6 +19,17 @@ import java.util.concurrent.ScheduledFuture
  * This is not persistence across owner death and never re-executes application requests.
  */
 class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
+    /** Stable metadata only; neither peer bytes nor exception messages form these codes. */
+    enum class FailureReason(val code: String) {
+        HANDSHAKE_MAGIC("handshake.magic"), HANDSHAKE_WINDOW("handshake.window"),
+        HANDSHAKE_OFFSETS("handshake.offsets"), READ_HEADER("read.header"),
+        READ_PAYLOAD("read.payload"), FRAME_BOUNDS("frame.bounds"), FRAME_ACK("frame.ack"),
+        FRAME_DATA("frame.data"), FRAME_CREDIT("frame.credit"), FRAME_PING("frame.ping"),
+        FRAME_KIND("frame.kind"), WRITE_FRAME("write.frame"), HEARTBEAT_TIMEOUT("heartbeat.timeout"),
+    }
+    class HandshakeException internal constructor(val reason: FailureReason, message: String) : IllegalArgumentException(message)
+    data class Failure(val reason: FailureReason, val cause: Exception? = null)
+
     private class Ring(private val capacity: Int) {
         private val bytes = ByteArray(capacity)
         var base = 0L
@@ -45,6 +56,9 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
 
     class Link internal constructor(private val disconnect: () -> Unit) : Closeable {
         internal val stopped = CountDownLatch(1)
+        /** First failure of this raw link, published before awaitClosed returns. Explicit close has none. */
+        @Volatile var failure: Failure? = null
+            internal set
         override fun close() = disconnect()
         fun awaitClosed(timeout: Long, unit: TimeUnit) = stopped.await(timeout, unit)
     }
@@ -119,14 +133,15 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
             sink.writeInt(MAGIC); sink.writeInt(capacity)
             sink.writeLong(offsets.first); sink.writeLong(offsets.second)
             sink.flush()
-            require(source.readInt() == MAGIC) { "Invalid replay handshake" }
+            if (source.readInt() != MAGIC) throw HandshakeException(FailureReason.HANDSHAKE_MAGIC, "Invalid replay handshake")
             val window = source.readInt()
             val peerReceived = source.readLong(); val peerConsumed = source.readLong()
             val current = synchronized(lock) {
                 check(!closed)
-                require(window in 1..WINDOW && peerConsumed >= sent.base && peerConsumed <= peerReceived && peerReceived <= sent.end) {
-                    "Replay peer lost its stream generation"
-                }
+                if (window !in 1..WINDOW) throw HandshakeException(FailureReason.HANDSHAKE_WINDOW,
+                    "Replay peer lost its stream generation")
+                if (peerConsumed < sent.base || peerConsumed > peerReceived || peerReceived > sent.end)
+                    throw HandshakeException(FailureReason.HANDSHAKE_OFFSETS, "Replay peer lost its stream generation")
                 sent.discard(peerConsumed)
                 Connection(source, sink, closeSocket, peerReceived, peerConsumed, window).also {
                     it.link = Link { detach(it) }
@@ -134,7 +149,8 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
                 }
             }
             current.watchdog = WATCHDOG.scheduleAtFixedRate({
-                if (System.nanoTime() - current.lastRead > TimeUnit.SECONDS.toNanos(20)) detach(current)
+                if (System.nanoTime() - current.lastRead > TimeUnit.SECONDS.toNanos(20))
+                    detach(current, Failure(FailureReason.HEARTBEAT_TIMEOUT))
             }, 5, 5, TimeUnit.SECONDS)
             if (current.closed.get()) current.watchdog?.cancel(false)
             thread("share-replay-read") { readFrames(current) }
@@ -148,34 +164,47 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
     }
 
     private fun readFrames(current: Connection) {
+        var reason = FailureReason.READ_HEADER
         try {
             while (true) {
+                reason = FailureReason.READ_HEADER
                 val kind = current.input.readUnsignedByte()
                 val position = current.input.readLong()
                 val length = current.input.readInt()
+                reason = FailureReason.FRAME_BOUNDS
                 require(position >= 0 && length in 0..CHUNK && position <= Long.MAX_VALUE - length)
+                reason = FailureReason.READ_PAYLOAD
                 val bytes = ByteArray(length).also { current.input.readFully(it) }
                 current.lastRead = System.nanoTime()
                 synchronized(lock) {
                     if (closed || connection !== current) return
                     when (kind) {
                         ACK -> {
+                            reason = FailureReason.FRAME_ACK
                             require(length == 0 && position in sent.base..current.cursor)
                             sent.discard(position); current.consumed = position
                         }
                         DATA -> {
+                            reason = FailureReason.FRAME_DATA
                             require(length > 0 && position <= received.end)
                             val skip = minOf(length.toLong(), received.end - position).toInt()
+                            reason = FailureReason.FRAME_CREDIT
                             require(length - skip <= capacity - received.size) { "Replay peer exceeded receive credit" }
                             received.append(bytes, skip, length - skip)
                         }
-                        PING -> require(length == 0 && position == 0L)
-                        else -> throw IOException("Unknown replay frame")
+                        PING -> {
+                            reason = FailureReason.FRAME_PING
+                            require(length == 0 && position == 0L)
+                        }
+                        else -> {
+                            reason = FailureReason.FRAME_KIND
+                            throw IOException("Unknown replay frame")
+                        }
                     }
                     lock.notifyAll()
                 }
             }
-        } catch (_: Exception) { /* Only this socket is lost; local streams and handles survive. */ }
+        } catch (error: Exception) { detach(current, Failure(reason, error)) }
         finally { detach(current) }
     }
 
@@ -211,14 +240,20 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
                 current.output.writeInt(bytes.size); current.output.write(bytes); current.output.flush()
                 lastWrite = System.nanoTime()
             }
-        } catch (_: Exception) { /* A reconnect retransmits only unreceived offsets. */ }
+        } catch (error: Exception) { detach(current, Failure(FailureReason.WRITE_FRAME, error)) }
         finally { detach(current) }
     }
 
-    private fun detach(current: Connection) {
+    private fun detach(current: Connection, failure: Failure? = null) {
         if (!current.closed.compareAndSet(false, true)) return
         current.watchdog?.cancel(false)
-        synchronized(lock) { if (connection === current) connection = null; lock.notifyAll() }
+        synchronized(lock) {
+            if (connection === current) {
+                if (!closed) current.link.failure = failure
+                connection = null
+            }
+            lock.notifyAll()
+        }
         runCatching(current.closeSocket)
         current.link.stopped.countDown()
     }

@@ -602,6 +602,19 @@ persisted across host/proxy/sessiond death, and no historical input is retried
 as a new RPC. An operation timing out after transmission has an unknown result;
 reconnection does not authorize retrying that operation.
 
+Host `session.link.reconnecting` records the first raw-link failure with a fixed
+code for header/payload reads, frame bounds, ACK/data/credit/heartbeat validation,
+frame writes or heartbeat expiry. Explicit link/owner closure has no failure
+code. `session.attach.failed` identifies platform `connect`, `owner_write`,
+`owner_status` or `replay` failure, with the received status byte (`-1` for EOF,
+`none` before a reply), attempt number (0 for initial attachment, 1 onward for
+recovery) and elapsed milliseconds for that attempt. Replay rejection codes
+distinguish invalid handshake magic, receive window and stream offsets; timeouts
+have a separate code. Error classes remain separate from these stable codes.
+No exception messages, tokens or protocol/terminal bytes are recorded. These
+host-only diagnostics retain the existing retry classification, recovery and
+heartbeat budgets, replay checks and wire format; no guest update is required.
+
 Each host stream is bound to one pinned directory. SFTP absolute paths mean that export root; parent traversal, invalid UTF-8/NUL and oversized paths are rejected. Packets are at most 256 KiB and file data requests 128 KiB, with 128 handles per stream, 256 global handles, four concurrent host operations and 256 global folder streams. SFTP v3 ordinary file/directory operations plus `posix-rename@openssh.com=1`, `fsync@openssh.com=1` and `statvfs@openssh.com=2` are supported. New-link requests follow OpenSSH's target-first order. Symlink targets are literal guest paths; the host never follows them. File UID/GID maps to 1000 and host paths/errors are not returned. Special files, hardlinked content and ownership changes to other IDs are refused. Cross-runtime advisory locks and hardlink creation are unsupported. SFTP v3 timestamps have seconds precision. Unlike TFT1, live I/O has no whole-file 64 MiB/two-minute limit.
 
 The previous `virtiofsVersion=1` tag/name-table mounter remains in images for compatibility, but the current app creates no connected-folder SharedPath/index. The separate `androidStorageVersion=1` export remains unchanged.

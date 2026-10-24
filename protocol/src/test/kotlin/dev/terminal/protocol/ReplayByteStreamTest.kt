@@ -2,6 +2,9 @@ package dev.terminal.protocol
 
 import java.io.DataInputStream
 import java.io.DataOutputStream
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
+import java.io.IOException
 import java.io.OutputStream
 import java.net.ServerSocket
 import java.net.Socket
@@ -13,6 +16,142 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReplayByteStreamTest {
+    @Test fun handshakeRejectionsIdentifyMagicWindowAndOffsetsWithoutChangingFatalClassification() {
+        data class Case(val magic: Int, val window: Int, val received: Long, val reason: ReplayByteStream.FailureReason)
+        for ((magic, window, received, reason) in listOf(
+            Case(0, 64, 0, ReplayByteStream.FailureReason.HANDSHAKE_MAGIC),
+            Case(0x54525332, 0, 0, ReplayByteStream.FailureReason.HANDSHAKE_WINDOW),
+            Case(0x54525332, 64, 1, ReplayByteStream.FailureReason.HANDSHAKE_OFFSETS),
+        )) {
+            val input = ByteArrayOutputStream().apply {
+                DataOutputStream(this).apply {
+                    writeInt(magic); writeInt(window)
+                    writeLong(received); writeLong(0)
+                }
+            }.toByteArray()
+            val replay = ReplayByteStream(64)
+            var socketClosed = false
+            try {
+                val failure = assertThrows(ReplayByteStream.HandshakeException::class.java) {
+                    replay.attach(ByteArrayInputStream(input), ByteArrayOutputStream()) { socketClosed = true }
+                }
+                assertEquals(reason, failure.reason)
+                assertTrue(failure is IllegalArgumentException)
+                assertTrue(socketClosed)
+                assertFalse(replay.connected)
+                assertFalse(replay.ownerClosed)
+            } finally { replay.close() }
+        }
+    }
+
+    @Test(timeout = 5_000) fun malformedFramesAndEofRetainTheFirstLinkCauseWithoutClosingTheOwner() {
+        data class Case(val kind: Int, val position: Long, val length: Int, val payload: ByteArray,
+            val reason: ReplayByteStream.FailureReason)
+        val cases = listOf(
+            Case(1, -1, 0, byteArrayOf(), ReplayByteStream.FailureReason.FRAME_BOUNDS),
+            Case(1, 0, ReplayByteStream.CHUNK + 1, byteArrayOf(), ReplayByteStream.FailureReason.FRAME_BOUNDS),
+            Case(1, 0, 0, byteArrayOf(), ReplayByteStream.FailureReason.FRAME_DATA),
+            Case(1, 1, 1, byteArrayOf(1), ReplayByteStream.FailureReason.FRAME_DATA),
+            Case(1, 0, 65, ByteArray(65), ReplayByteStream.FailureReason.FRAME_CREDIT),
+            Case(2, 1, 0, byteArrayOf(), ReplayByteStream.FailureReason.FRAME_ACK),
+            Case(3, 1, 0, byteArrayOf(), ReplayByteStream.FailureReason.FRAME_PING),
+            Case(9, 0, 0, byteArrayOf(), ReplayByteStream.FailureReason.FRAME_KIND),
+            Case(1, 0, 2, byteArrayOf(1), ReplayByteStream.FailureReason.READ_PAYLOAD),
+            Case(3, 0, 0, byteArrayOf(), ReplayByteStream.FailureReason.READ_HEADER),
+        )
+        for (case in cases) {
+            val wire = ByteArrayOutputStream().apply {
+                DataOutputStream(this).apply {
+                    writeInt(0x54525332); writeInt(64); writeLong(0); writeLong(0)
+                    writeByte(case.kind); writeLong(case.position); writeInt(case.length); write(case.payload)
+                }
+            }.toByteArray()
+            val replay = ReplayByteStream(64)
+            try {
+                val link = replay.attach(ByteArrayInputStream(wire), ByteArrayOutputStream()) { }
+                assertTrue(case.toString(), link.awaitClosed(1, TimeUnit.SECONDS))
+                val failure = requireNotNull(link.failure)
+                assertEquals(case.toString(), case.reason, failure.reason)
+                assertNotNull(failure.cause)
+                link.close()
+                assertSame(failure, link.failure)
+                assertFalse(replay.ownerClosed)
+            } finally { replay.close() }
+        }
+    }
+
+    @Test(timeout = 5_000) fun writeFailureWinsOverTheReadErrorCausedByItsSocketShutdown() {
+        val replay = ReplayByteStream()
+        val worker = Executors.newSingleThreadExecutor()
+        val failure = IOException("private exception detail must not form a diagnostic code")
+        ServerSocket(0).use { server ->
+            Socket("127.0.0.1", server.localPort).use { host ->
+                server.accept().use { peer ->
+                    try {
+                        val raw = host.getOutputStream()
+                        var writes = 0
+                        val output = object : OutputStream() {
+                            override fun write(value: Int) = throw AssertionError("Expected buffered bulk writes")
+                            override fun write(bytes: ByteArray, offset: Int, count: Int) {
+                                if (++writes > 1) throw failure // Handshake succeeds; the first ACK cannot be sent.
+                                raw.write(bytes, offset, count)
+                            }
+                        }
+                        val attached = worker.submit<ReplayByteStream.Link> {
+                            replay.attach(host.getInputStream(), output) { host.close() }
+                        }
+                        val input = DataInputStream(peer.getInputStream())
+                        ByteArray(24).also(input::readFully)
+                        DataOutputStream(peer.getOutputStream()).apply {
+                            writeInt(0x54525332); writeInt(64); writeLong(0); writeLong(0); flush()
+                        }
+                        val link = attached.get(2, TimeUnit.SECONDS)
+                        assertTrue(link.awaitClosed(2, TimeUnit.SECONDS))
+                        assertEquals(ReplayByteStream.FailureReason.WRITE_FRAME, link.failure?.reason)
+                        assertSame(failure, link.failure?.cause)
+                        assertFalse(replay.ownerClosed)
+                    } finally { replay.close(); worker.shutdownNow() }
+                }
+            }
+        }
+    }
+
+    @Test(timeout = 30_000) fun heartbeatExpiryRetainsItsCauseAndExplicitCloseHasNoFailure() {
+        val replay = ReplayByteStream()
+        val worker = Executors.newSingleThreadExecutor()
+        ServerSocket(0).use { server ->
+            Socket("127.0.0.1", server.localPort).use { host ->
+                server.accept().use { peer ->
+                    try {
+                        val attached = worker.submit<ReplayByteStream.Link> {
+                            replay.attach(host.getInputStream(), host.getOutputStream()) { host.close() }
+                        }
+                        ByteArray(24).also(DataInputStream(peer.getInputStream())::readFully)
+                        DataOutputStream(peer.getOutputStream()).apply {
+                            writeInt(0x54525332); writeInt(64); writeLong(0); writeLong(0); flush()
+                        }
+                        val link = attached.get(2, TimeUnit.SECONDS)
+                        assertTrue(link.awaitClosed(26, TimeUnit.SECONDS))
+                        assertEquals(ReplayByteStream.FailureReason.HEARTBEAT_TIMEOUT, link.failure?.reason)
+                        assertNull(link.failure?.cause)
+                        assertFalse(replay.ownerClosed)
+                        val right = ReplayByteStream()
+                        try {
+                            val replacement = connect(replay, right)
+                            replacement.close()
+                            assertTrue(replacement.awaitClosed(1, TimeUnit.SECONDS))
+                            assertNull(replacement.failure)
+                            val last = connect(replay, right)
+                            replay.close()
+                            assertTrue(last.awaitClosed(1, TimeUnit.SECONDS))
+                            assertNull(last.failure)
+                        } finally { right.close() }
+                    } finally { replay.close(); worker.shutdownNow() }
+                }
+            }
+        }
+    }
+
     @Test(timeout = 5_000) fun shortAndFullFramesFlushImmediatelyAsSingleRawWrites() {
         val replay = ReplayByteStream()
         val writes = CopyOnWriteArrayList<ByteArray>()
