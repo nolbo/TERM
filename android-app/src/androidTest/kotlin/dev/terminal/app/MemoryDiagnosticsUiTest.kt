@@ -182,7 +182,7 @@ class MemoryDiagnosticsUiTest {
         try {
             assertTrue(connected.await(10, TimeUnit.SECONDS))
             val sessions = service.sessionsJson
-            val state = service.state
+            val state = service.environmentsJson
             ActivityScenario.launch(MemoryDiagnosticsActivity::class.java).use { scenario ->
                 fun sample(condition: (MemorySnapshot) -> Boolean = { true }): MemorySnapshot {
                     val deadline = SystemClock.elapsedRealtime() + 8000
@@ -211,7 +211,7 @@ class MemoryDiagnosticsUiTest {
                 sample { it.runtime?.memoryBytes("total") != null }
             }
             assertEquals(sessions, service.sessionsJson)
-            assertEquals(state, service.state)
+            assertEquals(state, service.environmentsJson)
         } finally { context.unbindService(connection) }
     }
 }

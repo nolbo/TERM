@@ -1,7 +1,7 @@
 package dev.terminal.runtime.ipc;
 
 interface IRuntimeStateListener {
-    void onRuntimeStateChanged(String state, String detail);
+    void onRuntimeChoicesChanged();
     void onSessionsChanged(long revision, String sessionsJson);
     void onTerminalOutput(String sessionId, in byte[] bytes, boolean replay);
     void onSessionExited(String sessionId, int exitCode);

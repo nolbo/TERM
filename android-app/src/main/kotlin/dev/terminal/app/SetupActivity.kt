@@ -20,9 +20,9 @@ class SetupActivity : TerminalActivity() {
         }
         compose { SetupScreen(onStart = {
             // Notification permission is optional for opening the console and must
-            // never gate the primary zero-setup shell path.
+            // never gate profile selection or session creation.
             completeSetup()
-            launchMain(startRuntime = true)
+            launchMain()
             finish()
         }) }
     }
@@ -35,10 +35,9 @@ class SetupActivity : TerminalActivity() {
         .putBoolean(KEY_COMPLETED, true)
         .apply()
 
-    private fun launchMain(startRuntime: Boolean = false) {
+    private fun launchMain() {
         startActivity(
             Intent(this, MainActivity::class.java)
-                .putExtra(MainActivity.EXTRA_START_RUNTIME, startRuntime)
                 .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP),
         )
     }

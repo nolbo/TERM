@@ -51,7 +51,7 @@ class TerminalProcessDeathProbe : BroadcastReceiver() {
 
     private fun newSession(context: Context, runtime: IRuntimeService, directory: File): Pair<String, TerminalSessionStore> {
         check(!File(directory, "id").exists()) { "Clean up the previous probe first" }
-        await { runtime.state == "READY" }
+
         val before = ids(runtime)
         runtime.createSession("NATIVE", "/system/bin/sh", "", 24, 80)
         var id = ""

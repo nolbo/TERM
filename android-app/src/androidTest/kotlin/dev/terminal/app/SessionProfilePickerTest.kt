@@ -407,8 +407,7 @@ class SessionProfilePickerTest {
         val service = requireNotNull(queue.poll(15, TimeUnit.SECONDS))
         val previous = sessions(service).map { it.getString("id") }.toSet()
         try {
-            service.startRuntime()
-            await("Native runtime ready") { service.state == "READY" }
+
             fun create(title: String): String {
                 val before = sessions(service).map { it.getString("id") }.toSet()
                 service.createSession("NATIVE", "/system/bin/sh", "", 24, 80)

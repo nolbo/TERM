@@ -19,5 +19,5 @@ class ReconnectBackoff(private val delaysMs: List<Long> = listOf(2_000, 4_000, 8
     }
 }
 
-internal fun reconnectNeeded(runningSessions: Int, pendingWork: Int, guestWork: Boolean): Boolean =
-    runningSessions > 0 || pendingWork > 0 || guestWork
+internal fun reconnectNeeded(runningSessions: Int, pendingWork: Int, guestWork: Boolean, startedEnvironments: Int): Boolean =
+    runningSessions > 0 || pendingWork > 0 || guestWork || startedEnvironments > 0

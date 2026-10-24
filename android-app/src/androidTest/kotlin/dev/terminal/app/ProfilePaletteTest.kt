@@ -202,8 +202,7 @@ class ProfilePaletteTest {
             return List(array.length()) { array.getJSONObject(it) }
         }
         try {
-            service.startRuntime()
-            await { service.state == "READY" }
+
             for (profile in listOf(first, second)) {
                 store.save(profile)
                 service.createSessionFromSpec(profile.resolve().toJson().toString(), 24, 80)

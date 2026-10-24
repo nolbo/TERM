@@ -52,8 +52,7 @@ class RootlessProfileStorageTest {
             }
         }
         try {
-            service.startRuntime()
-            await { service.state == "READY" }
+
             for (profile in listOf(first, second, shared)) {
                 store.save(profile)
                 service.createSessionFromSpecWithInstallationConsent(profile.resolve().toJson().toString(), java.util.UUID.randomUUID().toString(), 24, 80)

@@ -9,7 +9,7 @@ import dev.terminal.runtime.session.SessionLaunchSpec
 import org.json.JSONArray
 import java.util.UUID
 
-/** Default profiles may be overridden or tombstoned without touching live sessions. */
+/** Built-in profiles may be overridden or tombstoned without touching live sessions. */
 class SessionProfiles(context: Context) {
     private val app = context.applicationContext
     fun hasAvfPrivileges(): Boolean =

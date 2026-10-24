@@ -359,9 +359,8 @@ class MainActivity : TerminalActivity() {
     }
 
     private fun createRuntimeListener(generation: Long) = object : IRuntimeStateListener.Stub() {
-        override fun onRuntimeStateChanged(state: String, detail: String) = runOnUiThread {
+        override fun onRuntimeChoicesChanged() = runOnUiThread {
             if (generation == bindingGeneration) {
-                renderRuntimeState(state, detail)
                 runCatching { runtime?.runtimeStatusJson?.let(::updateRuntimeChoices) }
             }
         }
@@ -486,8 +485,7 @@ class MainActivity : TerminalActivity() {
                     }
                 }
                 updateRuntimeChoices(connected.runtimeStatusJson)
-                renderRuntimeState(connected.state, connected.detail)
-                connected.startRuntime()
+                runtimeMessage = ""
                 submitPendingAvfLaunches()
                 handleLaunchIntent(intent)
             }.onFailure { handleRuntimeDisconnect() }
@@ -619,7 +617,7 @@ class MainActivity : TerminalActivity() {
         runtimeMessage = getString(R.string.runtime_connecting_prompt)
         rootlessStatus = getString(R.string.rootless_setup_required)
         rootlessDetail = getString(R.string.rootless_setup_initial)
-        runtimeChoices = defaultRuntimeChoices()
+        runtimeChoices = runtimeChoicesBeforeConnection()
         terminalChromeColors = dev.terminal.app.ui.TerminalChromeColors(Color(TerminalAppearance.backgroundColor(terminalPreferences())))
         terminalPaddingDp = TerminalAppearance.paddingDp(terminalPreferences())
         terminalInputCallbacks = TerminalInputCallbacks(
@@ -1100,16 +1098,6 @@ class MainActivity : TerminalActivity() {
     private fun sendHotkeyShortcut(value: String) {
         terminalView?.let { dispatchHotkeyShortcut(it, terminalInputCallbacks, value) }
         syncModifierState()
-    }
-
-    private fun renderRuntimeState(state: String, detail: String) {
-        runtimeMessage = when (state) {
-            // A ready runtime is the normal idle state. Showing it in the empty
-            // terminal screen adds redundant status copy beneath the call to action.
-            "READY" -> ""
-            "FAILED" -> getString(R.string.runtime_error_prompt, detail.ifBlank { getString(R.string.runtime_disconnected) })
-            else -> getString(R.string.runtime_state_prompt, detail.ifBlank { state })
-        }
     }
 
     private fun renderSessions(revision: Long, json: String) {
@@ -1644,7 +1632,7 @@ class MainActivity : TerminalActivity() {
 
     private fun updateRuntimeChoices(json: String) {
         runtimeChoices = parseRuntimeChoices(json).map { choice ->
-            if (choice.detail.isNotBlank()) choice else choice.copy(detail = defaultRuntimeDetail(choice.id))
+            if (choice.detail.isNotBlank()) choice else choice.copy(detail = runtimeChoiceDescription(choice.id))
         }
         if (rootlessLaunchSpec?.storageId?.let { it != "legacy" } != true) {
             runtimeChoices.firstOrNull { it.id == rootlessInstallRuntime }?.let(::showRootlessProgress)
@@ -1664,11 +1652,11 @@ class MainActivity : TerminalActivity() {
         }
     }
 
-    private fun defaultRuntimeChoices() = parseRuntimeChoices("").map {
-        it.copy(detail = defaultRuntimeDetail(it.id))
+    private fun runtimeChoicesBeforeConnection() = parseRuntimeChoices("").map {
+        it.copy(detail = runtimeChoiceDescription(it.id))
     }
 
-    private fun defaultRuntimeDetail(runtimeType: String) = when (runtimeType) {
+    private fun runtimeChoiceDescription(runtimeType: String) = when (runtimeType) {
         "ROOTLESS_ARCH" -> getString(R.string.runtime_arch_description)
         "ROOTLESS", "ROOTLESS_UBUNTU" -> getString(R.string.runtime_rootless_description)
         "AVF" -> getString(R.string.avf_unavailable_default)
@@ -1765,9 +1753,6 @@ class MainActivity : TerminalActivity() {
         }
     }
 
-    companion object {
-        const val EXTRA_START_RUNTIME = "start_runtime"
-    }
 }
 
 internal fun sessionShell(runtimeType: String): String = when (runtimeType) {

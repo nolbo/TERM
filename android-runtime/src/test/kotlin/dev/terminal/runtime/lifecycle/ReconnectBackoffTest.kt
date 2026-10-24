@@ -26,9 +26,10 @@ class ReconnectBackoffTest {
     }
 
     @Test fun retryDemandStopsWithNoRunningSessionsOrPendingWork() {
-        assertFalse(reconnectNeeded(0, 0, false))
-        assertTrue(reconnectNeeded(1, 0, false))
-        assertTrue(reconnectNeeded(0, 1, false))
-        assertTrue(reconnectNeeded(0, 0, true))
+        assertFalse(reconnectNeeded(0, 0, false, 0))
+        assertTrue(reconnectNeeded(1, 0, false, 0))
+        assertTrue(reconnectNeeded(0, 1, false, 0))
+        assertTrue(reconnectNeeded(0, 0, true, 0))
+        assertTrue(reconnectNeeded(0, 0, false, 1))
     }
 }

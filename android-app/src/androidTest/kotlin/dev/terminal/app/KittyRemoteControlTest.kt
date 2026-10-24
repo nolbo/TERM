@@ -38,7 +38,7 @@ class KittyRemoteControlTest {
                 if (!replay) outputs.getOrPut(id) { StringBuilder() }.let { synchronized(it) { it.append(bytes.decodeToString()) } }
             }
             override fun onSessionFocusRequested(id: String) { focused.set(id) }
-            override fun onRuntimeStateChanged(state: String, detail: String) = Unit
+            override fun onRuntimeChoicesChanged() = Unit
             override fun onSessionsChanged(revision: Long, json: String) = Unit
             override fun onSessionExited(id: String, code: Int) = Unit
             override fun onSessionTerminationFailed(id: String, message: String) = Unit
@@ -54,8 +54,7 @@ class KittyRemoteControlTest {
             val preferences = context.getSharedPreferences("runtime-settings", Context.MODE_PRIVATE)
             oldRemote = preferences.getBoolean("kitty-remote-control", false)
             oldGraphics = preferences.getBoolean("kitty-graphics-compatibility", false)
-            service.startRuntime()
-            await { service.state == "READY" }
+
             service.registerListener(listener)
             fun sessions(): List<JSONObject> { val a = JSONArray(service.sessionsJson); return List(a.length()) { a.getJSONObject(it) } }
             fun create(runtime: String): String {

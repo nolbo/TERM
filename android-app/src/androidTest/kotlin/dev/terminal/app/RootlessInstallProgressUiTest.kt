@@ -50,7 +50,7 @@ class RootlessInstallProgressUiTest {
                 val snapshot = JSONObject(service.runtimeStatusJson).getJSONObject(runtimeType).optJSONObject("progress") ?: return
                 synchronized(updates) { updates.getOrPut(runtimeType) { mutableListOf() }.add(snapshot) }
             }
-            override fun onRuntimeStateChanged(state: String, detail: String) = Unit
+            override fun onRuntimeChoicesChanged() = Unit
             override fun onSessionsChanged(revision: Long, sessionsJson: String) = Unit
             override fun onTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) = Unit
             override fun onSessionExited(sessionId: String, exitCode: Int) = Unit

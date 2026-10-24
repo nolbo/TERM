@@ -45,7 +45,7 @@ class RootlessDistributionsTest {
                 val buffer = output.computeIfAbsent(id) { StringBuilder() }
                 synchronized(buffer) { buffer.append(bytes.toString(Charsets.UTF_8)) }
             }
-            override fun onRuntimeStateChanged(state: String, detail: String) = Unit
+            override fun onRuntimeChoicesChanged() = Unit
             override fun onSessionFocusRequested(sessionId: String) = Unit
             override fun onSessionsChanged(revision: Long, json: String) = Unit
             override fun onSessionExited(id: String, code: Int) = Unit
@@ -75,8 +75,7 @@ class RootlessDistributionsTest {
         try {
             assertTrue(connected.await(10, TimeUnit.SECONDS))
             service.registerListener(listener)
-            service.startRuntime()
-            await { service.state == "READY" }
+
             for ((runtime, distroId) in listOf("ROOTLESS_UBUNTU" to "ubuntu", "ROOTLESS_ARCH" to "archarm")) {
                 val previous = sessions(service.sessionsJson).keys
                 val profile = SessionProfiles(context).builtIns().first { it.runtime.wireName == runtime }

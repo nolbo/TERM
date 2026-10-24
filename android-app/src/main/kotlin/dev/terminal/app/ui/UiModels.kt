@@ -130,7 +130,6 @@ internal fun groupedRuntimeChoices(choices: List<RuntimeChoiceUi>): List<Runtime
 
 internal fun runtimeSelectionAction(choice: RuntimeChoiceUi): RuntimeSelectionAction = when {
     // An explicit AVF request starts its storage owner; the service checks capabilities.
-    // The Native primary owner's readiness cannot decide whether that VM may start.
     choice.available || choice.id == "AVF" -> RuntimeSelectionAction.CREATE
     choice.id in rootlessRuntimeIds -> RuntimeSelectionAction.INSTALL
     else -> RuntimeSelectionAction.SETTINGS

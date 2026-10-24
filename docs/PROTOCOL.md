@@ -131,6 +131,12 @@ empty reply or default zero. The existing `measureStorage` returns the same
 byte count for compatibility. Cached storage-list rows carry the same `incomplete`
 flag alongside nullable `bytes`. Size reads never follow symbolic links or alter modes.
 
+## Android Environment ownership
+
+Host Binder clients launch a Profile's immutable `SessionLaunchSpec` or explicitly operate an Environment UUID. Binding/observing the service does not select or start a runtime. The app-local AIDL has no global runtime prepare/start/stop/state/image-status API. Environment state is read from `environmentsJson`; sessions remain authoritative through `sessionsJson` and `onSessionsChanged`. `onRuntimeChoicesChanged()` invalidates only the runtime-kind availability/installation projection and never represents a selected owner. UI and service AIDL are shipped together; this changes no guest wire frames.
+
+Capability grant get/set requests require a host-validated AVF Environment UUID. The host resolves its saved VM identity; a guest cannot select its authority scope. Existing legacy `default` VM/grant identities remain storage compatibility identifiers, with no primary-runtime role. Grants are not copied to other Environments.
+
 ## Android runtime choice status
 
 The app-local `IRuntimeService.runtimeStatusJson` is separate from the guest wire

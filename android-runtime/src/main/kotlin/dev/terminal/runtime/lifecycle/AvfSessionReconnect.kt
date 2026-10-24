@@ -9,16 +9,14 @@ import dev.terminal.runtime.session.UnifiedSessionRegistry
 /** Reconnect failed AVF links without replacing healthy controllers or terminal state. */
 internal suspend fun reconnectAvfSessions(
     registry: UnifiedSessionRegistry,
-    defaultStorageId: String,
-    primaryIsAvf: Boolean,
     environmentForStorage: (String) -> Environment,
     connect: suspend (Environment) -> SessionController?,
     onConnected: () -> Unit,
+    canReconnect: (Environment) -> Boolean = { true },
 ) {
     for (id in registry.disconnectedStorages(SessionRuntime.AVF)) {
-        // ensureSessionRegistry attempts this link only when the primary owner is AVF.
-        if (primaryIsAvf && id == defaultStorageId) continue
         val environment = environmentForStorage(id)
+        if (!canReconnect(environment)) continue
         val controller = connect(environment) ?: continue
         registry.register(environment, controller)
         onConnected()

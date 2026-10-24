@@ -16,21 +16,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AvfRuntimeAvailabilityTest {
-    @Test fun readyNativeOwnersDoNotClaimAvfReadinessOrRequireAnotherProductBuild() {
-        val state = avfRuntimeAvailability(NativeOwner, listOf(NativeOwner))
+    @Test fun nativeEnvironmentsDoNotClaimAvfReadiness() {
+        val state = avfRuntimeAvailability(listOf(NativeOwner))
         assertFalse(state.available)
         assertFalse(state.detail.contains("특권 AVF 제품 빌드"))
         assertTrue(state.detail.contains("프로필을 선택"))
     }
 
-    @Test fun independentAvfOwnerIsReadyUnderNativeAndBecomesUnavailableWhenStopped() = runBlocking {
+    @Test fun avfEnvironmentIsReadyAndBecomesUnavailableWhenStopped() = runBlocking {
         val avf = AvfBackend(Driver)
         avf.prepare(RuntimeConfig(imageDirectory = "/test/image")).getOrThrow()
         avf.start().getOrThrow()
-        assertTrue(avfRuntimeAvailability(NativeOwner, listOf(avf)).available)
-        assertTrue(avfRuntimeAvailability(avf, emptyList()).available)
+        assertTrue(avfRuntimeAvailability(listOf(avf)).available)
         avf.stop(StopMode.FORCE).getOrThrow()
-        assertFalse(avfRuntimeAvailability(NativeOwner, listOf(avf)).available)
+        assertFalse(avfRuntimeAvailability(listOf(avf)).available)
     }
 
     @Test fun aFailedSiblingDoesNotHideAReadyIndependentAvfOwner() = runBlocking {
@@ -38,11 +37,11 @@ class AvfRuntimeAvailabilityTest {
             override suspend fun prepare(config: RuntimeConfig) = Result.failure<Unit>(IllegalStateException("bad image"))
         })
         failed.prepare(RuntimeConfig(imageDirectory = "/test/failed"))
-        assertEquals("bad image", avfRuntimeAvailability(NativeOwner, listOf(failed)).detail)
+        assertEquals("bad image", avfRuntimeAvailability(listOf(failed)).detail)
         val ready = AvfBackend(Driver)
         ready.prepare(RuntimeConfig(imageDirectory = "/test/ready")).getOrThrow()
         ready.start().getOrThrow()
-        assertTrue(avfRuntimeAvailability(NativeOwner, listOf(failed, ready)).available)
+        assertTrue(avfRuntimeAvailability(listOf(failed, ready)).available)
     }
 
     @Test fun aPendingAvfBootDoesNotBorrowNativeReadiness() = runBlocking {
@@ -53,12 +52,12 @@ class AvfRuntimeAvailabilityTest {
         avf.prepare(RuntimeConfig(imageDirectory = "/test/boot")).getOrThrow()
         val pending = launch { avf.start().getOrThrow() }
         avf.observeState().first { it is RuntimeState.Booting }
-        val state = avfRuntimeAvailability(NativeOwner, listOf(avf))
+        val state = avfRuntimeAvailability(listOf(avf))
         assertFalse(state.available)
         assertTrue(state.detail.contains("시작하고"))
         boot.complete(Unit)
         pending.join()
-        assertTrue(avfRuntimeAvailability(NativeOwner, listOf(avf)).available)
+        assertTrue(avfRuntimeAvailability(listOf(avf)).available)
     }
 
     private object Driver : AvfPlatformDriver {

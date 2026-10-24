@@ -86,7 +86,7 @@ class SettingsDetailActivity : TerminalActivity() {
     }
 
     private val listener = object : IRuntimeStateListener.Stub() {
-        override fun onRuntimeStateChanged(state: String, detail: String) = Unit
+        override fun onRuntimeChoicesChanged() = Unit
         override fun onSessionFocusRequested(sessionId: String) = Unit
         override fun onSessionsChanged(revision: Long, sessionsJson: String) = Unit
         override fun onTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) = Unit

@@ -42,8 +42,7 @@ class BackgroundPowerPolicyTest {
         }
         try {
             assertEquals("Fresh app defaults to protecting persistent sessions", "ALWAYS_AWAKE", service.wakePolicy)
-            service.startRuntime()
-            await("Native ready") { service.state == "READY" }
+
             val before = runningIds()
             assertTrue("Run on an isolated test app with no existing sessions", before.isEmpty())
             service.createSession("NATIVE", "/system/bin/sh", "", 24, 80)

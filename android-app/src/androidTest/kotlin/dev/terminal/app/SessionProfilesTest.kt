@@ -308,8 +308,7 @@ class SessionProfilesTest {
         val service = requireNotNull(queue.poll(15, TimeUnit.SECONDS))
         val owned = mutableListOf<String>()
         try {
-            service.startRuntime()
-            await { service.state == "READY" }
+
             profiles.forEach { profile ->
                 store.save(profile)
                 service.createSessionFromSpec(profile.resolve().toJson().toString(), 24, 80)
@@ -512,8 +511,7 @@ class SessionProfilesTest {
         val service = requireNotNull(queue.poll(15, TimeUnit.SECONDS))
         val owned = mutableListOf<String>()
         try {
-            service.startRuntime()
-            await { service.state == "READY" }
+
             service.createSessionFromSpec(profile.resolve().toJson().toString(), 24, 80)
             await { sessions(service).any { it.optString("profileId") == profile.id } }
             val original = sessions(service).first { it.optString("profileId") == profile.id }

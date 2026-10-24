@@ -266,7 +266,7 @@ internal class TerminalSessionStore(context: Context) {
                 }
             }
         }
-        override fun onRuntimeStateChanged(state: String, detail: String) = Unit
+        override fun onRuntimeChoicesChanged() = Unit
         override fun onSessionFocusRequested(sessionId: String) = Unit
         override fun onSessionTerminationFailed(sessionId: String, message: String) = Unit
         override fun onRootlessProgress(runtimeType: String, phase: String, detail: String) = Unit

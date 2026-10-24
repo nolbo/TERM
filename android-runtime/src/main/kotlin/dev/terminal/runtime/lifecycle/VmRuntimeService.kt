@@ -9,14 +9,11 @@ import android.content.Intent
 import android.os.IBinder
 import android.os.RemoteCallbackList
 import android.util.Log
-import dev.terminal.image.AvfImageVerifier
-import dev.terminal.image.BundledAvfImageCatalog
 import dev.terminal.bridge.AndroidCapabilityBroker
 import dev.terminal.bridge.BridgeHostServer
 import dev.terminal.bridge.Capability
 import dev.terminal.bridge.CapabilityGrant
 import dev.terminal.bridge.SharedPreferencesCapabilityGrantStore
-import dev.terminal.image.ImageVerification
 import dev.terminal.runtime.image.RuntimeSetupCoordinator
 import dev.terminal.runtime.R
 import dev.terminal.runtime.api.RuntimeConfig
@@ -58,7 +55,6 @@ import dev.terminal.protocol.SessionController
 import dev.terminal.protocol.SessionDescriptor
 import dev.terminal.protocol.SessionEvent
 import dev.terminal.protocol.GuestWorkEvent
-import java.nio.file.Paths
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.ConcurrentHashMap
@@ -85,7 +81,6 @@ class VmRuntimeService : Service() {
         { task -> Thread(null, task, "terminal-callback", 256 * 1024).apply { isDaemon = true } })
         .apply { allowCoreThreadTimeOut(true) }
     private val listenerDeliveries = ConcurrentHashMap<IBinder, BoundedCallbackQueue>()
-    private lateinit var backend: RuntimeBackend
     private lateinit var rootlessBackends: Map<SessionRuntime, RootlessDebianBackend>
     private val environmentBackends = java.util.concurrent.ConcurrentHashMap<EnvironmentId, dev.terminal.runtime.api.RuntimeBackend>()
     private val startedEnvironmentBackends = java.util.concurrent.ConcurrentHashMap.newKeySet<EnvironmentId>()
@@ -94,7 +89,6 @@ class VmRuntimeService : Service() {
     private val imageInitializationJobs = ConcurrentHashMap<String, Job>()
     private val sessionClientMutex = Mutex()
     private val preparationLocks = StoragePreparationLocks()
-    private val primaryPreparationMutex = Mutex()
     private val terminalSinks = java.util.concurrent.ConcurrentHashMap<Pair<String, android.os.IBinder>, dev.terminal.runtime.session.QueuedTerminalSink>()
     private val terminalDeaths = java.util.concurrent.ConcurrentHashMap<Pair<String, android.os.IBinder>, android.os.IBinder.DeathRecipient>()
     private val terminalOperations = kotlinx.coroutines.channels.Channel<suspend () -> Unit>(512)
@@ -117,16 +111,15 @@ class VmRuntimeService : Service() {
         }.onFailure { notifyOperationError("입력 전송", it.userMessage()) }
     }
     private val guestRetry = ReconnectBackoff()
-    private val bridgeRetry = ReconnectBackoff()
     private var wakeExpiryJob: Job? = null
     private var reconnectJob: Job? = null
-    private var bridgeJob: Job? = null
     private lateinit var sharedDirectories: SharedDirectoryManager
     private lateinit var wakeController: RuntimeWakeController
     private lateinit var wakePolicies: WakePolicyStore
     private lateinit var capabilityGrants: SharedPreferencesCapabilityGrantStore
     private lateinit var usbBroker: dev.terminal.runtime.usb.UsbBroker
-    @Volatile private var guestReportedWorkActive = false
+    private val guestWorkEnvironments = ConcurrentHashMap.newKeySet<EnvironmentId>()
+    private val bridgeObservers = ConcurrentHashMap<EnvironmentId, AvfBridgeObserver>()
     private val localServices by lazy {
         val preferences = getSharedPreferences("local-services", MODE_PRIVATE)
         dev.terminal.runtime.forwarding.LocalServiceManager(
@@ -144,7 +137,6 @@ class VmRuntimeService : Service() {
         launchTitle = { id -> (sessionClient as? UnifiedSessionRegistry)?.launchOf(id)?.tabTitle })
     private val pendingAvfLaunches = PendingAvfSessionLaunches()
     private val hostBackgroundOperationCount = AtomicInteger(0)
-    @Volatile private var latestState: RuntimeState = RuntimeState.Stopped
 
     private val kittyIdentities = java.util.concurrent.ConcurrentHashMap<String, Int>()
     private val kittyGrants = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
@@ -230,7 +222,7 @@ class VmRuntimeService : Service() {
     private val workspaceLaunches = ConcurrentHashMap<String, String>()
     private val sharedFolderManagement = Any()
     private val avfSharedDirectoryVerifier by lazy {
-        ((applicationContext as? RuntimeBackendProvider)?.createRuntimeBackend(applicationContext)
+        ((applicationContext as? RuntimeBackendProvider)?.createAvfBackend(applicationContext)
             as? dev.terminal.runtime.avf.AvfBackend) ?: error("Cannot verify AVF shared directory users")
     }
     private val sharedStorageAppOps by lazy { checkNotNull(getSystemService(android.app.AppOpsManager::class.java)) }
@@ -251,7 +243,6 @@ class VmRuntimeService : Service() {
                 // Stop first; do not wait behind a boot's sessiond handshake to revoke access.
                 preparationLocks.withAll {
                     val stopped = owners.filter { avfSharedDirectoryVerifier.verifyStoppedInstance(it).isSuccess }.toSet()
-                    (backend as? dev.terminal.runtime.avf.AvfBackend)?.confirmSharedStorageRevocation(stopped)
                     environmentRegistry.transaction(storageDefaults()) { all() }.forEach { environment ->
                         if (environment.runtimeMetadata.vmInstanceId in stopped) {
                             (environmentBackends[environment.id] as? dev.terminal.runtime.avf.AvfBackend)
@@ -324,7 +315,7 @@ class VmRuntimeService : Service() {
                     "Close this environment's sessions before copying old /workspace data: ${environment.name}"
                 }
                 val owner = environmentBackends[environment.id] ?: rootlessBackends[environment.sessionRuntime]
-                    ?.takeIf { environment.storage.id == defaultStorageId(environment.sessionRuntime) }
+                    ?.takeIf { environment.storage.id == legacyStorageId(environment.sessionRuntime) }
                 check(owner == null || owner.observeState().first() is RuntimeState.Stopped) { "Stop this environment before copying old /workspace data: ${environment.name}" }
                 check((owner as? RootlessDebianBackend)?.isInstallationActive() != true) { "Environment installation is running" }
                 if (environment.runtime == dev.terminal.runtime.session.EnvironmentRuntime.AVF)
@@ -395,8 +386,7 @@ class VmRuntimeService : Service() {
                     val leases = dev.terminal.runtime.storage.AvfSharedDirectoryLeases(filesDir)
                     val owners = leases.owners(folderId)
                     if (owners.isNotEmpty()) {
-                        val avf = (backend as? dev.terminal.runtime.avf.AvfBackend)
-                            ?: environmentBackends.values.filterIsInstance<dev.terminal.runtime.avf.AvfBackend>().firstOrNull()
+                        val avf = environmentBackends.values.filterIsInstance<dev.terminal.runtime.avf.AvfBackend>().firstOrNull()
                             ?: avfSharedDirectoryVerifier
                         owners.forEach { avf.verifyStoppedInstance(it).getOrThrow() }
                     }
@@ -558,7 +548,7 @@ class VmRuntimeService : Service() {
                 all().firstOrNull { it.sessionRuntime == selected && it.storage.id == storageId }
             }
             val owner = environment?.let { environmentBackends[it.id] as? RootlessDebianBackend }
-                ?: rootlessBackends[selected]?.takeIf { storageId == "legacy" || storageId == defaultStorageId(selected) }
+                ?: rootlessBackends[selected]?.takeIf { storageId == "legacy" || storageId == legacyStorageId(selected) }
             return owner?.cancelInstallation() == true
         }
         override fun initializeAvfImage(storageId: String, requestId: String,
@@ -765,12 +755,6 @@ class VmRuntimeService : Service() {
         override fun revokeUsbSession(sessionId: String) = usbBroker.revokeSession(sessionId)
         override fun addUsbStorageTree(uri: String, flags: Int): String = usbBroker.addStorageTree(uri, flags)
         override fun removeUsbStorageTree(id: String) = usbBroker.removeStorageTree(id)
-        override fun getState(): String = latestState.wireName
-
-        override fun getDetail(): String = latestState.detail()
-
-        override fun getImageStatus(): String = imageStatus()
-
         override fun getRuntimeStatusJson(): String = runtimeStatusJson()
 
         override fun getSessionsJson(): String = pendingAvfLaunches.project(publishedSessions.json)
@@ -802,23 +786,9 @@ class VmRuntimeService : Service() {
 
         override fun getWakePolicy(): String = wakePolicies.get().name
 
-        override fun getCapabilityGrant(capability: String): String = runCatching {
-            capabilityGrants.get(DEFAULT_VM_INSTANCE_ID, Capability.entries.first { it.wireName == capability }).name
+        override fun getCapabilityGrant(environmentId: String, capability: String): String = runCatching {
+            capabilityGrants.get(capabilityOwner(environmentId), Capability.entries.first { it.wireName == capability }).name
         }.getOrDefault(CapabilityGrant.ASK.name)
-
-        override fun prepare() = launchRuntimeOperation(trackAsWork = true) { prepareAndStart() }
-
-        override fun startRuntime() = launchRuntimeOperation(trackAsWork = true) { prepareAndStart() }
-
-        override fun stopRuntime(mode: Int) = launchRuntimeOperation {
-            sessionSnapshots.clear(::closeSessionClient)
-            environmentBackends.values.forEach { it.stop(if (mode == FORCE_STOP) StopMode.FORCE else StopMode.GRACEFUL).getOrThrow() }
-            environmentBackends.clear()
-            startedEnvironmentBackends.clear()
-            explicitlyStartedEnvironments.clear()
-            backend.stop(if (mode == FORCE_STOP) StopMode.FORCE else StopMode.GRACEFUL)
-            updateServiceLifetime()
-        }
 
         override fun createSessionFromSpec(launchSpecJson: String, rows: Int, cols: Int) =
             createResolvedSession(launchSpecJson, rows, cols)
@@ -1148,7 +1118,7 @@ class VmRuntimeService : Service() {
             val rootless = rootlessBackends[selected]
                 ?: throw IllegalArgumentException("알 수 없는 Rootless 환경: $runtimeType")
             migrateLegacyStorages(ensureSessionRegistry())
-            val storageId = defaultStorageId(requireNotNull(selected))
+            val storageId = legacyStorageId(requireNotNull(selected))
             storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(selected, storageId)) }
             if (preparationLocks.isLocked(requireNotNull(selected)) && rootless.status() !is RootlessStatus.Ready) rootless.reportPreparationWaiting()
             preparationLocks.withStorage(requireNotNull(selected), storageId) {
@@ -1159,7 +1129,7 @@ class VmRuntimeService : Service() {
                     } else rootless.prepare().getOrThrow()
                 } finally {
                     rootless.clearPreparationWaiting()
-                    notifyClients(latestState)
+                    notifyRuntimeChoices()
                 }
             }
         }
@@ -1170,8 +1140,8 @@ class VmRuntimeService : Service() {
             val rootless = rootlessBackends[selected] ?: throw IllegalArgumentException("Rootless 환경이 아닙니다")
             val registry = ensureSessionRegistry() ?: error("세션 상태를 확인할 수 없습니다")
             preparationLocks.withAll {
-                try { registry.migrateIfAllIdle(selected, defaultStorageId(selected)) { rootless.migrateToNative().getOrThrow() } }
-                finally { notifyClients(latestState) }
+                try { registry.migrateIfAllIdle(selected, legacyStorageId(selected)) { rootless.migrateToNative().getOrThrow() } }
+                finally { notifyRuntimeChoices() }
             }
         }
 
@@ -1179,26 +1149,27 @@ class VmRuntimeService : Service() {
             val selected = SessionRuntime.fromWireName(runtimeType)
             val rootless = rootlessBackends[selected]
                 ?: throw IllegalArgumentException("알 수 없는 Rootless 환경: $runtimeType")
-            preparationLocks.withStorage(requireNotNull(selected), defaultStorageId(selected)) {
+            preparationLocks.withStorage(requireNotNull(selected), legacyStorageId(selected)) {
                 try {
-                    // Image management must work before the primary runtime has started.
+                    // Image management does not require starting an Environment.
                     // The backend also checks its PTY owner when there is no registry.
                     val registry = sessionClient as? UnifiedSessionRegistry
                     if (registry != null) {
-                        registry.removeIfIdle(requireNotNull(selected), defaultStorageId(selected)) { rootless.remove(removeHome).getOrThrow() }
+                        registry.removeIfIdle(requireNotNull(selected), legacyStorageId(selected)) { rootless.remove(removeHome).getOrThrow() }
                     } else {
                         rootless.remove(removeHome).getOrThrow()
                     }
                 } finally {
-                    notifyClients(latestState)
+                    notifyRuntimeChoices()
                 }
             }
         }
 
-        override fun setCapabilityGrant(capability: String, grant: String) = launchRuntimeOperation {
-            val requestedCapability = Capability.entries.firstOrNull { it.wireName == capability } ?: return@launchRuntimeOperation
-            val requestedGrant = runCatching { CapabilityGrant.valueOf(grant) }.getOrNull() ?: return@launchRuntimeOperation
-            capabilityGrants.set(DEFAULT_VM_INSTANCE_ID, requestedCapability, requestedGrant)
+        override fun setCapabilityGrant(environmentId: String, capability: String, grant: String) {
+            val owner = capabilityOwner(environmentId)
+            val requestedCapability = Capability.entries.firstOrNull { it.wireName == capability } ?: return
+            val requestedGrant = runCatching { CapabilityGrant.valueOf(grant) }.getOrNull() ?: return
+            capabilityGrants.set(owner, requestedCapability, requestedGrant)
         }
 
         override fun registerListener(listener: IRuntimeStateListener) {
@@ -1217,12 +1188,10 @@ class VmRuntimeService : Service() {
                 listenerDeliveries.put(key, delivery)?.close()
                 if (listeners.register(listener)) notificationFocusByListener.putIfAbsent(listener.asBinder(), null)
                 val snapshot = publishedSessions
-                val state = latestState
                 val sessions = pendingAvfLaunches.project(snapshot.json)
                 val focus = focusedSession
                 delivery.offer {
                     try {
-                        listener.onRuntimeStateChanged(state.wireName, state.detail())
                         listener.onSessionsChanged(snapshot.revision, sessions)
                         focus?.let { listener.onSessionFocusRequested(it) }
                     } finally { initialized.countDown() }
@@ -1281,38 +1250,19 @@ class VmRuntimeService : Service() {
             updateWakeState()
             updateServiceLifetime()
         }
-        backend = resolveRuntimeBackend(applicationContext)
-        (backend as? NativeBackend)?.configureUsbTooling({ id ->
-            usbBroker.register(id, SessionRuntime.NATIVE.wireName) +
-                dev.terminal.runtime.native.ApkNativeExecutableLoader(applicationContext)
-                    .resolvePackagedExecutable("terminal-usb").getOrNull()?.let {
-                        mapOf("TERMINAL_USB_CLIENT" to it.absolutePath)
-                    }.orEmpty()
-        }, usbBroker::unregister)
         rootlessBackends = RootlessDistribution.entries.associate { distribution ->
             distribution.runtime to RootlessDebianBackend(applicationContext, distribution = distribution, usbBroker = usbBroker,
-                internalStorageAccess = { environmentForStorage(distribution.runtime, defaultStorageId(distribution.runtime)).internalStorageAccess },
-                sharedFolders = { sharedFolders.bindings(environmentForStorage(distribution.runtime, defaultStorageId(distribution.runtime)).id) }) { phase, detail ->
+                internalStorageAccess = { environmentForStorage(distribution.runtime, legacyStorageId(distribution.runtime)).internalStorageAccess },
+                sharedFolders = { sharedFolders.bindings(environmentForStorage(distribution.runtime, legacyStorageId(distribution.runtime)).id) }) { phase, detail ->
                 Log.i(TAG, "rootless distribution=${distribution.directory} phase=${phase.name}")
                 broadcast { it.onRootlessProgress(distribution.runtime.wireName, phase.displayName, detail) }
-                val id = defaultStorageId(distribution.runtime)
+                val id = legacyStorageId(distribution.runtime)
                 if (id != "legacy") broadcast { it.onRootlessProgress("${distribution.runtime.wireName}:$id", phase.displayName, detail) }
             }
         }
         sharedStorageAppOps.startWatchingMode(sharedStorageOp, packageName, sharedStorageWatcher)
         // Recover revoked exports even if Android killed :vmhost before its app-op callback.
         checkAvfStoragePermission()
-        scope.launch {
-            backend.observeState().collect { state ->
-                latestState = state
-                updateWakeState()
-                updateServiceLifetime()
-                notifyClients(state)
-                if (state is RuntimeState.Ready) {
-                    updateReconnectWork()
-                }
-            }
-        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -1357,55 +1307,6 @@ class VmRuntimeService : Service() {
         super.onDestroy()
     }
 
-    private suspend fun prepareAndStart() {
-        migrateLegacyStorages(ensureSessionRegistry())
-        val runtime = if (backend is NativeBackend) SessionRuntime.NATIVE else SessionRuntime.AVF
-        preparationLocks.withStorage(runtime, defaultStorageId(runtime)) { startPrimaryBackend() }
-        migrateLegacyStorages(ensureSessionRegistry())
-    }
-
-    private suspend fun startPrimaryBackend() = primaryPreparationMutex.withLock {
-        // Rebinding an Activity must be idempotent. In particular, do not
-        // prepare a Native backend again after it has reached READY.
-        if (latestState is RuntimeState.Ready || latestState is RuntimeState.Active || latestState is RuntimeState.Idle) {
-            if (backend is dev.terminal.runtime.avf.AvfBackend) ensureAvfPackageIndexes(backend, filesDir.toPath().resolve("vm/default"))
-            return@withLock
-        }
-        if (backend is NativeBackend) {
-            backend.prepare(RuntimeConfig(imageDirectory = filesDir.toPath().resolve("native-runtime").toString())).getOrThrow()
-            backend.start().getOrThrow()
-            return@withLock
-        }
-        val imageRoot = filesDir.toPath().resolve("vm/default")
-        val storageId = defaultStorageId(SessionRuntime.AVF)
-        if (storageRegistry.transaction { isDeleted(dev.terminal.runtime.session.StorageRegistry.Key(SessionRuntime.AVF, storageId)) }) return@withLock
-        storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(SessionRuntime.AVF, storageId)) }
-        RuntimeSetupCoordinator(applicationContext).awaitInstalledImage(imageRoot, storageId)
-        val sharedDirectory = sharedDirectories.provision(DEFAULT_VM_INSTANCE_ID).getOrThrow()
-        val preferences = getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE)
-        val config = RuntimeConfig(
-            imageDirectory = imageRoot.toString(),
-            memoryMib = preferences.getInt(KEY_AVF_MEMORY, 2048).coerceIn(512, 32768),
-            cpuCount = preferences.getInt(KEY_AVF_CPU, 2).coerceIn(1, 16),
-            protectedVm = preferences.getBoolean(KEY_AVF_PROTECTED, false),
-            enableNetwork = preferences.getBoolean(KEY_AVF_NETWORK, true),
-            sharedDirectory = sharedDirectory.absolutePath,
-            sharedFolders = sharedFolders.exports(environmentForStorage(SessionRuntime.AVF, storageId).id),
-            enableInternalStorage = environmentForStorage(SessionRuntime.AVF, storageId).internalStorageAccess,
-        )
-        backend.prepare(config).getOrThrow()
-        backend.start().getOrThrow()
-        try { ensureAvfPackageIndexes(backend, imageRoot) }
-        catch (failure: Exception) {
-            if ((backend as? dev.terminal.runtime.avf.AvfBackend)?.startedNewVm == true) {
-                withContext(kotlinx.coroutines.NonCancellable) {
-                    runCatching { backend.stop(StopMode.GRACEFUL).getOrThrow() }.exceptionOrNull()?.let(failure::addSuppressed)
-                }
-            }
-            throw failure
-        }
-    }
-
     /** Holds only this environment's lease, so other runtimes remain usable during package/network waits. */
     private suspend fun initializeAvfEnvironment(storageId: String,
         progress: (dev.terminal.runtime.image.AvfImageInstallPhase) -> Unit) {
@@ -1416,8 +1317,7 @@ class VmRuntimeService : Service() {
             if (dev.terminal.image.AvfPackageInitialization.completedAt(root) != null) return@withStorage
             check(dev.terminal.image.AvfPackageInitialization.isRequired(root)) { "이 이미지에는 자동 패키지 목록 초기화 요청이 없습니다." }
             val registry = ensureSessionRegistry() ?: error("Runtime unavailable")
-            val wasStarted = environment.id in startedEnvironmentBackends ||
-                (backend is dev.terminal.runtime.avf.AvfBackend && primaryReady())
+            val wasStarted = environment.id in startedEnvironmentBackends
             val profile = dev.terminal.runtime.session.SessionProfile("image-init:${environment.id}", environment.name,
                 SessionRuntime.AVF, "/bin/bash", environmentId = environment.id)
             val spec = environmentRegistry.transaction(storageDefaults()) { resolveLaunch(profile.resolve(environment)) }
@@ -1428,7 +1328,6 @@ class VmRuntimeService : Service() {
             } finally {
                 withContext(kotlinx.coroutines.NonCancellable) {
                     val owner = environmentBackends[environment.id]
-                        ?: backend.takeIf { it is dev.terminal.runtime.avf.AvfBackend }
                     // A reconnect can reach a pre-existing VM with live PTYs. Stop
                     // only a VM actually booted here, and never an explicit start.
                     if (!wasStarted && owner is dev.terminal.runtime.avf.AvfBackend && owner.startedNewVm &&
@@ -1451,7 +1350,7 @@ class VmRuntimeService : Service() {
 
     private fun newAvfMaintenanceBackend(): dev.terminal.runtime.avf.AvfBackend {
         check(hasAvfPrivileges()) { "AVF requires privileged custom VM access" }
-        return (applicationContext as? RuntimeBackendProvider)?.createRuntimeBackend(applicationContext)
+        return (applicationContext as? RuntimeBackendProvider)?.createAvfBackend(applicationContext)
             as? dev.terminal.runtime.avf.AvfBackend ?: error("AVF system runtime provider is unavailable")
     }
 
@@ -1529,13 +1428,12 @@ class VmRuntimeService : Service() {
         result.snapshot?.onFailure { notifyOperationError("세션 목록 새로고침", it.userMessage()) }
     }
 
-    private fun notifyClients(state: RuntimeState) {
-        broadcast { it.onRuntimeStateChanged(state.wireName, state.detail()) }
+    private fun notifyRuntimeChoices() {
+        broadcast { it.onRuntimeChoicesChanged() }
     }
 
     private suspend fun ensureSessionRegistry(): UnifiedSessionRegistry? = sessionClientMutex.withLock {
         (sessionClient as? UnifiedSessionRegistry)?.let {
-            preparationLocks.tryWithAll { attachPrimaryAvf(it) }
             return@withLock it
         }
         run {
@@ -1563,7 +1461,6 @@ class VmRuntimeService : Service() {
                     dev.terminal.runtime.session.TerminalPalette.asProperties(
                         dev.terminal.runtime.session.TerminalPalette.resolve({ key, fallback -> preferences.getString(key, fallback).orEmpty() }, spec.palette))
                 })
-            preparationLocks.tryWithAll { attachPrimaryAvf(registry) }
             sessionClient = registry
             scope.launch {
                 registry.events.collect { event ->
@@ -1639,10 +1536,15 @@ class VmRuntimeService : Service() {
 
     private fun rootlessEnvironmentBackend(environment: Environment): RootlessDebianBackend {
         check(environment.runtime == dev.terminal.runtime.session.EnvironmentRuntime.ROOTLESS)
-        return environmentBackends.getOrPut(environment.id) { newRootlessEnvironmentBackend(environment) } as RootlessDebianBackend
+        return environmentBackends.getOrPut(environment.id) {
+            if (environment.storage.id == legacyStorageId(environment.sessionRuntime)) rootlessBackends.getValue(environment.sessionRuntime)
+            else newRootlessEnvironmentBackend(environment)
+        } as RootlessDebianBackend
     }
 
     private fun clearEnvironmentStart(id: EnvironmentId) {
+        bridgeObservers.remove(id)?.close()
+        guestWorkEnvironments.remove(id)
         portObservers.remove(id)?.second?.close()
         localServices.detach(id.value)
         startedEnvironmentBackends.remove(id)
@@ -1678,7 +1580,7 @@ class VmRuntimeService : Service() {
                 check(client.verifiedSessions(current).getOrThrow().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) {
                     "Close this environment's sessions before backup: ${current.name}"
                 }
-                val owner = environmentBackends[current.id] ?: if (current.storage.id == defaultStorageId(current.sessionRuntime))
+                val owner = environmentBackends[current.id] ?: if (current.storage.id == legacyStorageId(current.sessionRuntime))
                     rootlessBackends[current.sessionRuntime] else null
                 val state = owner?.observeState()?.first() ?: RuntimeState.Stopped
                 check(state !is RuntimeState.Failed && state !is RuntimeState.Preparing && state !is RuntimeState.Booting && state !is RuntimeState.Stopping) {
@@ -1748,7 +1650,7 @@ class VmRuntimeService : Service() {
                 check(state != null && (state is RuntimeState.Stopped || client?.isRegistered(environment.sessionRuntime, environment.storage.id) == true)) { "Cannot verify environment runtime state" }
                 owner.stop(StopMode.GRACEFUL).getOrThrow()
             }
-            val avf = owner ?: (applicationContext as? RuntimeBackendProvider)?.createRuntimeBackend(applicationContext)
+            val avf = owner ?: (applicationContext as? RuntimeBackendProvider)?.createAvfBackend(applicationContext)
             check(avf is dev.terminal.runtime.avf.AvfBackend) { "AVF removal requires a privileged runtime provider" }
             dev.terminal.runtime.image.AvfEnvironmentUpdater(avf).recover(
                 dev.terminal.runtime.session.SessionStorage.root(filesDir, SessionRuntime.AVF, environment.storage.id).toPath(),
@@ -1816,25 +1718,8 @@ class VmRuntimeService : Service() {
         }
     }
 
-    private fun defaultStorageId(runtime: SessionRuntime): String =
+    private fun legacyStorageId(runtime: SessionRuntime): String =
         dev.terminal.runtime.session.SessionStorage.migratedLegacyId(filesDir, runtime) ?: "legacy"
-
-    private suspend fun attachPrimaryAvf(registry: UnifiedSessionRegistry) {
-        if (backend is NativeBackend || latestState !is RuntimeState.Ready && latestState !is RuntimeState.Active && latestState !is RuntimeState.Idle) return
-        val id = defaultStorageId(SessionRuntime.AVF)
-        if (registry.isRegistered(SessionRuntime.AVF, id) && id !in registry.disconnectedStorages(SessionRuntime.AVF)) return
-        if (runCatching { storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(SessionRuntime.AVF, id)) } }.isFailure) return
-        backend.connectSessionClient(defaultStorageId(SessionRuntime.AVF)).getOrNull()?.let {
-            registry.register(environmentForStorage(SessionRuntime.AVF, id), it)
-            guestRetry.reset()
-            registry.list().getOrNull().orEmpty().filter { session ->
-                registry.runtimeOf(session.id) == SessionRuntime.AVF && registry.storageOf(session.id) == id &&
-                    session.state == dev.terminal.protocol.SessionStatus.RUNNING
-            }.forEach { session -> registry.attach(session.id) }
-            environmentBackends[environmentForStorage(SessionRuntime.AVF, id).id] = backend
-            observeAvfPorts(environmentForStorage(SessionRuntime.AVF, id), backend)
-        }
-    }
 
     /** Runs on service IO/default dispatchers. No UI lifetime owns or stops an environment. */
     private suspend fun migrateLegacyStorages(client: UnifiedSessionRegistry?) {
@@ -1858,17 +1743,15 @@ class VmRuntimeService : Service() {
                         // An unattached persistent VM may still be running after host restart.
                         // Only its reachable PTY owner can prove that changing registration is safe.
                         if (runtime == SessionRuntime.AVF &&
-                            ((localOwner ?: backend) !is dev.terminal.runtime.avf.AvfBackend || client?.isRegistered(runtime) != true)) continue
+                            (localOwner !is dev.terminal.runtime.avf.AvfBackend || client?.isRegistered(runtime) != true)) continue
                         val adopt = { environmentRegistry.transaction(defaults) { migrateLegacy(runtime).storageId } }
                         if (client != null) {
                             if (!client.adoptLegacyStorageIfIdle(runtime, adopt)) continue
                         } else adopt()
                     }
-                    val id = defaultStorageId(runtime)
+                    val id = legacyStorageId(runtime)
                     if (id != "legacy" && storageRegistry.transaction { dev.terminal.runtime.session.StorageRegistry.Key(runtime, id) in keys() }) {
                         rootlessBackends[runtime]?.let { environmentBackends[environmentForStorage(runtime, id).id] = it }
-                        if (runtime == SessionRuntime.AVF && backend is dev.terminal.runtime.avf.AvfBackend &&
-                            client?.isRegistered(runtime, id) == true) environmentBackends[environmentForStorage(runtime, id).id] = backend
                     }
                 } catch (failure: Exception) {
                     if (failure is kotlinx.coroutines.CancellationException) throw failure
@@ -1898,26 +1781,13 @@ class VmRuntimeService : Service() {
                 RuntimeSetupCoordinator(applicationContext).requestImageInstallation(spec.storageId)
             }
         }
-        // When Native is the default owner, even legacy/default AVF storage needs its own AVF provider.
-        if (spec.storageId == "legacy" && spec.runtime != SessionRuntime.NATIVE &&
-            (spec.runtime != SessionRuntime.AVF || backend !is NativeBackend)) {
-            if (spec.runtime == SessionRuntime.AVF) {
-                imageProgress(dev.terminal.runtime.image.AvfImageInstallPhase.APT_REFRESH)
-                startPrimaryBackend()
-            }
-            return ensureRuntimeControllerLocked(spec.runtime, registry)
-        }
-        if (spec.runtime == SessionRuntime.AVF && backend !is NativeBackend &&
-            spec.storageId == defaultStorageId(SessionRuntime.AVF)) {
-            storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(spec.runtime, spec.storageId)) }
-            startPrimaryBackend()
-            attachPrimaryAvf(registry)
-            return registry.isRegistered(spec.runtime, spec.storageId)
-        }
         storageRegistry.transaction { validateConnection(dev.terminal.runtime.session.StorageRegistry.Key(spec.runtime, spec.storageId)) }
-        if (registry.isRegistered(spec.runtime, spec.storageId) && spec.storageId !in registry.disconnectedStorages(spec.runtime)) {
+        environmentBackends[executionEnvironment.id]?.observeState()?.first()?.let { state ->
+            if (state is RuntimeState.Stopped || state is RuntimeState.Failed) startedEnvironmentBackends.remove(executionEnvironment.id)
+        }
+        if (executionEnvironment.id in startedEnvironmentBackends && registry.isRegistered(spec.runtime, spec.storageId) && spec.storageId !in registry.disconnectedStorages(spec.runtime)) {
             if (spec.runtime == SessionRuntime.AVF) ensureAvfPackageIndexes(
-                environmentBackends[executionEnvironment.id] ?: backend,
+                requireNotNull(environmentBackends[executionEnvironment.id]),
                 dev.terminal.runtime.session.SessionStorage.root(filesDir, spec.runtime, spec.storageId).toPath(), imageProgress)
             return true
         }
@@ -1935,7 +1805,8 @@ class VmRuntimeService : Service() {
                     }, usbBroker::unregister)
                 }
                 SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH ->
-                    newRootlessEnvironmentBackend(executionEnvironment)
+                    if (spec.storageId == legacyStorageId(spec.runtime)) rootlessBackends.getValue(spec.runtime)
+                    else newRootlessEnvironmentBackend(executionEnvironment)
                 SessionRuntime.AVF -> {
                     require(checkSelfPermission("android.permission.MANAGE_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED &&
                         checkSelfPermission("android.permission.USE_CUSTOM_VIRTUAL_MACHINE") == android.content.pm.PackageManager.PERMISSION_GRANTED) {
@@ -1943,8 +1814,8 @@ class VmRuntimeService : Service() {
                     }
                     val provider = applicationContext as? RuntimeBackendProvider
                         ?: error("AVF system runtime provider is unavailable")
-                    provider.createRuntimeBackend(applicationContext).also {
-                        check(it is dev.terminal.runtime.avf.AvfBackend && it !== backend && environmentBackends.values.none { existing -> existing === it }) {
+                    provider.createAvfBackend(applicationContext).also {
+                        check(it is dev.terminal.runtime.avf.AvfBackend && environmentBackends.values.none { existing -> existing === it }) {
                             "AVF provider must create an independent backend for each storage"
                         }
                     }
@@ -2000,114 +1871,71 @@ class VmRuntimeService : Service() {
         return true
     }
 
-    private suspend fun ensureRuntimeControllerLocked(runtime: SessionRuntime, registry: UnifiedSessionRegistry): Boolean {
-        val selectedRootless = rootlessBackends[runtime]
-        if (preparationLocks.isLocked(runtime) && selectedRootless?.status() !is RootlessStatus.Ready) {
-            selectedRootless?.reportPreparationWaiting()
-        }
-        return try {
-            if (registry.isRegistered(runtime)) {
-                val rootless = rootlessBackends[runtime]
-                if (rootless == null || rootless.status() is RootlessStatus.Ready) return true
-                registry.removeIfIdle(runtime) { rootless.prepare().getOrThrow() }
-            }
-            when (runtime) {
-                SessionRuntime.ROOTLESS, SessionRuntime.ROOTLESS_UBUNTU, SessionRuntime.ROOTLESS_ARCH -> {
-                    val rootlessBackend = rootlessBackends.getValue(runtime)
-                    val prepared = rootlessBackend.prepare()
-                    val started = prepared.isSuccess && rootlessBackend.start().isSuccess
-                    if (started) rootlessBackend.sessionController()?.let {
-                        val environment = environmentForStorage(runtime, "legacy")
-                        environmentBackends[environment.id] = rootlessBackend
-                        startedEnvironmentBackends.add(environment.id)
-                        registry.register(environment, it)
-                    }
-                    started && registry.isRegistered(runtime)
-                }
-                SessionRuntime.NATIVE -> backend is NativeBackend && (backend as NativeBackend).sessionController()?.let {
-                    val environment = environmentForStorage(runtime, "legacy")
-                    environmentBackends[environment.id] = backend
-                    startedEnvironmentBackends.add(environment.id)
-                    registry.register(environment, it); true
-                } == true
-                SessionRuntime.AVF -> backend !is NativeBackend && backend.connectSessionClient(defaultStorageId(SessionRuntime.AVF)).getOrNull()?.let {
-                    val environment = environmentForStorage(runtime, "legacy")
-                    environmentBackends[environment.id] = backend
-                    startedEnvironmentBackends.add(environment.id)
-                    registry.register(environment, it); observeAvfPorts(environment, backend); true
-                } == true
-            }
-        } finally { selectedRootless?.clearPreparationWaiting() }
-    }
-
     private fun hasReconnectWork() = reconnectNeeded(publishedSessions.runningCount,
-        hostBackgroundOperationCount.get(), guestReportedWorkActive)
-
-    private fun primaryReady() = latestState is RuntimeState.Ready ||
-        latestState is RuntimeState.Active || latestState is RuntimeState.Idle
+        hostBackgroundOperationCount.get(), guestWorkEnvironments.isNotEmpty(), explicitlyStartedEnvironments.size)
 
     private fun resetReconnectBackoff() {
-        guestRetry.reset(); bridgeRetry.reset()
+        guestRetry.reset()
+        bridgeObservers.values.forEach { it.resetBackoff() }
         updateReconnectWork()
     }
 
+    private fun hasEnvironmentDemand(id: EnvironmentId): Boolean =
+        id in explicitlyStartedEnvironments || id in liveAvfEnvironments ||
+            id in guestWorkEnvironments || hostBackgroundOperationCount.get() > 0
+
     @Synchronized private fun updateReconnectWork() {
         portObservers.values.forEach { it.second.reconcile() }
+        bridgeObservers.values.forEach { it.reconcile() }
         if (!hasReconnectWork()) {
-            reconnectJob?.cancel(); bridgeJob?.cancel()
+            reconnectJob?.cancel()
             return
         }
-        if (!primaryReady()) return
         scheduleGuestReconnect()
-        if (backend !is NativeBackend) {
-            scheduleBridgeServer()
-        }
     }
 
     @Synchronized private fun scheduleGuestReconnect() {
         if (reconnectJob?.isActive == true || !hasReconnectWork()) return
         reconnectJob = scope.launch {
-            while (primaryReady() && hasReconnectWork()) {
-                val registry = ensureSessionRegistry()
-                if (registry != null) {
-                    reconnectAvfSessions(registry, defaultStorageId(SessionRuntime.AVF),
-                        primaryIsAvf = backend !is NativeBackend,
-                        environmentForStorage = { environmentForStorage(SessionRuntime.AVF, it) },
-                        connect = { environment -> environmentBackends[environment.id]?.connectSessionClient(environment.storage.id)?.getOrNull() },
-                        onConnected = guestRetry::reset)
-                    val primaryMissing = backend !is NativeBackend &&
-                        !registry.isRegistered(SessionRuntime.AVF, defaultStorageId(SessionRuntime.AVF))
-                    if (!primaryMissing && registry.disconnectedStorages(SessionRuntime.AVF).isEmpty()) {
-                        guestRetry.reset()
-                        refreshSessions(registry)
-                        return@launch
-                    }
+            while (!destroying && hasReconnectWork()) {
+                val registry = ensureSessionRegistry() ?: return@launch
+                reconnectAvfSessions(registry,
+                    environmentForStorage = { environmentForStorage(SessionRuntime.AVF, it) },
+                    connect = { environment -> environmentBackends[environment.id]
+                        ?.connectSessionClient(environment.storage.id)?.getOrNull() },
+                    onConnected = guestRetry::reset,
+                    canReconnect = { hasEnvironmentDemand(it.id) })
+                if (registry.disconnectedStorages(SessionRuntime.AVF).none {
+                        hasEnvironmentDemand(environmentForStorage(SessionRuntime.AVF, it).id) }) {
+                    guestRetry.reset()
+                    refreshSessions(registry)
+                    return@launch
                 }
                 guestRetry.awaitRetry()
             }
         }
     }
 
-    @Synchronized private fun scheduleBridgeServer() {
-        if (bridgeJob?.isActive == true || !hasReconnectWork()) return
-        bridgeJob = scope.launch {
-            val broker = AndroidCapabilityBroker(applicationContext, DEFAULT_VM_INSTANCE_ID, capabilityGrants)
-            while (primaryReady() && hasReconnectWork()) {
-                backend.connectGuestBridge().getOrNull()?.let { connection ->
-                    bridgeRetry.reset()
-                    try {
-                        BridgeHostServer(broker) { work ->
-                            guestReportedWorkActive = work == GuestWorkEvent.WORK_ACTIVE
-                            updateWakeState()
-                            updateServiceLifetime()
-                        }.serve(connection)
-                    } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                    catch (error: Exception) { Log.w(TAG, "bridge disconnected: ${error.javaClass.simpleName}") }
-                    finally { connection.close() }
-                }
-                if (hasReconnectWork()) bridgeRetry.awaitRetry()
-            }
-        }
+    private fun capabilityOwner(environmentId: String): String {
+        enforceHostToolUi()
+        val environment = environmentRegistry.transaction(storageDefaults()) { requireEnvironment(EnvironmentId(environmentId)) }
+        require(environment.sessionRuntime == SessionRuntime.AVF) { "Android guest capabilities require an AVF Environment" }
+        return requireNotNull(environment.runtimeMetadata.vmInstanceId)
+    }
+
+    private fun observeAvfBridge(environment: Environment, owner: RuntimeBackend) {
+        if (bridgeObservers.containsKey(environment.id)) return
+        val broker = AndroidCapabilityBroker(applicationContext, requireNotNull(environment.runtimeMetadata.vmInstanceId), capabilityGrants)
+        bridgeObservers[environment.id] = AvfBridgeObserver(scope, environment.id.value, owner,
+            canReconnect = { hasEnvironmentDemand(environment.id) },
+            onWorkChanged = { active ->
+                if (active) guestWorkEnvironments.add(environment.id) else guestWorkEnvironments.remove(environment.id)
+                // Observer callbacks may hold their own lock. Reconcile other owners outside it.
+                scope.launch { updateWakeState(); updateServiceLifetime() }
+            },
+            serve = { transport, work -> BridgeHostServer(broker) { event ->
+                work(event == GuestWorkEvent.WORK_ACTIVE)
+            }.serve(transport) })
     }
 
     private fun recordAvfSession(event: String, sessionId: String, code: String? = null) {
@@ -2129,9 +1957,9 @@ class VmRuntimeService : Service() {
             connectionBudget = portConnectionBudget,
             listenerBudget = portListenerBudget,
             onFailure = { id, hostPort, listenerFailed -> localServices.forwardingFailure(environment.id.value, id, hostPort, listenerFailed) }))
+        observeAvfBridge(environment, owner)
         val observer = dev.terminal.runtime.forwarding.AvfPortObserver(scope, environment.id.value, owner, localServices,
-            canReconnect = { environment.id in explicitlyStartedEnvironments ||
-                hostBackgroundOperationCount.get() > 0 || environment.id in liveAvfEnvironments }, changed = ::notifyLocalServices)
+            canReconnect = { hasEnvironmentDemand(environment.id) }, changed = ::notifyLocalServices)
         portObservers[environment.id] = owner to observer
     }
 
@@ -2227,22 +2055,22 @@ class VmRuntimeService : Service() {
         focusedSession = null
         reconnectJob?.cancel()
         reconnectJob = null
-        bridgeJob?.cancel()
-        bridgeJob = null
+        bridgeObservers.values.forEach { it.close() }
+        bridgeObservers.clear()
         closePortObservers()
         val client = sessionClient
         sessionClient = null
         client?.close()
-        guestReportedWorkActive = false
+        guestWorkEnvironments.clear()
     }
 
     private fun Throwable.userMessage(): String = message?.takeIf { it.isNotBlank() } ?: javaClass.simpleName
 
     @Synchronized private fun updateWakeState() {
-        wakeController.update(wakePolicies.get(),
-            if (!hasReconnectWork()) RuntimeWakeController.GuestWorkState.STOPPED
-            else runtimeWorkState(latestState, taskNotifications.workActive(), guestReportedWorkActive,
-                hostBackgroundOperationCount.get() > 0))
+        wakeController.update(wakePolicies.get(), environmentWorkState(
+            hasWork = hasReconnectWork(), sessionWorkActive = taskNotifications.workActive(),
+            guestReportedWorkActive = guestWorkEnvironments.isNotEmpty(),
+            hostBackgroundWorkActive = hostBackgroundOperationCount.get() > 0))
         // One expiry job for unknown-shell leases, never a permanent polling loop.
         if (taskNotifications.nextExpiryMs() == null) {
             wakeExpiryJob?.cancel()
@@ -2258,17 +2086,6 @@ class VmRuntimeService : Service() {
         }
     }
 
-    private fun imageStatus(): String = if (backend is NativeBackend) {
-        "Native 사용자 공간 준비됨. AVF Debian은 권한 있는 제품 빌드에서 사용할 수 있습니다."
-    } else when (
-        val verification = AvfImageVerifier.verifyInstalled(Paths.get(filesDir.absolutePath, "vm", "default"))
-    ) {
-        is ImageVerification.Ready -> "Debian ARM64 image verified"
-        is ImageVerification.Invalid -> if (BundledAvfImageCatalog.find(DEFAULT_DEBIAN_RELEASE_ID) == null) {
-            "$verification. 이 제품 빌드에 AVF 자동 설치 이미지가 등록되지 않았습니다."
-        } else verification.reason
-    }
-
     private fun List<SessionDescriptor>.toJson(explicitTitleIds: Set<String> = emptySet(), initialTitles: Map<String, String> = emptyMap()): String = pendingAvfLaunches.project(JSONArray().apply {
         forEach { session -> put(JSONObject().apply {
             put("id", session.id)
@@ -2282,7 +2099,7 @@ class VmRuntimeService : Service() {
             }
             put("runtime", (sessionClient as? UnifiedSessionRegistry)?.runtimeOf(session.id)?.wireName
                 ?: SessionRuntime.fromSessionId(session.id)?.wireName
-                ?: if (backend is NativeBackend) SessionRuntime.NATIVE.wireName else SessionRuntime.AVF.wireName)
+                ?: error("Session has no runtime owner"))
             put("storageId", (sessionClient as? UnifiedSessionRegistry)?.storageOf(session.id) ?: "legacy")
             put("environmentId", (sessionClient as? UnifiedSessionRegistry)?.environmentOf(session.id)?.value ?: JSONObject.NULL)
             put("title", session.title)
@@ -2341,13 +2158,13 @@ class VmRuntimeService : Service() {
 
     private fun runtimeStatusJson(): String = JSONObject().apply {
         put(SessionRuntime.NATIVE.wireName, JSONObject().apply {
-            put("available", backend is NativeBackend)
-            put("detail", if (backend is NativeBackend) "즉시 사용 가능" else "이 제품 변형은 Native 컨트롤러를 제공하지 않습니다")
+            put("available", true)
+            put("detail", "프로필의 실행 환경에서 바로 시작할 수 있습니다")
         })
         RootlessDistribution.entries.forEach { distribution ->
             put(distribution.runtime.wireName, rootlessStatusJson(rootlessBackends.getValue(distribution.runtime), distribution))
         }
-        val avf = avfRuntimeAvailability(backend, environmentBackends.values.filterIsInstance<dev.terminal.runtime.avf.AvfBackend>())
+        val avf = avfRuntimeAvailability(environmentBackends.values)
         put(SessionRuntime.AVF.wireName, JSONObject().apply {
             put("available", avf.available)
             put("detail", avf.detail)
@@ -2375,12 +2192,12 @@ class VmRuntimeService : Service() {
         updateReconnectWork()
         scope.launch(Dispatchers.Main.immediate) {
             // Read current state here, not a captured snapshot from a worker thread.
-            val keepAlive = hasReconnectWork() || explicitlyStartedEnvironments.isNotEmpty()
+            val keepAlive = hasReconnectWork()
             if (keepAlive) {
                 if (!foreground) {
                     // Binding alone must not own a live PTY after the Activity detaches.
                     startService(Intent(this@VmRuntimeService, VmRuntimeService::class.java))
-                    startForeground(NOTIFICATION_ID, notification(latestState))
+                    startForeground(NOTIFICATION_ID, notification())
                     lastNotificationContent = notificationContent()
                     foreground = true
                 } else if (notificationUpdateJob?.isActive != true) {
@@ -2391,7 +2208,7 @@ class VmRuntimeService : Service() {
                         val content = notificationContent()
                         if (foreground && content != lastNotificationContent) {
                             getSystemService(NotificationManager::class.java)
-                                .notify(NOTIFICATION_ID, notification(latestState))
+                                .notify(NOTIFICATION_ID, notification())
                             lastNotificationContent = content
                         }
                     }
@@ -2412,7 +2229,7 @@ class VmRuntimeService : Service() {
 
     private fun notificationContent(): Pair<Int, String> = publishedSessions.runningCount.let { count ->
         count to if (count > 0) "" else if (explicitlyStartedEnvironments.isNotEmpty())
-            "실행 중인 환경 ${explicitlyStartedEnvironments.size}개" else latestState.detail()
+            "실행 중인 환경 ${explicitlyStartedEnvironments.size}개" else "실행 환경 작업 중"
     }
 
     private fun createNotificationChannel() {
@@ -2421,7 +2238,7 @@ class VmRuntimeService : Service() {
         )
     }
 
-    private fun notification(state: RuntimeState): Notification {
+    private fun notification(): Notification {
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
         val contentIntent = launchIntent?.let {
             PendingIntent.getActivity(
@@ -2436,12 +2253,12 @@ class VmRuntimeService : Service() {
         .setContentTitle(
             if (publishedSessions.runningCount > 0) "실행 중인 세션 ${publishedSessions.runningCount}개"
             else if (explicitlyStartedEnvironments.isNotEmpty()) "실행 중인 환경 ${explicitlyStartedEnvironments.size}개"
-            else "런타임 준비 중",
+            else "실행 환경 작업 중",
         )
         .setContentText(
             if (publishedSessions.runningCount > 0) "터미널을 닫아도 세션은 백그라운드에서 계속 실행됩니다."
             else if (explicitlyStartedEnvironments.isNotEmpty()) "환경 상세에서 실행 환경을 중지할 수 있습니다."
-            else state.detail(),
+            else "요청한 실행 환경의 작업을 처리하고 있습니다.",
         )
         .setOngoing(true)
         .setAutoCancel(false)
@@ -2472,28 +2289,13 @@ class VmRuntimeService : Service() {
         .build()
     }
 
-    private fun RuntimeState.detail(): String = when (this) {
-        RuntimeState.Stopped -> if (backend is NativeBackend) "Native 런타임 중지됨" else "VM 중지됨"
-        RuntimeState.Preparing -> if (backend is NativeBackend) "Native 사용자 공간 준비 중" else "Debian 이미지 준비 중"
-        RuntimeState.Booting -> if (backend is NativeBackend) "Native 런타임 시작 중" else "Linux VM 부팅 중"
-        RuntimeState.Ready -> if (backend is NativeBackend) "Android Native 셸 준비됨" else "게스트 에이전트 준비됨"
-        RuntimeState.Active -> if (backend is NativeBackend) "Native 세션 실행 중" else "Linux 세션 실행 중"
-        RuntimeState.Idle -> if (backend is NativeBackend) "Native 런타임 대기 중" else "Linux 런타임 대기 중"
-        RuntimeState.Suspended -> "Linux VM 일시 중단됨"
-        RuntimeState.Stopping -> if (backend is NativeBackend) "Native 런타임 종료 중" else "Linux VM 종료 중"
-        is RuntimeState.Failed -> reason
-    }
-
     private companion object {
         const val TAG = "VmRuntimeService"
         const val ACTION_TERMINATE_ALL_SESSIONS = "dev.terminal.runtime.action.TERMINATE_ALL_SESSIONS"
         const val ACTION_RESTORE_SESSION_NOTIFICATION = "dev.terminal.runtime.action.RESTORE_SESSION_NOTIFICATION"
         const val CHANNEL_ID = "linux_runtime"
         const val NOTIFICATION_ID = 1001
-        const val FORCE_STOP = 1
         const val SIGKILL = 9
-        const val DEFAULT_VM_INSTANCE_ID = "default"
-        const val DEFAULT_DEBIAN_RELEASE_ID = "debian-arm64-current"
         const val RUNTIME_SETTINGS = "runtime-settings"
         const val KEY_AVF_MEMORY = "avf-memory-mib"
         const val KEY_AVF_CPU = "avf-cpu-count"
@@ -2539,17 +2341,13 @@ internal class LatestSessionResizeRequests {
     }
 }
 
-internal fun runtimeWorkState(
-    runtimeState: RuntimeState,
+internal fun environmentWorkState(
+    hasWork: Boolean,
     sessionWorkActive: Boolean,
     guestReportedWorkActive: Boolean,
     hostBackgroundWorkActive: Boolean,
 ): RuntimeWakeController.GuestWorkState = when {
-    runtimeState is RuntimeState.Stopping || runtimeState is RuntimeState.Failed ->
-        RuntimeWakeController.GuestWorkState.STOPPED
-    hostBackgroundWorkActive -> RuntimeWakeController.GuestWorkState.ACTIVE
-    runtimeState is RuntimeState.Stopped -> RuntimeWakeController.GuestWorkState.STOPPED
-    runtimeState is RuntimeState.Suspended -> RuntimeWakeController.GuestWorkState.IDLE
-    sessionWorkActive || guestReportedWorkActive -> RuntimeWakeController.GuestWorkState.ACTIVE
+    !hasWork -> RuntimeWakeController.GuestWorkState.STOPPED
+    hostBackgroundWorkActive || sessionWorkActive || guestReportedWorkActive -> RuntimeWakeController.GuestWorkState.ACTIVE
     else -> RuntimeWakeController.GuestWorkState.IDLE
 }

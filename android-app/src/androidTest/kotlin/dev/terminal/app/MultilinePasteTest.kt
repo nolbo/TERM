@@ -44,8 +44,7 @@ class MultilinePasteTest {
         assertTrue(context.bindService(Intent(context, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE))
         try {
             assertTrue(connected.await(10, TimeUnit.SECONDS))
-            service.startRuntime()
-            await { service.state == "READY" }
+
             assumeTrue("$runtime image must be provisioned",
                 JSONObject(service.runtimeStatusJson).getJSONObject(runtime).getBoolean("available"))
             run {
@@ -60,7 +59,7 @@ class MultilinePasteTest {
                 )
                 val listener = object : IRuntimeStateListener.Stub() {
                     override fun onTerminalOutput(id: String, bytes: ByteArray, replay: Boolean) { if (id == sessionId) backend.output(bytes, replay) }
-                    override fun onRuntimeStateChanged(state: String, detail: String) = Unit
+                    override fun onRuntimeChoicesChanged() = Unit
                     override fun onSessionFocusRequested(sessionId: String) = Unit
                     override fun onSessionsChanged(revision: Long, json: String) = Unit
                     override fun onSessionExited(id: String, code: Int) = Unit

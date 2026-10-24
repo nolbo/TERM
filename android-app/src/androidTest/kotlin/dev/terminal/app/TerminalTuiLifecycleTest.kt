@@ -59,7 +59,7 @@ class TerminalTuiLifecycleTest {
             override fun onTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) {
                 if (sessionId == id) { legacyEntered.countDown(); release.await(30, TimeUnit.SECONDS) }
             }
-            override fun onRuntimeStateChanged(state: String, detail: String) = Unit
+            override fun onRuntimeChoicesChanged() = Unit
             override fun onSessionsChanged(revision: Long, sessions: String) = Unit
             override fun onSessionExited(sessionId: String, exitCode: Int) = Unit
             override fun onSessionTerminationFailed(sessionId: String, message: String) = Unit
@@ -636,8 +636,7 @@ class TerminalTuiLifecycleTest {
         try {
             previousWorkspace = WorkspaceRegistry.State.parse(service.workspacesJson).selected
             assertEquals("Select the fixture's unassigned Workspace", "", service.selectWorkspace(WorkspaceRegistry.UNASSIGNED))
-            service.startRuntime()
-            await("Native runtime ready") { service.state == "READY" }
+
             fun ids() = JSONArray(service.sessionsJson).let { array -> (0 until array.length()).map { array.getJSONObject(it).getString("id") }.toSet() }
             val previous = ids()
             service.createSession("NATIVE", "/system/bin/sh", "", 24, 80)

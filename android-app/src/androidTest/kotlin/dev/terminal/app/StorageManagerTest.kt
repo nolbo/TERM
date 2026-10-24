@@ -59,8 +59,7 @@ class StorageManagerTest {
         }
         fun sessions() = JSONArray(service.sessionsJson).let { a -> List(a.length()) { a.getJSONObject(it) } }
         try {
-            service.startRuntime()
-            await { service.state == "READY" }
+
             val migrated = EnvironmentItem.parse(service.environmentsJson).single { row -> row.profiles.any { it.first == old.id } }
             assertNotEquals("legacy", migrated.storageId)
             assertEquals(migrated.storageId, store.find(old.id)!!.storageId)
@@ -165,8 +164,7 @@ class StorageManagerTest {
         fun sessions() = JSONArray(service.sessionsJson).let { a -> List(a.length()) { a.getJSONObject(it) } }
         fun storage(id: String) = EnvironmentItem.parse(service.environmentsJson).firstOrNull { it.runtime == original.runtime.wireName && it.storageId == id }
         try {
-            service.startRuntime()
-            await { service.state == "READY" }
+
             service.createSessionFromSpec(original.resolve().toJson().toString(), 24, 80)
             await { sessions().any { it.optString("profileId") == original.id } }
             sessionIds += sessions().first { it.optString("profileId") == original.id }.getString("id")

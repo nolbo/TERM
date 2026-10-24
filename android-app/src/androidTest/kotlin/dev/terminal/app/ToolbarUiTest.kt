@@ -777,7 +777,7 @@ class ToolbarUiTest {
                     return (0 until sessions.length()).map { sessions.getJSONObject(it) }
                         .filter { it.getString("state") == "RUNNING" }.map { it.getString("id") }.toSet()
                 }
-                await("Runtime ready") { runtime.state == "READY" }
+
                 fun create(title: String): String {
                     val before = running()
                     runtime.createSession("NATIVE", "/system/bin/sh", "", 24, 80)

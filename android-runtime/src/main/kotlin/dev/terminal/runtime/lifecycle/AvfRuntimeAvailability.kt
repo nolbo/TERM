@@ -6,12 +6,11 @@ import dev.terminal.runtime.avf.AvfBackend
 
 internal data class AvfRuntimeAvailability(val available: Boolean, val detail: String)
 
-/** Only AVF owners contribute AVF readiness; a Native primary owner is independent. */
+/** Only the requested Environments' AVF owners contribute AVF readiness. */
 internal fun avfRuntimeAvailability(
-    primary: RuntimeBackend,
     storageOwners: Iterable<RuntimeBackend>,
 ): AvfRuntimeAvailability {
-    val states = (listOf(primary) + storageOwners).filterIsInstance<AvfBackend>()
+    val states = storageOwners.filterIsInstance<AvfBackend>()
         .map { it.observeState().value }
     if (states.any { it is RuntimeState.Ready || it is RuntimeState.Active || it is RuntimeState.Idle }) {
         return AvfRuntimeAvailability(true, "AVF 가상 머신이 준비되었습니다")

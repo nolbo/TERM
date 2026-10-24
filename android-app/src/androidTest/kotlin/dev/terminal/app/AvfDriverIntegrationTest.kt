@@ -29,7 +29,7 @@ class AvfDriverIntegrationTest {
     @Test fun missingDeviceApiIsRejectedWithoutLoadingPlatformClasses() {
         assumeFalse(context.packageManager.hasSystemFeature("android.software.virtualization_framework"))
         val provider = context.applicationContext as RuntimeBackendProvider
-        val failure = runCatching { provider.createRuntimeBackend(context) }.exceptionOrNull()
+        val failure = runCatching { provider.createAvfBackend(context) }.exceptionOrNull()
         assertTrue(failure is IllegalStateException)
         assertTrue(failure!!.message.orEmpty().contains("does not support"))
     }

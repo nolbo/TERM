@@ -42,7 +42,7 @@ class SessionNotificationTest {
             val service = bind()
             val owned = mutableSetOf<String>()
             try {
-                await("ready and idle") { service.state == "READY" && !hasNotification() }
+                await("ready and idle") { !hasNotification() }
                 assertTrue("Use an idle test installation", running(service).isEmpty())
                 repeat(2) {
                     val before = running(service)
@@ -71,7 +71,7 @@ class SessionNotificationTest {
             var service = bind()
             val owned = mutableSetOf<String>()
             try {
-                await("ready and idle") { service.state == "READY" && !hasNotification() }
+                await("ready and idle") { !hasNotification() }
                 assertTrue("Use an idle test installation", running(service).isEmpty())
                 repeat(2) {
                     val before = running(service)
@@ -113,7 +113,7 @@ class SessionNotificationTest {
                 await("idle service destroyed") { !serviceDump().contains("ServiceRecord{") }
                 ActivityScenario.launch(MainActivity::class.java).use {
                     service = bind()
-                    await("reopened idle service") { service.state == "READY" && !hasNotification() }
+                    await("reopened idle service") { !hasNotification() }
                     service.createSession("NATIVE", "/system/bin/sh", "", 24, 80)
                     await("new session after idle stop") { running(service).size == 1 && hasNotification() }
                     owned += running(service)
@@ -140,7 +140,7 @@ class SessionNotificationTest {
                 val service = bind()
                 val owned = mutableSetOf<String>()
                 try {
-                    await("ready and idle") { service.state == "READY" && !hasNotification() }
+                    await("ready and idle") { !hasNotification() }
                     assertTrue("Use an idle test installation", running(service).isEmpty())
                     repeat(2) {
                         service.createSession("NATIVE", "/system/bin/sh", "", 24, 80)

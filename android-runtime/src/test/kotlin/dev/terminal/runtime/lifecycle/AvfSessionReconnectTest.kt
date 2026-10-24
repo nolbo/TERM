@@ -21,16 +21,16 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AvfSessionReconnectTest {
-    @Test fun nativePrimaryRecoversLegacyAvfSessionsAndKeepsSiblingOwners() = runBlocking {
-        recoverDefaultUnderNative("legacy")
+    @Test fun legacyAvfEnvironmentRecoversAlongsideHealthyOwners() = runBlocking {
+        recoverEnvironment("legacy")
     }
 
-    @Test fun nativePrimaryRecoversMigratedDefaultAvfStorage() = runBlocking {
-        recoverDefaultUnderNative(UUID.randomUUID().toString())
+    @Test fun adoptedLegacyAvfEnvironmentRecovers() = runBlocking {
+        recoverEnvironment(UUID.randomUUID().toString())
     }
 
-    private suspend fun recoverDefaultUnderNative(defaultStorageId: String) {
-        val environment = avfEnvironment(defaultStorageId)
+    private suspend fun recoverEnvironment(storageId: String) {
+        val environment = avfEnvironment(storageId)
         val healthyEnvironment = avfEnvironment()
         val old = Controller("avf-first", "avf-second")
         val replacement = Controller("avf-first", "avf-second")
@@ -49,8 +49,8 @@ class AvfSessionReconnectTest {
             old.disconnect()
             val attempts = mutableListOf<Environment>()
             var successes = 0
-            reconnectAvfSessions(registry, defaultStorageId, primaryIsAvf = false,
-                environmentForStorage = { assertEquals(defaultStorageId, it); environment },
+            reconnectAvfSessions(registry,
+                environmentForStorage = { assertEquals(storageId, it); environment },
                 connect = { attempts += it; replacement }, onConnected = { successes++ })
 
             assertEquals(listOf(environment), attempts)
@@ -91,26 +91,43 @@ class AvfSessionReconnectTest {
         } finally { registry.close() }
     }
 
-    @Test fun avfPrimaryDoesNotRetryItsDefaultTwiceButRecoversIndependentOwner() = runBlocking {
-        val primary = avfEnvironment("legacy")
-        val independent = avfEnvironment()
-        val oldPrimary = Controller("avf-primary")
-        val oldIndependent = Controller("avf-independent")
-        val replacement = Controller("avf-independent")
+    @Test fun legacyAndUuidEnvironmentsBothRecoverWithoutAPrimaryOwner() = runBlocking {
+        val legacy = avfEnvironment("legacy")
+        val other = avfEnvironment()
+        val oldLegacy = Controller("avf-legacy")
+        val oldOther = Controller("avf-other")
+        val legacyReplacement = Controller("avf-legacy")
+        val otherReplacement = Controller("avf-other")
+        val environments = listOf(legacy, other).associateBy { it.storage.id }
+        val replacements = mapOf(legacy.id to legacyReplacement, other.id to otherReplacement)
         val registry = UnifiedSessionRegistry()
         try {
-            registry.register(primary, oldPrimary)
-            registry.register(independent, oldIndependent)
+            registry.register(legacy, oldLegacy); registry.register(other, oldOther)
             registry.list().getOrThrow()
-            oldPrimary.disconnect(); oldIndependent.disconnect()
-            val attempts = mutableListOf<Environment>()
-            reconnectAvfSessions(registry, "legacy", primaryIsAvf = true,
-                environmentForStorage = { assertEquals(independent.storage.id, it); independent },
-                connect = { attempts += it; replacement }, onConnected = {})
-            assertEquals(listOf(independent), attempts)
-            assertEquals(listOf("avf-independent"), replacement.attached)
-            assertEquals(listOf("legacy"), registry.disconnectedStorages(SessionRuntime.AVF))
-            assertFalse(oldPrimary.closed)
+            oldLegacy.disconnect(); oldOther.disconnect()
+            val attempts = mutableSetOf<Environment>()
+            reconnectAvfSessions(registry,
+                environmentForStorage = { environments.getValue(it) },
+                connect = { attempts += it; replacements.getValue(it.id) }, onConnected = {})
+            assertEquals(environments.values.toSet(), attempts)
+            assertEquals(listOf("avf-legacy"), legacyReplacement.attached)
+            assertEquals(listOf("avf-other"), otherReplacement.attached)
+            assertTrue(registry.disconnectedStorages(SessionRuntime.AVF).isEmpty())
+            assertTrue(oldLegacy.closed); assertTrue(oldOther.closed)
+        } finally { registry.close() }
+    }
+
+    @Test fun environmentWithoutWorkDoesNotReconnectBecauseASiblingIsRunning() = runBlocking {
+        val environment = avfEnvironment()
+        val old = Controller("avf-idle")
+        val registry = UnifiedSessionRegistry()
+        try {
+            registry.register(environment, old)
+            registry.list().getOrThrow(); old.disconnect()
+            reconnectAvfSessions(registry, environmentForStorage = { environment },
+                connect = { fail("No work for this Environment"); null }, onConnected = {}, canReconnect = { false })
+            assertFalse(old.closed)
+            assertEquals(listOf(environment.storage.id), registry.disconnectedStorages(SessionRuntime.AVF))
         } finally { registry.close() }
     }
 
@@ -123,8 +140,7 @@ class AvfSessionReconnectTest {
             registry.list().getOrThrow()
             old.disconnect()
             var successes = 0
-            suspend fun retry(controller: SessionController?) = reconnectAvfSessions(registry, "legacy",
-                primaryIsAvf = false, environmentForStorage = { environment }, connect = { controller },
+            suspend fun retry(controller: SessionController?) = reconnectAvfSessions(registry, environmentForStorage = { environment }, connect = { controller },
                 onConnected = { successes++ })
             retry(null)
             assertEquals(0, successes)

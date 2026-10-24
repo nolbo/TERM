@@ -18,6 +18,7 @@ import dev.terminal.runtime.lifecycle.VmRuntimeService
 import java.io.File
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.Assert.*
 import org.junit.Assume.assumeTrue
@@ -52,8 +53,11 @@ class RootlessColdRemovalTest {
         assertTrue(context.bindService(Intent(context, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE))
         try {
             assertTrue(connected.await(10, TimeUnit.SECONDS))
-            val initialState = service.state
-            assertNotEquals("READY", initialState)
+            fun states() = JSONArray(service.environmentsJson).let { rows ->
+                List(rows.length()) { rows.getJSONObject(it).getString("runtimeState") }
+            }
+            val initialStates = states()
+            assertTrue(initialStates.none { it in setOf("READY", "ACTIVE", "IDLE") })
             fun clickRemoval() {
                 val until = SystemClock.uptimeMillis() + 10_000
                 while (SystemClock.uptimeMillis() < until) {
@@ -91,7 +95,7 @@ class RootlessColdRemovalTest {
                     assertFalse("Image was not removed: $runtime", File(layouts[index], "rootfs").exists())
                     assertEquals("SETUP_REQUIRED", JSONObject(service.runtimeStatusJson).getJSONObject(runtime).getString("state"))
                     assertEquals("home", File(layouts[index], "home/keep").readText())
-                    assertEquals(initialState, service.state)
+                    assertEquals(initialStates, states())
                 }
             }
         } finally {

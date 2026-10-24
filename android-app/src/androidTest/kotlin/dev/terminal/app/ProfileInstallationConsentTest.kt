@@ -195,8 +195,7 @@ class ProfileInstallationConsentTest {
             ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                 val original = runtime(scenario)
                 nativeService = original
-                original.startRuntime()
-                await("Native runtime must be ready") { original.state == "READY" }
+
                 fun sessionIds() = JSONArray(original.sessionsJson).let { array ->
                     (0 until array.length()).map { array.getJSONObject(it).getString("id") }.toSet()
                 }
@@ -247,7 +246,7 @@ class ProfileInstallationConsentTest {
                 ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                     val service = runtime(scenario)
                     val listener = object : IRuntimeStateListener.Stub() {
-                        override fun onRuntimeStateChanged(state: String, detail: String) = Unit
+                        override fun onRuntimeChoicesChanged() = Unit
                         override fun onSessionsChanged(revision: Long, json: String) = Unit
                         override fun onSessionFocusRequested(sessionId: String) = Unit
                         override fun onSessionExited(sessionId: String, code: Int) = Unit

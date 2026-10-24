@@ -55,7 +55,7 @@ class SessionTaskNotificationsTest {
             bound = true
             service = requireNotNull(queue.poll(10, TimeUnit.SECONDS))
             connected = true
-            await("ready") { service.state == "READY" }
+
             service.setSessionTaskNotifications(false)
             val before = runningIds()
             service.createSession("NATIVE", "/system/bin/sh", "", 24, 80)
@@ -127,7 +127,7 @@ class SessionTaskNotificationsTest {
             bound = true
             val connected = requireNotNull(queue.poll(10, TimeUnit.SECONDS))
             service = connected
-            await("ready") { connected.state == "READY" }
+
             fun ids(): Set<String> {
                 val values = JSONArray(connected.sessionsJson)
                 return (0 until values.length()).mapTo(mutableSetOf()) { values.getJSONObject(it).getString("id") }

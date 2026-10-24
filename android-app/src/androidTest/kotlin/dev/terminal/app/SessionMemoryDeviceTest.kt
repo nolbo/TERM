@@ -34,8 +34,7 @@ class SessionMemoryDeviceTest {
         var owned: String? = null
         try {
             assertTrue(connected.await(10, TimeUnit.SECONDS))
-            service.startRuntime()
-            await { service.state == "READY" }
+
             val previous = ids(service.sessionsJson)
             service.createSession("NATIVE", "/system/bin/sh", "/", 24, 80)
             await { owned = (ids(service.sessionsJson) - previous).singleOrNull(); owned != null }

@@ -87,7 +87,7 @@ class LocalServicesDeviceTest {
         try {
             assertTrue(connected.await(10, TimeUnit.SECONDS))
             val originalSessions = runtime.sessionsJson
-            val originalState = runtime.state
+            val originalState = runtime.environmentsJson
             ActivityScenario.launch<LocalServicesActivity>(LocalServicesActivity.intent(context)).use { activity ->
                 val changed = CountDownLatch(1)
                 val listener = object : ILocalServicesListener.Stub() { override fun onServicesChanged() { changed.countDown() } }
@@ -104,7 +104,7 @@ class LocalServicesDeviceTest {
                 } finally { runtime.unregisterLocalServicesListener(listener) }
             }
             assertEquals(originalSessions, runtime.sessionsJson)
-            assertEquals(originalState, runtime.state)
+            assertEquals(originalState, runtime.environmentsJson)
         } finally {
             context.unbindService(connection)
         }

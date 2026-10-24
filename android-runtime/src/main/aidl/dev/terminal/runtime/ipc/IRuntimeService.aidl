@@ -9,17 +9,11 @@ interface IRuntimeService {
     String getStorageJson();
     long measureStorage(String runtimeType, String storageId);
     String deleteStorage(String runtimeType, String storageId);
-    String getState();
-    String getDetail();
-    String getImageStatus();
     String getRuntimeStatusJson();
     String getSessionsJson();
     String getForwardedPortsJson();
     String getWakePolicy();
-    String getCapabilityGrant(String capability);
-    void prepare();
-    void startRuntime();
-    void stopRuntime(int mode);
+    String getCapabilityGrant(String environmentId, String capability);
     void createSessionFromSpec(String launchSpecJson, int rows, int cols);
     void createSession(String runtimeType, String shell, String cwd, int rows, int cols);
     void attachSession(String sessionId);
@@ -36,7 +30,7 @@ interface IRuntimeService {
     void setAvfSettings(int memoryMib, int cpuCount, boolean protectedVm, boolean enableNetwork);
     void setNativeSessionSettings(String terminalType, boolean loginShell);
     void prepareRootless(String runtimeType);
-    void setCapabilityGrant(String capability, String grant);
+    void setCapabilityGrant(String environmentId, String capability, String grant);
     void registerListener(IRuntimeStateListener listener);
     void unregisterListener(IRuntimeStateListener listener);
     void setKittyGraphicsCompatibility(boolean enabled);

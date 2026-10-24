@@ -41,8 +41,7 @@ class WrappedShellInputTest {
         assertTrue(context.bindService(Intent(context, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE))
         try {
             assertTrue(connected.await(10, TimeUnit.SECONDS))
-            service.startRuntime()
-            await("runtime ready") { service.state == "READY" }
+
             assumeTrue("$runtime image must be provisioned", JSONObject(service.runtimeStatusJson).getJSONObject(runtime).getBoolean("available"))
             val previous = ids(service.sessionsJson)
             service.createSession(runtime, if (runtime == "NATIVE") "/system/bin/sh" else "/bin/bash", sessionInitialDirectory(runtime), 24, 80)
@@ -57,7 +56,7 @@ class WrappedShellInputTest {
                 override fun onTerminalOutput(id: String, bytes: ByteArray, replay: Boolean) {
                     if (id == sessionId) backend.output(bytes, replay)
                 }
-                override fun onRuntimeStateChanged(state: String, detail: String) = Unit
+                override fun onRuntimeChoicesChanged() = Unit
                 override fun onSessionFocusRequested(sessionId: String) = Unit
                 override fun onSessionsChanged(revision: Long, json: String) = Unit
                 override fun onSessionExited(id: String, code: Int) = Unit
