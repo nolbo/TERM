@@ -106,8 +106,10 @@ to the fetched `origin/dev` history. The selected channel determines the app
 package, version name, Korean `<channel>-latest.md` notes, artifact name and
 release tag; the exact event SHA remains the source revision. Neither source
 branch nor its remote tracking ref is repointed to choose a release channel.
-Push publications and explicit manual publications share the same serialization
-group and forward-only versionCode sequence. The default manual verification
+Push publications and explicit manual publications targeting the same channel
+share a serialization group and the forward-only versionCode sequence. Stable
+and Preview builds may run concurrently: they have distinct packages,
+commit-specific tags and discovery pointers. The default manual verification
 mode does not publish, and all existing build, signing, Rootless, USB safety and
 approved-catalog checks remain required before a manual publication.
 
@@ -181,15 +183,32 @@ offset preserves ordering across the old and new repositories.
 
 `gradle/actions/setup-gradle@v4` restores Gradle dependencies and local build-cache
 entries; the debug verification and signed release commands enable `--build-cache`.
-Rust registry/git dependencies and the four separate Android/host Cargo target
+Rust registry/git dependencies and the Android/host connector Cargo target
 directories are restored with OS, host architecture, Rust 1.89.0, NDK version and
 recipe/source keys. Compatible previous target caches can seed incremental
-compilation after source changes; Cargo still runs with `--locked`. Only main/dev
-pushes can save caches; Rust caches are saved after verification and artifact
-preparation succeed. PRs and other refs only restore them. Cargo cache paths exclude
+compilation after source changes; Cargo still runs with `--locked`. Both pushes
+and manual runs on main/dev can save caches after successful verification;
+PRs and other refs only restore them. Cargo cache paths exclude
 signing material, APKs, update manifests and native distribution archives, and the
 temporary release keystore remains outside Gradle's cached user home.
 Rootless input hashes and both APK payload checks continue to run on every build.
+
+Native CLI production is an `Exec` task, whose outputs are not stored by Gradle's
+build cache. A separate exact-match cache retains `android-runtime/build/native-cli`,
+including its pinned upstream archives, build stamps, binaries, licenses and
+Cargo vendor sources required for the corresponding-source bundle. The key
+includes OS, host architecture, Rust/NDK versions and all Native CLI recipe inputs
+plus the Android compiler wrapper; there is no fallback to another recipe's
+native build. The build script still checks source hashes and its compiler/recipe
+signature, and APK payload/source-bundle checks still run. A changed recipe or
+toolchain gets a fresh cache. Signed APKs, manifests and keystores are never part
+of this native cache.
+
+The AVF workflow's catalog-bearing APK job restores the same Native CLI and Rust
+caches as the app workflow and can save caches from verified dev push/manual
+runs. It also saves its Gradle cache instead of remaining permanently read-only.
+This avoids rebuilding the same native tools for each distribution's review APK;
+the image factory's boot, catalog, APK and public-download gates remain required.
 
 APK/source artifacts use `compression-level: 0` to avoid recompressing ZIP/gzip
 payloads. These Actions archives, including the safety report, are best effort:
@@ -199,7 +218,21 @@ without downloading an Actions artifact in a second job. Canonical verification,
 app tests, the USB safety gate and release lint
 remain publication prerequisites. The USB gate remains sequential because it
 executes Gradle and reads shared test-result files. Publication stays serialized
-and retains immutable assets and the forward-only latest-code comparison.
+within each channel and retains immutable assets and the forward-only latest-code
+comparison. Stable publication controls `/releases/latest`; Preview only controls
+`dev-latest`, so neither channel needs to wait for the other's build.
+
+Timing baseline on 2026-10-24: [app run 40085673519](https://github.com/nolbo/TERM/actions/runs/40085673519)
+spent 12m07s in its build job (7m11s debug build/tests, 4m11s signed build, 5s USB
+gate). [The simultaneous second channel run](https://github.com/nolbo/TERM/actions/runs/40085676631)
+waited about 12 minutes behind the former shared lock before its own 12m07s job.
+[Image run 40083253273](https://github.com/nolbo/TERM/actions/runs/40083253273)
+already reused its kernel and spent 20m07s in image production, 8m26s in the APK
+job and 1m05s publishing. These are pre-change measurements, not a speedup claim.
+The short USB and artifact steps are retained; native cache reuse and independent
+channel scheduling address the observed larger costs. Continue using
+`kernel_run_id` for an unchanged verified kernel and `reuse_candidate` only for
+an exact, already verified draft as described in [IMAGE_RELEASE.md](IMAGE_RELEASE.md).
 
 The first run must populate caches; cache eviction or changed toolchains can also
 cause a cold build. Compare step durations on subsequent channel runs to measure

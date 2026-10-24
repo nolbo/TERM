@@ -36,9 +36,10 @@ jobs:
     outputs:
       release_tag: ${{ steps.publish.outputs.release_tag }}
     # Publish directly from the verified build directory without an Actions
-    # artifact handoff. Serialize channel builds through publication.
+    # artifact handoff. Serialize each channel through publication; stable and
+    # Preview have separate packages, release tags and discovery pointers.
     concurrency:
-      group: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev' && (inputs.publish_channel == 'main' || inputs.publish_channel == 'dev'))) && 'term-public-release' || format('term-verification-{0}', github.run_id) }}
+      group: ${{ ((github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev')) || (github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/dev' && (inputs.publish_channel == 'main' || inputs.publish_channel == 'dev'))) && format('term-public-release-{0}', (inputs.publish_channel == 'main' || inputs.publish_channel == 'dev') && inputs.publish_channel || github.ref_name) || format('term-verification-{0}', github.run_id) }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v4
@@ -76,8 +77,16 @@ jobs:
       - name: Restore Gradle dependencies and build cache
         uses: gradle/actions/setup-gradle@v4
         with:
-          # PRs can restore trusted caches but only channel pushes save them.
-          cache-read-only: ${{ github.event_name != 'push' || (github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev') }}
+          # Trusted manual builds must warm caches too; PRs only restore them.
+          cache-read-only: ${{ (github.event_name != 'push' && github.event_name != 'workflow_dispatch') || (github.ref != 'refs/heads/main' && github.ref != 'refs/heads/dev') }}
+      - name: Restore pinned Native CLI build
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          # Exec tasks are not stored in Gradle's local build cache. Include
+          # sources/vendor data needed by the corresponding-source archive.
+          path: android-runtime/build/native-cli
+          key: ${{ runner.os }}-${{ runner.arch }}-native-cli-v1-rust-1.89.0-ndk-${{ env.TERMINAL_NDK_VERSION }}-${{ hashFiles('tools/native-cli/**', 'tools/iphone/android-clang.sh') }}
       - name: Restore Rust dependencies and compilation cache
         id: rust-cache
         uses: actions/cache/restore@v4
@@ -87,7 +96,6 @@ jobs:
             ~/.cargo/git
             android-runtime/build/iphone-tools/target
             android-runtime/build/device-safety-connector/target
-            android-runtime/build/device-safety-rust/target
           key: ${{ runner.os }}-${{ runner.arch }}-rust-1.89.0-ndk-${{ env.TERMINAL_NDK_VERSION }}-${{ hashFiles('tools/iphone/connector/**', 'tools/iphone/android-clang.sh') }}
           restore-keys: |
             ${{ runner.os }}-${{ runner.arch }}-rust-1.89.0-ndk-${{ env.TERMINAL_NDK_VERSION }}-
@@ -180,8 +188,14 @@ jobs:
           if-no-files-found: error
           compression-level: 0
           path: android-app/build/update/
+      - name: Save verified Native CLI build
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: android-runtime/build/native-cli
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
       - name: Save trusted Rust compilation cache
-        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && steps.rust-cache.outputs.cache-hit != 'true'
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/dev') && steps.rust-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v4
         with:
           path: |
@@ -189,7 +203,6 @@ jobs:
             ~/.cargo/git
             android-runtime/build/iphone-tools/target
             android-runtime/build/device-safety-connector/target
-            android-runtime/build/device-safety-rust/target
           key: ${{ steps.rust-cache.outputs.cache-primary-key }}
 
       - name: Publish verified update to TERM

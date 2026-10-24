@@ -283,14 +283,34 @@ jobs:
           terminal_version_code=$(python3 tools/updates/version-code.py --run-number "$terminal_android_sequence")
           echo "TERMINAL_UPDATE_VERSION_CODE=$terminal_version_code" >> "$GITHUB_ENV"
       - name: Use Maven AAPT2 on the CI host
-        run: sed -i '/^android.aapt2FromMavenOverride=/d' gradle.properties
+        run: |
+          sed -i '/^android.aapt2FromMavenOverride=/d' gradle.properties
+          echo "TERMINAL_NDK_VERSION=$(sed -n 's/^ndkVersion=//p' gradle.properties)" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v4
         with:
-          cache-read-only: true
+          cache-read-only: ${{ (github.event_name != 'push' && github.event_name != 'workflow_dispatch') || github.ref != 'refs/heads/dev' }}
+      - name: Restore pinned Native CLI build
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: android-runtime/build/native-cli
+          key: ${{ runner.os }}-${{ runner.arch }}-native-cli-v1-rust-1.89.0-ndk-${{ env.TERMINAL_NDK_VERSION }}-${{ hashFiles('tools/native-cli/**', 'tools/iphone/android-clang.sh') }}
+      - name: Restore Rust dependencies and compilation cache
+        id: rust-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            android-runtime/build/iphone-tools/target
+            android-runtime/build/device-safety-connector/target
+          key: ${{ runner.os }}-${{ runner.arch }}-rust-1.89.0-ndk-${{ env.TERMINAL_NDK_VERSION }}-${{ hashFiles('tools/iphone/connector/**', 'tools/iphone/android-clang.sh') }}
+          restore-keys: |
+            ${{ runner.os }}-${{ runner.arch }}-rust-1.89.0-ndk-${{ env.TERMINAL_NDK_VERSION }}-
       - name: Install pinned Android Rust toolchain
         run: rustup toolchain install 1.89.0 --profile minimal --target aarch64-linux-android
       - name: Prepare verified Rootless runtime
@@ -311,6 +331,22 @@ jobs:
             --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --expected-manifest-sha "$AVF_MANIFEST_SHA256" \
             --apk android-app/build/outputs/apk/debug/android-app-debug.apk \
             --apk-catalog image/build/approved/catalog-merged.properties --require-container-kernel
+      - name: Save verified Native CLI build
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/dev' && steps.native-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: android-runtime/build/native-cli
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+      - name: Save trusted Rust compilation cache
+        if: (github.event_name == 'push' || github.event_name == 'workflow_dispatch') && github.ref == 'refs/heads/dev' && steps.rust-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            android-runtime/build/iphone-tools/target
+            android-runtime/build/device-safety-connector/target
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@v4
         continue-on-error: true
         with:
