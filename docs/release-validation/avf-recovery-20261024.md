@@ -113,3 +113,18 @@ manifest·metadata checksum·정상 부팅 증거·커널 해시의 일치를 �
 전송 후 응답을 받지 못한 RPC 결과는 불명확하며 자동으로 재실행하지 않는다.
 ReDroid의 JNI/SFTP 검사는 실제 AVF 기기 검사가 아니다. 특권 ARM64 AVF 기기에서의
 백그라운드/전원 정책, 관리 부팅, 두 VM, 실제 vsock reset 및 stop/lease 정리는 미검증이다.
+
+## 최종 카탈로그 APK
+
+카탈로그 커밋 `1d2588b29ad1fc06f3302b463078f2f28c6ff9a5`에서 `:android-app:assembleDebug`가 통과했다.
+버전은 `1.4.0+dev.214969769.1d2588b29ad1-debug`, 패키지는 `dev.terminal.app.debug`이며 크기는 68,487,914 bytes다.
+APK SHA-256은 `7be3bcaaaa514cd7f398859b0b03c098a4d8a9a8a862f09a97eb1e4156ea630b`다.
+
+`verify_apk`로 APK 내부 카탈로그와 커밋된 세 r3 승인 핀의 바이트 일치를 검증했고,
+`tools/avf/verify-driver-apk.py`가 실제 AVF 드라이버 포함 및 platform API stub 미포함을
+확인했다. apksigner의 v2 서명 검증도 통과했다. Debug 인증서 SHA-256은 `2ea8b58dfd147494e0810949c75db554519efa55b762cb7014119f9abdafb7e0`다.
+산출물은 `android-app/build/outputs/apk/debug/android-app-debug.apk`다.
+
+이 작업에서 공개한 것은 이미지 릴리스이며 APK는 호환 Debug 산출물이다.
+설치된 앱/환경은 자동 변경하지 않았고 앱 채널 배포나 main 병합은 수행하지 않았다.
+위 APK 생성 뒤의 변경은 검증 기록뿐이므로 APK를 다시 빌드하지 않는다.
