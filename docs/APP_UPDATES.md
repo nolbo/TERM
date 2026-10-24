@@ -96,8 +96,8 @@ history without merging or changing `main`. Dispatch `android.yml` on `dev` with
 `publish_channel=main` for stable or `publish_channel=dev` for prerelease:
 
 ```sh
-gh workflow run android.yml --ref dev -f publish_channel=main
-gh workflow run android.yml --ref dev -f publish_channel=dev
+gh workflow run android.yml --ref dev -f publish_channel=main -f notify=true
+gh workflow run android.yml --ref dev -f publish_channel=dev -f notify=true
 ```
 
 Run only the command for the requested channel. The selector rejects explicit
@@ -147,9 +147,10 @@ Only this discovery manifest is an exception to release asset immutability.
 
 After a channel publication succeeds, the Android workflow can pass the actual
 published tag to the reusable Discord notifier. Channel pushes retain their
-existing notification behavior. Manual publication requires explicit
-`notify=true`; its default is false so publication and notification can be
-authorized independently. Verification-only and failed runs do not notify.
+existing notification behavior. Manual app publication enables `notify=true` by default, so both TERM and
+TERM Preview announce a successful release. An explicit `notify=false` suppresses
+a deliberately silent publication; image-only workflows retain their separate
+opt-in notification setting. Verification-only and failed runs do not notify.
 An authorized missing-notification recovery can dispatch
 `discord-release.yml` on `dev` with its required `release_tag` input, for example
 `gh workflow run discord-release.yml --ref dev -f release_tag=main-<source SHA>`.

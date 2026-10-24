@@ -16,10 +16,10 @@ on:
           - main
           - dev
       notify:
-        description: 'Send the published release notes to Discord'
+        description: 'Announce the published app release to Discord (enabled by default)'
         type: boolean
         required: true
-        default: false
+        default: true
 
 permissions:
   contents: read
