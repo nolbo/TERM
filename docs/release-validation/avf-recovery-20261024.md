@@ -80,7 +80,27 @@ r2 커널 `9b2331e74535a1171c395148fb57837dbe2b498062e0067560dd979fdeba14fb`가 
 초기화 중 15초 reconnect backoff가 늦게 준비된 broker를 건너뛰는 경우를 방지한다.
 이후 복구 backoff와 guest wire는 바꾸지 않았고 AVF 모듈 검사 41개가 다시 통과했다.
 
-r3 제작은 진행 중이며 아직 새 카탈로그를 승인하지 않았다.
+r3 제작·APK·공개 검증이 모두 성공했고 기본 카탈로그로 승격했다. 제작 소스는
+`e730980a2ef77b50edf0101c2647932bbd2d1807`이다. 세 배포판 모두 현재 승인 커널과
+같은 `fa4f0fc22c316d24a417e5620e915c626ab246ef5c190b557d38c136955357ee`를 포함한다.
+
+| 배포판 | 이미지 | CI | manifest SHA-256 |
+| --- | --- | --- | --- |
+| ubuntu | avf-ubuntu-recovery-20261024-r3 | [40048874959](https://github.com/nolbo/TERM/actions/runs/40048874959) | `f006fa1bc673babddd0050704bbd10ac03e0d8791f03a19a1fb1bf46ee010ec1` |
+| debian | avf-debian-recovery-20261024-r3 | [40048879959](https://github.com/nolbo/TERM/actions/runs/40048879959) | `dbf57d644cb9409d85db8e1c7a58c6afe13781dd6b669805c47c3d0b8a46653b` |
+| archlinux | avf-archlinux-recovery-20261024-r3 | [40048884964](https://github.com/nolbo/TERM/actions/runs/40048884964) | `b1f51f7416b9fdecbc1fe619ee75883ca0b66f1a00e5fe8e6a157b6a5e861efa` |
+
+각 이미지의 두 차례 정상 부팅(총 6회)에서 session list, package port, session resume,
+공유 read/write, 열린 핸들 재연결, owner loss 후 VM 유지와 mount guard 검사가 모두 passed다.
+공식 publish 작업이 인증 없는 전체 공개 다운로드·압축 해제·raw SHA-256 검증을 수행한 뒤
+생성한 승인 카탈로그 산출물을 사용했다. 로컬에서는 각 CI의 source/job/승인 산출물과 공개
+manifest·metadata checksum·정상 부팅 증거·커널 해시의 일치를 검증하고, 동일한 세 핀만
+기본 카탈로그로 병합했다. 같은 이미지의 전체 다운로드 검사를 다시 반복하지 않았다.
+현재 ext4-r2의 공개 manifest 핀과 실제 재사용 커널 바이너리 해시도 비교했다.
+
+새 이미지와 카탈로그는 기존 설치나 사용자 디스크를 자동으로 변경하지 않는다.
+공개 이미지들은 draft=false, prerelease=true이며 알림은 notify=false로 생략했다.
+
 
 ## 적용 범위와 한계
 
