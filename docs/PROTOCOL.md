@@ -435,6 +435,12 @@ The new guest proxy binds host-CID-only vsock 40504. Each raw stream starts with
 
 App-only AIDL exposes `getLocalServicesJson`, `updateLocalServiceForwarding`, and registration/unregistration of the separate one-way `ILocalServicesListener` invalidation callback. All methods require the application UID and verified main UI process. Snapshots contain only AVF services and AVF Environment metadata without creating or connecting runtime controllers. Native/Rootless registration APIs are removed; both sides of this app-private interface update together in the APK. Older manual preference entries are ignored while saved AVF mappings remain readable. Forwarding mutation accepts only an existing observed address-aware AVF service, a nonprivileged loopback host port and an explicit application-protocol enum. The retained `getForwardedPortsJson` adapter returns successfully bound proxies only, with separate host and guest ports.
 
+## Host diagnostic recording
+
+AVF diagnostic logging is host-only and changes no guest wire frames or image requirements. The UI, workers and `:vmhost` share fixed app-private `connection-events.log` and `connection-events.settings` files, serialized by a JVM monitor and POSIX file lock. Version-1 settings contain `enabled` and a boot-monotonic cutoff (`clearedAt`). Changing recording or clearing history advances the cutoff so older queued events cannot reappear. A subsequent boot resets an obsolete future cutoff while preserving the enabled preference. Corrupt settings fail closed instead of enabling recording.
+
+Records contain wall/monotonic time, PID, symbolic event/error-class/code and stable owner identity; no terminal payload, command, path, exception message or token. Retention is at most 1,000 records and 256 KiB with atomic file replacement; the asynchronous writer queues at most 128 tasks and can drop records under overload or process death. Recording defaults on; disabling gates both this file and `TermConnection` logcat, retains history, and does not affect other Android logging. Viewing, copying and confirmed deletion need no Binder connection, AVF permission, VM startup or guest command. Guest journal collection is outside this feature.
+
 ## Lifecycle service
 
 Guest agents may emit `WORK_ACTIVE` and `WORK_IDLE` stream events over their

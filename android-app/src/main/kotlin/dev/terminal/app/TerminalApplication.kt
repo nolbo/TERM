@@ -19,6 +19,9 @@ class TerminalApplication : Application(), androidx.work.Configuration.Provider,
 
     override fun onCreate() {
         super.onCreate()
+        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.initialize(filesDir)
+        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("process.create", code =
+            "sdk:${android.os.Build.VERSION.SDK_INT}.build:${BuildConfig.VERSION_CODE}")
         val previous = Thread.getDefaultUncaughtExceptionHandler()
         Thread.setDefaultUncaughtExceptionHandler { thread, error ->
             runCatching {

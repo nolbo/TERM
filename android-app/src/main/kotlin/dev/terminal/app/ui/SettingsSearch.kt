@@ -126,6 +126,9 @@ internal val settingsSearchEntries: List<SettingsSearchEntry> = buildList {
     entry("diagnostics-native", R.string.runtime_native_title, R.string.native_diagnostics_description, diagnostics)
     entry("diagnostics-userspace", R.string.userspace_diagnostics_title, R.string.userspace_diagnostics_description, diagnostics)
     entry("diagnostics-avf", R.string.avf_diagnostics_title, R.string.avf_diagnostics_description, diagnostics)
+    entry("avf-logs", R.string.avf_logs_title, R.string.avf_logs_summary, diagnostics)
+    entry("avf-logs", R.string.avf_logs_recording, R.string.avf_logs_recording_support, diagnostics + R.string.avf_logs_title)
+    entry("avf-logs", R.string.avf_logs_clear, R.string.avf_logs_clear_confirmation, diagnostics + R.string.avf_logs_title)
     entry("diagnostics-memory", R.string.memory_diagnostics_title, R.string.memory_diagnostics_description, diagnostics)
     entry("crash-reports", R.string.crash_reports_title, R.string.crash_reports_summary, diagnostics)
     for (title in listOf(R.string.userspace_proot, R.string.userspace_architecture, R.string.userspace_acceleration,

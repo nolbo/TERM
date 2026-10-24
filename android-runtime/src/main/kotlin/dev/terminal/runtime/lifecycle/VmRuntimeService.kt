@@ -1009,6 +1009,7 @@ class VmRuntimeService : Service() {
         }
 
         override fun attachSession(sessionId: String) = launchRuntimeOperation {
+            recordAvfSession("session.attach.request", sessionId)
             resetReconnectBackoff()
             focusedSession = sessionId
             val client = ensureSessionClient()
@@ -1020,6 +1021,7 @@ class VmRuntimeService : Service() {
         }
 
         override fun detachSession(sessionId: String) = launchRuntimeOperation {
+            recordAvfSession("session.detach.request", sessionId)
             val client = sessionClient
                 ?: throw IllegalStateException("세션 런타임에 연결되어 있지 않습니다")
             val result = sessionSnapshots.mutateAndRefresh(client) { client.detach(sessionId) }
@@ -1055,6 +1057,7 @@ class VmRuntimeService : Service() {
         }
 
         override fun terminateSession(sessionId: String) = launchRuntimeOperation {
+            recordAvfSession("session.terminate.request", sessionId)
             if (pendingAvfLaunches.dismiss(sessionId)) {
                 sessionSnapshots.republish()
                 return@launchRuntimeOperation
@@ -1567,6 +1570,7 @@ class VmRuntimeService : Service() {
                     when (event) {
                         is SessionEvent.Output -> notifyTerminalOutput(event.sessionId, event.bytes, event.replay)
                         is SessionEvent.Exited -> {
+                            recordAvfSession("session.exited", event.sessionId, event.exitCode.toString())
                             workspaces.move(event.sessionId, null)
                             taskNotifications.exited(event.sessionId, event.exitCode, sessionNotificationTitle(event.sessionId))
                             kittyGrants.remove(event.sessionId)
@@ -2104,6 +2108,11 @@ class VmRuntimeService : Service() {
                 if (hasReconnectWork()) bridgeRetry.awaitRetry()
             }
         }
+    }
+
+    private fun recordAvfSession(event: String, sessionId: String, code: String? = null) {
+        if ((sessionClient as? UnifiedSessionRegistry)?.runtimeOf(sessionId) == SessionRuntime.AVF)
+            ConnectionDiagnostics.record(event, sessionId, code)
     }
 
     private fun notifyLocalServices() = synchronized(localServiceBroadcastLock) {

@@ -78,6 +78,7 @@
         <activity android:name=".NativeDiagnosticsActivity" android:exported="false" />
         <activity android:name=".UserspaceLinuxDiagnosticsActivity" android:exported="false" />
         <activity android:name=".AvfLinuxDiagnosticsActivity" android:exported="false" />
+        <activity android:name=".AvfLogsActivity" android:exported="false" />
         <activity android:name=".MemoryDiagnosticsActivity" android:exported="false" />
         <activity android:name=".CrashReportsActivity" android:exported="false" />
         <activity android:name=".SessionInfoActivity" android:exported="false" />

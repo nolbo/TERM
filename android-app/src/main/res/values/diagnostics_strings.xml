@@ -1,8 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="settings_diagnostics_title">진단 및 리포트</string>
-    <string name="settings_diagnostics_summary">호환성, 엔진 구성, 메모리와 크래시 기록</string>
-    <string name="settings_diagnostics_description">런타임 호환성과 엔진 구성, 장치·앱 메모리, 저장된 크래시 리포트를 확인합니다.</string>
+    <string name="settings_diagnostics_summary">호환성, 메모리, AVF 로그와 크래시 기록</string>
+    <string name="settings_diagnostics_description">런타임 호환성, 장치·앱 메모리, AVF 진단 로그와 크래시 리포트를 확인합니다.</string>
+    <string name="avf_logs_title">AVF 진단 로그</string>
+    <string name="avf_logs_summary">AVF 동작 기록을 관리하고 오류를 확인합니다.</string>
+    <string name="avf_logs_description">앱에서 수집한 VM 시작·종료, 세션 연결, 공유 디렉토리와 이미지 작업의 진단 기록을 확인합니다.</string>
+    <string name="avf_logs_recording">진단 로그 기록</string>
+    <string name="avf_logs_recording_support">기본적으로 켜져 있으며 변경 즉시 적용합니다. 꺼도 저장된 로그는 유지됩니다.</string>
+    <string name="avf_logs_retention">최대 %1$d개·%2$d KiB까지 기기에 보관합니다. 터미널 입출력·파일 경로·토큰은 기록하지 않습니다.</string>
+    <string name="avf_logs_search">이벤트·식별자 검색</string>
+    <string name="avf_logs_copy">로그 복사</string>
+    <string name="avf_logs_clear">저장된 로그 삭제</string>
+    <string name="avf_logs_clear_confirmation">저장된 진단 로그를 모두 삭제할까요? 삭제한 로그는 복구할 수 없습니다. 실행 중인 VM과 세션에는 영향을 주지 않습니다.</string>
+    <string name="avf_logs_empty">저장된 진단 로그가 없습니다. 문제가 발생한 뒤 새로고침하세요.</string>
+    <string name="avf_logs_no_matches">일치하는 로그가 없습니다.</string>
+    <string name="avf_logs_read_failed">진단 로그를 불러올 수 없습니다. 다시 시도하세요.</string>
+    <string name="avf_logs_change_failed">진단 로그 설정을 변경하거나 로그를 삭제하지 못했습니다. 다시 시도하세요.</string>
+    <string name="avf_logs_copy_failed">로그를 복사하지 못했습니다.</string>
     <string name="diagnostics_category_runtime">런타임</string>
     <string name="diagnostics_category_system">시스템</string>
     <string name="diagnostics_category_reports">리포트</string>

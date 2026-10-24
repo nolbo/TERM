@@ -72,7 +72,10 @@ class DiagnosticsAndReportsUiTest {
                     AvfLinuxDiagnosticsActivity::class.java to R.string.settings_avf_title,
                 ),
                 R.string.diagnostics_category_system to listOf(MemoryDiagnosticsActivity::class.java to R.string.memory_diagnostics_title),
-                R.string.diagnostics_category_reports to listOf(CrashReportsActivity::class.java to R.string.crash_reports_title),
+                R.string.diagnostics_category_reports to listOf(
+                    CrashReportsActivity::class.java to R.string.crash_reports_title,
+                    AvfLogsActivity::class.java to R.string.avf_logs_title,
+                ),
             )
             categories.forEach { (category, entries) ->
                 val heading = waitFor(scroll = true) { it.text?.toString() == context.getString(category) }

@@ -1,0 +1,88 @@
+@file:OptIn(androidx.compose.material3.ExperimentalMaterial3ExpressiveApi::class)
+package dev.terminal.app.ui
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.selection.toggleable
+import androidx.compose.foundation.text.selection.SelectionContainer
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.unit.dp
+import dev.terminal.app.R
+import dev.terminal.runtime.lifecycle.ConnectionLogSnapshot
+import dev.terminal.runtime.lifecycle.ConnectionLogStore
+
+@Composable
+internal fun AvfLogsScreen(snapshot: ConnectionLogSnapshot?, loading: Boolean, changing: Boolean, error: String?,
+    onBack: () -> Unit, onRefresh: () -> Unit, onEnabled: (Boolean) -> Unit, onClear: () -> Unit, onCopy: (String) -> Unit) {
+    var query by rememberSaveable { mutableStateOf("") }
+    var confirmingClear by rememberSaveable { mutableStateOf(false) }
+    val entries = remember(snapshot, query) { snapshot?.entries.orEmpty().filter { it.contains(query, ignoreCase = true) } }
+    val busy = loading || changing
+    val locale = LocalConfiguration.current.locales[0]
+    SettingsPageScaffold(stringResource(R.string.avf_logs_title), onBack) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp)) {
+            item { SettingsDescription(stringResource(R.string.avf_logs_description)) }
+            item { SettingsGroup {
+                val enabled = snapshot?.enabled
+                ListItem(supportingContent = { Text(stringResource(R.string.avf_logs_recording_support)) },
+                    trailingContent = {
+                        if (enabled != null) Switch(enabled, onCheckedChange = null, enabled = !busy)
+                        else if (loading) LoadingIndicator(Modifier.size(24.dp))
+                        else Text(stringResource(R.string.diagnostics_unknown))
+                    }, verticalAlignment = Alignment.CenterVertically, colors = terminalSettingsListItemColors(),
+                    modifier = Modifier.fillMaxWidth().settingsItemSurface().then(if (enabled == null) Modifier else
+                        Modifier.toggleable(enabled, enabled = !busy, role = Role.Switch) { onEnabled(it) })) {
+                    Text(stringResource(R.string.avf_logs_recording))
+                }
+                LogAction(if (loading) R.string.diagnostics_refreshing else R.string.refresh, !busy, onRefresh)
+                LogAction(R.string.avf_logs_copy, !busy && entries.isNotEmpty()) { onCopy(entries.joinToString("\n", postfix = "\n")) }
+                LogAction(R.string.avf_logs_clear, !busy && (snapshot == null || snapshot.entries.isNotEmpty())) { confirmingClear = true }
+            } }
+            item { Text(stringResource(R.string.avf_logs_retention, ConnectionLogStore.MAX_RECORDS, ConnectionLogStore.MAX_BYTES / 1024),
+                Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant) }
+            error?.let { message -> item { SettingsOperationError(message) } }
+            item { OutlinedTextField(query, { query = it }, label = { Text(stringResource(R.string.avf_logs_search)) },
+                singleLine = true, modifier = Modifier.fillMaxWidth()) }
+            if (!loading && snapshot != null && entries.isEmpty()) item {
+                Text(stringResource(if (query.isEmpty()) R.string.avf_logs_empty else R.string.avf_logs_no_matches),
+                    style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            itemsIndexed(entries.asReversed()) { _, line ->
+                val time = remember(line, locale) {
+                    line.substringAfter("time_ms=", "").substringBefore(' ').toLongOrNull()?.let {
+                        java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.MEDIUM, locale)
+                            .format(java.util.Date(it))
+                    }
+                }
+                Column(Modifier.fillMaxWidth()) {
+                    time?.let { Text(it, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary) }
+                    SelectionContainer { Text(line, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+        }
+    }
+    if (confirmingClear) AlertDialog(onDismissRequest = { confirmingClear = false },
+        title = { Text(stringResource(R.string.avf_logs_clear)) }, text = { Text(stringResource(R.string.avf_logs_clear_confirmation)) },
+        confirmButton = { Button(onClick = { confirmingClear = false; onClear() }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
+            Text(stringResource(R.string.delete))
+        } }, dismissButton = { TextButton(onClick = { confirmingClear = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } })
+}
+
+@Composable
+private fun LogAction(title: Int, enabled: Boolean, onClick: () -> Unit) {
+    ListItem(onClick = onClick, enabled = enabled, verticalAlignment = Alignment.CenterVertically,
+        shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth()) {
+        Text(stringResource(title))
+    }
+}

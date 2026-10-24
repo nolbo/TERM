@@ -18,7 +18,8 @@ class AvfLinuxDiagnosticsActivity : TerminalActivity() {
     private var job: Job? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        compose { AvfLinuxDiagnosticsScreen(information, loading, { finish() }, ::refresh) }
+        compose { AvfLinuxDiagnosticsScreen(information, loading, { finish() }, ::refresh,
+            { startActivity(android.content.Intent(this, AvfLogsActivity::class.java)) }) }
     }
     override fun onResume() { super.onResume(); refresh() }
     override fun onPause() { job?.cancel(); super.onPause() }
@@ -27,6 +28,11 @@ class AvfLinuxDiagnosticsActivity : TerminalActivity() {
         job = lifecycleScope.launch {
             loading = true
             information = withContext(Dispatchers.IO) { inspectAvfDiagnostics(this@AvfLinuxDiagnosticsActivity) }
+            information?.let { info ->
+                dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("avf.probe", code = info.status.name)
+                info.checks.forEach { check -> dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(
+                    "avf.probe.check", code = "${check.condition.name}.${check.status.name}.${check.reason.name}") }
+            }
             loading = false
         }
     }

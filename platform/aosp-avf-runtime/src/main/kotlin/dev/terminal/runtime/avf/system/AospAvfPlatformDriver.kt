@@ -75,6 +75,8 @@ class AospAvfPlatformDriver(
     override fun observeEvents(): Flow<AvfPlatformEvent> = events.asSharedFlow()
 
     override suspend fun prepare(config: RuntimeConfig): Result<Unit> = mutex.withLock {
+        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.prepare", config.instanceId,
+            "cpu:${config.cpuCount}.memory_mib:${config.memoryMib}.protected:${config.protectedVm}.network:${config.enableNetwork}")
         runCatching {
             require(VM_NAME.matches(config.instanceId)) {
                 "VM instance ID may contain only letters, digits, '.', '_' and '-'"
@@ -115,10 +117,13 @@ class AospAvfPlatformDriver(
                 is ImageVerification.Invalid -> error(verification.reason)
             }
             prepared = config
-        }
+        }.onSuccess { dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.prepared", config.instanceId,
+            "${config.imageDistribution}.share:$shareBrokerVersion.resume:$sessionResumeVersion") }
+            .onFailure { dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.prepare.failed", config.instanceId, error = it) }
     }
 
     override suspend fun start(config: RuntimeConfig): Result<Unit> = mutex.withLock {
+        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.start", config.instanceId)
         startedNewVm = false
         val bootStartedAt = SystemClock.elapsedRealtime()
         var nextMachine: VirtualMachine? = null
@@ -170,6 +175,7 @@ class AospAvfPlatformDriver(
                     startedHere = true
                     if (shares?.requiresStoragePermission == true) sharedStorage.requirePermission()
                     vm.run()
+                    dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.run", config.instanceId)
                 }
             }
             if (config.sharedFolders.isNotEmpty()) {
@@ -196,8 +202,11 @@ class AospAvfPlatformDriver(
             check(machine === vm) { "AVF stopped while connecting to the Linux session daemon" }
             Log.i(TAG, "vm.sessiond duration_ms=${SystemClock.elapsedRealtime() - bootStartedAt} reused=${!startedHere}")
             startedNewVm = startedHere
+            dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.connected", config.instanceId,
+                if (startedHere) "new" else "reused")
             Result.success(Unit)
         } catch (failure: Throwable) {
+            dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.start.failed", config.instanceId, error = failure)
             stagedShares?.let { runCatching { it.close() }.exceptionOrNull()?.let(failure::addSuppressed) }
             pendingSessionConnection.getAndSet(null)?.let { connection ->
                 runCatching { connection.close() }.exceptionOrNull()?.let(failure::addSuppressed)
@@ -223,6 +232,7 @@ class AospAvfPlatformDriver(
     }
 
     override suspend fun stop(mode: StopMode): Result<Unit> = mutex.withLock {
+        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.stop.request", prepared?.instanceId, mode.name)
         runCatching {
             val activeMachine = machine ?: prepared?.let { manager.get(vmName(it)) } ?: return@runCatching
             // AVF stop is immediate. A graceful guest shutdown RPC belongs to LifecycleService.
@@ -235,7 +245,8 @@ class AospAvfPlatformDriver(
             machine = null
             activeBoot.set(null)
             startedNewVm = false
-        }
+        }.onSuccess { dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.stop.completed", prepared?.instanceId) }
+            .onFailure { dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.stop.failed", prepared?.instanceId, error = it) }
     }
 
     override suspend fun verifyStoppedInstance(instanceId: String): Result<Unit> = mutex.withLock {
@@ -354,6 +365,7 @@ class AospAvfPlatformDriver(
     }
 
     private suspend fun connectGuestPort(port: Long): Result<GuestConnection> = mutex.withLock {
+        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.channel.connect", prepared?.instanceId, port.toString())
         runCatching {
             val activeMachine = checkNotNull(machine) { "VM is not running" }
             withTimeout<GuestConnection>(GUEST_CONNECT_TIMEOUT_MS) {
@@ -369,7 +381,8 @@ class AospAvfPlatformDriver(
                 }
                 connection
             }
-        }
+        }.onSuccess { dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.channel.connected", prepared?.instanceId, port.toString()) }
+            .onFailure { dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.channel.failed", prepared?.instanceId, port.toString(), it) }
     }
 
     private fun buildConfig(config: RuntimeConfig, shares: AvfSharedDirectories? = null): VirtualMachineConfig = requireAvfPlatformApi {
@@ -424,9 +437,13 @@ class AospAvfPlatformDriver(
     private fun callback(boot: AvfGuestBoot, token: Any, instanceId: String): VirtualMachineCallback {
         val failureReported = AtomicBoolean(false)
         return object : VirtualMachineCallback {
-            override fun onPayloadStarted(vm: VirtualMachine) = Unit
+            override fun onPayloadStarted(vm: VirtualMachine) {
+                if (activeBoot.get() === token) dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.payload.started", instanceId)
+            }
 
-            override fun onPayloadReady(vm: VirtualMachine) = Unit
+            override fun onPayloadReady(vm: VirtualMachine) {
+                if (activeBoot.get() === token) dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.payload.ready", instanceId)
+            }
 
             override fun onPayloadFinished(vm: VirtualMachine, exitCode: Int) {
                 if (activeBoot.get() !== token) return

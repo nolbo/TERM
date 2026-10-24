@@ -1,8 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="avf_logs_title">AVF diagnostic logs</string>
+    <string name="avf_logs_summary">Manage AVF event logs and investigate errors.</string>
+    <string name="avf_logs_description">View app-collected diagnostics for VM startup and shutdown, session connections, shared folders, and image operations.</string>
+    <string name="avf_logs_recording">Record diagnostic logs</string>
+    <string name="avf_logs_recording_support">On by default. Changes apply immediately; turning it off keeps existing logs.</string>
+    <string name="avf_logs_retention">Keeps up to %1$d records and %2$d KiB on this device. Terminal input/output, file paths, and tokens are excluded.</string>
+    <string name="avf_logs_search">Search events or identifiers</string>
+    <string name="avf_logs_copy">Copy logs</string>
+    <string name="avf_logs_clear">Delete saved logs</string>
+    <string name="avf_logs_clear_confirmation">Delete all saved diagnostic logs? They cannot be recovered. Running VMs and sessions are unaffected.</string>
+    <string name="avf_logs_empty">No saved diagnostic logs. Refresh after the issue occurs.</string>
+    <string name="avf_logs_no_matches">No matching logs.</string>
+    <string name="avf_logs_read_failed">Could not read diagnostic logs. Try again.</string>
+    <string name="avf_logs_change_failed">Could not change recording or delete the logs. Try again.</string>
+    <string name="avf_logs_copy_failed">Could not copy the logs.</string>
     <string name="settings_diagnostics_title">Diagnostics and reports</string>
-    <string name="settings_diagnostics_summary">Compatibility, engine configuration, memory and crash records</string>
-    <string name="settings_diagnostics_description">Inspect runtime compatibility, engine configuration, device and app memory, and saved crash reports.</string>
+    <string name="settings_diagnostics_summary">Compatibility, memory, AVF logs and crash records</string>
+    <string name="settings_diagnostics_description">Inspect runtime compatibility, device and app memory, AVF diagnostic logs, and crash reports.</string>
     <string name="diagnostics_category_runtime">Runtimes</string>
     <string name="diagnostics_category_system">System</string>
     <string name="diagnostics_category_reports">Reports</string>

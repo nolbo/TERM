@@ -19,6 +19,7 @@ internal fun diagnosticsDestination(screen: String): Class<out TerminalActivity>
     "diagnostics-native" -> NativeDiagnosticsActivity::class.java
     "diagnostics-userspace", "rootless-info" -> UserspaceLinuxDiagnosticsActivity::class.java
     "diagnostics-avf" -> AvfLinuxDiagnosticsActivity::class.java
+    "avf-logs" -> AvfLogsActivity::class.java
     "diagnostics-memory" -> MemoryDiagnosticsActivity::class.java
     "crash-reports" -> CrashReportsActivity::class.java
     else -> null

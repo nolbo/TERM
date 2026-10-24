@@ -51,6 +51,8 @@ class DebianImageDownloadWorker(
         val generation = inputData.getLong(KEY_IMAGE_GENERATION, 0L)
         val operation = inputData.getString(KEY_OPERATION) ?: "install"
         if (operation !in setOf("install", "components", "rebase")) return@withContext failure("Invalid image operation")
+        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("image.work", storageId,
+            "${release.distribution.id}.$operation.attempt:$runAttemptCount")
         val target = runCatching {
             dev.terminal.runtime.session.SessionStorage.root(applicationContext.filesDir,
                 dev.terminal.runtime.session.SessionRuntime.AVF, storageId).toPath()
@@ -108,13 +110,16 @@ class DebianImageDownloadWorker(
                 is ImageInstallResult.Failed -> failure(installed.reason)
             }
         } catch (error: CancellationException) {
+            dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("image.cancelled", storageId)
             throw error
         } catch (error: java.io.IOException) {
             if (runAttemptCount < MAX_RETRIES) {
                 retryDownload = true
+                dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("image.retry", storageId, error = error)
                 Result.retry()
             } else failure(error.message ?: "Download failed")
         } catch (error: Exception) {
+            dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("image.failed", storageId, error = error)
             failure(error.message ?: "Image download failed")
         } finally {
             AvfImageDownloadStaging.finish(target, id, retryDownload, isStopped)
@@ -157,6 +162,11 @@ class DebianImageDownloadWorker(
 
     @Synchronized private fun report(phase: AvfImageInstallPhase, artifact: Int = 0, bytes: Long? = null, total: Long? = null) {
         checkCancellation()
+        if (lastProgress.getString(AvfImageInstallMonitor.KEY_PHASE) != phase.name ||
+            lastProgress.getInt(AvfImageInstallMonitor.KEY_ARTIFACT, 0) != artifact) {
+            dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("image.phase", inputData.getString(KEY_STORAGE_ID) ?: "legacy",
+                "${phase.name}.artifact:$artifact")
+        }
         val now = android.os.SystemClock.elapsedRealtime()
         if (lastProgress.getString(AvfImageInstallMonitor.KEY_PHASE) == phase.name &&
             lastProgress.getInt(AvfImageInstallMonitor.KEY_ARTIFACT, 0) == artifact &&
@@ -211,7 +221,11 @@ class DebianImageDownloadWorker(
         return ForegroundInfo(id.hashCode() and Int.MAX_VALUE, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC)
     }
 
-    private fun failure(message: String): Result = Result.failure(failureData(lastProgress, message))
+    private fun failure(message: String): Result {
+        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("image.failed", inputData.getString(KEY_STORAGE_ID),
+            lastProgress.getString(AvfImageInstallMonitor.KEY_PHASE))
+        return Result.failure(failureData(lastProgress, message))
+    }
 
     companion object {
         private const val KEY_RELEASE_ID = "release_id"

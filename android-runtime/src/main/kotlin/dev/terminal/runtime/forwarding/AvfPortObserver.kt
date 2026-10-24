@@ -42,6 +42,7 @@ class AvfPortObserver(
         agent = scope.launch(start = CoroutineStart.LAZY) {
             while (ready && canReconnect() && generation == currentGeneration) {
                 manager.link(environmentId, "CONNECTING"); changed()
+                dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("ports.connect", environmentId)
                 val transport = backend.connectGuestPortAgent().getOrNull()
                 if (transport != null) {
                     synchronized(this@AvfPortObserver) {
@@ -49,13 +50,17 @@ class AvfPortObserver(
                         connection = transport
                     }
                     retry.reset()
+                    dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("ports.connected", environmentId)
                     manager.link(environmentId, "CONNECTED"); changed()
                     try { PortAgentCollector { event -> synchronized(this@AvfPortObserver) {
                         if (generation == currentGeneration) manager.event(environmentId, event)
                     } }.collect(transport) }
                     catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
-                    catch (_: Exception) { /* A malformed frame or VM disconnect is contained here. */ }
+                    catch (error: Exception) {
+                        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("ports.read.failed", environmentId, error = error)
+                    }
                     finally {
+                        dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("ports.disconnected", environmentId)
                         runCatching { transport.close() }
                         synchronized(this@AvfPortObserver) { if (connection === transport) connection = null }
                         synchronized(this@AvfPortObserver) {

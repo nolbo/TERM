@@ -28,7 +28,8 @@ internal val diagnosticMenuCategories = listOf(
         "diagnostics-avf" to R.string.settings_avf_title,
     ),
     R.string.diagnostics_category_system to listOf("diagnostics-memory" to R.string.memory_diagnostics_title),
-    R.string.diagnostics_category_reports to listOf("crash-reports" to R.string.crash_reports_title),
+    R.string.diagnostics_category_reports to listOf("crash-reports" to R.string.crash_reports_title,
+        "avf-logs" to R.string.avf_logs_title),
 )
 
 @Composable
@@ -74,12 +75,15 @@ private fun RefreshRow(loading: Boolean, onRefresh: () -> Unit) {
 
 @Composable
 private fun DiagnosticPage(title: Int, description: Int, loading: Boolean, onBack: () -> Unit, onRefresh: () -> Unit,
-    sections: List<DiagnosticSection>) {
+    sections: List<DiagnosticSection>, onLogs: (() -> Unit)? = null) {
     SettingsPageScaffold(stringResource(title), onBack) { padding ->
         LazyColumn(Modifier.fillMaxSize().padding(padding), state = rememberLazyListState(),
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(20.dp)) {
             item { Guidance(description) }
             item { RefreshRow(loading, onRefresh) }
+            onLogs?.let { open -> item { SettingsGroup {
+                SettingsNavigationRow(stringResource(R.string.avf_logs_title), stringResource(R.string.avf_logs_summary), onClick = open)
+            } } }
             sections.forEach { section -> item {
                 Column {
                     Text(stringResource(section.title), Modifier.padding(start = 16.dp, bottom = 8.dp),
@@ -172,7 +176,8 @@ private fun avfReason(check: AvfCheck): String? {
 }
 
 @Composable
-internal fun AvfLinuxDiagnosticsScreen(info: AvfDiagnostics?, loading: Boolean, onBack: () -> Unit, onRefresh: () -> Unit) {
+internal fun AvfLinuxDiagnosticsScreen(info: AvfDiagnostics?, loading: Boolean, onBack: () -> Unit, onRefresh: () -> Unit,
+    onLogs: (() -> Unit)? = null) {
     DiagnosticPage(R.string.settings_avf_title, R.string.avf_diagnostics_description, loading, onBack, onRefresh,
         listOf(DiagnosticSection(R.string.avf_prerequisites, listOf(
             DiagnosticRow(R.string.avf_overall, avfStatus(info?.status)),
@@ -183,7 +188,7 @@ internal fun AvfLinuxDiagnosticsScreen(info: AvfDiagnostics?, loading: Boolean, 
             DiagnosticSection(R.string.avf_storage_sharing, AvfCondition.entries.filter { !it.required }.map { condition ->
                 val check = info?.checks?.singleOrNull { it.condition == condition }
                 DiagnosticRow(avfTitle(condition), avfStatus(check?.status), check?.let { avfReason(it) })
-            }, stringResource(R.string.avf_sharing_diagnostics_caveat))))
+            }, stringResource(R.string.avf_sharing_diagnostics_caveat))), onLogs)
 }
 
 @Composable

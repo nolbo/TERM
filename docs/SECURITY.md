@@ -240,6 +240,10 @@ anonymous socketpairs. Pair records are no-backup, bounded and atomically stored
 neither pairing-record APIs nor generic service connections are guest operations.
 This prevents API-level credential disclosure, not malicious same-UID access.
 
+## AVF diagnostic log boundary
+
+The non-exported log Activity only reads fixed app-private files; no intent-supplied path, runtime binding, privileged logcat access or guest command is accepted. Logging is enabled by default and can be disabled immediately across app processes without deleting history. Only metadata is recorded: timestamps, PID, stable identities, symbolic stages/status/exit codes and exception class names. Terminal input/output, commands, environment values, paths, URLs, exception messages and share tokens are excluded. Fields reject non-symbolic or oversized values, file reads and retention are bounded, and diagnostic I/O failures never interrupt runtime work. Disabled-period and pre-clear queued events are discarded. Copy places the filtered metadata on the Android clipboard only on explicit user action; deletion requires confirmation and does not stop VMs or sessions. Guest journals and console output are not collected.
+
 ## Native CLI resources and diagnostics
 
 The fixed Native CLI allowlist adds jq, curl, ssh, ssh-keygen, rg and vim; Git is
