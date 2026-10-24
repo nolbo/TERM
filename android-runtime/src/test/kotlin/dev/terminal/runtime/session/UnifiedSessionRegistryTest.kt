@@ -28,9 +28,96 @@ import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertNotSame
+import org.junit.Assert.assertSame
+import kotlinx.coroutines.yield
 import org.junit.Test
 
 class UnifiedSessionRegistryTest {
+    @Test fun capturedInputUsesOneLanePerEnvironmentAndNeverFollowsAReplacementController() = runBlocking {
+        val first = Environment.create(SessionRuntime.NATIVE, "First")
+        val second = Environment.create(SessionRuntime.NATIVE, "Second")
+        val controller = FakeController("native-a", extraIds = listOf("native-a2"))
+        val sibling = FakeController("native-b")
+        val inputEvents = mutableListOf<String>()
+        val registry = UnifiedSessionRegistry(onInput = { id, _ -> inputEvents += id })
+        try {
+            registry.register(first, controller); registry.register(second, sibling)
+            registry.list().getOrThrow()
+            val a = requireNotNull(registry.inputTarget("native-a"))
+            val a2 = requireNotNull(registry.inputTarget("native-a2"))
+            val b = requireNotNull(registry.inputTarget("native-b"))
+            assertSame(a.owner, a2.owner); assertNotSame(a.owner, b.owner)
+            registry.list().getOrThrow()
+            a.write(byteArrayOf(1)).getOrThrow()
+            assertEquals(1, controller.writeCount)
+            val replacement = FakeController("native-a", extraIds = listOf("native-a2"))
+            registry.register(first, replacement)
+            assertTrue(controller.closed)
+            assertTrue(a.write(byteArrayOf(2)).isFailure)
+            assertEquals(1, controller.writeCount); assertEquals(0, replacement.writeCount)
+            b.write(byteArrayOf(3)).getOrThrow()
+            assertEquals(1, sibling.writeCount)
+            val current = requireNotNull(registry.inputTarget("native-a"))
+            assertNotSame(a.owner, current.owner)
+            current.write(byteArrayOf(4)).getOrThrow()
+            registry.register(first, replacement)
+            assertSame(current.owner, requireNotNull(registry.inputTarget("native-a")).owner)
+            current.write(byteArrayOf(5)).getOrThrow()
+            assertEquals(2, replacement.writeCount)
+            assertEquals(listOf("native-a", "native-b", "native-a", "native-a"), inputEvents)
+        } finally { registry.close() }
+    }
+
+    @Test fun terminatedAndRecreatedSessionCannotReviveAnOldInputTarget() = runBlocking {
+        val registry = UnifiedSessionRegistry()
+        val owner = FakeController("native-reused")
+        try {
+            registry.register(SessionRuntime.NATIVE, owner)
+            assertNull(registry.inputTarget("native-unknown")) // No prefix-based fallback.
+            registry.list().getOrThrow()
+            val old = requireNotNull(registry.inputTarget("native-reused"))
+            // Even an owner reusing an ID for a new creation must get a new session lifetime.
+            registry.create(SessionRuntime.NATIVE, "/bin/sh", "/", rows = 24u, cols = 80u).getOrThrow()
+            assertTrue(old.write(byteArrayOf(1)).isFailure)
+            val current = requireNotNull(registry.inputTarget("native-reused"))
+            assertSame(old.owner, current.owner)
+            current.write(byteArrayOf(2)).getOrThrow()
+            owner.failTerminate = true
+            assertTrue(registry.terminate("native-reused", 9).isFailure)
+            current.write(byteArrayOf(3)).getOrThrow()
+            owner.failTerminate = false
+            registry.terminate("native-reused", 9).getOrThrow()
+            assertTrue(current.write(byteArrayOf(4)).isFailure)
+            assertNull(registry.inputTarget("native-reused"))
+            assertEquals(2, owner.writeCount)
+        } finally { registry.close() }
+    }
+
+    @Test fun exitDisconnectAndRegistryCloseInvalidateCapturedInputWithoutClosingSiblings() = runBlocking {
+        val registry = UnifiedSessionRegistry()
+        val owner = FakeController("native-exited", extraIds = listOf("native-kept"))
+        try {
+            registry.register(SessionRuntime.NATIVE, owner)
+            registry.list().getOrThrow()
+            val exited = requireNotNull(registry.inputTarget("native-exited"))
+            val kept = requireNotNull(registry.inputTarget("native-kept"))
+            owner.exit("native-exited")
+            withTimeout(5_000) { while (exited.isCurrent()) yield() }
+            assertTrue(exited.write(byteArrayOf(1)).isFailure)
+            assertNull(registry.inputTarget("native-exited"))
+            kept.write(byteArrayOf(2)).getOrThrow()
+            assertFalse(owner.closed)
+            owner.disconnect()
+            assertTrue(kept.write(byteArrayOf(3)).isFailure)
+            assertNull(registry.inputTarget("native-kept"))
+            registry.close()
+            assertTrue(kept.write(byteArrayOf(4)).isFailure)
+            assertEquals(1, owner.writeCount)
+        } finally { registry.close() }
+    }
+
     @Test fun environmentEditAndRenamePreserveExistingSessionAndFutureLaunchUsesNewOwner() = runBlocking {
         val metadata = EnvironmentRegistry(kotlin.io.path.createTempDirectory("session-environments").toFile())
         val first = Environment.create(SessionRuntime.NATIVE, "First")
@@ -560,6 +647,10 @@ class UnifiedSessionRegistryTest {
         override val events: SharedFlow<SessionEvent> = mutableEvents
         override val connectionState: StateFlow<SessionConnectionState> = mutableState
         fun disconnect() { mutableState.value = SessionConnectionState.DISCONNECTED }
+        suspend fun exit(sessionId: String) {
+            descriptors[sessionId] = descriptors.getValue(sessionId).copy(state = SessionStatus.EXITED, exitCode = 0)
+            mutableEvents.emit(SessionEvent.Exited(sessionId, 0))
+        }
         var writeCount = 0
         var detachCount = 0
         var createCount = 0

@@ -108,12 +108,9 @@ class VmRuntimeService : Service() {
     private val sessionResizeMutex = Mutex()
     private val latestResizeRequests = LatestSessionResizeRequests()
     @Volatile private var sessionClient: SessionController? = null
-    private val orderedSessionInput = OrderedSessionInput(scope) { id, bytes ->
-        runCatching {
-            val client = sessionClient ?: error("세션 런타임에 연결되어 있지 않습니다")
-            client.write(id, bytes).getOrThrow()
-        }.onFailure { notifyOperationError("입력 전송", it.userMessage()) }
-    }
+    // Native PTY writes may block: input must not occupy the runtime's CPU dispatcher.
+    private val orderedSessionInput = OrderedSessionInput(CoroutineScope(scope.coroutineContext + Dispatchers.IO),
+        onFailure = { _, failure -> notifyOperationError("입력 전송", failure.userMessage()) })
     private val guestRetry = ReconnectBackoff()
     private var wakeExpiryJob: Job? = null
     private var reconnectJob: Job? = null
@@ -1010,8 +1007,9 @@ class VmRuntimeService : Service() {
 
         override fun writeSessionInput(sessionId: String, bytes: ByteArray) {
             resetReconnectBackoff()
-            if (!orderedSessionInput.offer(sessionId, bytes)) {
-                notifyOperationError("입력 전송", "입력 대기열이 가득 찼거나 런타임이 종료되었습니다")
+            val target = (sessionClient as? UnifiedSessionRegistry)?.inputTarget(sessionId)
+            if (target == null || !orderedSessionInput.offer(target, bytes)) {
+                notifyOperationError("입력 전송", "입력 대기열이 가득 찼거나 세션 연결을 사용할 수 없습니다")
             }
         }
 
@@ -2141,6 +2139,7 @@ class VmRuntimeService : Service() {
     }
 
     private fun closeSessionClient() {
+        orderedSessionInput.close()
         terminalDeaths.forEach { (key, death) -> runCatching { key.second.unlinkToDeath(death, 0) } }
         terminalDeaths.clear()
         terminalSinks.values.forEach { it.close() }

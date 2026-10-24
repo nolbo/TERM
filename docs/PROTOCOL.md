@@ -201,6 +201,8 @@ implement the same header.
 
 ## Session payloads
 
+Host Binder keyboard/paste input pins the current controller and session lifetime before entering an Environment-specific FIFO. All sessions sharing a controller retain that FIFO order; a service-wide limit of 256 packets includes active writes. Queue overload or an unavailable destination is reported through the existing input-operation error callback. Old queued input cannot select a later controller or a recreated session, and failed writes are never automatically retried. Raw replay socket replacement retains the logical controller and does not change this input identity or the guest wire format.
+
 Android Binder clients select `NATIVE`, `ROOTLESS` (existing Debian identity),
 `ROOTLESS_UBUNTU`, `ROOTLESS_ARCH`, or `AVF` before session
 creation. The selection is host-local metadata and is not injected into the

@@ -39,7 +39,7 @@ class UnifiedSessionRegistry(
         spec.palette?.let(TerminalPalette::asProperties) ?: java.util.Properties()
     },
 ) : SessionController {
-    private data class Registration(val controller: SessionController, val jobs: List<Job>)
+    private data class Registration(val controller: SessionController, val jobs: List<Job>, val inputOwner: Any)
     private data class StorageKey(val runtime: SessionRuntime, val storageId: String = "legacy")
 
     private val controlStreams = ConcurrentHashMap<String, dev.terminal.emulator.KittyControlStream>()
@@ -58,6 +58,7 @@ class UnifiedSessionRegistry(
 
     private val registrations = ConcurrentHashMap<StorageKey, Registration>()
     private val owners = ConcurrentHashMap<String, StorageKey>()
+    private val inputSessions = ConcurrentHashMap<String, Any>()
     private val environments = ConcurrentHashMap<StorageKey, Environment>()
     private val launches = ConcurrentHashMap<String, SessionLaunchSpec>()
     private val lastKnownSessions = ConcurrentHashMap<StorageKey, List<SessionDescriptor>>()
@@ -76,7 +77,8 @@ class UnifiedSessionRegistry(
 
     fun register(runtime: SessionRuntime, controller: SessionController, storageId: String = "legacy") {
         val key = StorageKey(runtime, storageId)
-        registrations.remove(key)?.let { old ->
+        val previous = registrations.remove(key)
+        previous?.let { old ->
             old.jobs.forEach(Job::cancel)
             if (old.controller !== controller) old.controller.close()
         }
@@ -107,6 +109,7 @@ class UnifiedSessionRegistry(
                     }
                 } else {
                     if (event is SessionEvent.Exited) {
+                        inputSessions.remove(sessionId)
                         controlStreams.remove(sessionId)?.finish()?.takeIf { it.isNotEmpty() }?.let {
                             terminalStates.mutex.withLock { terminalStates.output(sessionId, it) }
                             mutableEvents.emit(SessionEvent.Output(sessionId, it))
@@ -126,7 +129,8 @@ class UnifiedSessionRegistry(
                 }
             }
         }
-        registrations[key] = Registration(controller, listOf(eventJob, stateJob))
+        val inputOwner = if (previous?.controller === controller) previous.inputOwner else Any()
+        registrations[key] = Registration(controller, listOf(eventJob, stateJob), inputOwner)
     }
 
     fun isRegistered(runtime: SessionRuntime, storageId: String = "legacy"): Boolean =
@@ -170,7 +174,7 @@ class UnifiedSessionRegistry(
                 val lost = (owners.filterValues { it == key }.keys + lastKnownSessions[key].orEmpty().map { it.id }).toList()
                 terminalStates.mutex.withLock { lost.forEach(terminalStates::remove) }
                 registrations.remove(key)
-                owners.entries.removeAll { it.value == key }
+                forgetOwners(key)
                 lost.forEach { launches.remove(it); controlStreams.remove(it); keyboardFlags.remove(it) }
                 environments.remove(key)
                 lastKnownSessions.remove(key)
@@ -180,13 +184,22 @@ class UnifiedSessionRegistry(
 
     private fun rememberSessions(key: StorageKey, current: List<SessionDescriptor>): List<SessionDescriptor> {
         val currentIds = current.mapTo(mutableSetOf()) { it.id }
-        owners.entries.removeAll { (id, owner) -> owner == key && id !in currentIds }
+        forgetOwners(key, currentIds)
         current.forEach {
-            owners[it.id] = key
+            val previous = owners.put(it.id, key)
+            if (it.state == dev.terminal.protocol.SessionStatus.EXITED) inputSessions.remove(it.id)
+            else if (previous != key) inputSessions[it.id] = Any()
+            else inputSessions.computeIfAbsent(it.id) { Any() }
             if (!launches.containsKey(it.id)) restoreLaunch(it.id)?.let { spec -> launches[it.id] = spec }
         }
         lastKnownSessions[key] = current
         return current
+    }
+
+    private fun forgetOwners(key: StorageKey, retained: Set<String> = emptySet()) {
+        owners.entries.removeAll { (id, owner) ->
+            if (owner == key && id !in retained) { inputSessions.remove(id); true } else false
+        }
     }
 
     /** Proves idleness from the owner, never a cached list, and excludes creation during commit.
@@ -221,7 +234,7 @@ class UnifiedSessionRegistry(
             val key = StorageKey(runtime, storageId)
             registrations.remove(key)?.jobs?.forEach(Job::cancel)
             environments.remove(key)
-            owners.entries.removeAll { it.value == key }
+            forgetOwners(key)
             lastKnownSessions.remove(key)
         }
         migrate()
@@ -236,7 +249,7 @@ class UnifiedSessionRegistry(
             }
             registrations.remove(key)?.jobs?.forEach(Job::cancel)
             environments.remove(key)
-            owners.entries.removeAll { it.value == key }
+            forgetOwners(key)
             lastKnownSessions.remove(key)
         }
         // Long filesystem/package work must not block listing other runtimes' sessions.
@@ -257,7 +270,7 @@ class UnifiedSessionRegistry(
                     entry.jobs.forEach(Job::cancel)
                     entry.controller.close()
                 }
-                owners.entries.removeAll { it.value == key }
+                forgetOwners(key)
                 removedIds.forEach(launches::remove)
                 environments.remove(key)
                 lastKnownSessions.remove(key)
@@ -307,6 +320,7 @@ class UnifiedSessionRegistry(
                 terminalStates.palette(created.id, palette)
                 if (key.runtime == SessionRuntime.AVF) controller.attach(created.id).getOrThrow()
                 owners[created.id] = key
+                inputSessions[created.id] = Any()
                 lastKnownSessions.compute(key) { _, sessions -> sessions.orEmpty().filterNot { it.id == created.id } + created }
             } } },
             onFailure = { Result.failure(it) },
@@ -362,12 +376,28 @@ class UnifiedSessionRegistry(
         if (sink != null) terminalStates.subscribe(sessionId, sink)
     }
     override suspend fun write(sessionId: String, bytes: ByteArray): Result<Int> = route(sessionId) { onInput(sessionId, bytes); it.write(sessionId, bytes) }
+
+    /** Captures the actual registration, never a runtime-prefix fallback or a future replacement. */
+    internal fun inputTarget(sessionId: String): SessionInputTarget? {
+        val key = owners[sessionId] ?: return null
+        val registration = registrations[key] ?: return null
+        val session = inputSessions[sessionId] ?: return null
+        val target = SessionInputTarget(registration.inputOwner, sessionId,
+            current = {
+                owners[sessionId] == key && registrations[key]?.inputOwner === registration.inputOwner &&
+                    inputSessions[sessionId] === session &&
+                    registration.controller.connectionState.value == SessionConnectionState.CONNECTED
+            },
+            deliver = { bytes -> onInput(sessionId, bytes); registration.controller.write(sessionId, bytes) })
+        return target.takeIf { it.isCurrent() }
+    }
     override suspend fun terminate(sessionId: String, signal: Int): Result<Unit> {
         val key = ownerKey(sessionId) ?: return Result.failure(NoSuchElementException("Session not found"))
         return controller(key).fold(
             onSuccess = { owner -> owner.terminate(sessionId, signal) },
             onFailure = { Result.failure(it) },
         ).onSuccess {
+            inputSessions.remove(sessionId)
             lastKnownSessions.computeIfPresent(key) { _, sessions -> sessions.filterNot { it.id == sessionId } }
             owners.remove(sessionId, key)
             launches.remove(sessionId)
@@ -411,6 +441,7 @@ class UnifiedSessionRegistry(
         terminalStates.clear()
         registrations.clear()
         owners.clear()
+        inputSessions.clear()
         environments.clear()
         launches.clear()
         lastKnownSessions.clear()
