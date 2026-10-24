@@ -162,7 +162,10 @@ internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirec
     }
 
     private fun retry(attempt: Int) {
-        try { Thread.sleep(longArrayOf(1_000, 2_000, 4_000, 8_000, 15_000)[attempt.coerceAtMost(4)]) }
+        // Startup retains its 50-second readiness budget; a long reconnect
+        // backoff must not skip a broker that becomes ready near that deadline.
+        val delay = if (!ready) 100L else longArrayOf(1_000, 2_000, 4_000, 8_000, 15_000)[attempt.coerceAtMost(4)]
+        try { Thread.sleep(delay) }
         catch (_: InterruptedException) { /* close wakes all owner workers. */ }
     }
     private fun record(event: String, error: Throwable? = null) { runCatching { report(event, error) } }
