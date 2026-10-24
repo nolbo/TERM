@@ -23,7 +23,11 @@ impl Default for SessionServer {
 impl SessionServer {
     pub fn serve_forever(&mut self, listener: VsockListener) -> Result<(), VsockError> {
         loop {
-            let connection = listener.accept()?;
+            let connection = match listener.accept() {
+                Ok(connection) => connection,
+                Err(VsockError::UntrustedPeer) => continue,
+                Err(error) => return Err(error),
+            };
             if let Err(error) = self.serve_connection(connection) {
                 eprintln!("droid-sessiond: client disconnected or request failed: {error:?}");
             }

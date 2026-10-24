@@ -7,6 +7,8 @@ import androidx.test.platform.app.InstrumentationRegistry
 import dev.terminal.protocol.SftpWire
 import dev.terminal.protocol.SftpWire.bytes
 import dev.terminal.protocol.SftpWire.text
+import dev.terminal.protocol.ReplayByteStream
+import dev.terminal.runtime.api.GuestByteStream
 import dev.terminal.runtime.storage.ScopedDirectory
 import dev.terminal.runtime.storage.ScopedSftpServer
 import dev.terminal.runtime.storage.SharedFolder
@@ -30,7 +32,7 @@ class PrivateShareBrokerDeviceTest {
         val root = Files.createTempDirectory(context.filesDir.canonicalFile.toPath(), "private-share-test-").toFile()
         try { work(root) } finally { ScopedDirectory.open(root).use { it.clear() }; root.delete() }
     }
-    private class Client(private val stream: ParcelFileDescriptorByteStream) : Closeable {
+    private class Client(private val stream: GuestByteStream) : Closeable {
         private val output = DataOutputStream(stream.output)
         private val input = DataInputStream(stream.input)
         private var sequence = 0
@@ -96,6 +98,55 @@ class PrivateShareBrokerDeviceTest {
             client.ok(13) { text("/Code/renamed") }
             assertFalse(File(root, "Code/renamed").exists())
         }
+    }
+
+    @Test fun socketReplacementKeepsRealSftpHandleAfterRename() = fixture { root ->
+        val host = ReplayByteStream()
+        val guest = ReplayByteStream()
+        val failure = AtomicReference<Throwable?>()
+        val server = Thread {
+            try { ScopedSftpServer(root).use { it.serve(host.input, host.output) } }
+            catch (error: Throwable) { failure.set(error) }
+        }.apply { start() }
+        fun connect(): GuestByteStream {
+            val pair = ParcelFileDescriptor.createSocketPair()
+            val left = ParcelFileDescriptorByteStream(pair[0])
+            val right = ParcelFileDescriptorByteStream(pair[1])
+            val attachError = AtomicReference<Throwable?>()
+            val attach = Thread {
+                try { host.attach(left.input, left.output) { left.close() } }
+                catch (error: Throwable) { attachError.set(error) }
+            }.apply { start() }
+            guest.attach(right.input, right.output) { right.close() }
+            attach.join(2_000)
+            assertFalse(attach.isAlive)
+            attachError.get()?.let { throw it }
+            return left
+        }
+        try {
+            val first = connect()
+            val stream = object : GuestByteStream {
+                override val input = guest.input
+                override val output = guest.output
+                override fun close() = guest.close()
+            }
+            Client(stream).use { client ->
+                val handle = client.open("held", 1 or 2 or 8 or 32)
+                client.ok(6) { text(handle); writeLong(0); bytes("before".toByteArray()) }
+                client.ok(200) { text("posix-rename@openssh.com"); text("held"); text("renamed") }
+                first.close()
+                connect()
+                client.ok(6) { text(handle); writeLong(6); bytes("-after".toByteArray()) }
+                assertEquals("before-after", client.read(handle, 100).decodeToString())
+                client.ok(4) { text(handle) }
+                assertEquals("before-after", File(root, "renamed").readText())
+                assertFalse(File(root, "held").exists())
+            }
+        } finally {
+            guest.close(); host.close(); server.join(3_000)
+            assertFalse(server.isAlive)
+        }
+        failure.get()?.let { throw AssertionError("Replay SFTP actor failed", it) }
     }
 
     @Test fun traversalSymlinksHardlinksAndMalformedPacketsCannotAlterOutsideData() = fixture { root ->

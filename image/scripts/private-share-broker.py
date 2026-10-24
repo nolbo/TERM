@@ -12,6 +12,11 @@ import subprocess
 import threading
 import time
 import uuid
+import importlib.util
+
+_recovery_spec = importlib.util.spec_from_file_location('term_share_recovery', Path(__file__).with_name('private-share-recovery.py'))
+_recovery = importlib.util.module_from_spec(_recovery_spec)
+_recovery_spec.loader.exec_module(_recovery)
 
 PORT = 40506
 ROOT = Path('/mnt/term-shares')
@@ -30,9 +35,9 @@ def exact(stream, size):
     return bytes(data)
 
 
-def manifest(stream):
+def manifest(stream, expected_version=1):
     version, count = struct.unpack('!HH', exact(stream, 4))
-    if version != 1 or not 1 <= count <= 128:
+    if version != expected_version or not 1 <= count <= 128:
         raise ValueError('invalid private share version/count')
     token = exact(stream, 16)
     folders, names = {}, set()
@@ -63,7 +68,7 @@ def mount_points():
             if ' - fuse.sshfs ' in line}
 
 
-class Broker:
+class Broker(_recovery.RecoveryBroker):
     def __init__(self):
         self.control = None
         self.token = None
@@ -73,10 +78,13 @@ class Broker:
         self.lock = threading.Lock()
         self.failed = threading.Event()
         self.failure_reason = None
+        self.init_recovery(ROOT, READY, manifest, mount_command, mount_points)
 
-    def fail(self, event, error):
+    def fail(self, event, error, terminate=True):
         with self.lock:
             if self.failure_reason is not None:
+                if terminate:
+                    self.failed.set()
                 return
             self.failure_reason = event
             record = {'event': event, 'error': type(error).__name__,
@@ -97,11 +105,16 @@ class Broker:
             except OSError:
                 pass  # journald still has the event if the guest disk is unavailable.
             finally:
-                self.failed.set()
+                if terminate:
+                    self.failed.set()
 
     def attach(self, stream):
         stream.settimeout(15)
         magic = exact(stream, 4)
+        if magic in (b'TSB2', b'TSF2'):
+            return self.attach_recoverable(stream, magic)
+        if self.version == 2:
+            raise ValueError('private sharing cannot downgrade owner generations')
         with self.lock:
             if magic == b'TSB1':
                 if self.control is not None:
@@ -135,9 +148,16 @@ class Broker:
                 raise ValueError('unsafe mount directory')
             path.mkdir(mode=0o700, exist_ok=True)
             os.chown(path, 1000, 1000)
+            # A previous v2 boot sealed the underlying inode as mode000.
+            # Only this new-boot coordinator may reopen it for mounting.
+            path.chmod(0o700)
+            if self.version == 2:
+                self.pin_mount(path)
         READY.unlink(missing_ok=True)
 
     def watch(self):
+        if self.version == 2:
+            return self.watch_recoverable()
         stage = 'share.mount.failed'
         try:
             deadline = time.monotonic() + 40
@@ -167,6 +187,7 @@ class Broker:
 
     def close(self):
         self.failed.set()
+        self.close_recovery()
         READY.unlink(missing_ok=True)
         for stream in self.streams + ([self.control] if self.control else []):
             try:
@@ -208,7 +229,11 @@ def serve():
             try:
                 broker.attach(stream)
             except Exception as error:
-                broker.fail('share.attach.failed', error)
+                broker.fail('share.attach.failed', error, terminate=broker.version != 2 or broker.token is None)
+                try:
+                    stream.sendall(b'\1')
+                except OSError:
+                    pass
                 stream.close()
         # FailureAction=poweroff stops this VM, preventing ownerless private mounts.
         raise RuntimeError('private share connection stopped')

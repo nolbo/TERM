@@ -104,7 +104,7 @@ def manifest(data, approved):
         raise ValueError('Manifest differs from the pinned catalog hash')
     values = properties(data)
     required = {'formatVersion', 'distribution', 'architecture'} | {key + '.sha256' for key in ARTIFACTS}
-    optional = {'aptInitializationVersion', 'packageInitializationVersion', 'virtiofsVersion', 'androidStorageVersion', 'shareBrokerVersion', 'maintenanceVersion'}
+    optional = {'aptInitializationVersion', 'packageInitializationVersion', 'virtiofsVersion', 'androidStorageVersion', 'shareBrokerVersion', 'maintenanceVersion', 'sessionResumeVersion'}
     if (not required <= set(values) or not set(values) <= required | optional
             or values['formatVersion'] not in ('1', '2')
             or (values['distribution'], values['architecture']) != (approved.get('id', 'debian-arm64-current').removesuffix('-arm64-current'), 'arm64')):
@@ -117,10 +117,12 @@ def manifest(data, approved):
         raise ValueError('Unsupported virtiofs version')
     if 'androidStorageVersion' in values and (values['androidStorageVersion'] != '1' or values.get('virtiofsVersion') != '1'):
         raise ValueError('Unsupported Android storage version')
-    if 'shareBrokerVersion' in values and values['shareBrokerVersion'] != '1':
+    if 'shareBrokerVersion' in values and values['shareBrokerVersion'] not in ('1', '2'):
         raise ValueError('Unsupported private share broker version')
     if 'maintenanceVersion' in values and values['maintenanceVersion'] != '1':
         raise ValueError('Unsupported guest maintenance version')
+    if 'sessionResumeVersion' in values and values['sessionResumeVersion'] != '1':
+        raise ValueError('Unsupported session resume version')
     if any(not re.fullmatch(r'[0-9a-f]{64}', values[key + '.sha256']) for key in ARTIFACTS):
         raise ValueError('Invalid artifact hash')
     return values
@@ -184,7 +186,7 @@ def verify_directory(root, metadata_only=False, expected_commit=None, expected_m
     if require_private_shares_boot:
         report = provenance.get('normalBootVerification') or {}
         boots = report.get('boots') or []
-        if (values.get('shareBrokerVersion') != '1' or report.get('mode') != 'normal-systemd'
+        if (values.get('shareBrokerVersion') not in ('1', '2') or report.get('mode') != 'normal-systemd'
                 or report.get('transport') != 'host-vsock' or report.get('network') != 'disabled'
                 or len(boots) != 2 or [boot.get('boot') for boot in boots] != [1, 2]
                 or any(boot.get('sessionListRpc') != 'passed' or boot.get('packageInitializationPort') != 'passed'
@@ -192,6 +194,11 @@ def verify_directory(root, metadata_only=False, expected_commit=None, expected_m
                 or boots[1].get('privateShareReadWrite') != 'passed'
                 or boots[1].get('privateShareOwnerLoss') != 'passed'):
             raise ValueError('Missing verified private-share normal-boot evidence')
+        if values.get('shareBrokerVersion') == '2' and any(
+                boots[1].get(key) != 'passed' for key in ('privateShareReconnect', 'privateShareGuard')):
+            raise ValueError('Missing verified private-share recovery evidence')
+        if values.get('sessionResumeVersion') == '1' and any(boot.get('sessionResume') != 'passed' for boot in boots):
+            raise ValueError('Missing verified session recovery evidence')
     if values['distribution'] != 'debian':
         profile = json.loads(Path(__file__).with_name('avf-distributions.json').read_text())[values['distribution']]
         if provenance.get('rootfs') != profile:

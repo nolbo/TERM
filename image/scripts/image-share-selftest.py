@@ -25,4 +25,16 @@ while time.monotonic() < deadline:
 else:
     raise TimeoutError('Host writes were not visible through FUSE')
 (root / 'guest-link').unlink()
+# Preserve an actual open FUSE/SFTP handle while the producer replaces both sockets.
+with (root / 'guest-held').open('w+b', buffering=0) as held:
+    held.write(b'before')
+    (root / 'guest-recovery-ready').write_text('ready\n')
+    deadline = time.monotonic() + 20
+    while not (root / 'host-reconnected').exists():
+        if time.monotonic() > deadline:
+            raise TimeoutError('Host did not reconnect private share')
+        time.sleep(0.1)
+    held.write(b'-after')
+    held.seek(0)
+    assert held.read() == b'before-after'
 (root / 'guest-finished').write_text('passed\n')

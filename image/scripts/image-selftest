@@ -37,6 +37,10 @@ modprobe virtiofs
 modprobe fuse
 command -v sshfs fusermount3 python3 setpriv >/dev/null
 test -x /usr/local/lib/droid/private-share-broker.py
+test -x /usr/local/lib/droid/private-share-transport.py
+test -x /usr/local/lib/droid/private-share-recovery.py
+test -x /usr/local/lib/droid/session-recovery.py
+systemctl --root=/ is-enabled --quiet term-session-recovery.service
 systemctl --root=/ is-enabled --quiet term-share-broker.service
 test "$(id -u droid)" -eq 1000
 test "$(id -g droid)" -eq 1000

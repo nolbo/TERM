@@ -19,6 +19,7 @@ object AvfGuestComponents {
         val installed = source(root, base) ?: return base
         // Kernel/initrd-dependent capabilities continue to come from the installed boot image.
         return base.copy(shareBrokerVersion = installed.shareBrokerVersion,
+            sessionResumeVersion = installed.sessionResumeVersion,
             packageInitializationVersion = installed.packageInitializationVersion)
     }
 

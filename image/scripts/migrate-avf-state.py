@@ -356,7 +356,7 @@ def main(operation):
         enabled = OLD / "etc/systemd/system/multi-user.target.wants"
         enabled.mkdir(parents=True, exist_ok=True)
         for name in ("droid-sessiond", "droid-agent", "droid-port-agent", "droid-apt-init", "droid-file-transfer",
-                     "term-shares", "term-share-broker", "term-android-storage"):
+                     "term-shares", "term-share-broker", "term-android-storage", "term-session-recovery"):
             target = enabled / (name + ".service")
             if not target.exists() and not target.is_symlink():
                 target.symlink_to("/etc/systemd/system/" + name + ".service")

@@ -77,10 +77,10 @@ class CatalogVerificationTests(unittest.TestCase):
 
     def test_private_share_broker_version_is_optional_and_unknown_versions_fail(self):
         current = (self.root / 'manifest.properties').read_bytes()
-        for version in [None, b'1', b'0', b'2']:
-            data = current.replace(b'shareBrokerVersion=1\n', b'' if version is None else b'shareBrokerVersion=' + version + b'\n')
+        for version in [None, b'1', b'2', b'0', b'3']:
+            data = current.replace(b'shareBrokerVersion=2\n', b'' if version is None else b'shareBrokerVersion=' + version + b'\n')
             approved = {'id': 'debian-arm64-current', 'manifestSha256': verifier.digest(data)}
-            if version in (None, b'1'):
+            if version in (None, b'1', b'2'):
                 verifier.manifest(data, approved)
             else:
                 with self.assertRaisesRegex(ValueError, 'share broker version'):
@@ -92,7 +92,10 @@ class CatalogVerificationTests(unittest.TestCase):
         provenance = json.loads((self.root / 'provenance.json').read_bytes())
         report = {'mode': 'normal-systemd', 'transport': 'host-vsock', 'network': 'disabled',
                   'boots': [{'boot': n, 'sessionListRpc': 'passed', 'packageInitializationPort': 'passed'} for n in [1, 2]]}
-        report['boots'][1].update(privateShareReadWrite='passed', privateShareOwnerLoss='passed')
+        report['boots'][1].update(privateShareReadWrite='passed', privateShareOwnerLoss='passed',
+                                  privateShareReconnect='passed', privateShareGuard='passed')
+        for boot in report['boots']:
+            boot['sessionResume'] = 'passed'
         provenance['normalBootVerification'] = report
         (self.root / 'provenance.json').write_text(json.dumps(provenance))
         self.refresh_checksums()

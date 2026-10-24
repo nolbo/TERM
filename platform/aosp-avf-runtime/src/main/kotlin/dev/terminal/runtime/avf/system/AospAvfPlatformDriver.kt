@@ -56,6 +56,8 @@ class AospAvfPlatformDriver(
     private var supportsVirtiofs = false
     private var supportsAndroidStorage = false
     private var supportsShareBroker = false
+    private var shareBrokerVersion = 0
+    private var sessionResumeVersion = 0
     private var rootDevice = "/dev/vda"
     private var rootMountMode = "ro"
     @Volatile private var machine: VirtualMachine? = null
@@ -90,7 +92,9 @@ class AospAvfPlatformDriver(
                     val capabilities = dev.terminal.image.AvfGuestComponents.effective(Paths.get(config.imageDirectory), verification.manifest)
                     supportsVirtiofs = capabilities.virtiofsVersion == 1
                     supportsAndroidStorage = capabilities.androidStorageVersion == 1
-                    supportsShareBroker = capabilities.shareBrokerVersion == 1
+                    shareBrokerVersion = capabilities.shareBrokerVersion
+                    sessionResumeVersion = capabilities.sessionResumeVersion
+                    supportsShareBroker = shareBrokerVersion in 1..2
                     if (config.avfMaintenance != null) {
                         require(!config.protectedVm && config.sharedFolders.isEmpty() && !config.enableInternalStorage)
                         require(verification.manifest.maintenanceVersion == 1) { "새 관리 기능을 포함한 이미지가 필요합니다." }
@@ -157,7 +161,7 @@ class AospAvfPlatformDriver(
                         // Merge the lease with an optional /sdcard export before VM run.
                         shareLeases.record(config.instanceId, config.sharedFolders.map { it.id }, shares?.artifact,
                             shares?.requiresStoragePermission == true)
-                        val owner = PrivateAvfShares(config.sharedFolders) { event, error ->
+                        val owner = PrivateAvfShares(config.sharedFolders, shareBrokerVersion) { event, error ->
                             dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(event, config.instanceId, error = error)
                         }
                         PrivateShareOwners.register(privateShareKey(config.instanceId), owner)
@@ -173,8 +177,9 @@ class AospAvfPlatformDriver(
                     "앱 전용 공유 연결의 소유자가 없습니다. VM을 중지한 뒤 다시 시작하세요."
                 }
                 if (!owner.shares.ready) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val deadline = SystemClock.elapsedRealtime() + 45_000
+                    val startupDeadline = SystemClock.elapsedRealtime() + 45_000
                     owner.shares.start {
+                        val deadline = if (shareBrokerVersion == 2) SystemClock.elapsedRealtime() + 5_000 else startupDeadline
                         var stream: GuestByteStream? = null
                         while (stream == null) {
                             check(SystemClock.elapsedRealtime() < deadline && machine === vm) { "앱 전용 공유 연결 시간이 초과되었습니다." }
@@ -186,7 +191,7 @@ class AospAvfPlatformDriver(
                 }
             }
             pendingSessionConnection.set(boot.awaitSessiond(BOOT_TIMEOUT_MS, GUEST_CONNECT_RETRY_MS) {
-                ParcelFileDescriptorFrameTransport(vm.connectVsock(DROID_SESSIOND_PORT), GUEST_CID_UNAVAILABLE)
+                sessionConnection(vm)
             })
             check(machine === vm) { "AVF stopped while connecting to the Linux session daemon" }
             Log.i(TAG, "vm.sessiond duration_ms=${SystemClock.elapsedRealtime() - bootStartedAt} reused=${!startedHere}")
@@ -289,8 +294,17 @@ class AospAvfPlatformDriver(
         val pending = mutex.withLock {
             pendingSessionConnection.getAndSet(null)
         }
-        return pending?.let { Result.success(it) } ?: connectGuestPort(DROID_SESSIOND_PORT)
+        return pending?.let { Result.success(it) } ?: runCatching {
+            sessionConnection(mutex.withLock { checkNotNull(machine) { "VM is not running" } })
+        }
     }
+
+    private fun sessionConnection(vm: VirtualMachine): GuestConnection = if (sessionResumeVersion == 1) {
+        dev.terminal.runtime.vsock.ResumableGuestConnection(GUEST_CID_UNAVAILABLE,
+            connect = { ParcelFileDescriptorByteStream(vm.connectVsock(40_507)) },
+            report = { event, error -> dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(
+                event, prepared?.instanceId, error = error) })
+    } else ParcelFileDescriptorFrameTransport(vm.connectVsock(DROID_SESSIOND_PORT), GUEST_CID_UNAVAILABLE)
 
     override suspend fun connectGuestBridge(): Result<GuestConnection> = connectGuestPort(DROID_AGENT_PORT)
     override suspend fun connectImageInitializer(): Result<GuestConnection> = connectGuestPort(40_503)

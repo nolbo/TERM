@@ -33,18 +33,40 @@ class AvfImageVerifierTest {
     }
 
     @Test fun privateSharingRequiresItsOwnVerifiedFeatureAndRejectsUnknownVersions() {
-        for (version in listOf(null, "1", "0", "2")) {
+        for (version in listOf(null, "1", "2", "0", "3")) {
             val root = Files.createTempDirectory("private-share-feature")
             try {
                 writeVerifiedImage(root)
                 version?.let { Files.writeString(root.resolve("manifest.properties"), "\nshareBrokerVersion=$it\n",
                     java.nio.file.StandardOpenOption.APPEND) }
                 val result = AvfImageVerifier.verify(root)
-                if (version == null || version == "1") assertEquals(if (version == null) 0 else 1,
+                if (version == null || version in setOf("1", "2")) assertEquals(version?.toInt() ?: 0,
                     (result as ImageVerification.Ready).manifest.shareBrokerVersion)
                 else assertTrue(result is ImageVerification.Invalid)
             } finally { root.toFile().deleteRecursively() }
         }
+    }
+
+    @Test fun componentReceiptSelectsRecoveryCapabilitiesWithoutReplacingBootCapabilities() {
+        val root = Files.createTempDirectory("base-capabilities")
+        val candidate = Files.createTempDirectory("recovery-capabilities")
+        try {
+            writeVerifiedImage(root); writeVerifiedImage(candidate)
+            val base = AvfImageVerifier.parse(root.resolve("manifest.properties"))
+            Files.writeString(candidate.resolve("manifest.properties"),
+                "\nshareBrokerVersion=2\nsessionResumeVersion=1\nvirtiofsVersion=1\n",
+                java.nio.file.StandardOpenOption.APPEND)
+            AvfGuestComponents.record(root, candidate)
+            val effective = AvfGuestComponents.effective(root, base)
+            assertEquals(2, effective.shareBrokerVersion)
+            assertEquals(1, effective.sessionResumeVersion)
+            assertEquals(base.virtiofsVersion, effective.virtiofsVersion)
+            for (version in listOf("0", "2")) {
+                Files.writeString(candidate.resolve("manifest.properties"), "\nsessionResumeVersion=$version\n",
+                    java.nio.file.StandardOpenOption.APPEND)
+                assertTrue(AvfImageVerifier.verify(candidate) is ImageVerification.Invalid)
+            }
+        } finally { root.toFile().deleteRecursively(); candidate.toFile().deleteRecursively() }
     }
     @Test fun androidStorageRequiresItsOwnSupportedMarkerAndVirtiofs() {
         for (features in listOf("", "virtiofsVersion=1\n", "androidStorageVersion=1\n", "virtiofsVersion=1\nandroidStorageVersion=1\n",

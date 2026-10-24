@@ -2,6 +2,7 @@ import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
+import threading
 from unittest import mock
 
 REPO = Path(__file__).resolve().parents[2]
@@ -92,19 +93,26 @@ class NormalSystemdBootTests(unittest.TestCase):
                 probe.verify_files(process)
             (probe.root / 'guest-renamed').write_bytes(bytes(range(256)) * 1024)
             (probe.root / 'guest-finished').write_text('passed\n')
+            (probe.root / 'guest-held').write_bytes(b'before-after')
             probe.verify_files(process)
             self.assertEqual(b'host-update\n', (probe.root / 'host-created').read_bytes())
 
-    def test_owner_loss_probe_disconnects_only_control_and_requires_clean_guest_exit(self):
+    def test_owner_loss_probe_requires_live_vm_and_denied_shadow_writes(self):
         probe = object.__new__(boot.PrivateShareProbe)
         control, data = mock.Mock(), mock.Mock()
         probe.control, probe.data = control, data
-        process = mock.Mock(); process.returncode = 1
-        with self.assertRaisesRegex(RuntimeError, 'shut down cleanly'):
-            probe.verify_owner_loss(process)
+        probe.stopped, probe.control_lock = threading.Event(), threading.Lock()
+        probe.replay = mock.Mock()
+        process = mock.Mock(); process.poll.return_value = None
+        session = mock.Mock()
+        session.run.side_effect = [b'VM_ALIVE'] * 7 + [b'GUARD_OK']
+        with tempfile.TemporaryDirectory() as directory, mock.patch.object(boot.time, 'sleep'):
+            probe.root = Path(directory)
+            probe.verify_owner_loss(process, session)
         control.close.assert_called_once()
         data.close.assert_not_called()
-        process.wait.assert_called_once_with(timeout=30)
+        process.wait.assert_not_called()
+        self.assertEqual(8, session.run.call_count)
 
     def test_private_probe_waits_for_completion_contents_after_sftp_creates_the_file(self):
         for incomplete in ('', 'pass'):
@@ -113,6 +121,7 @@ class NormalSystemdBootTests(unittest.TestCase):
                 probe.root = Path(temporary)
                 process = mock.Mock(); process.poll.return_value = None
                 finished = probe.root / 'guest-finished'
+                (probe.root / 'guest-held').write_bytes(b'before-after')
                 finished.write_text(incomplete)
                 with mock.patch.object(boot.time, 'sleep', side_effect=lambda _: finished.write_text('passed\n')) as wait:
                     probe.verify_files(process)

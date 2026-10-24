@@ -498,7 +498,58 @@ The app-private `deleteEmptyTemporaryWorkspace(workspaceId)` method is appended 
 
 ## Explicit guest file copies (TFT1)
 
-Live app-private mounts are independent of TFT1. `shareBrokerVersion=1` and `term.share-broker=1` enable host-initiated streams to guest vsock 40506 (host CID 2 only). The control stream begins big-endian u32 `0x54534231` (TSB1), u16 version 1, u16 folder count 1..128, 16 random token bytes, then each raw 16-byte UUID, u8 name byte count 1..64 and ASCII name. Existing name validation applies; identities/names must be unique and the complete manifest is validated before creating mount directories. The guest replies u8 zero to accept. The host opens one stream per folder with u32 `0x54534631` (TSF1), the same 16-byte token and that UUID. After guest u8 zero, this stream becomes SFTP v3 over the existing duplex transport; no SSH handshake or TCP listener exists. The guest runs passive SSHFS and sends a second zero on the control stream only when every expected FUSE mount is present and its root responds. Startup is bounded by host 50-second and guest 40-second readiness deadlines. Control EOF or failed data clients power off this VM; reconnect requires a new boot.
+Live app-private mounts are independent of TFT1. `shareBrokerVersion=1` and `term.share-broker=1` enable host-initiated streams to guest vsock 40506 (host CID 2 only). The control stream begins big-endian u32 `0x54534231` (TSB1), u16 version 1, u16 folder count 1..128, 16 random token bytes, then each raw 16-byte UUID, u8 name byte count 1..64 and ASCII name. Existing name validation applies; identities/names must be unique and the complete manifest is validated before creating mount directories. The guest replies u8 zero to accept. The host opens one stream per folder with u32 `0x54534631` (TSF1), the same 16-byte token and that UUID. After guest u8 zero, this stream becomes SFTP v3 over the existing duplex transport; no SSH handshake or TCP listener exists. The guest runs passive SSHFS and sends a second zero on the control stream only when every expected FUSE mount is present and its root responds. Startup is bounded by host 50-second and guest 40-second readiness deadlines. In v1, control EOF or failed data clients power off this VM; reconnect requires a new boot.
+
+### Recoverable shared folders and sessions
+
+`shareBrokerVersion=2` opts into TSB2/version 2 and TSF2, with the same manifest,
+token and UUID fields. A replacement control connection must match this boot's
+entire manifest and owner token. TSB2 appends u8 create (1) or resume (0) after
+the complete manifest; TSF2 appends it after the folder UUID. Resume never creates
+a missing owner/folder generation. After acceptance/readiness, opcode 1 refreshes
+the 60-second owner lease; its response is u8 zero, u16 revoked-folder count,
+then those UUIDs. The host refreshes every five seconds. Opcode 3 plus a UUID
+revokes that folder; opcode 2 revokes the owner. Both return u8 zero. Data status
+1 rejects a revoked or mismatched generation; zero starts TRS2. Reconnection
+retains the same SSHFS process and scoped SFTP handles, without remounting.
+
+TRS2 is a bounded duplex byte stream. All integers are big endian. Its handshake
+is four bytes `TRS2`, u32 receive capacity (1..262144), u64 received offset and
+u64 consumed offset. Offsets are limited to signed 64-bit range. Received means
+buffered; consumed releases sender credit. A peer must report
+`retained-base <= consumed <= received <= produced`; a lost generation is an
+error, never a new application request. Frames are u8 kind, u64 offset, u32 size
+and payload. Kind 1 carries 1..32768 data bytes; duplicates below the received
+offset are discarded, gaps and credit violations reject the link. Kind 2 has
+size zero and acknowledges consumption. Kind 3 has offset/size zero and is an
+idle five-second heartbeat; an unresponsive link is replaced after 20 seconds.
+Each direction retains at most 256 KiB per stream. Full windows backpressure
+their producer; bytes and file operations are never silently dropped/reissued.
+
+An isolated data link that remains disconnected for 60 seconds also revokes only
+that folder, even while the control lease is healthy. After mount readiness,
+root pins and seals each underlying mount directory as
+root-owned mode 000. A v2 lease expiry or failed folder actor closes its relay
+and SSHFS process, preserving a failed FUSE mount where possible. Even after an
+explicit unmount, unprivileged writes cannot fall through to a local shadow
+directory. Proven guards permit the VM and its sessions to continue. Startup or
+guard-proof failure retains the VM-fatal policy. Durable host deletion leases
+still require verified VM stop and stopped host I/O.
+
+`sessionResumeVersion=1` enables the host-CID-only session relay on 40507.
+`TSR1` plus a random 16-byte process-owner token and u8 create (1) or resume (0)
+receives status zero, followed by TRS2; a different live owner receives status 1.
+Resume without a retained generation receives status 2 and must close the host
+stream. This prevents re-executing unacknowledged input after proxy death even
+when the sender has not received its first consumption ACK. The relay retains one
+root-authenticated Unix connection to sessiond (`SO_PEERCRED` UID 0), using the
+unchanged session-v1 frames. The host retains its protocol client and emulator
+while replacing only the raw socket, with a 60-second recovery budget. Guest
+relay state expires after 60 seconds without a link. Legacy 40500 remains
+available. Buffer saturation intentionally backpressures PTYs. No state is
+persisted across host/proxy/sessiond death, and no historical input is retried
+as a new RPC. An operation timing out after transmission has an unknown result;
+reconnection does not authorize retrying that operation.
 
 Each host stream is bound to one pinned directory. SFTP absolute paths mean that export root; parent traversal, invalid UTF-8/NUL and oversized paths are rejected. Packets are at most 256 KiB and file data requests 128 KiB, with 128 handles per stream, 256 global handles, four concurrent host operations and 256 global folder streams. SFTP v3 ordinary file/directory operations plus `posix-rename@openssh.com=1`, `fsync@openssh.com=1` and `statvfs@openssh.com=2` are supported. New-link requests follow OpenSSH's target-first order. Symlink targets are literal guest paths; the host never follows them. File UID/GID maps to 1000 and host paths/errors are not returned. Special files, hardlinked content and ownership changes to other IDs are refused. Cross-runtime advisory locks and hardlink creation are unsupported. SFTP v3 timestamps have seconds precision. Unlike TFT1, live I/O has no whole-file 64 MiB/two-minute limit.
 

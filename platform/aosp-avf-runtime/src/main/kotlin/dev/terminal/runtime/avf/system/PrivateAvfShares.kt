@@ -13,18 +13,21 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /** A boot-owned control stream and one scoped SFTP stream per folder. No Android storage grant. */
 internal class PrivateAvfShares(private val folders: List<SharedDirectoryExport>,
+    version: Int = 1,
     private val report: (String, Throwable?) -> Unit = { event, error ->
         dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(event, error = error)
     }) : Closeable {
+    private val recovery = if (version == 2) RecoverablePrivateAvfShares(folders, report) else null
     private val closed = AtomicBoolean()
     private val failureReported = AtomicBoolean()
     private val streams = CopyOnWriteArrayList<GuestByteStream>()
     private val workers = CopyOnWriteArrayList<Thread>()
     @Volatile private var acquired = false
-    @Volatile var ready = false
-        private set
+    @Volatile private var legacyReady = false
+    val ready get() = recovery?.ready ?: legacyReady
 
     fun start(connect: () -> GuestByteStream) {
+        recovery?.let { it.start(connect); return }
         val timeout = WATCHDOG.schedule({
             failed("share.start.timeout", null)
             runCatching { close() }
@@ -70,7 +73,7 @@ internal class PrivateAvfShares(private val folders: List<SharedDirectoryExport>
         }
         check(control.input.read() == 0) { "Guest private share mounts did not become ready" }
         check(!closed.get() && workers.all(Thread::isAlive)) { "Private share connection was lost" }
-        ready = true
+        legacyReady = true
         runCatching { report("share.ready", null) }
     }
 
@@ -96,6 +99,7 @@ internal class PrivateAvfShares(private val folders: List<SharedDirectoryExport>
     }
 
     @Synchronized override fun close() {
+        recovery?.let { it.close(); return }
         if (!closed.get()) runCatching { report("share.close", null) }
         closed.set(true)
         streams.forEach { runCatching { it.close() } }
@@ -108,7 +112,7 @@ internal class PrivateAvfShares(private val folders: List<SharedDirectoryExport>
         check(workers.none(Thread::isAlive)) { "Private share I/O has not stopped; folder leases retained" }
         if (acquired) { acquired = false; STREAMS.release(folders.size) }
     }
-    private companion object {
+    internal companion object {
         val STREAMS = Semaphore(256)
         val WATCHDOG = Executors.newSingleThreadScheduledExecutor { task -> Thread(task, "avf-share-timeout").apply { isDaemon = true } }
     }

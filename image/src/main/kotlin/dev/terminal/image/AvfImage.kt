@@ -22,6 +22,7 @@ data class AvfImageManifest(
     val packageInitializationVersion: Int = 0,
     val shareBrokerVersion: Int = 0,
     val maintenanceVersion: Int = 0,
+    val sessionResumeVersion: Int = 0,
 ) {
     /** v1: overlay upper/work on home.img; v2: complete writable ext4 root on home.img. */
     val usesExt4Root: Boolean get() = formatVersion == 2
@@ -166,11 +167,15 @@ object AvfImageVerifier {
                 1
             } ?: 0,
             shareBrokerVersion = getProperty("shareBrokerVersion")?.let {
-                require(it == "1") { "Unsupported private share broker version" }
-                1
+                require(it in setOf("1", "2")) { "Unsupported private share broker version" }
+                it.toInt()
             } ?: 0,
             maintenanceVersion = getProperty("maintenanceVersion")?.let {
                 require(it == "1") { "Unsupported guest maintenance version" }
+                1
+            } ?: 0,
+            sessionResumeVersion = getProperty("sessionResumeVersion")?.let {
+                require(it == "1") { "Unsupported session resume version" }
                 1
             } ?: 0,
         )

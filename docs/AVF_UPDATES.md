@@ -1,5 +1,16 @@
 # AVF guest and image updates
 
+Recovery images add userspace capabilities `shareBrokerVersion=2` and
+`sessionResumeVersion=1`. A verified component update installs both replay
+helpers, the resumable session service and sessiond's root-authenticated Unix
+endpoint, and enables the new service for the next normal boot. The component
+receipt selects these capability versions; kernel/initrd capabilities still
+come from the base image. Update only a stopped Environment through the existing
+copy/health/activation transaction. Updating the APK alone does not retrofit a
+running or old guest. Unchanged kernel hashes permit component updates; a kernel
+change retains the full-transition rules below. Replay state is process-local
+and is never migrated as persistent input/output history.
+
 ## Decision and compatibility
 
 Format v1 `home.img` contains the root OverlayFS upper/work trees. Format v2

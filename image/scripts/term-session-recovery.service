@@ -1,0 +1,15 @@
+[Unit]
+Description=TERM resumable host-only session transport
+After=droid-sessiond.service
+Requires=droid-sessiond.service
+
+[Service]
+ExecStart=/usr/bin/python3 /usr/local/lib/droid/session-recovery.py
+Restart=on-failure
+RestartSec=2
+User=root
+UMask=0077
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=multi-user.target

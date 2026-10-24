@@ -32,6 +32,10 @@ COPY image/scripts/configure-avf-shares.sh /payload/configure-avf-shares.sh
 COPY image/scripts/mount-shared-directories.sh /payload/mount-shared-directories.sh
 COPY image/scripts/term-shares.service /payload/term-shares.service
 COPY image/scripts/private-share-broker.py /payload/private-share-broker.py
+COPY image/scripts/private-share-recovery.py /payload/private-share-recovery.py
+COPY image/scripts/private-share-transport.py /payload/private-share-transport.py
+COPY image/scripts/session-recovery.py /payload/session-recovery.py
+COPY image/scripts/term-session-recovery.service /payload/term-session-recovery.service
 COPY image/scripts/term-share-broker.service /payload/term-share-broker.service
 COPY image/scripts/image-share-selftest.py /payload/image-share-selftest.py
 COPY image/scripts/term-share-selftest.service /payload/term-share-selftest.service

@@ -18,6 +18,11 @@ import tempfile
 import threading
 import time
 import uuid
+import importlib.util
+
+spec = importlib.util.spec_from_file_location('smoke_recovery', Path(__file__).with_name('smoke-avf-recovery.py'))
+recovery = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(recovery)
 
 HEADER = struct.Struct('>IHBBHHQI')
 MAGIC = 0x44505459
@@ -77,6 +82,13 @@ class PrivateShareProbe:
     the guest only a disposable bind mount, no host tree, network or credentials.
     """
     def __init__(self, cid, docker_image, scratch, process, deadline):
+        self.cid = cid
+        self.token, self.identity = secrets.token_bytes(16), uuid.uuid4().bytes
+        self.replay = recovery.transport.ReplayStream()
+        self.control_lock = threading.Lock()
+        self.stopped = threading.Event()
+        self.heartbeat = None
+        self.data_established = False
         self.control = None
         self.data = None
         self.server = None
@@ -100,17 +112,10 @@ class PrivateShareProbe:
             if self.control is None:
                 raise TimeoutError('Guest private share coordinator did not listen')
             self.control.settimeout(50)
-            token, identity = secrets.token_bytes(16), uuid.uuid4().bytes
-            self.control.sendall(b'TSB1' + struct.pack('!HH', 1, 1) + token + identity + b'\x05Smoke')
+            self.control.sendall(b'TSB2' + struct.pack('!HH', 2, 1) + self.token + self.identity + b'\x05Smoke\1')
             if receive_exact(self.control, 1) != b'\0':
                 raise RuntimeError('Guest rejected private share fixture')
-            self.data = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
-            self.data.settimeout(10)
-            self.data.connect((cid, 40506))
-            self.data.sendall(b'TSF1' + token + identity)
-            if receive_exact(self.data, 1) != b'\0':
-                raise RuntimeError('Guest rejected private SFTP stream')
-            self.data.settimeout(None)
+            self.connect_data()
             command = ['docker', 'run', '--rm', '-i', '--network', 'none', '--read-only',
                        '--cap-drop', 'ALL', '--security-opt', 'no-new-privileges',
                        '--user', f'1000:{os.getgid()}', '-v', f'{self.root}:/export:rw',
@@ -122,16 +127,18 @@ class PrivateShareProbe:
                 worker.start()
             if receive_exact(self.control, 1) != b'\0':
                 raise RuntimeError('Guest private FUSE mount was not ready')
+            self.heartbeat = threading.Thread(target=self.keep_owner, daemon=True)
+            self.heartbeat.start()
         except Exception:
             self.close()
             raise
 
     def to_server(self):
         try:
-            while data := self.data.recv(128 * 1024):
+            while data := self.replay.read(32 * 1024):
                 self.server.stdin.write(data)
                 self.server.stdin.flush()
-        except (OSError, ValueError):
+        except (OSError, EOFError, ValueError):
             pass
         finally:
             try:
@@ -142,9 +149,43 @@ class PrivateShareProbe:
     def to_guest(self):
         try:
             while data := self.server.stdout.read1(128 * 1024):
-                self.data.sendall(data)
-        except (OSError, ValueError):
+                self.replay.write(data)
+        except (OSError, EOFError, ValueError):
             pass
+
+    def connect_data(self):
+        self.data = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
+        self.data.settimeout(10)
+        self.data.connect((self.cid, 40506))
+        self.data.sendall(b'TSF2' + self.token + self.identity + bytes([0 if self.data_established else 1]))
+        assert receive_exact(self.data, 1) == b'\0'
+        self.replay.attach(self.data)
+        self.data_established = True
+
+    def keep_owner(self):
+        while not self.stopped.wait(5):
+            with self.control_lock:
+                if self.control is None:
+                    return
+                try:
+                    self.control.sendall(b'\1')
+                    assert receive_exact(self.control, 3) == b'\0\0\0'
+                except (OSError, EOFError):
+                    return
+
+    def reconnect(self):
+        with self.control_lock:
+            recovery.transport.shutdown(self.control)
+            self.control = None
+            self.replay.detach(self.replay.connection)
+            time.sleep(2)
+            self.control = socket.socket(socket.AF_VSOCK, socket.SOCK_STREAM)
+            self.control.settimeout(10)
+            self.control.connect((self.cid, 40506))
+            self.control.sendall(b'TSB2' + struct.pack('!HH', 2, 1) + self.token + self.identity + b'\x05Smoke\0')
+            assert receive_exact(self.control, 2) == b'\0\0'
+            self.connect_data()
+            (self.root / 'host-reconnected').write_text('ready\n')
 
     def verify_files(self, process):
         deadline = time.monotonic() + 30
@@ -152,25 +193,39 @@ class PrivateShareProbe:
             if (self.root / 'guest-ready').exists():
                 assert (self.root / 'guest-renamed').read_bytes() == bytes(range(256)) * 1024
                 (self.root / 'host-created').write_bytes(b'host-update\n')
+            if (self.root / 'guest-recovery-ready').exists() and not (self.root / 'host-reconnected').exists():
+                self.reconnect()
             # SFTP creates the file before its write arrives. Require the full
             # completion record within the existing deadline, not just its inode.
             finished = self.root / 'guest-finished'
             if finished.exists() and finished.read_text() == 'passed\n':
                 assert not (self.root / 'guest-link').exists()
+                assert (self.root / 'guest-held').read_bytes() == b'before-after'
                 return
             time.sleep(0.1)
         raise RuntimeError('Guest FUSE read/write/rename/symlink/host-update probe failed')
 
-    def verify_owner_loss(self, process):
-        self.control.shutdown(socket.SHUT_RDWR)
-        self.control.close()
-        self.control = None
-        # Closing only control must power off this disposable VM.
-        process.wait(timeout=30)
-        if process.returncode != 0:
-            raise RuntimeError('Guest did not shut down cleanly after private owner loss')
+    def verify_owner_loss(self, process, session):
+        self.stopped.set()
+        with self.control_lock:
+            recovery.transport.shutdown(self.control)
+            self.control = None
+        for _ in range(7):
+            time.sleep(10)
+            assert process.poll() is None, 'Share owner loss stopped the VM'
+            assert b'VM_ALIVE' in session.run('printf VM_ALIVE')
+        # Failed FUSE must deny I/O; even an explicit unmount must not expose a writable shadow tree.
+        import shlex
+        check = ("import os,subprocess; p='/mnt/term-shares/Smoke'; "
+                 "subprocess.run(['fusermount3','-u',p],check=False); "
+                 "s=os.stat(p); assert s.st_uid==0 and s.st_mode & 0o777==0; "
+                 "exec(\"try:\\n open(p+'/shadow','w')\\nexcept PermissionError:\\n print('GUARD_OK')\\nelse:\\n raise AssertionError('writable shadow')\")")
+        assert b'GUARD_OK' in session.run('python3 -c ' + shlex.quote(check) + '; sync')
+        assert not (self.root / 'shadow').exists()
 
     def close(self):
+        self.stopped.set()
+        self.replay.close()
         for connection in [self.control, self.data]:
             if connection is not None:
                 try:
@@ -193,7 +248,7 @@ def boot(directory, state, docker_image, scratch, number, timeout=600):
     cid = secrets.randbelow(2 ** 31 - 1024) + 1024
     cidfile = scratch / f'boot-{number}.container'
     console = scratch / f'boot-{number}.log'
-    parameters = BOOT_PARAMS + (' term.share-broker=1 term.share-selftest=1' if number == 2 else '')
+    parameters = BOOT_PARAMS + ' term.share-broker=1 term.share-selftest=1'
     command = ['docker', 'run', '--rm', '--network', 'none', '--device', '/dev/vhost-vsock',
                '--entrypoint', 'qemu-system-aarch64',
                '--cidfile', str(cidfile), '-v', f'{directory}:/images:ro', '-v', f'{state.parent}:/state',
@@ -213,9 +268,10 @@ def boot(directory, state, docker_image, scratch, number, timeout=600):
         process = subprocess.Popen(command, stdin=subprocess.DEVNULL, stdout=output, stderr=subprocess.STDOUT)
         sharing = None
         try:
-            if number == 2:
-                sharing = PrivateShareProbe(cid, docker_image, scratch, process, started + timeout)
-                sharing.verify_files(process)
+            fixture = scratch / f'probe-{number}'
+            fixture.mkdir()
+            sharing = PrivateShareProbe(cid, docker_image, fixture, process, started + timeout)
+            sharing.verify_files(process)
             while pending and process.poll() is None and time.monotonic() - started < timeout:
                 for port in sorted(pending):
                     try:
@@ -233,9 +289,16 @@ def boot(directory, state, docker_image, scratch, number, timeout=600):
                 raise RuntimeError(f'Normal systemd boot {number} did not serve vsock ports {sorted(pending)}; last error: {last_error}')
             result = {'boot': number, 'seconds': round(time.monotonic() - started, 2),
                       'sessionListRpc': 'passed', 'packageInitializationPort': 'passed'}
-            if sharing is not None:
-                sharing.verify_owner_loss(process)
-                result.update(privateShareReadWrite='passed', privateShareOwnerLoss='passed')
+            session = recovery.SessionProbe(cid)
+            try:
+                session.verify_reconnect()
+                result.update(sessionResume='passed')
+                if sharing is not None:
+                    sharing.verify_owner_loss(process, session)
+                    result.update(privateShareReadWrite='passed', privateShareOwnerLoss='passed',
+                                  privateShareReconnect='passed', privateShareGuard='passed')
+            finally:
+                session.close()
             return result
         except Exception:
             print(console.read_bytes()[-12000:].decode(errors='replace'), flush=True)
