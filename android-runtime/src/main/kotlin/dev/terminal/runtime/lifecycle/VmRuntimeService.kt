@@ -21,6 +21,10 @@ import dev.terminal.runtime.api.RuntimeState
 import dev.terminal.runtime.api.StopMode
 import dev.terminal.runtime.api.connectSessionClient
 import dev.terminal.runtime.api.RuntimeBackend
+import dev.terminal.runtime.avf.AvfBackend
+import dev.terminal.runtime.avf.AvfPlatformEvent
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import dev.terminal.runtime.native.NativeBackend
 import dev.terminal.runtime.rootless.RootlessDebianBackend
 import dev.terminal.runtime.rootless.RootlessDistribution
@@ -120,6 +124,9 @@ class VmRuntimeService : Service() {
     private lateinit var usbBroker: dev.terminal.runtime.usb.UsbBroker
     private val guestWorkEnvironments = ConcurrentHashMap.newKeySet<EnvironmentId>()
     private val bridgeObservers = ConcurrentHashMap<EnvironmentId, AvfBridgeObserver>()
+    private val avfOwnerObservers = ConcurrentHashMap<EnvironmentId, Pair<AvfBackend, Job>>()
+    private data class AvfConnectionIssue(val message: String, val requiresNewBoot: Boolean)
+    private val avfConnectionIssues = ConcurrentHashMap<EnvironmentId, AvfConnectionIssue>()
     private val localServices by lazy {
         val preferences = getSharedPreferences("local-services", MODE_PRIVATE)
         dev.terminal.runtime.forwarding.LocalServiceManager(
@@ -677,6 +684,7 @@ class VmRuntimeService : Service() {
                                 owner?.stop(StopMode.GRACEFUL)?.getOrThrow()
                                 release()
                                 clearEnvironmentStart(environment.id)
+                                avfConnectionIssues.remove(environment.id)
                             }
                         }
                         "INSTALL", "REPAIR" -> installRootlessEnvironment(environment, client)
@@ -1194,6 +1202,7 @@ class VmRuntimeService : Service() {
                     try {
                         listener.onSessionsChanged(snapshot.revision, sessions)
                         focus?.let { listener.onSessionFocusRequested(it) }
+                        avfConnectionIssues.values.take(16).forEach { listener.onOperationError("AVF 연결", it.message) }
                     } finally { initialized.countDown() }
                 }
             }
@@ -1465,7 +1474,8 @@ class VmRuntimeService : Service() {
             scope.launch {
                 registry.events.collect { event ->
                     when (event) {
-                        is SessionEvent.Output -> notifyTerminalOutput(event.sessionId, event.bytes, event.replay)
+                        is SessionEvent.Output -> if (registry.hasSessionOwner(event.sessionId))
+                            notifyTerminalOutput(event.sessionId, event.bytes, event.replay)
                         is SessionEvent.Exited -> {
                             recordAvfSession("session.exited", event.sessionId, event.exitCode.toString())
                             workspaces.move(event.sessionId, null)
@@ -1496,12 +1506,19 @@ class VmRuntimeService : Service() {
 
     private suspend fun environmentsJson(): String {
         val client = ensureSessionRegistry()
-        val sessions = client?.list()?.getOrThrow().orEmpty().filter { it.state != dev.terminal.protocol.SessionStatus.EXITED }
+        val sessions = client?.cachedSessions().orEmpty().filter { it.state != dev.terminal.protocol.SessionStatus.EXITED }
         val (environments, profiles) = environmentRegistry.transaction(storageDefaults()) { all() to profiles() }
         return JSONArray(environments.sortedWith(compareBy({ it.runtime.ordinal }, { it.name }, { it.id.value })).map { environment ->
             val linked = profiles.filter { it.environmentId == environment.id }
             val active = sessions.filter { client?.environmentOf(it.id) == environment.id }
-            val state = environmentRuntimeState(environment, client)
+            // UI projection must not issue a guest RPC or wait through its recovery budget.
+            val disconnected = environment.storage.id in client?.disconnectedStorages(environment.sessionRuntime).orEmpty()
+            val owner = environmentBackends[environment.id]
+            val state = when {
+                disconnected -> null
+                owner == null -> if (environment.sessionRuntime == SessionRuntime.AVF) null else RuntimeState.Stopped
+                else -> owner.observeState().first().takeUnless { it is RuntimeState.Failed }
+            }
             val busy = preparationLocks.isLocked(environment.sessionRuntime, environment.storage.id) ||
                 (environment.sessionRuntime == SessionRuntime.AVF && RuntimeSetupCoordinator(applicationContext).isInstallationActive(environment.storage.id))
             val removableState = state != null && state !is RuntimeState.Preparing && state !is RuntimeState.Booting && state !is RuntimeState.Stopping
@@ -1702,6 +1719,8 @@ class VmRuntimeService : Service() {
                         }
                     }
                     environmentBackends.remove(id)
+                    avfOwnerObservers.remove(id)?.second?.cancel()
+                    avfConnectionIssues.remove(id)
                 }
             }
             if (client != null) client.deleteStorageIfIdle(environment.sessionRuntime, environment.storage.id, remove)
@@ -1822,6 +1841,7 @@ class VmRuntimeService : Service() {
                 }
             }
         }
+        if (owner is AvfBackend) observeAvfOwner(executionEnvironment, owner)
         if (spec.runtime == SessionRuntime.AVF && key !in startedEnvironmentBackends) {
             RuntimeSetupCoordinator(applicationContext).awaitInstalledImage(root.toPath(), spec.storageId)
             dev.terminal.runtime.image.AvfEnvironmentUpdater(owner as dev.terminal.runtime.avf.AvfBackend).recover(
@@ -1846,6 +1866,7 @@ class VmRuntimeService : Service() {
                 },
             )).getOrThrow()
             owner.start().getOrThrow()
+            if ((owner as? AvfBackend)?.startedNewVm == true) avfConnectionIssues.remove(key)
             startedEnvironmentBackends.add(key)
             startedForInitialization = spec.runtime == SessionRuntime.AVF &&
                 dev.terminal.image.AvfPackageInitialization.isRequired(root.toPath()) &&
@@ -1903,8 +1924,14 @@ class VmRuntimeService : Service() {
                     environmentForStorage = { environmentForStorage(SessionRuntime.AVF, it) },
                     connect = { environment -> environmentBackends[environment.id]
                         ?.connectSessionClient(environment.storage.id)?.getOrNull() },
-                    onConnected = guestRetry::reset,
-                    canReconnect = { hasEnvironmentDemand(it.id) })
+                    onConnected = { environment ->
+                        guestRetry.reset()
+                        if (avfConnectionIssues[environment.id]?.requiresNewBoot == false) avfConnectionIssues.remove(environment.id)
+                    },
+                    canReconnect = { hasEnvironmentDemand(it.id) },
+                    withEnvironmentLease = { environment, work ->
+                        preparationLocks.withStorage(environment.sessionRuntime, environment.storage.id) { work() }
+                    })
                 if (registry.disconnectedStorages(SessionRuntime.AVF).none {
                         hasEnvironmentDemand(environmentForStorage(SessionRuntime.AVF, it).id) }) {
                     guestRetry.reset()
@@ -1913,6 +1940,69 @@ class VmRuntimeService : Service() {
                 }
                 guestRetry.awaitRetry()
             }
+        }
+    }
+
+    @Synchronized private fun observeAvfOwner(environment: Environment, owner: AvfBackend) {
+        if (avfOwnerObservers[environment.id]?.first === owner) return
+        avfOwnerObservers.remove(environment.id)?.second?.cancel()
+        val job = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            owner.observeEvents().collect { event ->
+                try {
+                    when (event) {
+                        is AvfPlatformEvent.SharingUnavailable -> reportAvfIssue(environment,
+                            "${environment.name}: 공유 디렉토리 연결을 복구하지 못했습니다. 세션과 VM은 유지됩니다. 공유를 다시 사용하려면 작업을 저장하고 환경을 중지한 뒤 시작하세요.", true)
+                        AvfPlatformEvent.Stopped, is AvfPlatformEvent.Failed -> reconcileStoppedAvfOwner(environment, owner)
+                    }
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (error: Exception) {
+                    ConnectionDiagnostics.record("vm.owner.reconcile.failed", environment.id.value, error = error)
+                    reportAvfIssue(environment, "${environment.name}: AVF 상태를 확인하지 못했습니다. 기존 세션과 데이터는 보존됩니다.", false)
+                }
+            }
+        }
+        avfOwnerObservers[environment.id] = owner to job
+    }
+
+    private fun reportAvfIssue(environment: Environment, message: String, requiresNewBoot: Boolean) {
+        val issue = AvfConnectionIssue(message, requiresNewBoot)
+        var changed = false
+        avfConnectionIssues.compute(environment.id) { _, previous ->
+            if (previous?.requiresNewBoot == true && !requiresNewBoot) previous
+            else issue.also { changed = previous != issue }
+        }
+        if (changed) notifyOperationError("AVF 연결", message)
+    }
+
+    private suspend fun reconcileStoppedAvfOwner(environment: Environment, owner: AvfBackend) {
+        preparationLocks.withStorage(environment.sessionRuntime, environment.storage.id) {
+            if (destroying || environmentBackends[environment.id] !== owner) return@withStorage
+            val registry = sessionClient as? UnifiedSessionRegistry ?: return@withStorage
+            if (environment.id !in startedEnvironmentBackends &&
+                !registry.isRegistered(environment.sessionRuntime, environment.storage.id)) return@withStorage
+            val activeIds = registry.cachedSessions().filter {
+                registry.environmentOf(it.id) == environment.id && it.state != dev.terminal.protocol.SessionStatus.EXITED
+            }.mapTo(mutableSetOf()) { it.id }
+            val hadBackgroundWork = environment.id in explicitlyStartedEnvironments || environment.id in guestWorkEnvironments
+            val removed = registry.forgetStoppedEnvironment(environment) {
+                owner.verifyStoppedInstance(requireNotNull(environment.runtimeMetadata.vmInstanceId)).getOrThrow()
+            }
+            clearEnvironmentStart(environment.id)
+            for (id in removed) {
+                workspaces.move(id, null)
+                kittyGrants.remove(id); kittyTitles.remove(id); kittyIdentities.remove(id)
+                latestResizeRequests.forget(id)
+            }
+            val lostCount = removed.count { it in activeIds }
+            ConnectionDiagnostics.record("vm.owner.lost", environment.id.value, lostCount.toString())
+            if (lostCount > 0 || hadBackgroundWork) reportAvfIssue(environment,
+                "${environment.name}: VM 종료를 확인했습니다. " +
+                    (if (lostCount > 0) "세션 ${lostCount}개가 유실되어 복원할 수 없습니다. " else "환경의 프로세스를 복원할 수 없습니다. ") +
+                    "저장된 환경 데이터는 유지되며 프로필로 새 세션을 열 수 있습니다.", true)
+            refreshSessions(registry)
+            updateWakeState()
+            updateServiceLifetime()
+            notifyRuntimeChoices()
         }
     }
 

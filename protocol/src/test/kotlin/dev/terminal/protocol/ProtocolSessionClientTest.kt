@@ -1,6 +1,10 @@
 package dev.terminal.protocol
 
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.async
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -160,6 +164,83 @@ class ProtocolSessionClientTest {
             assertEquals(listOf("session.eof"), events)
         }
         assertEquals(listOf("session.eof"), events)
+    }
+
+    @Test fun sendFailureDisconnectsAnOtherwiseOpenReaderWithoutRetryingInput() = runBlocking {
+        val calls = AtomicInteger()
+        val transport = object : FrameTransport {
+            override suspend fun send(frame: ProtocolFrame): Result<Unit> {
+                calls.incrementAndGet()
+                return Result.failure(IOException("write failed"))
+            }
+            override fun incomingFrames() = MutableSharedFlow<ProtocolFrame>()
+            override fun close() = Unit
+        }
+        ProtocolSessionClient(transport, scope = this).use { client ->
+            assertTrue(client.write("session-1", byteArrayOf(1)).isFailure)
+            assertEquals(SessionConnectionState.DISCONNECTED, client.connectionState.value)
+            assertTrue(client.write("session-1", byteArrayOf(1)).isFailure)
+            assertEquals(1, calls.get())
+            assertTrue(isActive)
+        }
+    }
+
+    @Test fun oneResponseDeadlineFailsAllPendingCallsAndStopsTheReader() = runBlocking {
+        val transport = ClosingTransport()
+        val diagnostics = mutableListOf<String>()
+        ProtocolSessionClient(transport, requestTimeoutMillis = 100, scope = this,
+            onDiagnostic = { event, _ -> diagnostics += event }).use { client ->
+            val first = async { client.list() }
+            val second = async { client.write("session-1", byteArrayOf(1)) }
+            withTimeout(1_000) {
+                assertTrue(first.await().exceptionOrNull() is ProtocolRequestTimeoutException)
+                assertTrue(second.await().exceptionOrNull() is ProtocolRequestTimeoutException)
+            }
+            assertEquals(SessionConnectionState.DISCONNECTED, client.connectionState.value)
+            assertEquals(listOf("session.request.timeout"), diagnostics)
+            assertTrue(isActive)
+        }
+    }
+
+    @Test fun deadlineClosesAndUnblocksATransportStillSending() = runBlocking {
+        val transport = BlockedTransport()
+        ProtocolSessionClient(transport, requestTimeoutMillis = 100, scope = this).use { client ->
+            val request = async { client.write("session-1", ByteArray(1024)) }
+            yield()
+            assertTrue(transport.entered.await(1, TimeUnit.SECONDS))
+            withTimeout(1_000) {
+                assertTrue(request.await().exceptionOrNull() is ProtocolRequestTimeoutException)
+            }
+            assertTrue(transport.finished.await(1, TimeUnit.SECONDS))
+            assertEquals(SessionConnectionState.DISCONNECTED, client.connectionState.value)
+        }
+    }
+
+    @Test fun cancellingACallClosesBeforeJoiningItsBlockedSender() = runBlocking {
+        val transport = BlockedTransport()
+        ProtocolSessionClient(transport, scope = this).use { client ->
+            val request = async { client.list() }
+            // Let the request coroutine dispatch its IO sender before waiting on the latch.
+            yield()
+            assertTrue(transport.entered.await(1, TimeUnit.SECONDS))
+            withTimeout(1_000) { request.cancelAndJoin() }
+            assertTrue(transport.finished.await(1, TimeUnit.SECONDS))
+            assertEquals(SessionConnectionState.DISCONNECTED, client.connectionState.value)
+            assertTrue(isActive)
+        }
+    }
+
+    private class BlockedTransport : FrameTransport {
+        val entered = CountDownLatch(1)
+        val finished = CountDownLatch(1)
+        private val released = CountDownLatch(1)
+        override suspend fun send(frame: ProtocolFrame): Result<Unit> {
+            entered.countDown()
+            try { released.await(); return Result.failure(IOException("closed while sending")) }
+            finally { finished.countDown() }
+        }
+        override fun incomingFrames() = MutableSharedFlow<ProtocolFrame>()
+        override fun close() { released.countDown() }
     }
 
     private class ClosingTransport(private val closeFailure: IOException? = null) : FrameTransport {

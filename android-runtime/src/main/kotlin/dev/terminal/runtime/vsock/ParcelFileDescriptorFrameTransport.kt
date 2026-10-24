@@ -7,13 +7,12 @@ import dev.terminal.runtime.api.GuestConnection
 import java.io.BufferedInputStream
 import java.io.BufferedOutputStream
 import java.io.EOFException
-import java.io.FileInputStream
-import java.io.FileOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -23,17 +22,20 @@ import kotlinx.coroutines.sync.withLock
  * exposes the raw descriptor to UI callers.
  */
 class ParcelFileDescriptorFrameTransport(
-    private val descriptor: ParcelFileDescriptor,
+    descriptor: ParcelFileDescriptor,
     override val guestCid: Int,
 ) : GuestConnection {
     private val writeMutex = Mutex()
-    private val input = BufferedInputStream(FileInputStream(descriptor.fileDescriptor))
-    private val output = BufferedOutputStream(FileOutputStream(descriptor.fileDescriptor))
+    private val stream = ParcelFileDescriptorByteStream(descriptor)
+    private val input = BufferedInputStream(stream.input)
+    private val output = BufferedOutputStream(stream.output)
 
     override suspend fun send(frame: ProtocolFrame): Result<Unit> = runCatching {
         writeMutex.withLock {
-            output.write(Protocol.encode(frame))
-            output.flush()
+            runInterruptible(Dispatchers.IO) {
+                output.write(Protocol.encode(frame))
+                output.flush()
+            }
         }
     }
 
@@ -57,8 +59,7 @@ class ParcelFileDescriptorFrameTransport(
     }.flowOn(Dispatchers.IO)
 
     override fun close() {
-        runCatching { output.flush() }
-        descriptor.close()
+        stream.close()
     }
 
     private fun BufferedInputStream.readExactly(target: ByteArray, offset: Int = 0, length: Int = target.size) {

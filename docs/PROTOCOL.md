@@ -326,6 +326,10 @@ Host-only appended `initializeAvfImage(storageId, requestId, callback)` and `can
 
 The host session client contains transport read and frame-validation exceptions within its receive job. EOF, a failed read or explicit close publishes `DISCONNECTED`, fails pending requests and closes only that transport; new requests on a disconnected client fail without a send or request timeout. Cleanup failures cannot escape to the shared runtime owner. Coroutine cancellation still propagates, and disconnection emits no synthetic PTY exit or sibling-session removal. Guest wire frames and protocol version remain unchanged.
 
+A session request deadline covers both sending and response waiting, using 10 seconds on legacy transport and 70 seconds on the resumable session stream (the 60-second transport recovery window plus 10 seconds). Failure/cancellation closes the logical client, marks it `DISCONNECTED`, fails all pending requests and never reissues the original input/create/mutation. `session.request.timeout` and `session.request.cancelled` distinguish these stages from read/send failures. An independent deadline closes the socket before waiting for a blocked sender to finish. Descriptor shutdown wakes both native directions; close does not flush buffered partial frames. Successful error responses remain ordinary RPC errors rather than transport failure.
+
+Platform connection attempts are separately bounded to 10 seconds with eight workers and no queued opens. A platform call returning after timeout/cancellation loses ownership and its descriptor is closed. Resumable attachment/retry sleeps share its 60-second recovery deadline. No protocol version or guest capability changes are required by these host changes.
+
 Kitty media conversion does not change the session wire schema. File paths,
 shared-memory handles and guest descriptors never become host file operations;
 `droid-sessiond` reads bounded regular-file data in the guest and emits direct
@@ -547,6 +551,8 @@ explicit unmount, unprivileged writes cannot fall through to a local shadow
 directory. Proven guards permit the VM and its sessions to continue. Startup or
 guard-proof failure retains the VM-fatal policy. Durable host deletion leases
 still require verified VM stop and stopped host I/O.
+
+The host applies the same 60-second recovery budget to failed v2 control/data links. Expiry permanently closes the corresponding host relay/SFTP handles and stops retrying that generation; owner-wide failure closes all its host actors, while an isolated folder failure leaves the control link and other folders alive. `ready` cannot remain true after permanent failure. Host metadata events `share.owner.unavailable`, `share.data.unavailable` and `share.data.revoked` surface an Environment-scoped warning without claiming VM/session death. Repair requires a stopped/new boot through the existing Environment controls. This does not release durable deletion leases, renew an expired guest authority, change the wire handshake, or replay uncertain filesystem operations.
 
 `sessionResumeVersion=1` enables the host-CID-only session relay on 40507.
 `TSR1` plus a random 16-byte process-owner token and u8 create (1) or resume (0)

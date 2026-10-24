@@ -7,11 +7,15 @@ import dev.terminal.protocol.ReplayByteStream
 import dev.terminal.protocol.Service
 import dev.terminal.runtime.api.GuestByteStream
 import java.io.DataInputStream
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.net.ServerSocket
 import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.concurrent.thread
 import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.take
@@ -70,6 +74,56 @@ class ResumableGuestConnectionTest {
             assertArrayEquals(last.payload, actual[1].payload)
         } finally {
             client.close(); peer.close(); listener.close(); server.join(1_000)
+        }
+    }
+
+    @Test(timeout = 10_000) fun aStuckReplacementConnectCannotOutliveRecoveryOrLeakItsLateSocket() = runBlocking {
+        val listener = ServerSocket(0)
+        val peer = ReplayByteStream()
+        val current = AtomicReference<Socket>()
+        val ready = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val lateClosed = CountDownLatch(1)
+        val attempts = AtomicInteger()
+        val events = CopyOnWriteArrayList<String>()
+        val server = thread(isDaemon = true) {
+            runCatching {
+                val raw = listener.accept(); current.set(raw)
+                val input = DataInputStream(raw.getInputStream())
+                input.readInt(); input.readLong(); input.readLong(); input.readByte()
+                raw.getOutputStream().write(0)
+                peer.attach(input, raw.getOutputStream()) { raw.close() }
+                ready.countDown()
+            }
+        }
+        val client = ResumableGuestConnection(0, connect = {
+            if (attempts.incrementAndGet() == 1) {
+                val socket = Socket("127.0.0.1", listener.localPort)
+                object : GuestByteStream {
+                    override val input = socket.getInputStream()
+                    override val output = socket.getOutputStream()
+                    override fun close() { socket.close() }
+                }
+            } else {
+                release.await() // Models a platform Binder call that cannot be cancelled.
+                object : GuestByteStream {
+                    override val input = ByteArrayInputStream(byteArrayOf())
+                    override val output = ByteArrayOutputStream()
+                    override fun close() { lateClosed.countDown() }
+                }
+            }
+        }, report = { event, _ -> events += event }, recoveryTimeoutMillis = 300, handshakeTimeoutMillis = 200)
+        try {
+            assertTrue(ready.await(2, TimeUnit.SECONDS))
+            assertEquals(500, client.requestTimeoutMillis)
+            val frames = async { withTimeout(2_000) { client.incomingFrames().toList() } }
+            current.get().close()
+            assertTrue(frames.await().isEmpty())
+            assertEquals(1, events.count { it == "session.link.failed" })
+            release.countDown()
+            assertTrue(lateClosed.await(2, TimeUnit.SECONDS))
+        } finally {
+            release.countDown(); client.close(); peer.close(); listener.close(); server.join(1_000)
         }
     }
 }

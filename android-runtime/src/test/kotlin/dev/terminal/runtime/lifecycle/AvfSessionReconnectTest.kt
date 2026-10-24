@@ -14,6 +14,8 @@ import java.util.UUID
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
@@ -153,6 +155,49 @@ class AvfSessionReconnectTest {
             assertEquals(listOf("avf-kept"), replacement.attached)
             assertTrue(registry.disconnectedStorages(SessionRuntime.AVF).isEmpty())
         } finally { registry.close() }
+    }
+
+    @Test fun aConnectedSocketWithAFailedListIsNotReportedAsRecovered() = runBlocking {
+        val environment = avfEnvironment()
+        val old = Controller("avf-cached")
+        val bad = Controller("avf-cached")
+        val replacement = object : SessionController by bad {
+            override suspend fun list(): Result<List<SessionDescriptor>> = Result.failure(IllegalStateException("RPC stalled"))
+        }
+        val registry = UnifiedSessionRegistry()
+        try {
+            registry.register(environment, old); registry.list().getOrThrow(); old.disconnect()
+            reconnectAvfSessions(registry, { environment }, { replacement },
+                onConnected = { fail("Recovery requires a successful owner RPC") })
+            assertTrue(bad.closed)
+            assertEquals(listOf("avf-cached"), registry.cachedSessions().map { it.id })
+            assertEquals(listOf(environment.storage.id), registry.disconnectedStorages(SessionRuntime.AVF))
+        } finally { registry.close() }
+    }
+
+    @Test fun reconnectAndProvenOwnerLossCannotReplaceEachOtherOutsideTheEnvironmentLease() = runBlocking {
+        val environment = avfEnvironment()
+        val old = Controller("avf-old")
+        val replacement = Controller("avf-old")
+        val registry = UnifiedSessionRegistry()
+        val locks = StoragePreparationLocks()
+        val entered = CompletableDeferred<Unit>(); val proceed = CompletableDeferred<Unit>()
+        var verified = false
+        try {
+            registry.register(environment, old); registry.list().getOrThrow(); old.disconnect()
+            val reconnect = async { reconnectAvfSessions(registry, { environment },
+                connect = { entered.complete(Unit); proceed.await(); replacement }, onConnected = {},
+                withEnvironmentLease = { owner, work -> locks.withStorage(owner.sessionRuntime, owner.storage.id) { work() } }) }
+            entered.await()
+            val loss = async { locks.withStorage(environment.sessionRuntime, environment.storage.id) {
+                registry.forgetStoppedEnvironment(environment) { verified = true }
+            } }
+            yield(); assertFalse(verified)
+            proceed.complete(Unit)
+            withTimeout(2_000) { reconnect.await(); loss.await() }
+            assertTrue(verified); assertTrue(replacement.closed)
+            assertFalse(registry.isRegistered(SessionRuntime.AVF, environment.storage.id))
+        } finally { proceed.complete(Unit); registry.close() }
     }
 
     private fun avfEnvironment(storage: String = UUID.randomUUID().toString()) = Environment.create(

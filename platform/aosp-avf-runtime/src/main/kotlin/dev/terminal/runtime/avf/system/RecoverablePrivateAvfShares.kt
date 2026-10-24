@@ -19,7 +19,12 @@ import java.util.concurrent.atomic.AtomicReference
 
 /** Broker v2 retains each SFTP server and its descriptors across a transient vsock reset. */
 internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirectoryExport>,
-    private val report: (String, Throwable?) -> Unit) : Closeable {
+    private val report: (String, Throwable?) -> Unit,
+    private val recoveryTimeoutMillis: Long = 60_000,
+    private val heartbeatMillis: Long = 5_000,
+    private val serveFolder: (SharedDirectoryExport, ReplayByteStream) -> Unit = { folder, relay ->
+        ScopedSftpServer(File(folder.directory)).use { it.serve(relay.input, relay.output) }
+    }) : Closeable {
     private val token = UUID.randomUUID()
     private val closed = AtomicBoolean()
     private val started = AtomicBoolean()
@@ -33,18 +38,24 @@ internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirec
     private val sockets = CopyOnWriteArrayList<GuestByteStream>()
     private val control = AtomicReference<GuestByteStream?>()
     private val progress = AtomicLong(System.nanoTime())
-    @Volatile var ready = false
-        private set
+    private val controlLostAt = AtomicLong()
+    private val dataLostAt = java.util.concurrent.ConcurrentHashMap<UUID, Long>()
+    private val folderSockets = java.util.concurrent.ConcurrentHashMap<UUID, GuestByteStream>()
+    private val folderWorkers = java.util.concurrent.ConcurrentHashMap<UUID, Thread>()
+    private val everReady = AtomicBoolean()
+    @Volatile private var mounted = false
+    val ready get() = mounted && !closed.get() && disabled.isEmpty()
     private var permits = false
+    init { require(recoveryTimeoutMillis > 0 && heartbeatMillis > 0) }
 
     fun start(connect: () -> GuestByteStream) {
         synchronized(this) {
             check(!closed.get())
             if (started.compareAndSet(false, true)) {
-            require(folders.isNotEmpty() && folders.size <= 128)
-            check(PrivateAvfShares.STREAMS.tryAcquire(folders.size)) { "AVF share connection limit reached" }
-            permits = true
-            launch("share-owner") { controlLoop(connect) }
+                require(folders.isNotEmpty() && folders.size <= 128)
+                check(PrivateAvfShares.STREAMS.tryAcquire(folders.size)) { "AVF share connection limit reached" }
+                permits = true
+                launch("share-owner") { controlLoop(connect) }
             }
         }
         if (!initialized.await(50, TimeUnit.SECONDS) || !ready || closed.get()) {
@@ -54,10 +65,14 @@ internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirec
     }
 
     private fun controlLoop(connect: () -> GuestByteStream) {
+        val interval = minOf(1_000L, recoveryTimeoutMillis / 4).coerceAtLeast(10)
         val watchdog = PrivateAvfShares.WATCHDOG.scheduleAtFixedRate({
+            val now = System.nanoTime()
+            if (expired(controlLostAt.get(), now)) ownerUnavailable()
+            dataLostAt.forEach { (id, since) -> if (expired(since, now)) disableFolder(id, "share.data.unavailable") }
             if (System.nanoTime() - progress.get() > TimeUnit.SECONDS.toNanos(15))
                 control.get()?.let { runCatching { it.close() } }
-        }, 1, 1, TimeUnit.SECONDS)
+        }, interval, interval, TimeUnit.MILLISECONDS)
         var attempt = 0
         try {
             while (!closed.get()) {
@@ -79,10 +94,11 @@ internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirec
                     ownerEstablished.set(true)
                     if (dataStarted.compareAndSet(false, true)) startFolders(connect)
                     check(input.read() == 0) { "Guest did not confirm private mounts" }
-                    progress.set(System.nanoTime()); ready = true; initialized.countDown(); attempt = 0
+                    progress.set(System.nanoTime()); controlLostAt.set(0)
+                    everReady.set(true); mounted = true; initialized.countDown(); attempt = 0
                     record("share.control.ready")
                     while (!closed.get()) {
-                        Thread.sleep(5_000)
+                        Thread.sleep(heartbeatMillis)
                         disabled.forEach { identity ->
                             output.writeByte(3); output.writeLong(identity.mostSignificantBits)
                             output.writeLong(identity.leastSignificantBits); output.flush()
@@ -95,11 +111,14 @@ internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirec
                         repeat(count) {
                             val identity = UUID(input.readLong(), input.readLong())
                             check(foldersById.containsKey(identity))
-                            disabled.add(identity); foldersById[identity]?.close()
+                            disableFolder(identity, "share.data.revoked")
                         }
                         progress.set(System.nanoTime())
                     }
-                } catch (error: Exception) { if (!closed.get()) record("share.control.reconnecting", error) }
+                } catch (error: Exception) { if (!closed.get()) {
+                    if (everReady.get()) controlLostAt.compareAndSet(0, System.nanoTime())
+                    record("share.control.reconnecting", error)
+                } }
                 finally {
                     control.compareAndSet(socket, null)
                     socket?.let { sockets.remove(it); runCatching { it.close() } }
@@ -115,17 +134,20 @@ internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirec
             val identity = UUID.fromString(folder.id)
             foldersById[identity] = relay
             launch("share-sftp") {
-                try { ScopedSftpServer(File(folder.directory)).use { it.serve(relay.input, relay.output) } }
+                try { serveFolder(folder, relay) }
                 catch (error: Exception) { if (!closed.get()) record("share.sftp.failed", error) }
-                finally { if (!closed.get()) disabled.add(identity); relay.close() }
+                finally { if (!closed.get()) disableFolder(identity, "share.data.unavailable"); relay.close() }
             }
             launch("share-reconnect") {
+                folderWorkers[identity] = Thread.currentThread()
+                dataLostAt[identity] = System.nanoTime()
                 var attempt = 0
                 var established = false
                 while (!closed.get() && !relay.ownerClosed) {
                     var socket: GuestByteStream? = null
                     try {
-                        socket = connect(); track(socket)
+                        socket = connect(); track(socket); folderSockets[identity] = socket
+                        if (relay.ownerClosed) break
                         val active = socket
                         val handshake = PrivateAvfShares.WATCHDOG.schedule({ runCatching { active.close() } },
                             10, TimeUnit.SECONDS)
@@ -138,25 +160,32 @@ internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirec
                         output.writeByte(if (established) 0 else 1); output.flush()
                         val accepted = socket.input.read()
                         if (accepted == 1) {
-                            disabled.add(identity); relay.close(); record("share.data.revoked")
+                            disableFolder(identity, "share.data.revoked")
                             break
                         }
                         check(accepted == 0) { "Guest rejected share stream generation" }
                         val link = relay.attach(socket.input, socket.output) { active.close() }
                         established = true
+                        dataLostAt.remove(identity)
                         handshake.cancel(false)
                         attempt = 0
                         record("share.data.connected")
                         while (!closed.get() && !link.awaitClosed(1, TimeUnit.SECONDS)) Unit
-                        if (!closed.get()) record("share.data.reconnecting")
+                        if (!closed.get()) {
+                            dataLostAt.putIfAbsent(identity, System.nanoTime())
+                            record("share.data.reconnecting")
+                        }
                         } finally { handshake.cancel(false) }
                     } catch (error: Exception) {
-                        if (!closed.get()) record("share.data.reconnecting", error)
-                        if (error is IllegalArgumentException) { disabled.add(identity); relay.close() }
+                        if (!closed.get() && !relay.ownerClosed) record("share.data.reconnecting", error)
+                        if (!relay.ownerClosed) dataLostAt.putIfAbsent(identity, System.nanoTime())
+                        if (error is IllegalArgumentException) disableFolder(identity, "share.data.unavailable")
                     }
-                    finally { socket?.let { sockets.remove(it); runCatching { it.close() } } }
-                    if (!closed.get()) retry(attempt++)
+                    finally { socket?.let { folderSockets.remove(identity, it); sockets.remove(it); runCatching { it.close() } } }
+                    if (!closed.get() && !relay.ownerClosed) retry(attempt++)
                 }
+                folderWorkers.remove(identity)
+                dataLostAt.remove(identity)
             }
         }
     }
@@ -164,11 +193,35 @@ internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirec
     private fun retry(attempt: Int) {
         // Startup retains its 50-second readiness budget; a long reconnect
         // backoff must not skip a broker that becomes ready near that deadline.
-        val delay = if (!ready) 100L else longArrayOf(1_000, 2_000, 4_000, 8_000, 15_000)[attempt.coerceAtMost(4)]
+        val delay = if (!everReady.get()) 100L else longArrayOf(1_000, 2_000, 4_000, 8_000, 15_000)[attempt.coerceAtMost(4)]
         try { Thread.sleep(delay) }
         catch (_: InterruptedException) { /* close wakes all owner workers. */ }
     }
     private fun record(event: String, error: Throwable? = null) { runCatching { report(event, error) } }
+    private fun expired(since: Long, now: Long) = since != 0L && now - since >= TimeUnit.MILLISECONDS.toNanos(recoveryTimeoutMillis)
+
+    private fun disableFolder(identity: UUID, event: String) {
+        if (closed.get() || !disabled.add(identity)) return
+        mounted = false
+        foldersById[identity]?.close()
+        folderSockets.remove(identity)?.let { runCatching { it.close() } }
+        folderWorkers[identity]?.interrupt()
+        record(if (everReady.get()) event else "share.start.failed")
+    }
+
+    private fun ownerUnavailable() {
+        if (!closed.compareAndSet(false, true)) return
+        stopStreams()
+        record("share.owner.unavailable")
+    }
+
+    private fun stopStreams() {
+        mounted = false
+        relays.forEach { it.close() }
+        sockets.forEach { runCatching { it.close() } }
+        workers.forEach { it.interrupt() }
+        initialized.countDown()
+    }
     private fun track(socket: GuestByteStream) {
         synchronized(this) {
             if (closed.get()) { socket.close(); throw IOException("Private share owner closed") }
@@ -185,11 +238,7 @@ internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirec
 
     override fun close() {
         if (closed.compareAndSet(false, true)) {
-            ready = false
-            relays.forEach { it.close() }
-            sockets.forEach { runCatching { it.close() } }
-            workers.forEach { it.interrupt() }
-            initialized.countDown()
+            stopStreams()
         }
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
         workers.toList().forEach { worker ->

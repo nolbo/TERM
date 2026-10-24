@@ -8,6 +8,9 @@ import dev.terminal.runtime.api.RuntimeState
 import dev.terminal.runtime.api.StopMode
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.collect
@@ -15,6 +18,7 @@ import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -27,19 +31,23 @@ class AvfBackend(
     private val driver: AvfPlatformDriver,
 ) : RuntimeBackend {
     val startedNewVm: Boolean get() = driver.startedNewVm
+    private val events = MutableSharedFlow<AvfPlatformEvent>(extraBufferCapacity = 4, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+    fun observeEvents(): Flow<AvfPlatformEvent> = events.asSharedFlow()
     suspend fun connectImageInitializer(): Result<GuestConnection> = driver.connectImageInitializer()
     private val mutex = Mutex()
     private val state = MutableStateFlow<RuntimeState>(RuntimeState.Stopped)
     private var config: RuntimeConfig? = null
 
     init {
-        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch {
+        CoroutineScope(SupervisorJob() + Dispatchers.Default).launch(start = CoroutineStart.UNDISPATCHED) {
             driver.observeEvents().collect { event ->
                 mutex.withLock {
                     state.value = when (event) {
                         is AvfPlatformEvent.Failed -> RuntimeState.Failed(event.reason)
                         AvfPlatformEvent.Stopped -> RuntimeState.Stopped
+                        is AvfPlatformEvent.SharingUnavailable -> state.value
                     }
+                    events.tryEmit(event)
                 }
             }
         }
@@ -85,7 +93,11 @@ class AvfBackend(
 
     /** Provider must verify a stopped persistent instance, including after host process restart. */
     suspend fun deleteStorage(instanceId: String): Result<Unit> = mutex.withLock { driver.deleteStorage(instanceId) }
-    suspend fun verifyStoppedInstance(instanceId: String): Result<Unit> = driver.verifyStoppedInstance(instanceId)
+    suspend fun verifyStoppedInstance(instanceId: String): Result<Unit> = mutex.withLock {
+        driver.verifyStoppedInstance(instanceId).onSuccess {
+            if (config?.instanceId == instanceId) state.value = RuntimeState.Stopped
+        }
+    }
     suspend fun discardMaintenance(instanceId: String): Result<Unit> = driver.discardMaintenance(instanceId)
     suspend fun revokeSharedStorage(): Result<Unit> = driver.revokeSharedStorage()
     /** Called only after a provider proves the recorded instances stopped or absent. */
@@ -147,4 +159,5 @@ interface AvfPlatformDriver {
 sealed interface AvfPlatformEvent {
     data class Failed(val reason: String) : AvfPlatformEvent
     data object Stopped : AvfPlatformEvent
+    data class SharingUnavailable(val code: String) : AvfPlatformEvent
 }

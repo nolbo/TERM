@@ -9,6 +9,8 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.async
+import kotlinx.coroutines.CoroutineStart
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -50,6 +52,33 @@ class AvfBackendTest {
         }
         assertTrue(AvfBackend(supported).deleteStorage(storage).isSuccess)
         org.junit.Assert.assertEquals(storage, requested)
+    }
+
+    @Test fun sharingLossIsObservableWithoutClaimingThatTheVmStopped() = runBlocking {
+        val driver = EventingDriver()
+        val backend = AvfBackend(driver)
+        backend.prepare(RuntimeConfig(imageDirectory = "/image")).getOrThrow(); backend.start().getOrThrow()
+        val notice = async(start = CoroutineStart.UNDISPATCHED) { backend.observeEvents().first() }
+        driver.events.emit(AvfPlatformEvent.SharingUnavailable("share.owner.unavailable"))
+        assertTrue(withTimeout(1_000) { notice.await() } is AvfPlatformEvent.SharingUnavailable)
+        assertTrue(backend.observeState().value is RuntimeState.Ready)
+    }
+
+    @Test fun onlyPlatformProofCanReconcileAFailedOwnerAsStopped() = runBlocking {
+        val events = EventingDriver()
+        var stopped = false
+        val backend = AvfBackend(object : AvfPlatformDriver by events {
+            override suspend fun verifyStoppedInstance(instanceId: String): Result<Unit> =
+                if (stopped) Result.success(Unit) else Result.failure(IllegalStateException("Unknown VM state"))
+        })
+        backend.prepare(RuntimeConfig(instanceId = "owner", imageDirectory = "/image")).getOrThrow(); backend.start().getOrThrow()
+        events.events.emit(AvfPlatformEvent.Failed("VM lost"))
+        withTimeout(1_000) { backend.observeState().first { it is RuntimeState.Failed } }
+        assertTrue(backend.verifyStoppedInstance("owner").isFailure)
+        assertTrue(backend.observeState().value is RuntimeState.Failed)
+        stopped = true
+        assertTrue(backend.verifyStoppedInstance("owner").isSuccess)
+        assertTrue(backend.observeState().value is RuntimeState.Stopped)
     }
 
     private object FailingDriver : AvfPlatformDriver {

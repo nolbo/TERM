@@ -3,7 +3,8 @@ package dev.terminal.protocol
 import java.io.Closeable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
+import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
@@ -17,12 +18,20 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.delay
 
 /** Transport boundary for vsock, in-memory tests, or another framed byte stream. */
 interface FrameTransport : Closeable {
+    /** Total RPC budget, including a resumable transport's bounded recovery window. */
+    val requestTimeoutMillis: Long get() = 10_000L
     suspend fun send(frame: ProtocolFrame): Result<Unit>
     fun incomingFrames(): Flow<ProtocolFrame>
+    /** Unblocks pending reads and writes without flushing. */
+    override fun close()
 }
 
 /**
@@ -43,11 +52,12 @@ interface SessionController : Closeable {
 
 class ProtocolSessionClient(
     private val transport: FrameTransport,
-    private val requestTimeoutMillis: Long = DEFAULT_REQUEST_TIMEOUT_MILLIS,
+    private val requestTimeoutMillis: Long = transport.requestTimeoutMillis,
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val onDiagnostic: (String, Throwable) -> Unit = { _, _ -> },
 ) : SessionController {
-    private val disconnected = AtomicBoolean()
+    init { require(requestTimeoutMillis > 0) }
+    private val disconnectFailure = AtomicReference<Throwable?>()
     private val nextRequestId = AtomicLong(1)
     private val pending = ConcurrentHashMap<Long, CompletableDeferred<ProtocolFrame>>()
     private val mutableEvents = MutableSharedFlow<SessionEvent>(extraBufferCapacity = 64)
@@ -117,7 +127,7 @@ class ProtocolSessionClient(
     }
 
     private fun disconnect(reason: Throwable, diagnostic: String) {
-        if (!disconnected.compareAndSet(false, true)) return
+        if (!disconnectFailure.compareAndSet(null, reason)) return
         runCatching { onDiagnostic(diagnostic, reason) }
         mutableConnectionState.value = SessionConnectionState.DISCONNECTED
         pending.values.forEach { it.completeExceptionally(reason) }
@@ -126,34 +136,53 @@ class ProtocolSessionClient(
         runCatching { transport.close() }
     }
 
-    private suspend fun request(request: SessionRequest): Result<SessionResponse> {
+    private fun failRequestConnection(reason: Throwable, diagnostic: String) {
+        disconnect(reason, diagnostic)
+        receiveJob.cancel()
+    }
+
+    private suspend fun request(request: SessionRequest): Result<SessionResponse> = coroutineScope {
+        if (disconnectFailure.get() != null) return@coroutineScope Result.failure(
+            ProtocolRequestException("Session transport disconnected"))
         val requestId = nextRequestId.getAndIncrement()
+        val requestFrame = try {
+            ProtocolFrame(service = Service.SESSION, kind = FrameKind.REQUEST, requestId = requestId,
+                payload = SessionPayloadCodec.encode(request))
+        } catch (error: Exception) { return@coroutineScope Result.failure(error) }
         val waiting = CompletableDeferred<ProtocolFrame>()
         pending[requestId] = waiting
+        // The deadline runs independently of a possibly blocked send. Closing the
+        // socket before joining the sender is what wakes a native vsock write.
+        val deadline = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            delay(requestTimeoutMillis)
+            if (!waiting.isCompleted) failRequestConnection(ProtocolRequestTimeoutException(), "session.request.timeout")
+        }
+        var sender: Deferred<Result<Unit>>? = null
         try {
-            if (mutableConnectionState.value == SessionConnectionState.DISCONNECTED) {
-                return Result.failure(ProtocolRequestException("Session transport disconnected"))
+            if (disconnectFailure.get() != null) return@coroutineScope Result.failure(
+                ProtocolRequestException("Session transport disconnected"))
+            sender = async(Dispatchers.IO) {
+                runCatching { transport.send(requestFrame).getOrThrow() }
             }
-            transport.send(
-                ProtocolFrame(
-                    service = Service.SESSION,
-                    kind = FrameKind.REQUEST,
-                    requestId = requestId,
-                    payload = SessionPayloadCodec.encode(request),
-                ),
-            ).getOrElse {
-                runCatching { onDiagnostic("session.send.failed", it) }
-                return Result.failure(it)
+            sender.await().getOrElse { error ->
+                failRequestConnection(error, "session.send.failed")
+                return@coroutineScope Result.failure(disconnectFailure.get() ?: error)
             }
-            val frame = withTimeout(requestTimeoutMillis) { waiting.await() }
-            return when (frame.kind) {
+            val frame = waiting.await()
+            when (frame.kind) {
                 FrameKind.RESPONSE -> runCatching { SessionResponseCodec.decode(frame.payload) }
                 FrameKind.ERROR -> Result.failure(GuestRequestException(ProtocolErrorCodec.decode(frame.payload)))
                 else -> Result.failure(ProtocolRequestException("Unexpected response frame"))
             }
-        } catch (error: Throwable) {
-            return Result.failure(error)
+        } catch (cancelled: CancellationException) {
+            // A partially transmitted frame cannot be safely reused or retried.
+            failRequestConnection(cancelled, "session.request.cancelled")
+            throw cancelled
+        } catch (error: Exception) {
+            Result.failure(error)
         } finally {
+            deadline.cancel()
+            sender?.cancel()
             pending.remove(requestId)
         }
     }
@@ -172,12 +201,12 @@ class ProtocolSessionClient(
         transform: (SessionResponse) -> T,
     ): Result<T> = fold(onSuccess = { runCatching { transform(it) } }, onFailure = { Result.failure(it) })
 
-    private companion object {
-        const val DEFAULT_REQUEST_TIMEOUT_MILLIS = 10_000L
-    }
 }
 
 enum class SessionConnectionState { CONNECTED, DISCONNECTED }
 
 class GuestRequestException(val error: ProtocolErrorPayload) : Exception("${error.code}: ${error.message}")
 class ProtocolRequestException(message: String) : Exception(message)
+
+/** The guest may already have applied the request; never automatically resend it. */
+class ProtocolRequestTimeoutException : IOException("Session request timed out; operation result is unknown")

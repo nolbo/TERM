@@ -70,7 +70,9 @@ class AospAvfPlatformDriver(
     private val sharedStorage = AvfSharedStorageCoordinator(shareLeases,
         android.os.Environment::isExternalStorageManager, ::stopStorageInstance)
     private val pendingSessionConnection = AtomicReference<GuestConnection?>()
-    private val events = MutableSharedFlow<AvfPlatformEvent>(extraBufferCapacity = 4)
+    private val events = MutableSharedFlow<AvfPlatformEvent>(extraBufferCapacity = 4,
+        onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
+    private val shareFailureReported = AtomicBoolean()
 
     override fun observeEvents(): Flow<AvfPlatformEvent> = events.asSharedFlow()
 
@@ -162,12 +164,16 @@ class AospAvfPlatformDriver(
                         stagedShares = null
                     }
                     if (config.sharedFolders.isNotEmpty()) {
+                        shareFailureReported.set(false)
                         // Private SFTP streams need no SharedPath/index or all-files permission.
                         // Merge the lease with an optional /sdcard export before VM run.
                         shareLeases.record(config.instanceId, config.sharedFolders.map { it.id }, shares?.artifact,
                             shares?.requiresStoragePermission == true)
                         val owner = PrivateAvfShares(config.sharedFolders, shareBrokerVersion) { event, error ->
                             dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(event, config.instanceId, error = error)
+                            if (event in setOf("share.owner.unavailable", "share.data.unavailable", "share.data.revoked") &&
+                                shareFailureReported.compareAndSet(false, true))
+                                events.tryEmit(AvfPlatformEvent.SharingUnavailable(event))
                         }
                         PrivateShareOwners.register(privateShareKey(config.instanceId), owner)
                         privateBoot.set(PrivateBoot(vm, config.instanceId, owner))
@@ -189,7 +195,7 @@ class AospAvfPlatformDriver(
                         var stream: GuestByteStream? = null
                         while (stream == null) {
                             check(SystemClock.elapsedRealtime() < deadline && machine === vm) { "앱 전용 공유 연결 시간이 초과되었습니다." }
-                            stream = runCatching { ParcelFileDescriptorByteStream(vm.connectVsock(40_506)) }.getOrNull()
+                            stream = runCatching { ParcelFileDescriptorByteStream(connectVsock(vm, 40_506)) }.getOrNull()
                             if (stream == null) Thread.sleep(100)
                         }
                         stream
@@ -315,7 +321,7 @@ class AospAvfPlatformDriver(
             connect = { ParcelFileDescriptorByteStream(vm.connectVsock(40_507)) },
             report = { event, error -> dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(
                 event, prepared?.instanceId, error = error) })
-    } else ParcelFileDescriptorFrameTransport(vm.connectVsock(DROID_SESSIOND_PORT), GUEST_CID_UNAVAILABLE)
+    } else ParcelFileDescriptorFrameTransport(connectVsock(vm, DROID_SESSIOND_PORT), GUEST_CID_UNAVAILABLE)
 
     override suspend fun connectGuestBridge(): Result<GuestConnection> = connectGuestPort(DROID_AGENT_PORT)
     override suspend fun connectImageInitializer(): Result<GuestConnection> = connectGuestPort(40_503)
@@ -329,7 +335,7 @@ class AospAvfPlatformDriver(
             try {
                 FILE_CONNECTORS.execute {
                     try {
-                        val stream = ParcelFileDescriptorByteStream(activeMachine.connectVsock(40_505))
+                        val stream = ParcelFileDescriptorByteStream(connectVsock(activeMachine, 40_505))
                         continuation.resume(stream) { _, acquired, _ -> acquired.close() }
                     } catch (failure: Exception) { continuation.resumeWith(Result.failure(failure)) }
                 }
@@ -343,7 +349,8 @@ class AospAvfPlatformDriver(
         require(port in 1..65_535 && dev.terminal.protocol.PortPayloadCodec.validAddress(address))
         return mutex.withLock {
             runCatching {
-                val stream = ParcelFileDescriptorByteStream(checkNotNull(machine) { "VM is not running" }.connectVsock(40_504))
+                val activeMachine = checkNotNull(machine) { "VM is not running" }
+                val stream = ParcelFileDescriptorByteStream(connectVsock(activeMachine, 40_504))
                 try {
                     val encoded = address.toByteArray(Charsets.US_ASCII)
                     stream.output.write(byteArrayOf(1, (port shr 8).toByte(), port.toByte(), encoded.size.toByte()) + encoded)
@@ -359,7 +366,7 @@ class AospAvfPlatformDriver(
         return mutex.withLock {
             runCatching {
                 val activeMachine = checkNotNull(machine) { "VM is not running" }
-                ParcelFileDescriptorByteStream(activeMachine.connectVsock(port.toLong()))
+                ParcelFileDescriptorByteStream(connectVsock(activeMachine, port.toLong()))
             }
         }
     }
@@ -373,7 +380,7 @@ class AospAvfPlatformDriver(
                 while (connection == null) {
                     connection = runCatching {
                         ParcelFileDescriptorFrameTransport(
-                            descriptor = activeMachine.connectVsock(port),
+                            descriptor = connectVsock(activeMachine, port),
                             guestCid = GUEST_CID_UNAVAILABLE,
                         )
                     }.getOrNull()
@@ -384,6 +391,9 @@ class AospAvfPlatformDriver(
         }.onSuccess { dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.channel.connected", prepared?.instanceId, port.toString()) }
             .onFailure { dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.channel.failed", prepared?.instanceId, port.toString(), it) }
     }
+
+    private fun connectVsock(vm: VirtualMachine, port: Long): android.os.ParcelFileDescriptor =
+        dev.terminal.runtime.vsock.GuestConnectionOpener.open(PLATFORM_CONNECT_TIMEOUT_MS) { vm.connectVsock(port) }
 
     private fun buildConfig(config: RuntimeConfig, shares: AvfSharedDirectories? = null): VirtualMachineConfig = requireAvfPlatformApi {
         val image = AvfImageLayout(Paths.get(config.imageDirectory))
@@ -481,11 +491,12 @@ class AospAvfPlatformDriver(
     }
 
     private fun markMachineStopped(stoppedMachine: VirtualMachine, instanceId: String) {
-        if (runCatching { stoppedMachine.status == VirtualMachine.STATUS_STOPPED }.getOrDefault(false)) {
-            releaseSharedBoot(stoppedMachine)
-            runCatching { releaseStoppedShares(instanceId) }
-                .onFailure { Log.w(TAG, "persisted virtiofs artifact cleanup failed", it) }
-        }
+        // An error callback alone is not proof of stop. Keep a live/unknown VM's
+        // Binder reference and let its session connection recover independently.
+        if (!runCatching { stoppedMachine.status == VirtualMachine.STATUS_STOPPED }.getOrDefault(false)) return
+        releaseSharedBoot(stoppedMachine)
+        runCatching { releaseStoppedShares(instanceId) }
+            .onFailure { Log.w(TAG, "persisted virtiofs artifact cleanup failed", it) }
         if (machine === stoppedMachine) {
             machine = null
             pendingSessionConnection.getAndSet(null)?.let { runCatching { it.close() } }
@@ -532,6 +543,7 @@ class AospAvfPlatformDriver(
         const val GUEST_CID_UNAVAILABLE = -1
         const val BOOT_TIMEOUT_MS = 120_000L
         const val GUEST_CONNECT_TIMEOUT_MS = 60_000L
+        const val PLATFORM_CONNECT_TIMEOUT_MS = 10_000L
         const val GUEST_CONNECT_RETRY_MS = 500L
     }
 }

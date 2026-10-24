@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -134,6 +135,59 @@ class UnifiedSessionRegistry(
     fun disconnectedStorages(runtime: SessionRuntime): List<String> = registrations.entries
         .filter { it.key.runtime == runtime && it.value.controller.connectionState.value == SessionConnectionState.DISCONNECTED }
         .map { it.key.storageId }
+
+    fun hasSessionOwner(sessionId: String): Boolean = owners[sessionId]?.let(registrations::containsKey) == true
+
+    /** Read-only UI projection. A disconnected owner is not evidence of session death. */
+    fun cachedSessions(): List<SessionDescriptor> = lastKnownSessions.entries
+        .sortedWith(compareBy({ it.key.runtime.ordinal }, { it.key.storageId }))
+        .flatMap { it.value }.sortedBy { it.createdAtMs }
+
+    /** Unlike aggregate list(), exposes this owner's failure instead of its cached sessions. */
+    suspend fun refreshEnvironment(environment: Environment): Result<List<SessionDescriptor>> {
+        val key = StorageKey(environment.sessionRuntime, environment.storage.id)
+        val registration = registrations[key] ?: return Result.failure(IllegalStateException("Environment is not connected"))
+        val current = registration.controller.list().getOrElse { return Result.failure(it) }
+        return listMutex.withLock {
+            if (registrations[key] !== registration) Result.failure(IllegalStateException("Environment owner changed"))
+            else Result.success(rememberSessions(key, current))
+        }
+    }
+
+    /** Caller also holds its Environment preparation lease; unknown VM state preserves everything. */
+    suspend fun forgetStoppedEnvironment(environment: Environment, verifyStopped: suspend () -> Unit): List<String> =
+        mutationLocks.withStorage(environment.sessionRuntime, environment.storage.id) {
+            verifyStopped()
+            val key = StorageKey(environment.sessionRuntime, environment.storage.id)
+            val registration = registrations[key]
+            registration?.let {
+                it.jobs.forEach(Job::cancel)
+                runCatching { it.controller.close() }
+                it.jobs.joinAll()
+            }
+            listMutex.withLock {
+                check(registrations[key] === registration) { "Environment owner changed" }
+                val lost = (owners.filterValues { it == key }.keys + lastKnownSessions[key].orEmpty().map { it.id }).toList()
+                terminalStates.mutex.withLock { lost.forEach(terminalStates::remove) }
+                registrations.remove(key)
+                owners.entries.removeAll { it.value == key }
+                lost.forEach { launches.remove(it); controlStreams.remove(it); keyboardFlags.remove(it) }
+                environments.remove(key)
+                lastKnownSessions.remove(key)
+                lost
+            }
+        }
+
+    private fun rememberSessions(key: StorageKey, current: List<SessionDescriptor>): List<SessionDescriptor> {
+        val currentIds = current.mapTo(mutableSetOf()) { it.id }
+        owners.entries.removeAll { (id, owner) -> owner == key && id !in currentIds }
+        current.forEach {
+            owners[it.id] = key
+            if (!launches.containsKey(it.id)) restoreLaunch(it.id)?.let { spec -> launches[it.id] = spec }
+        }
+        lastKnownSessions[key] = current
+        return current
+    }
 
     /** Proves idleness from the owner, never a cached list, and excludes creation during commit.
      * Existing controllers retain their paths and AVF instance; only their idle registration changes.
@@ -279,15 +333,7 @@ class UnifiedSessionRegistry(
             registrations.entries.sortedWith(compareBy({ it.key.runtime.ordinal }, { it.key.storageId }))
                 .flatMap { (key, registration) ->
                 registration.controller.list().fold(
-                    onSuccess = { current ->
-                        val currentIds = current.mapTo(mutableSetOf()) { it.id }
-                        owners.entries.removeAll { (sessionId, owner) -> owner == key && sessionId !in currentIds }
-                        current.forEach {
-                            owners[it.id] = key
-                            if (!launches.containsKey(it.id)) restoreLaunch(it.id)?.let { spec -> launches[it.id] = spec }
-                        }
-                        current.also { lastKnownSessions[key] = it }
-                    },
+                    onSuccess = { current -> rememberSessions(key, current) },
                     // A transport/list failure is not evidence that the PTY owner
                     // destroyed its sessions. Keep the last authoritative view for
                     // this runtime until a successful list proves otherwise.

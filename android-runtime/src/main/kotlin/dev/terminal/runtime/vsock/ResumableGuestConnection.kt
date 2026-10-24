@@ -21,14 +21,17 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.runInterruptible
 
 /** Retains the protocol client and byte positions while replacing only the vsock. */
 class ResumableGuestConnection(
     override val guestCid: Int,
     private val connect: () -> GuestByteStream,
     private val report: (String, Throwable?) -> Unit = { _, _ -> },
+    private val recoveryTimeoutMillis: Long = 60_000L,
+    private val handshakeTimeoutMillis: Long = 10_000L,
 ) : GuestConnection {
+    override val requestTimeoutMillis: Long get() = recoveryTimeoutMillis + handshakeTimeoutMillis
     private val replay = ReplayByteStream()
     private val token = UUID.randomUUID()
     private val closed = AtomicBoolean()
@@ -36,18 +39,26 @@ class ResumableGuestConnection(
     private val socket = AtomicReference<GuestByteStream?>()
     private val input = DataInputStream(replay.input)
     private val writes = Mutex()
-    private val worker: Thread
+    private val worker = AtomicReference<Thread?>()
 
     init {
+        require(recoveryTimeoutMillis > 0 && handshakeTimeoutMillis > 0)
         val first = try { attach() } catch (error: Throwable) { replay.close(); throw error }
-        worker = Thread(null, { reconnect(first) }, "session-reconnect", 256 * 1024).apply { isDaemon = true; start() }
+        val thread = Thread(null, { reconnect(first) }, "session-reconnect", 256 * 1024).apply { isDaemon = true }
+        worker.set(thread)
+        thread.start()
     }
 
-    private fun attach(): ReplayByteStream.Link {
-        val raw = connect()
+    private fun attach(deadline: Long = Long.MAX_VALUE): ReplayByteStream.Link {
+        fun remaining(): Long = (if (deadline == Long.MAX_VALUE) handshakeTimeoutMillis else
+            minOf(handshakeTimeoutMillis, TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime()))).also {
+            if (it <= 0) throw IOException("Session recovery budget expired")
+        }
+        val raw = GuestConnectionOpener.open(remaining(), connect)
         socket.set(raw)
         if (closed.get()) { raw.close(); throw IOException("Session owner closed") }
-        val timeout = WATCHDOG.schedule({ runCatching { raw.close() } }, 10, TimeUnit.SECONDS)
+        val budget = try { remaining() } catch (error: Exception) { raw.close(); throw error }
+        val timeout = WATCHDOG.schedule({ runCatching { raw.close() } }, budget, TimeUnit.MILLISECONDS)
         try {
             val output = DataOutputStream(raw.output)
             output.writeInt(0x54535231) // TSR1 + same process-owner token on every link
@@ -72,13 +83,15 @@ class ResumableGuestConnection(
                 while (!closed.get() && !link.awaitClosed(1, TimeUnit.SECONDS)) Unit
                 if (closed.get()) break
                 record("session.link.reconnecting")
-                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(60)
+                val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(recoveryTimeoutMillis)
                 var attempt = 0
                 while (!closed.get()) {
-                    try { link = attach(); record("session.link.restored"); break }
+                    try { link = attach(deadline); record("session.link.restored"); break }
                     catch (error: Exception) {
                         if (error is IllegalArgumentException || System.nanoTime() >= deadline) throw error
-                        Thread.sleep(longArrayOf(250, 1_000, 2_000, 4_000)[minOf(attempt++, 3)])
+                        val remaining = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())
+                        if (remaining <= 0) throw error
+                        Thread.sleep(minOf(remaining, longArrayOf(250, 1_000, 2_000, 4_000)[minOf(attempt++, 3)]))
                     }
                 }
             }
@@ -86,8 +99,8 @@ class ResumableGuestConnection(
         finally { close() }
     }
 
-    override suspend fun send(frame: ProtocolFrame): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching { writes.withLock { replay.output.write(Protocol.encode(frame)) } }
+    override suspend fun send(frame: ProtocolFrame): Result<Unit> = runCatching {
+        writes.withLock { runInterruptible(Dispatchers.IO) { replay.output.write(Protocol.encode(frame)) } }
     }
 
     override fun incomingFrames(): Flow<ProtocolFrame> = channelFlow {
@@ -115,7 +128,7 @@ class ResumableGuestConnection(
         if (!closed.compareAndSet(false, true)) return
         replay.close()
         socket.getAndSet(null)?.let { runCatching { it.close() } }
-        // The worker may call close during construction only after its first link closes.
+        worker.getAndSet(null)?.interrupt()
     }
 
     companion object {
