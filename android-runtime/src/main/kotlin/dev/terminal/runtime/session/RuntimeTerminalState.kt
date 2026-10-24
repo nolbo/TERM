@@ -25,6 +25,7 @@ class RuntimeTerminalState(private val transcriptRows: Int = 10_000) {
     val mutex = Mutex()
     // close() may discard the registry while a cancelled PTY reader unwinds.
     private val entries = java.util.concurrent.ConcurrentHashMap<String, Entry>()
+    internal fun identity(id: String): Any? = entries[id]
 
     fun create(id: String, columns: Int, rows: Int) {
         if (entries.containsKey(id)) return

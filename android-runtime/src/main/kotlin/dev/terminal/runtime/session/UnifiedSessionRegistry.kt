@@ -6,6 +6,7 @@ import dev.terminal.protocol.SessionDescriptor
 import dev.terminal.protocol.SessionEvent
 import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -39,8 +40,13 @@ class UnifiedSessionRegistry(
         spec.palette?.let(TerminalPalette::asProperties) ?: java.util.Properties()
     },
 ) : SessionController {
-    private data class Registration(val controller: SessionController, val jobs: List<Job>, val inputOwner: Any)
+    private data class Registration(val controller: SessionController, val jobs: List<Job>, val inputOwner: Any,
+        val creation: Mutex = Mutex())
     private data class StorageKey(val runtime: SessionRuntime, val storageId: String = "legacy")
+    private class PendingResize(val key: StorageKey, val registration: Registration, val session: Any?,
+        val state: Any?, val rows: Int, val cols: Int, val cellWidth: Int?, val cellHeight: Int?) {
+        val applied = CompletableDeferred<Unit>()
+    }
 
     private val controlStreams = ConcurrentHashMap<String, dev.terminal.emulator.KittyControlStream>()
     private val keyboardFlags = ConcurrentHashMap<String, Int>()
@@ -64,6 +70,8 @@ class UnifiedSessionRegistry(
     private val lastKnownSessions = ConcurrentHashMap<StorageKey, List<SessionDescriptor>>()
     private val listMutex = Mutex()
     private val mutationLocks = dev.terminal.runtime.lifecycle.StoragePreparationLocks()
+    private val geometryLocks = SessionOperationLocks()
+    private val pendingResizes = ConcurrentHashMap<String, PendingResize>()
     private val mutableEvents = MutableSharedFlow<SessionEvent>(extraBufferCapacity = 128)
     private val mutableConnection = MutableStateFlow(SessionConnectionState.CONNECTED)
 
@@ -78,18 +86,35 @@ class UnifiedSessionRegistry(
     fun register(runtime: SessionRuntime, controller: SessionController, storageId: String = "legacy") {
         val key = StorageKey(runtime, storageId)
         val previous = registrations.remove(key)
+        failResizes(key)
         previous?.let { old ->
             old.jobs.forEach(Job::cancel)
             if (old.controller !== controller) old.controller.close()
         }
-        val eventJob = scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        val jobs = mutableListOf<Job>()
+        val inputOwner = if (previous?.controller === controller) previous.inputOwner else Any()
+        val registration = Registration(controller, jobs, inputOwner)
+        registrations[key] = registration
+        jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
             controller.events.collect { event ->
+                if (registrations[key] !== registration) return@collect
                 val sessionId = when (event) {
                     is SessionEvent.Output -> event.sessionId
                     is SessionEvent.Exited -> event.sessionId
+                    is SessionEvent.Resized -> event.sessionId
+                }
+                if (event is SessionEvent.Resized) {
+                    pendingResizes[sessionId]?.takeIf { it === event.barrier }?.let { pending ->
+                        applyResize(sessionId, pending, event.rows.toInt(), event.cols.toInt())
+                    }
+                    return@collect
                 }
                 owners.putIfAbsent(sessionId, key)
                 if (event is SessionEvent.Output && !event.replay) {
+                    // CREATE may deliver its first output before the caller resumes. Only
+                    // that new session waits for initialization; existing output keeps flowing.
+                    if (terminalStates.identity(sessionId) == null) registration.creation.withLock { }
+                    if (registrations[key] !== registration) return@collect
                     val stream = controlStreams.getOrPut(sessionId) { dev.terminal.emulator.KittyControlStream() }
                     val parts = stream.accept(event.bytes)
                     keyboardFlags[sessionId] = stream.keyboard().flags()
@@ -110,6 +135,7 @@ class UnifiedSessionRegistry(
                 } else {
                     if (event is SessionEvent.Exited) {
                         inputSessions.remove(sessionId)
+                        failResize(sessionId)
                         controlStreams.remove(sessionId)?.finish()?.takeIf { it.isNotEmpty() }?.let {
                             terminalStates.mutex.withLock { terminalStates.output(sessionId, it) }
                             mutableEvents.emit(SessionEvent.Output(sessionId, it))
@@ -121,16 +147,15 @@ class UnifiedSessionRegistry(
                 }
             }
         }
-        val stateJob = scope.launch {
+        jobs += scope.launch {
             controller.connectionState.collect { state ->
                 if (state == SessionConnectionState.DISCONNECTED) {
+                    failResizes(key)
                     // Transport loss is not session loss; preserve sibling owners and checkpoints.
                     onDisconnected(key.runtime, key.storageId)
                 }
             }
         }
-        val inputOwner = if (previous?.controller === controller) previous.inputOwner else Any()
-        registrations[key] = Registration(controller, listOf(eventJob, stateJob), inputOwner)
     }
 
     fun isRegistered(runtime: SessionRuntime, storageId: String = "legacy"): Boolean =
@@ -187,7 +212,7 @@ class UnifiedSessionRegistry(
         forgetOwners(key, currentIds)
         current.forEach {
             val previous = owners.put(it.id, key)
-            if (it.state == dev.terminal.protocol.SessionStatus.EXITED) inputSessions.remove(it.id)
+            if (it.state == dev.terminal.protocol.SessionStatus.EXITED) { inputSessions.remove(it.id); failResize(it.id) }
             else if (previous != key) inputSessions[it.id] = Any()
             else inputSessions.computeIfAbsent(it.id) { Any() }
             if (!launches.containsKey(it.id)) restoreLaunch(it.id)?.let { spec -> launches[it.id] = spec }
@@ -198,7 +223,7 @@ class UnifiedSessionRegistry(
 
     private fun forgetOwners(key: StorageKey, retained: Set<String> = emptySet()) {
         owners.entries.removeAll { (id, owner) ->
-            if (owner == key && id !in retained) { inputSessions.remove(id); true } else false
+            if (owner == key && id !in retained) { inputSessions.remove(id); failResize(id); true } else false
         }
     }
 
@@ -314,17 +339,25 @@ class UnifiedSessionRegistry(
         palette: java.util.Properties,
     ): Result<SessionDescriptor> = mutationLocks.withStorage(key.runtime, key.storageId) {
         runCatching { beforeCreate() }.exceptionOrNull()?.let { return@withStorage Result.failure(it) }
-        controller(key).fold(
-            onSuccess = { controller -> terminalStates.mutex.withLock { controller.create(shell, cwd, env, rows, cols).onSuccess { created ->
-                terminalStates.create(created.id, cols.toInt(), rows.toInt())
-                terminalStates.palette(created.id, palette)
-                if (key.runtime == SessionRuntime.AVF) controller.attach(created.id).getOrThrow()
-                owners[created.id] = key
-                inputSessions[created.id] = Any()
-                lastKnownSessions.compute(key) { _, sessions -> sessions.orEmpty().filterNot { it.id == created.id } + created }
-            } } },
-            onFailure = { Result.failure(it) },
-        )
+        val registration = registrations[key]
+            ?: return@withStorage Result.failure(IllegalStateException("${key.runtime.wireName} storage is not ready"))
+        runCatching {
+            val created = registration.creation.withLock {
+                val created = registration.controller.create(shell, cwd, env, rows, cols).getOrThrow()
+                terminalStates.mutex.withLock {
+                    check(registrations[key] === registration) { "Environment owner changed" }
+                    failResize(created.id)
+                    terminalStates.create(created.id, cols.toInt(), rows.toInt())
+                    terminalStates.palette(created.id, palette)
+                    owners[created.id] = key
+                    inputSessions[created.id] = Any()
+                    lastKnownSessions.compute(key) { _, sessions -> sessions.orEmpty().filterNot { it.id == created.id } + created }
+                }
+                created
+            }
+            if (key.runtime == SessionRuntime.AVF) registration.controller.attach(created.id).getOrThrow()
+            created
+        }
     }
 
     override suspend fun create(
@@ -360,20 +393,71 @@ class UnifiedSessionRegistry(
     override suspend fun attach(sessionId: String): Result<SessionDescriptor> = route(sessionId) { it.attach(sessionId) }
     override suspend fun detach(sessionId: String): Result<Unit> = route(sessionId) { it.detach(sessionId) }
     override suspend fun resize(sessionId: String, rows: UShort, cols: UShort): Result<SessionDescriptor> =
+        runCatching { geometryLocks.withSession(sessionId) {
+            resizeTerminal(sessionId, rows.toInt(), cols.toInt())
+        } }
+
+    private fun resizeIsCurrent(sessionId: String, pending: PendingResize): Boolean =
+        registrations[pending.key] === pending.registration && ownerKey(sessionId) == pending.key &&
+            inputSessions[sessionId] === pending.session && terminalStates.identity(sessionId) === pending.state &&
+            pending.registration.controller.connectionState.value == SessionConnectionState.CONNECTED
+
+    private suspend fun applyResize(sessionId: String, pending: PendingResize, rows: Int, cols: Int) {
         terminalStates.mutex.withLock {
-            route(sessionId) { it.resize(sessionId, rows, cols) }.onSuccess {
-                terminalStates.resize(sessionId, cols.toInt(), rows.toInt())
-            }
+            if (pendingResizes[sessionId] !== pending) return@withLock
+            runCatching {
+                check(resizeIsCurrent(sessionId, pending) && rows == pending.rows && cols == pending.cols) {
+                    "Resize destination changed"
+                }
+                terminalStates.resize(sessionId, cols, rows, pending.cellWidth, pending.cellHeight)
+            }.fold(onSuccess = { pending.applied.complete(Unit) }, onFailure = { pending.applied.completeExceptionally(it) })
         }
+    }
+
+    private suspend fun resizeTerminal(sessionId: String, rows: Int, cols: Int,
+        cellWidth: Int? = null, cellHeight: Int? = null): SessionDescriptor {
+        require(rows in 1..65535 && cols in 1..65535)
+        val key = ownerKey(sessionId) ?: error("Session not found")
+        val registration = registrations[key] ?: error("Environment is not connected")
+        val pending = terminalStates.mutex.withLock {
+            PendingResize(key, registration, inputSessions[sessionId], terminalStates.identity(sessionId),
+                rows, cols, cellWidth, cellHeight).also { pendingResizes[sessionId] = it }
+        }
+        try {
+            val resized = registration.controller.resizeOrdered(sessionId, rows.toUShort(), cols.toUShort(), pending).getOrThrow()
+            check(resized.id == sessionId && resized.rows.toInt() == rows && resized.cols.toInt() == cols) { "Invalid resize response" }
+            if (!registration.controller.supportsOrderedResize) applyResize(sessionId, pending, rows, cols)
+            pending.applied.await()
+            check(resizeIsCurrent(sessionId, pending)) { "Resize destination changed" }
+            return resized
+        } finally {
+            pendingResizes.remove(sessionId, pending)
+            pending.applied.cancel()
+        }
+    }
+
+    private fun failResize(sessionId: String) {
+        pendingResizes.remove(sessionId)?.applied?.completeExceptionally(IllegalStateException("Resize destination changed"))
+    }
+    private fun failResizes(key: StorageKey) {
+        pendingResizes.entries.filter { it.value.key == key }.forEach { (id, pending) ->
+            if (pendingResizes.remove(id, pending))
+                pending.applied.completeExceptionally(IllegalStateException("Resize destination changed"))
+        }
+    }
 
     suspend fun configureTerminal(sessionId: String, rows: Int, cols: Int, cellWidth: Int, cellHeight: Int,
-        palette: java.util.Properties, sink: RuntimeTerminalState.Sink? = null) = terminalStates.mutex.withLock {
+        palette: java.util.Properties, sink: RuntimeTerminalState.Sink? = null) = geometryLocks.withSession(sessionId) {
         require(rows in 1..65535 && cols in 1..65535 && cellWidth in 0..65535 && cellHeight in 0..65535)
-        if (!terminalStates.sameDimensions(sessionId, cols, rows))
-            route(sessionId) { it.resize(sessionId, rows.toUShort(), cols.toUShort()) }.getOrThrow()
-        terminalStates.resize(sessionId, cols, rows, cellWidth, cellHeight)
-        terminalStates.palette(sessionId, palette)
-        if (sink != null) terminalStates.subscribe(sessionId, sink)
+        val identity = terminalStates.mutex.withLock { terminalStates.identity(sessionId) }
+        if (!terminalStates.mutex.withLock { terminalStates.sameDimensions(sessionId, cols, rows) })
+            resizeTerminal(sessionId, rows, cols, cellWidth, cellHeight)
+        terminalStates.mutex.withLock {
+            check(terminalStates.identity(sessionId) === identity) { "Terminal state changed" }
+            terminalStates.resize(sessionId, cols, rows, cellWidth, cellHeight)
+            terminalStates.palette(sessionId, palette)
+            if (sink != null) terminalStates.subscribe(sessionId, sink)
+        }
     }
     override suspend fun write(sessionId: String, bytes: ByteArray): Result<Int> = route(sessionId) { onInput(sessionId, bytes); it.write(sessionId, bytes) }
 
@@ -398,6 +482,7 @@ class UnifiedSessionRegistry(
             onFailure = { Result.failure(it) },
         ).onSuccess {
             inputSessions.remove(sessionId)
+            failResize(sessionId)
             lastKnownSessions.computeIfPresent(key) { _, sessions -> sessions.filterNot { it.id == sessionId } }
             owners.remove(sessionId, key)
             launches.remove(sessionId)
@@ -431,6 +516,7 @@ class UnifiedSessionRegistry(
         ?: SessionRuntime.fromSessionId(sessionId)?.let { StorageKey(it) }
 
     override fun close() {
+        pendingResizes.keys.toList().forEach(::failResize)
         registrations.values.forEach { registration ->
             registration.jobs.forEach(Job::cancel)
             registration.controller.close()

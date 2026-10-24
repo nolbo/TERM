@@ -52,6 +52,7 @@ class NativeSessionController(
     private val connection = MutableStateFlow(SessionConnectionState.CONNECTED)
     override val events: SharedFlow<SessionEvent> = output.asSharedFlow()
     override val connectionState: StateFlow<SessionConnectionState> = connection.asStateFlow()
+    override val supportsOrderedResize = true
 
     override fun memoryRoots() = entries.mapValues { (_, entry) ->
         entry.memoryIdentity.takeIf { entry.descriptor.state == SessionStatus.RUNNING }
@@ -146,6 +147,16 @@ class NativeSessionController(
         val resized = entry.descriptor.copy(rows = rows, cols = cols)
         entry.descriptor = resized
         resized
+    }
+    override suspend fun resizeOrdered(sessionId: String, rows: UShort, cols: UShort, barrier: Any): Result<SessionDescriptor> = runCatching {
+        val entry = entries[sessionId] ?: error("Session not found")
+        entry.outputMutex.withLock {
+            entry.process.resize(rows.toInt(), cols.toInt(), 0, 0)
+            val resized = entry.descriptor.copy(rows = rows, cols = cols)
+            entry.descriptor = resized
+            output.emit(SessionEvent.Resized(sessionId, rows, cols, barrier))
+            resized
+        }
     }
     override suspend fun write(sessionId: String, bytes: ByteArray): Result<Int> = runCatching {
         val entry = entries[sessionId] ?: error("Session not found")

@@ -46,6 +46,10 @@ interface SessionController : Closeable {
     suspend fun attach(sessionId: String): Result<SessionDescriptor>
     suspend fun detach(sessionId: String): Result<Unit>
     suspend fun resize(sessionId: String, rows: UShort, cols: UShort): Result<SessionDescriptor>
+    /** Ordered implementations emit Resized with the supplied identity before subsequent live output. */
+    val supportsOrderedResize: Boolean get() = false
+    suspend fun resizeOrdered(sessionId: String, rows: UShort, cols: UShort, barrier: Any): Result<SessionDescriptor> =
+        resize(sessionId, rows, cols)
     suspend fun write(sessionId: String, bytes: ByteArray): Result<Int>
     suspend fun terminate(sessionId: String, signal: Int): Result<Unit>
 }
@@ -60,6 +64,8 @@ class ProtocolSessionClient(
     private val disconnectFailure = AtomicReference<Throwable?>()
     private val nextRequestId = AtomicLong(1)
     private val pending = ConcurrentHashMap<Long, CompletableDeferred<ProtocolFrame>>()
+    private val resizeBarriers = ConcurrentHashMap<Long, Pair<SessionRequest.Resize, Any>>()
+    override val supportsOrderedResize = true
     private val mutableEvents = MutableSharedFlow<SessionEvent>(extraBufferCapacity = 64)
     private val mutableConnectionState = MutableStateFlow(SessionConnectionState.CONNECTED)
     override val events: SharedFlow<SessionEvent> = mutableEvents.asSharedFlow()
@@ -112,6 +118,11 @@ class ProtocolSessionClient(
             it as? SessionResponse.Resized ?: throw ProtocolRequestException("Expected resize response")
         }.map { it.session }
 
+    override suspend fun resizeOrdered(sessionId: String, rows: UShort, cols: UShort, barrier: Any): Result<SessionDescriptor> =
+        request(SessionRequest.Resize(sessionId, rows, cols), barrier).mapResponse {
+            it as? SessionResponse.Resized ?: throw ProtocolRequestException("Expected resize response")
+        }.map { it.session }
+
     override suspend fun write(sessionId: String, bytes: ByteArray): Result<Int> = request(SessionRequest.Write(sessionId, bytes)).mapResponse {
         it as? SessionResponse.Written ?: throw ProtocolRequestException("Expected write response")
     }.map { it.acceptedBytes }
@@ -132,6 +143,7 @@ class ProtocolSessionClient(
         mutableConnectionState.value = SessionConnectionState.DISCONNECTED
         pending.values.forEach { it.completeExceptionally(reason) }
         pending.clear()
+        resizeBarriers.clear()
         // Cleanup of a broken/closed descriptor must not escape to another owner.
         runCatching { transport.close() }
     }
@@ -141,7 +153,7 @@ class ProtocolSessionClient(
         receiveJob.cancel()
     }
 
-    private suspend fun request(request: SessionRequest): Result<SessionResponse> = coroutineScope {
+    private suspend fun request(request: SessionRequest, resizeBarrier: Any? = null): Result<SessionResponse> = coroutineScope {
         if (disconnectFailure.get() != null) return@coroutineScope Result.failure(
             ProtocolRequestException("Session transport disconnected"))
         val requestId = nextRequestId.getAndIncrement()
@@ -151,6 +163,7 @@ class ProtocolSessionClient(
         } catch (error: Exception) { return@coroutineScope Result.failure(error) }
         val waiting = CompletableDeferred<ProtocolFrame>()
         pending[requestId] = waiting
+        if (request is SessionRequest.Resize && resizeBarrier != null) resizeBarriers[requestId] = request to resizeBarrier
         // The deadline runs independently of a possibly blocked send. Closing the
         // socket before joining the sender is what wakes a native vsock write.
         val deadline = scope.launch(start = CoroutineStart.UNDISPATCHED) {
@@ -184,6 +197,7 @@ class ProtocolSessionClient(
             deadline.cancel()
             sender?.cancel()
             pending.remove(requestId)
+            resizeBarriers.remove(requestId)
         }
     }
 
@@ -192,7 +206,24 @@ class ProtocolSessionClient(
         when (frame.kind) {
             FrameKind.STREAM -> runCatching { SessionEventCodec.decode(frame.payload) }
                 .onSuccess { mutableEvents.emit(it) }
-            FrameKind.RESPONSE, FrameKind.ERROR -> pending[frame.requestId]?.complete(frame)
+            FrameKind.RESPONSE, FrameKind.ERROR -> {
+                val waiting = pending[frame.requestId] ?: return
+                val resize = resizeBarriers[frame.requestId]
+                if (frame.kind == FrameKind.RESPONSE && resize != null) {
+                    val (request, barrier) = resize
+                    val response = runCatching {
+                        val resized = SessionResponseCodec.decode(frame.payload) as? SessionResponse.Resized
+                            ?: throw ProtocolRequestException("Expected resize response")
+                        require(resized.session.id == request.sessionId && resized.session.rows == request.rows &&
+                            resized.session.cols == request.cols) { "Resize response does not match request" }
+                        resized
+                    }.getOrElse { waiting.completeExceptionally(it); return }
+                    // This marker occupies the response's exact place in the output
+                    // stream, before any following output is handed to the parser.
+                    mutableEvents.emit(SessionEvent.Resized(response.session.id, request.rows, request.cols, barrier))
+                }
+                waiting.complete(frame)
+            }
             else -> Unit
         }
     }

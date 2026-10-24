@@ -46,6 +46,7 @@ class UsbBrokerDeviceTest {
             withTimeout(20_000) {
                 while (true) {
                     when (val event = events.receive()) {
+                        is SessionEvent.Resized -> Unit
                         is SessionEvent.Output -> output.append(String(event.bytes))
                         is SessionEvent.Exited -> { assertEquals(0, event.exitCode); break }
                     }

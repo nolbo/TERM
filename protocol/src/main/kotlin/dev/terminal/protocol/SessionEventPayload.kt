@@ -4,11 +4,13 @@ import java.io.ByteArrayOutputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 
-/** Events carried in `FrameKind.STREAM` frames after a session is attached. */
+/** Session events, including host-local replay and resize ordering metadata. */
 sealed interface SessionEvent {
     /** replay is host-local metadata; it is not part of the guest wire format. */
     data class Output(val sessionId: String, val bytes: ByteArray, val replay: Boolean = false) : SessionEvent
     data class Exited(val sessionId: String, val exitCode: Int) : SessionEvent
+    /** Host-only ordering marker; barrier is the requesting host operation's identity. */
+    data class Resized(val sessionId: String, val rows: UShort, val cols: UShort, val barrier: Any) : SessionEvent
 }
 
 object SessionEventCodec {
@@ -23,6 +25,7 @@ object SessionEventCodec {
                 byte(OUTPUT); string(event.sessionId); i32(event.bytes.size); raw(event.bytes)
             }
             is SessionEvent.Exited -> { byte(EXITED); string(event.sessionId); i32(event.exitCode) }
+            is SessionEvent.Resized -> throw IllegalArgumentException("Resize barriers are host-local events")
         }
     }.toByteArray()
 

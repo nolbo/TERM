@@ -95,17 +95,11 @@ class VmRuntimeService : Service() {
     private val preparationLocks = StoragePreparationLocks()
     private val terminalSinks = java.util.concurrent.ConcurrentHashMap<Pair<String, android.os.IBinder>, dev.terminal.runtime.session.QueuedTerminalSink>()
     private val terminalDeaths = java.util.concurrent.ConcurrentHashMap<Pair<String, android.os.IBinder>, android.os.IBinder.DeathRecipient>()
-    private val terminalOperations = kotlinx.coroutines.channels.Channel<suspend () -> Unit>(512)
-    init {
-        scope.launch {
-            for (operation in terminalOperations) runCatching { operation() }
-                .onFailure { notifyOperationError("터미널 화면 복원", it.userMessage()) }
-        }
+    private val terminalOperations = TerminalOperationQueue(CoroutineScope(scope.coroutineContext + Dispatchers.IO),
+        onFailure = { notifyOperationError("터미널 화면 변경", it.userMessage()) })
+    private fun terminalOperation(sessionId: String, operation: suspend () -> Unit) {
+        check(terminalOperations.offer(sessionId, operation)) { "Terminal state queue is full or closed" }
     }
-    private fun terminalOperation(operation: suspend () -> Unit) {
-        check(terminalOperations.trySend(operation).isSuccess) { "Terminal state queue is full or closed" }
-    }
-    private val sessionResizeMutex = Mutex()
     private val latestResizeRequests = LatestSessionResizeRequests()
     @Volatile private var sessionClient: SessionController? = null
     // Native PTY writes may block: input must not occupy the runtime's CPU dispatcher.
@@ -916,7 +910,7 @@ class VmRuntimeService : Service() {
         }
 
         override fun attachTerminal(sessionId: String, listener: dev.terminal.runtime.ipc.ITerminalStateListener,
-            rows: Int, cols: Int, cellWidth: Int, cellHeight: Int, paletteJson: String) = terminalOperation {
+            rows: Int, cols: Int, cellWidth: Int, cellHeight: Int, paletteJson: String) = terminalOperation(sessionId) {
             val key = sessionId to listener.asBinder()
             try {
                 val registry = ensureSessionRegistry() ?: error("세션 런타임에 연결할 수 없습니다")
@@ -959,7 +953,7 @@ class VmRuntimeService : Service() {
             }
         }
 
-        override fun detachTerminal(sessionId: String, listener: dev.terminal.runtime.ipc.ITerminalStateListener) = terminalOperation {
+        override fun detachTerminal(sessionId: String, listener: dev.terminal.runtime.ipc.ITerminalStateListener) = terminalOperation(sessionId) {
             val registry = sessionClient as? UnifiedSessionRegistry ?: return@terminalOperation
             val key = sessionId to listener.asBinder()
             terminalDeaths.remove(key)?.let { key.second.unlinkToDeath(it, 0) }
@@ -970,12 +964,12 @@ class VmRuntimeService : Service() {
         }
 
         override fun configureTerminal(sessionId: String, rows: Int, cols: Int, cellWidth: Int, cellHeight: Int,
-            paletteJson: String) = terminalOperation {
+            paletteJson: String) = terminalOperation(sessionId) {
             val registry = sessionClient as? UnifiedSessionRegistry ?: error("세션 런타임에 연결되어 있지 않습니다")
             registry.configureTerminal(sessionId, rows, cols, cellWidth, cellHeight, terminalPalette(paletteJson))
         }
 
-        override fun setTerminalViewport(sessionId: String, row: Int, offset: Float, transcriptShift: Long) = terminalOperation {
+        override fun setTerminalViewport(sessionId: String, row: Int, offset: Float, transcriptShift: Long) = terminalOperation(sessionId) {
             require(row in -50_000..0 && offset.isFinite() && offset in 0f..1f)
             val registry = sessionClient as? UnifiedSessionRegistry ?: return@terminalOperation
             registry.terminalStates.mutex.withLock {
@@ -1015,14 +1009,12 @@ class VmRuntimeService : Service() {
 
         override fun resizeSession(sessionId: String, rows: Int, cols: Int) {
             val request = latestResizeRequests.record(sessionId, rows, cols)
-            launchRuntimeOperation {
-                sessionResizeMutex.withLock {
-                    if (!latestResizeRequests.isLatest(request)) return@withLock
-                    val client = sessionClient
-                        ?: throw IllegalStateException("세션 런타임에 연결되어 있지 않습니다")
-                    client.resize(sessionId, rows.toUShortDimension(), cols.toUShortDimension())
-                        .onFailure { notifyOperationError("터미널 크기 변경", it.userMessage()) }
-                }
+            terminalOperation(sessionId) {
+                if (!latestResizeRequests.isLatest(request)) return@terminalOperation
+                val client = sessionClient
+                    ?: throw IllegalStateException("세션 런타임에 연결되어 있지 않습니다")
+                client.resize(sessionId, rows.toUShortDimension(), cols.toUShortDimension())
+                    .onFailure { notifyOperationError("터미널 크기 변경", it.userMessage()) }
             }
         }
 
@@ -1472,6 +1464,7 @@ class VmRuntimeService : Service() {
             scope.launch {
                 registry.events.collect { event ->
                     when (event) {
+                        is SessionEvent.Resized -> Unit // Consumed inside the registry before forwarding.
                         is SessionEvent.Output -> if (registry.hasSessionOwner(event.sessionId))
                             notifyTerminalOutput(event.sessionId, event.bytes, event.replay)
                         is SessionEvent.Exited -> {

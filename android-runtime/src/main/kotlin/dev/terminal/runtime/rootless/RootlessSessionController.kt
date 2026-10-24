@@ -193,6 +193,17 @@ class RootlessSessionController(
         entry.process.resize(rows.toInt(), cols.toInt(), 0, 0)
         entry.descriptor.copy(rows = rows, cols = cols).also { entry.descriptor = it }
     }
+    override val supportsOrderedResize = true
+    override suspend fun resizeOrdered(sessionId: String, rows: UShort, cols: UShort, barrier: Any): Result<SessionDescriptor> = runCatching {
+        val entry = entries[sessionId] ?: error("Session not found")
+        entry.outputMutex.withLock {
+            entry.process.resize(rows.toInt(), cols.toInt(), 0, 0)
+            val resized = entry.descriptor.copy(rows = rows, cols = cols)
+            entry.descriptor = resized
+            mutableEvents.emit(SessionEvent.Resized(sessionId, rows, cols, barrier))
+            resized
+        }
+    }
     override suspend fun write(sessionId: String, bytes: ByteArray): Result<Int> = runCatching {
         val entry = entries[sessionId] ?: error("Session not found")
         entry.inputMutex.withLock {

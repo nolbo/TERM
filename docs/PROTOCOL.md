@@ -250,8 +250,22 @@ Native/Rootless legacy replay snapshots remain bracketed by empty `replay=true`
 frames under the PTY output mutex. Application restoration uses a separate
 host-private `ITerminalStateListener`: a complete checkpoint, then ordered output,
 resize and exit callbacks. `attachTerminal` configures dimensions/palette and
-subscribes atomically under the authoritative emulator lock. Terminal commands
-and viewport updates use an ordered service queue. No guest wire field changes.
+subscribes at an atomic checkpoint boundary under the authoritative emulator lock.
+Resize RPC waits do not hold that lock. The host inserts an opaque, host-only
+resize barrier at the successful matching response's position in the received
+stream; Native/Rootless emit the same barrier under their PTY output mutex.
+The registry applies dimensions/cell size before parsing subsequent output, then
+finishes palette/subscription under the state lock. Earlier delivered output
+retains the previous geometry. Barriers are not encoded on the guest wire.
+Controller/session/state identities fence late responses after replacement,
+exit or removal. Failed/cancelled requests are never automatically resent.
+Terminal commands, resize and viewport updates retain arrival order per session,
+with one shared limit of 512 active/pending operations. Different sessions can
+progress independently. The short state lock still orders emulator mutation,
+checkpoint capture and callback enqueue; network CREATE/ATTACH/RESIZE waits run
+outside it. A per-owner creation gate preserves initial output until the new
+terminal state exists, without holding existing sessions' output. No guest wire
+field changes.
 
 A checkpoint descriptor is a read-only, immutable app-private temporary file,
 unlinked before delivery. Serialization runs under the state lock, with a 64 MiB
