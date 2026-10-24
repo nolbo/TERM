@@ -1,5 +1,21 @@
 # AVF notes
 
+## Interactive transport regression review
+
+On 2026-10-24 the user reported delayed input echo and slow Codex CLI session loading even after updating the guest components. The slow-SSH comparison describes the perceived delay; it is not evidence from an external SSH connection. No privileged AVF target is attached to this development host, so the user's actual network, VM scheduling and screen latency remain unmeasured.
+
+The reviewed release sources are 1.4.0 `9f9381c5637e`, 1.5.0 `d1a3e17cde13` and 1.5.1 `8f8fb58a933f`. Version 1.5.0 changed capable guests from direct session vsock to a host replay stream and Python guest relay; shared-folder SFTP uses the same replay implementation. Host replay headers used unbuffered primitive IO and ring copies performed modulo arithmetic per byte. These are concrete additional costs in the new normal IO path, including terminal redraw and shared-file workloads. The review found no change to the driver's CPU/memory/network configuration inputs between these releases. This source comparison does not prove equivalent device scheduling or Internet behavior.
+
+Version 1.5.1 added a separate IO sender and independent deadline for each session request, plus bounded platform connection attempts and environment ownership handling. On the same ReDroid15 ARM64 device, an isolated transport returning an immediate RPC response measured request dispatch p50/p95 of 0.404/0.547 ms for the exact 1.5.0 client and 0.528/0.657 ms for 1.5.1. This identifies a small normal-path cost; it neither establishes the user's full delay nor rules out other 1.5.1 interactions. Cancellation/deadline protections remain intact.
+
+The host fix buffers raw replay IO per link and flushes each complete frame immediately. Ring wrap uses at most two bulk copies, and receiving copies directly into the application buffer. Wire bytes, consumption credit, recovery budgets and operation ordering stay unchanged. No guest/image update is required for this fix; existing verified recovery images and installed data remain compatible.
+
+Native Android socket-pair replay tests compared the exact published implementation with the fix: 128-byte echo p50/p95 changed from 0.322/0.406 ms to 0.172/0.240 ms. For 500 echoes, host raw writes changed from 6,506 to 1,001 and reads from 3,585 to 995. Linux Kotlin-to-existing-Python loopback tests with TCP_NODELAY measured 8 MiB duplex throughput of 65.3 MiB/s before and 148.0 MiB/s after; one-byte RTT p50 changed only from 0.281 to 0.261 ms. These local fixtures isolate transport overhead, not actual Android AVF vsock, Codex CLI, FUSE or Internet performance. They must not be presented as resolution of the user's device symptom.
+
+The service also used input-triggered retry resets to launch recovery even when every AVF controller was healthy. The no-disconnect branch then ran temporary-Workspace verification and session snapshot refresh, each querying live owners. This behavior already existed in 1.4.0; adding the replay path can increase its cost. Scheduling now checks disconnected owners and environment demand before starting a session recovery worker, leaving healthy input free of these extra RPCs. Actual disconnects still trigger bounded recovery and publish a refreshed snapshot after successful attachment.
+
+Focused tests cover immediate one-byte/full-frame flush, one raw write per frame, non-power-of-two ring wrap, full duplex credit and reconnection against the existing Python guest. Canonical APK/runtime/image checks and all protocol/AVF unit tests passed. Native Android cancellation tests passed; the temporary comparison fixture initially failed to enter the APK and then had an invalid JUnit return type, both corrected before its two successful comparisons. Historical implementation copies and the performance fixture stay outside committed product/test sources. Jev source export was previously rejected by automatic approval review, so this review uses local diffs, tests and measured results without retransmitting source.
+
 ## Deployment constraint
 
 The custom Linux VM path needs `MANAGE_VIRTUAL_MACHINE` and

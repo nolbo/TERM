@@ -1917,6 +1917,12 @@ class VmRuntimeService : Service() {
 
     @Synchronized private fun scheduleGuestReconnect() {
         if (reconnectJob?.isActive == true || !hasReconnectWork()) return
+        // Input resets retry backoff, but healthy owners need neither another
+        // worker nor LIST RPCs for every key. This also keeps temporary-workspace
+        // collection out of the normal input/echo path.
+        val current = sessionClient as? UnifiedSessionRegistry ?: return
+        if (current.disconnectedStorages(SessionRuntime.AVF).none {
+                hasEnvironmentDemand(environmentForStorage(SessionRuntime.AVF, it).id) }) return
         reconnectJob = scope.launch {
             while (!destroying && hasReconnectWork()) {
                 val registry = ensureSessionRegistry() ?: return@launch

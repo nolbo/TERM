@@ -1,6 +1,8 @@
 package dev.terminal.protocol
 
 import java.io.Closeable
+import java.io.BufferedInputStream
+import java.io.BufferedOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.IOException
@@ -24,13 +26,20 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
         val size get() = (end - base).toInt()
         fun append(source: ByteArray, offset: Int, count: Int) {
             check(count <= capacity - size && end <= Long.MAX_VALUE - count)
-            for (i in 0 until count) bytes[((end + i) % capacity).toInt()] = source[offset + i]
+            val start = (end % capacity).toInt()
+            val first = minOf(count, capacity - start)
+            source.copyInto(bytes, start, offset, offset + first)
+            if (first < count) source.copyInto(bytes, 0, offset + first, offset + count)
             end += count
         }
-        fun copy(position: Long, count: Int): ByteArray {
+        fun copyInto(position: Long, target: ByteArray, offset: Int, count: Int) {
             require(position >= base && position <= end && count <= end - position)
-            return ByteArray(count) { bytes[((position + it) % capacity).toInt()] }
+            val start = (position % capacity).toInt()
+            val first = minOf(count, capacity - start)
+            bytes.copyInto(target, offset, start, start + first)
+            if (first < count) bytes.copyInto(target, offset + first, 0, count - first)
         }
+        fun copy(position: Long, count: Int): ByteArray = ByteArray(count).also { copyInto(position, it, 0, count) }
         fun discard(position: Long) { require(position in base..end); base = position }
     }
 
@@ -67,7 +76,7 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
                 while (received.size == 0 && !closed) lock.wait()
                 if (closed) return -1
                 val count = minOf(length, received.size)
-                received.copy(received.base, count).copyInto(bytes, offset)
+                received.copyInto(received.base, bytes, offset, count)
                 received.discard(received.base + count)
                 lock.notifyAll()
                 return count
@@ -101,8 +110,11 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
         synchronized(lock) { connection }?.let(::detach)
         synchronized(lock) { connecting = closeSocket }
         try {
-            val source = DataInputStream(input)
-            val sink = DataOutputStream(output)
+            // Parsing primitives directly on a raw vsock splits one replay frame
+            // into several kernel/VM crossings. Buffer each link, but flush every
+            // handshake/frame so interactive input never waits for a batch timer.
+            val source = DataInputStream(BufferedInputStream(input, CHUNK + FRAME_HEADER_SIZE))
+            val sink = DataOutputStream(BufferedOutputStream(output, CHUNK + FRAME_HEADER_SIZE))
             val offsets = synchronized(lock) { received.end to received.base }
             sink.writeInt(MAGIC); sink.writeInt(capacity)
             sink.writeLong(offsets.first); sink.writeLong(offsets.second)
@@ -227,6 +239,7 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
     companion object {
         const val WINDOW = 256 * 1024
         const val CHUNK = 32 * 1024
+        private const val FRAME_HEADER_SIZE = 13
         private const val MAGIC = 0x54525332 // TRS2
         private const val DATA = 1
         private const val ACK = 2
