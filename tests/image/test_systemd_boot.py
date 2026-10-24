@@ -27,6 +27,21 @@ class Connection:
 
 
 class NormalSystemdBootTests(unittest.TestCase):
+    def test_recovery_probe_waits_for_listener_and_unix_endpoint_before_any_rpc(self):
+        connect = mock.Mock(side_effect=[ConnectionResetError('starting'), EOFError('endpoint starting'), None])
+        with mock.patch.object(boot.recovery.time, 'sleep') as wait:
+            boot.recovery.await_connection(connect)
+        self.assertEqual(3, connect.call_count)
+        self.assertEqual(2, wait.call_count)
+
+    def test_recovery_readiness_is_bounded_and_retains_last_failure(self):
+        connect = mock.Mock(side_effect=ConnectionResetError('starting'))
+        with mock.patch.object(boot.recovery.time, 'monotonic', side_effect=[0, 0, 61]), \
+                mock.patch.object(boot.recovery.time, 'sleep'):
+            with self.assertRaises(TimeoutError) as failure:
+                boot.recovery.await_connection(connect)
+        self.assertIsInstance(failure.exception.__cause__, ConnectionResetError)
+
     def test_session_probe_checks_a_fragmented_actual_list_response(self):
         response = boot.HEADER.pack(boot.MAGIC, 1, 1, 2, 0, 0, 1, 3) + b'\x82\0\0'
         connection = Connection(response)

@@ -14,6 +14,20 @@ HEADER = struct.Struct('>IHBBHHQI')
 MAGIC = 0x44505459
 
 
+def await_connection(connect, timeout=60):
+    """A systemd simple unit is active before its Python/vsock listener is ready."""
+    deadline = time.monotonic() + timeout
+    last_error = None
+    while time.monotonic() < deadline:
+        try:
+            connect()
+            return
+        except (OSError, EOFError) as error:
+            last_error = error
+            time.sleep(0.2)
+    raise TimeoutError('Session recovery listener did not become ready') from last_error
+
+
 def text(value):
     value = value.encode()
     return struct.pack('!H', len(value)) + value
@@ -26,7 +40,7 @@ class SessionProbe:
         self.sequence, self.output, self.identity = 0, bytearray(), None
         self.established = False
         try:
-            self.connect()
+            await_connection(self.connect)
             self.application, bridge = socket.socketpair()
             self.application.settimeout(20)
             self.replay.bridge(bridge)
