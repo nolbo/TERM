@@ -17,6 +17,19 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
 
+/** Fixed metadata codes only; exception messages/protocol contents never become diagnostics. */
+internal class ShareControlFailure(val phase: Phase, val reply: Int?, val attempt: Int,
+    val outageMillis: Long, cause: Exception) : IOException(cause) {
+    val diagnosticCode get() = "${phase.code}.reply_${reply ?: "none"}.attempt_$attempt.outage_ms_$outageMillis"
+    enum class Phase(val code: String) {
+        CONNECT("control.connect"), MANIFEST("control.manifest"), OWNER_ACCEPT("control.owner_accept"),
+        FOLDERS_START("control.folders_start"), MOUNTS_READY("control.mounts_ready"),
+        FOLDER_REVOKE("control.folder_revoke"), HEARTBEAT("control.heartbeat"),
+        REVOKED_FOLDERS("control.revoked_folders"),
+    }
+}
+internal class ShareControlStall(val idleMillis: Long) : IOException("Share control progress timed out")
+
 /** Broker v2 retains each SFTP server and its descriptors across a transient vsock reset. */
 internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirectoryExport>,
     private val report: (String, Throwable?) -> Unit,
@@ -70,17 +83,26 @@ internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirec
             val now = System.nanoTime()
             if (expired(controlLostAt.get(), now)) ownerUnavailable()
             dataLostAt.forEach { (id, since) -> if (expired(since, now)) disableFolder(id, "share.data.unavailable") }
-            if (System.nanoTime() - progress.get() > TimeUnit.SECONDS.toNanos(15))
-                control.get()?.let { runCatching { it.close() } }
+            val idleNanos = now - progress.get()
+            if (idleNanos > TimeUnit.SECONDS.toNanos(15))
+                control.get()?.let { socket ->
+                    if (control.compareAndSet(socket, null)) {
+                        record("share.control.stalled", ShareControlStall(TimeUnit.NANOSECONDS.toMillis(idleNanos)))
+                        runCatching { socket.close() }
+                    }
+                }
         }, interval, interval, TimeUnit.MILLISECONDS)
         var attempt = 0
         try {
             while (!closed.get()) {
                 var socket: GuestByteStream? = null
+                var phase = ShareControlFailure.Phase.CONNECT
+                var reply: Int? = null
                 try {
                     socket = connect(); track(socket); control.set(socket); progress.set(System.nanoTime())
                     val output = DataOutputStream(socket.output)
                     val input = DataInputStream(socket.input)
+                    phase = ShareControlFailure.Phase.MANIFEST
                     output.writeInt(0x54534232); output.writeShort(2); output.writeShort(folders.size)
                     output.writeLong(token.mostSignificantBits); output.writeLong(token.leastSignificantBits)
                     folders.forEach { folder ->
@@ -90,22 +112,36 @@ internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirec
                     }
                     output.writeByte(if (ownerEstablished.get()) 0 else 1)
                     output.flush()
-                    check(input.read() == 0) { "Guest rejected share owner generation" }
+                    phase = ShareControlFailure.Phase.OWNER_ACCEPT
+                    reply = input.read()
+                    check(reply == 0) { "Guest rejected share owner generation" }
+                    reply = null
                     ownerEstablished.set(true)
+                    phase = ShareControlFailure.Phase.FOLDERS_START
                     if (dataStarted.compareAndSet(false, true)) startFolders(connect)
-                    check(input.read() == 0) { "Guest did not confirm private mounts" }
+                    phase = ShareControlFailure.Phase.MOUNTS_READY
+                    reply = input.read()
+                    check(reply == 0) { "Guest did not confirm private mounts" }
+                    reply = null
                     progress.set(System.nanoTime()); controlLostAt.set(0)
                     everReady.set(true); mounted = true; initialized.countDown(); attempt = 0
                     record("share.control.ready")
                     while (!closed.get()) {
                         Thread.sleep(heartbeatMillis)
                         disabled.forEach { identity ->
+                            phase = ShareControlFailure.Phase.FOLDER_REVOKE
                             output.writeByte(3); output.writeLong(identity.mostSignificantBits)
                             output.writeLong(identity.leastSignificantBits); output.flush()
-                            check(input.read() == 0) { "Guest did not revoke failed share" }
+                            reply = input.read()
+                            check(reply == 0) { "Guest did not revoke failed share" }
+                            reply = null
                         }
+                        phase = ShareControlFailure.Phase.HEARTBEAT
                         output.writeByte(1); output.flush()
-                        check(input.read() == 0) { "Guest share owner lease unavailable" }
+                        reply = input.read()
+                        check(reply == 0) { "Guest share owner lease unavailable" }
+                        reply = null
+                        phase = ShareControlFailure.Phase.REVOKED_FOLDERS
                         val count = input.readUnsignedShort()
                         require(count <= folders.size)
                         repeat(count) {
@@ -116,8 +152,11 @@ internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirec
                         progress.set(System.nanoTime())
                     }
                 } catch (error: Exception) { if (!closed.get()) {
-                    if (everReady.get()) controlLostAt.compareAndSet(0, System.nanoTime())
-                    record("share.control.reconnecting", error)
+                    val now = System.nanoTime()
+                    if (everReady.get()) controlLostAt.compareAndSet(0, now)
+                    val lostAt = controlLostAt.get()
+                    val outageMillis = if (lostAt == 0L) 0 else TimeUnit.NANOSECONDS.toMillis(now - lostAt).coerceAtLeast(0)
+                    record("share.control.reconnecting", ShareControlFailure(phase, reply, attempt, outageMillis, error))
                 } }
                 finally {
                     control.compareAndSet(socket, null)

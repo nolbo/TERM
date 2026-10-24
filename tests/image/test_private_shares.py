@@ -47,6 +47,25 @@ class PrivateShareTests(unittest.TestCase):
         self.assertNotIn('secret', stderr.getvalue())
         self.assertEqual(0o600, self.failure_file.stat().st_mode & 0o777)
 
+    def test_later_fatal_failure_replaces_a_transient_record_without_leaking_details(self):
+        owner = broker.Broker()
+        with patch.object(broker.sys, 'stderr', new_callable=io.StringIO) as stderr:
+            owner.fail('share.control.recovering', EOFError('transient private detail'), terminate=False)
+            self.assertFalse(owner.failed.is_set())
+            self.assertFalse(json.loads(self.failure_file.read_text())['fatal'])
+            owner.fail('share.isolation.failed', OSError(13, 'secret path and token'))
+            fatal_record = self.failure_file.read_bytes()
+            owner.fail('share.attach.failed', ValueError('later failure'))
+        self.assertEqual(fatal_record, self.failure_file.read_bytes())
+        record = json.loads(fatal_record)
+        self.assertEqual('share.isolation.failed', record['event'])
+        self.assertEqual('PermissionError', record['error'])
+        self.assertEqual(13, record['errno'])
+        self.assertTrue(record['fatal'])
+        self.assertTrue(owner.failed.is_set())
+        self.assertNotIn('secret', fatal_record.decode())
+        self.assertNotIn('private detail', stderr.getvalue())
+
     def test_unavailable_diagnostics_never_prevent_fail_closed(self):
         owner = broker.Broker()
         with patch.object(broker, 'FAILURE_RECORD', self.failure_file / 'missing' / 'record.json'), \

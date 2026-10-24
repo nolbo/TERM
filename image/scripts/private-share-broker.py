@@ -78,16 +78,22 @@ class Broker(_recovery.RecoveryBroker):
         self.lock = threading.Lock()
         self.failed = threading.Event()
         self.failure_reason = None
+        self.failure_fatal = False
         self.init_recovery(ROOT, READY, manifest, mount_command, mount_points)
 
     def fail(self, event, error, terminate=True):
         with self.lock:
-            if self.failure_reason is not None:
+            # Keep the first fatal cause. A previous transient disconnect must
+            # not hide the later reason that actually powers the VM off.
+            if self.failure_reason is not None and (self.failure_fatal or not terminate):
                 if terminate:
                     self.failed.set()
                 return
             self.failure_reason = event
+            self.failure_fatal = terminate
             record = {'event': event, 'error': type(error).__name__,
+                      'fatal': terminate,
+                      'errno': error.errno if isinstance(error, OSError) else None,
                       'time_ns': time.time_ns(), 'monotonic_ns': time.monotonic_ns()}
             # No folder names, host paths, protocol bytes, tokens or exception messages.
             try:

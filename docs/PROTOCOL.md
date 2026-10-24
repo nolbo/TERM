@@ -568,6 +568,23 @@ directory. Proven guards permit the VM and its sessions to continue. Startup or
 guard-proof failure retains the VM-fatal policy. Durable host deletion leases
 still require verified VM stop and stopped host I/O.
 
+The complete pinned guard set must match every configured mount. Guest startup
+failures remain VM-fatal. After readiness, a monitor error attempts guarded
+owner retirement; proven isolation preserves the VM, while failed isolation
+remains fatal and is not retried as an ordinary monitor error. Guest failure
+records include a fatal flag and numeric OS errno when available. A later fatal
+cause supersedes an earlier transient record; subsequent errors cannot replace
+the first fatal cause.
+
+Host `share.control.reconnecting` diagnostics identify connection, manifest,
+owner acceptance, folder startup, mount readiness, folder revocation, heartbeat
+and revoked-folder decoding phases. Metadata includes the received status byte
+(-1 for EOF, `none` when no byte was read), retry attempt and observed control
+outage milliseconds. `share.control.stalled` records the local 15-second progress
+watchdog and its observed idle milliseconds. Paths, tokens, protocol payloads
+and exception messages are excluded. These diagnostics do not change the
+60-second authority/recovery budgets or authorize expired-generation replay.
+
 The host applies the same 60-second recovery budget to failed v2 control/data links. Expiry permanently closes the corresponding host relay/SFTP handles and stops retrying that generation; owner-wide failure closes all its host actors, while an isolated folder failure leaves the control link and other folders alive. `ready` cannot remain true after permanent failure. Host metadata events `share.owner.unavailable`, `share.data.unavailable` and `share.data.revoked` surface an Environment-scoped warning without claiming VM/session death. Repair requires a stopped/new boot through the existing Environment controls. This does not release durable deletion leases, renew an expired guest authority, change the wire handshake, or replay uncertain filesystem operations.
 
 `sessionResumeVersion=1` enables the host-CID-only session relay on 40507.

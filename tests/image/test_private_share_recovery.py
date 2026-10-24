@@ -1,4 +1,5 @@
 import importlib.util
+import json
 from pathlib import Path
 import socket
 import struct
@@ -16,6 +17,76 @@ spec.loader.exec_module(broker)
 
 
 class RecoveryTests(unittest.TestCase):
+    def test_missing_guard_set_cannot_be_treated_as_proof_of_safe_retirement(self):
+        owner = broker.Broker()
+        owner.folders = {uuid.uuid4().bytes: 'Code'}
+        with self.assertRaisesRegex(RuntimeError, 'guard set is incomplete'):
+            owner.retire_recovery('share.owner.expired')
+        self.assertFalse(owner.retired)
+
+    def watch_ready_owner(self, directory, failure=None, isolation_failure=None, expired=False):
+        owner = broker.Broker()
+        owner.version, owner.token = 2, bytes(16)
+        identity = uuid.uuid4().bytes
+        owner.folders = {identity: 'Code'}
+        child = MagicMock(); child.poll.return_value = None
+        owner.children[identity] = child
+        relay = MagicMock(); owner.relays[identity] = relay
+        if expired:
+            owner.last_owner = time.monotonic() - 61
+        expected = {str(owner.recovery_root / 'Code')}
+        guard_effect = [None, isolation_failure] if isolation_failure is not None else None
+        with patch.object(owner, 'ready_file', Path(directory) / 'ready'), \
+                patch.object(broker, 'FAILURE_RECORD', Path(directory) / 'failure.json'), \
+                patch.object(owner, 'mount_points', return_value=expected), \
+                patch.object(owner, 'guard_mounts', side_effect=guard_effect) as guard, \
+                patch.object(broker.os, 'stat'), \
+                patch.object(owner, 'expire_disconnected_data', side_effect=failure):
+            watcher = threading.Thread(target=owner.watch_recoverable, daemon=True)
+            watcher.start(); watcher.join(3)
+            if watcher.is_alive():
+                owner.failed.set(); watcher.join(1)
+                self.fail('share monitor did not finish')
+            self.assertEqual(2, guard.call_count)  # Failed guard proof is never retried as an ordinary monitor error.
+        self.assertTrue(owner.mounted.is_set())
+        return owner, child, relay, json.loads((Path(directory) / 'failure.json').read_text())
+
+    def test_runtime_monitor_error_retires_guarded_shares_without_powering_off_vm(self):
+        with tempfile.TemporaryDirectory() as directory:
+            owner, child, relay, record = self.watch_ready_owner(directory, failure=OSError('monitor failure'))
+        self.assertTrue(owner.retired)
+        self.assertFalse(owner.failed.is_set())
+        relay.close.assert_called_once(); child.terminate.assert_called_once()
+        self.assertEqual('share.runtime.failed', record['event'])
+        self.assertFalse(record['fatal'])
+
+    def test_runtime_isolation_failure_still_powers_off_vm(self):
+        with tempfile.TemporaryDirectory() as directory:
+            owner, _, _, record = self.watch_ready_owner(directory, failure=OSError('monitor failure'),
+                                                        isolation_failure=OSError('guard proof failed'))
+        self.assertTrue(owner.failed.is_set())
+        self.assertFalse(owner.retired)
+        self.assertEqual('share.isolation.failed', record['event'])
+        self.assertTrue(record['fatal'])
+
+    def test_full_watchdog_lease_expiry_keeps_vm_running(self):
+        with tempfile.TemporaryDirectory() as directory:
+            owner, child, relay, record = self.watch_ready_owner(directory, expired=True)
+        self.assertTrue(owner.retired)
+        self.assertFalse(owner.failed.is_set())
+        relay.close.assert_called_once(); child.terminate.assert_called_once()
+        self.assertEqual('share.owner.expired', record['event'])
+        self.assertFalse(record['fatal'])
+
+    def test_lease_expiry_with_failed_guard_proof_is_fatal_without_retry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            owner, _, _, record = self.watch_ready_owner(directory, expired=True,
+                                                        isolation_failure=OSError('guard proof failed'))
+        self.assertTrue(owner.failed.is_set())
+        self.assertFalse(owner.retired)
+        self.assertEqual('share.isolation.failed', record['event'])
+        self.assertTrue(record['fatal'])
+
     def test_new_boot_reopens_previously_sealed_underlying_directory_for_mount_only(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / 'mounts'

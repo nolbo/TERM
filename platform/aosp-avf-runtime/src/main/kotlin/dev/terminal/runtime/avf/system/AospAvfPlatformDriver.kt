@@ -170,7 +170,13 @@ class AospAvfPlatformDriver(
                         shareLeases.record(config.instanceId, config.sharedFolders.map { it.id }, shares?.artifact,
                             shares?.requiresStoragePermission == true)
                         val owner = PrivateAvfShares(config.sharedFolders, shareBrokerVersion) { event, error ->
-                            dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(event, config.instanceId, error = error)
+                            dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(event, config.instanceId,
+                                code = when (error) {
+                                    is ShareControlFailure -> error.diagnosticCode
+                                    is ShareControlStall -> "control.no_progress.idle_ms_${error.idleMillis}"
+                                    else -> null
+                                },
+                                error = if (error is ShareControlFailure) error.cause else error)
                             if (event in setOf("share.owner.unavailable", "share.data.unavailable", "share.data.revoked") &&
                                 shareFailureReported.compareAndSet(false, true))
                                 events.tryEmit(AvfPlatformEvent.SharingUnavailable(event))

@@ -24,7 +24,8 @@ class RecoverablePrivateAvfSharesTest {
         Broker().use { peer ->
             val events = CopyOnWriteArrayList<String>()
             val failed = CountDownLatch(1)
-            val owner = owner(peer, events) { if (it == "share.owner.unavailable") failed.countDown() }
+            val errors = CopyOnWriteArrayList<Throwable>()
+            val owner = owner(peer, events, errors, recoveryMillis = 1500) { if (it == "share.owner.unavailable") failed.countDown() }
             try {
                 owner.start(peer::open)
                 assertTrue(owner.ready)
@@ -35,6 +36,30 @@ class RecoverablePrivateAvfSharesTest {
                 Thread.sleep(150)
                 assertEquals(attempts, peer.attempts.get())
                 assertEquals(1, events.count { it == "share.owner.unavailable" })
+                assertTrue(errors.filterIsInstance<ShareControlFailure>().any {
+                    it.phase == ShareControlFailure.Phase.OWNER_ACCEPT && it.reply == -1 &&
+                        it.attempt >= 1 && it.outageMillis > 0 && it.cause is IllegalStateException
+                })
+            } finally { owner.close() }
+        }
+    }
+
+    @Test(timeout = 10_000) fun rejectedLeaseHasADistinctPhaseAndPreservesOriginalErrorType() {
+        Broker().use { peer ->
+            val events = CopyOnWriteArrayList<String>()
+            val errors = CopyOnWriteArrayList<Throwable>()
+            val owner = owner(peer, events, errors) { }
+            try {
+                owner.start(peer::open)
+                peer.rejectLease.set(true)
+                val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(3)
+                while (errors.none { it is ShareControlFailure && it.phase == ShareControlFailure.Phase.HEARTBEAT } &&
+                    System.nanoTime() < deadline) Thread.sleep(10)
+                val error = errors.filterIsInstance<ShareControlFailure>().first { it.phase == ShareControlFailure.Phase.HEARTBEAT }
+                assertEquals("control.heartbeat", error.phase.code)
+                assertEquals(1, error.reply)
+                assertTrue(error.diagnosticCode.contains("reply_1.attempt_0.outage_ms_0"))
+                assertTrue(error.cause is IllegalStateException)
             } finally { owner.close() }
         }
     }
@@ -59,9 +84,11 @@ class RecoverablePrivateAvfSharesTest {
         }
     }
 
-    private fun owner(peer: Broker, events: MutableList<String>, event: (String) -> Unit) =
+    private fun owner(peer: Broker, events: MutableList<String>, errors: MutableList<Throwable>? = null,
+        recoveryMillis: Long = 500, event: (String) -> Unit) =
         RecoverablePrivateAvfShares(listOf(SharedDirectoryExport(peer.folder.toString(), "Code", "/unused")),
-            report = { name, _ -> events += name; event(name) }, recoveryTimeoutMillis = 500, heartbeatMillis = 20,
+            report = { name, error -> events += name; error?.let { errors?.add(it) }; event(name) },
+            recoveryTimeoutMillis = recoveryMillis, heartbeatMillis = 20,
             serveFolder = { _, relay -> while (relay.input.read() >= 0) Unit })
 
     /** Exercises the real TSB2/TSF2/TRS2 host code without requiring a guest FUSE mount. */
@@ -69,6 +96,7 @@ class RecoverablePrivateAvfSharesTest {
         val folder = UUID.randomUUID()
         val rejectControl = AtomicBoolean()
         val rejectData = AtomicBoolean()
+        val rejectLease = AtomicBoolean()
         val attempts = AtomicInteger()
         val heartbeats = AtomicInteger()
         val control = AtomicReference<Socket>()
@@ -117,7 +145,11 @@ class RecoverablePrivateAvfSharesTest {
                     output.writeByte(0); output.flush()
                     while (!stopped.get()) {
                         when (input.readUnsignedByte()) {
-                            1 -> { heartbeats.incrementAndGet(); output.writeByte(0); output.writeShort(0); output.flush() }
+                            1 -> {
+                                heartbeats.incrementAndGet()
+                                if (rejectLease.get()) { output.writeByte(1); output.flush(); return }
+                                output.writeByte(0); output.writeShort(0); output.flush()
+                            }
                             3 -> { input.readLong(); input.readLong(); output.writeByte(0); output.flush() }
                             else -> return
                         }

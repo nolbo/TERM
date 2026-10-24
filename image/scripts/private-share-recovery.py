@@ -32,6 +32,9 @@ class RecoveryBroker:
         self.guards[str(path)] = os.open(path, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
 
     def guard_mounts(self):
+        expected = {str(self.recovery_root / name) for name in self.folders.values()}
+        if not expected or set(self.guards) != expected:
+            raise RuntimeError('private mount guard set is incomplete')
         for descriptor in self.guards.values():
             os.fchown(descriptor, 0, 0)
             os.fchmod(descriptor, 0)
@@ -158,20 +161,32 @@ class RecoveryBroker:
                 time.sleep(0.05)
             else:
                 raise TimeoutError('private share mounts timed out')
+        except Exception as error:
+            # No working mount/guard boundary has been established yet.
+            self.fail('share.mount.failed', error)
+            return
+        try:
             while not self.failed.wait(0.5):
                 with self.lock:
                     expired = time.monotonic() - self.last_owner > LEASE_SECONDS
                     dead = [identity for identity, child in self.children.items()
                             if identity not in self.offline and child.poll() is not None]
                 if expired:
-                    self.retire_recovery('share.owner.expired')
+                    self.retire_or_fail('share.owner.expired')
                     return
                 for identity in dead:
                     self.disable_folder(identity)
                 self.expire_disconnected_data(time.monotonic())
         except Exception as error:
-            # An unproven mount/guard is still a VM-fatal startup failure.
-            self.fail('share.mount.failed', error)
+            # An operational monitor error is not a failed boot. Preserve the
+            # VM only after proving guards and closing the affected authority.
+            self.retire_or_fail('share.runtime.failed', error)
+
+    def retire_or_fail(self, event, error=None):
+        try:
+            self.retire_recovery(event, error)
+        except Exception as isolation_error:
+            self.fail('share.isolation.failed', isolation_error)
 
     def expire_disconnected_data(self, now):
         with self.lock:
@@ -196,13 +211,13 @@ class RecoveryBroker:
         # underlying inode is root-owned mode000. No application can write a shadow tree.
         self.ready_file.unlink(missing_ok=True)
 
-    def retire_recovery(self, event):
+    def retire_recovery(self, event, error=None):
         self.guard_mounts()  # Never relax failure policy if guards cannot be proven.
         with self.lock:
             self.retired = True
         for identity in self.folders:
             self.disable_folder(identity)
-        self.fail(event, EOFError('private owner unavailable'), terminate=False)
+        self.fail(event, error if error is not None else EOFError('private owner unavailable'), terminate=False)
 
     def close_recovery(self):
         for relay in self.relays.values():
