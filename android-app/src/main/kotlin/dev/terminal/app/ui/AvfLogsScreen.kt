@@ -28,8 +28,23 @@ internal fun AvfLogsScreen(snapshot: ConnectionLogSnapshot?, loading: Boolean, c
     val entries = remember(snapshot, query) { snapshot?.entries.orEmpty().filter { it.contains(query, ignoreCase = true) } }
     val busy = loading || changing
     val locale = LocalConfiguration.current.locales[0]
-    SettingsPageScaffold(stringResource(R.string.avf_logs_title), onBack) { padding ->
-        LazyColumn(Modifier.fillMaxSize().padding(padding), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp),
+    SettingsPageScaffold(stringResource(R.string.avf_logs_title), onBack,
+        floatingActionButtonPosition = FabPosition.Center,
+        floatingActionButton = {
+            HorizontalFloatingToolbar(expanded = true,
+                modifier = Modifier.windowInsetsPadding(WindowInsets.ime.exclude(WindowInsets.systemBars))) {
+                FloatingToolbarAction(stringResource(if (loading) R.string.diagnostics_refreshing else R.string.refresh),
+                    R.drawable.ic_material_symbol_refresh_24, enabled = !busy, loading = loading, onClick = onRefresh)
+                FloatingToolbarAction(stringResource(R.string.avf_logs_copy), R.drawable.ic_material_symbol_content_copy_24,
+                    enabled = !busy && entries.isNotEmpty(), onClick = { onCopy(entries.joinToString("\n", postfix = "\n")) })
+                FloatingToolbarAction(stringResource(R.string.avf_logs_clear), R.drawable.ic_material_symbol_delete_24,
+                    enabled = !busy && (snapshot == null || snapshot.entries.isNotEmpty()), destructive = true,
+                    onClick = { confirmingClear = true })
+            }
+        }) { padding ->
+        LazyColumn(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).imePadding(),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp,
+                bottom = FloatingToolbarDefaults.ContainerSize + FloatingToolbarDefaults.ScreenOffset * 2),
             verticalArrangement = Arrangement.spacedBy(20.dp)) {
             item { SettingsDescription(stringResource(R.string.avf_logs_description)) }
             item { SettingsGroup {
@@ -44,9 +59,6 @@ internal fun AvfLogsScreen(snapshot: ConnectionLogSnapshot?, loading: Boolean, c
                         Modifier.toggleable(enabled, enabled = !busy, role = Role.Switch) { onEnabled(it) })) {
                     Text(stringResource(R.string.avf_logs_recording))
                 }
-                LogAction(if (loading) R.string.diagnostics_refreshing else R.string.refresh, !busy, onRefresh)
-                LogAction(R.string.avf_logs_copy, !busy && entries.isNotEmpty()) { onCopy(entries.joinToString("\n", postfix = "\n")) }
-                LogAction(R.string.avf_logs_clear, !busy && (snapshot == null || snapshot.entries.isNotEmpty())) { confirmingClear = true }
             } }
             item { Text(stringResource(R.string.avf_logs_retention, ConnectionLogStore.MAX_RECORDS, ConnectionLogStore.MAX_BYTES / 1024),
                 Modifier.padding(horizontal = 4.dp), style = MaterialTheme.typography.bodySmall,
@@ -77,12 +89,4 @@ internal fun AvfLogsScreen(snapshot: ConnectionLogSnapshot?, loading: Boolean, c
         confirmButton = { Button(onClick = { confirmingClear = false; onClear() }, enabled = !busy, shapes = ButtonDefaults.shapes()) {
             Text(stringResource(R.string.delete))
         } }, dismissButton = { TextButton(onClick = { confirmingClear = false }, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } })
-}
-
-@Composable
-private fun LogAction(title: Int, enabled: Boolean, onClick: () -> Unit) {
-    ListItem(onClick = onClick, enabled = enabled, verticalAlignment = Alignment.CenterVertically,
-        shapes = terminalListItemShapes(), colors = terminalSettingsListItemColors(), modifier = Modifier.fillMaxWidth()) {
-        Text(stringResource(title))
-    }
 }

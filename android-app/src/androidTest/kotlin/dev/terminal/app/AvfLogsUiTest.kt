@@ -55,7 +55,7 @@ class AvfLogsUiTest {
 
     private fun text(id: Int) = context.getString(id)
     private fun action(id: Int) = click(waitFor { node ->
-        node.isEnabled && node.text?.toString() == text(id) &&
+        node.isEnabled && (node.text?.toString() == text(id) || node.contentDescription?.toString() == text(id)) &&
             generateSequence(node) { it.parent }.any { it.isClickable && it.isEnabled }
     })
     private fun query(value: String) {
@@ -102,15 +102,18 @@ class AvfLogsUiTest {
     @Test fun deleteConfirmationCancelsSafelyAndSuccessfulClearShowsEmptyState() {
         // Render an isolated snapshot: never delete a device user's diagnostic history.
         var clearCount = 0
+        var refreshCount = 0
         ActivityScenario.launch(AvfLogsActivity::class.java).use { scenario ->
             waitFor { it.isCheckable && it.isEnabled }
             scenario.onActivity { activity -> activity.setContent {
                 var state by remember { mutableStateOf(ConnectionLogSnapshot(true,
                     listOf("time_ms=42 event=vm.start owner=fixture"))) }
-                DroidTheme { AvfLogsScreen(state, false, false, null, {}, {},
+                DroidTheme { AvfLogsScreen(state, false, false, null, {}, { refreshCount++ },
                     { state = state.copy(enabled = it) }, { clearCount++; state = state.copy(entries = emptyList()) }, {}) }
             } }
             waitFor { it.text?.toString()?.contains("owner=fixture") == true }
+            action(R.string.refresh)
+            assertEquals(1, refreshCount)
             action(R.string.avf_logs_clear)
             waitFor { it.text?.toString() == text(R.string.avf_logs_clear_confirmation) }
             action(R.string.cancel)
@@ -120,6 +123,10 @@ class AvfLogsUiTest {
             waitFor { it.text?.toString() == text(R.string.avf_logs_empty) }
             assertEquals(1, clearCount)
             assertNotNull(find { it.isCheckable && it.isChecked })
+            for (id in listOf(R.string.avf_logs_copy, R.string.avf_logs_clear)) waitFor { node ->
+                node.contentDescription?.toString() == text(id) &&
+                    generateSequence(node) { it.parent }.any { !it.isEnabled }
+            }
         }
     }
 }
