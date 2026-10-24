@@ -42,7 +42,7 @@ The host now records fixed failure phases, response status/EOF, retry attempt an
 
 Validation: the canonical debug APK/runtime/image checks plus protocol and AVF unit checks passed (607 passed, one skipped). All 146 Python image tests passed, including guest-package assembly checks. The initial Python run hit sandbox socket restrictions and was rerun with local socket access; test fixture timing and a missing test import were corrected. Android MCP found only ReDroid15 ARM64 with no virtualization feature, so actual privileged AVF, FUSE mount teardown and device background/Doze behavior remain unvalidated. The first feature query returned a nonzero exit without output; the feature-list fallback confirmed no virtualization entry. Jev source export remains unavailable under the earlier automatic approval rejection; review uses local diffs and actual tests.
 
-The guest script changes require newly built and verified guest components/images and a stopped-Environment update under `AVF_UPDATES.md`. Current published APK/image catalogs are not changed by this source work. Host diagnostic changes require a new app build; they cannot reconstruct missing details from a 1.5.1 log.
+The guest script changes require newly built and verified guest components/images and a stopped-Environment update under `AVF_UPDATES.md`. The source-only implementation did not change installed guests. The 1.5.2 release preparation promotes the verified recovery-20261024-r4 components and catalog; results are recorded in [the release validation](release-validation/1.5.2.md). Host diagnostic changes require a new app build; they cannot reconstruct missing details from a 1.5.1 log.
 
 ## Deployment constraint
 
