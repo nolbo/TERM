@@ -36,6 +36,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChanged
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
@@ -57,6 +58,7 @@ internal val LocalToolbarColors = staticCompositionLocalOf { TerminalChromeColor
 internal val LocalToolbarExpansionProgress = compositionLocalOf<State<Float>> { mutableFloatStateOf(1f) }
 internal val LocalToolbarExpandedContentHeight = compositionLocalOf<Dp?> { null }
 private val LocalToolbarKeyInteractions = staticCompositionLocalOf<MutableInteractionSource?> { null }
+private val LocalToolbarKeyGestureLocked = compositionLocalOf { false }
 internal val ToolbarHotkeyViewportHeight = (HOTKEY_HEIGHT_DP * 2 + 4 + 8).dp
 
 /** Persistent, non-modal bottom sheet with a handle-only hidden anchor. No runtime ownership. */
@@ -253,9 +255,12 @@ private fun ColumnScope.ToolbarPages(tools: List<String>, pager: PagerState, int
             awaitPointerEventScope {
                 while (true) {
                     val event = awaitPointerEvent(PointerEventPass.Initial)
+                    if (keyGestureLocked) {
+                        event.changes.filter { it.positionChanged() }.forEach { it.consume() }
+                    }
                     pointersDown = event.changes.any { it.pressed }
-                    // Leaving a held key cancels its ripple, but must not start paging
-                    // halfway through that same gesture. Wait for every finger to lift.
+                    // Keep both scroll axes locked until every finger lifts, including
+                    // after a key is disabled or replaced during this gesture.
                     if (!pointersDown) keyGestureLocked = false
                 }
             }
@@ -286,7 +291,8 @@ private fun ColumnScope.ToolbarPages(tools: List<String>, pager: PagerState, int
                 if (navigationEnabled) defaultConnection.onPostFling(consumed, available) else Velocity.Zero
         }
     }
-    CompositionLocalProvider(LocalToolbarKeyInteractions provides keyInteractions) {
+    CompositionLocalProvider(LocalToolbarKeyInteractions provides keyInteractions,
+        LocalToolbarKeyGestureLocked provides keyGestureLocked) {
         HorizontalPager(state = pager, userScrollEnabled = navigationEnabled,
             flingBehavior = fling, pageNestedScrollConnection = pageConnection,
             key = { tools[it] }, modifier = Modifier.weight(1f).fillMaxWidth().then(keyGestureObserver)) { page ->
@@ -314,11 +320,12 @@ internal fun ToolbarHotkeys(layout: HotkeyLayout, control: Boolean, alt: Boolean
     val scroll = rememberScrollState()
     val keyInteractions = LocalToolbarKeyInteractions.current ?: remember { MutableInteractionSource() }
     val keyPressed by keyInteractions.collectIsPressedAsState()
+    val keyGestureLocked by rememberUpdatedState(LocalToolbarKeyGestureLocked.current)
     val dragged by scroll.interactionSource.collectIsDraggedAsState()
     val density = LocalDensity.current.density
     val snapMotion = MaterialTheme.motionScheme.fastSpatialSpec<Float>()
     LaunchedEffect(scroll, layout, density, snapMotion) {
-        snapshotFlow { scroll.isScrollInProgress || dragged || keyPressed }.distinctUntilChanged().collect { busy ->
+        snapshotFlow { scroll.isScrollInProgress || dragged || keyPressed || keyGestureLocked }.distinctUntilChanged().collect { busy ->
             if (!busy) {
                 val target = hotkeyScrollSnapOffset(layout, scroll.value, scroll.maxValue, scroll.viewportSize, density)
                 if (target != scroll.value) launch { scroll.animateScrollTo(target, snapMotion) }
@@ -328,7 +335,8 @@ internal fun ToolbarHotkeys(layout: HotkeyLayout, control: Boolean, alt: Boolean
     Box(Modifier.fillMaxSize().clipToBounds()) {
         HotkeyGrid(layout = layout, control = control, alt = alt, shift = shift, terminalColors = colors,
             enabled = enabled, pressInteractionSource = keyInteractions,
-            modifier = Modifier.fillMaxSize().verticalScroll(scroll).padding(4.dp)) { index ->
+            modifier = Modifier.fillMaxSize().verticalScroll(scroll,
+                enabled = enabled && !keyPressed && !keyGestureLocked).padding(4.dp)) { index ->
             onKey(when (val shortcut = layout.keys[index].shortcut) {
                 "CTRL" -> TerminalToolbarKey.Control
                 "ALT" -> TerminalToolbarKey.Alt

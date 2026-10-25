@@ -102,6 +102,11 @@ class ToolbarHotkeyGestureTest {
                         rect.exactCenterY())
                     SystemClock.sleep(16)
                 }
+                if (description == "Left: LEFT") {
+                    val moved = count.get()
+                    SystemClock.sleep(200)
+                    assertTrue("Repeating must survive leaving the key", count.get() > moved)
+                }
                 event(down, MotionEvent.ACTION_UP, rect.exactCenterX() - page.width() * 0.65f, rect.exactCenterY())
                 settle()
                 assertNull("A held $description must not switch tools", find { it.text?.toString() == "Other tool" })
@@ -138,11 +143,12 @@ class ToolbarHotkeyGestureTest {
             assertNull("A second finger must not page while a key is held", find { it.text?.toString() == "Other tool" })
 
             val ctrl = bounds(node { it.contentDescription?.toString() == "Ctrl: CTRL" })
+            val previouslySelected = control.value
             val toggle = SystemClock.uptimeMillis()
             event(toggle, MotionEvent.ACTION_DOWN, ctrl.exactCenterX(), ctrl.exactCenterY())
             event(toggle, MotionEvent.ACTION_UP, ctrl.exactCenterX(), ctrl.exactCenterY())
             settle()
-            assertTrue("A latched modifier remains selected", control.value)
+            assertEquals("A modifier toggles once on release", !previouslySelected, control.value)
             switchTool(page, forward = true)
             node { it.text?.toString() == "Other tool" }
             switchTool(page, forward = false)
@@ -171,6 +177,84 @@ class ToolbarHotkeyGestureTest {
         }
     }
 
+    @Test fun heldKeysBlockVerticalScrollAndKeepInputThroughMovementInBothViewports() {
+        val mode = mutableStateOf(ToolbarSheetMode.Default)
+        val count = AtomicInteger()
+        val control = mutableStateOf(false)
+        val layout = HotkeyLayout(columns = 3, keys = listOf(
+            Hotkey("F1", "F1"), Hotkey("F2", "F2"), Hotkey("F3", "F3"),
+            Hotkey("Left", "LEFT"), Hotkey("Enter", "ENTER"), Hotkey("Ctrl", "CTRL"),
+        ) + (4..18).map { Hotkey("F$it", "F$it") })
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Column(Modifier.fillMaxSize()) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(ToolbarConfig(tools = listOf(HOTKEY_TOOL)), mode.value,
+                            { mode.value = it }, 240.dp, TerminalChromeColors(Color.Black)) { _, active ->
+                            ToolbarHotkeys(layout, control.value, false, false,
+                                TerminalChromeColors(Color.Black), active) { key ->
+                                if (key == TerminalToolbarKey.Control) control.value = !control.value
+                                else count.incrementAndGet()
+                            }
+                        }
+                    }
+                } }
+            } }
+            settle()
+            for (sheetMode in listOf(ToolbarSheetMode.Default, ToolbarSheetMode.Expanded)) {
+                scenario.onActivity { mode.value = sheetMode }
+                settle()
+                val page = bounds(node { it.isScrollable })
+                for (description in listOf("Left: LEFT", "Enter: ENTER", "Ctrl: CTRL")) {
+                    val rect = bounds(node { it.contentDescription?.toString() == description })
+                    val firstKey = bounds(node { it.contentDescription?.toString() == "F1: F1" })
+                    val before = count.get()
+                    val selected = control.value
+                    val down = SystemClock.uptimeMillis()
+                    event(down, MotionEvent.ACTION_DOWN, rect.exactCenterX(), rect.exactCenterY())
+                    SystemClock.sleep(650)
+                    val endX = page.left + 8 * density
+                    val endY = page.top + 6 * density
+                    repeat(12) { step ->
+                        val progress = (step + 1) / 12f
+                        event(down, MotionEvent.ACTION_MOVE,
+                            rect.exactCenterX() + (endX - rect.exactCenterX()) * progress,
+                            rect.exactCenterY() + (endY - rect.exactCenterY()) * progress)
+                        SystemClock.sleep(16)
+                    }
+                    val moved = count.get()
+                    SystemClock.sleep(200)
+                    assertEquals("A held key must keep vertical scroll fixed in $sheetMode", firstKey,
+                        bounds(node { it.contentDescription?.toString() == "F1: F1" }))
+                    if (description == "Left: LEFT") {
+                        assertTrue("Movement must not stop repeating", count.get() > moved)
+                    }
+                    event(down, MotionEvent.ACTION_UP, endX, endY)
+                    settle()
+                    when (description) {
+                        "Left: LEFT" -> {
+                            val released = count.get()
+                            SystemClock.sleep(150)
+                            assertEquals("Release must stop repeating", released, count.get())
+                        }
+                        "Enter: ENTER" -> assertEquals("Moved normal key fires once", before + 1, count.get())
+                        else -> assertEquals("Moved modifier toggles once", !selected, control.value)
+                    }
+                    // Release may run the existing whole-key alignment animation.
+                    assertEquals(40f * density,
+                        bounds(node { it.contentDescription?.toString() == "F1: F1" }).height().toFloat(), 1f)
+                }
+                // A new quick vertical swipe is still allowed after all holds end.
+                // Cross touch slop immediately, before injection latency can become a hold.
+                drag(page, dy = -60 * density, holdAtEnd = true, steps = 3)
+                assertNull("Release must restore vertical scrolling", find { it.contentDescription?.toString() == "F1: F1" })
+                drag(page, dy = 60 * density, holdAtEnd = true, steps = 3)
+                node { it.contentDescription?.toString() == "F1: F1" }
+            }
+        }
+    }
+
     private fun assertWholeKeys() {
         val keys = nodes().filter { it.contentDescription?.toString()?.startsWith("Key ") == true }
         assertTrue("Expected visible shortcut keys", keys.isNotEmpty())
@@ -191,13 +275,13 @@ class ToolbarHotkeyGestureTest {
         settle()
     }
 
-    private fun drag(page: Rect, dy: Float, holdAtEnd: Boolean = false) {
+    private fun drag(page: Rect, dy: Float, holdAtEnd: Boolean = false, steps: Int = 12) {
         val down = SystemClock.uptimeMillis()
         val x = page.exactCenterX()
         val y = if (dy < 0) page.bottom - 10 * density else page.top + 10 * density
         event(down, MotionEvent.ACTION_DOWN, x, y)
-        repeat(12) { step ->
-            event(down, MotionEvent.ACTION_MOVE, x, y + dy * (step + 1) / 12)
+        repeat(steps) { step ->
+            event(down, MotionEvent.ACTION_MOVE, x, y + dy * (step + 1) / steps)
             SystemClock.sleep(16)
         }
         if (holdAtEnd) SystemClock.sleep(300)

@@ -3,6 +3,10 @@
 package dev.terminal.app
 
 import android.content.SharedPreferences
+import android.view.ViewConfiguration
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.waitForUpOrCancellation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
@@ -15,6 +19,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -128,6 +134,20 @@ internal fun HotkeyGrid(
                                 presses.forEach { pressInteractionSource?.tryEmit(PressInteraction.Cancel(it)) }
                             }
                         }
+                        val click: () -> Unit = {
+                            // Release can reach onClick before the interaction collector.
+                            // Cancel synchronously and don't append an extra key after a hold.
+                            repeatJob?.cancel()
+                            if (!repeated) {
+                                haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
+                                currentOnKey()
+                            }
+                            repeated = false
+                        }
+                        val buttonModifier = cell.semantics { contentDescription = description }
+                            .then(if (!editing && pressInteractionSource != null) {
+                                Modifier.heldHotkeyInput(enabled, key.shortcut, interactions, click)
+                            } else Modifier)
                         if (!editing && key.shortcut in setOf("CTRL", "ALT", "SHIFT")) {
                             FilledTonalToggleButton(
                                 enabled = enabled,
@@ -137,11 +157,8 @@ internal fun HotkeyGrid(
                                     "ALT" -> alt
                                     else -> shift
                                 },
-                                onCheckedChange = {
-                                    haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                                    onKey(index)
-                                },
-                                modifier = cell.semantics { contentDescription = description },
+                                onCheckedChange = { click() },
+                                modifier = buttonModifier,
                                 shapes = ToggleButtonDefaults.shapesFor(ButtonDefaults.MinHeight)
                                     .copy(pressedShape = CircleShape, checkedShape = CircleShape),
                                 colors = FilledTonalToggleButtonDefaults.colors(
@@ -156,19 +173,10 @@ internal fun HotkeyGrid(
                             ) { content() }
                         } else {
                             FilledTonalButton(
-                                onClick = {
-                                    // Release can reach onClick before the interaction collector.
-                                    // Cancel synchronously and don't append an extra key after a hold.
-                                    repeatJob?.cancel()
-                                    if (!repeated) {
-                                        haptics.performHapticFeedback(HapticFeedbackType.KeyboardTap)
-                                        currentOnKey()
-                                    }
-                                    repeated = false
-                                },
+                                onClick = click,
                                 enabled = enabled,
                                 interactionSource = interactions,
-                                modifier = cell.semantics { contentDescription = description },
+                                modifier = buttonModifier,
                                 shapes = ButtonDefaults.shapes().copy(pressedShape = CircleShape),
                                 colors = ButtonDefaults.filledTonalButtonColors(
                                     containerColor = terminalColors?.buttonContainer ?: MaterialTheme.colorScheme.surfaceContainerHigh,
@@ -182,6 +190,52 @@ internal fun HotkeyGrid(
                     }
                     decoration(pitch)
                 }
+            }
+        }
+    }
+}
+
+/** Let quick swipes scroll, then retain the original key until its finger lifts. */
+@Composable
+private fun Modifier.heldHotkeyInput(enabled: Boolean, shortcut: String,
+    interactions: MutableInteractionSource, onClick: () -> Unit): Modifier {
+    val currentOnClick by rememberUpdatedState(onClick)
+    return pointerInput(enabled, shortcut, interactions) {
+        if (!enabled) return@pointerInput
+        awaitEachGesture {
+            val down = awaitFirstDown(pass = PointerEventPass.Initial)
+            // Handle touch here; the Material button keeps keyboard/accessibility clicks.
+            down.consume()
+            var press: PressInteraction.Press? = null
+            try {
+                var tapped = false
+                val finished = withTimeoutOrNull(ViewConfiguration.getTapTimeout().toLong()) {
+                    val up = waitForUpOrCancellation(PointerEventPass.Initial)
+                    if (up != null) {
+                        up.consume()
+                        tapped = true
+                    }
+                    true
+                }
+                if (finished != null && !tapped) return@awaitEachGesture
+                val interaction = PressInteraction.Press(down.position)
+                press = interaction
+                interactions.tryEmit(interaction)
+                if (!tapped) {
+                    while (true) {
+                        val event = awaitPointerEvent(PointerEventPass.Initial)
+                        val change = event.changes.firstOrNull { it.id == down.id }
+                            ?: return@awaitEachGesture
+                        // A confirmed hold ignores bounds and movement consumption.
+                        change.consume()
+                        if (!change.pressed) break
+                    }
+                }
+                interactions.tryEmit(PressInteraction.Release(interaction))
+                press = null
+                currentOnClick()
+            } finally {
+                press?.let { interactions.tryEmit(PressInteraction.Cancel(it)) }
             }
         }
     }
