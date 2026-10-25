@@ -13,6 +13,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.IBinder
 import android.os.SystemClock
+import org.json.JSONArray
 import android.view.KeyEvent
 import android.view.inputmethod.InputMethodManager
 import androidx.activity.result.contract.ActivityResultContracts
@@ -332,6 +333,8 @@ class MainActivity : TerminalActivity() {
     private var bindingRequested = false
     private var activityStarted = false
     private var activityResumed = false
+    private var taskCompletions by mutableStateOf(emptyList<dev.terminal.app.ui.ToolbarTaskCompletion>())
+    private var taskCompletionVisible by mutableStateOf(false)
     private var toolbarInputActive by mutableStateOf(false)
     private var rootlessInstallRuntime by mutableStateOf("ROOTLESS")
     private var rootlessInstallInFlight by mutableStateOf(false)
@@ -359,6 +362,16 @@ class MainActivity : TerminalActivity() {
     }
 
     private fun createRuntimeListener(generation: Long) = object : IRuntimeStateListener.Stub() {
+        override fun onSessionTaskCompletionsChanged(completionsJson: String) = runOnUiThread {
+            if (generation == bindingGeneration) {
+                val pending = JSONArray(completionsJson)
+                taskCompletions = List(pending.length()) { index ->
+                    val item = pending.getJSONObject(index)
+                    dev.terminal.app.ui.ToolbarTaskCompletion(item.getLong("id"), item.getString("title"),
+                        if (item.isNull("exitCode")) null else item.getInt("exitCode"))
+                }
+            }
+        }
         override fun onRuntimeChoicesChanged() = runOnUiThread {
             if (generation == bindingGeneration) {
                 runCatching { runtime?.runtimeStatusJson?.let(::updateRuntimeChoices) }
@@ -701,6 +714,7 @@ class MainActivity : TerminalActivity() {
         // Foreground return must validate even a retained single pane against live descriptors.
         layoutWorkspaceId = null
         terminalStore.unobserve(this)
+        taskCompletions = emptyList() // The runtime replays unread items on the next binding.
         // The store keeps the mirror for a short grace period; runtime ownership is unchanged.
         if (bindingRequested) {
             listener?.let { current -> runCatching { runtime?.unregisterListener(current) } }
@@ -883,6 +897,8 @@ class MainActivity : TerminalActivity() {
                         colors = if (activeSessionId == null) dev.terminal.app.ui.TerminalChromeColors(screenBackgroundColor) else terminalChromeColors,
                         cornerColors = terminalSheetBackdrop.colors(screenBackgroundColor),
                         pageNavigationEnabled = visibleSessions.isNotEmpty() && !sessionProfilePickerVisible,
+                        taskCompletion = taskCompletions.firstOrNull().takeIf { taskCompletionVisible },
+                        onTaskCompletionShown = { id -> safeRuntimeCall { it.acknowledgeSessionTaskCompletion(id) } },
                     ) { tool, interactive ->
                         // Session navigation keeps its scroll position across tab switches.
                         androidx.compose.runtime.key(if (tool == SESSIONS_TOOL) SESSIONS_TOOL else toolbarSessionId, tool) {
@@ -1408,6 +1424,7 @@ class MainActivity : TerminalActivity() {
     }
 
     private fun updateSessionNotificationFocus(hasWindowFocus: Boolean = window.decorView.hasWindowFocus()) {
+        taskCompletionVisible = activityResumed && hasWindowFocus
         val currentListener = listener ?: return
         val focused = activeSessionId?.takeIf { id ->
             activityResumed && hasWindowFocus && sessions.any { it.id == id && !it.pendingLaunch }
@@ -1705,6 +1722,7 @@ class MainActivity : TerminalActivity() {
     }
 
     private fun handleRuntimeDisconnect() {
+        taskCompletions = emptyList()
         if (unconfirmedAvfLaunches.isNotEmpty()) {
             unconfirmedAvfLaunches = unconfirmedAvfLaunches.map {
                 if (it.launchRequestId in submittedAvfLaunches)

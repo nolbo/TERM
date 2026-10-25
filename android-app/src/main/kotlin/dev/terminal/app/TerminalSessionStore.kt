@@ -232,6 +232,7 @@ internal class TerminalSessionStore(context: Context) {
     }
 
     private fun createListener(currentGeneration: Long) = object : IRuntimeStateListener.Stub() {
+        override fun onSessionTaskCompletionsChanged(completionsJson: String) = Unit
         override fun onTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) {
             if (currentGeneration != generation) return
             // The dedicated checkpoint stream owns this mirror's bytes.

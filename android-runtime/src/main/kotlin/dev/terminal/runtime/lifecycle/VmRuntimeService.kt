@@ -70,7 +70,12 @@ class VmRuntimeService : Service() {
     private var foreground = false // Accessed only on the main dispatcher.
     private var notificationUpdateJob: Job? = null
     private var lastNotificationContent: Pair<Int, String>? = null
-    private val taskNotifications by lazy { dev.terminal.runtime.notifications.SessionTaskNotifications(this) }
+    private val taskNotifications: dev.terminal.runtime.notifications.SessionTaskNotifications by lazy {
+        dev.terminal.runtime.notifications.SessionTaskNotifications(this) {
+            // Do not acquire listenerLock while holding the notification observer lock.
+            scope.launch { broadcast { it.onSessionTaskCompletionsChanged(taskNotifications.completionsJson()) } }
+        }
+    }
     private val listenerLock = Any()
     private val notificationFocusByListener = mutableMapOf<android.os.IBinder, String?>()
     private val listeners = object : RemoteCallbackList<IRuntimeStateListener>() {
@@ -1119,6 +1124,7 @@ class VmRuntimeService : Service() {
         }
 
         override fun setSessionTaskNotifications(enabled: Boolean) = taskNotifications.setEnabled(enabled)
+        override fun acknowledgeSessionTaskCompletion(completionId: Long) = taskNotifications.acknowledgeCompletion(completionId)
 
         override fun setKittyRemoteControl(enabled: Boolean) {
             getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE).edit().putBoolean(KEY_KITTY_REMOTE, enabled).apply()
@@ -1205,6 +1211,7 @@ class VmRuntimeService : Service() {
                 delivery.offer {
                     try {
                         listener.onSessionsChanged(snapshot.revision, sessions)
+                        listener.onSessionTaskCompletionsChanged(taskNotifications.completionsJson())
                         focus?.let { listener.onSessionFocusRequested(it) }
                         avfConnectionIssues.values.take(16).forEach { listener.onOperationError("AVF 연결", it.message) }
                     } finally { initialized.countDown() }

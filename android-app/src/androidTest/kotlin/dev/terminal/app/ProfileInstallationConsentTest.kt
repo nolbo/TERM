@@ -246,6 +246,7 @@ class ProfileInstallationConsentTest {
                 ActivityScenario.launch(MainActivity::class.java).use { scenario ->
                     val service = runtime(scenario)
                     val listener = object : IRuntimeStateListener.Stub() {
+                        override fun onSessionTaskCompletionsChanged(completionsJson: String) = Unit
                         override fun onRuntimeChoicesChanged() = Unit
                         override fun onSessionsChanged(revision: Long, json: String) = Unit
                         override fun onSessionFocusRequested(sessionId: String) = Unit

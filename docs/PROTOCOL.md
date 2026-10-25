@@ -68,10 +68,20 @@ its own notification templates and only permits session navigation on tap.
 The app-private `setSessionNotificationFocus(sessionId, listener)` reports the
 selected session only while its terminal Activity is resumed and window-focused;
 null clears focus. Only registered runtime listeners may report focus, and
-unregister or Binder death removes their state. Completion alerts for focused
-sessions are suppressed before rate limiting, without suppressing attention or
+unregister or Binder death removes their state. Completion messages for focused
+sessions are suppressed without suppressing attention or
 changing command/work tracking. This focus is separate from runtime attachment
 and the last selected Kitty window.
+Completion messages use the appended app-private listener callback
+`onSessionTaskCompletionsChanged(completionsJson)`. Its array contains up to 16
+unread `{id, sessionId, title, exitCode}` records; IDs are monotonic within the
+runtime process, titles are sanitized and capped at 80 characters, and exit codes
+may be null. Registration replays the current array. After the foreground UI has
+displayed an item in the toolbar handle, `acknowledgeSessionTaskCompletion(id)`
+removes only that item and republishes the array. Disabling clears the array.
+Completion messages require no Android notification permission and never create
+Android notifications. Attention requests retain the existing notification path
+and rate limits; completions do not consume or share those limits.
 No guest RPC or Android capability is granted by these sequences.
 
 ## Terminal paste

@@ -77,10 +77,12 @@ internal class SessionActivityTracker(
         val alerts = mutableListOf<Alert>()
         fun alert(kind: Kind, code: Int? = null) {
             val now = clock()
-            if (kind == Kind.COMPLETED && id in focusedSessions) return
-            if (!enabled || session.lastAlert?.let { now - it < 10_000 } == true || lastAlert?.let { now - it < 1_000 } == true) return
-            session.lastAlert = now
-            lastAlert = now
+            if (!enabled || kind == Kind.COMPLETED && id in focusedSessions) return
+            if (kind == Kind.ATTENTION) {
+                if (session.lastAlert?.let { now - it < 10_000 } == true || lastAlert?.let { now - it < 1_000 } == true) return
+                session.lastAlert = now
+                lastAlert = now
+            }
             alerts += Alert(id, kind, code)
         }
         fun complete(code: Int?) {
@@ -147,9 +149,7 @@ internal class SessionActivityTracker(
         val session = sessions.remove(id) ?: return emptyList()
         val start = session.started ?: return emptyList()
         val now = clock()
-        if (!enabled || id in focusedSessions || now - start < longCommandMs || session.lastAlert?.let { now - it < 10_000 } == true ||
-            lastAlert?.let { now - it < 1_000 } == true) return emptyList()
-        lastAlert = now
+        if (!enabled || id in focusedSessions || now - start < longCommandMs) return emptyList()
         return listOf(Alert(id, Kind.COMPLETED, code))
     }
     @Synchronized fun forget(id: String) { sessions.remove(id) }

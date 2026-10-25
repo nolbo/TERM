@@ -172,6 +172,18 @@ class SessionActivityTrackerTest {
         assertTrue(tracker.send("\u0007").isEmpty())
     }
 
+    @Test fun concurrentCompletionsAreQueuedWithoutSharingTheSystemAttentionLimiter() {
+        val tracker = tracker()
+        listOf("native-a", "native-b", "native-c").forEach { tracker.send(osc("133;C"), it) }
+        now = 10_000
+        assertEquals(SessionActivityTracker.Kind.ATTENTION, tracker.send("\u0007").single().kind)
+        assertEquals("native-a", tracker.send(osc("133;D;1")).single().sessionId)
+        assertEquals("native-b", tracker.send(osc("133;D;0"), "native-b").single().sessionId)
+        assertEquals("native-c", tracker.exited("native-c", 7).single().sessionId)
+        assertTrue(tracker.send(osc("133;A"), "native-b").isEmpty())
+        assertTrue(tracker.send("\u0007", "native-b").isEmpty())
+    }
+
     @Test fun oversizedOrCanceledStringsCannotBecomeNotifications() {
         val tracker = tracker()
         assertTrue(tracker.send(osc("777;notify;" + "x".repeat(2000))).isEmpty())

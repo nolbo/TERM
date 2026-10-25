@@ -347,15 +347,21 @@ OSC 9/777 attention requests. Native's managed prompt and Bash's initial PS0 /
 PROMPT_COMMAND hooks supply completion boundaries without rewriting user rc files.
 Native submission timing ignores bracketed-paste newlines until Enter is sent.
 The observer uses a monotonic clock, a 10-second long-command threshold and per-session
-plus global rate limits. It owns no process and starts no polling/background timer.
-Completion alerts are suppressed before rate limiting for the selected session of
+plus global rate limits for attention requests. It owns no process and starts no polling/background timer.
+Completion messages are suppressed for the selected session of
 a resumed, window-focused terminal Activity. The UI reports this transient focus
 per registered Binder listener; pause, window focus loss, unregister and listener
-death clear it. Other sessions and explicit attention requests still notify, and
-completion continues to update work state even when its alert is suppressed.
-A separate Android notification channel and immutable, session-specific activity
-PendingIntent provide click-through; missing sessions are never recreated. Disabling
-the preference cancels only task notifications. Permission denial cannot stop PTYs.
+death clear it. Other sessions’ completions enter a runtime-owned FIFO (at most 16 unread items),
+independent of Android notification permission and attention rate limits. The UI
+receives snapshots through its Binder listener and acknowledges each item only
+after displaying it in the toolbar handle. Re-registration replays unread items;
+UI pause or recreation never consumes them. Disabling clears this queue; runtime
+process death does not persist it. Completion never posts an Android notification
+and continues to update work state even when its alert is suppressed.
+Explicit attention requests still post on a separate Android notification channel
+with an immutable, session-specific activity PendingIntent for click-through;
+missing sessions are never recreated. Disabling the preference cancels task
+notifications and unread completion messages. Permission denial cannot stop PTYs.
 User output cannot choose Android actions or notification body text.
 
 Session creation resolves a persistent `SessionProfile` into a defensively copied,

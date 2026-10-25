@@ -9,4 +9,5 @@ interface IRuntimeStateListener {
     void onRootlessProgress(String runtimeType, String phase, String detail);
     oneway void onOperationError(String operation, String message);
     void onSessionFocusRequested(String sessionId);
+    void onSessionTaskCompletionsChanged(String completionsJson);
 }

@@ -3,6 +3,13 @@
 package dev.terminal.app.ui
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -41,12 +48,15 @@ import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalAccessibilityManager
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.*
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.constrainHeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Velocity
+import androidx.compose.ui.text.style.TextOverflow
 import dev.terminal.app.*
 import dev.terminal.app.R
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -60,6 +70,7 @@ internal val LocalToolbarExpandedContentHeight = compositionLocalOf<Dp?> { null 
 private val LocalToolbarKeyInteractions = staticCompositionLocalOf<MutableInteractionSource?> { null }
 private val LocalToolbarKeyGestureLocked = compositionLocalOf { false }
 internal val ToolbarHotkeyViewportHeight = (HOTKEY_HEIGHT_DP * 2 + 4 + 8).dp
+internal data class ToolbarTaskCompletion(val id: Long, val title: String, val exitCode: Int?)
 
 /** Persistent, non-modal bottom sheet with a handle-only hidden anchor. No runtime ownership. */
 @Composable
@@ -71,6 +82,8 @@ internal fun TerminalToolbar(
     colors: TerminalChromeColors,
     pageNavigationEnabled: Boolean = true,
     animateModeChanges: Boolean = true,
+    taskCompletion: ToolbarTaskCompletion? = null,
+    onTaskCompletionShown: (Long) -> Unit = {},
     cornerColors: TerminalSheetCorners = TerminalSheetCorners(colors.background, colors.background),
     // Pager content is registered by stable tool ID; new tools need no sheet/gesture changes.
     content: @Composable (String, Boolean) -> Unit,
@@ -92,6 +105,18 @@ internal fun TerminalToolbar(
     val scope = rememberCoroutineScope()
     val motion = MaterialTheme.motionScheme.defaultSpatialSpec<Float>()
     val hidden = 24.dp
+    val messageLineHeight = with(density) { MaterialTheme.typography.labelMedium.lineHeight.toDp() }
+    val noticeHeight by animateDpAsState(if (taskCompletion != null) messageLineHeight + 16.dp else 0.dp,
+        animationSpec = MaterialTheme.motionScheme.defaultSpatialSpec(), label = "taskCompletionHandleHeight")
+    val accessibility = LocalAccessibilityManager.current
+    val onCompletionShown by rememberUpdatedState(onTaskCompletionShown)
+    LaunchedEffect(taskCompletion?.id) {
+        taskCompletion?.let {
+            kotlinx.coroutines.delay(accessibility?.calculateRecommendedTimeoutMillis(5_000,
+                containsText = true, containsIcons = true) ?: 5_000)
+            onCompletionShown(it.id)
+        }
+    }
     val expanded = maxHeight.coerceAtLeast(96.dp)
     val normal = (hidden + ToolbarHotkeyViewportHeight).coerceAtMost(expanded)
     val anchors = remember(density, expanded, normal) {
@@ -122,7 +147,8 @@ internal fun TerminalToolbar(
     } }
     val sheetHeight = Modifier.layout { measurable, constraints ->
         // Read animated pixels during measurement, keeping composition out of each height frame.
-        val height = constraints.constrainHeight((-state.requireOffset()).coerceIn(hiddenPx, expandedPx).roundToInt())
+        val height = constraints.constrainHeight(((-state.requireOffset()).coerceIn(hiddenPx, expandedPx) +
+            noticeHeight.toPx()).coerceAtMost(expandedPx).roundToInt())
         val placeable = measurable.measure(constraints.copy(minHeight = height, maxHeight = height))
         layout(placeable.width, placeable.height) { placeable.placeRelative(0, 0) }
     }
@@ -148,7 +174,7 @@ internal fun TerminalToolbar(
                 shape = sheetShape,
                 modifier = Modifier.fillMaxWidth().then(sheetHeight).clipToBounds()) {
                 Column {
-                    Box(Modifier.fillMaxWidth().height(hidden)
+                    Column(Modifier.fillMaxWidth().height(hidden + noticeHeight)
                         .anchoredDraggable(state, Orientation.Vertical,
                             flingBehavior = AnchoredDraggableDefaults.flingBehavior(state, animationSpec = motion))
                         .clickable(interactionSource = remember { HandleInteractionSource() },
@@ -166,10 +192,13 @@ internal fun TerminalToolbar(
                                 CustomAccessibilityAction(defaultLabel) { settle(ToolbarSheetMode.Default); true },
                                 CustomAccessibilityAction(hideLabel) { settle(ToolbarSheetMode.Hidden); true },
                             )
-                        }, contentAlignment = Alignment.Center) {
-                        ToolbarPageHandle(pager, tools.size,
-                            visible = tools.size > 1 && pager.isScrollInProgress && contentVisible,
-                            colors = colors)
+                        }, horizontalAlignment = Alignment.CenterHorizontally) {
+                        Box(Modifier.fillMaxWidth().height(hidden), contentAlignment = Alignment.Center) {
+                            ToolbarPageHandle(pager, tools.size,
+                                visible = tools.size > 1 && pager.isScrollInProgress && contentVisible,
+                                colors = colors)
+                        }
+                        ToolbarCompletionMessage(taskCompletion, colors)
                     }
                     if (contentVisible) {
                         if (config.tools.isEmpty()) {
@@ -181,7 +210,7 @@ internal fun TerminalToolbar(
                                 LocalToolbarColors provides colors,
                                 LocalToolbarExpansionProgress provides expansionProgress,
                                 LocalToolbarExpandedContentHeight provides
-                                    if (mode == ToolbarSheetMode.Expanded) (expanded - hidden) else null,
+                                    if (mode == ToolbarSheetMode.Expanded) (expanded - hidden - noticeHeight) else null,
                             ) {
                                 ToolbarPages(config.tools, pager, state.settledValue != ToolbarSheetMode.Hidden,
                                     pageNavigationEnabled, content = content)
@@ -189,6 +218,32 @@ internal fun TerminalToolbar(
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ToolbarCompletionMessage(completion: ToolbarTaskCompletion?, colors: TerminalChromeColors) {
+    val spatial = MaterialTheme.motionScheme.defaultSpatialSpec<androidx.compose.ui.unit.IntOffset>()
+    val effects = MaterialTheme.motionScheme.defaultEffectsSpec<Float>()
+    AnimatedContent(completion, contentKey = { it?.id }, label = "taskCompletionMessage",
+        transitionSpec = {
+            ((fadeIn(effects) + slideInVertically(spatial) { it / 2 }) togetherWith
+                (fadeOut(effects) + slideOutVertically(spatial) { -it / 2 })).using(null)
+        }) { message ->
+        if (message != null) {
+            val text = if (message.exitCode != null && message.exitCode != 0)
+                stringResource(R.string.session_task_handle_exit, message.title, message.exitCode)
+            else stringResource(R.string.session_task_handle_completed, message.title)
+            Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+                .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
+                horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                Icon(painterResource(R.drawable.ic_material_symbol_check_circle_24), contentDescription = null,
+                    tint = colors.foreground, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(text, color = colors.foreground, style = MaterialTheme.typography.labelMedium,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

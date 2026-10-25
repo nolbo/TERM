@@ -34,6 +34,7 @@ class KittyRemoteControlTest {
             override fun onServiceDisconnected(name: ComponentName) = Unit
         }
         val listener = object : IRuntimeStateListener.Stub() {
+            override fun onSessionTaskCompletionsChanged(completionsJson: String) = Unit
             override fun onTerminalOutput(id: String, bytes: ByteArray, replay: Boolean) {
                 if (!replay) outputs.getOrPut(id) { StringBuilder() }.let { synchronized(it) { it.append(bytes.decodeToString()) } }
             }

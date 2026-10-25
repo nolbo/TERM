@@ -58,6 +58,7 @@ class MultilinePasteTest {
                     resize = { cols, rows -> service.resizeSession(sessionId, rows, cols) },
                 )
                 val listener = object : IRuntimeStateListener.Stub() {
+                    override fun onSessionTaskCompletionsChanged(completionsJson: String) = Unit
                     override fun onTerminalOutput(id: String, bytes: ByteArray, replay: Boolean) { if (id == sessionId) backend.output(bytes, replay) }
                     override fun onRuntimeChoicesChanged() = Unit
                     override fun onSessionFocusRequested(sessionId: String) = Unit

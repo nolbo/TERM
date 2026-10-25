@@ -56,6 +56,7 @@ class TerminalTuiLifecycleTest {
             override fun onError(message: String) { errors.offer(message) }
         }
         val legacy = object : dev.terminal.runtime.ipc.IRuntimeStateListener.Stub() {
+            override fun onSessionTaskCompletionsChanged(completionsJson: String) = Unit
             override fun onTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) {
                 if (sessionId == id) { legacyEntered.countDown(); release.await(30, TimeUnit.SECONDS) }
             }

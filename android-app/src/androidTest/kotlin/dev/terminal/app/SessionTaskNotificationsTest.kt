@@ -28,6 +28,11 @@ class SessionTaskNotificationsTest {
     private val instrumentation = InstrumentationRegistry.getInstrumentation()
     private val context = instrumentation.targetContext
     private val manager = context.getSystemService(NotificationManager::class.java)
+    private var uiContext: Context = context
+    private fun label(id: Int, vararg values: Any): String = uiContext.getString(id, *values)
+    private fun launchScenario() = ActivityScenario.launch(MainActivity::class.java).also { scenario ->
+        scenario.onActivity { uiContext = it }
+    }
 
     @Test fun nativeCommandCompletesWithoutUiAndAttentionIsOptionalReplaySafeAndNavigable() {
         assertTrue("Grant Android notification permission", manager.areNotificationsEnabled())
@@ -42,6 +47,7 @@ class SessionTaskNotificationsTest {
         val owned = mutableListOf<String>()
         val marker = File(context.cacheDir, "notification-test-${System.nanoTime()}")
         var connected = false
+        var failure: Throwable? = null
         lateinit var service: IRuntimeService
         fun alert() = manager.activeNotifications.firstOrNull { it.id == 1002 && it.tag == owned.firstOrNull() }
         fun command(value: String) = service.writeSessionInput(owned.first(), "$value\n".toByteArray())
@@ -49,7 +55,7 @@ class SessionTaskNotificationsTest {
             val values = JSONArray(service.sessionsJson)
             return List(values.length()) { values.getJSONObject(it).getString("id") }
         }
-        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        val scenario = launchScenario()
         try {
             assertTrue(context.bindService(Intent(context, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE))
             bound = true
@@ -67,13 +73,14 @@ class SessionTaskNotificationsTest {
             assertNull(alert())
             marker.delete()
             service.setSessionTaskNotifications(true)
-            // Destroy the UI and remove the test binding. The runtime owns the job and alert.
+            service.renameSession(owned.first(), "Handle completion test")
+            // Destroy the UI and remove the test binding. The runtime owns unread completions.
             scenario.close()
             context.unbindService(connection); bound = false
-            command("sleep 11; false")
-            await("long Native command alert", 20000) { alert() != null }
-            assertTrue(alert()!!.notification.extras.getCharSequence("android.text").toString().contains("1"))
-            manager.cancel(owned.first(), 1002)
+            command("sleep 11; printf done > '${marker.absolutePath}'; (exit 1)")
+            await("long Native command completed without UI", 20000) { marker.exists() }
+            SystemClock.sleep(350)
+            assertNull("Completion must never post an Android notification", alert())
             service.attachSession(owned.first())
             service.detachSession(owned.first())
             SystemClock.sleep(350)
@@ -96,19 +103,24 @@ class SessionTaskNotificationsTest {
             await("option clears only task alerts") { alert() == null }
             assertTrue(manager.activeNotifications.any { it.id == 1001 })
             assertTrue(runningIds().containsAll(owned))
+        } catch (error: Throwable) {
+            failure = error
+            throw error
         } finally {
+            // Detach the UI before removing the last runtime-owned sessions.
+            val close = runCatching { scenario.close() }
             if (connected) {
                 service.setSessionTaskNotifications(oldSetting)
                 owned.forEach { service.terminateSession(it) }
             }
-            scenario.close()
             if (bound) context.unbindService(connection)
             marker.delete()
+            if (failure == null) close.getOrThrow()
+            else close.exceptionOrNull()?.let { failure.addSuppressed(it) }
         }
     }
 
-    @Test fun focusedCompletionIsSuppressedAcrossRecreationAndLeavingTerminalRestoresNotifications() {
-        assertTrue("Grant Android notification permission", manager.areNotificationsEnabled())
+    @Test fun unfocusedCompletionAnimatesHiddenHandleAndSurvivesRecreationAndBackground() {
         val oldSetting = context.getSharedPreferences("runtime-settings", Context.MODE_PRIVATE)
             .getBoolean(SessionNotificationSettings.KEY_ENABLED, false)
         val queue = LinkedBlockingQueue<IRuntimeService>()
@@ -121,7 +133,7 @@ class SessionTaskNotificationsTest {
         var bound = false
         var service: IRuntimeService? = null
         var settings: SettingsActivity? = null
-        val scenario = ActivityScenario.launch(MainActivity::class.java)
+        val scenario = launchScenario()
         try {
             assertTrue(context.bindService(Intent(context, VmRuntimeService::class.java), connection, Context.BIND_AUTO_CREATE))
             bound = true
@@ -143,6 +155,7 @@ class SessionTaskNotificationsTest {
             val focused = owned.first()
             val background = owned.last()
             connected.renameSession(focused, "Focused completion test")
+            connected.renameSession(background, "Background completion test")
             scenario.onActivity { activity ->
                 activity.startActivity(Intent(activity.intent)
                     .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -150,18 +163,32 @@ class SessionTaskNotificationsTest {
             }
             fun awaitFocus() = await("selected terminal has window focus") { selectedSession(focused) }
             awaitFocus()
+            scenario.onActivity { activity -> toolbarMode(activity).value = ToolbarSheetMode.Hidden }
+            SystemClock.sleep(1000)
+            await("hidden toolbar handle composed") { handleHeight() > 0 }
+            val normalHandleHeight = handleHeight()
             connected.setSessionTaskNotifications(true)
             owned.forEachIndexed { index, id ->
                 connected.writeSessionInput(id, "sleep 11; printf done > '${markers[index].absolutePath}'\n".toByteArray())
             }
             scenario.recreate()
-            awaitFocus()
-            await("other session completes and notifies", 20000) { markers.all { it.exists() } && alert(background) != null }
-            SystemClock.sleep(350)
+            await("recreated terminal has window focus") { terminalWindowFocused() }
+            val backgroundText = label(R.string.session_task_handle_completed, "Background completion test")
+            await("other session completes in the hidden toolbar handle", 20000) { markers.all { it.exists() } && visibleText(backgroundText) }
+            SystemClock.sleep(500)
+            assertTrue("Handle expands for the message", handleHeight() > normalHandleHeight)
+            scenario.onActivity { assertEquals(ToolbarSheetMode.Hidden, toolbarMode(it).value) }
+            assertNull("The background session must not send completion notifications", alert(background))
             assertNull("The focused session must not send completion notifications", alert(focused))
+            assertFalse(visibleText(label(R.string.session_task_handle_completed, "Focused completion test")))
+            scenario.recreate()
+            await("recreated terminal has window focus") { terminalWindowFocused() }
+            await("unread message survives recreation") { visibleText(backgroundText) }
+            await("message dismisses and handle restores") { !visibleText(backgroundText) && handleHeight() == normalHandleHeight }
             connected.setSessionTaskNotifications(false)
             connected.setSessionTaskNotifications(true)
-            connected.writeSessionInput(focused, "sleep 11; false\n".toByteArray())
+            markers.first().delete()
+            connected.writeSessionInput(focused, "sleep 11; printf done > '${markers.first().absolutePath}'; (exit 1)\n".toByteArray())
             scenario.onActivity { it.startActivity(Intent(context, SettingsActivity::class.java)) }
             await("settings opened") {
                 instrumentation.runOnMainSync {
@@ -170,21 +197,58 @@ class SessionTaskNotificationsTest {
                 }
                 settings != null
             }
-            await("leaving the terminal restores completion alerts", 20000) { alert(focused) != null }
+            await("command finishes behind settings", 20000) { markers.first().exists() }
+            SystemClock.sleep(350)
+            assertNull("Background completion must not post an Android notification", alert(focused))
             instrumentation.runOnMainSync { settings?.finish() }
             settings = null
-            awaitFocus()
+            await("terminal has window focus on return") { terminalWindowFocused() }
+            await("completion is shown when returning from settings") {
+                visibleText(label(R.string.session_task_handle_exit, "Focused completion test", 1))
+            }
+            connected.setSessionTaskNotifications(false)
+            await("disabling clears the current handle message") {
+                !visibleText(label(R.string.session_task_handle_exit, "Focused completion test", 1))
+            }
             assertTrue(ids().containsAll(owned))
         } finally {
             instrumentation.runOnMainSync { settings?.finish() }
+            scenario.close()
             service?.let { connected ->
                 connected.setSessionTaskNotifications(oldSetting)
                 owned.forEach { connected.terminateSession(it) }
             }
-            scenario.close()
             if (bound) context.unbindService(connection)
             markers.forEach { it.delete() }
         }
+    }
+
+    private fun node(predicate: (android.view.accessibility.AccessibilityNodeInfo) -> Boolean): android.view.accessibility.AccessibilityNodeInfo? {
+        instrumentation.uiAutomation.clearCache()
+        fun visit(value: android.view.accessibility.AccessibilityNodeInfo?): android.view.accessibility.AccessibilityNodeInfo? {
+            if (value == null) return null
+            if (value.isVisibleToUser && predicate(value)) return value
+            for (index in 0 until value.childCount) visit(value.getChild(index))?.let { return it }
+            return null
+        }
+        return visit(instrumentation.uiAutomation.rootInActiveWindow)
+    }
+    private fun visibleText(text: String) = node { it.text?.toString()?.contains(text) == true } != null
+    private fun handle() = node { it.contentDescription?.toString() == label(R.string.toolbar_handle) }
+    private fun handleHeight(): Int = android.graphics.Rect().also { handle()?.getBoundsInScreen(it) }.height()
+    // Seed the persisted hidden-mode fixture; actual handle taps are covered by ToolbarUiTest.
+    @Suppress("UNCHECKED_CAST")
+    private fun toolbarMode(activity: MainActivity) = activity.javaClass
+        .getDeclaredField("toolbarSheetMode\$delegate").apply { isAccessible = true }
+        .get(activity) as androidx.compose.runtime.MutableState<ToolbarSheetMode>
+
+    private fun terminalWindowFocused(): Boolean {
+        var focused = false
+        instrumentation.runOnMainSync {
+            focused = ActivityLifecycleMonitorRegistry.getInstance().getActivitiesInStage(Stage.RESUMED)
+                .filterIsInstance<MainActivity>().any { it.window.decorView.hasWindowFocus() }
+        }
+        return focused
     }
 
     private fun selectedSession(id: String): Boolean {

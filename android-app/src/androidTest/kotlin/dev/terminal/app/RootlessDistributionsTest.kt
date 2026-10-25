@@ -41,6 +41,7 @@ class RootlessDistributionsTest {
             override fun onServiceDisconnected(name: ComponentName) = Unit
         }
         val listener = object : IRuntimeStateListener.Stub() {
+            override fun onSessionTaskCompletionsChanged(completionsJson: String) = Unit
             override fun onTerminalOutput(id: String, bytes: ByteArray, replay: Boolean) {
                 val buffer = output.computeIfAbsent(id) { StringBuilder() }
                 synchronized(buffer) { buffer.append(bytes.toString(Charsets.UTF_8)) }

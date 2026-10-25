@@ -154,7 +154,9 @@
     <string name="profile_save">Save</string>
     <string name="profile_discard">Discard unsaved changes?</string>
     <string name="session_task_notifications">Session task notifications</string>
-    <string name="session_task_notifications_support">Notify on 10-second or longer commands finishing in other sessions, bells and attention requests. Off by default; completion detection needs new default Native or Bash sessions.</string>
+    <string name="session_task_notifications_support">Show other sessions’ completed commands of 10 seconds or longer in the toolbar handle, and bells and attention requests as Android notifications. Off by default; completion detection needs new default Native or Bash sessions.</string>
+    <string name="session_task_handle_completed">%1$s task completed</string>
+    <string name="session_task_handle_exit">%1$s task completed · exit code %2$d</string>
     <string name="session_task_system_settings">Android notification settings</string>
     <string name="session_task_permission_required">Allow Android notifications and the Session task notifications channel.</string>
     <string name="session_task_session_missing">This session is no longer running.</string>

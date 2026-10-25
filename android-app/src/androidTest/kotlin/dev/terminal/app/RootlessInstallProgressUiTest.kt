@@ -46,6 +46,7 @@ class RootlessInstallProgressUiTest {
         }
         val updates = mutableMapOf<String, MutableList<JSONObject>>()
         val listener = object : IRuntimeStateListener.Stub() {
+            override fun onSessionTaskCompletionsChanged(completionsJson: String) = Unit
             override fun onRootlessProgress(runtimeType: String, phase: String, detail: String) {
                 val snapshot = JSONObject(service.runtimeStatusJson).getJSONObject(runtimeType).optJSONObject("progress") ?: return
                 synchronized(updates) { updates.getOrPut(runtimeType) { mutableListOf() }.add(snapshot) }
