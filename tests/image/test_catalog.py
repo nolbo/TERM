@@ -76,7 +76,7 @@ class CatalogVerificationTests(unittest.TestCase):
             verifier.verify_directory(self.root)
 
     def test_private_share_broker_version_is_optional_and_unknown_versions_fail(self):
-        current = (self.root / 'manifest.properties').read_bytes()
+        current = (self.root / 'manifest.properties').read_bytes() + b'shareBrokerVersion=2\n'
         for version in [None, b'1', b'2', b'0', b'3']:
             data = current.replace(b'shareBrokerVersion=2\n', b'' if version is None else b'shareBrokerVersion=' + version + b'\n')
             approved = {'id': 'debian-arm64-current', 'manifestSha256': verifier.digest(data)}
@@ -87,6 +87,11 @@ class CatalogVerificationTests(unittest.TestCase):
                     verifier.manifest(data, approved)
 
     def test_reused_private_share_candidate_requires_real_two_boot_and_owner_loss_evidence(self):
+        manifest = self.root / 'manifest.properties'
+        manifest.write_bytes(manifest.read_bytes() + b'shareBrokerVersion=2\n')
+        self.change_catalog(manifestSha256=verifier.digest(manifest.read_bytes()))
+        self.refresh_checksums()
+
         with self.assertRaisesRegex(ValueError, 'normal-boot evidence'):
             verifier.verify_directory(self.root, metadata_only=True, require_private_shares_boot=True)
         provenance = json.loads((self.root / 'provenance.json').read_bytes())
@@ -108,6 +113,27 @@ class CatalogVerificationTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'normal-boot evidence'):
                     verifier.verify_directory(self.root, metadata_only=True, require_private_shares_boot=True)
                 report['boots'][1][field] = 'passed'
+
+    def test_unshared_factory_manifest_and_normal_boot_evidence(self):
+        data = (self.root / 'manifest.properties').read_bytes()
+        self.assertNotIn(b'shareBrokerVersion', data)
+        self.assertNotIn(b'virtiofsVersion', data)
+        self.assertNotIn(b'androidStorageVersion', data)
+        with self.assertRaisesRegex(ValueError, 'normal-boot evidence'):
+            verifier.verify_directory(self.root, metadata_only=True, require_normal_boot=True)
+        provenance = json.loads((self.root / 'provenance.json').read_bytes())
+        provenance['normalBootVerification'] = {
+            'mode': 'normal-systemd', 'transport': 'host-vsock', 'network': 'disabled',
+            'boots': [{'boot': n, 'sessionListRpc': 'passed', 'packageInitializationPort': 'passed',
+                       'sessionResume': 'passed'} for n in [1, 2]]}
+        (self.root / 'provenance.json').write_text(json.dumps(provenance))
+        self.refresh_checksums()
+        verifier.verify_directory(self.root, metadata_only=True, require_normal_boot=True)
+        provenance['normalBootVerification']['boots'][0]['sessionResume'] = 'failed'
+        (self.root / 'provenance.json').write_text(json.dumps(provenance))
+        self.refresh_checksums()
+        with self.assertRaisesRegex(ValueError, 'session recovery evidence'):
+            verifier.verify_directory(self.root, metadata_only=True, require_normal_boot=True)
 
     def test_metadata_transfer_is_checked_against_producer_outputs(self):
         for name in verifier.ARTIFACTS.values():
@@ -133,7 +159,7 @@ class CatalogVerificationTests(unittest.TestCase):
             verifier.verify_directory(self.root)
 
     def test_legacy_manifest_remains_supported_and_unknown_initializer_is_rejected(self):
-        current = (self.root / 'manifest.properties').read_bytes().replace(b'androidStorageVersion=1\n', b'')
+        current = (self.root / 'manifest.properties').read_bytes() + b'virtiofsVersion=1\n'
         for version in [None, b'1', b'2', b'0', b'invalid']:
             with self.subTest(version=version):
                 data = current.replace(b'aptInitializationVersion=1\n',
@@ -146,7 +172,7 @@ class CatalogVerificationTests(unittest.TestCase):
                         verifier.manifest(data, approved)
 
     def test_legacy_and_virtiofs_manifest_versions_are_verified(self):
-        current = (self.root / 'manifest.properties').read_bytes().replace(b'androidStorageVersion=1\n', b'')
+        current = (self.root / 'manifest.properties').read_bytes() + b'virtiofsVersion=1\n'
         for version in [None, b'1', b'2', b'0', b'invalid']:
             with self.subTest(version=version):
                 data = current.replace(b'virtiofsVersion=1\n',
@@ -161,7 +187,7 @@ class CatalogVerificationTests(unittest.TestCase):
         verifier.manifest(legacy, {'manifestSha256': verifier.digest(legacy)})
 
     def test_android_storage_is_an_optional_supported_feature_with_a_virtiofs_dependency(self):
-        current = (self.root / 'manifest.properties').read_bytes()
+        current = (self.root / 'manifest.properties').read_bytes() + b'virtiofsVersion=1\nandroidStorageVersion=1\n'
         for version in [None, b'1', b'2', b'0', b'invalid']:
             with self.subTest(version=version):
                 data = current.replace(b'androidStorageVersion=1\n', b'' if version is None else b'androidStorageVersion=' + version + b'\n')

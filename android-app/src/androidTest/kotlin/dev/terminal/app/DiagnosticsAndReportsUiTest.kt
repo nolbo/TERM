@@ -157,7 +157,7 @@ class DiagnosticsAndReportsUiTest {
                 scenario.onActivity { info = it.information }; SystemClock.sleep(50)
             }
             val result = requireNotNull(info)
-            assertEquals(8, result.checks.size)
+            assertEquals(7, result.checks.size)
             val feature = context.packageManager.hasSystemFeature("android.software.virtualization_framework")
             val check = result.checks.single { it.condition == dev.terminal.runtime.avf.system.AvfCondition.SYSTEM_FEATURE }
             assertEquals(if (feature) dev.terminal.runtime.avf.system.AvfCheckStatus.SATISFIED
@@ -166,8 +166,6 @@ class DiagnosticsAndReportsUiTest {
                 assertEquals(dev.terminal.runtime.avf.system.AvfCheckStatus.UNSATISFIED, result.status)
                 assertEquals(dev.terminal.runtime.avf.system.AvfCheckStatus.UNKNOWN,
                     result.checks.single { it.condition == dev.terminal.runtime.avf.system.AvfCondition.CUSTOM_IMAGE_API }.status)
-                assertEquals(dev.terminal.runtime.avf.system.AvfCheckReason.PREREQUISITES_REQUIRED,
-                    result.checks.single { it.condition == dev.terminal.runtime.avf.system.AvfCondition.SHARED_DIRECTORY_API }.reason)
             }
             scenario.recreate()
             waitFor { it.text?.toString() == context.getString(R.string.avf_overall) }

@@ -16,5 +16,4 @@ fun inspectAvfDiagnostics(context: Context): AvfDiagnostics = collectAvfDiagnost
         true
     } catch (_: ClassNotFoundException) { false }
     override fun driverCompatible() = checkAvfDriverAbi()
-    override fun sharedDirectoryApi() = checkAvfSharedDirectoryApi(context)
 })

@@ -96,63 +96,6 @@ class NormalSystemdBootTests(unittest.TestCase):
             self.assertEqual(1, boot_once.call_count)
             self.assertEqual(b'original-state', (directory / 'home.img').read_bytes())
 
-    def test_private_probe_rejects_incomplete_guest_files_and_verifies_live_host_update(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            probe = object.__new__(boot.PrivateShareProbe)
-            probe.root = Path(temporary)
-            process = mock.Mock(); process.poll.return_value = None
-            (probe.root / 'host-created').write_bytes(b'host-to-guest\n')
-            (probe.root / 'guest-ready').write_text('ready\n')
-            (probe.root / 'guest-renamed').write_bytes(b'incomplete')
-            with self.assertRaises(AssertionError):
-                probe.verify_files(process)
-            (probe.root / 'guest-renamed').write_bytes(bytes(range(256)) * 1024)
-            (probe.root / 'guest-finished').write_text('passed\n')
-            (probe.root / 'guest-held').write_bytes(b'before-after')
-            probe.verify_files(process)
-            self.assertEqual(b'host-update\n', (probe.root / 'host-created').read_bytes())
-
-    def test_owner_loss_probe_requires_live_vm_and_denied_shadow_writes(self):
-        probe = object.__new__(boot.PrivateShareProbe)
-        control, data = mock.Mock(), mock.Mock()
-        probe.control, probe.data = control, data
-        probe.stopped, probe.control_lock = threading.Event(), threading.Lock()
-        probe.replay = mock.Mock()
-        process = mock.Mock(); process.poll.return_value = None
-        session = mock.Mock()
-        session.run.side_effect = [b'VM_ALIVE'] * 7 + [b'GUARD_OK']
-        with tempfile.TemporaryDirectory() as directory, mock.patch.object(boot.time, 'sleep'):
-            probe.root = Path(directory)
-            probe.verify_owner_loss(process, session)
-        control.close.assert_called_once()
-        data.close.assert_not_called()
-        process.wait.assert_not_called()
-        self.assertEqual(8, session.run.call_count)
-
-    def test_private_probe_waits_for_completion_contents_after_sftp_creates_the_file(self):
-        for incomplete in ('', 'pass'):
-            with self.subTest(incomplete=incomplete), tempfile.TemporaryDirectory() as temporary:
-                probe = object.__new__(boot.PrivateShareProbe)
-                probe.root = Path(temporary)
-                process = mock.Mock(); process.poll.return_value = None
-                finished = probe.root / 'guest-finished'
-                (probe.root / 'guest-held').write_bytes(b'before-after')
-                finished.write_text(incomplete)
-                with mock.patch.object(boot.time, 'sleep', side_effect=lambda _: finished.write_text('passed\n')) as wait:
-                    probe.verify_files(process)
-                wait.assert_called_once()
-
-    def test_private_probe_never_accepts_missing_or_incorrect_completion_contents(self):
-        for incomplete in ('', 'failed\n'):
-            with self.subTest(incomplete=incomplete), tempfile.TemporaryDirectory() as temporary:
-                probe = object.__new__(boot.PrivateShareProbe)
-                probe.root = Path(temporary)
-                process = mock.Mock(); process.poll.return_value = None
-                (probe.root / 'guest-finished').write_text(incomplete)
-                with mock.patch.object(boot.time, 'monotonic', side_effect=[0, 0, 31]), \
-                        mock.patch.object(boot.time, 'sleep'), self.assertRaisesRegex(RuntimeError, 'probe failed'):
-                    probe.verify_files(process)
-
 
 if __name__ == '__main__':
     unittest.main()

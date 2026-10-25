@@ -22,8 +22,6 @@ import dev.terminal.runtime.lifecycle.VmRuntimeService
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.util.UUID
 
 /** Editing only owns the UI draft and its service binding, never files, sessions or jobs. */
 class SharedFolderEditActivity : TerminalActivity() {
@@ -52,7 +50,6 @@ class SharedFolderEditActivity : TerminalActivity() {
         compose {
             val persisted = snapshot?.folders?.firstOrNull { it.id == folderId }
             var encoded by rememberSaveable(folderId) { mutableStateOf<String?>(null) }
-            var transfer by rememberSaveable(folderId) { mutableStateOf<String?>(null) }
             LaunchedEffect(persisted) {
                 // A reconnect refreshes access information without replacing the edit draft.
                 if (encoded == null && persisted != null) encoded = persisted.json().toString()
@@ -72,16 +69,7 @@ class SharedFolderEditActivity : TerminalActivity() {
                     error ?: if (missing) stringResource(R.string.shared_folder_missing) else null, saving,
                     onSave = { folder -> mutate { it.saveSharedFolder(folder.json().toString()) } },
                     onDelete = { id -> mutate { it.deleteSharedFolder(id) } },
-                    onTransfer = { folder, environment, mode ->
-                        transfer = JSONObject().put("mode", mode).put("folderId", folder.id)
-                            .put("environmentId", environment.id.value).toString()
-                    }, onBack = { finish() }, canSubmit = connected && persisted != null)
-            }
-            transfer?.let { request ->
-                SharedFolderTransferDialog(request, saving, canSubmit = connected && persisted != null,
-                    onStart = { operation -> mutate {
-                        it.startSharedFolderOperation(UUID.randomUUID().toString(), operation.toString())
-                    } }, onDismiss = { transfer = null })
+                    onBack = { finish() }, canSubmit = connected && persisted != null)
             }
         }
     }

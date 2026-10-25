@@ -26,6 +26,7 @@ import dev.terminal.runtime.session.EnvironmentRuntime
 /** Same permission controls for an existing Environment and an unsaved creation draft. */
 @Composable internal fun EnvironmentStorageAccessSettings(runtime: EnvironmentRuntime, allowed: Boolean,
     osGranted: Boolean, editable: Boolean, onChange: (Boolean) -> Unit, onOpenSettings: () -> Unit) {
+    if (runtime == EnvironmentRuntime.AVF) return
     val native = runtime == EnvironmentRuntime.NATIVE
     // Native access follows the real app-wide grant, so changing it requires Android Settings.
     val checked = if (native) osGranted else allowed
@@ -34,7 +35,6 @@ import dev.terminal.runtime.session.EnvironmentRuntime
         onClick = { if (native) onOpenSettings() else onChange(!allowed) }, enabled = enabled,
         supportingContent = { Text(stringResource(when {
             native -> if (osGranted) R.string.environment_storage_native_enabled else R.string.environment_storage_native_disabled
-            runtime == EnvironmentRuntime.AVF -> R.string.environment_storage_avf_support
             else -> R.string.environment_storage_rootless_support
         })) },
         trailingContent = { Switch(checked = checked, onCheckedChange = null, enabled = enabled) },

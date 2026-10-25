@@ -38,32 +38,29 @@ class AvfSharedStorageCoordinatorTest {
         assertEquals(listOf("vm"), store.androidStorageOwners())
     }
 
-    @Test fun stoppedInstanceIsConfirmedBeforeARevokedReconnectAndPermissionIsRecheckedBeforeRun() = runBlocking {
+    @Test fun unsharedBootDoesNotRequireStoragePermissionOrStopOtherVms() = runBlocking {
         val store = AvfSharedDirectoryLeases(temporary.newFolder())
-        store.record("vm", emptyList(), androidStorage = true)
-        var stopped = false
-        var granted = false
-        val coordinator = AvfSharedStorageCoordinator(store, { granted }, { stopped = true; store.release(it); Unit })
-        coordinator.boot("vm") { allowed -> assertFalse(allowed); assertTrue(stopped) }
-        granted = true
-        coordinator.boot("vm") { allowed ->
-            assertTrue(allowed)
-            granted = false
-            assertTrue(runCatching { coordinator.requirePermission() }.isFailure)
-        }
+        store.record("old-vm", emptyList(), androidStorage = true)
+        val coordinator = AvfSharedStorageCoordinator(store, { error("New boots need no storage grant") },
+            { error("Unrelated VM must be preserved") })
+        var ran = false
+        coordinator.withoutShares { ran = true }
+        assertTrue(ran)
+        assertEquals(listOf("old-vm"), store.androidStorageOwners())
     }
 
-    @Test fun revocationWaitsForConcurrentBootToRecordAndRunWithoutWaitingForSessiond() = runBlocking {
+    @Test fun legacyRevocationCannotStopANewUnsharedBoot() = runBlocking {
         val store = AvfSharedDirectoryLeases(temporary.newFolder())
         val bootLock = Mutex()
         var granted = true
+        store.record("vm", emptyList(), androidStorage = true)
         val coordinator = AvfSharedStorageCoordinator(store, { granted }, { store.release(it); Unit }, bootLock)
         val inside = CompletableDeferred<Unit>()
         val continueBoot = CompletableDeferred<Unit>()
-        val boot = async { coordinator.boot("vm") {
+        val boot = async { coordinator.withoutShares {
             inside.complete(Unit)
             continueBoot.await()
-            store.record("vm", emptyList(), androidStorage = true)
+            store.release("vm")
         } }
         inside.await()
         granted = false

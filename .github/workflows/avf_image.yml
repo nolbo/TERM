@@ -179,7 +179,7 @@ jobs:
           gh release download "$AVF_RELEASE_ID" --repo nolbo/TERM --dir image/build/approved \
             --pattern '*.gz' --pattern '*.properties' --pattern provenance.json --pattern SHA256SUMS
           python3 image/scripts/verify-avf-release.py --directory image/build/approved \
-            --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --require-private-shares-boot --require-container-kernel
+            --expected-commit "$AVF_IMAGE_SOURCE_COMMIT" --require-normal-boot --require-container-kernel
       - name: Record verified metadata
         id: metadata
         run: |
@@ -187,7 +187,7 @@ jobs:
           import os, pathlib, runpy
           verify = runpy.run_path('image/scripts/verify-avf-release.py')
           approved = verify['verify_directory'](pathlib.Path('image/build/approved'), metadata_only=True,
-                                               expected_commit=os.environ['AVF_IMAGE_SOURCE_COMMIT'], require_private_shares_boot=True,
+                                               expected_commit=os.environ['AVF_IMAGE_SOURCE_COMMIT'], require_normal_boot=True,
                                                require_container_kernel=True)
           if approved['releaseId'] != os.environ['AVF_RELEASE_ID'] or approved['id'] != os.environ['AVF_DISTRIBUTION'] + '-arm64-current':
               raise ValueError('Candidate release/distribution differs from the dispatch')

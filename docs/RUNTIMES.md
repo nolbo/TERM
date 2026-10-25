@@ -204,18 +204,9 @@ limited information queries and unpairing. It does not expose unchanged Linux
 
 ## Shared state
 
-Logical Workspaces group sessions without owning files. Independent shared directories provide explicit Native/Rootless direct access; AVF images declaring `shareBrokerVersion=1` or `2` additionally mount connected private directories on each VM boot; older images need the new image for connected-folder startup and retain independent guest-agent copies. Optionally, users can open
-**내부저장소 접근 설정** in the common terminal settings and enable Android's
-all-files access. The OS grant is off by default and shared by Native, Rootless and supported non-protected AVF VMs. AVF images declaring `androidStorageVersion=1` mount only the Android-authorized primary volume at `/sdcard` through platform virtiofs on the next VM boot when that Environment also enables internal-storage access. Native uses `/sdcard` (normally
-`/storage/emulated/0`). New Rootless sessions bind the host-selected primary
-shared storage to `/sdcard` only when the saved Environment choice and the OS grant are both present. Existing Rootless
-sessions need a new session to acquire that bind. Disabling access uses the same
-system settings page, so Android enforces revocation rather than merely hiding
-a path. Revocation stops recorded AVF VMs that shared internal storage; Android may also kill app processes and local sessions, so save work first. Granting permission does not add a mount to an already running AVF VM. Older images and protected VMs receive no internal-storage export. Neither settings navigation nor Activity destruction terminates sessions.
-Other apps' private data and Android-protected storage paths remain inaccessible.
-Native, Rootless and AVF root filesystems and package databases stay separate.
+Logical Workspaces group sessions without owning files. Independent shared directories provide Native/Rootless access only; AVF has no host shared-directory or `/sdcard` mount support. Native uses Android primary storage under the actual all-files grant. New Rootless sessions bind it at `/sdcard` only when the saved Environment choice and actual OS grant allow it. Existing local sessions keep mounts until exit. Android may terminate app processes on permission revocation. Other apps’ protected data stays inaccessible; root filesystems and package databases remain separate.
 
-The Environment **Permissions → Internal storage access** choice controls Rootless/AVF storage connections and can also be selected when creating a new Environment. New and restored Environments default off; existing metadata without the choice retains its earlier behavior. Native shows the actual common OS permission and its settings action because a per-Environment preference cannot block Native's UID-wide access. Rootless choice changes apply to new sessions and AVF changes apply after VM stop/start; existing mounts persist until stop. Native and PRoot do not gain independent filesystem isolation from this choice.
+The Environment **Permissions → Internal storage access** choice controls Rootless connections. Native shows the actual common OS permission; AVF has no storage permission controls. Legacy AVF sharing metadata and files remain preserved, but a running VM with a sharing lease requires explicit stop/start before reconnect. Stopped VM configurations are refreshed without exports and without replacing disks. New guest images omit mount/broker prerequisites while preserving terminal transport recovery. See [SHARED_FOLDERS.md](SHARED_FOLDERS.md).
 
 ## Inline terminal images
 

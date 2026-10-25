@@ -12,15 +12,3 @@ internal inline fun <T> requireAvfPlatformApi(block: () -> T): T = try {
         failure,
     )
 }
-
-/** Storage export has its own optional ABI; basic custom-image support does not establish it. */
-internal inline fun <T> requireAvfSharedDirectoryApi(block: () -> T): T = try {
-    block()
-} catch (failure: LinkageError) {
-    throw IllegalStateException(
-        "AVF 내부저장소·공유 디렉토리 연결에 필요한 SharedPath API를 사용할 수 없습니다. " +
-            "기기의 공유 API 버전 또는 해당 API의 숨김 API 접근 정책을 확인해야 합니다.\n" +
-            "원래 오류: ${failure.javaClass.simpleName}: ${failure.message.orEmpty()}",
-        failure,
-    )
-}

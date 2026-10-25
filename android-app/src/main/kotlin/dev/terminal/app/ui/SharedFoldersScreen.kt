@@ -55,7 +55,7 @@ internal fun SharedFoldersScreen(snapshot: SharedFoldersSnapshot?, error: String
                         SettingsNavigationRow(stringResource(R.string.shared_folder_create),
                             leadingIcon = R.drawable.ic_material_symbol_add_24, onClick = onCreate)
                         snapshot.folders.forEach { folder ->
-                            val connections = snapshot.environments.filter { it.id in folder.environments }.joinToString { it.name }
+                            val connections = snapshot.environments.filter { it.runtime != EnvironmentRuntime.AVF && it.id in folder.environments }.joinToString { it.name }
                             SettingsNavigationRow(folder.name,
                                 supporting = connections.ifEmpty { stringResource(R.string.shared_folder_no_environments) },
                                 onClick = { onEdit(folder) })
@@ -69,27 +69,9 @@ internal fun SharedFoldersScreen(snapshot: SharedFoldersSnapshot?, error: String
 }
 
 @Composable
-internal fun SharedFolderTransferDialog(request: String, saving: Boolean, canSubmit: Boolean,
-    onStart: (JSONObject) -> Unit, onDismiss: () -> Unit) {
-    var path by rememberSaveable(request) { mutableStateOf("") }
-    val valid = runCatching { SharedRelativePath.components(path) }.isSuccess
-    AlertDialog(onDismissRequest = { if (!saving) onDismiss() }, title = { Text(stringResource(R.string.shared_file_copy)) }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedTextField(path, { path = it }, label = { Text(stringResource(R.string.shared_relative_file)) }, singleLine = true,
-                enabled = !saving, isError = path.isNotEmpty() && !valid, modifier = Modifier.fillMaxWidth())
-            Text(stringResource(R.string.shared_transfer_limits), style = MaterialTheme.typography.bodySmall)
-        }
-    }, confirmButton = { Button(onClick = {
-        onStart(JSONObject(request).put("path", path))
-    }, enabled = valid && !saving && canSubmit, shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.shared_start_copy)) } },
-        dismissButton = { TextButton(onClick = onDismiss, enabled = !saving,
-            shapes = ButtonDefaults.shapes()) { Text(stringResource(R.string.cancel)) } })
-}
-
-@Composable
 internal fun SharedFolderEditor(encoded: String, snapshot: SharedFoldersSnapshot?, error: String?, saving: Boolean,
     onSave: (SharedFolder) -> Unit, onDelete: ((String) -> Unit)? = null,
-    onTransfer: ((SharedFolder, Environment, String) -> Unit)? = null, onBack: () -> Unit,
+    onBack: () -> Unit,
     canSubmit: Boolean = true) {
     val original = remember(encoded) { JSONObject(encoded) }
     val newItem = original.optBoolean("_new")
@@ -98,7 +80,8 @@ internal fun SharedFolderEditor(encoded: String, snapshot: SharedFoldersSnapshot
     var deleting by rememberSaveable { mutableStateOf(false) }
     var converting by rememberSaveable { mutableStateOf(false) }
     val selectedIds = JSONArray(selected).let { array -> List(array.length()) { EnvironmentId(array.getString(it)) }.toSet() }
-    val ids = if (snapshot == null) selectedIds else selectedIds.intersect(snapshot.environments.mapTo(mutableSetOf()) { it.id })
+    val environments = snapshot?.environments?.filter { it.runtime != EnvironmentRuntime.AVF }
+    val ids = if (environments == null) selectedIds else selectedIds.intersect(environments.mapTo(mutableSetOf()) { it.id })
     val originalIds = original.getJSONArray("environments").let { array -> List(array.length()) { EnvironmentId(array.getString(it)) }.toSet() }
     val dirty = name != original.getString("name") || ids != originalIds
     val persisted = snapshot?.folders?.firstOrNull { it.id == original.getString("id") }
@@ -124,9 +107,9 @@ internal fun SharedFolderEditor(encoded: String, snapshot: SharedFoldersSnapshot
             SettingsTextRow(R.string.workspace_name, name, hint = R.string.shared_folder_name_rules,
                 enabled = !saving, valid = SharedFolder.NAME::matches, confirmLabel = R.string.confirm) { name = it }
         }
-        if (snapshot != null && persisted != null && persisted.environments.isNotEmpty()) {
+        if (snapshot != null && persisted != null && environments.orEmpty().any { it.id in persisted.environments }) {
             ProfileSection(R.string.shared_folder_access) {
-                snapshot.environments.filter { it.id in persisted.environments }.forEach { environment ->
+                environments.orEmpty().filter { it.id in persisted.environments }.forEach { environment ->
                     when (environment.runtime) {
                         EnvironmentRuntime.NATIVE, EnvironmentRuntime.ROOTLESS -> {
                             Column(Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -135,31 +118,15 @@ internal fun SharedFolderEditor(encoded: String, snapshot: SharedFoldersSnapshot
                                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             }
                         }
-                        EnvironmentRuntime.AVF -> {
-                            Column(Modifier.fillMaxWidth().settingsItemSurface().padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(environment.name, style = MaterialTheme.typography.bodyLarge)
-                                SelectionContainer { Text(persisted.guestPath, style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                                Text(stringResource(R.string.shared_avf_mount_summary), style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
-                            if (onTransfer != null) listOf("TO_VM" to R.string.shared_to_vm, "FROM_VM" to R.string.shared_from_vm).forEach { (mode, label) ->
-                                SettingsNavigationRow(stringResource(label), environment.name, enabled = !saving && !dirty,
-                                    onClick = { onTransfer(persisted, environment, mode) })
-                            }
-                        }
+                        EnvironmentRuntime.AVF -> Unit
                     }
                 }
-            }
-            if (snapshot.environments.any { it.id in persisted.environments && it.runtime == EnvironmentRuntime.AVF }) {
-                Text(stringResource(R.string.shared_avf_copy_summary), Modifier.padding(horizontal = 4.dp),
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (dirty) Text(stringResource(R.string.shared_folder_access_saved), Modifier.padding(horizontal = 4.dp),
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         ProfileSection(R.string.shared_folder_environments) {
-            snapshot?.environments?.forEach { environment ->
+            environments?.forEach { environment ->
                 ListItem(onClick = {
                     selected = JSONArray((if (environment.id in ids) ids - environment.id else ids + environment.id).map { it.value }).toString()
                 }, enabled = !saving,

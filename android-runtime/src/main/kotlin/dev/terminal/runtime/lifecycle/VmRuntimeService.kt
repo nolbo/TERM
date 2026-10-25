@@ -17,6 +17,7 @@ import dev.terminal.bridge.SharedPreferencesCapabilityGrantStore
 import dev.terminal.runtime.image.RuntimeSetupCoordinator
 import dev.terminal.runtime.R
 import dev.terminal.runtime.api.RuntimeConfig
+import dev.terminal.runtime.session.EnvironmentRuntime
 import dev.terminal.runtime.api.RuntimeState
 import dev.terminal.runtime.api.StopMode
 import dev.terminal.runtime.api.connectSessionClient
@@ -39,7 +40,6 @@ import dev.terminal.runtime.session.UnifiedSessionRegistry
 import dev.terminal.runtime.forwarding.LocalhostPortForwarder
 import dev.terminal.runtime.power.RuntimeWakeController
 import dev.terminal.runtime.power.WakePolicyStore
-import dev.terminal.runtime.storage.SharedDirectoryManager
 import dev.terminal.runtime.ipc.IRuntimeService
 import dev.terminal.runtime.ipc.IRuntimeStateListener
 import kotlinx.coroutines.CoroutineScope
@@ -116,7 +116,6 @@ class VmRuntimeService : Service() {
     private val guestRetry = ReconnectBackoff()
     private var wakeExpiryJob: Job? = null
     private var reconnectJob: Job? = null
-    private lateinit var sharedDirectories: SharedDirectoryManager
     private lateinit var wakeController: RuntimeWakeController
     private lateinit var wakePolicies: WakePolicyStore
     private lateinit var capabilityGrants: SharedPreferencesCapabilityGrantStore
@@ -287,17 +286,8 @@ class VmRuntimeService : Service() {
     }
     private val sharedFolderJobs by lazy {
         dev.terminal.runtime.storage.SharedFolderJobs(applicationContext, scope, sharedFolders, ::legacyWorkspaceSources,
-            withLegacyLease = ::withLegacyWorkspaceLease, openVm = { id ->
-                val environment = environmentRegistry.transaction(storageDefaults()) { requireEnvironment(id) }
-                check(environment.runtime == dev.terminal.runtime.session.EnvironmentRuntime.AVF) { "Not an AVF environment" }
-                val owner = environmentBackends[id] ?: error("Start this AVF environment first; file transfer never starts a VM")
-                owner.openGuestFileTransfer().getOrThrow()
-            }, tracked = { work -> trackedEnvironmentOperation { work() } }, withVmLease = { id, work ->
-                preparationLocks.withStorage(
-                    resolve = { environmentRegistry.transaction(storageDefaults()) { requireEnvironment(id) } },
-                    key = { it.sessionRuntime to it.storage.id },
-                ) { work() }
-            })
+            withLegacyLease = ::withLegacyWorkspaceLease,
+            tracked = { work -> trackedEnvironmentOperation { work() } })
     }
     /** Long copies reserve only owners of the selected old folder, never logical Workspaces. */
     private suspend fun withLegacyWorkspaceLease(source: dev.terminal.runtime.storage.LegacyWorkspaces.Source, work: suspend () -> Unit) {
@@ -355,7 +345,7 @@ class VmRuntimeService : Service() {
             enforceHostToolUi()
             val environments = environmentRegistry.transaction(storageDefaults()) { all() }
             return JSONObject().put("folders", JSONArray(sharedFolders.all().map { folder -> folder.json().put("hostPath", sharedFolders.path(folder).path) }))
-                .put("environments", JSONArray(environments.map { it.toJson() }))
+                .put("environments", JSONArray(environments.filter { it.runtime != EnvironmentRuntime.AVF }.map { it.toJson() }))
                 .put("legacySources", JSONArray(legacyWorkspaceSources().map { it.json() }))
                 .put("operations", JSONArray(sharedFolderJobs.snapshots())).toString()
         }
@@ -366,6 +356,7 @@ class VmRuntimeService : Service() {
                 val requested = dev.terminal.runtime.storage.SharedFolder.parse(JSONObject(folderJson))
                 val environments = environmentRegistry.transaction(storageDefaults()) { all() }
                 require(requested.environments.all { id -> environments.any { it.id == id } }) { "Environment was removed" }
+                require(requested.environments.none { id -> environments.any { it.id == id && it.runtime == EnvironmentRuntime.AVF } }) { "AVF는 공유 디렉토리를 지원하지 않습니다." }
                 // Backing storage is host-owned metadata; an edit cannot move it back or invent a path.
                 val existing = sharedFolders.all().firstOrNull { it.id == requested.id }
                 val folder = requested.copy(androidStorage = existing?.androidStorage == true)
@@ -646,7 +637,11 @@ class VmRuntimeService : Service() {
         override fun setEnvironmentInternalStorageAccess(environmentId: String, enabled: Boolean): String {
             enforceHostToolUi()
             return runCatching {
-                environmentRegistry.transaction(storageDefaults()) { setInternalStorageAccess(EnvironmentId(environmentId), enabled) }
+                environmentRegistry.transaction(storageDefaults()) {
+                    val id = EnvironmentId(environmentId)
+                    require(!enabled || requireEnvironment(id).runtime != EnvironmentRuntime.AVF) { "AVF는 Android 저장소 공유를 지원하지 않습니다." }
+                    setInternalStorageAccess(id, enabled)
+                }
                 ""
             }.exceptionOrNull()?.userMessage().orEmpty()
         }
@@ -1260,7 +1255,6 @@ class VmRuntimeService : Service() {
             }.apply()
         }
         createNotificationChannel()
-        sharedDirectories = SharedDirectoryManager(applicationContext)
         wakeController = RuntimeWakeController(applicationContext)
         scope.launch { localServices.registry.services.collect { notifyLocalServices() } }
         wakePolicies = WakePolicyStore(applicationContext)
@@ -1889,11 +1883,6 @@ class VmRuntimeService : Service() {
                 cpuCount = dev.terminal.runtime.avf.AvfResourcePolicy.cpuTopology(preferences.getInt(KEY_AVF_CPU, 1)),
                 protectedVm = preferences.getBoolean(KEY_AVF_PROTECTED, false),
                 enableNetwork = preferences.getBoolean(KEY_AVF_NETWORK, true),
-                sharedDirectory = if (spec.runtime == SessionRuntime.AVF) sharedDirectories.provision(spec.storageId).getOrThrow().path else null,
-                sharedFolders = if (spec.runtime == SessionRuntime.AVF) sharedFolders.exports(executionEnvironment.id) else emptyList(),
-                enableInternalStorage = environmentRegistry.transaction(storageDefaults()) {
-                    requireEnvironment(executionEnvironment.id).internalStorageAccess
-                },
             )).getOrThrow()
             owner.start().getOrThrow()
             if ((owner as? AvfBackend)?.startedNewVm == true) avfConnectionIssues.remove(key)

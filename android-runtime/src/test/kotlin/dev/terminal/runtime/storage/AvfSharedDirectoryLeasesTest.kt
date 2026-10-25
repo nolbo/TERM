@@ -11,6 +11,25 @@ import java.util.UUID
 class AvfSharedDirectoryLeasesTest {
     @get:Rule val temporary = TemporaryFolder()
 
+    @Test fun retiredSharingRequiresAnExplicitStopBeforeReconnect() {
+        val files = temporary.newFolder()
+        val store = AvfSharedDirectoryLeases(files)
+        val folder = UUID.randomUUID().toString()
+        store.requireUnsharedReconnect("plain", stopped = false)
+        store.record("folders", listOf(folder))
+        store.record("storage", emptyList(), "v-storage", androidStorage = true)
+        val restarted = AvfSharedDirectoryLeases(files)
+        for (instance in listOf("folders", "storage")) {
+            assertTrue(runCatching { restarted.requireUnsharedReconnect(instance, stopped = false) }.isFailure)
+            restarted.requireUnsharedReconnect(instance, stopped = true)
+            // Stop checks never erase ownership or folder data.
+            assertTrue(runCatching { restarted.requireUnsharedReconnect(instance, stopped = false) }.isFailure)
+            restarted.release(instance)
+            restarted.requireUnsharedReconnect(instance, stopped = false)
+        }
+        assertTrue(restarted.owners(folder).isEmpty())
+    }
+
     @Test fun internalStorageBootsAreRecoverableEvenWithoutConnectedFoldersAndLegacyRecordsRemainValid() {
         val files = temporary.newFolder()
         val store = AvfSharedDirectoryLeases(files)

@@ -53,18 +53,10 @@ class AospAvfPlatformDriver(
         private set
 
     private var prepared: RuntimeConfig? = null
-    private var supportsVirtiofs = false
-    private var supportsAndroidStorage = false
-    private var supportsShareBroker = false
-    private var shareBrokerVersion = 0
     private var sessionResumeVersion = 0
     private var rootDevice = "/dev/vda"
     private var rootMountMode = "ro"
     @Volatile private var machine: VirtualMachine? = null
-    private data class SharedBoot(val vm: VirtualMachine, val instanceId: String, val directories: AvfSharedDirectories)
-    private val sharedBoot = AtomicReference<SharedBoot?>()
-    private data class PrivateBoot(val vm: VirtualMachine, val instanceId: String, val shares: PrivateAvfShares)
-    private val privateBoot = AtomicReference<PrivateBoot?>()
     private val activeBoot = AtomicReference<Any?>()
     private val shareLeases = AvfSharedDirectoryLeases(appContext.filesDir)
     private val sharedStorage = AvfSharedStorageCoordinator(shareLeases,
@@ -72,7 +64,6 @@ class AospAvfPlatformDriver(
     private val pendingSessionConnection = AtomicReference<GuestConnection?>()
     private val events = MutableSharedFlow<AvfPlatformEvent>(extraBufferCapacity = 4,
         onBufferOverflow = kotlinx.coroutines.channels.BufferOverflow.DROP_OLDEST)
-    private val shareFailureReported = AtomicBoolean()
 
     override fun observeEvents(): Flow<AvfPlatformEvent> = events.asSharedFlow()
 
@@ -94,33 +85,17 @@ class AospAvfPlatformDriver(
                     rootDevice = verification.manifest.rootDevice
                     rootMountMode = verification.manifest.rootMountMode
                     val capabilities = dev.terminal.image.AvfGuestComponents.effective(Paths.get(config.imageDirectory), verification.manifest)
-                    supportsVirtiofs = capabilities.virtiofsVersion == 1
-                    supportsAndroidStorage = capabilities.androidStorageVersion == 1
-                    shareBrokerVersion = capabilities.shareBrokerVersion
                     sessionResumeVersion = capabilities.sessionResumeVersion
-                    supportsShareBroker = shareBrokerVersion in 1..2
                     if (config.avfMaintenance != null) {
-                        require(!config.protectedVm && config.sharedFolders.isEmpty() && !config.enableInternalStorage)
+                        require(!config.protectedVm)
                         require(verification.manifest.maintenanceVersion == 1) { "새 관리 기능을 포함한 이미지가 필요합니다." }
-                    }
-                    AvfSharedDirectories.validate(appContext.filesDir.canonicalFile, config.sharedFolders, publicSharesRoot(),
-                        false)
-                    require(config.sharedFolders.isEmpty() || supportsShareBroker) {
-                        "이 이미지는 앱 전용 공유 디렉토리를 지원하지 않습니다. 새 공유 기능을 포함한 AVF 이미지가 필요합니다. 기존 VM 데이터는 유지됩니다."
-                    }
-                    require(config.sharedFolders.all { java.io.File(it.directory).absoluteFile ==
-                        java.io.File(appContext.filesDir.canonicalFile, "shared-folders/${it.id}") }) {
-                        "설정 → 공유 디렉토리에서 이 폴더를 저장해 최신 데이터를 앱 전용 저장소로 전환하세요."
-                    }
-                    require(config.sharedFolders.isEmpty() || !config.protectedVm) {
-                        "앱 전용 공유 디렉토리는 비보호 AVF VM에서만 사용할 수 있습니다."
                     }
                 }
                 is ImageVerification.Invalid -> error(verification.reason)
             }
             prepared = config
         }.onSuccess { dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.prepared", config.instanceId,
-            "${config.imageDistribution}.share:$shareBrokerVersion.resume:$sessionResumeVersion") }
+            "${config.imageDistribution}.resume:$sessionResumeVersion") }
             .onFailure { dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.prepare.failed", config.instanceId, error = it) }
     }
 
@@ -128,88 +103,33 @@ class AospAvfPlatformDriver(
         dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.start", config.instanceId,
             details = mapOf("memory_mib" to config.memoryMib.toString(), "cpu_policy" to if (config.cpuCount == 1) "single" else "host",
                 "network" to config.enableNetwork.toString(), "protected" to config.protectedVm.toString(),
-                "shared_folders" to config.sharedFolders.size.toString(), "internal_storage" to config.enableInternalStorage.toString(),
-                "share_version" to shareBrokerVersion.toString(), "resume_version" to sessionResumeVersion.toString()))
+                "resume_version" to sessionResumeVersion.toString()))
         startedNewVm = false
         val bootStartedAt = SystemClock.elapsedRealtime()
         var nextMachine: VirtualMachine? = null
         var startedHere = false
-        var stagedShares: AvfSharedDirectories? = null
         try {
             check(prepared == config) { "Prepare the exact image configuration before starting" }
             check(pendingSessionConnection.get() == null) { "VM session connection is already prepared" }
-            // Do not provision or replace sharing artifacts while reconnecting to a live guest.
             val vm = machine ?: manager.get(vmName(config)) ?: manager.getOrCreate(vmName(config), buildConfig(config))
             nextMachine = vm
             val boot = AvfGuestBoot()
-            sharedStorage.boot(config.instanceId) { storageGranted ->
+            sharedStorage.withoutShares {
+                // Old running guests may still have host mounts. Preserve their data and
+                // require an explicit stop rather than silently adopting a shared VM.
+                shareLeases.requireUnsharedReconnect(config.instanceId, vm.status == VirtualMachine.STATUS_STOPPED)
                 val token = Any()
                 activeBoot.set(token)
                 vm.setCallback(Executor { it.run() }, callback(boot, token, config.instanceId))
                 machine = vm
-                // A previous host/boot timeout may have left this persistent VM running.
-                // Reconnect to it without restarting Linux or replacing its writable disks.
                 if (vm.status == VirtualMachine.STATUS_STOPPED) {
-                    // getOrCreate ignores the supplied config for an existing VM. Refresh
-                    // stopped instances so boot parameters also reach installed guests.
-                    releaseSharedBoot(vm)
                     releaseStoppedShares(config.instanceId)
-                    val storage = if (config.enableInternalStorage && supportsAndroidStorage && storageGranted && !config.protectedVm)
-                        android.os.Environment.getExternalStorageDirectory().canonicalFile else null
-                    stagedShares = if (supportsVirtiofs)
-                        AvfSharedDirectories.create(appContext.filesDir.canonicalFile, emptyList(), storage) else null
-                    requireAvfPlatformApi { vm.setConfig(buildConfig(config, stagedShares)) }
-                    val shares = stagedShares
-                    if (shares != null) {
-                        // Persist before run: a lost host owner must never make a live export deletable.
-                        if (shares.requiresStoragePermission) sharedStorage.requirePermission()
-                        shareLeases.record(config.instanceId, config.sharedFolders.map { it.id }, shares.artifact, shares.requiresStoragePermission)
-                        sharedBoot.set(SharedBoot(vm, config.instanceId, shares))
-                        stagedShares = null
-                    }
-                    if (config.sharedFolders.isNotEmpty()) {
-                        shareFailureReported.set(false)
-                        // Private SFTP streams need no SharedPath/index or all-files permission.
-                        // Merge the lease with an optional /sdcard export before VM run.
-                        shareLeases.record(config.instanceId, config.sharedFolders.map { it.id }, shares?.artifact,
-                            shares?.requiresStoragePermission == true)
-                        val owner = PrivateAvfShares(config.sharedFolders, shareBrokerVersion) { event, error ->
-                            dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(event, config.instanceId,
-                                code = when (error) {
-                                    is ShareControlFailure -> error.diagnosticCode
-                                    is ShareControlStall -> "control.no_progress.idle_ms_${error.idleMillis}"
-                                    else -> null
-                                },
-                                error = if (error is ShareControlFailure) error.cause else error)
-                            if (event in setOf("share.owner.unavailable", "share.data.unavailable", "share.data.revoked") &&
-                                shareFailureReported.compareAndSet(false, true))
-                                events.tryEmit(AvfPlatformEvent.SharingUnavailable(event))
-                        }
-                        PrivateShareOwners.register(privateShareKey(config.instanceId), owner)
-                        privateBoot.set(PrivateBoot(vm, config.instanceId, owner))
-                    }
+                    // getOrCreate retains existing configs; refresh stopped VMs to remove
+                    // legacy SharedPaths and broker boot parameters without replacing disks.
+                    requireAvfPlatformApi { vm.setConfig(buildConfig(config)) }
                     startedHere = true
-                    if (shares?.requiresStoragePermission == true) sharedStorage.requirePermission()
                     vm.run()
                     dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.run", config.instanceId)
-                }
-            }
-            if (config.sharedFolders.isNotEmpty()) {
-                val owner = checkNotNull(privateBoot.get()?.takeIf { it.vm === vm }) {
-                    "앱 전용 공유 연결의 소유자가 없습니다. VM을 중지한 뒤 다시 시작하세요."
-                }
-                if (!owner.shares.ready) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                    val startupDeadline = SystemClock.elapsedRealtime() + 45_000
-                    owner.shares.start {
-                        val deadline = if (shareBrokerVersion == 2) SystemClock.elapsedRealtime() + 5_000 else startupDeadline
-                        var stream: GuestByteStream? = null
-                        while (stream == null) {
-                            check(SystemClock.elapsedRealtime() < deadline && machine === vm) { "앱 전용 공유 연결 시간이 초과되었습니다." }
-                            stream = runCatching { ParcelFileDescriptorByteStream(connectVsock(vm, 40_506)) }.getOrNull()
-                            if (stream == null) Thread.sleep(100)
-                        }
-                        stream
-                    }
                 }
             }
             pendingSessionConnection.set(boot.awaitSessiond(BOOT_TIMEOUT_MS, GUEST_CONNECT_RETRY_MS) {
@@ -223,7 +143,6 @@ class AospAvfPlatformDriver(
             Result.success(Unit)
         } catch (failure: Throwable) {
             dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.start.failed", config.instanceId, error = failure)
-            stagedShares?.let { runCatching { it.close() }.exceptionOrNull()?.let(failure::addSuppressed) }
             pendingSessionConnection.getAndSet(null)?.let { connection ->
                 runCatching { connection.close() }.exceptionOrNull()?.let(failure::addSuppressed)
             }
@@ -235,7 +154,6 @@ class AospAvfPlatformDriver(
                     vm.status == VirtualMachine.STATUS_STOPPED
                 }.getOrElse { failure.addSuppressed(it); false }
                 if (stopped) {
-                    releaseSharedBoot(vm)
                     runCatching { releaseStoppedShares(config.instanceId) }.exceptionOrNull()?.let(failure::addSuppressed)
                     if (machine === vm) machine = null
                 }
@@ -254,8 +172,7 @@ class AospAvfPlatformDriver(
             // AVF stop is immediate. A graceful guest shutdown RPC belongs to LifecycleService.
             if (activeMachine.status != VirtualMachine.STATUS_STOPPED) activeMachine.stop()
             check(activeMachine.status == VirtualMachine.STATUS_STOPPED) { "AVF stop could not be verified" }
-            releaseSharedBoot(activeMachine)
-            // Reconnected VMs have a persisted lease but no in-memory SharedBoot owner.
+            // Legacy sharing records are released only after platform-proven stop.
             prepared?.let { releaseStoppedShares(it.instanceId) }
             pendingSessionConnection.getAndSet(null)?.close()
             machine = null
@@ -272,7 +189,6 @@ class AospAvfPlatformDriver(
             check(persisted == null || persisted.status == VirtualMachine.STATUS_STOPPED) {
                 "공유 디렉토리 데이터를 삭제하기 전에 AVF 실행환경을 중지하세요. 연결 해제만으로 기존 마운트는 사라지지 않습니다."
             }
-            persisted?.let(::releaseSharedBoot)
             releaseStoppedShares(instanceId)
         }
     }
@@ -297,7 +213,6 @@ class AospAvfPlatformDriver(
         if (vm != null) {
             if (vm.status != VirtualMachine.STATUS_STOPPED) vm.stop()
             check(vm.status == VirtualMachine.STATUS_STOPPED) { "Cannot verify VM stopped after storage permission revocation" }
-            releaseSharedBoot(vm)
         }
         releaseStoppedShares(instanceId)
     }
@@ -405,7 +320,7 @@ class AospAvfPlatformDriver(
     private fun connectVsock(vm: VirtualMachine, port: Long): android.os.ParcelFileDescriptor =
         dev.terminal.runtime.vsock.GuestConnectionOpener.open(PLATFORM_CONNECT_TIMEOUT_MS) { vm.connectVsock(port) }
 
-    private fun buildConfig(config: RuntimeConfig, shares: AvfSharedDirectories? = null): VirtualMachineConfig = requireAvfPlatformApi {
+    private fun buildConfig(config: RuntimeConfig): VirtualMachineConfig = requireAvfPlatformApi {
         val image = AvfImageLayout(Paths.get(config.imageDirectory))
         val customImage = VirtualMachineCustomImageConfig.Builder()
             .setName(vmName(config))
@@ -427,14 +342,6 @@ class AospAvfPlatformDriver(
                 .addParam("term.source-format=${maintenance.sourceFormatVersion}")
                 .addDisk(VirtualMachineCustomImageConfig.Disk.RODisk(maintenance.sourceSystem))
                 .addDisk(VirtualMachineCustomImageConfig.Disk.RWDisk(maintenance.copiedState))
-        }
-        if (config.sharedFolders.isNotEmpty()) customImage.addParam("term.share-broker=1")
-        if (shares != null) {
-            if (shares.hasFolders) customImage.addParam(AvfSharedDirectories.BOOT_PARAM)
-            if (shares.hasAndroidStorage) customImage.addParam(AvfSharedDirectories.ANDROID_STORAGE_PARAM)
-            shares.exports.forEach { export ->
-                requireAvfSharedDirectoryApi { customImage.addSharedPath(avfSharedPath(export)) }
-            }
         }
 
         VirtualMachineConfig.Builder(appContext)
@@ -504,34 +411,19 @@ class AospAvfPlatformDriver(
         // An error callback alone is not proof of stop. Keep a live/unknown VM's
         // Binder reference and let its session connection recover independently.
         if (!runCatching { stoppedMachine.status == VirtualMachine.STATUS_STOPPED }.getOrDefault(false)) return
-        releaseSharedBoot(stoppedMachine)
         runCatching { releaseStoppedShares(instanceId) }
-            .onFailure { Log.w(TAG, "persisted virtiofs artifact cleanup failed", it) }
+            .onFailure { Log.w(TAG, "legacy AVF share cleanup failed", it) }
         if (machine === stoppedMachine) {
             machine = null
             pendingSessionConnection.getAndSet(null)?.let { runCatching { it.close() } }
         }
     }
 
-    private fun releaseSharedBoot(vm: VirtualMachine) {
-        val owned = sharedBoot.get() ?: return
-        if (owned.vm !== vm || !sharedBoot.compareAndSet(owned, null)) return
-        runCatching { releaseStoppedShares(owned.instanceId); owned.directories.close() }
-            .onFailure { Log.w(TAG, "virtiofs artifact cleanup failed", it) }
-    }
-
     private fun releaseStoppedShares(instanceId: String) {
-        // This may be a separate verifier/revocation driver, not the boot owner.
-        PrivateShareOwners.releaseStopped(privateShareKey(instanceId))
-        privateBoot.get()?.takeIf { it.instanceId == instanceId }?.let { owned ->
-            privateBoot.compareAndSet(owned, null)
-        }
         shareLeases.release(instanceId) { artifact -> artifact?.let {
-            AvfSharedDirectories.cleanup(appContext.filesDir.canonicalFile, it, publicSharesRoot())
+            LegacyAvfShareArtifacts.cleanup(appContext.filesDir.canonicalFile, it, publicSharesRoot())
         } }
     }
-
-    private fun privateShareKey(instanceId: String) = "${appContext.filesDir.canonicalPath}:$instanceId"
 
     private fun publicSharesRoot() = dev.terminal.runtime.storage.AndroidSharedFolderStorage.root(appContext)
 

@@ -6,7 +6,6 @@ import android.os.ParcelFileDescriptor
 import android.system.Os
 import dev.terminal.emulator.ScopedFileAccess
 import dev.terminal.protocol.FileTransfer
-import dev.terminal.runtime.api.GuestByteStream
 import dev.terminal.runtime.session.EnvironmentId
 import kotlinx.coroutines.*
 import org.json.JSONArray
@@ -23,9 +22,7 @@ class SharedFolderJobs(
     context: Context, private val scope: CoroutineScope, private val folders: SharedFolderRegistry,
     private val sources: () -> List<LegacyWorkspaces.Source>,
     private val withLegacyLease: suspend (LegacyWorkspaces.Source, suspend () -> Unit) -> Unit,
-    private val openVm: suspend (EnvironmentId) -> GuestByteStream,
     private val tracked: suspend (suspend () -> Unit) -> Unit,
-    private val withVmLease: suspend (EnvironmentId, suspend () -> Unit) -> Unit = { _, work -> work() },
 ) {
     private val context = context.applicationContext
     private val preferences = context.getSharedPreferences("shared-folder-jobs", Context.MODE_PRIVATE)
@@ -60,21 +57,16 @@ class SharedFolderJobs(
         require(active.size < 2) { "Finish or cancel another file operation first" }
         val request = JSONObject(encoded)
         val mode = request.getString("mode")
-        require(mode in setOf("IMPORT_LEGACY", "EXPORT_LEGACY", "TO_VM", "FROM_VM"))
+        require(mode in setOf("IMPORT_LEGACY", "EXPORT_LEGACY")) { "AVF는 공유 디렉토리 파일 작업을 지원하지 않습니다." }
         val folderId = request.optString("folderId").takeIf(String::isNotEmpty)
         val imported = if (mode == "IMPORT_LEGACY") SharedFolder(UUID.randomUUID().toString(), request.getString("name"), emptySet()) else null
-        if (mode == "TO_VM" || mode == "FROM_VM") {
-            val folder = folders.requireFolder(requireNotNull(folderId))
-            require(EnvironmentId(request.getString("environmentId")) in folder.environments) { "Shared Directory is not connected to this VM" }
-            SharedRelativePath.components(request.getString("path"))
-        } else require(sources().any { it.id == request.getString("sourceId") }) { "Legacy workspace not found" }
+        require(sources().any { it.id == request.getString("sourceId") }) { "Legacy workspace not found" }
         records[id] = JSONObject().put("id", id).put("mode", mode).put("state", "RUNNING").put("bytes", 0).put("error", JSONObject.NULL)
             .put("folderId", folderId ?: JSONObject.NULL).put("path", request.optString("path"))
             .put("importFolderId", imported?.id ?: JSONObject.NULL)
         while (records.size > 20) records.entries.firstOrNull { it.value.getString("state") != "RUNNING" }?.let { records.remove(it.key) } ?: break
         persist()
         val job = scope.launch(Dispatchers.IO, start = CoroutineStart.LAZY) {
-            val timeout = if (mode in setOf("TO_VM", "FROM_VM")) scope.launch { delay(120_000); cancel(id) } else null
             var processed = 0L
             var publishedAt = 0L
             val progress: (Long) -> Unit = { count ->
@@ -92,7 +84,6 @@ class SharedFolderJobs(
                                 else exportLegacy(id, source, Uri.parse(request.getString("uri")), progress)
                             }
                         }
-                        else -> withVmLease(EnvironmentId(request.getString("environmentId"))) { transfer(id, request, mode, progress) }
                     }
                 }
                 update(id, "COMPLETED", processed)
@@ -102,7 +93,7 @@ class SharedFolderJobs(
             } catch (failure: Exception) {
                 if (!currentCoroutineContext().isActive) update(id, "CANCELLED", processed, "Cancelled; originals and existing destination files are preserved.")
                 else update(id, "FAILED", processed, failure.message ?: "File operation failed")
-            } finally { timeout?.cancel(); active.remove(id)?.stream?.getAndSet(null)?.let { runCatching { it.close() } } }
+            } finally { active.remove(id)?.stream?.getAndSet(null)?.let { runCatching { it.close() } } }
         }
         active[id] = Active(job, folderId = folderId, environmentId = request.optString("environmentId").takeIf(String::isNotEmpty))
         job.start()
@@ -116,70 +107,6 @@ class SharedFolderJobs(
     } ?: false
     fun revokeFolder(id: String) { active.filterValues { it.folderId == id }.keys.forEach(::cancel) }
     fun revokeEnvironment(id: EnvironmentId) { active.filterValues { it.environmentId == id.value }.keys.forEach(::cancel) }
-
-    private suspend fun transfer(id: String, request: JSONObject, mode: String, progress: (Long) -> Unit) {
-        val folderId = request.getString("folderId")
-        val environment = EnvironmentId(request.getString("environmentId"))
-        fun authorize() = folders.requireFolder(folderId).also { require(environment in it.environments) { "Shared Directory permission was revoked" } }
-        val folder = authorize()
-        val parts = SharedRelativePath.components(request.getString("path"))
-        val job = currentCoroutineContext()
-        var acquired: GuestByteStream? = null
-        val stream = try { withTimeout(30_000) { openVm(environment).also {
-            acquired = it
-            active[id]?.stream?.set(it)
-            job.ensureActive()
-        } } } catch (failure: Exception) { acquired?.let { runCatching { it.close() } }; throw failure }
-        try {
-            job.ensureActive()
-            active[id]?.stream?.set(stream)
-            val input = DataInputStream(stream.input)
-            val output = DataOutputStream(stream.output)
-            FileTransfer.checkGreeting(input)
-            FileTransfer.request(output, if (mode == "TO_VM") FileTransfer.TO_VM else FileTransfer.FROM_VM,
-                folder.name + "/" + parts.joinToString("/"))
-            ScopedDirectory.open(folders.directory(folder)).use { root ->
-                if (mode == "TO_VM") root.parent(parts.dropLast(1)).use { parent ->
-                    val descriptor = parent.file(parts.last())
-                    ParcelFileDescriptor.AutoCloseInputStream(descriptor).use { source ->
-                        val size = Os.fstat(descriptor.fileDescriptor).st_size
-                        require(size in 0..FileTransfer.MAX_BYTES)
-                        output.writeLong(size)
-                        val digest = FileTransfer.copy(source, output, size, { job.ensureActive() }, progress)
-                        require(source.read() == -1 && Os.fstat(descriptor.fileDescriptor).st_size == size) { "Source changed during copy" }
-                        job.ensureActive(); authorize()
-                        output.write(digest); output.flush()
-                        FileTransfer.checkStatus(input)
-                        FileTransfer.verify(digest, ByteArray(32).also(input::readFully))
-                    }
-                } else {
-                    FileTransfer.checkStatus(input)
-                    val size = input.readLong()
-                    require(size in 0..FileTransfer.MAX_BYTES)
-                    root.parent(parts.dropLast(1), create = true).use { parent ->
-                        val temporary = ".term-transfer-$id"
-                        var created = false
-                        try {
-                            val descriptor = parent.file(temporary, create = true)
-                            created = true
-                            val digest = ParcelFileDescriptor.AutoCloseOutputStream(descriptor).use { target ->
-                                FileTransfer.copy(input, target, size, { job.ensureActive() }, progress).also {
-                                    target.flush(); target.fd.sync()
-                                }
-                            }
-                            FileTransfer.verify(digest, ByteArray(32).also(input::readFully))
-                            folders.withConnection(folderId, environment) {
-                                job.ensureActive()
-                                ScopedFileAccess.rename(parent.fd, temporary, parent.fd, parts.last())
-                                created = false; parent.sync()
-                            }
-                            output.writeByte(0); output.write(digest); output.flush()
-                        } finally { if (created) runCatching { ScopedFileAccess.unlink(parent.fd, temporary, false) } }
-                    }
-                }
-            }
-        } finally { active[id]?.stream?.compareAndSet(stream, null); stream.close() }
-    }
 
     private suspend fun importLegacy(id: String, source: LegacyWorkspaces.Source, folder: SharedFolder, progress: (Long) -> Unit) {
         require(folders.all().none { it.name == folder.name }) { "Shared Directory name already exists" }

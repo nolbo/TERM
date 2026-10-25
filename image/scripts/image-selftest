@@ -33,27 +33,16 @@ for service in systemd-networkd systemd-resolved; do
   systemctl --root=/ is-enabled --quiet "$service.service"
 done
 echo TERM_AVF_NETWORK_CONFIG_OK
-modprobe virtiofs
-modprobe fuse
-command -v sshfs fusermount3 python3 setpriv >/dev/null
-test -x /usr/local/lib/droid/private-share-broker.py
-test -x /usr/local/lib/droid/private-share-transport.py
-test -x /usr/local/lib/droid/private-share-recovery.py
+command -v python3 setpriv >/dev/null
 test -x /usr/local/lib/droid/session-recovery.py
 systemctl --root=/ is-enabled --quiet term-session-recovery.service
-systemctl --root=/ is-enabled --quiet term-share-broker.service
-test "$(id -u droid)" -eq 1000
-test "$(id -g droid)" -eq 1000
-test -x /usr/local/lib/droid/mount-shared-directories.sh
-systemctl --root=/ is-enabled --quiet term-shares.service
-grep -qx 'Requires=term-shares.service' /etc/systemd/system/droid-sessiond.service.d/shares.conf
-/usr/local/lib/droid/mount-shared-directories.sh
-echo TERM_AVF_VIRTIOFS_CONFIG_OK
-test -x /usr/local/lib/droid/mount-android-storage.sh
-systemctl --root=/ is-enabled --quiet term-android-storage.service
-grep -qx 'Requires=term-android-storage.service' /etc/systemd/system/droid-sessiond.service.d/android-storage.conf
-/usr/local/lib/droid/mount-android-storage.sh
-echo TERM_AVF_ANDROID_STORAGE_CONFIG_OK
+for service in term-shares term-share-broker term-share-selftest term-android-storage; do
+  test ! -e "/etc/systemd/system/$service.service"
+  test ! -L "/etc/systemd/system/multi-user.target.wants/$service.service"
+done
+test ! -e /etc/systemd/system/droid-sessiond.service.d/shares.conf
+test ! -e /etc/systemd/system/droid-sessiond.service.d/android-storage.conf
+echo TERM_AVF_NO_SHARES_OK
 if [ -d /.droid/lower/var/lib/apt/lists ]; then
   if find /.droid/lower/var/lib/apt/lists -type f ! -name '*_Release' ! -name '*_Release.gpg' ! -name '*_InRelease' ! -name lock -print -quit | grep -q .; then
     echo 'Sealed image contains stale APT indexes' >&2

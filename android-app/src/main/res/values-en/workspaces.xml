@@ -39,14 +39,14 @@
     <string name="workspace_delete">Delete workspace</string>
     <string name="workspace_delete_summary">Sessions become unassigned. Session processes, execution environments and files are preserved.</string>
     <string name="shared_folders_title">Shared Directory</string>
-    <string name="shared_folders_summary">Directories independent of environments. Native uses host paths; Userspace Linux/supported AVF use /mnt/term-shares/&lt;name&gt;. Applies to new local sessions or next VM boot.</string>
+    <string name="shared_folders_summary">Shared directories for Native and Userspace Linux. Native uses host paths; Userspace Linux uses /mnt/term-shares/&lt;name&gt;. AVF is not supported.</string>
     <string name="shared_folders_security">Connections do not isolate access. Native and Userspace Linux share an Android UID.</string>
     <string name="shared_folder_android_storage">Move into app-private storage</string>
     <string name="shared_folder_android_conversion_summary">This folder uses the previous shared-storage method. Saving verifies and copies the latest shared-storage data into app-private storage; all connected environments then use that copy. Close all sessions, VMs using this folder, and file operations first. All-files access is required only for this copy. The public source and previous private original are retained, not automatically deleted. Conversion supports regular files/directories up to 2 GiB and 100,000 entries. Subsequent AVF sharing does not require this permission.</string>
     <string name="shared_folder_create">Create shared directory</string>
     <string name="shared_folder_manage">Name and connected environments</string>
     <string name="shared_folder_missing">The shared directory was deleted or does not exist.</string>
-    <string name="shared_folder_connections_summary">Saved connections apply to new local sessions or next AVF VM boot. Running sessions keep running.</string>
+    <string name="shared_folder_connections_summary">Saved connections apply to new Native and Userspace Linux sessions. Running sessions keep running.</string>
     <string name="shared_folder_name_rules">Use 1–64 ASCII letters, digits, underscores or hyphens, starting with a letter.</string>
     <string name="shared_folder_delete">Delete shared directory and data</string>
     <string name="shared_folder_delete_summary">Delete shared-directory files independently of environments and workspaces. Finish all sessions and file operations first.</string>
@@ -82,7 +82,7 @@
     <string name="shared_folder_environments">Connected environments</string>
     <string name="shared_folder_no_environments">No connected environments</string>
     <string name="shared_folder_access">Access paths and file copies</string>
-    <string name="shared_folder_access_saved">Paths reflect saved settings. Save changes before copying files.</string>
+    <string name="shared_folder_access_saved">Paths reflect saved settings.</string>
     <string name="settings_workspaces_summary">Manage session groups and launch configurations</string>
     <string name="settings_shared_folders_summary">Manage shared directories and connected environments</string>
     <string name="workspace_move_description">Choose a workspace for the %1$s session.</string>

@@ -27,11 +27,11 @@ done
 sh /tmp/term-avf/configure-avf-user.sh /tmp/term-avf/droid.sudoers
 test "$(id -u droid)" -eq 1000
 # Dependencies are provisioned before this offline assembly phase.
-command -v sshfs fusermount3 python3 setpriv >/dev/null
+command -v python3 setpriv >/dev/null
 for tool in ip iptables-legacy ip6tables-legacy iptables-nft ip6tables-nft; do
   command -v "$tool" >/dev/null
 done
-sh /tmp/term-avf/configure-avf-shares.sh / /tmp/term-avf
+sh /tmp/term-avf/configure-avf-session.sh / /tmp/term-avf
 sh /tmp/term-avf/configure-avf-network.sh / /tmp/term-avf/term-virtio.network
 command -v timeout flock >/dev/null
 case "$distribution" in
@@ -48,7 +48,7 @@ printf '[Service]\nGroup=droid\n' > /etc/systemd/system/droid-agent.service.d/ac
 # v2 boots a complete writable ext4 root. The separate sealed system is a
 # read-only baseline for verification, package provenance and three-way updates.
 printf '/dev/vdb / ext4 defaults 0 1\n/dev/vda /.droid/lower ext4 ro,noload,nodev,nosuid,noexec 0 0\n/dev/vdc /etc/droid-config ext4 ro,nodev,nosuid,noexec 0 0\n' > /etc/fstab
-for service in droid-sessiond droid-agent droid-port-agent droid-apt-init droid-file-transfer term-shares term-share-broker term-android-storage term-session-recovery; do
+for service in droid-sessiond droid-agent droid-port-agent droid-apt-init droid-file-transfer term-session-recovery; do
   systemctl enable "$service.service"
   systemd-analyze verify "/etc/systemd/system/$service.service"
 done

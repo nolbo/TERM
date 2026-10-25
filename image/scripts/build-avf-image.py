@@ -76,7 +76,7 @@ def write_release(root, release_id, base_uri, source_url, source_sha, distributi
     if kernel_build:
         KERNEL["validate_provenance"](kernel_build, sha256(root / "vmlinuz"))
         KERNEL["validate_boot_report"](container_verification)
-    manifest = f"formatVersion=2\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nvirtiofsVersion=1\nandroidStorageVersion=1\nshareBrokerVersion=2\nsessionResumeVersion=1\nmaintenanceVersion=1\n"
+    manifest = f"formatVersion=2\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nsessionResumeVersion=1\nmaintenanceVersion=1\n"
     if distribution in ("debian", "ubuntu"):
         manifest += "aptInitializationVersion=1\n"
     for key, name in ARTIFACTS.items():

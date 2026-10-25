@@ -50,7 +50,6 @@ class Android17SharedFolderStorageTest {
         assertArrayEquals(bytes, File(directory, "nested/keep").readBytes())
         assertArrayEquals(bytes, File(original, "nested/keep").readBytes())
         assertTrue(File(directory, "empty").isDirectory)
-        assertEquals(directory.path, registry.exports(environment).single().directory)
         assertEquals(directory, registry.bindings(environment).single().directory)
         registry.save(converted.copy(name = "Renamed"))
         val restarted = SharedFolderRegistry(files, { saved }, { saved = it }, { storage }, { true })

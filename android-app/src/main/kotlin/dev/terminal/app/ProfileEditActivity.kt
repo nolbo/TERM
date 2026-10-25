@@ -276,7 +276,7 @@ class ProfileEditActivity : TerminalActivity() {
                     }
                     Text(stringResource(R.string.profile_storage_hint), modifier = Modifier.padding(horizontal = 16.dp),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    if (storageChoice == "fresh") ProfileSection(R.string.environment_permissions) {
+                    if (storageChoice == "fresh" && runtime != SessionRuntime.AVF.wireName) ProfileSection(R.string.environment_permissions) {
                         EnvironmentStorageAccessSettings(
                             if (runtime == SessionRuntime.NATIVE.wireName) dev.terminal.runtime.session.EnvironmentRuntime.NATIVE
                             else if (runtime == SessionRuntime.AVF.wireName) dev.terminal.runtime.session.EnvironmentRuntime.AVF

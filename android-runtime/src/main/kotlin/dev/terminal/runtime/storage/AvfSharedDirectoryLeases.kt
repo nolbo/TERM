@@ -40,6 +40,14 @@ class AvfSharedDirectoryLeases(files: File) {
         leases().filter { it.androidStorage }.map { it.instanceId }
     }
 
+    /** Running pre-upgrade VMs keep their leases until an explicit, verified stop. */
+    fun requireUnsharedReconnect(instanceId: String, stopped: Boolean) = synchronized(LOCK) {
+        validateInstance(instanceId)
+        check(stopped || leases().none { it.instanceId == instanceId }) {
+            "공유 디렉토리를 사용하던 AVF 실행환경을 중지한 뒤 다시 시작하세요. 기존 데이터는 유지됩니다."
+        }
+    }
+
     private data class Lease(val instanceId: String, val folders: List<String>, val artifact: String?, val androidStorage: Boolean)
 
     private fun leases(): List<Lease> {

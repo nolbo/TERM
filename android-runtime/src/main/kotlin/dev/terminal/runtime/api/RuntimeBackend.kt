@@ -47,12 +47,6 @@ data class RuntimeConfig(
     val protectedVm: Boolean = false,
     /** Enables the AVF guest network device; host port forwarding remains a later layer. */
     val enableNetwork: Boolean = true,
-    /** Legacy per-VM host path. Never automatically exported to the guest. */
-    val sharedDirectory: String? = null,
-    /** Explicit host-selected folder snapshot; never the app-private or shared-folder parent. */
-    val sharedFolders: List<SharedDirectoryExport> = emptyList(),
-    /** Host-resolved environment policy; the OS grant remains an additional requirement. */
-    val enableInternalStorage: Boolean = false,
     /** Host-selected distribution; drivers reject a different verified image before boot. */
     val imageDistribution: String = "debian",
     /** Service-created maintenance boot. Never populated from launch JSON or guest requests. */
@@ -66,8 +60,6 @@ data class AvfMaintenanceBoot(val operation: String, val sourceSystem: String, v
         require(sourceFormatVersion in 1..2)
     }
 }
-
-data class SharedDirectoryExport(val id: String, val name: String, val directory: String)
 
 enum class StopMode { GRACEFUL, FORCE }
 

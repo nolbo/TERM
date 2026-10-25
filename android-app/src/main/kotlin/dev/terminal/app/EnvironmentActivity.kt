@@ -308,7 +308,7 @@ abstract class EnvironmentScreenActivity : TerminalActivity() {
                                 EnvironmentInfoRow(R.string.environment_disks, "system.img · home.img · config.img")
                             }
                         } }
-                        item(key = "permissions") {
+                        if (detail.environment.runtime != EnvironmentRuntime.AVF) item(key = "permissions") {
                             EnvironmentSection(R.string.environment_permissions) {
                                 EnvironmentStorageAccessSettings(detail.environment.runtime, detail.environment.internalStorageAccess,
                                     storagePermissionGranted, runtime != null && changingStorageAccess == null && operating == null && deleting == null,

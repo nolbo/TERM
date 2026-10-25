@@ -29,21 +29,4 @@ class AvfPlatformApiTest {
         }
     }
 
-    @Test fun sharingLinkageFailureNamesTheOptionalApiAndKeepsItsCompleteCause() {
-        for (original in listOf(NoSuchMethodError("No direct method <init> in VirtualMachineCustomImageConfig\$SharedPath"),
-            IllegalAccessError("SharedPath: linking, denied"))) {
-            val failure = runCatching {
-                requireAvfPlatformApi { requireAvfSharedDirectoryApi<Unit> { throw original } }
-            }.exceptionOrNull()!!
-            assertTrue(failure.message.orEmpty().startsWith("AVF 내부저장소·공유 디렉토리"))
-            assertTrue(failure.message.orEmpty().contains(original.message!!))
-            assertSame(original, failure.cause)
-        }
-    }
-
-    @Test fun sharingBoundaryPreservesSuccessAndNonLinkageFailures() {
-        assertEquals("shared", requireAvfSharedDirectoryApi { "shared" })
-        val original = SecurityException("permission denied")
-        assertSame(original, runCatching { requireAvfSharedDirectoryApi<Unit> { throw original } }.exceptionOrNull())
-    }
 }

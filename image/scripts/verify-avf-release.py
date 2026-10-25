@@ -160,7 +160,7 @@ class BoundedReader:
 
 
 def verify_directory(root, metadata_only=False, expected_commit=None, expected_manifest_sha=None,
-                     require_private_shares_boot=False, require_container_kernel=False):
+                     require_private_shares_boot=False, require_container_kernel=False, require_normal_boot=False):
     approved = catalog(read_metadata(root / 'catalog.properties'))
     if expected_manifest_sha is not None and approved['manifestSha256'] != expected_manifest_sha:
         raise ValueError('Catalog differs from the producer job manifest hash')
@@ -183,6 +183,17 @@ def verify_directory(root, metadata_only=False, expected_commit=None, expected_m
         kernel = runpy.run_path(str(Path(__file__).with_name('avf_kernel.py')))
         kernel['validate_provenance'](kernel_build, values['kernel.sha256'])
         kernel['validate_boot_report'](provenance.get('containerBootVerification'))
+    if require_normal_boot:
+        report = provenance.get('normalBootVerification') or {}
+        boots = report.get('boots') or []
+        if (report.get('mode') != 'normal-systemd' or report.get('transport') != 'host-vsock'
+                or report.get('network') != 'disabled' or len(boots) != 2
+                or [boot.get('boot') for boot in boots] != [1, 2]
+                or any(boot.get('sessionListRpc') != 'passed' or boot.get('packageInitializationPort') != 'passed'
+                       for boot in boots)):
+            raise ValueError('Missing verified normal-boot evidence')
+        if values.get('sessionResumeVersion') == '1' and any(boot.get('sessionResume') != 'passed' for boot in boots):
+            raise ValueError('Missing verified session recovery evidence')
     if require_private_shares_boot:
         report = provenance.get('normalBootVerification') or {}
         boots = report.get('boots') or []
@@ -284,13 +295,14 @@ def main():
     parser.add_argument('--metadata-only', action='store_true')
     parser.add_argument('--expected-commit')
     parser.add_argument('--expected-manifest-sha')
+    parser.add_argument('--require-normal-boot', action='store_true')
     parser.add_argument('--require-private-shares-boot', action='store_true')
     parser.add_argument('--require-container-kernel', action='store_true')
     parser.add_argument('--approve', type=Path, help='Verify public downloads before writing the tracked default catalog')
     parser.add_argument('--apk', type=Path)
     parser.add_argument('--apk-catalog', type=Path, help='Exact merged catalog expected inside the candidate APK')
     args = parser.parse_args()
-    checks = dict(expected_commit=args.expected_commit, expected_manifest_sha=args.expected_manifest_sha,
+    checks = dict(require_normal_boot=args.require_normal_boot, expected_commit=args.expected_commit, expected_manifest_sha=args.expected_manifest_sha,
                   require_private_shares_boot=args.require_private_shares_boot,
                   require_container_kernel=args.require_container_kernel)
     approved = approve(args.directory, args.approve, **checks) if args.approve else verify_directory(args.directory, args.metadata_only, **checks)

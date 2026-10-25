@@ -80,74 +80,23 @@ class SharedFolderJobsDeviceTest {
         }
     }
 
-    @Test fun verifiedCopiesRejectCorruptionOversizeOverwriteAndUnconnectedVms() = runBlocking {
-        val files = Files.createTempDirectory(context.filesDir.canonicalFile.toPath(), "shared-copy-test-").toFile()
+    @Test fun retiredVmCopiesAreRejectedWithoutChangingFolderData() {
+        val files = Files.createTempDirectory(context.filesDir.canonicalFile.toPath(), "retired-shares-").toFile()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         var saved: String? = null
         val folders = SharedFolderRegistry(files, { saved }, { saved = it })
-        val vm = EnvironmentId.create()
-        val folder = SharedFolder(UUID.randomUUID().toString(), "Project", setOf(vm))
+        val folder = SharedFolder(UUID.randomUUID().toString(), "Files", setOf(EnvironmentId.create()))
         folders.save(folder)
-        val bytes = ByteArray(200_000) { it.toByte() }
-        var wire = response(bytes)
-        var opened = 0
-        val jobs = SharedFolderJobs(context, scope, folders, { emptyList() }, { _, work -> work() },
-            { selected -> assertEquals(vm, selected); opened++; Stream(wire.inputStream()) }, { work -> work() })
+        File(folders.directory(folder), "keep").writeText("original")
+        val jobs = SharedFolderJobs(context, scope, folders, { emptyList() }, { _, work -> work() }, { work -> work() })
         try {
-            val rejected = jobs.submit(UUID.randomUUID().toString(), request(folder, EnvironmentId.create(), "private"))
-            assertTrue(rejected.isNotEmpty()); assertEquals(0, opened)
-            val valid = UUID.randomUUID().toString()
-            assertEquals("", jobs.submit(valid, request(folder, vm, "dir/result")))
-            assertEquals("COMPLETED", finished(jobs, valid).getString("state"))
-            assertArrayEquals(bytes, File(folders.directory(folder), "dir/result").readBytes())
-            for ((path, response) in listOf("dir/result" to response(byteArrayOf(9)), "corrupt" to response(bytes, ByteArray(32)),
-                "oversized" to response(byteArrayOf(), size = FileTransfer.MAX_BYTES + 1), "truncated" to response(byteArrayOf(), size = 100))) {
-                wire = response
-                val id = UUID.randomUUID().toString()
-                assertEquals("", jobs.submit(id, request(folder, vm, path)))
-                assertEquals("FAILED", finished(jobs, id).getString("state"))
-                if (path != "dir/result") assertFalse(File(folders.directory(folder), path).exists())
-                assertArrayEquals(bytes, File(folders.directory(folder), "dir/result").readBytes())
+            for (mode in listOf("TO_VM", "FROM_VM")) {
+                val request = JSONObject().put("mode", mode).put("folderId", folder.id)
+                    .put("environmentId", folder.environments.single().value).put("path", "keep")
+                assertTrue(jobs.submit(UUID.randomUUID().toString(), request.toString()).isNotEmpty())
+                assertFalse(jobs.hasActive())
+                assertEquals("original", File(folders.directory(folder), "keep").readText())
             }
-            ScopedDirectory.open(folders.directory(folder)).use { root ->
-                assertFalse(root.names().any { it.startsWith(".term-transfer-") })
-                root.child("dir").use { assertEquals(listOf("result"), it.names()) }
-            }
-        } finally { scope.cancel(); ScopedDirectory.open(files).use { it.clear() }; files.delete() }
-    }
-
-    @Test fun cancellationClosesOnlyItsStreamAndRevocationPreventsPublication() = runBlocking {
-        val files = Files.createTempDirectory(context.filesDir.canonicalFile.toPath(), "shared-cancel-test-").toFile()
-        val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        var saved: String? = null
-        val folders = SharedFolderRegistry(files, { saved }, { saved = it })
-        val vm = EnvironmentId.create()
-        val folder = SharedFolder(UUID.randomUUID().toString(), "Files", setOf(vm))
-        folders.save(folder)
-        val header = response(byteArrayOf(), size = 100).copyOf(13)
-        val blocked = BlockingInput(header.inputStream())
-        var next: InputStream = blocked
-        val jobs = SharedFolderJobs(context, scope, folders, { emptyList() }, { _, work -> work() }, { Stream(next) }, { work -> work() })
-        try {
-            val id = UUID.randomUUID().toString()
-            assertEquals("", jobs.submit(id, request(folder, vm, "cancelled")))
-            assertTrue(blocked.waiting.await(5, TimeUnit.SECONDS))
-            assertTrue(jobs.cancel(id))
-            assertEquals("CANCELLED", finished(jobs, id).getString("state"))
-            assertFalse(File(folders.directory(folder), "cancelled").exists())
-            val bytes = byteArrayOf(1, 2, 3)
-            next = object : ByteArrayInputStream(response(bytes)) {
-                override fun read(buffer: ByteArray, off: Int, len: Int): Int {
-                    val count = super.read(buffer, off, len)
-                    if (pos >= 13 + bytes.size) folders.save(folder.copy(environments = emptySet()))
-                    return count
-                }
-            }
-            val revoked = UUID.randomUUID().toString()
-            assertEquals("", jobs.submit(revoked, request(folder, vm, "revoked")))
-            assertEquals("FAILED", finished(jobs, revoked).getString("state"))
-            assertFalse(File(folders.directory(folder), "revoked").exists())
-            assertTrue(ScopedDirectory.open(folders.directory(folder)).use { it.names().isEmpty() })
         } finally { scope.cancel(); ScopedDirectory.open(files).use { it.clear() }; files.delete() }
     }
 
@@ -176,7 +125,7 @@ class SharedFolderJobsDeviceTest {
         val preferences = isolated.getSharedPreferences("shared-folder-jobs", Context.MODE_PRIVATE)
         assertTrue(preferences.edit().putString("records", history.toString()).commit())
         try {
-            val jobs = SharedFolderJobs(isolated, scope, folders, { emptyList() }, { _, work -> work() }, { error("No VM must be opened during recovery") }, { work -> work() })
+            val jobs = SharedFolderJobs(isolated, scope, folders, { emptyList() }, { _, work -> work() }, { work -> work() })
             val recovered = JSONArray(jobs.snapshots())
             assertEquals("INTERRUPTED", recovered.getJSONObject(0).getString("state"))
             assertEquals("COMPLETED", recovered.getJSONObject(1).getString("state"))

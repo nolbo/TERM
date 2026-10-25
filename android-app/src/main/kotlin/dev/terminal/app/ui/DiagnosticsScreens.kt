@@ -155,7 +155,6 @@ private fun avfTitle(condition: AvfCondition) = when (condition) {
     AvfCondition.CUSTOM_IMAGE_API -> R.string.avf_check_image_api
     AvfCondition.VM_MANAGER -> R.string.avf_check_manager
     AvfCondition.PLATFORM_DRIVER -> R.string.avf_check_driver
-    AvfCondition.SHARED_DIRECTORY_API -> R.string.avf_check_sharing_api
 }
 
 @Composable
@@ -184,11 +183,7 @@ internal fun AvfLinuxDiagnosticsScreen(info: AvfDiagnostics?, loading: Boolean, 
         ) + AvfCondition.entries.filter { it.required }.map { condition ->
             val check = info?.checks?.singleOrNull { it.condition == condition }
             DiagnosticRow(avfTitle(condition), avfStatus(check?.status), check?.let { avfReason(it) })
-        }, stringResource(R.string.avf_diagnostics_caveat)),
-            DiagnosticSection(R.string.avf_storage_sharing, AvfCondition.entries.filter { !it.required }.map { condition ->
-                val check = info?.checks?.singleOrNull { it.condition == condition }
-                DiagnosticRow(avfTitle(condition), avfStatus(check?.status), check?.let { avfReason(it) })
-            }, stringResource(R.string.avf_sharing_diagnostics_caveat))), onLogs)
+        }, stringResource(R.string.avf_diagnostics_caveat))), onLogs)
 }
 
 @Composable

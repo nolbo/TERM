@@ -2,7 +2,6 @@ package dev.terminal.runtime.avf.system
 
 enum class AvfCondition(val required: Boolean = true) {
     ANDROID_VERSION, SYSTEM_FEATURE, MANAGE_PERMISSION, CUSTOM_PERMISSION, CUSTOM_IMAGE_API, VM_MANAGER, PLATFORM_DRIVER,
-    SHARED_DIRECTORY_API(false),
 }
 enum class AvfCheckStatus { SATISFIED, UNSATISFIED, UNKNOWN }
 enum class AvfCheckReason { OBSERVED, ANDROID_TOO_OLD, FEATURE_MISSING, PERMISSION_MISSING, PREREQUISITES_REQUIRED,
@@ -31,7 +30,6 @@ internal interface AvfDiagnosticProbe {
     fun manager(): Boolean
     fun driverPackaged(): Boolean
     fun driverCompatible()
-    fun sharedDirectoryApi()
 }
 
 internal const val AVF_FEATURE = "android.software.virtualization_framework"
@@ -74,9 +72,6 @@ internal fun collectAvfDiagnostics(probe: AvfDiagnosticProbe): AvfDiagnostics {
     api(AvfCondition.CUSTOM_IMAGE_API, AvfCheckReason.API_ACCESS_OR_ABI) { probe.customImageApi(); true }
     api(AvfCondition.VM_MANAGER, AvfCheckReason.MANAGER_MISSING, probe::manager)
     fun result(): AvfDiagnostics {
-        if (checks.all { it.status == AvfCheckStatus.SATISFIED })
-            api(AvfCondition.SHARED_DIRECTORY_API, AvfCheckReason.API_ACCESS_OR_ABI) { probe.sharedDirectoryApi(); true }
-        else checks += AvfCheck(AvfCondition.SHARED_DIRECTORY_API, AvfCheckStatus.UNKNOWN, AvfCheckReason.PREREQUISITES_REQUIRED)
         return AvfDiagnostics(checks)
     }
     // Driver presence can be inspected without loading the optional Android API implementation.

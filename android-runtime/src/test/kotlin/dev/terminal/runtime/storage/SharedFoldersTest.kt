@@ -50,7 +50,7 @@ class SharedFoldersTest {
         assertEquals(folder, SharedFolder.parse(legacy))
         assertTrue(runCatching { SharedFolder.parse(legacy.put("androidStorage", "true")) }.isFailure)
     }
-    @Test fun avfBootSnapshotExportsOnlyExplicitConnectionsAndKeepsUuidPathsOnRename() {
+    @Test fun localBindingsSelectExplicitConnectionsAndKeepUuidPathsOnRename() {
         var saved: String? = null
         val registry = SharedFolderRegistry(temporary.newFolder(), { saved }, { saved = it })
         val selected = EnvironmentId(UUID.randomUUID().toString())
@@ -58,12 +58,12 @@ class SharedFoldersTest {
         val folder = SharedFolder(UUID.randomUUID().toString(), "Code", setOf(selected))
         registry.save(folder)
         registry.save(SharedFolder(UUID.randomUUID().toString(), "Private", setOf(other)))
-        val before = registry.exports(selected).single()
+        val before = registry.bindings(selected).single()
         registry.save(folder.copy(name = "Renamed", environments = emptySet()))
-        assertTrue(registry.exports(selected).isEmpty())
-        assertEquals(folder.name, before.name)
-        assertEquals(registry.directory(folder).path, before.directory)
-        assertEquals(1, registry.exports(other).size)
+        assertTrue(registry.bindings(selected).isEmpty())
+        assertEquals(folder.name, before.folder.name)
+        assertEquals(registry.directory(folder).path, before.directory.path)
+        assertEquals(1, registry.bindings(other).size)
     }
     @Test fun removingAnEnvironmentOnlyDisconnectsItsOwnReferencesAndRetainsData() {
         var saved: String? = null

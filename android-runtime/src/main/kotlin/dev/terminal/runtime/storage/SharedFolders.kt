@@ -182,9 +182,6 @@ class SharedFolderRegistry(private val files: File, private val read: () -> Stri
     }
     fun bindings(environment: EnvironmentId): List<SharedFolderBinding> = all().filter { environment in it.environments }
         .map { SharedFolderBinding(it, directory(it)) }
-    fun exports(environment: EnvironmentId) = bindings(environment).map {
-        dev.terminal.runtime.api.SharedDirectoryExport(it.folder.id, it.folder.name, it.directory.path)
-    }
     private fun ensureDirectory(path: File) {
         if (Files.notExists(path.toPath(), NOFOLLOW_LINKS)) Files.createDirectory(path.toPath())
         require(Files.isDirectory(path.toPath(), NOFOLLOW_LINKS) && path.canonicalFile == path.absoluteFile) { "Unsafe Shared Directory root" }

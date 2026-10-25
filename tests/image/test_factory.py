@@ -62,9 +62,9 @@ class ImageFactoryTests(unittest.TestCase):
             self.assertEqual(factory.sha256(root / "manifest.properties"), catalog["manifestSha256"])
             self.assertEqual("gzip", catalog["compression"])
             self.assertEqual("1", manifest["aptInitializationVersion"])
-            self.assertEqual("1", manifest["virtiofsVersion"])
-            self.assertEqual("1", manifest["androidStorageVersion"])
-            self.assertEqual("2", manifest["shareBrokerVersion"])
+            self.assertNotIn("virtiofsVersion", manifest)
+            self.assertNotIn("androidStorageVersion", manifest)
+            self.assertNotIn("shareBrokerVersion", manifest)
             self.assertEqual("1", manifest["sessionResumeVersion"])
             for key, name in factory.ARTIFACTS.items():
                 self.assertEqual(manifest[key + ".sha256"], hashlib.sha256(gzip.decompress((root / (name + ".gz")).read_bytes())).hexdigest())
@@ -196,7 +196,7 @@ class ImageFactoryTests(unittest.TestCase):
     def test_smoke_requires_sealed_network_configuration_on_each_boot(self):
         boots = [b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"]
         for failed_boot in range(2):
-            results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_EXT4_ROOT_OK" + b"\nTERM_AVF_GUEST_PACKAGE_OK\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_VIRTIOFS_CONFIG_OK\nTERM_AVF_ANDROID_STORAGE_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK\nTERM_AVF_PACKAGE_INIT_OK" +
+            results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_EXT4_ROOT_OK" + b"\nTERM_AVF_GUEST_PACKAGE_OK\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_NO_SHARES_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK\nTERM_AVF_PACKAGE_INIT_OK" +
                        (b"\nTERM_AVF_NETWORK_CONFIG_OK" if index != failed_boot else b""))
                        for index, marker in enumerate(boots)]
             with self.subTest(failed_boot=failed_boot), mock.patch('subprocess.run', side_effect=results), \
@@ -204,17 +204,17 @@ class ImageFactoryTests(unittest.TestCase):
                 with self.assertRaisesRegex(SystemExit, "network configuration"):
                     runpy.run_path(str(REPO / "image/scripts/smoke-avf-image.py"))
 
-    def test_smoke_rejects_missing_android_storage_configuration_on_either_boot(self):
+    def test_smoke_rejects_missing_sharing_retirement_evidence_on_either_boot(self):
         for missing in range(2):
-            results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_EXT4_ROOT_OK" + b"\nTERM_AVF_GUEST_PACKAGE_OK\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_VIRTIOFS_CONFIG_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK\nTERM_AVF_PACKAGE_INIT_OK" +
-                                (b"\nTERM_AVF_ANDROID_STORAGE_CONFIG_OK" if index != missing else b""))
+            results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_EXT4_ROOT_OK" + b"\nTERM_AVF_GUEST_PACKAGE_OK\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK\nTERM_AVF_PACKAGE_INIT_OK" +
+                                (b"\nTERM_AVF_NO_SHARES_OK" if index != missing else b""))
                        for index, marker in enumerate([b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"])]
             with self.subTest(missing=missing), mock.patch('subprocess.run', side_effect=results), mock.patch('sys.stdout', new_callable=io.StringIO):
-                with self.assertRaisesRegex(SystemExit, "Android storage configuration"):
+                with self.assertRaisesRegex(SystemExit, "shared-directory retirement"):
                     runpy.run_path(str(REPO / "image/scripts/smoke-avf-image.py"))
 
     def test_smoke_accepts_both_offline_boots_only_after_user_setup_succeeds(self):
-        results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_EXT4_ROOT_OK" + b"\nTERM_AVF_GUEST_PACKAGE_OK\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_VIRTIOFS_CONFIG_OK\nTERM_AVF_ANDROID_STORAGE_CONFIG_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK\nTERM_AVF_PACKAGE_INIT_OK")
+        results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_EXT4_ROOT_OK" + b"\nTERM_AVF_GUEST_PACKAGE_OK\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_NO_SHARES_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK\nTERM_AVF_PACKAGE_INIT_OK")
                    for marker in [b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"]]
         with mock.patch('subprocess.run', side_effect=results) as qemu, mock.patch('sys.stdout', new_callable=io.StringIO):
             runpy.run_path(str(REPO / "image/scripts/smoke-avf-image.py"))
@@ -227,7 +227,7 @@ class ImageFactoryTests(unittest.TestCase):
     def test_smoke_rejects_missing_ext4_root_evidence_on_either_boot(self):
         for missing in range(2):
             results = [mock.Mock(returncode=0, stdout=marker +
-                b"\nTERM_AVF_GUEST_PACKAGE_OK\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_VIRTIOFS_CONFIG_OK\nTERM_AVF_ANDROID_STORAGE_CONFIG_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK\nTERM_AVF_PACKAGE_INIT_OK" +
+                b"\nTERM_AVF_GUEST_PACKAGE_OK\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_NO_SHARES_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK\nTERM_AVF_PACKAGE_INIT_OK" +
                 (b"\nTERM_AVF_EXT4_ROOT_OK" if index != missing else b""))
                 for index, marker in enumerate([b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"])]
             with self.subTest(missing=missing), mock.patch('subprocess.run', side_effect=results), mock.patch('sys.stdout', new_callable=io.StringIO):
@@ -277,7 +277,7 @@ class ImageFactoryTests(unittest.TestCase):
             self.assertEqual("private", (outside / "keep").read_text())
 
     def test_smoke_rejects_missing_package_initialization_evidence(self):
-        results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_EXT4_ROOT_OK" + b"\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_VIRTIOFS_CONFIG_OK\nTERM_AVF_ANDROID_STORAGE_CONFIG_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK")
+        results = [mock.Mock(returncode=0, stdout=marker + b"\nTERM_AVF_EXT4_ROOT_OK" + b"\nTERM_AVF_USER_SETUP_OK\nTERM_AVF_NO_SHARES_OK\nTERM_AVF_NETWORK_CONFIG_OK\nTERM_AVF_PACKAGE_BASE_CLEAN_OK")
                    for marker in [b"TERM_AVF_FIRST_BOOT_OK", b"TERM_AVF_PERSISTENCE_OK"]]
         with mock.patch('subprocess.run', side_effect=results), mock.patch('sys.stdout', new_callable=io.StringIO):
             with self.assertRaisesRegex(SystemExit, "package initialization"):

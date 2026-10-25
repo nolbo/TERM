@@ -35,12 +35,11 @@ if [ -f /tmp/term-avf/kernel-build.json ]; then
 fi
 depmod -a "$kernel"
 modprobe --set-version "$kernel" --show-depends overlay >/dev/null
-modprobe --set-version "$kernel" --show-depends virtiofs >/dev/null
 rm -rf "$ramdisk"
 # New images boot the complete ext4 root on vdb. Keep overlay available only for
 # containers and mounting copied v1 state during explicit maintenance.
 rm -f /etc/initramfs-tools/scripts/local-bottom/droid-overlay
-for module in overlay virtio_blk virtio_pci virtio_mmio ext4 virtiofs; do
+for module in overlay virtio_blk virtio_pci virtio_mmio ext4; do
   printf '%s\n' "$module" >> /etc/initramfs-tools/modules
 done
 mkinitramfs -c gzip -o /boot/term-initrd.img "$kernel"

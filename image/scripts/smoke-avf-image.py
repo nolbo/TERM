@@ -22,13 +22,12 @@ for expected in ["TERM_AVF_FIRST_BOOT_OK", "TERM_AVF_PERSISTENCE_OK"]:
             or b"TERM_AVF_USER_SETUP_OK" not in result.stdout
             or b"TERM_AVF_PACKAGE_BASE_CLEAN_OK" not in result.stdout
             or b"TERM_AVF_PACKAGE_INIT_OK" not in result.stdout
-            or b"TERM_AVF_VIRTIOFS_CONFIG_OK" not in result.stdout
-            or b"TERM_AVF_ANDROID_STORAGE_CONFIG_OK" not in result.stdout
+            or b"TERM_AVF_NO_SHARES_OK" not in result.stdout
             or b"TERM_AVF_NETWORK_CONFIG_OK" not in result.stdout
             or ((root / "kernel-build.json").exists() and b"TERM_AVF_CONTAINERS_OK" not in result.stdout)
             or b"TERM_AVF_GUEST_PACKAGE_OK" not in result.stdout):
         print(result.stdout.decode(errors="replace")[-12000:])
-        raise SystemExit("Generated AVF image failed ext4 root/boot/user setup/package initialization/network configuration/virtiofs configuration/Android storage configuration/persistence smoke test")
+        raise SystemExit("Generated AVF image failed ext4 root/boot/user setup/package initialization/network configuration/shared-directory retirement/persistence smoke test")
     print(expected, flush=True)
     if (root / "kernel-build.json").exists():
         print("TERM_AVF_CONTAINERS_OK", flush=True)

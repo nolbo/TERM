@@ -17,10 +17,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.util.UUID
 
-/** Exercises the conditional mount path and retained copy controls without claiming a live AVF VM. */
+/** Checks retirement of AVF connections while retaining public-to-private restoration. */
 @RunWith(AndroidJUnit4::class)
 class AvfSharedFolderUiTest {
-    @Test fun privateAvfFolderSavesWithoutStorageConversionOrPermission() {
+    @Test fun savingDropsRetiredAvfConnectionWithoutTouchingTheFolder() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val environment = Environment.create(SessionRuntime.AVF, "Private AVF")
         val folder = SharedFolder(UUID.randomUUID().toString(), "Code", setOf(environment.id))
@@ -53,9 +53,48 @@ class AvfSharedFolderUiTest {
                 click(instrumentation.uiAutomation.rootInActiveWindow)
                 SystemClock.sleep(50)
             }
-            assertEquals(folder, saved)
+            assertEquals(folder.copy(environments = emptySet()), saved)
+            instrumentation.waitForIdleSync()
+            instrumentation.uiAutomation.clearCache()
+            fun texts(node: AccessibilityNodeInfo?): List<String> = if (node == null) emptyList() else
+                listOfNotNull(node.text?.toString()) + (0 until node.childCount).flatMap { texts(node.getChild(it)) }
+            val visible = texts(instrumentation.uiAutomation.rootInActiveWindow)
+            assertFalse(visible.any { it.contains(environment.name) || it.contains(folder.guestPath) })
+            assertFalse(visible.contains(instrumentation.targetContext.getString(R.string.shared_to_vm)))
+            assertFalse(visible.contains(instrumentation.targetContext.getString(R.string.shared_from_vm)))
         }
     }
+    @Test fun avfOffersNoAndroidStoragePermissionControls() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        var changed = false
+        ActivityScenario.launch(ProfilesActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme {
+                    androidx.compose.material3.Text("AVF permission preview")
+                    EnvironmentStorageAccessSettings(dev.terminal.runtime.session.EnvironmentRuntime.AVF,
+                        allowed = true, osGranted = true, editable = true,
+                        onChange = { changed = true }, onOpenSettings = { changed = true })
+                }
+            } }
+            instrumentation.waitForIdleSync()
+            instrumentation.uiAutomation.clearCache()
+            fun texts(node: AccessibilityNodeInfo?): List<String> = if (node == null) emptyList() else
+                listOfNotNull(node.text?.toString()) + (0 until node.childCount).flatMap { texts(node.getChild(it)) }
+            var visible = texts(instrumentation.uiAutomation.rootInActiveWindow)
+            val deadline = SystemClock.elapsedRealtime() + 10_000
+            while (!visible.contains("AVF permission preview") && SystemClock.elapsedRealtime() < deadline) {
+                instrumentation.waitForIdleSync()
+                SystemClock.sleep(50)
+                instrumentation.uiAutomation.clearCache()
+                visible = texts(instrumentation.uiAutomation.rootInActiveWindow)
+            }
+            assertTrue("AVF permission preview did not render", visible.contains("AVF permission preview"))
+            assertFalse(visible.contains(instrumentation.targetContext.getString(R.string.environment_storage_access)))
+            assertFalse(visible.contains(instrumentation.targetContext.getString(R.string.environment_storage_android_permission)))
+            assertFalse(changed)
+        }
+    }
+
     @Test fun publicRestoreRequiresPermissionAndConversionConsent() {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         val context = instrumentation.targetContext
@@ -123,53 +162,4 @@ class AvfSharedFolderUiTest {
         }
     }
 
-    @Test fun livePathExplainsNextBootAndBothFileCopyActionsRemainAvailable() {
-        val instrumentation = InstrumentationRegistry.getInstrumentation()
-        val context = instrumentation.targetContext
-        val environment = Environment.create(SessionRuntime.AVF, "AVF sharing preview")
-        val folder = SharedFolder(UUID.randomUUID().toString(), "Project", setOf(environment.id))
-        val snapshot = SharedFoldersSnapshot(listOf(folder), emptyMap(), listOf(environment))
-        var direction: String? = null
-        fun find(text: String): AccessibilityNodeInfo? {
-            instrumentation.uiAutomation.clearCache()
-            fun visit(node: AccessibilityNodeInfo?): AccessibilityNodeInfo? {
-                if (node == null) return null
-                if (node.isVisibleToUser && node.text?.toString()?.contains(text) == true) return node
-                for (index in 0 until node.childCount) visit(node.getChild(index))?.let { return it }
-                return null
-            }
-            return visit(instrumentation.uiAutomation.rootInActiveWindow)
-        }
-        fun await(text: String): AccessibilityNodeInfo {
-            val deadline = SystemClock.elapsedRealtime() + 10_000
-            while (SystemClock.elapsedRealtime() < deadline) {
-                instrumentation.waitForIdleSync()
-                find(text)?.let { return it }
-                SystemClock.sleep(50)
-            }
-            throw AssertionError("Shared folder UI text missing: $text")
-        }
-        fun click(text: String) {
-            var node: AccessibilityNodeInfo? = await(text)
-            while (node != null) {
-                if (node.isClickable) { assertTrue(node.performAction(AccessibilityNodeInfo.ACTION_CLICK)); return }
-                node = node.parent
-            }
-            error("File copy control is not clickable")
-        }
-        ActivityScenario.launch(ProfilesActivity::class.java).use { scenario ->
-            scenario.onActivity { activity -> activity.setContent {
-                DroidTheme { SharedFolderEditor(folder.json().toString(), snapshot, null, false,
-                    onSave = {}, onTransfer = { _, _, mode -> direction = mode }, onBack = {}) }
-            } }
-            await(folder.guestPath)
-            await(context.getString(R.string.shared_avf_mount_summary))
-            click(context.getString(R.string.shared_to_vm))
-            instrumentation.waitForIdleSync()
-            assertEquals("TO_VM", direction)
-            click(context.getString(R.string.shared_from_vm))
-            instrumentation.waitForIdleSync()
-            assertEquals("FROM_VM", direction)
-        }
-    }
 }

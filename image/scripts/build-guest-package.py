@@ -39,12 +39,12 @@ def build(root, distribution):
             control.mkdir()
             (control / "control").write_text(
                 f"Package: term-guest\nVersion: {version}\nArchitecture: arm64\n"
-                "Maintainer: TERM\nDepends: python3, sshfs, fuse3, sudo, util-linux\n"
+                "Maintainer: TERM\nDepends: python3, sudo, util-linux\n"
                 "Description: TERM AVF guest services and tools\n")
             subprocess.run(["dpkg-deb", "--root-owner-group", "--build", str(staging), str(output / "term-guest.deb")], check=True)
         else:
             info = (f"pkgname = term-guest\npkgver = {version}-1\npkgdesc = TERM AVF guest services\n"
-                    "arch = aarch64\nlicense = GPL-3.0-only\ndepend = python\ndepend = sshfs\ndepend = fuse3\ndepend = sudo\n")
+                    "arch = aarch64\nlicense = GPL-3.0-only\ndepend = python\ndepend = sudo\n")
             with tarfile.open(output / "term-guest.pkg.tar", "w") as archive:
                 entry = tarfile.TarInfo(".PKGINFO")
                 data = info.encode()

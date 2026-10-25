@@ -336,6 +336,22 @@ def offline_packages(root):
                 backup.rename(path)
 
 
+def retire_shared_directories(root):
+    def remove(path):
+        reject_symlink_parents(path)
+        path.unlink(missing_ok=True)
+
+    # Never remove user data or distro FUSE support; retire only TERM's mounts.
+    for name in ("term-shares", "term-share-broker", "term-share-selftest", "term-android-storage"):
+        remove(root / "etc/systemd/system/multi-user.target.wants" / (name + ".service"))
+        remove(root / "etc/systemd/system" / (name + ".service"))
+    for name in ("shares.conf", "android-storage.conf"):
+        remove(root / "etc/systemd/system/droid-sessiond.service.d" / name)
+    for name in ("mount-shared-directories.sh", "mount-android-storage.sh", "private-share-broker.py",
+                 "private-share-recovery.py", "image-share-selftest.py"):
+        remove(root / "usr/local/lib/droid" / name)
+
+
 def main(operation):
     distribution = Path("/etc/droid/distribution").read_text().strip()
     if (OLD / "etc/droid/distribution").exists():
@@ -349,21 +365,18 @@ def main(operation):
                 run("chroot", str(OLD), "apt-get", "install", "-y", "--no-remove", "--reinstall", "--allow-downgrades", "/tmp/term-guest.deb")
             else:
                 shutil.copy2("/usr/share/term/term-guest.pkg.tar", OLD / "tmp/term-guest.pkg.tar")
-                run("chroot", str(OLD), "pacman", "-Syu", "--noconfirm", "--needed", "python", "sshfs", "fuse3", "sudo")
+                run("chroot", str(OLD), "pacman", "-Syu", "--noconfirm", "--needed", "python", "sudo")
                 # The local package is authenticated by the APK-pinned system image, not a remote repository.
                 overwrite = ",".join(path.lstrip("/") for path in Path("/usr/share/term/managed-files").read_text().splitlines())
                 run("chroot", str(OLD), "pacman", "-U", "--noconfirm", "--overwrite", overwrite, "/tmp/term-guest.pkg.tar")
         enabled = OLD / "etc/systemd/system/multi-user.target.wants"
         enabled.mkdir(parents=True, exist_ok=True)
         for name in ("droid-sessiond", "droid-agent", "droid-port-agent", "droid-apt-init", "droid-file-transfer",
-                     "term-shares", "term-share-broker", "term-android-storage", "term-session-recovery"):
+                     "term-session-recovery"):
             target = enabled / (name + ".service")
             if not target.exists() and not target.is_symlink():
                 target.symlink_to("/etc/systemd/system/" + name + ".service")
-        fuse = OLD / "etc/fuse.conf"
-        text = fuse.read_text() if fuse.exists() else ""
-        if "user_allow_other" not in text.splitlines():
-            fuse.write_text(text + "\nuser_allow_other\n")
+        retire_shared_directories(OLD)
         run("chroot", str(OLD), "/usr/local/lib/droid/droid-sessiond", "--self-check")
     elif operation == "rebase":
         packages = user_packages(OLD, LOWER, distribution)
@@ -380,6 +393,7 @@ def main(operation):
         if len(source_formats) != 1:
             raise RuntimeError("Missing or ambiguous source disk format")
         migrate_data(OLD, LOWER, Path("/"), STATE, int(source_formats[0]))
+        retire_shared_directories(Path("/"))
         Path("/var/lib/droid").mkdir(parents=True, exist_ok=True)
         Path("/var/lib/droid/migrated-packages").write_text("\n".join(packages) + "\n")
     else:

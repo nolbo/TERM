@@ -19,7 +19,6 @@ ENV AVF_DISTRIBUTION=$AVF_DISTRIBUTION
 RUN apt-get update && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
       libguestfs-tools linux-image-arm64 qemu-system-arm ipxe-qemu e2fsprogs python3 ca-certificates xz-utils openssh-sftp-server && \
     rm -rf /var/lib/apt/lists/*
-RUN useradd --uid 1000 --no-create-home --shell /usr/sbin/nologin term-share-probe
 COPY image/scripts/prepare-avf-rootfs.py image/scripts/avf-distributions.json /usr/local/lib/term-factory/
 RUN python3 /usr/local/lib/term-factory/prepare-avf-rootfs.py "$AVF_DISTRIBUTION" /prepared
 COPY --from=guest /binaries /payload/bin
@@ -28,19 +27,10 @@ COPY image/scripts/configure-avf-boot.sh /payload/configure-avf-boot.sh
 COPY image/scripts/configure-avf-guest.sh /payload/configure-avf-guest.sh
 COPY image/scripts/configure-avf-user.sh /payload/configure-avf-user.sh
 COPY image/scripts/configure-avf-network.sh /payload/configure-avf-network.sh
-COPY image/scripts/configure-avf-shares.sh /payload/configure-avf-shares.sh
-COPY image/scripts/mount-shared-directories.sh /payload/mount-shared-directories.sh
-COPY image/scripts/term-shares.service /payload/term-shares.service
-COPY image/scripts/private-share-broker.py /payload/private-share-broker.py
-COPY image/scripts/private-share-recovery.py /payload/private-share-recovery.py
+COPY image/scripts/configure-avf-session.sh /payload/configure-avf-session.sh
 COPY image/scripts/private-share-transport.py /payload/private-share-transport.py
 COPY image/scripts/session-recovery.py /payload/session-recovery.py
 COPY image/scripts/term-session-recovery.service /payload/term-session-recovery.service
-COPY image/scripts/term-share-broker.service /payload/term-share-broker.service
-COPY image/scripts/image-share-selftest.py /payload/image-share-selftest.py
-COPY image/scripts/term-share-selftest.service /payload/term-share-selftest.service
-COPY image/scripts/mount-android-storage.sh /payload/mount-android-storage.sh
-COPY image/scripts/term-android-storage.service /payload/term-android-storage.service
 COPY image/scripts/initialize-avf-packages.sh /payload/initialize-avf-packages.sh
 COPY image/scripts/clean-avf-apt.sh /payload/clean-avf-apt.sh
 COPY image/scripts/term-virtio.network /payload/term-virtio.network
