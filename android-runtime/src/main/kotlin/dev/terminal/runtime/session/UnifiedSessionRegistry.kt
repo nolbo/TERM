@@ -41,6 +41,7 @@ class UnifiedSessionRegistry(
     },
 ) : SessionController {
     private data class Registration(val controller: SessionController, val jobs: List<Job>, val inputOwner: Any,
+        val terminalReplies: dev.terminal.runtime.lifecycle.OrderedSessionInput,
         val creation: Mutex = Mutex())
     private data class StorageKey(val runtime: SessionRuntime, val storageId: String = "legacy")
     private class PendingResize(val key: StorageKey, val registration: Registration, val session: Any?,
@@ -93,7 +94,14 @@ class UnifiedSessionRegistry(
         }
         val jobs = mutableListOf<Job>()
         val inputOwner = if (previous?.controller === controller) previous.inputOwner else Any()
-        val registration = Registration(controller, jobs, inputOwner)
+        val replyJob = SupervisorJob(scope.coroutineContext[Job])
+        val terminalReplies = dev.terminal.runtime.lifecycle.OrderedSessionInput(
+            CoroutineScope(scope.coroutineContext + replyJob), onFailure = { _, failure ->
+                dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("terminal.reply.failed", error = failure)
+            })
+        replyJob.invokeOnCompletion { terminalReplies.close() }
+        jobs += replyJob
+        val registration = Registration(controller, jobs, inputOwner, terminalReplies)
         registrations[key] = registration
         jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
             controller.events.collect { event ->
@@ -120,10 +128,12 @@ class UnifiedSessionRegistry(
                     keyboardFlags[sessionId] = stream.keyboard().flags()
                     for (part in parts) {
                         if (part.bytes != null) {
-                            val replies = terminalStates.mutex.withLock {
-                                terminalStates.output(sessionId, part.bytes)
+                            val (state, replies) = terminalStates.mutex.withLock {
+                                terminalStates.identity(sessionId) to terminalStates.output(sessionId, part.bytes)
                             }
-                            replies.forEach { reply ->
+                            if (key.runtime == SessionRuntime.AVF) {
+                                enqueueTerminalReplies(key, registration, sessionId, state, replies)
+                            } else replies.forEach { reply ->
                                 controller.write(sessionId, reply).onFailure {
                                     android.util.Log.w("TerminalState", "Terminal query reply failed for $sessionId", it)
                                 }
@@ -155,6 +165,28 @@ class UnifiedSessionRegistry(
                     onDisconnected(key.runtime, key.storageId)
                 }
             }
+        }
+    }
+
+    private fun enqueueTerminalReplies(key: StorageKey, registration: Registration, sessionId: String,
+        state: Any?, replies: List<ByteArray>) {
+        if (replies.isEmpty() || state == null) return
+        val session = inputSessions[sessionId] ?: return
+        val target = SessionInputTarget(registration.inputOwner, sessionId,
+            current = { registrations[key] === registration && owners[sessionId] == key &&
+                inputSessions[sessionId] === session && terminalStates.identity(sessionId) === state &&
+                registration.controller.connectionState.value == SessionConnectionState.CONNECTED },
+            // Terminal-generated replies are not user input or a shell-activity signal.
+            deliver = { registration.controller.write(sessionId, it) })
+        val bytes = java.io.ByteArrayOutputStream().apply { replies.forEach { write(it) } }.toByteArray()
+        // Never await a WRITE RPC from the output collector: its acknowledgement
+        // shares the reader that backpressures on this collector's event buffer.
+        val admission = registration.terminalReplies.offerResult(target, bytes)
+        if (admission == dev.terminal.runtime.lifecycle.OrderedSessionInput.Admission.FULL) {
+            dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("terminal.reply.overload")
+            // Fail only this transport so normal owner recovery can run. Do not
+            // leave a TUI silently waiting for a reply or stop its VM/PTY.
+            registration.controller.close()
         }
     }
 

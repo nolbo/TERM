@@ -203,6 +203,8 @@ implement the same header.
 
 Host Binder keyboard/paste input pins the current controller and session lifetime before entering an Environment-specific FIFO. All sessions sharing a controller retain that FIFO order; a service-wide limit of 256 packets includes active writes. Queue overload or an unavailable destination is reported through the existing input-operation error callback. Old queued input cannot select a later controller or a recreated session, and failed writes are never automatically retried. Raw replay socket replacement retains the logical controller and does not change this input identity or the guest wire format.
 
+AVF emulator-generated replies use the existing WRITE RPC through a separate per-controller FIFO, bounded to 256 batches per registration including active writes. Each output chunk's replies form one batch. The output collector must continue draining STREAM frames while the reply worker awaits RESPONSE frames on the same connection. Pending replies are pinned to their registration, session lifetime and terminal-state identity; replacement or exit invalidates them. Removing the registration cancels its reply worker. They do not invoke user-input/activity observers. Saturation records `terminal.reply.overload` and closes only the affected AVF session client, allowing existing reconnection without stopping the VM or resending uncertain writes. Other controllers have independent reply capacity. No guest wire change is required.
+
 Android Binder clients select `NATIVE`, `ROOTLESS` (existing Debian identity),
 `ROOTLESS_UBUNTU`, `ROOTLESS_ARCH`, or `AVF` before session
 creation. The selection is host-local metadata and is not injected into the
