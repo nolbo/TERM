@@ -42,7 +42,7 @@ data class RuntimeConfig(
     val instanceId: String = "default",
     val imageDirectory: String,
     val memoryMib: Int = 2048,
-    val cpuCount: Int = 2,
+    val cpuCount: Int = 1,
     /** Product policy: custom-image support and device compatibility decide the default. */
     val protectedVm: Boolean = false,
     /** Enables the AVF guest network device; host port forwarding remains a later layer. */

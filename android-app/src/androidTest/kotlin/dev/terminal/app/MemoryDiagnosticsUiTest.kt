@@ -55,6 +55,22 @@ class MemoryDiagnosticsUiTest {
         throw AssertionError("Memory row was not found: $label")
     }
 
+    @Test fun avfGuestMemoryHasItsOwnBasisAndDoesNotInflateAppPss() {
+        val mib = 1048576L
+        val ui = JSONObject().put("basis", "pss").put("total", 100 * mib)
+        val runtime = JSONObject().put("basis", "pss").put("total", 200 * mib).put("avf",
+            org.json.JSONArray().put(JSONObject().put("id", "fixture").put("name", "Ubuntu fixture")
+                .put("total", 2048 * mib).put("available", 512 * mib)
+                .put("swapTotal", 1024 * mib).put("swapFree", 768 * mib)
+                .put("cpus", 2).put("loadMilli", 250).put("pressureMilli", 1500)))
+        fixture(MemorySnapshot(DeviceMemory.from(8192 * mib, 4096 * mib), ui, runtime, 1)) {
+            val app = row(R.string.memory_app_total, R.string.memory_pss_total)
+            assertEquals(300f / 8192, requireNotNull(app.rangeInfo).current, 0.0001f)
+            val guest = row(R.string.memory_avf_guest, R.string.memory_device_used)
+            assertEquals(0.75f, requireNotNull(guest.rangeInfo).current, 0.0001f)
+        }
+    }
+
     @Test fun stackedCompositionUsesPssAndExposesEveryCategoryAndDifference() {
         val mib = 1048576L
         val areas = listOf(10, 20, 5, 5, 10, 20, 20)

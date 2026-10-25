@@ -14,6 +14,7 @@ sealed interface SessionRequest {
         val cols: UShort,
     ) : SessionRequest
 
+    data object ResourceUsage : SessionRequest
     data object List : SessionRequest
     data class Attach(val sessionId: String) : SessionRequest
     data class Detach(val sessionId: String) : SessionRequest
@@ -55,6 +56,7 @@ object SessionPayloadCodec {
                     string(value)
                 }
             }
+            SessionRequest.ResourceUsage -> byte(8)
             SessionRequest.List -> byte(LIST)
             is SessionRequest.Attach -> {
                 byte(ATTACH)
@@ -106,6 +108,7 @@ object SessionPayloadCodec {
                 }
                 SessionRequest.Create(shell, cwd, environment, rows, cols)
             }
+            8 -> SessionRequest.ResourceUsage
             LIST -> SessionRequest.List
             ATTACH -> SessionRequest.Attach(reader.string())
             DETACH -> SessionRequest.Detach(reader.string())

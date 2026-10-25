@@ -12,14 +12,66 @@ HANDSHAKE = struct.Struct('!4sIQQ')
 FRAME = struct.Struct('!BQI')
 
 
-def exact(stream, size):
-    result = bytearray()
-    while len(result) < size:
-        part = stream.recv(size - len(result))
-        if not part:
+def exact(stream, size, mutable=False):
+    result = bytearray(size)
+    position = 0
+    while position < size:
+        count = stream.recv_into(memoryview(result)[position:])
+        if not count:
             raise EOFError('replay socket disconnected')
-        result.extend(part)
-    return bytes(result)
+        position += count
+    return result if mutable else bytes(result)
+
+
+class Ring:
+    """Lazily grown, bounded ring: prefix consumption never shifts remaining data."""
+    def __init__(self, capacity):
+        self.capacity = capacity
+        self.data = bytearray()
+        self.start = 0
+        self.size = 0
+
+    def __len__(self):
+        return self.size
+
+    def read(self, offset, count):
+        if not 0 <= offset <= self.size or not 0 <= count <= self.size - offset:
+            raise ValueError('invalid ring range')
+        if not count:
+            return b''
+        start = (self.start + offset) % len(self.data)
+        first = min(count, len(self.data) - start)
+        result = bytearray(count)
+        result[:first] = memoryview(self.data)[start:start + first]
+        if first < count:
+            result[first:] = memoryview(self.data)[:count - first]
+        return result
+
+    def append(self, source):
+        count = len(source)
+        if count > self.capacity - self.size:
+            raise ValueError('replay credit exceeded')
+        if not count:
+            return
+        if self.size + count > len(self.data):
+            old = self.read(0, self.size)
+            self.data = bytearray(min(self.capacity, max(4096, len(self.data) * 2, self.size + count)))
+            self.data[:self.size] = old
+            self.start = 0
+        start = (self.start + self.size) % len(self.data)
+        first = min(count, len(self.data) - start)
+        view = memoryview(source)
+        self.data[start:start + first] = view[:first]
+        if first < count:
+            self.data[:count - first] = view[first:]
+        self.size += count
+
+    def discard(self, count):
+        if not 0 <= count <= self.size:
+            raise ValueError('invalid replay acknowledgement')
+        if count:
+            self.start = (self.start + count) % len(self.data)
+            self.size -= count
 
 
 def shutdown(stream):
@@ -37,10 +89,10 @@ class ReplayStream:
         self.capacity = capacity
         self.condition = threading.Condition()
         self.attach_lock = threading.Lock()
-        self.incoming = bytearray()
+        self.incoming = Ring(capacity)
         self.consumed = 0
         self.received = 0
-        self.outgoing = bytearray()
+        self.outgoing = Ring(capacity)
         self.acknowledged = 0
         self.produced = 0
         self.connection = None
@@ -53,8 +105,8 @@ class ReplayStream:
                 self.condition.wait()
             if self.closed:
                 return b''
-            result = bytes(self.incoming[:size])
-            del self.incoming[:len(result)]
+            result = self.incoming.read(0, min(size, len(self.incoming)))
+            self.incoming.discard(len(result))
             self.consumed += len(result)
             self.condition.notify_all()
             return result
@@ -70,7 +122,7 @@ class ReplayStream:
                 count = min(len(data) - position, self.capacity - len(self.outgoing))
                 if self.produced + count > MAX_OFFSET:
                     raise ValueError('replay position exhausted')
-                self.outgoing.extend(data[position:position + count])
+                self.outgoing.append(memoryview(data)[position:position + count])
                 self.produced += count
                 position += count
                 self.condition.notify_all()
@@ -95,7 +147,7 @@ class ReplayStream:
                     if (self.closed or magic != b'TRS2' or not 1 <= window <= WINDOW
                             or not self.acknowledged <= consumed <= received <= self.produced):
                         raise ValueError('invalid replay generation')
-                    del self.outgoing[:consumed - self.acknowledged]
+                    self.outgoing.discard(consumed - self.acknowledged)
                     self.acknowledged = consumed
                     connection = {'socket': stream, 'cursor': received, 'consumed': consumed,
                                   'window': window, 'closed': threading.Event()}
@@ -116,14 +168,14 @@ class ReplayStream:
                 kind, position, length = FRAME.unpack(exact(connection['socket'], FRAME.size))
                 if position > MAX_OFFSET or length > CHUNK or position + length > MAX_OFFSET:
                     raise ValueError('invalid replay frame bounds')
-                data = exact(connection['socket'], length)
+                data = exact(connection['socket'], length, mutable=True)
                 with self.condition:
                     if self.closed or self.connection is not connection:
                         return
                     if kind == 2:
                         if length or not self.acknowledged <= position <= connection['cursor']:
                             raise ValueError('invalid replay acknowledgement')
-                        del self.outgoing[:position - self.acknowledged]
+                        self.outgoing.discard(position - self.acknowledged)
                         self.acknowledged = connection['consumed'] = position
                     elif kind == 1:
                         if not length or position > self.received:
@@ -131,7 +183,7 @@ class ReplayStream:
                         skip = min(length, self.received - position)
                         if len(self.incoming) + length - skip > self.capacity:
                             raise ValueError('replay credit exceeded')
-                        self.incoming.extend(data[skip:])
+                        self.incoming.append(memoryview(data)[skip:])
                         self.received += length - skip
                     elif kind == 3:
                         if length or position:
@@ -162,7 +214,7 @@ class ReplayStream:
                         if available > 0:
                             kind, position = 1, connection['cursor']
                             start = position - self.acknowledged
-                            data = bytes(self.outgoing[start:start + min(CHUNK, available)])
+                            data = self.outgoing.read(start, min(CHUNK, available))
                             connection['cursor'] += len(data)
                             break
                         remaining = 5 - (time.monotonic() - last_write)

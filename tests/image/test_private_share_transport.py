@@ -48,6 +48,22 @@ class ReplayTransportTests(unittest.TestCase):
             result.extend(data)
         return bytes(result)
 
+    def test_ring_wrap_growth_and_credit_do_not_shift_or_lose_bytes(self):
+        ring = transport.Ring(73)
+        self.assertEqual(0, len(ring.data))
+        expected = bytearray()
+        for index in range(200):
+            data = bytes([index % 256]) * min(11, 73 - len(expected))
+            ring.append(data)
+            expected.extend(data)
+            count = min(7, len(expected))
+            self.assertEqual(expected[:count], ring.read(0, count))
+            ring.discard(count)
+            del expected[:count]
+            self.assertEqual(expected, ring.read(0, len(expected)))
+        with self.assertRaises(ValueError):
+            ring.append(b'x' * 74)
+
     def test_reconnect_keeps_buffered_and_unacknowledged_bytes_without_reexecuting_prefix(self):
         left, right = self.owner(), self.owner()
         self.assertEqual([], self.connect(left, right))

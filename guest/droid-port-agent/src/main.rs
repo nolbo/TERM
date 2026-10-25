@@ -51,6 +51,7 @@ fn report_loop(host: &mut File) -> io::Result<()> {
     socket_timeout(host, 5)?;
     let mut previous = BTreeSet::new();
     let mut initial = true;
+    let mut interval = ReportInterval::default();
     loop {
         // An unreadable table is unknown, never a fabricated listener-close snapshot.
         let observed = listening_endpoints()?;
@@ -61,6 +62,7 @@ fn report_loop(host: &mut File) -> io::Result<()> {
             if current.len() >= MAX_ENDPOINTS { break; }
             current.insert(endpoint.clone());
         }
+        let changed = initial || current != previous;
         if initial { send(host, &[5, 1])?; }
         for endpoint in current.difference(&previous) { send_endpoint(host, 3, endpoint)?; }
         for endpoint in previous.difference(&current) { send_endpoint(host, 4, endpoint)?; }
@@ -71,9 +73,30 @@ fn report_loop(host: &mut File) -> io::Result<()> {
         for port in old_ports.difference(&new_ports) { send(host, &[2, (port >> 8) as u8, *port as u8])?; }
         if initial { send(host, &[6])?; initial = false; }
         previous = current;
-        thread::sleep(Duration::from_secs(2));
+        wait_for_scan(host, interval.next(changed))?;
     }
 }
+fn wait_for_scan(host: &impl AsRawFd, interval: Duration) -> io::Result<()> {
+    // Sleep without rescanning /proc, but immediately retire a closed host link.
+    let mut descriptor = nix::libc::pollfd { fd: host.as_raw_fd(), events: nix::libc::POLLIN, revents: 0 };
+    loop {
+        let result = unsafe { nix::libc::poll(&mut descriptor, 1, interval.as_millis() as i32) };
+        if result == 0 { return Ok(()); }
+        if result > 0 { return Err(io::Error::from(io::ErrorKind::UnexpectedEof)); }
+        let error = io::Error::last_os_error();
+        if error.kind() != io::ErrorKind::Interrupted { return Err(error); }
+    }
+}
+
+#[derive(Default)]
+struct ReportInterval(u64);
+impl ReportInterval {
+    fn next(&mut self, changed: bool) -> Duration {
+        self.0 = if changed { 2 } else { (self.0.max(2) * 2).min(10) };
+        Duration::from_secs(self.0)
+    }
+}
+
 fn listening_endpoints() -> io::Result<BTreeSet<Endpoint>> {
     let mut endpoints = BTreeSet::new();
     for (path, ipv6) in [("/proc/net/tcp", false), ("/proc/net/tcp6", true)] {
@@ -205,5 +228,31 @@ mod tests {
         assert_eq!(&bytes[0..8], &[0x44, 0x50, 0x54, 0x59, 0, 1, 4, 3]);
         assert_eq!(&bytes[24..], &[3, 0x1f, 0x40, 9, b'1', b'2', b'7', b'.', b'0', b'.', b'0', b'.', b'1', 0, 0]);
         std::fs::remove_file(temp).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod reporting_interval_tests {
+    use super::*;
+    #[test]
+    fn idle_scan_wait_observes_host_close_without_waiting_for_the_next_scan() {
+        let (host, peer) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (ready, started) = std::sync::mpsc::channel();
+        let worker = thread::spawn(move || {
+            ready.send(()).unwrap();
+            let begin = std::time::Instant::now();
+            assert!(wait_for_scan(&host, Duration::from_secs(10)).is_err());
+            assert!(begin.elapsed() < Duration::from_secs(2));
+        });
+        started.recv().unwrap(); drop(peer); worker.join().unwrap();
+    }
+    #[test]
+    fn idle_scans_back_off_but_a_change_restores_fast_detection() {
+        let mut interval = ReportInterval::default();
+        assert_eq!(interval.next(true).as_secs(), 2);
+        assert_eq!(interval.next(false).as_secs(), 4);
+        assert_eq!(interval.next(false).as_secs(), 8);
+        for _ in 0..10 { assert_eq!(interval.next(false).as_secs(), 10); }
+        assert_eq!(interval.next(true).as_secs(), 2);
     }
 }

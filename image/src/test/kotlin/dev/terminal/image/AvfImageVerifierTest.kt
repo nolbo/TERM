@@ -10,6 +10,16 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class AvfImageVerifierTest {
+    @Test fun hashingRetainsStandardDigestsAndRejectsOversizedManifestInput() {
+        val file = java.nio.file.Files.createTempFile("artifact-hash", ".bin")
+        try {
+            java.nio.file.Files.write(file, "abc".toByteArray())
+            assertEquals("ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad", AvfImageVerifier.sha256(file))
+            java.nio.file.Files.write(file, ByteArray(65537) { 65 })
+            org.junit.Assert.assertThrows(IllegalArgumentException::class.java) { AvfImageVerifier.parse(file) }
+        } finally { java.nio.file.Files.deleteIfExists(file) }
+    }
+
     @Test fun ext4RootIsWritableAfterInstallationWhileTheSeedRemainsVerified() {
         for (distribution in AvfDistribution.entries) {
             val root = Files.createTempDirectory("avf-ext4-root")

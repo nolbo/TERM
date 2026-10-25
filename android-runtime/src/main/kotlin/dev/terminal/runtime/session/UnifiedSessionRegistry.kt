@@ -41,8 +41,10 @@ class UnifiedSessionRegistry(
     },
 ) : SessionController {
     private data class Registration(val controller: SessionController, val jobs: List<Job>, val inputOwner: Any,
-        val terminalReplies: dev.terminal.runtime.lifecycle.OrderedSessionInput,
-        val creation: Mutex = Mutex())
+        val terminalReplies: dev.terminal.runtime.lifecycle.OrderedSessionInput, val lifetime: Job,
+        val creation: Mutex = Mutex(),
+        var resourceJob: Job? = null, var resourceCheckedAt: Long = 0,
+        var resourceUnsupported: Boolean = false, var resources: dev.terminal.protocol.GuestResourceUsage? = null)
     private data class StorageKey(val runtime: SessionRuntime, val storageId: String = "legacy")
     private class PendingResize(val key: StorageKey, val registration: Registration, val session: Any?,
         val state: Any?, val rows: Int, val cols: Int, val cellWidth: Int?, val cellHeight: Int?) {
@@ -89,6 +91,7 @@ class UnifiedSessionRegistry(
         val previous = registrations.remove(key)
         failResizes(key)
         previous?.let { old ->
+            old.resourceJob?.cancel()
             old.jobs.forEach(Job::cancel)
             if (old.controller !== controller) old.controller.close()
         }
@@ -101,7 +104,7 @@ class UnifiedSessionRegistry(
             })
         replyJob.invokeOnCompletion { terminalReplies.close() }
         jobs += replyJob
-        val registration = Registration(controller, jobs, inputOwner, terminalReplies)
+        val registration = Registration(controller, jobs, inputOwner, terminalReplies, replyJob)
         registrations[key] = registration
         jobs += scope.launch(start = CoroutineStart.UNDISPATCHED) {
             controller.events.collect { event ->
@@ -399,6 +402,45 @@ class UnifiedSessionRegistry(
         rows: UShort,
         cols: UShort,
     ): Result<SessionDescriptor> = create(SessionRuntime.NATIVE, shell, cwd, env, rows, cols)
+
+    /** On-demand only. Never waits for a guest RPC from Binder or the UI. */
+    fun avfResourceSnapshots(): org.json.JSONArray = org.json.JSONArray().apply {
+        registrations.entries.filter { it.key.runtime == SessionRuntime.AVF }.forEach { (key, registration) ->
+            synchronized(registration) {
+                val now = System.nanoTime()
+                if (!registration.resourceUnsupported && registration.resourceJob?.isActive != true &&
+                    registration.controller.connectionState.value == SessionConnectionState.CONNECTED &&
+                    (registration.resourceCheckedAt == 0L || now - registration.resourceCheckedAt >= 15_000_000_000L)) {
+                    registration.resourceJob = CoroutineScope(scope.coroutineContext + registration.lifetime).launch(start = CoroutineStart.LAZY) {
+                        val result = try { registration.controller.resourceUsage() }
+                        catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                        catch (failure: Exception) { Result.failure(failure) }
+                        synchronized(registration) {
+                            registration.resources = result.getOrNull()
+                            registration.resourceCheckedAt = System.nanoTime()
+                            val error = result.exceptionOrNull()
+                            registration.resourceUnsupported = error is UnsupportedOperationException ||
+                                error is dev.terminal.protocol.GuestRequestException && error.error.code in setOf(
+                                    dev.terminal.protocol.ProtocolErrorCode.UNSUPPORTED, dev.terminal.protocol.ProtocolErrorCode.INVALID_ARGUMENT)
+                        }
+                    }.also { it.start() }
+                }
+                val environment = environments[key]
+                val json = org.json.JSONObject().put("id", environment?.id?.value ?: key.storageId)
+                    .put("name", environment?.name ?: key.storageId).put("supported", !registration.resourceUnsupported)
+                registration.resources?.takeIf {
+                    registration.controller.connectionState.value == SessionConnectionState.CONNECTED &&
+                        now - registration.resourceCheckedAt <= 60_000_000_000L
+                }?.let { usage ->
+                    json.put("total", usage.totalBytes).put("available", usage.availableBytes)
+                        .put("swapTotal", usage.swapTotalBytes).put("swapFree", usage.swapFreeBytes)
+                        .put("cpus", usage.cpuCount).put("loadMilli", usage.loadMilli)
+                        .put("pressureMilli", usage.memoryPressureMilli)
+                }
+                put(json)
+            }
+        }
+    }
 
     fun sessionMemory(sessionId: String): Map<String, Long?> = measureSessionMemory(
         registrations.values.flatMap { (it.controller as? SessionMemorySource)?.memoryRoots().orEmpty().entries }

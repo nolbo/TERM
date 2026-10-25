@@ -35,6 +35,7 @@ impl From<&Session> for SessionDescriptor {
 }
 
 pub enum SessionResponse {
+    Resources(crate::resources::GuestResources),
     Created(SessionDescriptor),
     Listed(Vec<SessionDescriptor>),
     Attached(SessionDescriptor),
@@ -48,6 +49,11 @@ impl SessionResponse {
     pub fn encode(&self) -> Result<Vec<u8>, ResponseError> {
         let mut writer = Writer::default();
         match self {
+            Self::Resources(usage) => {
+                writer.byte(0x88);
+                for value in [usage.total, usage.available, usage.swap_total, usage.swap_free] { writer.i64(value); }
+                writer.i32(usage.cpus); writer.i32(usage.load_milli); writer.i32(usage.pressure_milli);
+            }
             Self::Created(session) => { writer.byte(0x81); writer.descriptor(session)?; }
             Self::Listed(sessions) => {
                 if sessions.len() > 1024 { return Err(ResponseError::InvalidLength); }

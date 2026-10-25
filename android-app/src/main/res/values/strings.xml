@@ -203,7 +203,7 @@
     <string name="memory">메모리</string>
     <string name="memory_support">다음 AVF 시작부터 게스트에 할당합니다.</string>
     <string name="virtual_cpu">가상 CPU</string>
-    <string name="virtual_cpu_support">다음 AVF 시작부터 게스트가 사용할 개수입니다.</string>
+    <string name="virtual_cpu_support">다음 AVF 시작부터 적용합니다. 전체 CPU는 병렬 성능과 자원 사용이 증가할 수 있습니다.</string>
     <string name="protected_vm">보호된 VM</string>
     <string name="protected_vm_support">다음 AVF 시작부터 보호된 메모리 격리를 요청합니다.</string>
     <string name="guest_network">게스트 네트워크</string>
@@ -584,4 +584,15 @@
     <string name="environment_storage_os_disabled">허용되지 않음 · 앱 공통 권한입니다. 눌러 Android 설정에서 모든 파일 접근을 허용하세요.</string>
     <string name="avf_image_section">배포판 이미지</string>
     <string name="avf_image_name">%1$s 이미지</string>
+    <string name="avf_cpu_single">단일 CPU</string>
+    <string name="avf_cpu_host">호스트 전체 CPU</string>
+    <string name="avf_memory_auto">자동</string>
+    <string name="avf_memory_support">0(자동)은 총 RAM의 1/3과 가용 RAM의 절반을 기준으로 1–4GiB를 배정하며, 여유가 부족하면 시작하지 않습니다. 수동 값은 512–32768MiB이고 다음 시작에 적용합니다.</string>
+    <string name="memory_avf_guest">AVF 게스트 메모리</string>
+    <string name="memory_avf_swap">사용 중인 swap</string>
+    <string name="memory_avf_unavailable">측정 중이거나 게스트 구성요소 업데이트가 필요합니다.</string>
+    <string name="memory_avf_cpu">사용 가능 CPU %1$d개 · 평균 부하 %2$.2f</string>
+    <string name="memory_avf_pressure">메모리 대기(최근 10초) %1$.2f%%</string>
+    <string name="memory_avf_basis">게스트 내부 측정값입니다. 앱 PSS에 합산하지 않으며 VM 호스트 프로세스의 전체 점유량과 다를 수 있습니다.</string>
+    <string name="memory_percentage_of_guest">게스트 총 메모리 대비</string>
 </resources>

@@ -42,6 +42,7 @@ interface SessionController : Closeable {
     val events: SharedFlow<SessionEvent>
     val connectionState: StateFlow<SessionConnectionState>
     suspend fun create(shell: String, cwd: String, env: Map<String, String> = emptyMap(), rows: UShort, cols: UShort): Result<SessionDescriptor>
+    suspend fun resourceUsage(): Result<GuestResourceUsage> = Result.failure(UnsupportedOperationException("Guest resource metrics unavailable"))
     suspend fun list(): Result<List<SessionDescriptor>>
     suspend fun attach(sessionId: String): Result<SessionDescriptor>
     suspend fun detach(sessionId: String): Result<Unit>
@@ -101,6 +102,10 @@ class ProtocolSessionClient(
     ): Result<SessionDescriptor> = request(SessionRequest.Create(shell, cwd, env, rows, cols)).mapResponse {
         it as? SessionResponse.Created ?: throw ProtocolRequestException("Expected create response")
     }.map { it.session }
+
+    override suspend fun resourceUsage(): Result<GuestResourceUsage> = request(SessionRequest.ResourceUsage).mapResponse {
+        (it as? SessionResponse.Resources)?.usage ?: throw ProtocolRequestException("Expected guest resource metrics")
+    }
 
     override suspend fun list(): Result<List<SessionDescriptor>> = request(SessionRequest.List).mapResponse {
         it as? SessionResponse.Listed ?: throw ProtocolRequestException("Expected session list")
@@ -233,6 +238,7 @@ class ProtocolSessionClient(
             "timeout_ms" to requestTimeoutMillis.toString(), "pending" to pending.size.toString())
         fields["operation"] = when (request) {
             is SessionRequest.Create -> "create"
+            SessionRequest.ResourceUsage -> "resources"
             SessionRequest.List -> "list"
             is SessionRequest.Attach -> "attach"
             is SessionRequest.Detach -> "detach"
@@ -247,7 +253,7 @@ class ProtocolSessionClient(
             is SessionRequest.Write -> { fields["session"] = request.sessionId; fields["bytes"] = request.bytes.size.toString() }
             is SessionRequest.Terminate -> { fields["session"] = request.sessionId; fields["signal"] = request.signal.toString() }
             is SessionRequest.Create -> { fields["rows"] = request.rows.toString(); fields["cols"] = request.cols.toString() }
-            SessionRequest.List -> Unit
+            SessionRequest.ResourceUsage, SessionRequest.List -> Unit
         }
         if (error is GuestRequestException) fields["guest_error"] = error.error.code.name
         acceptedBytes?.let { fields["accepted_bytes"] = it.toString() }

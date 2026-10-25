@@ -27,13 +27,26 @@ pub struct GraphicsTransport {
 }
 
 impl GraphicsTransport {
+    #[cfg(test)]
     pub fn accept(&mut self, input: &[u8]) -> Output { self.accept_with(input, read_media) }
+    pub fn accept_prefix(&mut self, input: &[u8]) -> (usize, Output) {
+        self.accept_prefix_with(input, 64 * 1024, read_media)
+    }
 
-    fn accept_with<F>(&mut self, input: &[u8], mut read: F) -> Output
+    #[cfg(test)]
+    fn accept_with<F>(&mut self, input: &[u8], read: F) -> Output
+    where F: FnMut(char, &str, u64, u64) -> Result<Vec<u8>, &'static str> {
+        self.accept_prefix_with(input, usize::MAX, read)
+            .1
+    }
+
+    fn accept_prefix_with<F>(&mut self, input: &[u8], limit: usize, mut read: F) -> (usize, Output)
     where F: FnMut(char, &str, u64, u64) -> Result<Vec<u8>, &'static str> {
         let mut result = Output::default();
         let mut normal = Vec::new();
-        for &b in input {
+        let mut consumed = 0;
+        for (index, &b) in input.iter().enumerate() {
+            consumed = index + 1;
             match self.state {
                 0 => {
                     if self.utf8_remaining > 0 && b & 0xc0 == 0x80 {
@@ -68,6 +81,7 @@ impl GraphicsTransport {
                         append(&mut result, &normal); normal.clear();
                         self.process(&mut result, &mut read);
                         self.apc.clear(); self.state = 0;
+                        if result.bytes.iter().map(Vec::len).sum::<usize>() >= limit { break; }
                     } else if self.apc.len() > 5124 {
                         append(&mut result, &normal); normal.clear(); append(&mut result, &self.apc);
                         self.apc.clear(); self.state = if b == 27 { 7 } else { 6 }; self.chunked = false;
@@ -85,7 +99,7 @@ impl GraphicsTransport {
             if normal.len() >= FRAME_BYTES { append(&mut result, &normal); normal.clear(); }
         }
         append(&mut result, &normal);
-        result
+        (consumed, result)
     }
 
     pub fn finish(&mut self) -> Output {
@@ -268,6 +282,22 @@ mod tests {
     fn fixture() -> std::path::PathBuf {
         let p = std::env::temp_dir().join(format!("tty-graphics-protocol-test-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         std::fs::create_dir(&p).unwrap(); p
+    }
+
+    #[test]
+    fn large_media_prefixes_apply_backpressure_without_losing_following_commands() {
+        let command = format!("\x1b_Gt=f,i=1;{}\x1b\\", encode_base64(b"/ignored"));
+        let input = command.repeat(2);
+        let mut transport = GraphicsTransport::default();
+        let (consumed, first) = transport.accept_prefix_with(input.as_bytes(), 64 * 1024,
+            |_, _, _, _| Ok(vec![7; 128 * 1024]));
+        assert_eq!(consumed, command.len());
+        let (remaining, second) = transport.accept_prefix_with(&input.as_bytes()[consumed..], 64 * 1024,
+            |_, _, _, _| Ok(vec![7; 128 * 1024]));
+        assert_eq!(remaining, command.len());
+        let expected = GraphicsTransport::default().accept_with(input.as_bytes(), |_, _, _, _| Ok(vec![7; 128 * 1024]));
+        let mut actual = flatten(first); actual.extend(flatten(second));
+        assert_eq!(actual, flatten(expected));
     }
 
     #[test]

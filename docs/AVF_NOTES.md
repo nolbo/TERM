@@ -172,3 +172,11 @@ AOSP product; APK compilation and unsupported-device tests do not establish a su
 4. Establish a vsock connection to `droid-sessiond`.
 5. Prove attach/detach/reconnect against one PTY before adding capabilities,
    GUI, ISO import, or multi-distro support.
+
+## Resource-cost corrections
+
+CPU settings now match the platform's actual single/host-topology ABI. Memory defaults can be automatic while manual values survive. Replay rings grow from zero payload storage rather than allocating 512KiB immediately; a small host stream uses a 4KiB ring. Guest replay avoids bytearray prefix deletion and intermediate receive/slice copies. Reconnection watchers use close events, and unchanged guest port scans back off to ten seconds. The guest dispatcher handles fragmented frames, blocked socket writes and queued PTY input without blocking sibling output or resource queries. Private-share direct-I/O and zero-cache policy are retained; a redundant SFTP READ clone is removed.
+
+Memory diagnostics requests fixed aggregate guest metrics without creating sessions or booting environments. It reports guest memory/swap, CPU availability, load and memory PSI separately from app PSS. Legacy guests remain supported without repeated metric probes. The guest changes require an explicit verified component/image update; installed data is preserved.
+
+A proposed metadata-based startup hash cache was rejected during security review. Full SHA-256 checks remain authoritative on every preparation; verification reuses a single buffer and uses direct hex encoding. Manifest reads are bounded to 64KiB. Cold-start disk/hash work and real VM kernel memory remain inherent costs, not claimed eliminated. No privileged AVF target is attached, so actual device CPU/thermal/latency improvements require a matching device measurement.

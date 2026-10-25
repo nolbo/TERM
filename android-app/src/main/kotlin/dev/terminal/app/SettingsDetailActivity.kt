@@ -207,8 +207,8 @@ class SettingsDetailActivity : TerminalActivity() {
         val service = runtime ?: return
         runCatching {
             service.setAvfSettings(
-                runtimePreferences.getInt(KEY_AVF_MEMORY, 2048),
-                runtimePreferences.getInt(KEY_AVF_CPU, 2),
+                runtimePreferences.getInt(KEY_AVF_MEMORY, 0),
+                runtimePreferences.getInt(KEY_AVF_CPU, 1),
                 runtimePreferences.getBoolean(KEY_AVF_PROTECTED, false),
                 runtimePreferences.getBoolean(KEY_AVF_NETWORK, true),
             )
@@ -382,11 +382,13 @@ class SettingsDetailActivity : TerminalActivity() {
     private fun androidx.compose.foundation.lazy.LazyListScope.avfItems() {
         item {
             SettingsSection(R.string.section_resources) {
-                IntegerSetting(KEY_AVF_MEMORY, R.string.memory, R.string.memory_support, R.string.unit_mib, runtimePreferences.getInt(KEY_AVF_MEMORY, 2048), 512..32768) {
+                IntegerSetting(KEY_AVF_MEMORY, R.string.memory, R.string.avf_memory_support, R.string.unit_mib, runtimePreferences.getInt(KEY_AVF_MEMORY, 0), 0..32768, zeroIsAutomatic = true) {
                     saveRuntimeInt(KEY_AVF_MEMORY, it)
                 }
-                IntegerSetting(KEY_AVF_CPU, R.string.virtual_cpu, R.string.virtual_cpu_support, R.string.unit_count, runtimePreferences.getInt(KEY_AVF_CPU, 2), 1..16) {
-                    saveRuntimeInt(KEY_AVF_CPU, it)
+                ChoiceSetting(R.string.virtual_cpu, R.string.virtual_cpu_support,
+                    listOf(Choice(R.string.avf_cpu_single, "1"), Choice(R.string.avf_cpu_host, "2")),
+                    dev.terminal.runtime.avf.AvfResourcePolicy.cpuTopology(runtimePreferences.getInt(KEY_AVF_CPU, 1)).toString()) {
+                    saveRuntimeInt(KEY_AVF_CPU, it.toInt())
                 }
                 BooleanSetting(R.string.protected_vm, R.string.protected_vm_support, runtimePreferences.getBoolean(KEY_AVF_PROTECTED, false)) {
                     saveRuntimeBoolean(KEY_AVF_PROTECTED, it)
@@ -593,7 +595,7 @@ class SettingsDetailActivity : TerminalActivity() {
     }
 
     @Composable
-    private fun IntegerSetting(stateKey: String, @StringRes title: Int, @StringRes supporting: Int, @StringRes suffix: Int, initial: Int, range: IntRange, onSave: (Int) -> Unit) {
+    private fun IntegerSetting(stateKey: String, @StringRes title: Int, @StringRes supporting: Int, @StringRes suffix: Int, initial: Int, range: IntRange, zeroIsAutomatic: Boolean = false, onSave: (Int) -> Unit) {
         var committed by rememberSaveable(stateKey, "committed") { mutableIntStateOf(initial) }
         var draft by rememberSaveable(stateKey, "draft") { mutableStateOf(initial.toString()) }
         var dialogVisible by rememberSaveable(stateKey, "dialog") { mutableStateOf(false) }
@@ -601,14 +603,14 @@ class SettingsDetailActivity : TerminalActivity() {
         PreferenceListItem(
             title = title,
             supporting = supporting,
-            trailing = { Text("$committed $unit", style = MaterialTheme.typography.labelLarge) },
+            trailing = { Text(if (zeroIsAutomatic && committed == 0) stringResource(R.string.avf_memory_auto) else "$committed $unit", style = MaterialTheme.typography.labelLarge) },
             role = Role.Button,
         ) {
             draft = committed.toString()
             dialogVisible = true
         }
         if (dialogVisible) {
-            val parsed = validatedIntegerDraft(draft, range)
+            val parsed = validatedIntegerDraft(draft, range)?.takeIf { !zeroIsAutomatic || it == 0 || it >= 512 }
             val focusManager = LocalFocusManager.current
             val save = {
                 parsed?.let {

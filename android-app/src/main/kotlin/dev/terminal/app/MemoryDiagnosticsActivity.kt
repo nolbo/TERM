@@ -33,7 +33,7 @@ class MemoryDiagnosticsActivity : RuntimeInformationActivity() {
                     measureMemory(this@MemoryDiagnosticsActivity) { service?.runtimeAppMemoryJson?.let(::JSONObject) }
                 }
                 refreshing = false
-                delay(5_000)
+                delay(15_000)
             }
         }
     }

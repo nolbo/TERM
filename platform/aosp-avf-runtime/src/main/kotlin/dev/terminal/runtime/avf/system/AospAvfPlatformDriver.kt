@@ -78,7 +78,7 @@ class AospAvfPlatformDriver(
 
     override suspend fun prepare(config: RuntimeConfig): Result<Unit> = mutex.withLock {
         dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.prepare", config.instanceId,
-            "cpu:${config.cpuCount}.memory_mib:${config.memoryMib}.protected:${config.protectedVm}.network:${config.enableNetwork}")
+            "cpu_policy:${if (config.cpuCount == 1) "single" else "host"}.memory_mib:${config.memoryMib}.protected:${config.protectedVm}.network:${config.enableNetwork}")
         runCatching {
             require(VM_NAME.matches(config.instanceId)) {
                 "VM instance ID may contain only letters, digits, '.', '_' and '-'"
@@ -126,7 +126,7 @@ class AospAvfPlatformDriver(
 
     override suspend fun start(config: RuntimeConfig): Result<Unit> = mutex.withLock {
         dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("vm.start", config.instanceId,
-            details = mapOf("memory_mib" to config.memoryMib.toString(), "cpus" to config.cpuCount.toString(),
+            details = mapOf("memory_mib" to config.memoryMib.toString(), "cpu_policy" to if (config.cpuCount == 1) "single" else "host",
                 "network" to config.enableNetwork.toString(), "protected" to config.protectedVm.toString(),
                 "shared_folders" to config.sharedFolders.size.toString(), "internal_storage" to config.enableInternalStorage.toString(),
                 "share_version" to shareBrokerVersion.toString(), "resume_version" to sessionResumeVersion.toString()))

@@ -13,6 +13,7 @@ pub enum SessionRequest {
         cols: u16,
     },
     List,
+    ResourceUsage,
     Attach { session_id: String },
     Detach { session_id: String },
     Resize { session_id: String, rows: u16, cols: u16 },
@@ -51,6 +52,7 @@ impl SessionRequest {
                 }
             }
             Self::List => writer.byte(2),
+            Self::ResourceUsage => writer.byte(8),
             Self::Attach { session_id } => { writer.byte(3); writer.string(session_id)?; }
             Self::Detach { session_id } => { writer.byte(4); writer.string(session_id)?; }
             Self::Resize { session_id, rows, cols } => {
@@ -92,6 +94,7 @@ impl SessionRequest {
                 Self::Create { shell, cwd, env, rows, cols }
             }
             2 => Self::List,
+            8 => Self::ResourceUsage,
             3 => Self::Attach { session_id: reader.string()? },
             4 => Self::Detach { session_id: reader.string()? },
             5 => {

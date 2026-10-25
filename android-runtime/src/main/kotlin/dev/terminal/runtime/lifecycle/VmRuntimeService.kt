@@ -749,7 +749,9 @@ class VmRuntimeService : Service() {
 
         override fun getRuntimeAppMemoryJson(): String {
             enforceHostToolUi()
-            return (dev.terminal.runtime.session.currentAppProcessMemory() ?: JSONObject()).toString()
+            return (dev.terminal.runtime.session.currentAppProcessMemory() ?: JSONObject()).apply {
+                put("avf", (sessionClient as? UnifiedSessionRegistry)?.avfResourceSnapshots() ?: JSONArray())
+            }.toString()
         }
         override fun getUsbStateJson(): String = usbBroker.state()
         override fun approveUsbRequest(requestId: String): String = usbBroker.approve(requestId)
@@ -1082,8 +1084,8 @@ class VmRuntimeService : Service() {
 
         override fun setAvfSettings(memoryMib: Int, cpuCount: Int, protectedVm: Boolean, enableNetwork: Boolean) {
             getSharedPreferences(RUNTIME_SETTINGS, MODE_PRIVATE).edit()
-                .putInt(KEY_AVF_MEMORY, memoryMib.coerceIn(512, 32768))
-                .putInt(KEY_AVF_CPU, cpuCount.coerceIn(1, 16))
+                .putInt(KEY_AVF_MEMORY, if (memoryMib == 0) 0 else memoryMib.coerceIn(512, 32768))
+                .putInt(KEY_AVF_CPU, dev.terminal.runtime.avf.AvfResourcePolicy.cpuTopology(cpuCount))
                 .putBoolean(KEY_AVF_PROTECTED, protectedVm)
                 .putBoolean(KEY_AVF_NETWORK, enableNetwork)
                 .apply()
@@ -1874,8 +1876,10 @@ class VmRuntimeService : Service() {
                     requireNotNull(executionEnvironment.runtimeMetadata.vmInstanceId) else spec.storageId,
                 imageDirectory = root.path,
                 imageDistribution = executionEnvironment.distribution?.avfDistribution?.id ?: "debian",
-                memoryMib = preferences.getInt(KEY_AVF_MEMORY, 2048).coerceIn(512, 32768),
-                cpuCount = preferences.getInt(KEY_AVF_CPU, 2).coerceIn(1, 16),
+                memoryMib = if (spec.runtime != SessionRuntime.AVF) 2048 else android.app.ActivityManager.MemoryInfo().also {
+                    getSystemService(android.app.ActivityManager::class.java).getMemoryInfo(it)
+                }.let { dev.terminal.runtime.avf.AvfResourcePolicy.memoryMib(preferences.getInt(KEY_AVF_MEMORY, 0), it.totalMem, it.availMem) },
+                cpuCount = dev.terminal.runtime.avf.AvfResourcePolicy.cpuTopology(preferences.getInt(KEY_AVF_CPU, 1)),
                 protectedVm = preferences.getBoolean(KEY_AVF_PROTECTED, false),
                 enableNetwork = preferences.getBoolean(KEY_AVF_NETWORK, true),
                 sharedDirectory = if (spec.runtime == SessionRuntime.AVF) sharedDirectories.provision(spec.storageId).getOrThrow().path else null,

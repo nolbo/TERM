@@ -5,6 +5,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class MemoryDiagnosticsTest {
+    @Test fun guestMetricsAreKeptSeparateFromAppPss() {
+        val ui = JSONObject().put("basis", "pss").put("total", 100)
+        val runtime = JSONObject().put("basis", "pss").put("total", 200)
+            .put("avf", org.json.JSONArray().put(JSONObject().put("total", 4L * 1024 * 1024 * 1024)))
+        val combined = requireNotNull(combineAppMemory(ui, runtime))
+        assertEquals(300L, combined.getLong("total"))
+        assertFalse(combined.has("avf"))
+    }
+
     @Test fun compositionKeepsPssDenominatorAndShowsTheDifference() {
         val segments = requireNotNull(memoryCompositionSegments(listOf(20, 30, 10, 0, 15, 5, 10), 100))
         assertEquals(listOf(0.2, 0.3, 0.1, 0.0, 0.15, 0.05, 0.1), segments.fractions)

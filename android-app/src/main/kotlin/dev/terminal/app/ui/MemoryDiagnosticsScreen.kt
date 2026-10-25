@@ -89,6 +89,31 @@ internal fun MemoryDiagnosticsScreen(snapshot: MemorySnapshot?, loading: Boolean
                     }
                 }
             }
+            val guests = snapshot?.runtime?.optJSONArray("avf")
+            if (guests != null) for (index in 0 until guests.length()) {
+                val guest = guests.optJSONObject(index) ?: continue
+                item(key = "avf-${guest.optString("id")}") {
+                    MemoryCard(R.string.memory_avf_guest) {
+                        Text(guest.optString("name"), style = MaterialTheme.typography.titleMedium)
+                        val total = guest.memoryBytes("total")
+                        val available = guest.memoryBytes("available")
+                        val used = if (total != null && available != null && available <= total) total - available else null
+                        MemoryUsageMetric(R.string.memory_avf_guest, R.string.memory_device_used, used, total,
+                            R.string.memory_percentage_of_guest, prominent = true)
+                        MemoryStat(R.string.memory_device_available, available)
+                        val swapTotal = guest.memoryBytes("swapTotal")
+                        val swapFree = guest.memoryBytes("swapFree")
+                        MemoryStat(R.string.memory_avf_swap, if (swapTotal != null && swapFree != null && swapFree <= swapTotal) swapTotal - swapFree else null)
+                        Text(if (total == null) stringResource(R.string.memory_avf_unavailable) else
+                            stringResource(R.string.memory_avf_cpu, guest.optInt("cpus"), guest.optInt("loadMilli") / 1000.0),
+                            style = MaterialTheme.typography.bodySmall)
+                        val pressure = guest.optInt("pressureMilli", -1)
+                        if (pressure >= 0) Text(stringResource(R.string.memory_avf_pressure, pressure / 1000.0),
+                            style = MaterialTheme.typography.bodySmall)
+                        Text(stringResource(R.string.memory_avf_basis), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
             processes.forEach { (section, process) -> item(key = section) {
                 MemoryCompositionCard(section, process)
             } }
@@ -108,7 +133,7 @@ private fun MemoryCard(title: Int, content: @Composable ColumnScope.() -> Unit) 
 }
 
 @Composable
-private fun MemoryStat(title: Int, bytes: Long?, modifier: Modifier) {
+private fun MemoryStat(title: Int, bytes: Long?, modifier: Modifier = Modifier) {
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(stringResource(title), style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant)

@@ -16,6 +16,15 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class ReplayByteStreamTest {
+    @Test fun idleAndSmallStreamsDoNotPreallocateFullReplayWindows() {
+        val replay = ReplayByteStream()
+        try {
+            assertEquals("0", replay.diagnostics()["buffer_bytes"])
+            replay.output.write(byteArrayOf(1, 2, 3))
+            assertEquals("4096", replay.diagnostics()["buffer_bytes"])
+        } finally { replay.close() }
+    }
+
     @Test fun handshakeRejectionsIdentifyMagicWindowAndOffsetsWithoutChangingFatalClassification() {
         data class Case(val magic: Int, val window: Int, val received: Long, val reason: ReplayByteStream.FailureReason)
         for ((magic, window, received, reason) in listOf(

@@ -111,7 +111,7 @@ class ResumableGuestConnection(
         var link = initial
         try {
             while (!closed.get()) {
-                while (!closed.get() && !link.awaitClosed(1, TimeUnit.SECONDS)) Unit
+                link.awaitClosed()
                 if (closed.get()) break
                 record("session.link.reconnecting", link.failure?.cause, link.failure?.reason?.code,
                     link.failure?.details.orEmpty())

@@ -209,7 +209,7 @@ internal class RecoverablePrivateAvfShares(private val folders: List<SharedDirec
                         handshake.cancel(false)
                         attempt = 0
                         record("share.data.connected")
-                        while (!closed.get() && !link.awaitClosed(1, TimeUnit.SECONDS)) Unit
+                        link.awaitClosed()
                         if (!closed.get()) {
                             dataLostAt.putIfAbsent(identity, System.nanoTime())
                             record("share.data.reconnecting")

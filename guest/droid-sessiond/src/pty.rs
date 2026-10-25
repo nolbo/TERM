@@ -52,7 +52,16 @@ impl PtyProcess {
         // master endpoint exclusively in this daemon.
         let fork = unsafe { forkpty(Some(&winsize), None) }.map_err(PtyError::from)?;
         match fork {
-            nix::pty::ForkptyResult::Parent { child, master } => Ok(Self { master, child }),
+            nix::pty::ForkptyResult::Parent { child, master } => {
+                let fd = master.as_raw_fd();
+                let flags = unsafe { nix::libc::fcntl(fd, nix::libc::F_GETFL) };
+                if flags < 0 || unsafe { nix::libc::fcntl(fd, nix::libc::F_SETFL, flags | nix::libc::O_NONBLOCK) } < 0 {
+                    let _ = kill(child, Signal::SIGKILL);
+                    let _ = waitpid(child, None);
+                    return Err(PtyError::Nix(Errno::last()));
+                }
+                Ok(Self { master, child })
+            },
             nix::pty::ForkptyResult::Child => child_exec(&launch),
         }
     }

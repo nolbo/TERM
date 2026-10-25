@@ -21,6 +21,7 @@ data class SessionDescriptor(
 enum class SessionStatus { CREATED, RUNNING, EXITED }
 
 sealed interface SessionResponse {
+    data class Resources(val usage: GuestResourceUsage) : SessionResponse
     data class Created(val session: SessionDescriptor) : SessionResponse
     data class Listed(val sessions: List<SessionDescriptor>) : SessionResponse
     data class Attached(val session: SessionDescriptor) : SessionResponse
@@ -41,6 +42,11 @@ object SessionResponseCodec {
 
     fun encode(response: SessionResponse): ByteArray = ResponseWriter().apply {
         when (response) {
+            is SessionResponse.Resources -> {
+                byte(0x88)
+                with(response.usage) { i64(totalBytes); i64(availableBytes); i64(swapTotalBytes); i64(swapFreeBytes)
+                    i32(cpuCount); i32(loadMilli); i32(memoryPressureMilli) }
+            }
             is SessionResponse.Created -> { byte(CREATED); descriptor(response.session) }
             is SessionResponse.Listed -> {
                 require(response.sessions.size <= 1024) { "Too many sessions" }
@@ -58,6 +64,8 @@ object SessionResponseCodec {
     fun decode(payload: ByteArray): SessionResponse {
         val reader = ResponseReader(payload)
         val response = when (reader.byte()) {
+            0x88 -> SessionResponse.Resources(GuestResourceUsage(reader.i64(), reader.i64(), reader.i64(), reader.i64(),
+                reader.i32(), reader.i32(), reader.i32()))
             CREATED -> SessionResponse.Created(reader.descriptor())
             LISTED -> SessionResponse.Listed(List(reader.u16().toInt()) { reader.descriptor() })
             ATTACHED -> SessionResponse.Attached(reader.descriptor())

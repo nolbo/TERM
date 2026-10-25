@@ -1,4 +1,5 @@
 mod graphics_transport;
+mod resources;
 mod package_init;
 mod protocol;
 mod pty;

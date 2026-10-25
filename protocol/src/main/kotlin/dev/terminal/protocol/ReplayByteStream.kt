@@ -32,22 +32,34 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
     data class Failure(val reason: FailureReason, val cause: Exception? = null, val details: Map<String, String> = emptyMap())
 
     private class Ring(private val capacity: Int) {
-        private val bytes = ByteArray(capacity)
+        private var bytes = ByteArray(0)
+        val allocated get() = bytes.size
         var base = 0L
         var end = 0L
         val size get() = (end - base).toInt()
         fun append(source: ByteArray, offset: Int, count: Int) {
             check(count <= capacity - size && end <= Long.MAX_VALUE - count)
-            val start = (end % capacity).toInt()
-            val first = minOf(count, capacity - start)
+            if (count == 0) return
+            if (size + count > bytes.size) {
+                val grown = ByteArray(minOf(capacity, maxOf(4096, bytes.size * 2, size + count)))
+                val existing = copy(base, size)
+                bytes = grown
+                val start = (base % bytes.size).toInt()
+                val first = minOf(size, bytes.size - start)
+                existing.copyInto(bytes, start, 0, first)
+                if (first < size) existing.copyInto(bytes, 0, first)
+            }
+            val start = (end % bytes.size).toInt()
+            val first = minOf(count, bytes.size - start)
             source.copyInto(bytes, start, offset, offset + first)
             if (first < count) source.copyInto(bytes, 0, offset + first, offset + count)
             end += count
         }
         fun copyInto(position: Long, target: ByteArray, offset: Int, count: Int) {
             require(position >= base && position <= end && count <= end - position)
-            val start = (position % capacity).toInt()
-            val first = minOf(count, capacity - start)
+            if (count == 0) return
+            val start = (position % bytes.size).toInt()
+            val first = minOf(count, bytes.size - start)
             bytes.copyInto(target, offset, start, start + first)
             if (first < count) bytes.copyInto(target, offset + first, 0, count - first)
         }
@@ -62,6 +74,7 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
             internal set
         override fun close() = disconnect()
         fun awaitClosed(timeout: Long, unit: TimeUnit) = stopped.await(timeout, unit)
+        fun awaitClosed() = stopped.await()
     }
     private class Connection(val input: DataInputStream, val output: DataOutputStream,
         val closeSocket: () -> Unit, var cursor: Long, var consumed: Long, val window: Int) {
@@ -87,6 +100,7 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
         put("sent_base", sent.base.toString()); put("sent_end", sent.end.toString())
         put("received_base", received.base.toString()); put("received_end", received.end.toString())
         put("capacity", capacity.toString())
+        put("buffer_bytes", (received.allocated + sent.allocated).toString())
         current?.let {
             put("send_cursor", it.cursor.toString()); put("peer_consumed", it.consumed.toString())
             put("peer_window", it.window.toString())

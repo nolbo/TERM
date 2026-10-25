@@ -86,6 +86,8 @@ object AvfImageVerifier {
         if (AvfImageTransitions.interrupted(root)) return ImageVerification.Invalid("AVF 이미지 전환 복구가 필요합니다.")
         val receipt = root.resolve(INSTALL_RECEIPT)
         val manifest = root.resolve(AvfImageLayout.MANIFEST_FILE)
+        if (!Files.isRegularFile(manifest, java.nio.file.LinkOption.NOFOLLOW_LINKS) ||
+            Files.size(manifest) !in 1..64 * 1024L) return ImageVerification.Invalid("Invalid AVF image manifest size")
         val hasReceipt = runCatching {
             Files.isRegularFile(receipt, java.nio.file.LinkOption.NOFOLLOW_LINKS) &&
                 Files.size(receipt) <= 65 && String(Files.readAllBytes(receipt), Charsets.US_ASCII).trim() == sha256(manifest)
@@ -124,9 +126,10 @@ object AvfImageVerifier {
             layout.homeImage to manifest.homeSha256,
             layout.configImage to manifest.configSha256,
         )
+        val hashBuffer = ByteArray(HASH_BUFFER_BYTES)
         for ((file, expected) in hashes) {
             if (file == layout.homeImage && !verifyHome) continue
-            if (!SHA256.matches(expected) || sha256(file, checkCancellation) != expected) {
+            if (!SHA256.matches(expected) || Files.newInputStream(file).use { sha256(it, checkCancellation, hashBuffer) } != expected) {
                 return ImageVerification.Invalid("Checksum verification failed for ${file.fileName}")
             }
         }
@@ -134,6 +137,7 @@ object AvfImageVerifier {
     }
 
     fun parse(manifestPath: Path): AvfImageManifest = Properties().run {
+        require(Files.size(manifestPath) in 1..64 * 1024L) { "Invalid AVF image manifest size" }
         Files.newInputStream(manifestPath).use(::load)
         val formatVersion = getProperty("formatVersion")?.toIntOrNull() ?: error("formatVersion missing")
         require(formatVersion in SUPPORTED_FORMAT_VERSIONS) { "Unsupported AVF image format" }
@@ -184,15 +188,22 @@ object AvfImageVerifier {
     fun sha256(path: Path, checkCancellation: () -> Unit = {}): String =
         Files.newInputStream(path).use { input -> sha256(input, checkCancellation) }
 
-    private fun sha256(input: InputStream, checkCancellation: () -> Unit): String {
+    private fun sha256(input: InputStream, checkCancellation: () -> Unit,
+        buffer: ByteArray = ByteArray(HASH_BUFFER_BYTES)): String {
         val digest = MessageDigest.getInstance("SHA-256")
-        val buffer = ByteArray(HASH_BUFFER_BYTES)
         while (true) {
             checkCancellation()
             val count = input.read(buffer)
             if (count < 0) break
             digest.update(buffer, 0, count)
         }
-        return digest.digest().joinToString("") { "%02x".format(it) }
+        val alphabet = "0123456789abcdef"
+        return digest.digest().let { hash -> CharArray(hash.size * 2).apply {
+            hash.forEachIndexed { index, byte ->
+                val value = byte.toInt() and 255
+                this[index * 2] = alphabet[value ushr 4]
+                this[index * 2 + 1] = alphabet[value and 15]
+            }
+        }.concatToString() }
     }
 }

@@ -2,6 +2,7 @@
 //! session authorization and PTY operations stay in higher layers.
 
 use std::fs::File;
+use std::collections::VecDeque;
 use std::io::{self, Read, Write};
 use std::mem::size_of;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
@@ -114,7 +115,7 @@ impl VsockListener {
                 if size as usize != size_of::<nix::libc::ucred>() || credentials.uid != 0 {
                     return Err(VsockError::UntrustedPeer);
                 }
-                return Ok(VsockConnection { stream: File::from(OwnedFd::from(stream)) });
+                return VsockConnection::new(File::from(OwnedFd::from(stream)));
             }
         }
         let mut address = SockaddrVm {
@@ -134,23 +135,94 @@ impl VsockListener {
             unsafe { nix::libc::close(raw_fd) };
             return Err(VsockError::UntrustedPeer);
         }
-        Ok(VsockConnection { stream: unsafe { File::from_raw_fd(raw_fd) } })
+        VsockConnection::new(unsafe { File::from_raw_fd(raw_fd) })
     }
 }
 
+const OUTPUT_LIMIT: usize = 16 * 1024 * 1024;
 pub struct VsockConnection {
     stream: File,
+    incoming: Vec<u8>,
+    outgoing: VecDeque<Vec<u8>>,
+    written: usize,
+    queued: usize,
+    nonblocking: bool,
 }
 
 impl VsockConnection {
-    pub fn raw_fd(&self) -> std::os::fd::RawFd { self.stream.as_raw_fd() }
-
-    pub fn read_frame(&mut self) -> Result<Frame, VsockError> {
-        read_frame_from(&mut self.stream)
+    pub fn new(stream: File) -> Result<Self, VsockError> {
+        Ok(Self { stream, incoming: Vec::new(), outgoing: VecDeque::new(), written: 0, queued: 0, nonblocking: false })
     }
+    pub fn enable_nonblocking(&mut self) -> Result<(), VsockError> {
+        let fd = self.raw_fd();
+        let flags = unsafe { nix::libc::fcntl(fd, nix::libc::F_GETFL) };
+        if flags < 0 || unsafe { nix::libc::fcntl(fd, nix::libc::F_SETFL, flags | nix::libc::O_NONBLOCK) } < 0 {
+            return Err(Errno::last().into());
+        }
+        self.nonblocking = true;
+        Ok(())
+    }
+    pub fn read_frame(&mut self) -> Result<Frame, VsockError> { read_frame_from(&mut self.stream) }
+    pub fn raw_fd(&self) -> std::os::fd::RawFd { self.stream.as_raw_fd() }
+    pub fn wants_write(&self) -> bool { !self.outgoing.is_empty() }
+    pub fn has_pty_capacity(&self) -> bool { self.queued <= OUTPUT_LIMIT - 9 * 1024 * 1024 }
+    pub fn has_capacity(&self) -> bool { self.queued <= OUTPUT_LIMIT - MAX_PAYLOAD_BYTES - HEADER_SIZE }
 
+    /// A fragmented host frame never blocks draining other PTYs.
+    pub fn read_frame_ready(&mut self) -> Result<Option<Frame>, VsockError> {
+        loop {
+            let needed = if self.incoming.len() < HEADER_SIZE { HEADER_SIZE } else {
+                let length = u32::from_be_bytes(self.incoming[20..24].try_into().unwrap()) as usize;
+                if length > MAX_PAYLOAD_BYTES { return Err(VsockError::InvalidFrameLength); }
+                HEADER_SIZE + length
+            };
+            if self.incoming.len() == needed && needed >= HEADER_SIZE {
+                let length = u32::from_be_bytes(self.incoming[20..24].try_into().unwrap()) as usize;
+                if length > MAX_PAYLOAD_BYTES { return Err(VsockError::InvalidFrameLength); }
+                if needed == HEADER_SIZE && length != 0 { continue; }
+                let result = Frame::decode(&self.incoming).map_err(VsockError::from);
+                self.incoming.clear();
+                if self.incoming.capacity() > 64 * 1024 { self.incoming = Vec::new(); }
+                return result.map(Some);
+            }
+            let mut buffer = [0u8; 8192];
+            let count = buffer.len().min(needed - self.incoming.len());
+            match self.stream.read(&mut buffer[..count]) {
+                Ok(0) => return Err(io::Error::from(io::ErrorKind::UnexpectedEof).into()),
+                Ok(count) => self.incoming.extend_from_slice(&buffer[..count]),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => return Ok(None),
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+    }
     pub fn write_frame(&mut self, frame: &Frame) -> Result<(), VsockError> {
-        write_frame_to(&mut self.stream, frame)
+        if !self.nonblocking { return write_frame_to(&mut self.stream, frame); }
+        let bytes = frame.encode()?;
+        if bytes.len() > OUTPUT_LIMIT - self.queued {
+            return Err(io::Error::other("session output queue is full").into());
+        }
+        self.queued += bytes.len();
+        self.outgoing.push_back(bytes);
+        Ok(())
+    }
+    pub fn flush_output(&mut self) -> Result<(), VsockError> {
+        let mut budget = 256 * 1024;
+        while let Some(bytes) = self.outgoing.front() {
+            let end = bytes.len().min(self.written + budget);
+            match self.stream.write(&bytes[self.written..end]) {
+                Ok(0) => return Err(io::Error::from(io::ErrorKind::WriteZero).into()),
+                Ok(count) => {
+                    self.written += count; self.queued -= count; budget -= count;
+                    if self.written == bytes.len() { self.outgoing.pop_front(); self.written = 0; }
+                    if budget == 0 { break; }
+                }
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => break,
+                Err(error) if error.kind() == io::ErrorKind::Interrupted => continue,
+                Err(error) => return Err(error.into()),
+            }
+        }
+        Ok(())
     }
 }
 
@@ -178,6 +250,47 @@ mod tests {
 
     use super::*;
     use crate::protocol::{FrameKind, Service};
+
+    #[test]
+    fn nonblocking_output_keeps_partial_write_offsets_and_frame_order() {
+        use std::os::unix::net::UnixStream;
+        use std::time::{Duration, Instant};
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        peer.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        let size: nix::libc::c_int = 4096;
+        unsafe { nix::libc::setsockopt(socket.as_raw_fd(), nix::libc::SOL_SOCKET, nix::libc::SO_SNDBUF,
+            &size as *const _ as *const _, size_of::<nix::libc::c_int>() as _); }
+        let mut connection = VsockConnection::new(File::from(OwnedFd::from(socket))).unwrap();
+        connection.enable_nonblocking().unwrap();
+        let frame = Frame { service: crate::protocol::Service::Session,
+            kind: crate::protocol::FrameKind::Stream, flags: 0, request_id: 1, payload: vec![7; 100_000] };
+        let mut second = frame.clone(); second.request_id = 2; second.payload = vec![9; 65_537];
+        connection.write_frame(&frame).unwrap(); connection.write_frame(&second).unwrap();
+        connection.flush_output().unwrap();
+        assert!(connection.wants_write(), "the unread socket must backpressure without blocking");
+        let reader = std::thread::spawn(move || (read_frame_from(&mut peer).unwrap(), read_frame_from(&mut peer).unwrap()));
+        let deadline = Instant::now() + Duration::from_secs(3);
+        while connection.wants_write() {
+            assert!(Instant::now() < deadline);
+            connection.flush_output().unwrap();
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        assert_eq!(reader.join().unwrap(), (frame, second));
+    }
+    #[test]
+    fn oversized_nonblocking_frame_is_rejected_before_payload_allocation() {
+        use std::os::unix::net::UnixStream;
+        let (socket, mut peer) = UnixStream::pair().unwrap();
+        let mut connection = VsockConnection::new(File::from(OwnedFd::from(socket))).unwrap();
+        connection.enable_nonblocking().unwrap();
+        let frame = Frame { service: crate::protocol::Service::Session,
+            kind: crate::protocol::FrameKind::Request, flags: 0, request_id: 1, payload: vec![] };
+        let mut header = frame.encode().unwrap();
+        header[20..24].copy_from_slice(&((MAX_PAYLOAD_BYTES + 1) as u32).to_be_bytes());
+        peer.write_all(&header).unwrap();
+        assert!(matches!(connection.read_frame_ready(), Err(VsockError::InvalidFrameLength)));
+        assert!(connection.incoming.capacity() < 1024);
+    }
 
     #[test]
     fn reads_a_single_complete_frame_without_transport_specific_state() {

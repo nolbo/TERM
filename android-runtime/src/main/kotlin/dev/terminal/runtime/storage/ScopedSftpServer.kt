@@ -97,7 +97,7 @@ class ScopedSftpServer(directory: File) : Closeable {
             val handle = fileHandle(key)
             val data = ByteArray(size)
             val count = Os.pread(handle.descriptor.fileDescriptor, data, 0, size, offset)
-            if (count == 0) status(1) else reply(103) { bytes(data.copyOf(count)) }
+            if (count == 0) status(1) else reply(103) { writeInt(count); write(data, 0, count) }
         }
         6 -> {
             val key = p.text(64); val offset = p.input.readLong(); val data = p.bytes(SftpWire.MAX_DATA); p.end()
