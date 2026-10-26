@@ -575,6 +575,14 @@ owner exit and runtime stop/failure release their corresponding work signals.
 Wake acquisitions remain time-bounded and renew on the original nine-minute
 deadline while work remains active, including silent long commands.
 
+Work/notification tracking consumes live OSC 133/9/777 and bell events from the
+authoritative terminal parser rather than reparsing PTY bytes. Replay and UI
+mirrors never emit these events. Plain output renews its unknown-shell timestamp
+without rescanning all sessions or resetting the expiry job; work transitions,
+new owners and expired-lease revival update wake state immediately. The existing
+expiry job observes extended deadlines when it wakes. Notification preferences
+remain independent of work tracking.
+
 Guest session, bridge and port-agent connection failures use independent bounded
 backoff (2, 4, 8, 15, 30, 60, then 120 seconds). A successful connection, explicit
 input/attachment, setup/start or new session resets the relevant retry state;
@@ -624,6 +632,16 @@ saved viewport. No UI detach terminates a session or stops a runtime. Checkpoint
 read-only file descriptors rather than Binder-sized byte arrays or a bounded raw
 transcript. PTY and VM ownership remains behind the runtime controllers. See
 [TERMINAL_TUI.md](TERMINAL_TUI.md) for state transfer, lifecycle guarantees and tests.
+
+Terminal state operations lock only their session. A checkpoint first captures
+immutable serialized state under that lock; the ordered callback worker then
+compresses, writes and transfers it before subsequent output/resize/exit events.
+A nonblocking 64MiB process-wide budget bounds in-flight capture chunks, released
+on completion, cancellation or failure. When that budget is exhausted, the
+selected session uses the previous direct-to-file capture path, retaining the
+existing 64MiB compressed-checkpoint limit and large-history compatibility.
+Capture still pauses that session's parsing; no mutable emulator is passed to
+an unlocked worker, and slow UI delivery never holds a terminal lock.
 
 Shell command history metadata belongs to the main terminal buffer, alongside retained cells. OSC 133 prompt/input/execution/completion boundaries attach logical cell anchors, start time and completion status; command strings are derived from retained cells rather than persisted in a second history. Trim invalidates anchors before ring-row reuse; resize/reflow remaps them. The anchor graph and pending shell boundaries travel in the same host-private checkpoint, so detached sessions continue recording independently of the optional command-history toolbar tool. The tool reads the UI mirror and performs local viewport jumps; it never owns runtime subscriptions or PTYs.
 

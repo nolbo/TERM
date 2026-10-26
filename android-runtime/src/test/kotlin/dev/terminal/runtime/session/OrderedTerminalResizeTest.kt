@@ -69,9 +69,7 @@ class OrderedTerminalResizeTest {
 
     private suspend fun setup(registry: UnifiedSessionRegistry, owner: Owner, runtime: SessionRuntime = SessionRuntime.NATIVE) {
         registry.register(runtime, owner); registry.list().getOrThrow()
-        registry.terminalStates.mutex.withLock {
-            registry.terminalStates.create("native-a", 80, 24); registry.terminalStates.create("native-b", 80, 24)
-        }
+        listOf("native-a", "native-b").forEach { id -> registry.terminalStates.withSession(id) { registry.terminalStates.create(id, 80, 24) } }
     }
 
     @Test fun delayedResizeDoesNotBlockOutputOrSiblingConfigurationAndAppliesAtOutputBoundary() = runBlocking {
@@ -80,14 +78,14 @@ class OrderedTerminalResizeTest {
         try { withTimeout(5000) {
             setup(registry, owner)
             val first = Snapshot()
-            registry.terminalStates.mutex.withLock { registry.terminalStates.subscribe("native-a", first) }
+            registry.terminalStates.withSession("native-a") { registry.terminalStates.subscribe("native-a", first) }
             val resize = async { registry.configureTerminal("native-a", 30, 40, 8, 16, Properties()) }
             val request = owner.requests.receive()
             owner.events.emit(SessionEvent.Output("native-a", "OLD".toByteArray()))
             owner.events.emit(SessionEvent.Output("native-b", "SIBLING".toByteArray()))
             val second = Snapshot()
             registry.configureTerminal("native-b", 24, 80, 8, 16, Properties(), second)
-            while (first.order.size < 2 || !registry.terminalStates.mutex.withLock {
+            while (first.order.size < 2 || !registry.terminalStates.withSession("native-b") {
                 val snapshot = Snapshot(); registry.terminalStates.subscribe("native-b", snapshot)
                 registry.terminalStates.unsubscribe("native-b", snapshot); snapshot.text.contains("SIBLING")
             }) yield()
@@ -108,7 +106,7 @@ class OrderedTerminalResizeTest {
         try { withTimeout(5000) {
             setup(registry, owner)
             val mirror = Snapshot()
-            registry.terminalStates.mutex.withLock { registry.terminalStates.subscribe("native-a", mirror) }
+            registry.terminalStates.withSession("native-a") { registry.terminalStates.subscribe("native-a", mirror) }
             val first = async { registry.resize("native-a", 30u, 40u) }; val request = owner.requests.receive()
             val second = async(start = CoroutineStart.UNDISPATCHED) { registry.resize("native-a", 31u, 41u) }
             assertTrue(owner.requests.tryReceive().isFailure)
@@ -131,7 +129,7 @@ class OrderedTerminalResizeTest {
             val resize = async { registry.resize("native-a", 30u, 40u) }; val request = owner.requests.receive()
             registry.terminate("native-a", 9).getOrThrow()
             registry.list().getOrThrow() // Same identifier, new lifetime.
-            registry.terminalStates.mutex.withLock { registry.terminalStates.create("native-a", 80, 24) }
+            registry.terminalStates.withSession("native-a") { registry.terminalStates.create("native-a", 80, 24) }
             owner.complete(request)
             assertTrue(resize.await().isFailure)
             assertTrue(registry.terminalStates.sameDimensions("native-a", 80, 24))

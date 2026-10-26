@@ -26,9 +26,7 @@ class SessionExitReconcilerTest {
         val failures = ConcurrentLinkedQueue<Exception>()
         registry.register(SessionRuntime.AVF, client)
         registry.list().getOrThrow()
-        registry.terminalStates.mutex.withLock {
-            transport.sessions.forEach { registry.terminalStates.create(it.id, 80, 24) }
-        }
+        transport.sessions.forEach { session -> registry.terminalStates.withSession(session.id) { registry.terminalStates.create(session.id, 80, 24) } }
         val reconciler = SessionExitReconciler(this, reconcile = {
             // The service reconciles workspaces before publishing a session snapshot.
             checkNotNull(registry.verifiedWorkspaceSessions(emptySet()))

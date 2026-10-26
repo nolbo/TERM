@@ -393,6 +393,12 @@ public final class TerminalEmulator implements java.io.Serializable {
             @Override
             public void onBell() {
                 if (!mReplaying) session.onBell();
+                if (!mReplaying && !mMirroring && mEscapeState == ESC_NONE) session.onSessionActivity("");
+            }
+
+            @Override
+            public void onSessionActivity(String command) {
+                if (!mReplaying && !mMirroring) session.onSessionActivity(command);
             }
 
             @Override
@@ -2411,6 +2417,10 @@ public final class TerminalEmulator implements java.io.Serializable {
             }
         }
 
+        if ((value == 133 || value == 9 || value == 777) && mOSCOrDeviceControlArgs.length() <= 1024
+                && mOSCOrDeviceControlArgs.indexOf("\033") < 0) {
+            mSession.onSessionActivity(mOSCOrDeviceControlArgs.toString());
+        }
         switch (value) {
             case 8: // OSC 8 ; params ; URI. An empty URI ends the link.
                 mActiveHyperlink = null;

@@ -91,7 +91,7 @@ class AvfOwnerLossTest {
             override fun resized(columns: Int, rows: Int, cellWidth: Int, cellHeight: Int) = Unit
             override fun exited(code: Int) = fail("A transport failure is not a guest exit")
         }
-        registry.terminalStates.mutex.withLock {
+        registry.terminalStates.withSession(id) {
             registry.terminalStates.subscribe(id, sink); registry.terminalStates.unsubscribe(id, sink)
         }
         return text

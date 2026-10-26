@@ -43,6 +43,12 @@ impl GraphicsTransport {
     fn accept_prefix_with<F>(&mut self, input: &[u8], limit: usize, mut read: F) -> (usize, Output)
     where F: FnMut(char, &str, u64, u64) -> Result<Vec<u8>, &'static str> {
         let mut result = Output::default();
+        // Most PTY chunks contain only text. Preserve the parser at fragment,
+        // escape and UTF-8 boundaries; plain ASCII needs only one output copy.
+        if self.state == 0 && self.utf8_remaining == 0 && input.iter().all(|&b| b < 0x80 && b != 27) {
+            append(&mut result, input);
+            return (input.len(), result);
+        }
         let mut normal = Vec::new();
         let mut consumed = 0;
         for (index, &b) in input.iter().enumerate() {
@@ -332,6 +338,30 @@ mod tests {
             let mut t = GraphicsTransport::default();
             let output = t.accept_with(&input, |_, _, _, _| panic!("unexpected read"));
             assert_eq!(flatten(output), input);
+        }
+    }
+
+    #[test]
+    fn plain_text_fast_path_preserves_every_fragment_boundary() {
+        let plain = b"ordinary output\r\n".repeat(4096);
+        let mut t = GraphicsTransport::default();
+        let (consumed, output) = t.accept_prefix(&plain);
+        assert_eq!(consumed, plain.len());
+        assert_eq!(flatten(output), plain);
+        let command = sequence("a=T,i=1,t=f", &encode_base64(b"/guest/image"));
+        let input = [b"prefix".to_vec(), "한글".as_bytes().to_vec(), command, b"suffix".to_vec()].concat();
+        for width in 1..=input.len() {
+            let mut t = GraphicsTransport::default();
+            let mut output = Vec::new();
+            let mut reads = 0;
+            for chunk in input.chunks(width) {
+                output.extend(flatten(t.accept_with(chunk, |_, _, _, _| { reads += 1; Ok(vec![1, 2, 3]) })));
+            }
+            output.extend(flatten(t.finish()));
+            assert_eq!(reads, 1, "chunk width {width}");
+            assert!(output.starts_with("prefix한글".as_bytes()));
+            assert!(output.ends_with(b"suffix"));
+            assert!(String::from_utf8(output).unwrap().contains("AQID"));
         }
     }
 

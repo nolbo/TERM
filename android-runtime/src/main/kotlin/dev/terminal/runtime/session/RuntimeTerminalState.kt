@@ -3,10 +3,9 @@ package dev.terminal.runtime.session
 import dev.terminal.emulator.TerminalEmulator
 import dev.terminal.emulator.TerminalOutput
 import java.util.Properties
-import kotlinx.coroutines.sync.Mutex
 
 /** Authoritative terminal state, independent of every renderer and UI-process connection.
- * All methods run under mutex, including immutable checkpoint capture and ordered enqueue.
+ * Concurrent callers use withSession, including immutable checkpoint capture and ordered enqueue.
  * Production sinks never wait for UI Binder calls while holding this mutex.
  */
 class RuntimeTerminalState(private val transcriptRows: Int = 10_000) {
@@ -17,12 +16,13 @@ class RuntimeTerminalState(private val transcriptRows: Int = 10_000) {
         fun exited(code: Int)
     }
     data class Viewport(val row: Int, val offset: Float, val transcriptShift: Long)
-    private class Entry(val emulator: TerminalEmulator, val replies: MutableList<ByteArray>) {
+    private class Entry(val emulator: TerminalEmulator, val replies: MutableList<ByteArray>, val activity: MutableList<String>) {
         val sinks = mutableSetOf<Sink>()
         var exitCode: Int? = null
         var viewport: Viewport? = null
     }
-    val mutex = Mutex()
+    private val locks = SessionOperationLocks()
+    suspend fun <T> withSession(id: String, action: suspend () -> T): T = locks.withSession(id, action)
     // close() may discard the registry while a cancelled PTY reader unwinds.
     private val entries = java.util.concurrent.ConcurrentHashMap<String, Entry>()
     internal fun identity(id: String): Any? = entries[id]
@@ -30,6 +30,7 @@ class RuntimeTerminalState(private val transcriptRows: Int = 10_000) {
     fun create(id: String, columns: Int, rows: Int) {
         if (entries.containsKey(id)) return
         val replies = mutableListOf<ByteArray>()
+        val activity = mutableListOf<String>()
         val output = object : TerminalOutput() {
             override fun write(data: ByteArray, offset: Int, count: Int) { replies += data.copyOfRange(offset, offset + count) }
             override fun titleChanged(oldTitle: String?, newTitle: String?) = Unit
@@ -37,8 +38,9 @@ class RuntimeTerminalState(private val transcriptRows: Int = 10_000) {
             override fun onPasteTextFromClipboard() = Unit
             override fun onBell() = Unit
             override fun onColorsChanged() = Unit
+            override fun onSessionActivity(command: String) { activity += command }
         }
-        entries[id] = Entry(TerminalEmulator(output, columns, rows, 0, 0, transcriptRows, null), replies)
+        entries[id] = Entry(TerminalEmulator(output, columns, rows, 0, 0, transcriptRows, null), replies, activity)
     }
 
     fun output(id: String, bytes: ByteArray): List<ByteArray> {
@@ -48,6 +50,10 @@ class RuntimeTerminalState(private val transcriptRows: Int = 10_000) {
         deliver(entry) { it.output(bytes) }
         return entry.replies.toList().also { entry.replies.clear() }
     }
+
+    fun takeActivity(id: String): List<String> = entries[id]?.activity?.let { events ->
+        if (events.isEmpty()) emptyList() else events.toList().also { events.clear() }
+    } ?: emptyList()
 
     fun resize(id: String, columns: Int, rows: Int, cellWidth: Int? = null, cellHeight: Int? = null) {
         val entry = entries[id] ?: return

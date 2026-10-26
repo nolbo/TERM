@@ -39,8 +39,10 @@ internal class SessionTaskNotifications(private val context: Context, private va
     fun nextExpiryMs() = tracker.nextExpiryMs()
     fun input(id: String, bytes: ByteArray) = tracker.input(id, bytes)
     fun setFocusedSessions(ids: Set<String>) = synchronized(lock) { tracker.setFocusedSessions(ids) }
-    fun output(id: String, bytes: ByteArray, replay: Boolean, title: () -> String) = synchronized(lock) {
-        tracker.output(id, bytes, replay).forEach { post(it, title()) }
+    fun activity(id: String, events: List<String>, title: () -> String): Boolean = synchronized(lock) {
+        val result = tracker.activity(id, events)
+        result.alerts.forEach { post(it, title()) }
+        result.wakeChanged
     }
     fun exited(id: String, code: Int, title: String) = synchronized(lock) {
         tracker.exited(id, code).forEach { post(it, title) }

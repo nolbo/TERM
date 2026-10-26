@@ -32,6 +32,7 @@ class UnifiedSessionRegistry(
     private val beforeCreate: () -> Unit = {},
     private val onDisconnected: (SessionRuntime, String) -> Unit = { _, _ -> },
     private val onInput: (String, ByteArray) -> Unit = { _, _ -> },
+    private val onOutputActivity: (String, List<String>) -> Unit = { _, _ -> },
     private val recordLaunch: (String, SessionLaunchSpec) -> Unit = { _, _ -> },
     private val restoreLaunch: (String) -> SessionLaunchSpec? = { null },
     private val remoteCommand: (suspend (String, String) -> ByteArray?)? = null,
@@ -131,9 +132,11 @@ class UnifiedSessionRegistry(
                     keyboardFlags[sessionId] = stream.keyboard().flags()
                     for (part in parts) {
                         if (part.bytes != null) {
-                            val (state, replies) = terminalStates.mutex.withLock {
-                                terminalStates.identity(sessionId) to terminalStates.output(sessionId, part.bytes)
+                            val (state, replies, activity) = terminalStates.withSession(sessionId) {
+                                val replies = terminalStates.output(sessionId, part.bytes)
+                                Triple(terminalStates.identity(sessionId), replies, terminalStates.takeActivity(sessionId))
                             }
+                            if (state != null) onOutputActivity(sessionId, activity)
                             if (key.runtime == SessionRuntime.AVF) {
                                 enqueueTerminalReplies(key, registration, sessionId, state, replies)
                             } else replies.forEach { reply ->
@@ -150,11 +153,15 @@ class UnifiedSessionRegistry(
                         inputSessions.remove(sessionId)
                         failResize(sessionId)
                         controlStreams.remove(sessionId)?.finish()?.takeIf { it.isNotEmpty() }?.let {
-                            terminalStates.mutex.withLock { terminalStates.output(sessionId, it) }
+                            val activity = terminalStates.withSession(sessionId) {
+                                terminalStates.output(sessionId, it)
+                                terminalStates.takeActivity(sessionId)
+                            }
+                            onOutputActivity(sessionId, activity)
                             mutableEvents.emit(SessionEvent.Output(sessionId, it))
                         }
                         keyboardFlags.remove(sessionId)
-                        terminalStates.mutex.withLock { terminalStates.exited(sessionId, event.exitCode) }
+                        terminalStates.withSession(sessionId) { terminalStates.exited(sessionId, event.exitCode) }
                     }
                     mutableEvents.emit(event)
                 }
@@ -232,7 +239,7 @@ class UnifiedSessionRegistry(
             listMutex.withLock {
                 check(registrations[key] === registration) { "Environment owner changed" }
                 val lost = (owners.filterValues { it == key }.keys + lastKnownSessions[key].orEmpty().map { it.id }).toList()
-                terminalStates.mutex.withLock { lost.forEach(terminalStates::remove) }
+                lost.forEach { id -> terminalStates.withSession(id) { terminalStates.remove(id) } }
                 registrations.remove(key)
                 forgetOwners(key)
                 lost.forEach { launches.remove(it); controlStreams.remove(it); keyboardFlags.remove(it) }
@@ -325,7 +332,7 @@ class UnifiedSessionRegistry(
             check(registration?.controller?.list()?.getOrThrow().orEmpty().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) { "Storage has active sessions" }
             val release: suspend () -> Unit = {
                 val removedIds = owners.filterValues { it == key }.keys.toList()
-                terminalStates.mutex.withLock { removedIds.forEach(terminalStates::remove) }
+                removedIds.forEach { id -> terminalStates.withSession(id) { terminalStates.remove(id) } }
                 registrations.remove(key)?.let { entry ->
                     entry.jobs.forEach(Job::cancel)
                     entry.controller.close()
@@ -379,7 +386,7 @@ class UnifiedSessionRegistry(
         runCatching {
             val created = registration.creation.withLock {
                 val created = registration.controller.create(shell, cwd, env, rows, cols).getOrThrow()
-                terminalStates.mutex.withLock {
+                terminalStates.withSession(created.id) {
                     check(registrations[key] === registration) { "Environment owner changed" }
                     failResize(created.id)
                     terminalStates.create(created.id, cols.toInt(), rows.toInt())
@@ -477,8 +484,8 @@ class UnifiedSessionRegistry(
             pending.registration.controller.connectionState.value == SessionConnectionState.CONNECTED
 
     private suspend fun applyResize(sessionId: String, pending: PendingResize, rows: Int, cols: Int) {
-        terminalStates.mutex.withLock {
-            if (pendingResizes[sessionId] !== pending) return@withLock
+        terminalStates.withSession(sessionId) {
+            if (pendingResizes[sessionId] !== pending) return@withSession
             runCatching {
                 check(resizeIsCurrent(sessionId, pending) && rows == pending.rows && cols == pending.cols) {
                     "Resize destination changed"
@@ -493,7 +500,7 @@ class UnifiedSessionRegistry(
         require(rows in 1..65535 && cols in 1..65535)
         val key = ownerKey(sessionId) ?: error("Session not found")
         val registration = registrations[key] ?: error("Environment is not connected")
-        val pending = terminalStates.mutex.withLock {
+        val pending = terminalStates.withSession(sessionId) {
             PendingResize(key, registration, inputSessions[sessionId], terminalStates.identity(sessionId),
                 rows, cols, cellWidth, cellHeight).also { pendingResizes[sessionId] = it }
         }
@@ -523,10 +530,10 @@ class UnifiedSessionRegistry(
     suspend fun configureTerminal(sessionId: String, rows: Int, cols: Int, cellWidth: Int, cellHeight: Int,
         palette: java.util.Properties, sink: RuntimeTerminalState.Sink? = null) = geometryLocks.withSession(sessionId) {
         require(rows in 1..65535 && cols in 1..65535 && cellWidth in 0..65535 && cellHeight in 0..65535)
-        val identity = terminalStates.mutex.withLock { terminalStates.identity(sessionId) }
-        if (!terminalStates.mutex.withLock { terminalStates.sameDimensions(sessionId, cols, rows) })
+        val identity = terminalStates.withSession(sessionId) { terminalStates.identity(sessionId) }
+        if (!terminalStates.withSession(sessionId) { terminalStates.sameDimensions(sessionId, cols, rows) })
             resizeTerminal(sessionId, rows, cols, cellWidth, cellHeight)
-        terminalStates.mutex.withLock {
+        terminalStates.withSession(sessionId) {
             check(terminalStates.identity(sessionId) === identity) { "Terminal state changed" }
             terminalStates.resize(sessionId, cols, rows, cellWidth, cellHeight)
             terminalStates.palette(sessionId, palette)
@@ -562,7 +569,7 @@ class UnifiedSessionRegistry(
             launches.remove(sessionId)
             controlStreams.remove(sessionId)
             keyboardFlags.remove(sessionId)
-            terminalStates.mutex.withLock { terminalStates.remove(sessionId) }
+            terminalStates.withSession(sessionId) { terminalStates.remove(sessionId) }
         }
     }
 

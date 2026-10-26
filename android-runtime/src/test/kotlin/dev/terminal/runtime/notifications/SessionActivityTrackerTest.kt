@@ -6,8 +6,35 @@ import org.junit.Test
 class SessionActivityTrackerTest {
     private var now = 0L
     private fun tracker(enabled: Boolean = true) = SessionActivityTracker({ now }).apply { setEnabled(enabled) }
-    private fun SessionActivityTracker.send(value: String, id: String = "native-a", replay: Boolean = false) = output(id, value.toByteArray(), replay)
+    private val terminals = mutableMapOf<SessionActivityTracker, dev.terminal.runtime.session.RuntimeTerminalState>()
+    private fun SessionActivityTracker.send(value: String, id: String = "native-a", replay: Boolean = false): List<SessionActivityTracker.Alert> {
+        if (replay) return emptyList()
+        val state = terminals.getOrPut(this) { dev.terminal.runtime.session.RuntimeTerminalState(100) }
+        state.create(id, 80, 24)
+        state.output(id, value.toByteArray())
+        return activity(id, state.takeActivity(id)).alerts
+    }
     private fun osc(value: String) = "\u001b]$value\u0007"
+
+    @Test fun plainOutputOnlyRecomputesWakeOnNewWorkOrExpiredLease() {
+        val tracker = tracker(false)
+        assertTrue(tracker.activity("a", emptyList()).wakeChanged)
+        repeat(10_000) { now++; assertFalse(tracker.activity("a", emptyList()).wakeChanged) }
+        assertEquals(SessionActivityTracker.UNKNOWN_WORK_LEASE_MS.toLong(), tracker.nextExpiryMs())
+        now += SessionActivityTracker.UNKNOWN_WORK_LEASE_MS
+        assertFalse(tracker.workActive())
+        assertTrue(tracker.activity("a", emptyList()).wakeChanged)
+        assertTrue(tracker.workActive())
+        assertTrue(tracker.activity("a", listOf("133;A")).wakeChanged)
+        assertFalse(tracker.activity("a", emptyList()).wakeChanged)
+        assertFalse(tracker.workActive())
+        assertTrue(tracker.activity("a", listOf("133;C")).wakeChanged)
+        now += 7_200_000
+        assertFalse(tracker.activity("a", emptyList()).wakeChanged)
+        assertTrue(tracker.workActive())
+        assertTrue(tracker.activity("a", listOf("133;D;0")).wakeChanged)
+        assertFalse(tracker.workActive())
+    }
 
     @Test fun idleAndLongSilentCommandWorkAreIndependentOfNotifications() {
         val tracker = tracker(false)

@@ -51,6 +51,25 @@ class TerminalQueryReplyTest {
         private fun descriptor(id: String) = SessionDescriptor(id, id, "/bin/sh", "/", 0, 24u, 80u, SessionStatus.RUNNING)
     }
 
+    @Test fun parsedActivityPrecedesOutputWithoutASecondObserverOfTheByteStream() = runBlocking {
+        val events = mutableListOf<List<String>>()
+        val guest = Guest()
+        val client = ProtocolSessionClient(guest)
+        val registry = UnifiedSessionRegistry(onOutputActivity = { _, parsed -> synchronized(events) { events.add(parsed) } })
+        try { withTimeout(3000) {
+            registry.register(SessionRuntime.AVF, client)
+            registry.list().getOrThrow()
+            registry.terminalStates.withSession("avf-query") { registry.terminalStates.create("avf-query", 80, 24) }
+            val finished = async(start = CoroutineStart.UNDISPATCHED) {
+                registry.events.first { it is SessionEvent.Output && it.bytes.decodeToString().endsWith("DONE") }
+            }
+            guest.output("avf-query", "plain")
+            guest.output("avf-query", "\u001b]133;C\u0007work\u001b]133;D;0\u0007DONE")
+            finished.await()
+            assertEquals(listOf(emptyList<String>(), listOf("133;C", "133;D;0")), synchronized(events) { events.toList() })
+        } } finally { registry.close() }
+    }
+
     @Test fun detachedAvfQueryReplyDrainsOutputBeforeItsWriteAcknowledgement() = withGuest { guest, client, registry ->
         guest.burstBeforeReply = true
         // No UI sink is attached: the runtime alone must answer the TUI.
@@ -112,7 +131,7 @@ class TerminalQueryReplyTest {
         val siblingEnvironment = Environment.create(SessionRuntime.AVF, "Other VM")
         registry.register(siblingEnvironment, sibling)
         registry.list().getOrThrow()
-        registry.terminalStates.mutex.withLock { registry.terminalStates.create("avf-other-query", 80, 24) }
+        registry.terminalStates.withSession("avf-other-query") { registry.terminalStates.create("avf-other-query", 80, 24) }
         guest.output("avf-query", "\u001b[6n")
         guest.writes.receive()
         repeat(256) { guest.output("avf-query", "\u001b[5n") }
@@ -125,7 +144,7 @@ class TerminalQueryReplyTest {
         finished.await()
         assertEquals(SessionConnectionState.CONNECTED, sibling.connectionState.value)
         assertTrue(registry.hasSessionOwner("avf-query"))
-        assertTrue(registry.terminalStates.mutex.withLock { registry.terminalStates.sameDimensions("avf-query", 80, 24) })
+        assertTrue(registry.terminalStates.withSession("avf-query") { registry.terminalStates.sameDimensions("avf-query", 80, 24) })
     }
 
     private fun withGuest(test: suspend CoroutineScope.(Guest, ProtocolSessionClient, UnifiedSessionRegistry) -> Unit) = runBlocking {
@@ -138,10 +157,7 @@ class TerminalQueryReplyTest {
         try { withTimeout(3_000) {
             registry.register(SessionRuntime.AVF, client)
             registry.list().getOrThrow()
-            registry.terminalStates.mutex.withLock {
-                registry.terminalStates.create("avf-query", 80, 24)
-                registry.terminalStates.create("avf-sibling", 80, 24)
-            }
+            listOf("avf-query", "avf-sibling").forEach { id -> registry.terminalStates.withSession(id) { registry.terminalStates.create(id, 80, 24) } }
             test(guest, client, registry)
             assertEquals("Terminal replies must not renew shell-activity leases", 0, userInputs)
         } } finally { registry.close() }

@@ -25,8 +25,26 @@ public final class TerminalCheckpoint {
     public static void write(TerminalEmulator emulator, OutputStream stream) throws IOException {
         DataOutputStream header = new DataOutputStream(stream);
         header.writeInt(MAGIC);
-        try (ObjectOutputStream out = new ObjectOutputStream(new GZIPOutputStream(header))) {
+        try (GZIPOutputStream compressed = new GZIPOutputStream(header)) {
+            capture(emulator, compressed);
+        }
+    }
+
+    /** Capture a stable graph while its session is locked; the caller bounds the destination. */
+    public static void capture(TerminalEmulator emulator, OutputStream stream) throws IOException {
+        try (ObjectOutputStream out = new ObjectOutputStream(stream)) {
             out.writeObject(emulator);
+        }
+    }
+
+    /** Compression and storage of immutable captured bytes need no terminal lock. */
+    public static void writeCaptured(InputStream captured, OutputStream stream) throws IOException {
+        DataOutputStream header = new DataOutputStream(stream);
+        header.writeInt(MAGIC);
+        try (GZIPOutputStream compressed = new GZIPOutputStream(header)) {
+            byte[] buffer = new byte[32 * 1024];
+            int count;
+            while ((count = captured.read(buffer)) != -1) compressed.write(buffer, 0, count);
         }
     }
 

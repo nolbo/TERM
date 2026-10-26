@@ -62,7 +62,7 @@ class AvfExitReconciliationDeviceTest {
         try {
             registry.register(SessionRuntime.AVF, client)
             registry.list().getOrThrow()
-            registry.terminalStates.mutex.withLock { sessions.forEach { registry.terminalStates.create(it.id, 80, 24) } }
+            sessions.forEach { session -> registry.terminalStates.withSession(session.id) { registry.terminalStates.create(session.id, 80, 24) } }
             collector = launch(start = CoroutineStart.UNDISPATCHED) {
                 var outputs = 0
                 registry.events.collect { event ->

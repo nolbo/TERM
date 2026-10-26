@@ -931,7 +931,7 @@ class VmRuntimeService : Service() {
                     ConnectionDiagnostics.record("terminal.delivery.failed", code = error.javaClass.simpleName)
                     if (terminalSinks.remove(key, sink)) {
                         terminalDeaths.remove(key)?.let { runCatching { key.second.unlinkToDeath(it, 0) } }
-                        scope.launch { registry.terminalStates.mutex.withLock { registry.terminalStates.unsubscribe(sessionId, sink) } }
+                        scope.launch { registry.terminalStates.withSession(sessionId) { registry.terminalStates.unsubscribe(sessionId, sink) } }
                         runCatching { listener.onError(BoundedCallbackQueue.RESYNC_REQUIRED) }
                     }
                 }
@@ -941,13 +941,13 @@ class VmRuntimeService : Service() {
                 }
                 previous?.let { old ->
                     old.close()
-                    registry.terminalStates.mutex.withLock { registry.terminalStates.unsubscribe(sessionId, old) }
+                    registry.terminalStates.withSession(sessionId) { registry.terminalStates.unsubscribe(sessionId, old) }
                 }
                 val death = android.os.IBinder.DeathRecipient {
                     if (terminalSinks.remove(key, sink)) {
                         sink.close()
                         terminalDeaths.remove(key)
-                        scope.launch { registry.terminalStates.mutex.withLock { registry.terminalStates.unsubscribe(sessionId, sink) } }
+                        scope.launch { registry.terminalStates.withSession(sessionId) { registry.terminalStates.unsubscribe(sessionId, sink) } }
                     }
                 }
                 terminalDeaths.put(key, death)?.let { listener.asBinder().unlinkToDeath(it, 0) }
@@ -958,7 +958,7 @@ class VmRuntimeService : Service() {
                 terminalSinks.remove(key)?.let { sink ->
                     sink.close()
                     (sessionClient as? UnifiedSessionRegistry)?.let { registry ->
-                        registry.terminalStates.mutex.withLock { registry.terminalStates.unsubscribe(sessionId, sink) }
+                        registry.terminalStates.withSession(sessionId) { registry.terminalStates.unsubscribe(sessionId, sink) }
                     }
                 }
                 runCatching { listener.onError(error.userMessage()) }
@@ -971,7 +971,7 @@ class VmRuntimeService : Service() {
             terminalDeaths.remove(key)?.let { key.second.unlinkToDeath(it, 0) }
             terminalSinks.remove(key)?.let { sink ->
                 sink.close()
-                registry.terminalStates.mutex.withLock { registry.terminalStates.unsubscribe(sessionId, sink) }
+                registry.terminalStates.withSession(sessionId) { registry.terminalStates.unsubscribe(sessionId, sink) }
             }
         }
 
@@ -984,7 +984,7 @@ class VmRuntimeService : Service() {
         override fun setTerminalViewport(sessionId: String, row: Int, offset: Float, transcriptShift: Long) = terminalOperation(sessionId) {
             require(row in -50_000..0 && offset.isFinite() && offset in 0f..1f)
             val registry = sessionClient as? UnifiedSessionRegistry ?: return@terminalOperation
-            registry.terminalStates.mutex.withLock {
+            registry.terminalStates.withSession(sessionId) {
                 registry.terminalStates.viewport(sessionId, dev.terminal.runtime.session.RuntimeTerminalState.Viewport(row, offset, transcriptShift))
             }
         }
@@ -1476,6 +1476,8 @@ class VmRuntimeService : Service() {
             }, onInput = { id, bytes ->
                 taskNotifications.input(id, bytes)
                 updateWakeState()
+            }, onOutputActivity = { id, events ->
+                if (taskNotifications.activity(id, events) { sessionNotificationTitle(id) }) updateWakeState()
             }, restoreLaunch = { id -> getSharedPreferences("session-launches", MODE_PRIVATE).getString(id, null)
                 ?.let { runCatching { SessionLaunchSpec.fromJson(it) }.getOrNull() } }, recordLaunch = { id, spec ->
                 resetReconnectBackoff()
@@ -2148,8 +2150,6 @@ class VmRuntimeService : Service() {
             ?: SessionRuntime.fromSessionId(sessionId)?.wireName.orEmpty()
 
     private fun notifyTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) {
-        taskNotifications.output(sessionId, bytes, replay) { sessionNotificationTitle(sessionId) }
-        if (!replay) updateWakeState()
         synchronized(broadcastLock) {
             callbackTargets().forEach { (target, delivery) ->
                 delivery.offerOutput(bytes, sessionId to replay) { target.onTerminalOutput(sessionId, it, replay) }

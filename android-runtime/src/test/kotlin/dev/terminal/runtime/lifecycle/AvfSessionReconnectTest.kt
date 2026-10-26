@@ -82,7 +82,7 @@ class AvfSessionReconnectTest {
             }
             withTimeout(2_000) {
                 while (!transcript.contains("AFTER_RECONNECT")) {
-                    registry.terminalStates.mutex.withLock {
+                    registry.terminalStates.withSession("avf-first") {
                         registry.terminalStates.subscribe("avf-first", sink)
                         registry.terminalStates.unsubscribe("avf-first", sink)
                     }

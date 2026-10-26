@@ -29,4 +29,8 @@ public abstract class TerminalOutput {
 
     public abstract void onColorsChanged();
 
+    /** Live, parsed OSC 133/9/777 activity; an empty command denotes a ground-state bell.
+     * Runtime observers may consume it without parsing the PTY stream a second time. */
+    public void onSessionActivity(String command) {}
+
 }

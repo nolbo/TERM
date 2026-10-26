@@ -1,6 +1,6 @@
 package dev.terminal.runtime.notifications
 
-/** Observes live PTY bytes only. No timers, polling, shell ownership, or output-text guessing. */
+/** Consumes live semantic events from the authoritative terminal parser, never parses PTY output. */
 internal class SessionActivityTracker(
     private val clock: () -> Long,
     private val longCommandMs: Long = 10_000,
@@ -9,10 +9,6 @@ internal class SessionActivityTracker(
     enum class Kind { COMPLETED, ATTENTION }
     data class Alert(val sessionId: String, val kind: Kind, val exitCode: Int? = null)
     private class Session {
-        var state = 0 // ground, ESC, OSC, OSC-ESC, ignored string, string-ESC, CSI
-        var utf8 = 0
-        val osc = StringBuilder()
-        var overflow = false
         var started: Long? = null
         var work = Work.UNKNOWN
         var observedAt = 0L
@@ -70,10 +66,17 @@ internal class SessionActivityTracker(
         }
     }
 
-    @Synchronized fun output(id: String, bytes: ByteArray, replay: Boolean): List<Alert> {
-        if (replay) return emptyList()
+    data class Activity(val alerts: List<Alert>, val wakeChanged: Boolean)
+
+    @Synchronized fun activity(id: String, events: List<String>): Activity {
+        val previous = sessions[id]
+        val now = clock()
+        val wasActive = previous?.let { it.work == Work.ACTIVE ||
+            it.work == Work.UNKNOWN && now - it.observedAt < UNKNOWN_WORK_LEASE_MS } ?: false
         val session = sessions.getOrPut(id, ::Session)
-        session.observedAt = clock()
+        val oldWork = session.work
+        session.observedAt = now
+        if (events.isEmpty()) return Activity(emptyList(), previous == null || wasActive != (session.work != Work.IDLE))
         val alerts = mutableListOf<Alert>()
         fun alert(kind: Kind, code: Int? = null) {
             val now = clock()
@@ -91,58 +94,21 @@ internal class SessionActivityTracker(
             session.work = Work.IDLE
             if (start != null && clock() - start >= longCommandMs) alert(Kind.COMPLETED, code)
         }
-        fun osc() {
-            if (session.overflow) return
-            val value = session.osc.toString()
+        for (value in events) {
             when {
                 value == "133;C" || value.startsWith("133;C;") -> {
                     session.started = clock(); session.atPrompt = false; session.work = Work.ACTIVE
                 }
                 value == "133;D" || value.startsWith("133;D;") -> complete(value.substringAfter("133;D;", "").substringBefore(';').toIntOrNull())
                 value == "133;A" || value.startsWith("133;A;") -> { complete(null); session.atPrompt = true }
-                value.startsWith("9;") && !value.startsWith("9;4;") -> alert(Kind.ATTENTION)
-                value.startsWith("777;notify;") -> alert(Kind.ATTENTION)
+                value.isEmpty() || value.startsWith("9;") && !value.startsWith("9;4;") ||
+                    value.startsWith("777;notify;") -> alert(Kind.ATTENTION)
             }
         }
-        for (raw in bytes) {
-            val b = raw.toInt() and 255
-            val continuation = session.utf8 > 0 && b in 0x80..0xbf
-            session.utf8 = if (continuation) session.utf8 - 1 else when (b) {
-                in 0xc2..0xdf -> 1; in 0xe0..0xef -> 2; in 0xf0..0xf4 -> 3; else -> 0
-            }
-            if (!continuation && (b == 0x18 || b == 0x1a)) { session.state = 0; continue }
-            when (session.state) {
-                0 -> if (!continuation) when (b) {
-                    7 -> alert(Kind.ATTENTION)
-                    27 -> session.state = 1
-                    0x9d -> { session.state = 2; session.osc.setLength(0); session.overflow = false }
-                    0x90, 0x98, 0x9e, 0x9f -> session.state = 4
-                    0x9b -> session.state = 6
-                }
-                1 -> when (b) {
-                    93 -> { session.state = 2; session.osc.setLength(0); session.overflow = false }
-                    80, 88, 94, 95 -> session.state = 4
-                    91 -> session.state = 6
-                    27 -> Unit
-                    else -> session.state = 0
-                }
-                2 -> when {
-                    b == 7 || (!continuation && b == 0x9c) -> { osc(); session.state = 0 }
-                    b == 27 -> session.state = 3
-                    session.osc.length < 1024 -> session.osc.append(b.toChar())
-                    else -> session.overflow = true
-                }
-                3 -> {
-                    if (b == 92) osc()
-                    // Malformed OSC is discarded, never reinterpreted as a bell/request.
-                    session.state = if (b == 92) 0 else 4
-                }
-                4 -> if (b == 27) session.state = 5 else if (!continuation && b == 0x9c) session.state = 0
-                5 -> session.state = if (b == 92) 0 else if (b == 27) 5 else 4
-                6 -> if (b in 0x40..0x7e) session.state = 0 else if (b == 27) session.state = 1
-            }
-        }
-        return alerts
+        // Extending an already-live unknown-shell lease needs no scan or timer reset:
+        // the existing expiry job will observe its new deadline when it wakes.
+        val active = session.work != Work.IDLE
+        return Activity(alerts, previous == null || oldWork != session.work || wasActive != active)
     }
 
     @Synchronized fun exited(id: String, code: Int): List<Alert> {

@@ -14,13 +14,24 @@ import dev.terminal.runtime.ipc.ITerminalStateListener
 import dev.terminal.runtime.lifecycle.BoundedCallbackQueue
 
 internal class QueuedTerminalSink(directory: File, listener: ITerminalStateListener,
-    executor: Executor, onFailure: (Exception) -> Unit) : RuntimeTerminalState.Sink, Closeable {
+    executor: Executor, private val captureBudget: CheckpointBudget = CheckpointBudget.shared,
+    onFailure: (Exception) -> Unit) : RuntimeTerminalState.Sink, Closeable {
     private val queue = BoundedCallbackQueue(executor, onFailure)
     private val cache = directory
     private val target = listener
     override fun checkpoint(emulator: TerminalEmulator, viewport: RuntimeTerminalState.Viewport?) {
-        val descriptor = terminalCheckpointFile(cache, emulator, viewport)
-        check(queue.offer(dispose = { descriptor.close() }) { target.onCheckpoint(descriptor) })
+        val snapshot = try { TerminalCheckpointSnapshot.capture(emulator, viewport, captureBudget) }
+        catch (_: CheckpointBudget.Exhausted) {
+            // Preserve large histories and all existing compressed-checkpoint limits.
+            // Under capture pressure only this session uses the original disk path.
+            val descriptor = terminalCheckpointFile(cache, viewport) { TerminalCheckpoint.write(emulator, it) }
+            check(queue.offer(dispose = { descriptor.close() }) { descriptor.use { target.onCheckpoint(it) } })
+            return
+        }
+        check(queue.offer(dispose = { snapshot.close() }) {
+            try { terminalCheckpointFile(cache, snapshot).use { target.onCheckpoint(it) } }
+            finally { snapshot.close() }
+        })
     }
     override fun output(bytes: ByteArray) {
         check(queue.offerOutput(bytes) { target.onOutput(it) })
@@ -32,11 +43,13 @@ internal class QueuedTerminalSink(directory: File, listener: ITerminalStateListe
     override fun close() = queue.close()
 }
 
-/** Capture under the emulator lock, then transfer an immutable, unlinked, read-only file.
- * No UI pipe reader or Binder transaction participates in taking the snapshot.
- */
-internal fun terminalCheckpointFile(directory: File, emulator: TerminalEmulator,
-    viewport: RuntimeTerminalState.Viewport?): ParcelFileDescriptor {
+/** Serialize an already frozen snapshot on the callback worker, outside every terminal lock. */
+internal fun terminalCheckpointFile(directory: File, snapshot: TerminalCheckpointSnapshot): ParcelFileDescriptor {
+    return terminalCheckpointFile(directory, snapshot.viewport, snapshot::writeTo)
+}
+
+private fun terminalCheckpointFile(directory: File, viewport: RuntimeTerminalState.Viewport?,
+    write: (OutputStream) -> Unit): ParcelFileDescriptor {
     val file = File.createTempFile("terminal-checkpoint-", ".tmp", directory)
     var descriptor: ParcelFileDescriptor? = null
     try {
@@ -45,7 +58,7 @@ internal fun terminalCheckpointFile(directory: File, emulator: TerminalEmulator,
             if (viewport != null) {
                 out.writeInt(viewport.row); out.writeFloat(viewport.offset); out.writeLong(viewport.transcriptShift)
             }
-            TerminalCheckpoint.write(emulator, out)
+            write(out)
         }
         descriptor = ParcelFileDescriptor.open(file, ParcelFileDescriptor.MODE_READ_ONLY)
         check(file.delete()) { "Unable to unlink terminal checkpoint" }
