@@ -8,7 +8,7 @@ import java.util.Arrays;
  * The text in the row is stored in a char[] array, {@link #mText}, for quick access during rendering.
  */
 public final class TerminalRow implements java.io.Serializable {
-    private static final long serialVersionUID = 1L;
+    private static final long serialVersionUID = 2L;
 
     /** History identity follows the row object; anchors are invalidated before recycling it. */
     int mHistorySlot;
@@ -58,7 +58,7 @@ public final class TerminalRow implements java.io.Serializable {
     /** If this row has been line wrapped due to text output at the end of line. */
     boolean mLineWrap;
     /** The style bits of each cell in the row. See {@link TextStyle}. */
-    final long[] mStyle;
+    transient long[] mStyle;
     /** Lazily allocated SGR 58 colors, also used as kitty placeholder placement IDs. */
     private int[] mUnderlineColors;
     /** OSC 8 destinations shared by linked cells; absent on rows without hyperlinks. */
@@ -72,6 +72,50 @@ public final class TerminalRow implements java.io.Serializable {
         mText = new char[(int) (SPARE_CAPACITY_FACTOR * columns)];
         mStyle = new long[columns];
         clear(style);
+    }
+
+    /** Same-build checkpoints encode long stretches of identical cell styles once. */
+    private void writeObject(java.io.ObjectOutputStream out) throws java.io.IOException {
+        out.defaultWriteObject();
+        int runs = mStyle.length == 0 ? 0 : 1;
+        for (int i = 1; i < mStyle.length; i++) if (mStyle[i] != mStyle[i - 1]) runs++;
+        // Dense styles retain the normal array encoding instead of expanding into runs.
+        if ((long) runs * 12 >= (long) mStyle.length * 8) {
+            out.writeInt(0);
+            out.writeObject(mStyle);
+        } else {
+            out.writeInt(runs);
+            for (int start = 0; start < mStyle.length;) {
+                int end = start + 1;
+                while (end < mStyle.length && mStyle[end] == mStyle[start]) end++;
+                out.writeInt(end - start); out.writeLong(mStyle[start]);
+                start = end;
+            }
+        }
+    }
+
+    private void readObject(java.io.ObjectInputStream in) throws java.io.IOException, ClassNotFoundException {
+        in.defaultReadObject();
+        if (mColumns < 1 || mColumns > 65535) throw new java.io.InvalidObjectException("Invalid row width");
+        int runs = in.readInt();
+        if (runs == 0) {
+            Object value = in.readObject();
+            if (!(value instanceof long[]) || ((long[]) value).length != mColumns)
+                throw new java.io.InvalidObjectException("Invalid row styles");
+            mStyle = (long[]) value;
+        } else {
+            if (runs < 1 || runs > mColumns) throw new java.io.InvalidObjectException("Invalid style run count");
+            mStyle = new long[mColumns];
+            int position = 0;
+            for (int i = 0; i < runs; i++) {
+                int count = in.readInt(); long style = in.readLong();
+                if (count < 1 || count > mColumns - position)
+                    throw new java.io.InvalidObjectException("Invalid style run length");
+                Arrays.fill(mStyle, position, position + count, style);
+                position += count;
+            }
+            if (position != mColumns) throw new java.io.InvalidObjectException("Incomplete row styles");
+        }
     }
 
     /** NOTE: The sourceX2 is exclusive. */

@@ -7,19 +7,24 @@ import time
 
 WINDOW = 256 * 1024
 CHUNK = 32 * 1024
+BATCH_FRAMES = 4
 MAX_OFFSET = (1 << 63) - 1
 HANDSHAKE = struct.Struct('!4sIQQ')
 FRAME = struct.Struct('!BQI')
 
 
-def exact(stream, size, mutable=False):
-    result = bytearray(size)
+def exact_into(stream, target):
     position = 0
-    while position < size:
-        count = stream.recv_into(memoryview(result)[position:])
+    while position < len(target):
+        count = stream.recv_into(target[position:])
         if not count:
             raise EOFError('replay socket disconnected')
         position += count
+
+
+def exact(stream, size, mutable=False):
+    result = bytearray(size)
+    exact_into(stream, memoryview(result))
     return result if mutable else bytes(result)
 
 
@@ -34,17 +39,24 @@ class Ring:
     def __len__(self):
         return self.size
 
-    def read(self, offset, count):
+    def read_into(self, offset, target):
+        count = len(target)
         if not 0 <= offset <= self.size or not 0 <= count <= self.size - offset:
             raise ValueError('invalid ring range')
         if not count:
-            return b''
+            return
         start = (self.start + offset) % len(self.data)
         first = min(count, len(self.data) - start)
-        result = bytearray(count)
-        result[:first] = memoryview(self.data)[start:start + first]
+        source = memoryview(self.data)
+        target[:first] = source[start:start + first]
         if first < count:
-            result[first:] = memoryview(self.data)[:count - first]
+            target[first:] = source[:count - first]
+
+    def read(self, offset, count):
+        if not 0 <= offset <= self.size or not 0 <= count <= self.size - offset:
+            raise ValueError('invalid ring range')
+        result = bytearray(count)
+        self.read_into(offset, memoryview(result))
         return result
 
     def append(self, source):
@@ -164,12 +176,17 @@ class ReplayStream:
                 raise
 
     def receive(self, connection):
+        header = bytearray(FRAME.size)
+        header_view = memoryview(header)
+        payload = memoryview(bytearray(CHUNK))
         try:
             while True:
-                kind, position, length = FRAME.unpack(exact(connection['socket'], FRAME.size))
+                exact_into(connection['socket'], header_view)
+                kind, position, length = FRAME.unpack_from(header)
                 if position > MAX_OFFSET or length > CHUNK or position + length > MAX_OFFSET:
                     raise ValueError('invalid replay frame bounds')
-                data = exact(connection['socket'], length, mutable=True)
+                data = payload[:length]
+                exact_into(connection['socket'], data)
                 with self.condition:
                     if self.closed or self.connection is not connection:
                         return
@@ -200,30 +217,42 @@ class ReplayStream:
     def send(self, connection):
         acknowledged = -1
         last_write = time.monotonic()
+        # Own this batch until sendall completes: never expose a mutable replay ring
+        # to native I/O or wait for more data merely to fill a batch.
+        batch = bytearray(min(self.capacity, CHUNK * BATCH_FRAMES) + FRAME.size * (BATCH_FRAMES + 1))
+        view = memoryview(batch)
         try:
             while True:
                 with self.condition:
                     while True:
                         if self.closed or self.connection is not connection:
                             return
+                        used = 0
                         if self.consumed > acknowledged:
                             acknowledged = self.consumed
-                            kind, position, data = 2, acknowledged, b''
-                            break
-                        available = min(self.produced - connection['cursor'],
-                                        connection['window'] - (connection['cursor'] - connection['consumed']))
-                        if available > 0:
-                            kind, position = 1, connection['cursor']
-                            start = position - self.acknowledged
-                            data = self.outgoing.read(start, min(CHUNK, available))
-                            connection['cursor'] += len(data)
+                            FRAME.pack_into(batch, used, 2, acknowledged, 0)
+                            used += FRAME.size
+                        for _ in range(BATCH_FRAMES):
+                            available = min(self.produced - connection['cursor'],
+                                            connection['window'] - (connection['cursor'] - connection['consumed']))
+                            if available <= 0:
+                                break
+                            position = connection['cursor']
+                            count = min(CHUNK, available)
+                            FRAME.pack_into(batch, used, 1, position, count)
+                            used += FRAME.size
+                            self.outgoing.read_into(position - self.acknowledged, view[used:used + count])
+                            used += count
+                            connection['cursor'] += count
+                        if used:
                             break
                         remaining = 5 - (time.monotonic() - last_write)
                         if remaining <= 0:
-                            kind, position, data = 3, 0, b''
+                            FRAME.pack_into(batch, 0, 3, 0, 0)
+                            used = FRAME.size
                             break
                         self.condition.wait(remaining)
-                connection['socket'].sendall(FRAME.pack(kind, position, len(data)) + data)
+                connection['socket'].sendall(view[:used])
                 last_write = time.monotonic()
         except (OSError, EOFError, ValueError):
             pass

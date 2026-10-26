@@ -4,6 +4,7 @@ import android.os.ParcelFileDescriptor
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import dev.terminal.emulator.TerminalCheckpoint
+import dev.terminal.emulator.TextStyle
 import dev.terminal.runtime.ipc.ITerminalStateListener
 import java.io.DataInputStream
 import java.nio.file.Files
@@ -20,8 +21,9 @@ import org.junit.runner.RunWith
 class TerminalCheckpointDeliveryDeviceTest {
     @Test fun delayedDeliveryUsesFrozenStateAndKeepsCheckpointOutputResizeExitOrdered() = verifyDelivery(CheckpointBudget())
     @Test fun capturePressurePreservesFullStateThroughDiskFallback() = verifyDelivery(CheckpointBudget(0))
+    @Test fun largeStyledHistorySurvivesCaptureAndAndroidDeserialization() = verifyDelivery(CheckpointBudget(), true)
 
-    private fun verifyDelivery(budget: CheckpointBudget) = runBlocking {
+    private fun verifyDelivery(budget: CheckpointBudget, large: Boolean = false) = runBlocking {
         val cache = Files.createTempDirectory(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir.toPath(), "checkpoint-test-").toFile()
         val worker = Executors.newSingleThreadExecutor()
         val release = CountDownLatch(1)
@@ -40,6 +42,10 @@ class TerminalCheckpointDeliveryDeviceTest {
                     val text = checkpoint.screen.transcriptText
                     assertTrue(text.contains("BEFORE"))
                     assertFalse(text.contains("AFTER"))
+                    if (large) {
+                        assertTrue(checkpoint.screen.activeTranscriptRows >= 9_000)
+                        assertEquals(1, TextStyle.decodeForeColor(checkpoint.screen.getStyleAt(-1, 8)))
+                    }
                     calls.add("checkpoint")
                 }
             }
@@ -50,8 +56,9 @@ class TerminalCheckpointDeliveryDeviceTest {
         }
         val sink = QueuedTerminalSink(cache, listener, worker, budget) { failures.add(it); done.countDown() }
         try {
-            val state = RuntimeTerminalState(100)
-            state.create("a", 40, 8); state.create("b", 40, 8)
+            val state = RuntimeTerminalState(if (large) 10_000 else 100)
+            state.create("a", if (large) 200 else 40, 8); state.create("b", 40, 8)
+            if (large) state.output("a", "history \u001b[31mred\u001b[0m\r\n".repeat(10_000).toByteArray())
             state.output("a", "BEFORE".toByteArray())
             state.withSession("a") { state.subscribe("a", sink) }
             assertTrue("No named checkpoint may remain", cache.listFiles()!!.isEmpty())

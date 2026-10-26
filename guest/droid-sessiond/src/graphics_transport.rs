@@ -42,12 +42,20 @@ impl GraphicsTransport {
 
     fn accept_prefix_with<F>(&mut self, input: &[u8], limit: usize, mut read: F) -> (usize, Output)
     where F: FnMut(char, &str, u64, u64) -> Result<Vec<u8>, &'static str> {
+        self.accept_prefix_inner(input, limit, &mut read, true)
+    }
+
+    fn accept_prefix_inner<F>(&mut self, input: &[u8], limit: usize, mut read: F, fast: bool) -> (usize, Output)
+    where F: FnMut(char, &str, u64, u64) -> Result<Vec<u8>, &'static str> {
         let mut result = Output::default();
-        // Most PTY chunks contain only text. Preserve the parser at fragment,
-        // escape and UTF-8 boundaries; plain ASCII needs only one output copy.
-        if self.state == 0 && self.utf8_remaining == 0 && input.iter().all(|&b| b < 0x80 && b != 27) {
-            append(&mut result, input);
-            return (input.len(), result);
+        // UTF-8 text and complete CSI sequences cannot introduce graphics media.
+        // Carry split UTF-8 continuations; malformed text and strings keep the full parser.
+        if fast && self.state == 0 {
+            if let Some(remaining) = plain_terminal_text(input, self.utf8_remaining) {
+                self.utf8_remaining = remaining;
+                append(&mut result, input);
+                return (input.len(), result);
+            }
         }
         let mut normal = Vec::new();
         let mut consumed = 0;
@@ -154,6 +162,34 @@ impl GraphicsTransport {
             append(result, format!("\x1b_G{metadata}m={more};{}\x1b\\", &encoded[start..end]).as_bytes());
         }
     }
+}
+
+fn plain_terminal_text(input: &[u8], pending: u8) -> Option<u8> {
+    let prefix = input.len().min(pending as usize);
+    if !input[..prefix].iter().all(|b| b & 0xc0 == 0x80) { return None; }
+    if prefix < pending as usize { return Some(pending - prefix as u8); }
+    let input = &input[prefix..];
+    let remaining = match std::str::from_utf8(input) {
+        Ok(_) => 0,
+        Err(error) if error.error_len().is_none() => {
+            let tail = &input[error.valid_up_to()..];
+            let total = match tail[0] { 0xc2..=0xdf => 2, 0xe0..=0xef => 3, 0xf0..=0xf4 => 4, _ => return None };
+            (total - tail.len()) as u8
+        }
+        Err(_) => return None,
+    };
+    if !input.contains(&27) { return Some(remaining); }
+    let mut offset = 0;
+    while let Some(next) = input[offset..].iter().position(|&b| b == 27) {
+        offset += next + 1;
+        if input.get(offset) != Some(&b'[') { return None; }
+        offset += 1;
+        while input.get(offset).is_some_and(|b| (0x30..=0x3f).contains(b)) { offset += 1; }
+        while input.get(offset).is_some_and(|b| (0x20..=0x2f).contains(b)) { offset += 1; }
+        if !input.get(offset).is_some_and(|b| (0x40..=0x7e).contains(b)) { return None; }
+        offset += 1;
+    }
+    Some(remaining)
 }
 
 fn parse_apc(bytes: &[u8]) -> Option<(BTreeMap<char, String>, String)> {
@@ -363,6 +399,41 @@ mod tests {
             assert!(output.ends_with(b"suffix"));
             assert!(String::from_utf8(output).unwrap().contains("AQID"));
         }
+    }
+
+    #[test]
+    fn utf8_and_ansi_fast_path_matches_parser_across_every_fragment_width() {
+        let command = sequence("a=T,i=1,t=f", &encode_base64(b"/guest/image"));
+        let samples = vec![
+            "한글 😀 é\x1b[38;2;1;2;3m색상\x1b[0m\r\n".as_bytes().repeat(3),
+            ["한글\x1b[2J".as_bytes(), &command, b"\x1b[?25htext"].concat(),
+            [b"\x1b]0;title ".as_slice(), &command, b"\x07\x1bPignored", &command, b"\x1b\\tail"].concat(),
+            [b"\xf0\x9f".as_slice(), b"\x9f\x9c", b"\x9fGa=q,t=f;L2ltYWdl\x9c", b"\xe0\x80\x80\xff\x1b[\x18"].concat(),
+        ];
+        for sample in samples {
+            for width in 1..=sample.len() {
+                let mut fast = GraphicsTransport::default();
+                let mut reference = GraphicsTransport::default();
+                for chunk in sample.chunks(width) {
+                    let (used, actual) = fast.accept_prefix_inner(chunk, usize::MAX, |_, _, _, _| Ok(vec![1, 2, 3]), true);
+                    let (expected_used, expected) = reference.accept_prefix_inner(chunk, usize::MAX, |_, _, _, _| Ok(vec![1, 2, 3]), false);
+                    assert_eq!(used, expected_used, "width {width}");
+                    assert_eq!(actual.replies, expected.replies);
+                    assert_eq!(flatten(actual), flatten(expected), "width {width}");
+                    assert_eq!(fast.state, reference.state);
+                    assert_eq!(fast.utf8_remaining, reference.utf8_remaining);
+                    assert_eq!(fast.apc, reference.apc);
+                    assert_eq!(fast.chunked, reference.chunked);
+                }
+                assert_eq!(flatten(fast.finish()), flatten(reference.finish()));
+            }
+        }
+        assert_eq!(plain_terminal_text("한글\x1b[31m빨강\x1b[0m".as_bytes(), 0), Some(0));
+        assert_eq!(plain_terminal_text(&[0xed, 0x95], 0), Some(1));
+        assert_eq!(plain_terminal_text(&[0x9c, 0xea], 1), Some(2));
+        assert_eq!(plain_terminal_text(b"\x1b_Gt=f;path\x1b\\", 0), None);
+        assert_eq!(plain_terminal_text(b"\x1b[31", 0), None);
+        assert_eq!(plain_terminal_text(&[0x9f], 0), None);
     }
 
     #[test]

@@ -46,6 +46,9 @@ public class TerminalCheckpointTest extends TerminalTestCase {
         if (!first.getClass().getName().startsWith("dev.terminal.emulator.")) { assertEquals(first, second); return; }
         Object previous = visited.put(first, second);
         if (previous != null) { assertSame("Checkpoint graph aliases", previous, second); return; }
+        if (first instanceof TerminalRow) {
+            assertTrue(Arrays.equals(((TerminalRow) first).mStyle, ((TerminalRow) second).mStyle));
+        }
         for (java.lang.reflect.Field field : first.getClass().getDeclaredFields()) {
             if (java.lang.reflect.Modifier.isStatic(field.getModifiers()) || java.lang.reflect.Modifier.isTransient(field.getModifiers())) continue;
             field.setAccessible(true); compare(field.get(first), field.get(second), visited);
@@ -55,6 +58,38 @@ public class TerminalCheckpointTest extends TerminalTestCase {
     private static void append(TerminalEmulator emulator, String text) {
         byte[] bytes = text.getBytes(StandardCharsets.UTF_8);
         emulator.append(bytes, bytes.length);
+    }
+
+    public void testRowStyleRunsAndDenseStylesRoundTripWithoutLosingCellMetadata() throws Exception {
+        for (int width : new int[]{1, 2, 80, 200}) {
+            for (int pattern = 0; pattern < 4; pattern++) {
+                TerminalRow row = new TerminalRow(width, TextStyle.NORMAL);
+                for (int column = 0; column < width; column++) {
+                    long style = pattern == 0 ? TextStyle.NORMAL : pattern == 1 ? column / 20 :
+                        pattern == 2 ? column % 2 : Long.MIN_VALUE + column * 123456789L;
+                    row.setChar(column, 'a' + column % 26, style, 0xFF123456, "https://example.com/" + column);
+                }
+                row.mLineWrap = true;
+                ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+                try (ObjectOutputStream out = new ObjectOutputStream(bytes)) { out.writeObject(row); }
+                TerminalRow copy;
+                try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+                    copy = (TerminalRow) in.readObject();
+                }
+                compare(row, copy, new java.util.IdentityHashMap<>());
+            }
+        }
+    }
+
+    public void testUniformRowCaptureAvoidsPerCellStylePayload() throws Exception {
+        TerminalRow[] rows = new TerminalRow[100];
+        for (int i = 0; i < rows.length; i++) rows[i] = new TerminalRow(200, TextStyle.NORMAL);
+        ByteArrayOutputStream uniform = new ByteArrayOutputStream();
+        try (ObjectOutputStream out = new ObjectOutputStream(uniform)) { out.writeObject(rows); }
+        for (TerminalRow row : rows) for (int i = 0; i < row.mStyle.length; i++) row.mStyle[i] = i;
+        ByteArrayOutputStream dense = new ByteArrayOutputStream();
+        try (ObjectOutputStream out = new ObjectOutputStream(dense)) { out.writeObject(rows); }
+        assertTrue("Uniform styles should avoid the dense long array payload", uniform.size() * 2 < dense.size());
     }
 
     public void testHyperlinksInBothScreensScrollbackAndActiveDestinationSurviveCheckpoint() throws Exception {

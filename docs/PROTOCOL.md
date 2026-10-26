@@ -596,6 +596,16 @@ idle five-second heartbeat; an unresponsive link is replaced after 20 seconds.
 Each direction retains at most 256 KiB per stream. Full windows backpressure
 their producer; bytes and file operations are never silently dropped/reissued.
 
+Host and guest writers combine up to four already-ready DATA frames and a
+pending consumption ACK into one raw write. Each frame retains the same 32KiB
+payload bound and offsets; an ACK or short interactive write is flushed without
+waiting for another frame or a batching timer. Per-link scratch buffers are
+reused: at most 128KiB plus five headers for sending, and 32KiB plus the receive
+header for reading (in addition to replay rings and buffered stream wrappers).
+The send scratch owns its bytes until native I/O completes, so consumption or
+socket replacement cannot mutate an in-flight batch. A partial batch disconnect
+recovers from the last complete received frame through the existing handshake.
+
 An isolated data link that remains disconnected for 60 seconds also revokes only
 that folder, even while the control lease is healthy. After mount readiness,
 root pins and seals each underlying mount directory as

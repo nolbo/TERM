@@ -163,8 +163,10 @@ class ReplayByteStreamTest {
         }
     }
 
-    @Test(timeout = 5_000) fun shortAndFullFramesFlushImmediatelyAsSingleRawWrites() {
+    @Test(timeout = 5_000) fun readyFramesAreBatchedWithoutDelayingInteractiveWrites() {
         val replay = ReplayByteStream()
+        val bulk = ByteArray(4 * ReplayByteStream.CHUNK) { (it * 17).toByte() }
+        replay.output.write(bulk)
         val writes = CopyOnWriteArrayList<ByteArray>()
         val worker = Executors.newSingleThreadExecutor()
         ServerSocket(0, 1, java.net.InetAddress.getLoopbackAddress()).use { server ->
@@ -192,25 +194,35 @@ class ReplayByteStreamTest {
                         outgoing.writeLong(0); outgoing.writeLong(0); outgoing.flush()
                         attached.get(2, TimeUnit.SECONDS)
                         var offset = 0L
-                        for (bytes in listOf(byteArrayOf(42), ByteArray(ReplayByteStream.CHUNK) { it.toByte() })) {
-                            replay.output.write(bytes)
+                        for (bytes in listOf(bulk, byteArrayOf(42), ByteArray(ReplayByteStream.CHUNK) { it.toByte() })) {
+                            if (bytes !== bulk) replay.output.write(bytes)
                             // No next application write, timer or full buffer may be
                             // required to release even a one-byte interactive packet.
-                            while (true) {
+                            var copied = 0
+                            while (copied < bytes.size) {
                                 val kind = incoming.readUnsignedByte()
                                 val position = incoming.readLong()
                                 val size = incoming.readInt()
                                 if (kind == 2) { assertEquals(0, size); continue }
-                                assertEquals(1, kind); assertEquals(offset, position)
-                                assertEquals(bytes.size, size)
+                                assertEquals(1, kind); assertEquals(offset + copied, position)
+                                assertTrue(size in 1..ReplayByteStream.CHUNK)
                                 val actual = ByteArray(size).also(incoming::readFully)
-                                assertArrayEquals(bytes, actual)
-                                offset += size
-                                break
+                                assertArrayEquals(bytes.copyOfRange(copied, copied + size), actual)
+                                copied += size
                             }
+                            offset += copied
                         }
-                        val dataWrites = writes.filter { it.firstOrNull() == 1.toByte() }
-                        assertEquals(listOf(14, 13 + ReplayByteStream.CHUNK), dataWrites.map { it.size })
+                        val payloadsPerWrite = writes.filter { it.firstOrNull() in listOf(1.toByte(), 2.toByte()) }.map { bytes ->
+                            val frames = DataInputStream(ByteArrayInputStream(bytes))
+                            var payload = 0
+                            while (frames.available() > 0) {
+                                frames.readByte(); frames.readLong()
+                                val size = frames.readInt()
+                                frames.skipBytes(size); payload += size
+                            }
+                            payload
+                        }.filter { it > 0 }
+                        assertEquals(listOf(bulk.size, 1, ReplayByteStream.CHUNK), payloadsPerWrite)
                     } finally { replay.close(); worker.shutdownNow() }
                 }
             }
@@ -265,8 +277,8 @@ class ReplayByteStreamTest {
                 import importlib.util, socket, sys
                 spec=importlib.util.spec_from_file_location('transport',sys.argv[1])
                 module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module)
-                relay=module.ReplayStream(64)
-                for count in (3,6):
+                relay=module.ReplayStream()
+                for count in (3,262281):
                     link=relay.attach(socket.create_connection(('127.0.0.1',int(sys.argv[2]))))
                     data=bytearray()
                     while len(data)<count:data.extend(relay.read(count-len(data)))
@@ -276,16 +288,18 @@ class ReplayByteStreamTest {
                 relay.close()
                 print('GUEST_REPLAY_OK')
             """.trimIndent(), script.toString(), server.localPort.toString()).redirectErrorStream(true).start()
-            val relay = ReplayByteStream(64)
+            val relay = ReplayByteStream()
             try {
                 var socket = server.accept()
                 val first = relay.attach(socket.getInputStream(), socket.getOutputStream()) { socket.close() }
                 relay.output.write("abc".toByteArray()); assertEquals("abc", read(relay, 3))
                 first.close()
-                relay.output.write("abcdef".toByteArray())
                 socket = server.accept()
                 relay.attach(socket.getInputStream(), socket.getOutputStream()) { socket.close() }
-                assertEquals("abcdef", read(relay, 6))
+                val bulk = ByteArray(ReplayByteStream.WINDOW + 137) { (it * 31).toByte() }
+                relay.output.write(bulk)
+                val echoed = ByteArray(bulk.size).also { DataInputStream(relay.input).readFully(it) }
+                assertArrayEquals(bulk, echoed)
                 assertTrue(process.waitFor(5, TimeUnit.SECONDS))
                 assertEquals(process.inputStream.bufferedReader().readText(), 0, process.exitValue())
             } finally { relay.close(); process.destroyForcibly() }

@@ -8,6 +8,7 @@ import java.io.DataOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.nio.ByteBuffer
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
@@ -194,6 +195,7 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
 
     private fun readFrames(current: Connection) {
         var reason = FailureReason.READ_HEADER
+        val bytes = ByteArray(CHUNK)
         try {
             while (true) {
                 reason = FailureReason.READ_HEADER
@@ -203,7 +205,7 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
                 reason = FailureReason.FRAME_BOUNDS
                 require(position >= 0 && length in 0..CHUNK && position <= Long.MAX_VALUE - length)
                 reason = FailureReason.READ_PAYLOAD
-                val bytes = ByteArray(length).also { current.input.readFully(it) }
+                current.input.readFully(bytes, 0, length)
                 current.lastRead = System.nanoTime()
                 synchronized(lock) {
                     if (closed || connection !== current) return
@@ -240,33 +242,37 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
     private fun writeFrames(current: Connection) {
         var acknowledged = -1L
         var lastWrite = System.nanoTime()
+        val batch = ByteBuffer.allocate(minOf(capacity, CHUNK * BATCH_FRAMES) + FRAME_HEADER_SIZE * (BATCH_FRAMES + 1))
         try {
             while (true) {
-                var kind = ACK
-                var position = 0L
-                var bytes = byteArrayOf()
                 synchronized(lock) {
                     while (true) {
                         if (closed || connection !== current) return
+                        batch.clear()
                         if (received.base > acknowledged) {
-                            position = received.base; acknowledged = position
-                            break
+                            acknowledged = received.base
+                            batch.put(ACK.toByte()).putLong(acknowledged).putInt(0)
                         }
-                        val available = minOf(sent.end - current.cursor,
-                            current.window.toLong() - (current.cursor - current.consumed))
-                        if (available > 0) {
-                            kind = DATA; position = current.cursor
-                            bytes = sent.copy(position, minOf(CHUNK.toLong(), available).toInt())
-                            current.cursor += bytes.size
-                            break
+                        for (frame in 0 until BATCH_FRAMES) {
+                            val available = minOf(sent.end - current.cursor,
+                                current.window.toLong() - (current.cursor - current.consumed))
+                            if (available <= 0) break
+                            val count = minOf(CHUNK.toLong(), available).toInt()
+                            batch.put(DATA.toByte()).putLong(current.cursor).putInt(count)
+                            sent.copyInto(current.cursor, batch.array(), batch.position(), count)
+                            batch.position(batch.position() + count)
+                            current.cursor += count
                         }
+                        // Flush whatever is ready now, including ACK-only batches.
+                        if (batch.position() > 0) break
                         val remaining = TimeUnit.SECONDS.toNanos(5) - (System.nanoTime() - lastWrite)
-                        if (remaining <= 0) { kind = PING; break }
+                        if (remaining <= 0) { batch.put(PING.toByte()).putLong(0).putInt(0); break }
                         lock.wait(TimeUnit.NANOSECONDS.toMillis(remaining).coerceAtLeast(1))
                     }
                 }
-                current.output.writeByte(kind); current.output.writeLong(position)
-                current.output.writeInt(bytes.size); current.output.write(bytes); current.output.flush()
+                // Own the scratch bytes until I/O completes; replay rings can safely
+                // advance/wrap while a native write is blocked or the link is replaced.
+                current.output.write(batch.array(), 0, batch.position()); current.output.flush()
                 lastWrite = System.nanoTime()
             }
         } catch (error: Exception) { detach(current, Failure(FailureReason.WRITE_FRAME, error)) }
@@ -303,6 +309,7 @@ class ReplayByteStream(private val capacity: Int = WINDOW) : Closeable {
     companion object {
         const val WINDOW = 256 * 1024
         const val CHUNK = 32 * 1024
+        private const val BATCH_FRAMES = 4
         private const val FRAME_HEADER_SIZE = 13
         private const val MAGIC = 0x54525332 // TRS2
         private const val DATA = 1

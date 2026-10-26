@@ -642,6 +642,11 @@ selected session uses the previous direct-to-file capture path, retaining the
 existing 64MiB compressed-checkpoint limit and large-history compatibility.
 Capture still pauses that session's parsing; no mutable emulator is passed to
 an unlocked worker, and slow UI delivery never holds a terminal lock.
+Row serialization encodes adjacent equal cell styles as runs, falling back to
+the ordinary long array for dense styles. This reduces frozen capture bytes and
+work under the session lock without dropping history or cell metadata. The row
+serialization revision is host-private and same-build only; it is neither a
+persisted upgrade format nor a guest wire-format change.
 
 Shell command history metadata belongs to the main terminal buffer, alongside retained cells. OSC 133 prompt/input/execution/completion boundaries attach logical cell anchors, start time and completion status; command strings are derived from retained cells rather than persisted in a second history. Trim invalidates anchors before ring-row reuse; resize/reflow remaps them. The anchor graph and pending shell boundaries travel in the same host-private checkpoint, so detached sessions continue recording independently of the optional command-history toolbar tool. The tool reads the UI mirror and performs local viewport jumps; it never owns runtime subscriptions or PTYs.
 

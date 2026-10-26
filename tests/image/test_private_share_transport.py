@@ -77,6 +77,62 @@ class ReplayTransportTests(unittest.TestCase):
         right.write(b'response')
         self.assertEqual(b'response', self.read(left, 8))
 
+    def test_ready_frames_share_one_write_and_partial_batch_replays_exactly_once(self):
+        for interrupt in (False, True):
+            left, right = self.owner(transport.WINDOW), self.owner(transport.WINDOW)
+            payload = bytes(range(256)) * (transport.CHUNK * 4 // 256)
+            left.write(payload)
+            a, b = socket.socketpair()
+            writes = []
+
+            class ObservedSocket:
+                def __init__(self, stream, receiver, interrupted, recorded):
+                    self.stream, self.receiver = stream, receiver
+                    self.interrupted, self.recorded = interrupted, recorded
+
+                def __getattr__(self, name):
+                    return getattr(self.stream, name)
+
+                def sendall(self, data):
+                    self.recorded.append(bytes(data))
+                    if self.interrupted and len(data) > transport.CHUNK:
+                        # First frame is complete; the second is cut midway through
+                        # its payload. Reconnection must retain only complete frames.
+                        first = transport.FRAME.size * 2 + transport.CHUNK
+                        self.stream.sendall(data[:first])
+                        with self.receiver.condition:
+                            if not self.receiver.condition.wait_for(lambda: self.receiver.received == transport.CHUNK, 2):
+                                raise AssertionError('first frame was not received')
+                        self.stream.sendall(data[first:first + transport.FRAME.size + 7])
+                        raise OSError('interrupted batch')
+                    self.stream.sendall(data)
+
+            worker = threading.Thread(target=left.attach, args=(ObservedSocket(a, right, interrupt, writes),))
+            worker.start()
+            right_link = right.attach(b)
+            worker.join(2)
+            self.assertFalse(worker.is_alive())
+            if interrupt:
+                self.assertTrue(right_link.wait(2))
+                self.assertEqual(transport.CHUNK, right.received)
+                self.assertEqual([], self.connect(left, right))
+            self.assertEqual(payload, self.read(right, len(payload)))
+            batch = next(data for data in writes if len(data) > transport.CHUNK)
+            offset = 0
+            frames = []
+            while offset < len(batch):
+                kind, position, count = transport.FRAME.unpack_from(batch, offset)
+                self.assertLessEqual(count, transport.CHUNK)
+                offset += transport.FRAME.size
+                if kind == 1:
+                    frames.append((position, batch[offset:offset + count]))
+                offset += count
+            self.assertEqual([i * transport.CHUNK for i in range(4)], [position for position, _ in frames])
+            self.assertEqual(payload, b''.join(data for _, data in frames))
+            left.write(b'x')
+            self.assertEqual(b'x', self.read(right, 1))
+            left.close(); right.close()
+
     def test_full_duplex_receive_windows_do_not_block_acknowledgements(self):
         left, right = self.owner(8), self.owner(8)
         self.assertEqual([], self.connect(left, right))

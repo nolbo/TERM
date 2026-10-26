@@ -180,3 +180,49 @@ CPU settings now match the platform's actual single/host-topology ABI. Memory de
 Memory diagnostics requests fixed aggregate guest metrics without creating sessions or booting environments. It reports guest memory/swap, CPU availability, load and memory PSI separately from app PSS. Legacy guests remain supported without repeated metric probes. The guest changes require an explicit verified component/image update; installed data is preserved.
 
 A proposed metadata-based startup hash cache was rejected during security review. Full SHA-256 checks remain authoritative on every preparation; verification reuses a single buffer and uses direct hex encoding. Manifest reads are bounded to 64KiB. Cold-start disk/hash work and real VM kernel memory remain inherent costs, not claimed eliminated. No privileged AVF target is attached, so actual device CPU/thermal/latency improvements require a matching device measurement.
+
+### Replay, graphics and checkpoint follow-up
+
+Replay writers now reuse scratch buffers and combine up to four ready DATA
+frames plus a pending ACK in one raw write, with no fill delay. Partial-batch
+disconnects still resume from complete received frames; consumption credit and
+recovery authority are unchanged. This trades bounded per-link scratch storage
+(up to 160KiB plus headers, outside replay rings) for fewer allocations, copies
+and writes. The Python relay and its socket-pump threads remain in use.
+
+The guest graphics fast path accepts UTF-8 (including split continuations) and
+complete ANSI CSI sequences. OSC/DCS/APC, raw C1, malformed text and incomplete
+escapes retain the existing parser and image conversion. Host checkpoint row
+serialization represents repeated styles as runs and keeps dense styles as
+arrays. Full cell/history state is retained; same-build private checkpoints do
+not become a cross-version persistence format. Capture still holds its own
+session lock, but serializes fewer bytes on typical uniform-style history.
+
+Linux ARM64 microbenchmarks compared the preceding implementation with these
+changes. Replay and graphics use five alternating before/after runs; checkpoint
+capture uses five timed JDK 17 runs after three warm-ups per pattern. Medians:
+
+| Stage and fixture | Before | After | Reduction |
+| --- | ---: | ---: | ---: |
+| Python replay, 16MiB via Unix sockets, wall time | 89.83ms | 80.36ms | 10.5% |
+| Same replay, process CPU time including synthetic peer | 131.02ms | 114.47ms | 12.6% |
+| Guest graphics, 64MiB ASCII in 8KiB chunks | 70.28ms | 13.74ms | 80.5% |
+| Guest graphics, 64MiB Korean/emoji text | 287.80ms | 96.25ms | 66.6% |
+| Guest graphics, 64MiB ANSI-colored Korean/emoji text | 326.19ms | 277.18ms | 15.0% |
+| Row capture, 10,000 × 200 cells with uniform styles | 22.74ms | 13.03ms | 42.7% |
+| Uncompressed bytes for the same row capture | 22,410,345 | 6,500,318 | 71.0% |
+
+Dense alternating styles remain array encoded (22,480,331 bytes versus
+22,410,345 before, about 0.3% encoding overhead). The capture fixture measures
+row serialization, excluding emulator parsing, GZIP, file I/O and Binder.
+These figures describe individual stages, not whole-VM speed or battery use.
+
+Regression tests cover interrupted batches, Kotlin/Python wire interoperability,
+small interactive writes, duplex credit and fragmented Unicode/ANSI/image
+commands. ReDroid15 ARM64 passed four Android instrumentation cases, including
+10,000-row styled checkpoint restoration and native socket replacement with
+duplex traffic larger than the replay windows. No AVF-capable target is available
+for real-vsock or screen-off soak measurements. Host changes need an APK update;
+guest graphics and relay changes need a verified component/image update under
+the stopped-Environment procedure. This source change does not publish an image
+or modify installed guest environments.
