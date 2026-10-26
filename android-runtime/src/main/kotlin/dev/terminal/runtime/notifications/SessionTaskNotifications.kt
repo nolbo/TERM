@@ -61,12 +61,11 @@ internal class SessionTaskNotifications(private val context: Context, private va
     }
 
     private fun post(alert: SessionActivityTracker.Alert, title: String) = synchronized(lock) {
-        if (!enabled) return@synchronized
-        if (alert.kind == SessionActivityTracker.Kind.COMPLETED) {
-            completions.add(alert.sessionId, title, alert.exitCode)
-            completionsChanged()
-            return@synchronized
-        }
+        // Both surfaces use the same rate-limited bell/attention events.
+        // Command boundaries still update work state, but never produce a notice.
+        if (!enabled || alert.kind != SessionActivityTracker.Kind.ATTENTION) return@synchronized
+        completions.add(alert.sessionId, title, null)
+        completionsChanged()
         if (!manager.areNotificationsEnabled()) return@synchronized
         // The installed application ID may have a suffix; the Activity's code namespace does not.
         val intent = Intent().setClassName(context.packageName, "dev.terminal.app.MainActivity")

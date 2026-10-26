@@ -233,13 +233,11 @@ private fun ToolbarCompletionMessage(completion: ToolbarTaskCompletion?, colors:
                 (fadeOut(effects) + slideOutVertically(spatial) { -it / 2 })).using(null)
         }) { message ->
         if (message != null) {
-            val text = if (message.exitCode != null && message.exitCode != 0)
-                stringResource(R.string.session_task_handle_exit, message.title, message.exitCode)
-            else stringResource(R.string.session_task_handle_completed, message.title)
+            val text = stringResource(R.string.session_task_handle_attention, message.title)
             Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
                 .semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite },
                 horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                Icon(painterResource(R.drawable.ic_material_symbol_check_circle_24), contentDescription = null,
+                Icon(painterResource(R.drawable.ic_app_info_24), contentDescription = null,
                     tint = colors.foreground, modifier = Modifier.size(16.dp))
                 Spacer(Modifier.width(8.dp))
                 Text(text, color = colors.foreground, style = MaterialTheme.typography.labelMedium,

@@ -34,7 +34,7 @@ class SessionTaskNotificationsTest {
         scenario.onActivity { uiContext = it }
     }
 
-    @Test fun nativeCommandCompletesWithoutUiAndAttentionIsOptionalReplaySafeAndNavigable() {
+    @Test fun nativeCommandCompletionIsSilentAndAttentionIsOptionalReplaySafeAndNavigable() {
         assertTrue("Grant Android notification permission", manager.areNotificationsEnabled())
         val oldSetting = context.getSharedPreferences("runtime-settings", Context.MODE_PRIVATE)
             .getBoolean(SessionNotificationSettings.KEY_ENABLED, false)
@@ -73,8 +73,8 @@ class SessionTaskNotificationsTest {
             assertNull(alert())
             marker.delete()
             service.setSessionTaskNotifications(true)
-            service.renameSession(owned.first(), "Handle completion test")
-            // Destroy the UI and remove the test binding. The runtime owns unread completions.
+            service.renameSession(owned.first(), "Handle attention test")
+            // Destroy the UI and remove the test binding. The runtime continues tracking work without a UI.
             scenario.close()
             context.unbindService(connection); bound = false
             command("sleep 11; printf done > '${marker.absolutePath}'; (exit 1)")
@@ -120,7 +120,7 @@ class SessionTaskNotificationsTest {
         }
     }
 
-    @Test fun unfocusedCompletionAnimatesHiddenHandleAndSurvivesRecreationAndBackground() {
+    @Test fun bellsAndAttentionAnimateHiddenHandleAndSurviveRecreationAndBackground() {
         val oldSetting = context.getSharedPreferences("runtime-settings", Context.MODE_PRIVATE)
             .getBoolean(SessionNotificationSettings.KEY_ENABLED, false)
         val queue = LinkedBlockingQueue<IRuntimeService>()
@@ -154,8 +154,8 @@ class SessionTaskNotificationsTest {
             }
             val focused = owned.first()
             val background = owned.last()
-            connected.renameSession(focused, "Focused completion test")
-            connected.renameSession(background, "Background completion test")
+            connected.renameSession(focused, "Focused attention test")
+            connected.renameSession(background, "Background attention test")
             scenario.onActivity { activity ->
                 activity.startActivity(Intent(activity.intent)
                     .setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
@@ -173,22 +173,35 @@ class SessionTaskNotificationsTest {
             }
             scenario.recreate()
             await("recreated terminal has window focus") { terminalWindowFocused() }
-            val backgroundText = label(R.string.session_task_handle_completed, "Background completion test")
-            await("other session completes in the hidden toolbar handle", 20000) { markers.all { it.exists() } && visibleText(backgroundText) }
+            val backgroundText = label(R.string.session_task_handle_attention, "Background attention test")
+            val focusedText = label(R.string.session_task_handle_attention, "Focused attention test")
+            await("long commands finish without a notice", 20000) { markers.all { it.exists() } }
+            SystemClock.sleep(500)
+            assertFalse("Completion must not appear in the handle", visibleText(backgroundText))
+            assertFalse("Focused completion must not appear in the handle", visibleText(focusedText))
+            assertEquals(normalHandleHeight, handleHeight())
+            assertNull("Completion must not post an Android notification", alert(background))
+            assertNull("Focused completion must not post an Android notification", alert(focused))
+            connected.writeSessionInput(background, "printf '\\007'\n".toByteArray())
+            await("bell appears in the hidden toolbar handle") { visibleText(backgroundText) }
+            await("bell also posts an Android notification") { alert(background) != null }
             SystemClock.sleep(500)
             assertTrue("Handle expands for the message", handleHeight() > normalHandleHeight)
             scenario.onActivity { assertEquals(ToolbarSheetMode.Hidden, toolbarMode(it).value) }
-            assertNull("The background session must not send completion notifications", alert(background))
-            assertNull("The focused session must not send completion notifications", alert(focused))
-            assertFalse(visibleText(label(R.string.session_task_handle_completed, "Focused completion test")))
+            assertFalse(visibleText(focusedText))
             scenario.recreate()
             await("recreated terminal has window focus") { terminalWindowFocused() }
             await("unread message survives recreation") { visibleText(backgroundText) }
             await("message dismisses and handle restores") { !visibleText(backgroundText) && handleHeight() == normalHandleHeight }
             connected.setSessionTaskNotifications(false)
             connected.setSessionTaskNotifications(true)
+            connected.writeSessionInput(focused, "printf '\\033]777;notify;private-title;private-output\\007'\n".toByteArray())
+            await("focused attention appears in both surfaces") { visibleText(focusedText) && alert(focused) != null }
+            connected.setSessionTaskNotifications(false)
+            await("disabling clears focused attention") { !visibleText(focusedText) && alert(focused) == null }
+            connected.setSessionTaskNotifications(true)
             markers.first().delete()
-            connected.writeSessionInput(focused, "sleep 11; printf done > '${markers.first().absolutePath}'; (exit 1)\n".toByteArray())
+            connected.writeSessionInput(focused, "sleep 1; printf '\\033]9;attention\\007'; printf done > '${markers.first().absolutePath}'\n".toByteArray())
             scenario.onActivity { it.startActivity(Intent(context, SettingsActivity::class.java)) }
             await("settings opened") {
                 instrumentation.runOnMainSync {
@@ -197,18 +210,16 @@ class SessionTaskNotificationsTest {
                 }
                 settings != null
             }
-            await("command finishes behind settings", 20000) { markers.first().exists() }
-            SystemClock.sleep(350)
-            assertNull("Background completion must not post an Android notification", alert(focused))
+            await("attention arrives behind settings") { markers.first().exists() && alert(focused) != null }
             instrumentation.runOnMainSync { settings?.finish() }
             settings = null
             await("terminal has window focus on return") { terminalWindowFocused() }
-            await("completion is shown when returning from settings") {
-                visibleText(label(R.string.session_task_handle_exit, "Focused completion test", 1))
+            await("attention is shown when returning from settings") {
+                visibleText(focusedText)
             }
             connected.setSessionTaskNotifications(false)
             await("disabling clears the current handle message") {
-                !visibleText(label(R.string.session_task_handle_exit, "Focused completion test", 1))
+                !visibleText(focusedText)
             }
             assertTrue(ids().containsAll(owned))
         } finally {

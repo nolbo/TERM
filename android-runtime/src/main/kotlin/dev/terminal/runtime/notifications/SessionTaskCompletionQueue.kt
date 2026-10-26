@@ -1,6 +1,6 @@
 package dev.terminal.runtime.notifications
 
-/** Runtime-owned, bounded unread completions. UI recreation never consumes a message. */
+/** Runtime-owned unread attention messages; legacy completion names preserve the Binder payload. */
 internal class SessionTaskCompletionQueue {
     data class Completion(val id: Long, val sessionId: String, val title: String, val exitCode: Int?)
     private val pending = ArrayDeque<Completion>()

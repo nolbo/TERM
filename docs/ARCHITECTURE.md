@@ -342,28 +342,27 @@ android-runtime :vmhost (session owner)
 `stopWithTask="false"`. The Activity unregisters its callback and unbinds in
 `onStop`; it never sends a stop request as a lifecycle side effect.
 
-Task notifications are opt-in and owned by `:vmhost`, independently of the ongoing
-foreground-service notification. A bounded streaming observer reads only fresh PTY
-output (never replay) and recognizes OSC 133 command boundaries, BEL and explicit
-OSC 9/777 attention requests. Native's managed prompt and Bash's initial PS0 /
-PROMPT_COMMAND hooks supply completion boundaries without rewriting user rc files.
-Native submission timing ignores bracketed-paste newlines until Enter is sent.
-The observer uses a monotonic clock, a 10-second long-command threshold and per-session
-plus global rate limits for attention requests. It owns no process and starts no polling/background timer.
-Completion messages are suppressed for the selected session of
-a resumed, window-focused terminal Activity. The UI reports this transient focus
-per registered Binder listener; pause, window focus loss, unregister and listener
-death clear it. Other sessions’ completions enter a runtime-owned FIFO (at most 16 unread items),
-independent of Android notification permission and attention rate limits. The UI
-receives snapshots through its Binder listener and acknowledges each item only
-after displaying it in the toolbar handle. Re-registration replays unread items;
-UI pause or recreation never consumes them. Disabling clears this queue; runtime
-process death does not persist it. Completion never posts an Android notification
-and continues to update work state even when its alert is suppressed.
-Explicit attention requests still post on a separate Android notification channel
-with an immutable, session-specific activity PendingIntent for click-through;
-missing sessions are never recreated. Disabling the preference cancels task
-notifications and unread completion messages. Permission denial cannot stop PTYs.
+Task notifications are opt-in and runtime-owned, independently of the ongoing
+foreground-service notification. The live terminal parser supplies OSC 133 command
+boundaries for work tracking and BEL / explicit OSC 9/777 attention requests for
+notifications; replay never emits these events. Native's managed prompt and Bash's
+initial PS0 / PROMPT_COMMAND hooks supply work boundaries without rewriting user rc
+files. Native submission ignores bracketed-paste newlines until Enter is sent.
+Command completion updates work state but produces neither a toolbar message nor
+an Android notification, regardless of duration or terminal focus.
+Bell and explicit attention events feed both surfaces, including the focused session,
+with the same monotonic per-session (10 seconds) and global (1 second) rate limits.
+Accepted requests enter a runtime-owned FIFO (at most 16 unread items), independently
+of Android notification permission. The UI receives snapshots through its Binder
+listener and acknowledges each item only after displaying it in the toolbar handle.
+The existing completion-named Binder methods and payload are retained for compatibility;
+they now carry attention messages with no exit code.
+Re-registration replays unread items; UI pause or recreation never consumes them.
+Disabling clears this queue; runtime process death does not persist it.
+Attention requests also post on a separate Android notification channel with an
+immutable, session-specific activity PendingIntent for click-through; missing sessions
+are never recreated. Disabling the preference cancels task notifications and unread
+attention messages. Permission denial cannot stop PTYs or toolbar messages.
 User output cannot choose Android actions or notification body text.
 
 Session creation resolves a persistent `SessionProfile` into a defensively copied,
