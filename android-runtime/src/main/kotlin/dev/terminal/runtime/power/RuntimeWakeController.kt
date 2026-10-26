@@ -6,21 +6,32 @@ import android.os.Looper
 import android.os.PowerManager
 
 /** Applies a bounded partial wake lock only when runtime policy and guest work require it. */
-class RuntimeWakeController(context: Context) {
-    private val handler = Handler(Looper.getMainLooper())
-    private val wakeLock = context.applicationContext
-        .getSystemService(PowerManager::class.java)
-        .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DroidTerminal:guest-work")
-        .apply { setReferenceCounted(false) }
+class RuntimeWakeController internal constructor(
+    private val wakeLock: PowerManager.WakeLock,
+    private val handler: Handler,
+    private val maxHoldMillis: Long = MAX_HOLD_MS,
+    private val renewAfterMillis: Long = RENEW_AFTER_MS,
+) {
+    constructor(context: Context) : this(
+        context.applicationContext.getSystemService(PowerManager::class.java)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DroidTerminal:guest-work"),
+        Handler(Looper.getMainLooper()),
+    )
+
+    init {
+        require(renewAfterMillis > 0 && maxHoldMillis > renewAfterMillis)
+        wakeLock.setReferenceCounted(false)
+    }
     private var holdRequested = false
     private val renewWakeLock = object : Runnable {
         override fun run() = synchronized(this@RuntimeWakeController) {
             if (!holdRequested) return@synchronized
-            if (wakeLock.isHeld) wakeLock.release()
-            wakeLock.acquire(MAX_HOLD_MS)
+            // Non-reference-counted acquire replaces the timeout while retaining
+            // protection. Releasing first permits screen-off suspend between calls.
+            wakeLock.acquire(maxHoldMillis)
             dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record("power.wake.renew",
-                details = mapOf("held" to wakeLock.isHeld.toString(), "timeout_ms" to MAX_HOLD_MS.toString()))
-            handler.postDelayed(this, RENEW_AFTER_MS)
+                details = mapOf("held" to wakeLock.isHeld.toString(), "timeout_ms" to maxHoldMillis.toString()))
+            handler.postDelayed(this, renewAfterMillis)
         }
     }
 
@@ -31,12 +42,12 @@ class RuntimeWakeController(context: Context) {
         if (holdRequested == shouldHold && (!shouldHold || wakeLock.isHeld)) return
         holdRequested = shouldHold
         handler.removeCallbacks(renewWakeLock)
-        if (shouldHold && !wakeLock.isHeld) wakeLock.acquire(MAX_HOLD_MS)
+        if (shouldHold && !wakeLock.isHeld) wakeLock.acquire(maxHoldMillis)
         if (!shouldHold && wakeLock.isHeld) wakeLock.release()
-        if (shouldHold) handler.postDelayed(renewWakeLock, RENEW_AFTER_MS)
+        if (shouldHold) handler.postDelayed(renewWakeLock, renewAfterMillis)
         dev.terminal.runtime.lifecycle.ConnectionDiagnostics.record(if (shouldHold) "power.wake.acquire" else "power.wake.release",
             code = policy.name, details = mapOf("work" to guestWork.name, "held" to wakeLock.isHeld.toString(),
-                "timeout_ms" to MAX_HOLD_MS.toString()))
+                "timeout_ms" to maxHoldMillis.toString()))
     }
 
     companion object {
