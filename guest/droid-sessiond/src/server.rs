@@ -61,8 +61,7 @@ impl SessionServer {
             for id in self.staged_output.keys().cloned().collect::<Vec<_>>() {
                 if connection.has_pty_capacity() { self.stream_output(connection, attached, &id)?; }
             }
-            let outputs: Vec<_> = self.sessions.list()
-                .filter(|session| session.state == crate::session::SessionState::Running)
+            let outputs: Vec<_> = self.sessions.running()
                 .filter_map(|session| self.sessions.output_fd(&session.id).ok().map(|fd| (session.id.clone(), fd)))
                 .collect();
             let descriptors: Vec<_> = outputs.iter().map(|(_, fd)| *fd).collect();

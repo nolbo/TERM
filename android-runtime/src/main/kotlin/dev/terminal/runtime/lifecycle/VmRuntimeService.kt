@@ -107,6 +107,7 @@ class VmRuntimeService : Service() {
     }
     private val latestResizeRequests = LatestSessionResizeRequests()
     @Volatile private var sessionClient: SessionController? = null
+    private var sessionExitReconciler: SessionExitReconciler? = null
     // Native PTY writes may block: input must not occupy the runtime's CPU dispatcher.
     private val orderedSessionInput = OrderedSessionInput(CoroutineScope(scope.coroutineContext + Dispatchers.IO),
         onFailure = { id, failure ->
@@ -1492,6 +1493,11 @@ class VmRuntimeService : Service() {
                         dev.terminal.runtime.session.TerminalPalette.resolve({ key, fallback -> preferences.getString(key, fallback).orEmpty() }, spec.palette))
                 })
             sessionClient = registry
+            val exitReconciler = SessionExitReconciler(scope, reconcile = {
+                refreshSessions(registry)
+                migrateLegacyStorages(registry)
+            }, onFailure = { Log.w(TAG, "Session exit reconciliation failed", it) })
+            sessionExitReconciler = exitReconciler
             scope.launch {
                 registry.events.collect { event ->
                     when (event) {
@@ -1504,8 +1510,7 @@ class VmRuntimeService : Service() {
                             taskNotifications.exited(event.sessionId, event.exitCode, sessionNotificationTitle(event.sessionId))
                             kittyGrants.remove(event.sessionId)
                             broadcast { it.onSessionExited(event.sessionId, event.exitCode) }
-                            refreshSessions(registry)
-                            scope.launch { migrateLegacyStorages(registry) }
+                            exitReconciler.request()
                         }
                     }
                 }
@@ -2188,6 +2193,8 @@ class VmRuntimeService : Service() {
     }
 
     private fun closeSessionClient() {
+        sessionExitReconciler?.close()
+        sessionExitReconciler = null
         orderedSessionInput.close()
         terminalDeaths.forEach { (key, death) -> runCatching { key.second.unlinkToDeath(death, 0) } }
         terminalDeaths.clear()

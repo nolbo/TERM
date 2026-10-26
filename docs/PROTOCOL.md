@@ -354,6 +354,8 @@ Host-only appended `initializeAvfImage(storageId, requestId, callback)` and `can
 
 The host session client contains transport read and frame-validation exceptions within its receive job. EOF, a failed read or explicit close publishes `DISCONNECTED`, fails pending requests and closes only that transport; new requests on a disconnected client fail without a send or request timeout. Cleanup failures cannot escape to the shared runtime owner. Coroutine cancellation still propagates, and disconnection emits no synthetic PTY exit or sibling-session removal. Guest wire frames and protocol version remain unchanged.
 
+After PTY EOF has been drained and the child exit status collected, sessiond closes that session's PTY master and removes it from the active I/O poll set. LIST and attachment still expose the retained exited descriptor until explicit termination removes its history; an exited ID cannot restart a shell. Only running sessions enter the hot poll loop, independently of how many exited descriptors remain.
+
 A session request deadline covers both sending and response waiting, using 10 seconds on legacy transport and 70 seconds on the resumable session stream (the 60-second transport recovery window plus 10 seconds). Failure/cancellation closes the logical client, marks it `DISCONNECTED`, fails all pending requests and never reissues the original input/create/mutation. `session.request.timeout` and `session.request.cancelled` distinguish these stages from read/send failures. An independent deadline closes the socket before waiting for a blocked sender to finish. Descriptor shutdown wakes both native directions; close does not flush buffered partial frames. Successful error responses remain ordinary RPC errors rather than transport failure.
 
 Platform connection attempts are separately bounded to 10 seconds with eight workers and no queued opens. A platform call returning after timeout/cancellation loses ownership and its descriptor is closed. Resumable attachment/retry sleeps share its 60-second recovery deadline. No protocol version or guest capability changes are required by these host changes.
@@ -637,6 +639,8 @@ available. Buffer saturation intentionally backpressures PTYs. No state is
 persisted across host/proxy/sessiond death, and no historical input is retried
 as a new RPC. An operation timing out after transmission has an unknown result;
 reconnection does not authorize retrying that operation.
+
+Permanent replay-owner closure (including lease expiry) shuts down its internal sessiond/SSHFS socket in both directions before releasing it, waking either application pump even if a native send or receive is blocked. Raw-link detachment alone retains that socket and its pumps for recovery. A closed owner rejects and closes late application sockets. These guest cleanup changes retain the existing wire version, lease and replay rules.
 
 Host `session.link.reconnecting` records the first raw-link failure with a fixed
 code for header/payload reads, frame bounds, ACK/data/credit/heartbeat validation,

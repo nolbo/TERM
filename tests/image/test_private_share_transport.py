@@ -4,6 +4,7 @@ import socket
 import struct
 import threading
 import unittest
+from unittest import mock
 
 spec = importlib.util.spec_from_file_location('share_transport', Path(__file__).resolve().parents[2] /
                                              'image/scripts/private-share-transport.py')
@@ -129,6 +130,70 @@ class ReplayTransportTests(unittest.TestCase):
         thread.start(); owner.close(); thread.join(2)
         self.assertFalse(thread.is_alive())
         self.assertEqual([b''], result)
+
+    def test_owner_close_interrupts_blocked_native_application_write_and_read(self):
+        host, owner = self.owner(transport.WINDOW), self.owner(transport.WINDOW)
+        self.assertEqual([], self.connect(host, owner))
+        application, peer = socket.socketpair()
+        application.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+        sending, sent = threading.Event(), threading.Event()
+        pumps = []
+        thread_type = threading.Thread
+
+        class ObservedSocket:
+            def recv(self, size):
+                return application.recv(size)
+
+            def sendall(self, data):
+                sending.set()
+                try:
+                    application.sendall(data)
+                finally:
+                    sent.set()
+
+            def shutdown(self, how):
+                application.shutdown(how)
+
+            def close(self):
+                application.close()
+
+        def thread(*args, **kwargs):
+            result = thread_type(*args, **kwargs)
+            pumps.append(result)
+            return result
+
+        try:
+            with mock.patch.object(transport.threading, 'Thread', side_effect=thread):
+                owner.bridge(ObservedSocket())
+            host.write(b'x' * transport.CHUNK)
+            self.assertTrue(sending.wait(2))
+            self.assertFalse(sent.wait(0.05), 'unread native socket must actually block the writer')
+            owner.close()
+            owner.close()
+            for pump in pumps:
+                pump.join(2)
+                self.assertFalse(pump.is_alive(), 'closing the owner must wake both native I/O directions')
+            self.assertEqual(-1, application.fileno())
+            self.assertTrue(sent.is_set())
+        finally:
+            transport.shutdown(peer)
+            owner.close()
+            for pump in pumps:
+                pump.join(2)
+
+    def test_closed_owner_rejects_and_closes_late_application_socket(self):
+        owner = self.owner()
+        application, peer = socket.socketpair()
+        try:
+            owner.close()
+            with self.assertRaises(EOFError):
+                owner.bridge(application)
+            self.assertEqual(-1, application.fileno())
+            peer.settimeout(2)
+            self.assertEqual(b'', peer.recv(1))
+        finally:
+            application.close()
+            peer.close()
 
 
 if __name__ == '__main__':

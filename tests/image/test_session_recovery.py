@@ -67,15 +67,24 @@ class SessionRecoveryTests(unittest.TestCase):
                 with self.assertRaises(socket.timeout):
                     application.recv(1)  # Previously consumed input was not repeated.
 
-    def test_expired_owner_closes_only_relay_not_application_listener(self):
+    def test_expired_owner_closes_its_internal_session_socket(self):
         relay = module.SessionRelay('unused')
         relay.stream, relay.token = transport.ReplayStream(), bytes(16)
         previous = relay.stream
-        relay.last_seen = time.monotonic() - module.LEASE - 1
-        relay.expire()
-        self.assertTrue(previous.closed)
-        self.assertIsNone(relay.stream)
-        self.assertIsNone(relay.token)
+        application, peer = socket.socketpair()
+        try:
+            previous.bridge(application)
+            relay.last_seen = time.monotonic() - module.LEASE - 1
+            relay.expire()
+            self.assertTrue(previous.closed)
+            self.assertIsNone(relay.stream)
+            self.assertIsNone(relay.token)
+            peer.settimeout(2)
+            self.assertEqual(b'', peer.recv(1))
+            self.assertEqual(-1, application.fileno())
+        finally:
+            previous.close()
+            peer.close()
 
     def test_resume_cannot_recreate_a_lost_proxy_and_reexecute_unacknowledged_input(self):
         relay = module.SessionRelay('must-not-open')

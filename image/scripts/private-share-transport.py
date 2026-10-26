@@ -97,6 +97,7 @@ class ReplayStream:
         self.produced = 0
         self.connection = None
         self.connecting = None
+        self.application = None
         self.closed = False
 
     def read(self, size):
@@ -245,7 +246,12 @@ class ReplayStream:
                 return
             self.closed = True
             active, connecting = self.connection, self.connecting
+            application, self.application = self.application, None
             self.condition.notify_all()
+        # Either pump may be blocked in native I/O. Closing only the replay link
+        # leaves the sessiond/SSHFS socket and its old owner alive indefinitely.
+        if application is not None:
+            shutdown(application)
         if connecting:
             shutdown(connecting)
         if active:
@@ -253,6 +259,15 @@ class ReplayStream:
 
     def bridge(self, application):
         """Keep the SSHFS socket intact while the external vsock is replaced."""
+        with self.condition:
+            if self.closed:
+                shutdown(application)
+                raise EOFError('replay owner closed')
+            if self.application is not None:
+                shutdown(application)
+                raise ValueError('replay application already connected')
+            self.application = application
+
         def pump_from_application():
             try:
                 while True:
@@ -275,8 +290,11 @@ class ReplayStream:
             except OSError:
                 pass
             finally:
-                shutdown(application)
                 self.close()
 
-        for method in (pump_from_application, pump_to_application):
-            threading.Thread(target=method, daemon=True).start()
+        try:
+            for method in (pump_from_application, pump_to_application):
+                threading.Thread(target=method, daemon=True).start()
+        except Exception:
+            self.close()
+            raise

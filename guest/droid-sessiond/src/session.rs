@@ -1,7 +1,7 @@
 //! Session metadata and PTYs are owned together by the guest daemon. UI client
 //! attachment is only a registry operation; it never owns a shell process.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::os::fd::RawFd;
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -33,6 +33,7 @@ pub struct Session {
 #[derive(Default)]
 pub struct SessionRegistry {
     sessions: BTreeMap<String, Session>,
+    running: BTreeSet<String>,
     next_id: u64,
 }
 
@@ -64,8 +65,14 @@ impl SessionRegistry {
         self.sessions.values()
     }
 
+    /// Exited records remain available to LIST without entering the hot PTY poll loop.
+    pub fn running(&self) -> impl Iterator<Item = &Session> {
+        self.running.iter().filter_map(|id| self.sessions.get(id))
+    }
+
     pub fn start_shell(&mut self, id: &str, environment: &[(String, String)]) -> Result<(), PtyError> {
         let session = self.sessions.get_mut(id).ok_or(PtyError::SessionNotFound)?;
+        if matches!(session.state, SessionState::Exited(_)) { return Err(PtyError::SessionNotStarted); }
         if session.pty.is_none() {
             session.pty = Some(PtyProcess::spawn(
                 &session.command,
@@ -75,13 +82,14 @@ impl SessionRegistry {
                 session.cols,
             )?);
             session.state = SessionState::Running;
+            self.running.insert(id.to_owned());
         }
         Ok(())
     }
 
     pub fn attach(&mut self, id: &str) -> Result<(), PtyError> {
         let session = self.sessions.get_mut(id).ok_or(PtyError::SessionNotFound)?;
-        if session.pty.is_none() { return Err(PtyError::SessionNotStarted); }
+        if session.state == SessionState::Created { return Err(PtyError::SessionNotStarted); }
         session.attached_clients = session.attached_clients.saturating_add(1);
         Ok(())
     }
@@ -120,6 +128,7 @@ impl SessionRegistry {
             }
             already_exited
         };
+        self.running.remove(id);
         if let Some(mut removed) = self.sessions.remove(id) {
             if let Some(pty) = removed.pty.take() {
                 if !already_exited {
@@ -139,8 +148,15 @@ impl SessionRegistry {
 
     pub fn poll_exit(&mut self, id: &str) -> Result<Option<i32>, PtyError> {
         let session = self.sessions.get_mut(id).ok_or(PtyError::SessionNotFound)?;
+        if let SessionState::Exited(code) = session.state { return Ok(Some(code)); }
         let code = session.pty.as_ref().ok_or(PtyError::SessionNotStarted)?.poll_exit()?;
-        if let Some(exit_code) = code { session.state = SessionState::Exited(exit_code); }
+        if let Some(exit_code) = code {
+            session.state = SessionState::Exited(exit_code);
+            // The server calls this after draining PTY EOF. Preserve history,
+            // but release the master descriptor and stop polling this session.
+            session.pty.take();
+            self.running.remove(id);
+        }
         Ok(code)
     }
 }
@@ -148,6 +164,67 @@ impl SessionRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn await_exit(registry: &mut SessionRegistry, id: &str) -> i32 {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            if let Some(code) = registry.poll_exit(id).unwrap() { return code; }
+            assert!(std::time::Instant::now() < deadline, "child did not exit");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+
+    #[test]
+    fn natural_exit_releases_pty_after_tail_output_and_preserves_exit_history() {
+        let mut registry = SessionRegistry::default();
+        let id = registry.create_shell("/bin/sh", "/", 24, 80).id.clone();
+        let args = ["/bin/sh", "-c", "printf tail-output; exit 7"];
+        let encoded = format!("3:{}", args.iter().map(|arg| format!("{}:{}", arg.len(), arg)).collect::<String>());
+        registry.start_shell(&id, &[("DROID_SESSION_ARGV".into(), encoded)]).unwrap();
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        let mut output = Vec::new();
+        let mut buffer = [0; 64];
+        loop {
+            assert!(std::time::Instant::now() < deadline, "PTY did not close");
+            match registry.read_output(&id, &mut buffer) {
+                Ok(0) | Err(PtyError::Nix(nix::errno::Errno::EIO)) => break,
+                Ok(count) => output.extend_from_slice(&buffer[..count]),
+                Err(PtyError::Nix(nix::errno::Errno::EAGAIN | nix::errno::Errno::EINTR)) =>
+                    std::thread::sleep(std::time::Duration::from_millis(2)),
+                Err(error) => panic!("unexpected PTY read: {error:?}"),
+            }
+        }
+        assert_eq!(b"tail-output", output.as_slice());
+        assert_eq!(7, await_exit(&mut registry, &id));
+        assert_eq!(Some(7), registry.poll_exit(&id).unwrap());
+        assert!(registry.get(&id).unwrap().pty.is_none());
+        assert!(matches!(registry.output_fd(&id), Err(PtyError::SessionNotStarted)));
+        assert_eq!(0, registry.running().count());
+        assert_eq!(1, registry.list().count());
+        registry.attach(&id).unwrap();
+        registry.detach(&id).unwrap();
+        assert!(matches!(registry.start_shell(&id, &[]), Err(PtyError::SessionNotStarted)));
+        assert_eq!(SessionState::Exited(7), registry.get(&id).unwrap().state);
+        registry.terminate(&id, Signal::SIGKILL).unwrap();
+        assert_eq!(0, registry.list().count());
+    }
+
+    #[test]
+    fn exited_history_never_retains_ptys_or_enters_the_running_poll_set() {
+        let mut registry = SessionRegistry::default();
+        let active = registry.create_shell("/bin/sh", "/", 24, 80).id.clone();
+        registry.start_shell(&active, &[]).unwrap();
+        for _ in 0..64 {
+            let id = registry.create_shell("/bin/true", "/", 24, 80).id.clone();
+            registry.start_shell(&id, &[]).unwrap();
+            assert_eq!(0, await_exit(&mut registry, &id));
+            assert!(registry.get(&id).unwrap().pty.is_none());
+        }
+        assert_eq!(65, registry.list().count());
+        assert_eq!(vec![active.clone()], registry.running().map(|session| session.id.clone()).collect::<Vec<_>>());
+        registry.terminate(&active, Signal::SIGKILL).unwrap();
+        assert_eq!(0, registry.running().count());
+    }
 
     #[test]
     fn creating_session_metadata_does_not_require_a_ui_client() {
