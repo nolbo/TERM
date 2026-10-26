@@ -325,7 +325,10 @@ private fun CompactSessionTabs(sessions: List<SessionUi>, activeSessionId: Strin
                 else -> startedBackward
             }
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset =
-                if (keepInList(available.x)) Offset(available.x, 0f) else Offset.Zero
+                // Let fling overflow reach the pager's cancellation path; pretending it moved
+                // keeps an invisible decay alive at the edge and consumes the next tap.
+                if (source == NestedScrollSource.UserInput && keepInList(available.x)) Offset(available.x, 0f)
+                else Offset.Zero
 
             override suspend fun onPostFling(consumed: Velocity, available: Velocity): Velocity =
                 if (keepInList(available.x)) Velocity(available.x, 0f) else Velocity.Zero

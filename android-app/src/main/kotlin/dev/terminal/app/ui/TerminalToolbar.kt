@@ -290,7 +290,18 @@ private fun ToolbarPageHandle(pager: PagerState, count: Int, visible: Boolean, c
 private fun ColumnScope.ToolbarPages(tools: List<String>, pager: PagerState, interactive: Boolean,
     pageNavigationEnabled: Boolean,
     content: @Composable (String, Boolean) -> Unit) {
-    val fling = PagerDefaults.flingBehavior(pager)
+    val defaultFling = PagerDefaults.flingBehavior(pager)
+    val fling = remember(pager, defaultFling) {
+        object : TargetedFlingBehavior {
+            override suspend fun ScrollScope.performFling(initialVelocity: Float,
+                onRemainingDistanceUpdated: (Float) -> Unit): Float {
+                // A child list can finish with no velocity left for an already aligned pager.
+                // A no-op snap still owns pointer input and would swallow the next tab click.
+                if (initialVelocity == 0f && pager.currentPageOffsetFraction == 0f) return 0f
+                return with(defaultFling) { performFling(initialVelocity, onRemainingDistanceUpdated) }
+            }
+        }
+    }
     val currentFling by rememberUpdatedState(fling)
     val defaultConnection = PagerDefaults.pageNestedScrollConnection(pager, Orientation.Horizontal)
     val direction = if (LocalLayoutDirection.current == LayoutDirection.Rtl) 1f else -1f

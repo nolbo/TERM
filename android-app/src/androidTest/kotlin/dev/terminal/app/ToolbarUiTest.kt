@@ -128,7 +128,7 @@ class ToolbarUiTest {
     private fun bounds(node: AccessibilityNodeInfo) = Rect().also { node.getBoundsInScreen(it) }
     private fun handle() = description(label(R.string.toolbar_handle))
 
-    private fun swipe(x: Float, y: Float, dx: Float) {
+    private fun swipe(x: Float, y: Float, dx: Float, settleAfter: Boolean = true) {
         val start = SystemClock.uptimeMillis()
         for (i in 0..10) {
             val action = when (i) { 0 -> MotionEvent.ACTION_DOWN; 10 -> MotionEvent.ACTION_UP; else -> MotionEvent.ACTION_MOVE }
@@ -137,7 +137,7 @@ class ToolbarUiTest {
             try { assertTrue(instrumentation.uiAutomation.injectInputEvent(event, false)) } finally { event.recycle() }
             SystemClock.sleep(10)
         }
-        settle()
+        if (settleAfter) settle()
     }
 
     private fun assertNoHandleHover(node: AccessibilityNodeInfo) {
@@ -1282,6 +1282,65 @@ class ToolbarUiTest {
                 if (it.id == "second") it.copy(title = "") else it
             } }
             tabText(label(R.string.shell_default_title))
+        }
+    }
+
+    @Test fun defaultSessionTabsSelectOnFirstTapAfterFlingToEnd() {
+        val sessions = (0..5).map {
+            SessionUi("fling-$it", "NATIVE", "Fling session $it with a long title", "RUNNING")
+        }
+        val selected = mutableStateOf(sessions.first().id)
+        val selections = mutableListOf<String>()
+        var headerScroll: ScrollState? = null
+        var positionNearEnd: (() -> Unit)? = null
+        var currentTool: String? = null
+        var sessionsActive = false
+        val density = context.resources.displayMetrics.density
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    val scroll = rememberScrollState()
+                    val scope = rememberCoroutineScope()
+                    SideEffect {
+                        headerScroll = scroll
+                        positionNearEnd = { scope.launch { scroll.scrollTo(scroll.maxValue - (48 * density).toInt()) }; Unit }
+                    }
+                    Column(Modifier.fillMaxSize()) {
+                        Spacer(Modifier.weight(1f))
+                        TerminalToolbar(ToolbarConfig(tools = listOf(SESSIONS_TOOL, "next")),
+                            ToolbarSheetMode.Default, {}, 400.dp, TerminalChromeColors(Color.Black)) { tool, active ->
+                            SideEffect {
+                                if (active) currentTool = tool
+                                if (tool == SESSIONS_TOOL) sessionsActive = active
+                            }
+                            if (tool == SESSIONS_TOOL) ToolbarSessionsTool(sessions, selected.value, active,
+                                emptySet(), emptyList(), {}, {}, false,
+                                { selected.value = it; selections += it }, {}, {}, {}, {}, {}, headerTabScroll = scroll)
+                            else Text("next tool", Modifier.fillMaxSize())
+                        }
+                    }
+                } }
+            } }
+            settle()
+            scenario.onActivity { positionNearEnd!!() }
+            settle()
+            var scroller: AccessibilityNodeInfo? = tabText(sessions.last().title)
+            while (scroller != null && !scroller.isScrollable) scroller = scroller.parent
+            val viewport = bounds(requireNotNull(scroller))
+            val scroll = requireNotNull(headerScroll)
+            assertTrue("Start inside the list, before its end", scroll.value in 1 until scroll.maxValue)
+            swipe(viewport.right - 12 * density, viewport.exactCenterY(), -120 * density, settleAfter = false)
+            val deadline = SystemClock.uptimeMillis() + 1000
+            while (scroll.value < scroll.maxValue && SystemClock.uptimeMillis() < deadline) SystemClock.sleep(10)
+            assertEquals("The fling reaches the exact end", scroll.maxValue, scroll.value)
+            // Tap immediately: waiting for a full decay animation would hide a swallowed first tap.
+            val scrollingAtTap = scroll.isScrollInProgress
+            val activeAtTap = sessionsActive
+            tap(viewport.right - 90 * density, viewport.exactCenterY(), pressMillis = 120)
+            assertEquals("The first tap after reaching the end selects the last tab " +
+                "(scrolling=$scrollingAtTap, active=$activeAtTap)", sessions.last().id, selected.value)
+            assertEquals("Selection is dispatched exactly once", listOf(sessions.last().id), selections)
+            assertEquals("The list gesture and tap keep the sessions tool active", SESSIONS_TOOL, currentTool)
         }
     }
 
