@@ -131,8 +131,26 @@ build identity are installed in the immutable system's `/usr/share/term/`.
 The existing five-artifact manifest hashes the actual new kernel and generated
 boot ramdisk. No host mounts or privileged build container are introduced.
 
-The workflow builds the same kernel recipe on x86_64 before ARM64 image production
-for every distribution and refuses to reuse old candidates without matching
+Before ARM64 image production, the workflow restores an exact-recipe kernel
+bundle cache shared by all distributions on `dev`. Its key includes the runner
+OS/architecture, all `image/kernel/` files, the builder, bundle validator and
+workflow; there are no fallback keys. A hit skips source sync and Kleaf
+compilation. Every restored bundle still passes `avf_kernel.py` (all artifact
+hashes, embedded config, release and current requirements) before upload and
+the image factory validates it again. Missing/evicted entries build normally;
+invalid cached bytes fail closed. Cache-save failures do not block a verified
+build. This caches completed bundles, not partially compiled toolchains or
+mutable upstream downloads. The saved resolved source manifest remains the
+identity of the reused toolchain, even if upstream branch tips move.
+
+Dispatch with `rebuild_kernel=true` to bypass the automatic cache and build from
+source without replacing its existing entry. Delete the exact bad cache entry
+before refilling it; do not weaken validation. An explicit `kernel_run_id`
+continues to select the existing successful-producer/unchanged-recipe path and
+takes precedence over automatic caching and `rebuild_kernel`. A reused image
+draft skips kernel work entirely. Neither path skips the image boot gates.
+
+The workflow refuses to reuse old image candidates without matching
 kernel/probe provenance. Both nft and legacy iptables frontends are required in
 each guest. On Arch, the signed `iptables` package supplies both; its default
 frontend uses nft ([upstream package change](https://archlinux.org/news/iptables-now-defaults-to-the-nft-backend/)).

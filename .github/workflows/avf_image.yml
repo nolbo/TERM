@@ -41,6 +41,10 @@ on:
       kernel_run_id:
         description: Optional successful AVF workflow run with an identical kernel recipe
         required: false
+      rebuild_kernel:
+        description: Bypass automatic kernel cache reuse (does not replace the cached bundle)
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -57,7 +61,15 @@ jobs:
     timeout-minutes: 180
     steps:
       - uses: actions/checkout@v4
+      - name: Restore the exact verified kernel recipe
+        id: kernel-cache
+        if: ${{ !inputs.rebuild_kernel }}
+        uses: actions/cache/restore@v4
+        with:
+          path: image/build/kernel-bundle
+          key: ${{ runner.os }}-${{ runner.arch }}-avf-kernel-dev-v1-${{ hashFiles('image/kernel/**', 'image/scripts/build-avf-kernel.py', 'image/scripts/avf_kernel.py', '.github/workflows/avf_image.yml') }}
       - name: Sync official Android kernel sources and pinned common commit
+        if: steps.kernel-cache.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
           sudo apt-get install -y repo
@@ -70,9 +82,19 @@ jobs:
           git -C common fetch --depth=1 https://android.googlesource.com/kernel/common "$avf_common"
           git -C common switch --detach "$avf_common"
       - name: Build and verify the Image, final config and matching module ramdisk
+        if: steps.kernel-cache.outputs.cache-hit != 'true'
         run: |
           python3 image/scripts/build-avf-kernel.py --checkout image/build/kernel-checkout \
             --output image/build/kernel-bundle
+      - name: Validate every restored or newly built kernel bundle
+        run: python3 image/scripts/avf_kernel.py image/build/kernel-bundle
+      - name: Cache the verified kernel bundle
+        if: ${{ !inputs.rebuild_kernel && steps.kernel-cache.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: image/build/kernel-bundle
+          key: ${{ steps.kernel-cache.outputs.cache-primary-key }}
       - uses: actions/upload-artifact@v4
         with:
           name: avf-container-kernel-${{ github.sha }}

@@ -4,10 +4,13 @@ import importlib.util
 import io
 import json
 from pathlib import Path
+import random
 import runpy
+import shutil
 import subprocess
 import tarfile
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -77,6 +80,70 @@ class ImageFactoryTests(unittest.TestCase):
                       "https://example.invalid/release/?latest=1", "https://example.invalid/release/\nid=evil"]:
             with self.assertRaises(ValueError):
                 factory.validate_base_uri(value)
+
+    def test_compression_hashes_one_raw_scan_and_preserves_deterministic_gzip(self):
+        data = random.Random(0).randbytes(2 * 1024 * 1024 + 17)
+        reference = io.BytesIO()
+        with gzip.GzipFile(filename="", mode="wb", fileobj=reference, mtime=0, compresslevel=1) as target:
+            shutil.copyfileobj(io.BytesIO(data), target)
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "home.img"
+            path.write_bytes(data)
+            opened = []
+            original_open = Path.open
+
+            def record_open(file, *args, **kwargs):
+                opened.append(file)
+                return original_open(file, *args, **kwargs)
+
+            with mock.patch.object(Path, "open", record_open):
+                checksum = factory.compress_artifact(path)
+            self.assertEqual(1, opened.count(path))
+            self.assertEqual(hashlib.sha256(data).hexdigest(), checksum)
+            self.assertEqual(reference.getvalue(), (path.parent / "home.img.gz").read_bytes())
+
+    def test_release_compresses_concurrently_and_propagates_worker_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name in factory.ARTIFACTS.values():
+                (root / name).write_bytes(b"disk data")
+            barrier, lock = threading.Barrier(2), threading.Lock()
+            active = peak = started = 0
+            compress = factory.compress_artifact
+
+            def checked_compress(path):
+                nonlocal active, peak, started
+                with lock:
+                    active += 1
+                    started += 1
+                    number = started
+                    peak = max(peak, active)
+                try:
+                    if number <= 2:
+                        barrier.wait(timeout=5)
+                    if path.name == "config.img":
+                        raise OSError("compression failed")
+                    return compress(path)
+                finally:
+                    with lock:
+                        active -= 1
+
+            with mock.patch.object(factory, "compress_artifact", side_effect=checked_compress):
+                with self.assertRaisesRegex(OSError, "compression failed"):
+                    factory.write_release(root, "test", "https://example.invalid/test/", factory.SOURCE_URL, "a" * 64)
+            self.assertEqual(2, peak)
+            for name in ("manifest.properties", "catalog.properties", "SHA256SUMS"):
+                self.assertFalse((root / name).exists())
+
+    def test_compression_refuses_to_replace_an_existing_candidate(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "system.img"
+            path.write_bytes(b"new bytes")
+            compressed = path.with_name("system.img.gz")
+            compressed.write_bytes(b"existing candidate")
+            with self.assertRaises(FileExistsError):
+                factory.compress_artifact(path)
+            self.assertEqual(b"existing candidate", compressed.read_bytes())
 
     def test_provenance_retains_source_commit_captured_before_production(self):
         with tempfile.TemporaryDirectory() as temporary:

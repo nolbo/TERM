@@ -1,10 +1,12 @@
 import gzip
+from contextlib import contextmanager
 import hashlib
 import importlib.util
 import io
 import json
 from pathlib import Path
 import tempfile
+import threading
 import unittest
 from unittest import mock
 import zipfile
@@ -63,6 +65,57 @@ class CatalogVerificationTests(unittest.TestCase):
         provenance = json.loads((self.root / 'provenance.json').read_bytes())
         verifier.verify_directory(self.root, expected_commit=provenance['sourceCommit'],
                                   expected_manifest_sha=approved['manifestSha256'])
+
+    def test_public_artifacts_use_two_workers_and_separate_openers(self):
+        approved = verifier.verify_directory(self.root, metadata_only=True)
+        barrier, lock = threading.Barrier(2), threading.Lock()
+        active = peak = started = 0
+        original = self.opener()
+
+        @contextmanager
+        def open_url(url, timeout):
+            nonlocal active, peak, started
+            if url.endswith('manifest.properties'):
+                with original.open(url, timeout=timeout) as response:
+                    yield response
+                return
+            with lock:
+                active += 1
+                started += 1
+                number = started
+                peak = max(peak, active)
+            try:
+                if number <= 2:
+                    barrier.wait(timeout=5)
+                with original.open(url, timeout=timeout) as response:
+                    yield response
+            finally:
+                with lock:
+                    active -= 1
+
+        created = []
+
+        def build_opener(*handlers):
+            opener = mock.Mock(open=mock.Mock(side_effect=open_url))
+            created.append(opener)
+            return opener
+
+        with mock.patch.object(verifier.urllib.request, 'build_opener', side_effect=build_opener):
+            verifier.verify_published(approved)
+        self.assertEqual(2, peak)
+        self.assertEqual(5, started)
+        self.assertEqual(6, len(created))
+        self.assertTrue(all(opener.open.call_count == 1 for opener in created))
+
+    def test_corruption_in_any_public_worker_preserves_existing_catalog(self):
+        output = Path(self.temporary.name) / 'default.properties'
+        output.write_bytes(b'existing reviewed pin')
+        for name in verifier.ARTIFACTS.values():
+            with self.subTest(artifact=name), mock.patch.object(
+                    verifier.urllib.request, 'build_opener', side_effect=lambda *args: self.opener(corrupt=name + '.gz')):
+                with self.assertRaises(gzip.BadGzipFile):
+                    verifier.approve(self.root, output)
+                self.assertEqual(b'existing reviewed pin', output.read_bytes())
 
     def test_v2_requires_ext4_provenance_and_legacy_v1_remains_readable(self):
         data = (self.root / 'manifest.properties').read_bytes()

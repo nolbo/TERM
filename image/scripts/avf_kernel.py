@@ -117,3 +117,12 @@ def validate_bundle(directory):
         raise ValueError("Built kernel differs from its final .config or release")
     validate_config(config)
     return metadata
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Verify all AVF kernel bundle hashes and the current kernel contract")
+    parser.add_argument("directory", type=Path)
+    metadata = validate_bundle(parser.parse_args().directory)
+    print(f"Verified AVF kernel bundle: {metadata['kernelRelease']}")

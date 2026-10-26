@@ -5,6 +5,8 @@ import io
 import json
 from pathlib import Path
 import runpy
+import subprocess
+import sys
 import tempfile
 import unittest
 from unittest import mock
@@ -55,6 +57,19 @@ def fixture_bundle(root):
 
 
 class ContainerKernelTests(unittest.TestCase):
+    def test_cached_bundle_cli_revalidates_bytes_before_handoff(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            fixture_bundle(root)
+            command = [sys.executable, str(REPO / 'image/scripts/avf_kernel.py'), str(root)]
+            valid = subprocess.run(command, capture_output=True, text=True)
+            self.assertEqual(0, valid.returncode, valid.stderr)
+            self.assertIn('Verified AVF kernel bundle:', valid.stdout)
+            (root / 'initrd.img').write_bytes(b'corrupted cache')
+            invalid = subprocess.run(command, capture_output=True, text=True)
+            self.assertNotEqual(0, invalid.returncode)
+            self.assertIn('Kernel bundle checksum mismatch: initrd.img', invalid.stderr)
+
     def test_fragment_covers_reported_gaps_and_preserves_guest_contract(self):
         required = kernel.requirements()
         for flag in ('PID_NS', 'IPC_NS', 'SYSVIPC', 'POSIX_MQUEUE', 'CGROUP_PIDS',

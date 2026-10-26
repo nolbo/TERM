@@ -29,6 +29,18 @@ New producer manifests omit `virtiofsVersion`, `androidStorageVersion` and `shar
 
 The repository's `Build approved AVF Linux image` workflow automatically prepares a candidate when image, guest, or related verification files are pushed to `dev`; promoting only `image/catalog-approved.properties` does not rebuild an unchanged producer. It can also be dispatched on `dev` with an explicit immutable release ID. An ARM64 runner builds the guest binaries, downloads Google's official AVF Debian archive, rejects unsafe archive entries, installs the TERM services and CLI, creates the three disks, rebuilds the matching initrd and creates the manifest and pinned catalog. It records the upstream archive SHA-256 and repository commit in `provenance.json`. An optional reviewed source SHA-256 rejects upstream changes. Unsupported archive formats or missing overlay kernel support fail instead of producing an apparently usable image.
 
+Unchanged kernel recipes automatically reuse a validated bundle across Debian,
+Ubuntu and Arch builds, skipping the x86_64 source sync and Kleaf compile. Exact
+cache keys, validation, cache misses and the `rebuild_kernel` escape hatch are
+documented in [AVF_CONTAINER_KERNEL.md](AVF_CONTAINER_KERNEL.md). Image assembly,
+both boot gates and the catalog-bearing APK gate still run for each new image.
+Final packaging hashes raw artifacts while compressing them, eliminating a
+separate full raw-disk scan. At most two gzip workers run at once, with the
+largest disks scheduled first. Gzip remains deterministic (level 1, no filename,
+zero timestamp); artifact names, manifest hashes and download format are unchanged
+for the same input bytes. Workers stream bounded chunks, and any failure prevents
+the staged release from being promoted.
+
 The dependent APK job receives the factory metadata, verifies its source commit and the manifest hash supplied by the producer job, and builds a debug APK containing that exact catalog. It checks the embedded catalog, AVF driver, and Rootless payload before uploading the candidate APK. Debug variants use the timestamp/state allocator in `tools/updates/debug-version-code.py`; the supplied canonical release sequence is only a minimum. This review APK is not a separate app channel release. Candidate production alone does not publish image assets or make their URLs usable.
 
 The default CI Debug signing key is generated on that runner. A higher version
@@ -83,6 +95,12 @@ A successful image job with skipped APK/publication jobs is not publication.
 Runtime downloads must be available without credentials. The unified source and release repository is public; the workflow retains the existing TERM release URLs. HTTPS redirects to the GitHub asset CDN are supported, including signed query strings; content remains pinned by the manifest and artifact SHA-256 values. Host all five `<artifact>.gz` files beside the uncompressed `manifest.properties` at the catalog's URI. Never host mutable `latest` contents under an approved manifest hash. An OEM may use its own immutable HTTPS directory, but the repository's publication verifier intentionally accepts only the TERM repository.
 
 After uploading assets, the publication job downloads the public manifest and streams all five images without authentication. It enforces download/expansion limits and compares the manifest and decompressed artifact hashes before producing the `avf-approved-default-<release-id>` artifact. Missing or damaged public assets fail approval and preserve any existing default pin. The workflow does not push source changes or automatically promote a catalog into app releases.
+
+After validating the pinned manifest, public artifact verification uses at most
+two concurrent downloads, each with an independent HTTPS opener. Every stream
+still receives full download/expansion limit and decompressed SHA-256 checks;
+all workers must succeed before the atomic catalog update. This overlaps transfer
+and verification without dropping the full anonymous-download gate.
 
 After review, repeat the public-download verification against the producer artifact and atomically write the default pin:
 

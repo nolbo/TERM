@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Product-side AVF image factory. End users only select an AVF session."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import gzip
 import hashlib
 import json
@@ -70,20 +71,43 @@ def extract_source(archive, destination):
         raise ValueError("Google archive must contain root_part, vmlinuz and initrd.img (direct-kernel boot)")
 
 
+def compress_artifact(path):
+    """Hash the exact raw bytes being compressed, without a second disk scan."""
+    checksum, size = hashlib.sha256(), 0
+    with path.open("rb") as source, path.with_name(path.name + ".gz").open("xb") as raw:
+        with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=1) as target:
+            while chunk := source.read(1024 * 1024):
+                size += len(chunk)
+                if size > MAX_BYTES:
+                    raise ValueError(f"generated artifact exceeds size limit: {path.name}")
+                checksum.update(chunk)
+                target.write(chunk)
+    if not size or size != path.stat().st_size:
+        raise ValueError(f"empty or changing generated artifact: {path.name}")
+    return checksum.hexdigest()
+
+
 def write_release(root, release_id, base_uri, source_url, source_sha, distribution="debian", source_commit=None, boot_verification=None, kernel_build=None, container_verification=None):
     if distribution not in ("debian", "ubuntu", "archlinux"):
         raise ValueError("Unsupported AVF distribution")
     if kernel_build:
-        KERNEL["validate_provenance"](kernel_build, sha256(root / "vmlinuz"))
         KERNEL["validate_boot_report"](container_verification)
+    for name in ARTIFACTS.values():
+        artifact = root / name
+        if artifact.is_symlink() or not artifact.is_file() or not 0 < artifact.stat().st_size <= MAX_BYTES:
+            raise ValueError(f"invalid generated artifact: {name}")
+    # Keep CPU/memory/I/O bounded, starting the largest disks first. Metadata is
+    # written only after every worker succeeds; the caller owns a staging dir.
+    names = sorted(ARTIFACTS.values(), key=lambda name: (root / name).stat().st_size, reverse=True)
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        hashes = dict(zip(names, workers.map(compress_artifact, (root / name for name in names))))
+    if kernel_build:
+        KERNEL["validate_provenance"](kernel_build, hashes["vmlinuz"])
     manifest = f"formatVersion=2\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nsessionResumeVersion=1\nmaintenanceVersion=1\n"
     if distribution in ("debian", "ubuntu"):
         manifest += "aptInitializationVersion=1\n"
     for key, name in ARTIFACTS.items():
-        artifact = root / name
-        if artifact.is_symlink() or not artifact.is_file() or not 0 < artifact.stat().st_size <= MAX_BYTES:
-            raise ValueError(f"invalid generated artifact: {name}")
-        manifest += f"{key}.sha256={sha256(artifact)}\n"
+        manifest += f"{key}.sha256={hashes[name]}\n"
     (root / "manifest.properties").write_text(manifest)
     limit = max((root / name).stat().st_size for name in ARTIFACTS.values())
     (root / "catalog.properties").write_text(
@@ -101,10 +125,6 @@ def write_release(root, release_id, base_uri, source_url, source_sha, distributi
         "kernelBuild": kernel_build,
         "containerBootVerification": container_verification,
     }, indent=2) + "\n")
-    for name in ARTIFACTS.values():
-        with (root / name).open("rb") as source, (root / (name + ".gz")).open("xb") as raw:
-            with gzip.GzipFile(filename="", mode="wb", fileobj=raw, mtime=0, compresslevel=1) as target:
-                shutil.copyfileobj(source, target)
     (root / "SHA256SUMS").write_text("".join(
         f"{sha256(root / name)}  {name}\n" for name in
         ["manifest.properties", "catalog.properties", "provenance.json"] + [n + ".gz" for n in ARTIFACTS.values()]))

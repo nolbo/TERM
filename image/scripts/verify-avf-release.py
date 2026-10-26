@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Verify factory artifacts and published images before approving an APK catalog."""
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import gzip
 import hashlib
 import json
@@ -254,17 +255,25 @@ class HttpsRedirects(urllib.request.HTTPRedirectHandler):
 
 
 def verify_published(approved, opener=None):
-    opener = opener or urllib.request.build_opener(HttpsRedirects())
-    with opener.open(https_url(approved['manifestUri']), timeout=60) as response:
+    manifest_opener = opener or urllib.request.build_opener(HttpsRedirects())
+    with manifest_opener.open(https_url(approved['manifestUri']), timeout=60) as response:
         https_url(response.url)
         data = response.read(METADATA_LIMIT + 1)
     values = manifest(data, approved)
-    for key, name in ARTIFACTS.items():
+
+    def verify_artifact(item):
+        key, name = item
+        # urllib handlers keep request state; use a separate opener per worker.
+        artifact_opener = opener or urllib.request.build_opener(HttpsRedirects())
         url = urllib.parse.urljoin(approved['manifestUri'], name + '.gz')
-        with opener.open(https_url(url), timeout=60) as response:
+        with artifact_opener.open(https_url(url), timeout=60) as response:
             https_url(response.url)
             with gzip.GzipFile(fileobj=BoundedReader(response, int(approved['maxArtifactBytes']))) as stream:
                 verify_stream(stream, int(approved['maxArtifactBytes']), values[key + '.sha256'])
+
+    # Fully consume results so any download/hash failure prevents approval.
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        list(workers.map(verify_artifact, ARTIFACTS.items()))
 
 
 def approve(root, output, **verification):
