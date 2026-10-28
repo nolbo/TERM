@@ -87,7 +87,7 @@ jobs:
           python3 image/scripts/build-avf-kernel.py --checkout image/build/kernel-checkout \
             --output image/build/kernel-bundle
       - name: Validate every restored or newly built kernel bundle
-        run: python3 image/scripts/avf_kernel.py image/build/kernel-bundle
+        run: python3 image/scripts/verify-avf-kernel.py image/build/kernel-bundle
       - name: Cache the verified kernel bundle
         if: ${{ !inputs.rebuild_kernel && steps.kernel-cache.outputs.cache-hit != 'true' }}
         continue-on-error: true

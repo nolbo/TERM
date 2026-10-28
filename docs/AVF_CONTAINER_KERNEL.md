@@ -474,3 +474,5 @@ image and device results above remain historical evidence for their exact builds
 - [ReDroid AArch64-only deployment](https://github.com/remote-android/redroid-doc/blob/master/deploy/README.md)
 - [Android 15 watchdog timeout and SysRq behavior](https://github.com/aosp-mirror/platform_frameworks_base/blob/android15-release/services/core/java/com/android/server/Watchdog.java)
 - [ReDroid heap/BinderFS requirements](https://github.com/remote-android/redroid-doc/blob/master/deploy/openeuler.md)
+
+Kernel cache validation runs through `image/scripts/verify-avf-kernel.py`. The CLI delegates to the unchanged `avf_kernel.validate_bundle` library so adding or changing the command-line entry point does not change the pinned kernel-production recipe. Explicit reuse still requires byte-identical production inputs and full bundle validation.

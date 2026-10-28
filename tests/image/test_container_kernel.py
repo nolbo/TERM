@@ -61,7 +61,7 @@ class ContainerKernelTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             fixture_bundle(root)
-            command = [sys.executable, str(REPO / 'image/scripts/avf_kernel.py'), str(root)]
+            command = [sys.executable, str(REPO / 'image/scripts/verify-avf-kernel.py'), str(root)]
             valid = subprocess.run(command, capture_output=True, text=True)
             self.assertEqual(0, valid.returncode, valid.stderr)
             self.assertIn('Verified AVF kernel bundle:', valid.stdout)
