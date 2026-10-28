@@ -51,6 +51,12 @@ driver with the official NDK r28 sysroot and compiler runtime archives.
 
 ## Userspace Linux
 
+The [independent engine design](USERSPACE_ENGINE_DESIGN.md) plans a ptrace-free
+replacement for the execution engine. It reviews proroot's public descriptions
+and proot-rs source while defining independent implementation contracts. The
+replacement is not implemented or selected by current APKs; the behavior below
+describes the existing PRoot runtime.
+
 Userspace Linux installation can be explicitly cancelled from its environment detail or installation dialog. The owning service stops only that backend's preparation, cleans temporary downloads/extraction, and retains any activated rootfs, home and workspace. A retry recovers interrupted package operations before verifying readiness. Closing a view does not cancel installation.
 
 Each approved distribution uses its own `RootlessDebianBackend` instance (the

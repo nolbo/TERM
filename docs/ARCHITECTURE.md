@@ -159,6 +159,13 @@ an independent PRoot/glibc rootfs and official Debian apt/dpkg. Represent its
 ptrace, filesystem, fake-root, mount, namespace, cgroup, systemd, and kernel
 limitations honestly.
 
+The [independent Userspace engine design](USERSPACE_ENGINE_DESIGN.md) defines the
+2026-10-28 replacement direction: a separately implemented, ptrace-free engine
+within Userspace Linux, with explicit compatibility, performance and Android
+policy gates. It is neither a PRoot modification nor a revival of Direct Linux.
+This is a pre-implementation design; the current PRoot backend, session ownership
+and installed Environment storage remain authoritative until those gates pass.
+
 AVF Linux is a separate, optional real-kernel environment. It requires device
 support and privileged/product deployment. Normal APK permission declarations
 cannot grant signature permissions. Keep AVF-specific APIs behind the AVF
