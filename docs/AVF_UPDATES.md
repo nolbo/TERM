@@ -18,6 +18,12 @@ The new OutputGap handling requires the matching approved APK; an older host
 cannot safely reset incomplete terminal parsers after lost output. Input and
 output buffers are process-local and never migrate as persistent history.
 
+The follow-up guest refinement requires the same verified component/image path:
+independent pidfd child reaping, nonfatal input overload, close-on-exec PTY masters,
+reused loop storage and chunked media encoding reside in `droid-sessiond`, not
+the APK. It requires Linux 5.3+ (the pinned guest is 6.12), adds no service or wire
+version, and does not itself publish an image or alter installed environments.
+
 ## Decision and compatibility
 
 Format v1 `home.img` contains the root OverlayFS upper/work trees. Format v2

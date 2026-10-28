@@ -1,5 +1,5 @@
 //! Bounded, lossy terminal tails. A slow or absent viewer must never stop a PTY.
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeMap, VecDeque};
 
 // A supported 6 MiB local graphic expands to slightly over 8 MiB of wire APCs.
 // Retain one complete expansion even when it is produced in a single parser turn.
@@ -17,7 +17,7 @@ pub struct Tail {
 
 #[derive(Default)]
 pub struct OutputBuffer {
-    pub tails: HashMap<String, Tail>,
+    pub tails: BTreeMap<String, Tail>,
     bytes: usize,
     chunks: usize,
     sequence: u64,

@@ -18,6 +18,34 @@ preserves queued output order; congested old-geometry tails are dropped before
 the response. Partial terminal/control parsers reset on a gap. Ordinary process
 exit is still distinct from PTY EOF, transport loss and verified VM stop.
 
+The follow-up removes two remaining lifecycle couplings: shared input-queue
+saturation cannot kill a graphics-replying sibling, and pidfd readiness reaps a
+leader independently of inherited slave descriptors. EOF alone never closes a
+live leader's master. One poll loop replaces both the 100 ms EOF-reap timer and
+per-termination wait threads; it reuses descriptor/ID storage. Pending writes
+receive errors on natural exit and explicit close. No service/worker is added.
+See `ARCHITECTURE.md` for bounded final draining and the extra per-child pidfd.
+Linux 5.3+ pidfd support is covered by the pinned Linux 6.12 guest ([Linux manual](https://man7.org/linux/man-pages/man2/pidfd_open.2.html)).
+
+A reproducible host microbenchmark is `tests/benchmarks/avf_sessiond_overhead.py`
+(baseline `545d204`, release builds, five alternating runs on this ARM64 Linux
+host). It isolates allocations/CPU, not AVF/vsock/UI latency. Timing uses disabled
+allocation counting; counts include allocation/reallocation calls in a separate
+sample after warm-up. The 6 MiB file is in the host page cache.
+
+| Operation | Before | After |
+| --- | --- | --- |
+| Idle poll turn, 8 live sessions: transient allocations | 16 | 0 |
+| Same turn, median time | 2.294 us | 2.115 us |
+| 8 KiB stream frame: allocations | 4 | 1 |
+| Same frame, median encoding time | 0.547 us | 0.274 us |
+| 6 MiB graphic: peak transient allocated bytes | 23,145,029 | 8,511,962 |
+| Same graphic, median conversion time | 26.376 ms | 14.036 ms |
+
+The graphic peak includes retained encoded chunks; it is not process RSS. Full
+raw-file/Base64 copies are removed, but slow regular-file I/O is still synchronous.
+These figures do not establish device-level performance against Userspace Linux.
+
 Alternatives rejected were another relay optimization (still coupled process
 progress to replay), a second priority socket (more ownership/recovery state),
 and unlimited memory/disk output retention (unbounded resource use). The chosen

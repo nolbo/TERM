@@ -348,7 +348,8 @@ renderer. Event `0x90` is output (u16 UTF-8 session ID, i32 length, bytes, with
 kitty local media converted inside the guest); `0x91` is process exit (ID, i32
 exit code). New direct guests also emit `0x92` OutputGap (ID, big-endian i64
 count). A nonnegative count is discarded output bytes; -1 means delivery on the
-previous connection is unknown. Counts below -1 or trailing bytes are invalid.
+previous connection or the bounded final drain is unknown. Counts below -1 or
+trailing bytes are invalid.
 A gap precedes the retained output tail and any pending exit event. It does not
 mean process/Environment death. The host clears incomplete ANSI/OSC/DCS/APC,
 UTF-8 and remote-control parsing, checkpoints subscribed mirrors and reports the
@@ -365,7 +366,17 @@ Host-only appended `initializeAvfImage(storageId, requestId, callback)` and `can
 
 The host session client contains transport read and frame-validation exceptions within its receive job. EOF, a failed read or explicit close publishes `DISCONNECTED`, fails pending requests and closes only that transport; new requests on a disconnected client fail without a send or request timeout. Cleanup failures cannot escape to the shared runtime owner. Coroutine cancellation still propagates, and disconnection emits no synthetic PTY exit or sibling-session removal. Guest wire frames and protocol version remain unchanged.
 
-After PTY EOF has been drained and the child exit status collected, sessiond closes that session's PTY master and removes it from the active I/O poll set. LIST and attachment still expose the retained exited descriptor until explicit termination removes its history; an exited ID cannot restart a shell. Only running sessions enter the hot poll loop, independently of how many exited descriptors remain.
+Child exit is polled independently through a pidfd and reaped even while a
+descendant retains the slave. Sessiond drains at most eight final parser/read
+turns (PTY reads <= 8 KiB), reports an unknown-size gap if more output is observed,
+then closes the master and emits the actual exit status after the retained tail.
+EOF alone stops PTY I/O polling without closing the master or signalling a live
+leader. LIST and attachment retain exited history until explicit termination;
+an exited ID cannot restart a shell. Only active child/PTY handles enter the loop.
+Pending WRITE requests fail when their destination exits; they are never replayed.
+Guest input is bounded to 1 MiB/64 packets per session and 4 MiB/256 packets total.
+Rejected user WRITE receives ERROR. Generated local graphics replies may be
+silently dropped under saturation, without terminating that or another session.
 
 A session request deadline covers both sending and response waiting, using 10 seconds on either transport. The 60-second raw-link recovery lease is independent. Transport state distinguishes `CONNECTED`, `RECOVERING` and `DISCONNECTED`; new requests during known recovery fail before sending. A complete ordinary request whose response times out or whose caller cancels is abandoned by request ID, without closing sibling requests. Late responses are ignored and the original mutation is never reissued. Incomplete sends, send failures, unconfirmed creation and unresolved ordered-resize boundaries still close the logical client and fail pending requests: reusing a partial frame or unknown initial terminal identity/output geometry is unsafe. `session.request.timeout` and `session.request.cancelled` distinguish these stages from read/send failures. An independent deadline closes the socket before waiting for a blocked sender to finish. Descriptor shutdown wakes both native directions; close does not flush buffered partial frames. Successful error responses remain ordinary RPC errors rather than transport failure.
 
@@ -374,7 +385,10 @@ Platform connection attempts are separately bounded to 10 seconds with eight wor
 Kitty media conversion does not change the session wire schema. File paths,
 shared-memory handles and guest descriptors never become host file operations;
 `droid-sessiond` reads bounded regular-file data in the guest and emits direct
-APCs in output frames of at most 32 KiB. Native/Rootless perform the equivalent
+APCs in output frames of at most 32 KiB. Guest conversion reads 3 KiB blocks,
+encoding directly into 4 KiB-base64 APC chunks without full raw/base64 copies.
+Chunks are published only after the entire bounded read and optional unlink
+succeed; short reads leave the source intact. Native/Rootless perform the equivalent
 conversion before their 8 MiB transcript/replay buffer. Runtime emulator replies
 remain ordinary PTY input. UI mirrors suppress duplicate
 query replies, and checkpoint installation never re-executes historical effects.

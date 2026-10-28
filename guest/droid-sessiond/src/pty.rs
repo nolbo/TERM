@@ -2,7 +2,7 @@
 //! Android Activity nor a vsock client ever receives the master file descriptor.
 
 use std::ffi::CString;
-use std::os::fd::{AsRawFd, OwnedFd};
+use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::raw::c_char;
 use std::ptr;
 
@@ -27,8 +27,10 @@ impl From<Errno> for PtyError {
 
 #[derive(Debug)]
 pub struct PtyProcess {
-    master: OwnedFd,
+    master: Option<OwnedFd>,
     child: Pid,
+    exit: Option<OwnedFd>,
+    output_eof: bool,
 }
 
 impl PtyProcess {
@@ -55,62 +57,80 @@ impl PtyProcess {
             nix::pty::ForkptyResult::Parent { child, master } => {
                 let fd = master.as_raw_fd();
                 let flags = unsafe { nix::libc::fcntl(fd, nix::libc::F_GETFL) };
-                if flags < 0 || unsafe { nix::libc::fcntl(fd, nix::libc::F_SETFL, flags | nix::libc::O_NONBLOCK) } < 0 {
-                    let _ = kill(child, Signal::SIGKILL);
-                    let _ = waitpid(child, None);
-                    return Err(PtyError::Nix(Errno::last()));
+                if flags < 0
+                    || unsafe { nix::libc::fcntl(fd, nix::libc::F_SETFL, flags | nix::libc::O_NONBLOCK) } < 0
+                    || unsafe { nix::libc::fcntl(fd, nix::libc::F_SETFD, nix::libc::FD_CLOEXEC) } < 0 {
+                    let error = Errno::last();
+                    kill_and_reap(child);
+                    return Err(error.into());
                 }
-                Ok(Self { master, child })
+                // AVF's Linux 6.12 supports pidfd_open (since Linux 5.3). It
+                // wakes the same poll loop even when a descendant holds the PTY.
+                let exit = unsafe { nix::libc::syscall(nix::libc::SYS_pidfd_open, child.as_raw(), 0) };
+                if exit < 0 {
+                    let error = Errno::last();
+                    kill_and_reap(child);
+                    return Err(error.into());
+                }
+                Ok(Self { master: Some(master), child, exit: Some(unsafe { OwnedFd::from_raw_fd(exit as _) }), output_eof: false })
             },
             nix::pty::ForkptyResult::Child => child_exec(&launch),
         }
     }
 
     pub fn read_output(&self, buffer: &mut [u8]) -> Result<usize, PtyError> {
-        read(self.master.as_raw_fd(), buffer).map_err(PtyError::from)
+        let fd = self.raw_fd().ok_or(PtyError::SessionNotStarted)?;
+        loop {
+            match read(fd, buffer) {
+                Err(Errno::EINTR) => continue,
+                result => return result.map_err(PtyError::from),
+            }
+        }
     }
 
     pub fn write_input(&self, bytes: &[u8]) -> Result<usize, PtyError> {
-        write(&self.master, bytes).map_err(PtyError::from)
+        if self.output_eof { return Err(PtyError::SessionNotStarted); }
+        write(self.master.as_ref().ok_or(PtyError::SessionNotStarted)?, bytes).map_err(PtyError::from)
     }
 
     pub fn resize(&self, rows: u16, cols: u16) -> Result<(), PtyError> {
         if rows == 0 || cols == 0 { return Err(PtyError::InvalidEnvironment); }
         let winsize = Winsize { ws_row: rows, ws_col: cols, ws_xpixel: 0, ws_ypixel: 0 };
         let result = unsafe {
-            nix::libc::ioctl(self.master.as_raw_fd(), nix::libc::TIOCSWINSZ, &winsize)
+            nix::libc::ioctl(self.raw_fd().ok_or(PtyError::SessionNotStarted)?, nix::libc::TIOCSWINSZ, &winsize)
         };
         if result == -1 { return Err(PtyError::Nix(Errno::last())); }
         Ok(())
     }
 
     pub fn terminate(&self, signal: Signal) -> Result<(), PtyError> {
+        if self.exit.is_none() { return Ok(()); } // Never signal a reaped/reused PID.
         match kill(self.child, signal) {
             Ok(()) | Err(Errno::ESRCH) => Ok(()),
             Err(error) => Err(PtyError::from(error)),
         }
     }
 
-    pub fn poll_exit(&self) -> Result<Option<i32>, PtyError> {
-        match waitpid(self.child, Some(nix::sys::wait::WaitPidFlag::WNOHANG)).map_err(PtyError::from)? {
-            WaitStatus::StillAlive => Ok(None),
-            WaitStatus::Exited(_, status) => Ok(Some(status)),
-            WaitStatus::Signaled(_, signal, _) => Ok(Some(128 + signal as i32)),
-            _ => Ok(None),
-        }
+    pub fn poll_exit(&mut self) -> Result<Option<i32>, PtyError> {
+        if self.exit.is_none() { return Ok(None); }
+        let code = match waitpid(self.child, Some(nix::sys::wait::WaitPidFlag::WNOHANG)).map_err(PtyError::from)? {
+            WaitStatus::Exited(_, status) => Some(status),
+            WaitStatus::Signaled(_, signal, _) => Some(128 + signal as i32),
+            _ => None,
+        };
+        if code.is_some() { self.exit.take(); }
+        Ok(code)
     }
 
-    pub fn wait_for_exit(self) -> Result<i32, PtyError> {
-        loop {
-            match waitpid(self.child, None).map_err(PtyError::from)? {
-                WaitStatus::Exited(_, status) => return Ok(status),
-                WaitStatus::Signaled(_, signal, _) => return Ok(128 + signal as i32),
-                _ => continue,
-            }
-        }
-    }
+    pub fn raw_fd(&self) -> Option<RawFd> { if self.output_eof { None } else { self.master.as_ref().map(AsRawFd::as_raw_fd) } }
+    pub fn mark_output_eof(&mut self) { self.output_eof = true; }
+    pub fn exit_fd(&self) -> Option<RawFd> { self.exit.as_ref().map(AsRawFd::as_raw_fd) }
+    pub fn close_output(&mut self) { self.master.take(); }
+}
 
-    pub fn raw_fd(&self) -> std::os::fd::RawFd { self.master.as_raw_fd() }
+fn kill_and_reap(child: Pid) {
+    let _ = kill(child, Signal::SIGKILL);
+    while matches!(waitpid(child, None), Err(Errno::EINTR)) {}
 }
 
 /// All allocations and validation happen before fork. The child invokes only

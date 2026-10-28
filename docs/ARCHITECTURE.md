@@ -729,7 +729,7 @@ AVF Environment internal-storage controls are removed and runtime startup ignore
 
 The platform supports one vCPU or host topology, so settings expose those two policies, defaulting to one vCPU. Legacy values 2–16 retain their host-topology meaning. A new automatic memory setting uses one third of host RAM rounded down to 256MiB, bounded to 1–4GiB and at most half of currently available RAM. Automatic start fails if that cannot supply 1GiB, preserving other running owners; existing manual budgets are preserved. These defaults apply at the next preparation and never reconfigure a running VM.
 
-The guest session daemon uses nonblocking host framing and PTY I/O. A bounded 16MiB output queue, 4MiB/256-packet input queue and per-turn write budgets keep a partial frame or unread PTY from blocking sibling output/control operations. Input acknowledgements follow actual complete PTY delivery; a disconnected logical connection discards incomplete pending input without replay, while PTY owners survive. Native/Rootless are unchanged. The package-initialization endpoint retains its blocking transport mode.
+The guest session daemon uses nonblocking host framing and PTY I/O. A bounded 16MiB output queue, 4MiB/256-packet input queue (1MiB/64 packets per session) and per-turn write budgets keep a partial frame or unread PTY from blocking sibling output/control operations. Input acknowledgements follow actual complete PTY delivery; a disconnected logical connection discards incomplete pending input without replay, while PTY owners survive. Native/Rootless are unchanged. The package-initialization endpoint retains its blocking transport mode.
 
 Host replay rings allocate payload storage lazily and grow only with buffered data, retaining the original 256KiB credit bound per direction. Guest replay uses the same bounded ring semantics without prefix deletion. Raw-link watchers wait for close events rather than waking every second; heartbeat and session recovery leases are unchanged. Port reports back off unchanged scans from 2 to 10 seconds, resetting after changes.
 
@@ -778,9 +778,11 @@ discard incomplete sequences at a gap; attached UI mirrors receive a checkpoint.
 This preserves existing screen/history, but cannot reconstruct missing output
 or a TUI's lost state. A redraw may be necessary. There is no disk output spool.
 
-A PTY failure or an unconsumed guest graphics-reply flood terminates only the
-affected session, reporting an unavailable exit status (-1); it does not stop
-the listener or sibling PTYs. Actual process exit still reports its wait status.
+Input has per-session 1 MiB / 64-packet and global 4 MiB / 256-packet bounds.
+A rejected user WRITE receives an error; a locally generated graphics reply is
+best effort and discarded on overload. Queue pressure never kills a PTY. Only
+an actual PTY read failure terminates that session with unavailable status (-1).
+Actual process exit reports its wait status and rejects outstanding input.
 Verified Environment stop continues to remove all of its sessions and terminal
 state, while a transport disconnect alone is not proof of Environment death.
 
@@ -795,9 +797,32 @@ requests release asynchronously with at most eight workers, no waiting queue,
 and one-second open/I/O budgets. Legacy guests reject the optional operation
 and retain lease expiry; new/different owners cannot displace a live generation.
 
-PTY EOF is recorded independently of child exit. A closed output descriptor is
-removed from the poll set while its process remains listable/terminable. Only
-pending EOF/exit pairs enable a 100ms reap timer; ordinary connected sessions
-remain event-driven. A normal child exit uses its actual wait status; PTY I/O failure is handled
-separately as described above. Control requests are dispatched before
-a further turn of PTY output, and terminated descriptors are revalidated.
+PTY EOF and child exit are independent. Each child has one close-on-exec pidfd
+in the existing poll loop; Linux `pidfd_open` requires 5.3+, already covered by
+the guest's pinned Linux 6.12 kernel. No reap timer, signal-handler infrastructure,
+or termination-wait thread is needed. EOF stops PTY polling but keeps the master
+until the leader exits: closing it earlier would send SIGHUP to a live leader.
+A ready pidfd triggers nonblocking waitpid immediately, even if descendants hold
+the slave. After at most eight final parser/read turns (each PTY read <= 8 KiB),
+the master closes; descendants cannot extend the session lifetime. Any observed
+undrained remainder produces an unknown-size OutputGap. Exit follows the retained
+tail. Exited history remains until explicit close; a stopped Environment still
+removes all its sessions. Explicit termination removes metadata immediately and
+leaves only the child handle in this same poll loop until reaped. Failed launches
+remove their provisional metadata. PTY masters are close-on-exec, preventing
+inheritance by later sessions. Control requests precede another PTY turn, and
+snapshot descriptors are revalidated after dispatch.
+
+The loop reuses poll descriptors and session-ID storage; ordered tail traversal
+uses one cursor instead of allocating and sorting ID vectors each turn. Requests
+are decoded once. Stream events serialize directly into their final frame buffer.
+Local graphics read 3 KiB blocks and encode into the existing bounded wire chunks,
+without whole-file or whole-base64 temporary buffers. A short read publishes no
+partial image and does not unlink the source. Regular-file reads remain synchronous:
+these memory/CPU savings do not impose a latency bound on slow storage.
+
+These decisions replace periodic reaping, per-termination threads and full media
+copies without adding a service, worker pool or wire version. The trade-off is
+one extra kernel descriptor per live/terminating child and bounded best-effort
+terminal replies/final output. The host compatibility adapter is unchanged;
+installed guests need the verified update described in `AVF_UPDATES.md`.

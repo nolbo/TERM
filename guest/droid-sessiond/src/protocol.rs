@@ -68,20 +68,24 @@ pub fn encode_error(code: ErrorCode, message: &str) -> Result<Vec<u8>, ProtocolE
     Ok(payload)
 }
 
+/// Allocate the complete wire frame once, initially containing only its header.
+pub fn encode_header(service: Service, kind: FrameKind, flags: u16, request_id: u64, payload_length: usize) -> Result<Vec<u8>, ProtocolError> {
+    if payload_length > MAX_PAYLOAD_BYTES { return Err(ProtocolError::InvalidLength); }
+    let mut bytes = Vec::with_capacity(HEADER_SIZE + payload_length);
+    bytes.extend_from_slice(&MAGIC.to_be_bytes());
+    bytes.extend_from_slice(&VERSION.to_be_bytes());
+    bytes.push(service as u8);
+    bytes.push(kind as u8);
+    bytes.extend_from_slice(&flags.to_be_bytes());
+    bytes.extend_from_slice(&0_u16.to_be_bytes());
+    bytes.extend_from_slice(&request_id.to_be_bytes());
+    bytes.extend_from_slice(&(payload_length as u32).to_be_bytes());
+    Ok(bytes)
+}
+
 impl Frame {
     pub fn encode(&self) -> Result<Vec<u8>, ProtocolError> {
-        if self.payload.len() > MAX_PAYLOAD_BYTES {
-            return Err(ProtocolError::InvalidLength);
-        }
-        let mut bytes = Vec::with_capacity(HEADER_SIZE + self.payload.len());
-        bytes.extend_from_slice(&MAGIC.to_be_bytes());
-        bytes.extend_from_slice(&VERSION.to_be_bytes());
-        bytes.push(self.service as u8);
-        bytes.push(self.kind as u8);
-        bytes.extend_from_slice(&self.flags.to_be_bytes());
-        bytes.extend_from_slice(&0_u16.to_be_bytes());
-        bytes.extend_from_slice(&self.request_id.to_be_bytes());
-        bytes.extend_from_slice(&(self.payload.len() as u32).to_be_bytes());
+        let mut bytes = encode_header(self.service, self.kind, self.flags, self.request_id, self.payload.len())?;
         bytes.extend_from_slice(&self.payload);
         Ok(bytes)
     }

@@ -27,10 +27,8 @@ pub struct GraphicsTransport {
 }
 
 impl GraphicsTransport {
-    #[cfg(test)]
-    pub fn accept(&mut self, input: &[u8]) -> Output { self.accept_with(input, read_media) }
     pub fn accept_prefix(&mut self, input: &[u8]) -> (usize, Output) {
-        self.accept_prefix_with(input, 64 * 1024, read_media)
+        self.accept_prefix_inner(input, 64 * 1024, read_media, true)
     }
 
     #[cfg(test)]
@@ -40,13 +38,14 @@ impl GraphicsTransport {
             .1
     }
 
+    #[cfg(test)]
     fn accept_prefix_with<F>(&mut self, input: &[u8], limit: usize, mut read: F) -> (usize, Output)
     where F: FnMut(char, &str, u64, u64) -> Result<Vec<u8>, &'static str> {
-        self.accept_prefix_inner(input, limit, &mut read, true)
+        self.accept_prefix_inner(input, limit, |m, n, o, s| read(m, n, o, s).map(Media::memory), true)
     }
 
     fn accept_prefix_inner<F>(&mut self, input: &[u8], limit: usize, mut read: F, fast: bool) -> (usize, Output)
-    where F: FnMut(char, &str, u64, u64) -> Result<Vec<u8>, &'static str> {
+    where F: FnMut(char, &str, u64, u64) -> Result<Media, &'static str> {
         let mut result = Output::default();
         // UTF-8 text and complete CSI sequences cannot introduce graphics media.
         // Carry split UTF-8 continuations; malformed text and strings keep the full parser.
@@ -125,7 +124,7 @@ impl GraphicsTransport {
     }
 
     fn process<F>(&mut self, result: &mut Output, read: &mut F)
-    where F: FnMut(char, &str, u64, u64) -> Result<Vec<u8>, &'static str> {
+    where F: FnMut(char, &str, u64, u64) -> Result<Media, &'static str> {
         let parsed = parse_apc(&self.apc);
         let (mut keys, payload) = match parsed { Some(value) => value, None => { append(result, &self.apc); return; } };
         let action = keys.get(&'a').map(String::as_str).unwrap_or("t").to_owned();
@@ -147,19 +146,15 @@ impl GraphicsTransport {
             read(medium.chars().next().unwrap(), &name, offset, size)
         };
         let data = match data {
-            Ok(data) if data.len() <= MAX_BYTES => data,
+            Ok(data) if data.length <= MAX_BYTES => data,
             Ok(_) => { failure(result, &keys, "E2BIG: media size"); return; }
             Err(error) => { failure(result, &keys, error); return; }
         };
         keys.insert('t', "d".into()); keys.remove(&'S'); keys.remove(&'O'); keys.remove(&'m');
         let header = keys.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(",");
-        let encoded = encode_base64(&data);
-        let chunks = (encoded.len().max(1) + 4095) / 4096;
-        for index in 0..chunks {
-            let start = index * 4096; let end = encoded.len().min(start + 4096);
-            let metadata = if index == 0 { format!("{header},") } else if action == "f" { "a=f,".into() } else { String::new() };
-            let more = if index + 1 < chunks { 1 } else { 0 };
-            append(result, format!("\x1b_G{metadata}m={more};{}\x1b\\", &encoded[start..end]).as_bytes());
+        match encode_media(data, &header, &action) {
+            Ok(bytes) => result.bytes.extend(bytes),
+            Err(error) => failure(result, &keys, error),
         }
     }
 }
@@ -231,16 +226,72 @@ fn failure(output: &mut Output, keys: &BTreeMap<char, String>, message: &str) {
 }
 fn append(output: &mut Output, bytes: &[u8]) { output.bytes.extend(bytes.chunks(FRAME_BYTES).map(<[u8]>::to_vec)); }
 
-fn encode_base64(bytes: &[u8]) -> String {
-    let mut out = String::with_capacity((bytes.len() + 2) / 3 * 4);
+#[cfg(test)]
+pub(crate) fn encode_base64(bytes: &[u8]) -> String {
+    let mut out = Vec::with_capacity((bytes.len() + 2) / 3 * 4);
+    encode_base64_into(bytes, &mut out);
+    String::from_utf8(out).unwrap()
+}
+fn encode_base64_into(bytes: &[u8], out: &mut Vec<u8>) {
     for chunk in bytes.chunks(3) {
         let n = (u32::from(chunk[0]) << 16) | (u32::from(*chunk.get(1).unwrap_or(&0)) << 8) | u32::from(*chunk.get(2).unwrap_or(&0));
-        out.push(BASE64[(n >> 18) as usize] as char); out.push(BASE64[((n >> 12) & 63) as usize] as char);
-        out.push(if chunk.len() > 1 { BASE64[((n >> 6) & 63) as usize] as char } else { '=' });
-        out.push(if chunk.len() > 2 { BASE64[(n & 63) as usize] as char } else { '=' });
+        out.push(BASE64[(n >> 18) as usize]); out.push(BASE64[((n >> 12) & 63) as usize]);
+        out.push(if chunk.len() > 1 { BASE64[((n >> 6) & 63) as usize] } else { b'=' });
+        out.push(if chunk.len() > 2 { BASE64[(n & 63) as usize] } else { b'=' });
     }
-    out
 }
+
+// Only encoded wire chunks are retained. Neither a complete source-file buffer
+// nor a complete base64 string is allocated. Stage these chunks until reading
+// and optional unlink succeed, so a short read cannot publish half an image.
+fn encode_media(mut media: Media, header: &str, action: &str) -> Result<Vec<Vec<u8>>, &'static str> {
+    let mut chunks = Vec::new();
+    let mut remaining = media.length;
+    let mut buffer = [0u8; 3072]; // Exactly 4096 base64 bytes, without intermediate padding.
+    loop {
+        let count = remaining.min(buffer.len());
+        media.reader.read_exact(&mut buffer[..count]).map_err(|_| "EIO: media read")?;
+        remaining -= count;
+        let metadata = if chunks.is_empty() { header } else if action == "f" { "a=f" } else { "" };
+        let mut chunk = Vec::with_capacity(12 + metadata.len() + (count + 2) / 3 * 4);
+        chunk.extend_from_slice(b"\x1b_G");
+        if !metadata.is_empty() { chunk.extend_from_slice(metadata.as_bytes()); chunk.push(b','); }
+        chunk.extend_from_slice(if remaining > 0 { b"m=1;" } else { b"m=0;" });
+        encode_base64_into(&buffer[..count], &mut chunk);
+        chunk.extend_from_slice(b"\x1b\\");
+        chunks.push(chunk);
+        if remaining == 0 { break; }
+    }
+    media.finish()?;
+    Ok(chunks)
+}
+
+struct Media {
+    reader: Box<dyn Read>,
+    length: usize,
+    cleanup: Option<MediaCleanup>,
+}
+struct MediaCleanup { directory: File, name: CString, device: u64, inode: u64 }
+impl Media {
+    #[cfg(test)]
+    fn memory(bytes: Vec<u8>) -> Self {
+        Self { length: bytes.len(), reader: Box::new(std::io::Cursor::new(bytes)), cleanup: None }
+    }
+    fn finish(self) -> Result<(), &'static str> {
+        if let Some(cleanup) = self.cleanup {
+            let mut current = std::mem::MaybeUninit::<nix::libc::stat>::uninit();
+            let status = unsafe { nix::libc::fstatat(cleanup.directory.as_raw_fd(), cleanup.name.as_ptr(), current.as_mut_ptr(), nix::libc::AT_SYMLINK_NOFOLLOW) };
+            if status == 0 {
+                let current = unsafe { current.assume_init() };
+                if current.st_dev == cleanup.device && current.st_ino == cleanup.inode && unsafe { nix::libc::unlinkat(cleanup.directory.as_raw_fd(), cleanup.name.as_ptr(), 0) } != 0 {
+                    return Err("EIO: media unlink");
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 fn decode_base64(value: &str) -> Option<Vec<u8>> {
     if value.len() > 4096 || value.len() % 4 != 0 { return None; }
     let mut out = Vec::new();
@@ -264,7 +315,7 @@ fn sensitive(path: &Path) -> bool {
     path.starts_with("/proc") || path.starts_with("/sys") || path.starts_with("/dev") && !path.starts_with("/dev/shm")
 }
 
-fn read_media(medium: char, name: &str, offset: u64, size: u64) -> Result<Vec<u8>, &'static str> {
+fn read_media(medium: char, name: &str, offset: u64, size: u64) -> Result<Media, &'static str> {
     let requested = match medium {
         's' if name.starts_with('/') && name.len() > 1 && name.len() <= 255 && !name[1..].contains('/') => format!("/dev/shm{name}"),
         's' => return Err("EINVAL: shared memory name"),
@@ -296,21 +347,12 @@ fn read_media(medium: char, name: &str, offset: u64, size: u64) -> Result<Vec<u8
     if length > MAX_BYTES as u64 { return Err("E2BIG: media size"); }
     if length > metadata.len() - offset { return Err("EINVAL: media size"); }
     file.seek(SeekFrom::Start(offset)).map_err(|_| "EIO: media offset")?;
-    let mut data = vec![0; length as usize];
-    file.read_exact(&mut data).map_err(|_| "EIO: media read")?;
     let temporary = canonical.starts_with("/tmp") || canonical.starts_with("/dev/shm");
     let remove = medium == 's' || medium == 't' && temporary && canonical.as_os_str().as_bytes().windows(21).any(|w| w == b"tty-graphics-protocol");
-    if remove {
-        let mut current = std::mem::MaybeUninit::<nix::libc::stat>::uninit();
-        let status = unsafe { nix::libc::fstatat(directory.as_raw_fd(), name.as_ptr(), current.as_mut_ptr(), nix::libc::AT_SYMLINK_NOFOLLOW) };
-        if status == 0 {
-            let current = unsafe { current.assume_init() };
-            if current.st_dev == metadata.dev() && current.st_ino == metadata.ino() && unsafe { nix::libc::unlinkat(directory.as_raw_fd(), name.as_ptr(), 0) } != 0 {
-                return Err("EIO: media unlink");
-            }
-        }
-    }
-    Ok(data)
+    Ok(Media {
+        reader: Box::new(file), length: length as usize,
+        cleanup: remove.then_some(MediaCleanup { directory, name, device: metadata.dev(), inode: metadata.ino() }),
+    })
 }
 
 #[cfg(test)]
@@ -319,11 +361,45 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     static NEXT: AtomicUsize = AtomicUsize::new(0);
 
+    fn read_media_bytes(medium: char, name: &str, offset: u64, size: u64) -> Result<Vec<u8>, &'static str> {
+        let mut media = read_media(medium, name, offset, size)?;
+        let mut bytes = vec![0; media.length];
+        media.reader.read_exact(&mut bytes).map_err(|_| "EIO: media read")?;
+        media.finish()?;
+        Ok(bytes)
+    }
+
     fn sequence(header: &str, payload: &str) -> Vec<u8> { format!("\x1b_G{header};{payload}\x1b\\").into_bytes() }
     fn flatten(output: Output) -> Vec<u8> { output.bytes.concat() }
     fn fixture() -> std::path::PathBuf {
         let p = std::env::temp_dir().join(format!("tty-graphics-protocol-test-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         std::fs::create_dir(&p).unwrap(); p
+    }
+
+    #[test]
+    fn chunked_encoding_matches_base64_at_boundaries_and_discards_failed_reads() {
+        for size in [0, 1, 2, 3, 3071, 3072, 3073, 6145, MAX_BYTES] {
+            let original: Vec<u8> = (0..size).map(|n| (n % 251) as u8).collect();
+            let chunks = encode_media(Media::memory(original.clone()), "i=1,t=d", "T").unwrap();
+            let mut encoded = String::new();
+            for (index, chunk) in chunks.iter().enumerate() {
+                let (keys, payload) = parse_apc(chunk).unwrap();
+                assert_eq!(numeric(&keys, 'm'), u64::from(index + 1 < chunks.len()));
+                assert!(payload.len() <= 4096);
+                encoded.push_str(&payload);
+            }
+            assert_eq!(encoded, encode_base64(&original));
+        }
+        let dir = fixture(); let file = dir.join("short-read");
+        std::fs::write(&file, vec![1; 6144]).unwrap();
+        let mut media = Some(read_media('t', file.to_str().unwrap(), 0, 0).unwrap());
+        std::fs::OpenOptions::new().write(true).open(&file).unwrap().set_len(4096).unwrap();
+        let input = [b"before".to_vec(), sequence("i=8,t=t", &encode_base64(file.to_str().unwrap().as_bytes())), b"after".to_vec()].concat();
+        let (_, output) = GraphicsTransport::default().accept_prefix_inner(&input, usize::MAX, |_, _, _, _| Ok(media.take().unwrap()), true);
+        assert_eq!(output.replies, vec![sequence("i=8", "EIO: media read")]);
+        assert_eq!(flatten(output), b"beforeafter");
+        assert!(file.exists(), "a partial read must not unlink the source");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -415,8 +491,8 @@ mod tests {
                 let mut fast = GraphicsTransport::default();
                 let mut reference = GraphicsTransport::default();
                 for chunk in sample.chunks(width) {
-                    let (used, actual) = fast.accept_prefix_inner(chunk, usize::MAX, |_, _, _, _| Ok(vec![1, 2, 3]), true);
-                    let (expected_used, expected) = reference.accept_prefix_inner(chunk, usize::MAX, |_, _, _, _| Ok(vec![1, 2, 3]), false);
+                    let (used, actual) = fast.accept_prefix_inner(chunk, usize::MAX, |_, _, _, _| Ok(Media::memory(vec![1, 2, 3])), true);
+                    let (expected_used, expected) = reference.accept_prefix_inner(chunk, usize::MAX, |_, _, _, _| Ok(Media::memory(vec![1, 2, 3])), false);
                     assert_eq!(used, expected_used, "width {width}");
                     assert_eq!(actual.replies, expected.replies);
                     assert_eq!(flatten(actual), flatten(expected), "width {width}");
@@ -472,13 +548,13 @@ mod tests {
         let dir = fixture(); let file = dir.join("pixels"); let link = dir.join("link");
         std::fs::write(&file, [9, 255, 0, 0, 8]).unwrap();
         std::os::unix::fs::symlink(&file, &link).unwrap();
-        assert_eq!(read_media('f', link.to_str().unwrap(), 1, 3).unwrap(), [255, 0, 0]);
-        assert!(read_media('f', file.to_str().unwrap(), 8, 0).is_err());
-        assert!(read_media('f', "/proc/self/status", 0, 0).is_err());
-        assert!(read_media('f', "/dev/zero", 0, 3).is_err());
+        assert_eq!(read_media_bytes('f', link.to_str().unwrap(), 1, 3).unwrap(), [255, 0, 0]);
+        assert!(read_media_bytes('f', file.to_str().unwrap(), 8, 0).is_err());
+        assert!(read_media_bytes('f', "/proc/self/status", 0, 0).is_err());
+        assert!(read_media_bytes('f', "/dev/zero", 0, 3).is_err());
         let fifo = dir.join("fifo"); let name = CString::new(fifo.as_os_str().as_bytes()).unwrap();
         assert_eq!(unsafe { nix::libc::mkfifo(name.as_ptr(), 0o600) }, 0);
-        assert_eq!(read_media('f', fifo.to_str().unwrap(), 0, 0).unwrap_err(), "EACCES: regular files only");
+        assert_eq!(read_media_bytes('f', fifo.to_str().unwrap(), 0, 0).unwrap_err(), "EACCES: regular files only");
         std::fs::remove_dir_all(dir).unwrap();
     }
 
@@ -486,8 +562,8 @@ mod tests {
     fn temporary_media_is_removed_only_after_successful_read() {
         let dir = fixture(); let file = dir.join("frame");
         std::fs::write(&file, [1, 2, 3]).unwrap();
-        assert!(read_media('t', file.to_str().unwrap(), 0, 9).is_err()); assert!(file.exists());
-        assert_eq!(read_media('t', file.to_str().unwrap(), 0, 0).unwrap(), [1, 2, 3]); assert!(!file.exists());
+        assert!(read_media_bytes('t', file.to_str().unwrap(), 0, 9).is_err()); assert!(file.exists());
+        assert_eq!(read_media_bytes('t', file.to_str().unwrap(), 0, 0).unwrap(), [1, 2, 3]); assert!(!file.exists());
         std::fs::remove_dir_all(dir).unwrap();
     }
 

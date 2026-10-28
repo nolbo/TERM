@@ -13,17 +13,17 @@ use crate::vsock::{VsockConnection, VsockError, VsockListener};
 pub struct SessionServer {
     client: Option<Client>,
     output: crate::output_buffer::OutputBuffer,
-    output_cursor: usize,
+    output_cursor: String,
+    poll: PollState,
     sessions: SessionRegistry,
     graphics: HashMap<String, GraphicsTransport>,
     pending: HashMap<String, VecDeque<PendingInput>>,
     pending_bytes: usize,
     staged_output: HashMap<String, Vec<u8>>,
-    closed_outputs: HashSet<String>,
 }
 
 impl Default for SessionServer {
-    fn default() -> Self { Self { client: None, output: Default::default(), output_cursor: 0, sessions: SessionRegistry::default(), graphics: HashMap::new(), pending: HashMap::new(), pending_bytes: 0, staged_output: HashMap::new(), closed_outputs: HashSet::new() } }
+    fn default() -> Self { Self { client: None, output: Default::default(), output_cursor: String::new(), poll: PollState::default(), sessions: SessionRegistry::default(), graphics: HashMap::new(), pending: HashMap::new(), pending_bytes: 0, staged_output: HashMap::new() } }
 }
 
 impl SessionServer {
@@ -45,42 +45,62 @@ impl SessionServer {
     fn turn(&mut self, listener: Option<&VsockListener>, timeout: i32) -> Result<(), VsockError> {
         self.service_client();
         self.drain_local_input();
-        self.reap_closed_outputs();
-        for id in self.staged_output.keys().cloned().collect::<Vec<_>>() {
-            self.drain_output(&id);
-        }
-        let outputs: Vec<_> = self.sessions.running()
-            .filter(|s| !self.closed_outputs.contains(&s.id))
-            .filter_map(|s| self.sessions.output_fd(&s.id).ok().map(|fd| (s.id.clone(), fd)))
-            .collect();
-        let descriptors: Vec<_> = outputs.iter().map(|(_, fd)| *fd).collect();
-        let writable: Vec<_> = outputs.iter().map(|(id, _)| self.pending.get(id).and_then(|q| q.front())
-            .is_some_and(|input| input.request.is_none() || self.client.as_ref().is_some_and(|c| c.connection.has_capacity()))).collect();
-        let client = self.client.as_ref();
-        let ready = poll_runtime(listener.map_or(-1, VsockListener::raw_fd),
-            client.map_or(-1, |c| c.connection.raw_fd()), &descriptors,
-            client.is_some_and(|c| c.connection.has_capacity()),
-            client.is_some_and(|c| c.connection.wants_write()), &writable,
-            if !self.staged_output.is_empty() || client.is_some_and(|c| c.connection.has_pty_capacity() &&
-                self.output.tails.keys().any(|id| c.known.contains(id))) || (listener.is_none() && client.is_none() && timeout == -1) { 0 }
-            else if !self.closed_outputs.is_empty() { if timeout < 0 { 100 } else { timeout.min(100) } }
-            else { timeout })?;
-        if ready.request_ready { self.service_client(); }
-        if ready.listener_ready {
-            match listener.unwrap().accept() {
-                Ok(connection) if self.client.is_none() => self.client = Some(Client::new(connection)?),
-                // A second client cannot steal process ownership or inject input.
-                Ok(_) | Err(VsockError::UntrustedPeer) => (),
-                Err(error) => return Err(error),
+        let mut poll = std::mem::take(&mut self.poll);
+        let result = (|| {
+            // Reuse descriptor storage and ID allocations; active sessions are
+            // already ordered by the registry. No hot-loop sort or ID vector.
+            let mut count = 0;
+            for session in self.sessions.running() {
+                if count == poll.ids.len() { poll.ids.push(session.id.clone()); }
+                else { poll.ids[count].clone_from(&session.id); }
+                count += 1;
             }
-        }
-        // Dispatch control before the next output turn. A terminated descriptor
-        // may still occur in this poll snapshot, so recheck ownership below.
-        for index in ready.outputs {
-            let id = &outputs[index].0;
-            if self.sessions.output_fd(id).is_ok() { self.drain_output(id); }
-        }
-        Ok(())
+            poll.ids.truncate(count);
+            for id in &poll.ids {
+                if self.staged_output.contains_key(id) { self.drain_output(id); }
+            }
+            poll.fds.clear();
+            poll.push(listener.map_or(-1, VsockListener::raw_fd), nix::libc::POLLIN);
+            let client = self.client.as_ref();
+            let capacity = client.is_some_and(|c| c.connection.has_capacity());
+            poll.push(client.map_or(-1, |c| c.connection.raw_fd()),
+                (if capacity { nix::libc::POLLIN } else { 0 }) |
+                (if client.is_some_and(|c| c.connection.wants_write()) { nix::libc::POLLOUT } else { 0 }));
+            for index in 0..poll.ids.len() {
+                let id = &poll.ids[index];
+                let writable = self.pending.get(id).and_then(|q| q.front())
+                    .is_some_and(|input| input.request.is_none() || capacity);
+                let output = self.sessions.output_fd(id).unwrap_or(-1);
+                let exit = self.sessions.exit_fd(id).unwrap_or(-1);
+                poll.push(output, nix::libc::POLLIN | if writable { nix::libc::POLLOUT } else { 0 });
+                poll.push(exit, nix::libc::POLLIN);
+            }
+            for fd in self.sessions.retired_fds() { poll.push(fd, nix::libc::POLLIN); }
+            let immediate = !self.staged_output.is_empty() || client.is_some_and(|c|
+                c.connection.has_pty_capacity() && self.output.tails.keys().any(|id| c.known.contains(id)));
+            poll.wait(if immediate || (listener.is_none() && client.is_none() && timeout < 0) { 0 } else { timeout })?;
+            if poll.readable(1) { self.service_client(); }
+            if poll.readable(0) {
+                match listener.unwrap().accept() {
+                    Ok(connection) if self.client.is_none() => self.client = Some(Client::new(connection)?),
+                    Ok(_) | Err(VsockError::UntrustedPeer) | Err(VsockError::Socket(nix::errno::Errno::EINTR)) => (),
+                    Err(error) => return Err(error),
+                }
+            }
+            for (index, id) in poll.ids.iter().enumerate() {
+                let pty_index = 2 + index * 2;
+                if poll.readable(pty_index + 1) && self.sessions.exit_fd(id) == Some(poll.fds[pty_index + 1].fd) {
+                    self.finish_child(id);
+                }
+                if poll.readable(pty_index) && self.sessions.output_fd(id).ok() == Some(poll.fds[pty_index].fd) {
+                    self.drain_output(id);
+                }
+            }
+            if poll.fds.iter().skip(2 + 2 * poll.ids.len()).any(|fd| fd.revents != 0) { self.sessions.reap_retired(); }
+            Ok(())
+        })();
+        self.poll = poll;
+        result
     }
 
     fn service_client(&mut self) {
@@ -89,19 +109,18 @@ impl SessionServer {
             client.connection.flush_output()?;
             if client.connection.has_capacity() {
                 if let Some(frame) = client.connection.read_frame_ready()? {
-                    let input = if frame.service == Service::Session && frame.kind == FrameKind::Request {
-                        SessionRequest::decode(&frame.payload).ok()
-                    } else { None };
-                    match input {
-                        Some(SessionRequest::Write { session_id, bytes }) => {
+                    let request = Self::decode_request(&frame);
+                    match request {
+                        Ok(SessionRequest::Write { session_id, bytes }) => {
                             if let Err(error) = self.queue_input(session_id, bytes, Some(frame.request_id)) {
-                                client.connection.write_frame(&self.error(frame.request_id, error.code, error.message))?;
+                                client.connection.write_frame(&Self::error(frame.request_id, error.code, error.message))?;
                             }
                         }
                         request => {
-                            let response = self.handle(frame, &mut client.attached, &mut client.known);
+                            let resize = match &request { Ok(SessionRequest::Resize { session_id, .. }) => Some(session_id.clone()), _ => None };
+                            let response = self.handle(frame.request_id, request, &mut client.attached, &mut client.known);
                             if response.kind == FrameKind::Response {
-                                if let Some(SessionRequest::Resize { session_id, .. }) = request {
+                                if let Some(session_id) = resize {
                                     // Keep healthy output; discard only backlog that cannot
                                     // fit before the geometry boundary without blocking control.
                                     while self.output.tails.contains_key(&session_id) && client.connection.has_pty_capacity() {
@@ -118,17 +137,21 @@ impl SessionServer {
                 }
             }
             self.drain_input(Some(&mut client.connection))?;
-            // Round robin across sessions, including when one session floods.
-            let mut ids = self.output.tails.keys().cloned().collect::<Vec<_>>();
-            ids.sort_unstable();
-            if !ids.is_empty() {
-                let start = self.output_cursor % ids.len();
-                ids.rotate_left(start);
-                self.output_cursor = (start + 1) % ids.len();
-            }
-            for id in ids {
-                if !client.known.contains(&id) || !client.connection.has_pty_capacity() { continue; }
-                self.flush_tail(&mut client.connection, &id)?;
+            // BTreeMap order + one reusable cursor gives fair turns without
+            // copying/sorting all pending IDs on every output packet.
+            for _ in 0..self.output.tails.len() {
+                if !client.connection.has_pty_capacity() { break; }
+                use std::ops::Bound::{Excluded, Unbounded};
+                let next = self.output.tails.range::<str, _>((Excluded(self.output_cursor.as_str()), Unbounded))
+                    .next().or_else(|| self.output.tails.first_key_value()).map(|(id, _)| id);
+                let Some(next) = next else { break; };
+                self.output_cursor.clone_from(next);
+                if client.known.contains(&self.output_cursor) {
+                    let id = std::mem::take(&mut self.output_cursor);
+                    let result = self.flush_tail(&mut client.connection, &id);
+                    self.output_cursor = id;
+                    result?;
+                }
             }
             client.connection.flush_output()
         })();
@@ -166,8 +189,13 @@ impl SessionServer {
     }
 
     fn queue_input(&mut self, id: String, bytes: Vec<u8>, request: Option<u64>) -> Result<(), DispatchError> {
-        if self.sessions.output_fd(&id).is_err() || self.closed_outputs.contains(&id) {
+        if self.sessions.output_fd(&id).is_err() {
             return Err(DispatchError::not_found("session input is unavailable"));
+        }
+        let own = self.pending.get(&id);
+        if own.is_some_and(|q| q.len() >= 64 || bytes.len() > 1024 * 1024 - q.iter().map(|p| p.bytes.len()).sum::<usize>())
+            || bytes.len() > 1024 * 1024 {
+            return Err(DispatchError { code: ErrorCode::GuestError, message: "session input queue is full" });
         }
         let count: usize = self.pending.values().map(VecDeque::len).sum();
         if count >= 256 || bytes.len() > 4 * 1024 * 1024 - self.pending_bytes {
@@ -179,43 +207,45 @@ impl SessionServer {
     }
 
     fn drain_input(&mut self, mut connection: Option<&mut VsockConnection>) -> Result<(), VsockError> {
-        let ids: Vec<_> = self.pending.keys().cloned().collect();
-        for id in ids {
-            let queue = self.pending.get_mut(&id).unwrap();
-            let input = queue.front_mut().unwrap();
-            if input.request.is_some() && connection.as_ref().is_some_and(|c| !c.has_capacity()) { continue; }
-            let end = input.bytes.len().min(input.offset + 32 * 1024);
-            let result = if input.offset == end { Ok(0) } else { self.sessions.write_input(&id, &input.bytes[input.offset..end]) };
-            let complete = match result {
-                Ok(count) => { input.offset += count; input.offset == input.bytes.len() },
-                Err(PtyError::Nix(nix::errno::Errno::EAGAIN | nix::errno::Errno::EINTR)) => false,
-                Err(_) => true,
-            };
-            if complete {
-                let input = queue.pop_front().unwrap();
-                self.pending_bytes -= input.bytes.len();
-                if let Some(request_id) = input.request {
-                    let response = if input.offset == input.bytes.len() {
-                        Frame { service: Service::Session, kind: FrameKind::Response, flags: 0, request_id,
-                            payload: SessionResponse::Written { session_id: id.clone(), accepted_bytes: input.offset as i32 }
-                                .encode().map_err(|_| std::io::Error::other("unable to encode input result"))? }
-                    } else { self.error(request_id, ErrorCode::GuestError, "session input became unavailable") };
-                    if let Some(connection) = connection.as_mut() { connection.write_frame(&response)?; }
+        for (id, queue) in &mut self.pending {
+            let mut budget = 32 * 1024;
+            while let Some(input) = queue.front_mut() {
+                if input.request.is_some() && connection.as_ref().is_some_and(|c| !c.has_capacity()) { break; }
+                let end = input.bytes.len().min(input.offset + budget);
+                let result = if input.offset == end { Ok(0) } else { self.sessions.write_input(id, &input.bytes[input.offset..end]) };
+                let complete = match result {
+                    Ok(count) => { input.offset += count; budget -= count; input.offset == input.bytes.len() },
+                    Err(PtyError::Nix(nix::errno::Errno::EAGAIN | nix::errno::Errno::EINTR)) => false,
+                    Err(_) => true,
+                };
+                if complete {
+                    let input = queue.pop_front().unwrap();
+                    self.pending_bytes -= input.bytes.len();
+                    if let Some(request_id) = input.request {
+                        let response = if input.offset == input.bytes.len() {
+                            Frame { service: Service::Session, kind: FrameKind::Response, flags: 0, request_id,
+                                payload: SessionResponse::Written { session_id: id.clone(), accepted_bytes: input.offset as i32 }
+                                    .encode().map_err(|_| std::io::Error::other("unable to encode input result"))? }
+                        } else { Self::error(request_id, ErrorCode::GuestError, "session input became unavailable") };
+                        if let Some(connection) = connection.as_mut() { connection.write_frame(&response)?; }
+                    }
                 }
+                if !complete || budget == 0 { break; }
             }
-            if self.pending.get(&id).is_some_and(VecDeque::is_empty) { self.pending.remove(&id); }
         }
+        self.pending.retain(|_, queue| !queue.is_empty());
         Ok(())
     }
 
-    fn handle(&mut self, frame: Frame, attached: &mut Option<String>, known: &mut HashSet<String>) -> Frame {
+    fn decode_request(frame: &Frame) -> Result<SessionRequest, DispatchError> {
         if frame.service != Service::Session || frame.kind != FrameKind::Request {
-            return self.error(frame.request_id, ErrorCode::Unsupported, "only session requests are accepted");
+            return Err(DispatchError { code: ErrorCode::Unsupported, message: "only session requests are accepted" });
         }
-        let request = match SessionRequest::decode(&frame.payload) {
-            Ok(request) => request,
-            Err(_) => return self.error(frame.request_id, ErrorCode::InvalidArgument, "invalid session request"),
-        };
+        SessionRequest::decode(&frame.payload).map_err(|_| DispatchError::invalid("invalid session request"))
+    }
+
+    fn handle(&mut self, request_id: u64, request: Result<SessionRequest, DispatchError>, attached: &mut Option<String>, known: &mut HashSet<String>) -> Frame {
+        let request = match request { Ok(value) => value, Err(error) => return Self::error(request_id, error.code, error.message) };
         match self.dispatch(request, attached) {
             Ok(response) => match response.encode() {
                 Ok(payload) => {
@@ -226,11 +256,11 @@ impl SessionServer {
                         _ => (),
                     }
                     Frame { service: Service::Session, kind: FrameKind::Response,
-                        flags: 0, request_id: frame.request_id, payload }
+                        flags: 0, request_id, payload }
                 }
-                Err(_) => self.error(frame.request_id, ErrorCode::GuestError, "response exceeds protocol limits"),
+                Err(_) => Self::error(request_id, ErrorCode::GuestError, "response exceeds protocol limits"),
             },
-            Err(error) => self.error(frame.request_id, error.code, error.message),
+            Err(error) => Self::error(request_id, error.code, error.message),
         }
     }
 
@@ -282,11 +312,9 @@ impl SessionServer {
                     .map_err(|_| DispatchError::invalid("invalid POSIX signal"))?;
                 self.sessions.terminate(&session_id, signal).map_err(DispatchError::from_pty)?;
                 self.output.remove(&session_id);
-                if let Some(queue) = self.pending.remove(&session_id) {
-                    self.pending_bytes -= queue.iter().map(|input| input.bytes.len()).sum::<usize>();
-                }
+                // Keep pending requests until drain_input returns explicit
+                // errors for this removed destination on the live connection.
                 self.graphics.remove(&session_id);
-                self.closed_outputs.remove(&session_id);
                 self.staged_output.remove(&session_id);
                 if attached.as_deref() == Some(session_id.as_str()) {
                     *attached = None;
@@ -301,7 +329,7 @@ impl SessionServer {
             .ok_or_else(|| DispatchError::not_found("session not found"))
     }
 
-    fn error(&self, request_id: u64, code: ErrorCode, message: &str) -> Frame {
+    fn error(request_id: u64, code: ErrorCode, message: &str) -> Frame {
         Frame {
             service: Service::Session,
             kind: FrameKind::Error,
@@ -311,58 +339,68 @@ impl SessionServer {
         }
     }
 
-    fn drain_output(&mut self, id: &str) {
-        if let Err(error) = self.stream_output(id) {
-            // An unusable PTY or an unconsumed graphics-reply flood belongs to
-            // this process, never to the listener or another session.
-            eprintln!("droid-sessiond: session {id} output failed: {error:?}");
-            let _ = self.dispatch(SessionRequest::Terminate { session_id: id.into(), signal: 9 }, &mut None);
-            self.output.tails.entry(id.into()).or_default().exit = Some(-1);
+    fn drain_output(&mut self, id: &str) -> bool {
+        match self.stream_output(id) {
+            Ok(progress) => progress,
+            Err(error) => {
+                // Only a failed PTY read is a process/output failure. Input
+                // congestion and dropped local replies never enter this branch.
+                eprintln!("droid-sessiond: session {id} output failed: {error:?}");
+                let _ = self.dispatch(SessionRequest::Terminate { session_id: id.into(), signal: 9 }, &mut None);
+                self.output.tails.entry(id.into()).or_default().exit = Some(-1);
+                false
+            }
         }
     }
 
-    fn stream_output(
-        &mut self,
-        session_id: &str,
-    ) -> Result<(), VsockError> {
-        let session_id = session_id.to_owned();
+    fn stream_output(&mut self, id: &str) -> Result<bool, VsockError> {
         let mut buffer = [0_u8; 8192];
-        if let Some(bytes) = self.staged_output.remove(&session_id) {
-            return self.process_output(&session_id, &bytes);
+        if let Some(bytes) = self.staged_output.remove(id) {
+            self.process_output(id, &bytes);
+            return Ok(true);
         }
-        match self.sessions.read_output(&session_id, &mut buffer) {
-            Ok(size) if size > 0 => self.process_output(&session_id, &buffer[..size]),
+        match self.sessions.read_output(id, &mut buffer) {
+            Ok(size) if size > 0 => { self.process_output(id, &buffer[..size]); Ok(true) }
             Ok(_) | Err(PtyError::Nix(nix::errno::Errno::EIO)) => {
-                if let Some(mut graphics) = self.graphics.remove(&session_id) {
-                    self.write_graphics_output(&session_id, graphics.finish())?;
-                }
-                // PTY EOF and child exit are independent. Keep process ownership
-                // for LIST/TERMINATE, but never poll this permanent HUP again.
-                self.closed_outputs.insert(session_id);
-                self.reap_closed_outputs();
-                Ok(())
+                self.finish_graphics(id);
+                self.sessions.mark_output_eof(id);
+                Ok(false)
             }
-            Err(PtyError::Nix(nix::errno::Errno::EAGAIN | nix::errno::Errno::EINTR)) => Ok(()),
-            Err(_) => Err(VsockError::Io(std::io::Error::other("unable to read PTY output"))),
+            Err(PtyError::Nix(nix::errno::Errno::EAGAIN | nix::errno::Errno::EINTR)) => Ok(false),
+            Err(_) => Err(std::io::Error::other("unable to read PTY output").into()),
         }
     }
 
-    fn reap_closed_outputs(&mut self) {
-        for id in self.closed_outputs.iter().cloned().collect::<Vec<_>>() {
-            if let Ok(Some(exit_code)) = self.sessions.poll_exit(&id) {
-                self.closed_outputs.remove(&id);
-                self.output.tails.entry(id.clone()).or_default().exit = Some(exit_code);
-                if let Some(client) = self.client.as_mut() {
-                    if client.attached.as_deref() == Some(id.as_str()) {
-                        let _ = self.sessions.detach(&id);
-                        client.attached = None;
-                    }
+    fn finish_graphics(&mut self, id: &str) {
+        if let Some(mut graphics) = self.graphics.remove(id) { self.write_graphics_output(id, graphics.finish()); }
+    }
+
+    fn finish_child(&mut self, id: &str) {
+        if let Ok(Some(exit_code)) = self.sessions.poll_exit(id) {
+            // The session lifetime belongs to its leader, not inherited slave
+            // FDs. Drain the already available final tail with a finite budget;
+            // a continuously writing descendant cannot postpone exit forever.
+            let mut exhausted = true;
+            for _ in 0..8 {
+                if self.sessions.output_fd(id).is_err() || !self.drain_output(id) { exhausted = false; break; }
+            }
+            let staged = self.staged_output.remove(id).is_some();
+            let unread = exhausted && matches!(self.sessions.read_output(id, &mut [0u8; 1]), Ok(1));
+            if staged || unread { self.output.tails.entry(id.into()).or_default().gap = Some(-1); }
+            self.finish_graphics(id);
+            self.sessions.close_output(id);
+            // The next input drain rejects outstanding WRITE requests explicitly
+            // now that the PTY is closed; do not silently discard their responses.
+            self.output.tails.entry(id.into()).or_default().exit = Some(exit_code);
+            if let Some(client) = self.client.as_mut() {
+                if client.attached.as_deref() == Some(id) {
+                    let _ = self.sessions.detach(id); client.attached = None;
                 }
             }
         }
     }
 
-    fn process_output(&mut self, id: &str, bytes: &[u8]) -> Result<(), VsockError> {
+    fn process_output(&mut self, id: &str, bytes: &[u8]) {
         let (consumed, output) = self.graphics.entry(id.to_owned()).or_default().accept_prefix(bytes);
         if consumed < bytes.len() { self.staged_output.insert(id.to_owned(), bytes[consumed..].to_vec()); }
         self.write_graphics_output(id, output)
@@ -370,29 +408,23 @@ impl SessionServer {
 
     fn write_graphics_output(
         &mut self, session_id: &str, output: GraphicsOutput,
-    ) -> Result<(), VsockError> {
+    ) {
         for reply in output.replies {
-            self.queue_input(session_id.to_owned(), reply, None)
-                .map_err(|_| std::io::Error::other("unable to queue graphics response"))?;
+            // Best effort under bounded overload, like terminal-query replies on
+            // the host. A full queue is not evidence that this PTY has failed.
+            let _ = self.queue_input(session_id.to_owned(), reply, None);
         }
         for bytes in output.bytes {
             self.output.push(session_id, bytes);
         }
-        Ok(())
     }
 
     fn write_event(
         connection: &mut VsockConnection,
         event: SessionEvent<'_>,
     ) -> Result<(), VsockError> {
-        let payload = event.encode().map_err(|_| std::io::Error::other("session event exceeds protocol limits"))?;
-        connection.write_frame(&Frame {
-            service: Service::Session,
-            kind: FrameKind::Stream,
-            flags: 0,
-            request_id: 0,
-            payload,
-        })
+        let bytes = event.encode_frame().map_err(|_| std::io::Error::other("session event exceeds protocol limits"))?;
+        connection.write_encoded(bytes)
     }
 }
 
@@ -404,36 +436,22 @@ impl Client {
         Ok(Self { connection, attached: None, known: HashSet::new() })
     }
 }
-struct IoReady { listener_ready: bool, request_ready: bool, outputs: Vec<usize> }
-
-#[cfg(test)]
-fn wait_for_io(connection_fd: std::os::fd::RawFd, pty_fds: &[std::os::fd::RawFd]) -> Result<IoReady, VsockError> {
-    poll_runtime(-1, connection_fd, pty_fds, true, false, &vec![false; pty_fds.len()], -1)
-}
-fn poll_runtime(listener_fd: std::os::fd::RawFd, connection_fd: std::os::fd::RawFd, pty_fds: &[std::os::fd::RawFd],
-    capacity: bool, network_write: bool, pending: &[bool], timeout: i32) -> Result<IoReady, VsockError> {
-    let mut descriptors = vec![
-        nix::libc::pollfd { fd: listener_fd, events: nix::libc::POLLIN, revents: 0 },
-        nix::libc::pollfd { fd: connection_fd,
-            events: (if capacity { nix::libc::POLLIN } else { 0 }) | (if network_write { nix::libc::POLLOUT } else { 0 }),
-            revents: 0 },
-    ];
-    for (index, &fd) in pty_fds.iter().enumerate() {
-        descriptors.push(nix::libc::pollfd { fd, events: nix::libc::POLLIN |
-            if pending[index] { nix::libc::POLLOUT } else { 0 }, revents: 0 });
+#[derive(Default)]
+struct PollState { fds: Vec<nix::libc::pollfd>, ids: Vec<String> }
+impl PollState {
+    fn push(&mut self, fd: std::os::fd::RawFd, events: i16) {
+        self.fds.push(nix::libc::pollfd { fd, events, revents: 0 });
     }
-    loop {
-        let result = unsafe { nix::libc::poll(descriptors.as_mut_ptr(), descriptors.len() as _, timeout) };
-        if result >= 0 { break; }
-        if nix::errno::Errno::last() != nix::errno::Errno::EINTR { return Err(VsockError::Socket(nix::errno::Errno::last())); }
+    fn readable(&self, index: usize) -> bool {
+        self.fds[index].revents & (nix::libc::POLLIN | nix::libc::POLLHUP | nix::libc::POLLERR) != 0
     }
-    let connection_events = descriptors[1].revents;
-    Ok(IoReady {
-        listener_ready: descriptors[0].revents & nix::libc::POLLIN != 0,
-        request_ready: connection_events & (nix::libc::POLLIN | nix::libc::POLLHUP | nix::libc::POLLERR) != 0,
-        outputs: descriptors.iter().skip(2).enumerate().filter_map(|(index, entry)|
-            (entry.revents & (nix::libc::POLLIN | nix::libc::POLLHUP | nix::libc::POLLERR) != 0).then_some(index)).collect(),
-    })
+    fn wait(&mut self, timeout: i32) -> Result<(), VsockError> {
+        loop {
+            let result = unsafe { nix::libc::poll(self.fds.as_mut_ptr(), self.fds.len() as _, timeout) };
+            if result >= 0 { return Ok(()); }
+            if nix::errno::Errno::last() != nix::errno::Errno::EINTR { return Err(nix::errno::Errno::last().into()); }
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -457,8 +475,146 @@ impl DispatchError {
 mod multiplex_tests {
     use super::*;
     use std::io::Write;
-    use std::os::fd::AsRawFd;
     use std::os::unix::net::UnixStream;
+
+    #[test]
+    fn full_input_queues_never_kill_a_sibling_generating_graphics_replies() {
+        let mut server = SessionServer::default();
+        let mut ids = Vec::new();
+        for _ in 0..4 {
+            let id = script(&mut server, "stty -echo -icanon; exec sleep 10");
+            server.queue_input(id.clone(), vec![b'x'; 512 * 1024], Some(1)).unwrap();
+            for _ in 0..63 { server.queue_input(id.clone(), b"reply".to_vec(), None).unwrap(); }
+            assert!(server.queue_input(id.clone(), b"overflow".to_vec(), Some(2)).is_err());
+            ids.push(id);
+        }
+        let healthy = script(&mut server, r#"printf '\033_Gi=7,t=f;L25vLXN1Y2gtbWVkaWE=\033\\'; printf SURVIVED; exec sleep 10"#);
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !server.output.tails.get(&healthy).is_some_and(|tail| tail.chunks.back().is_some_and(|(_, b)| b.ends_with(b"SURVIVED"))) {
+            assert!(std::time::Instant::now() < deadline);
+            server.turn(None, 10).unwrap();
+        }
+        assert_eq!(256, server.pending.values().map(VecDeque::len).sum::<usize>());
+        assert!(!server.pending.contains_key(&healthy), "global overload drops only the generated reply");
+        assert_eq!(crate::session::SessionState::Running, server.sessions.get(&healthy).unwrap().state);
+        assert!(server.sessions.output_fd(&healthy).is_ok());
+        // Free one other session: the sibling can now enqueue despite the first
+        // session still being at its own packet cap.
+        server.dispatch(SessionRequest::Terminate { session_id: ids.pop().unwrap(), signal: 9 }, &mut None).unwrap();
+        server.drain_local_input();
+        server.process_output(&healthy, b"\x1b_Gi=7,t=f;L25vLXN1Y2gtbWVkaWE=\x1b\\");
+        assert_eq!(1, server.pending[&healthy].len());
+        ids.push(healthy);
+        for id in ids { server.sessions.terminate(&id, nix::sys::signal::Signal::SIGKILL).unwrap(); }
+        while server.sessions.retired_fds().next().is_some() {
+            assert!(std::time::Instant::now() < deadline);
+            server.turn(None, 10).unwrap();
+        }
+    }
+
+    #[test]
+    fn leader_exit_is_reaped_even_while_a_descendant_holds_the_slave() {
+        let mut server = SessionServer::default();
+        let marker = std::env::temp_dir().join(format!("term-pidfd-test-{}", std::process::id()));
+        let id = script(&mut server, &format!("trap '' HUP; sleep 5 & printf '%s %s' \"$$\" \"$!\" > '{}'; printf FINAL; exit 7", marker.display()));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !matches!(server.sessions.get(&id).unwrap().state, crate::session::SessionState::Exited(7)) {
+            assert!(std::time::Instant::now() < deadline);
+            server.turn(None, 10).unwrap();
+        }
+        let pids = std::fs::read_to_string(&marker).unwrap();
+        let pids: Vec<i32> = pids.split_whitespace().map(|p| p.parse().unwrap()).collect();
+        let leader_exists = std::path::Path::new(&format!("/proc/{}/stat", pids[0])).exists();
+        let descendant_alive = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pids[1]), None).is_ok();
+        let _ = nix::sys::signal::kill(nix::unistd::Pid::from_raw(pids[1]), nix::sys::signal::Signal::SIGKILL);
+        std::fs::remove_file(marker).unwrap();
+        assert!(descendant_alive, "the inherited slave holder outlives the leader");
+        assert!(!leader_exists, "leader must already have been reaped, not left as a zombie");
+        assert!(server.sessions.output_fd(&id).is_err());
+        assert!(server.sessions.exit_fd(&id).is_none());
+        assert_eq!(0, server.sessions.running().count());
+        let tail = &server.output.tails[&id];
+        assert_eq!(Some(7), tail.exit);
+        assert!(tail.chunks.back().unwrap().1.ends_with(b"FINAL"));
+    }
+
+    #[test]
+    fn bounded_final_drain_reports_truncated_graphics_before_exit() {
+        let mut server = SessionServer::default();
+        let file = std::env::temp_dir().join(format!("term-final-drain-{}", std::process::id()));
+        std::fs::write(&file, vec![7; 64 * 1024]).unwrap();
+        let name = crate::graphics_transport::encode_base64(file.to_str().unwrap().as_bytes());
+        let command = format!("\x1b_Gi=1,t=f;{name}\x1b\\");
+        let id = script(&mut server, "exit 0");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while server.sessions.poll_exit(&id).unwrap().is_none() {
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(1));
+        }
+        // Ten expansions in an already-read PTY prefix exceed the final eight
+        // parser turns; neither staged graphics nor inherited writers hold exit.
+        server.staged_output.insert(id.clone(), command.repeat(10).into_bytes());
+        server.finish_child(&id);
+        std::fs::remove_file(file).unwrap();
+        assert!(server.sessions.output_fd(&id).is_err());
+        assert!(!server.staged_output.contains_key(&id));
+        assert_eq!(server.output.tails[&id].gap, Some(-1));
+        assert_eq!(server.output.tails[&id].exit, Some(0));
+    }
+
+    #[test]
+    fn session_end_rejects_every_pending_write_without_waiting_for_host_traffic() {
+        for explicit in [false, true] {
+            let mut server = SessionServer::default();
+            let id = script(&mut server, "stty -echo -icanon; printf 'READY:%s' \"$$\"; exec sleep 10");
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+            while !server.output.tails.contains_key(&id) {
+                assert!(std::time::Instant::now() < deadline);
+                server.turn(None, 10).unwrap();
+            }
+            // Wait for raw mode before queueing: canonical mode may accept and
+            // discard huge unterminated lines even though no application reads.
+            let ready = server.output.tails[&id].chunks.iter().flat_map(|(_, b)| b.iter().copied()).collect::<Vec<_>>();
+            let pid = std::str::from_utf8(&ready).unwrap().strip_prefix("READY:").unwrap().parse().unwrap();
+            for request in 1..=4 { server.queue_input(id.clone(), vec![b'x'; 512 * 1024 / 4], Some(request)).unwrap(); }
+            let (mut host, worker) = connected(server);
+            if explicit {
+                let terminate = Frame { service: Service::Session, kind: FrameKind::Request, flags: 0, request_id: 99,
+                    payload: SessionRequest::Terminate { session_id: id, signal: 9 }.encode().unwrap() };
+                crate::vsock::write_frame_to(&mut host, &terminate).unwrap();
+            } else {
+                nix::sys::signal::kill(nix::unistd::Pid::from_raw(pid), nix::sys::signal::Signal::SIGKILL).unwrap();
+            }
+            let mut rejected = Vec::new();
+            let mut ended = false;
+            while rejected.len() < 4 || !ended {
+                let frame = crate::vsock::read_frame_from(&mut host).unwrap_or_else(|error|
+                    panic!("explicit={explicit}, rejected={rejected:?}, ended={ended}, read={error:?}"));
+                if frame.kind == FrameKind::Error { rejected.push(frame.request_id); }
+                else if explicit { ended |= frame.kind == FrameKind::Response && frame.request_id == 99; }
+                else { ended |= frame.kind == FrameKind::Stream && frame.payload[0] == 0x91; }
+            }
+            assert_eq!(rejected, vec![1, 2, 3, 4]);
+            drop(host); worker.join().unwrap();
+        }
+    }
+
+    #[test]
+    fn exec_does_not_inherit_another_sessions_pty_master() {
+        let mut server = SessionServer::default();
+        let first = script(&mut server, "exec sleep 5");
+        let second = script(&mut server, "for f in /proc/$$/fd/*; do readlink \"$f\"; done");
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+        while !matches!(server.sessions.get(&second).unwrap().state, crate::session::SessionState::Exited(_)) {
+            assert!(std::time::Instant::now() < deadline);
+            server.turn(None, 10).unwrap();
+        }
+        let output = server.output.tails[&second].chunks.iter().flat_map(|(_, b)| b.iter().copied()).collect::<Vec<_>>();
+        assert!(output.windows(b"/dev/pts/".len()).any(|w| w == b"/dev/pts/"));
+        assert!(!output.windows(b"ptmx".len()).any(|w| w == b"ptmx"), "{}", String::from_utf8_lossy(&output));
+        server.sessions.terminate(&first, nix::sys::signal::Signal::SIGKILL).unwrap();
+        while server.sessions.retired_fds().next().is_some() { server.turn(None, 10).unwrap(); }
+    }
 
     #[test]
     fn offline_and_unread_client_never_backpressure_guest_processes() {
@@ -681,19 +837,4 @@ mod multiplex_tests {
         drop(host); worker.join().unwrap();
     }
 
-    #[test]
-    fn polls_every_session_and_host_requests_without_a_selected_renderer() {
-        let (host, mut requests) = UnixStream::pair().unwrap();
-        let (first, mut first_writer) = UnixStream::pair().unwrap();
-        let (second, mut second_writer) = UnixStream::pair().unwrap();
-        second_writer.write_all(b"background").unwrap();
-        let ready = wait_for_io(host.as_raw_fd(), &[first.as_raw_fd(), second.as_raw_fd()]).unwrap();
-        assert!(!ready.request_ready);
-        assert_eq!(ready.outputs, vec![1]);
-        first_writer.write_all(b"other terminal").unwrap();
-        requests.write_all(b"request").unwrap();
-        let ready = wait_for_io(host.as_raw_fd(), &[first.as_raw_fd(), second.as_raw_fd()]).unwrap();
-        assert!(ready.request_ready);
-        assert_eq!(ready.outputs, vec![0, 1]);
-    }
 }

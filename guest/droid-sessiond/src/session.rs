@@ -35,6 +35,7 @@ pub struct SessionRegistry {
     sessions: BTreeMap<String, Session>,
     running: BTreeSet<String>,
     next_id: u64,
+    retired: Vec<PtyProcess>,
 }
 
 impl SessionRegistry {
@@ -65,7 +66,7 @@ impl SessionRegistry {
         self.sessions.values()
     }
 
-    /// Exited records remain available to LIST without entering the hot PTY poll loop.
+    /// Sessions stay active until both child exit and the final output drain complete.
     pub fn running(&self) -> impl Iterator<Item = &Session> {
         self.running.iter().filter_map(|id| self.sessions.get(id))
     }
@@ -74,13 +75,17 @@ impl SessionRegistry {
         let session = self.sessions.get_mut(id).ok_or(PtyError::SessionNotFound)?;
         if matches!(session.state, SessionState::Exited(_)) { return Err(PtyError::SessionNotStarted); }
         if session.pty.is_none() {
-            session.pty = Some(PtyProcess::spawn(
+            let spawned = PtyProcess::spawn(
                 &session.command,
                 &session.cwd,
                 environment,
                 session.rows,
                 session.cols,
-            )?);
+            );
+            session.pty = Some(match spawned {
+                Ok(pty) => pty,
+                Err(error) => { self.sessions.remove(id); return Err(error); }
+            });
             session.state = SessionState::Running;
             self.running.insert(id.to_owned());
         }
@@ -120,42 +125,55 @@ impl SessionRegistry {
     }
 
     pub fn terminate(&mut self, id: &str, signal: Signal) -> Result<(), PtyError> {
-        let already_exited = {
-            let session = self.sessions.get(id).ok_or(PtyError::SessionNotFound)?;
-            let already_exited = matches!(session.state, SessionState::Exited(_));
-            if !already_exited {
-                session.pty.as_ref().ok_or(PtyError::SessionNotStarted)?.terminate(signal)?;
-            }
-            already_exited
-        };
+        let session = self.sessions.get(id).ok_or(PtyError::SessionNotFound)?;
+        if let Some(pty) = &session.pty { pty.terminate(signal)?; }
         self.running.remove(id);
-        if let Some(mut removed) = self.sessions.remove(id) {
-            if let Some(pty) = removed.pty.take() {
-                if !already_exited {
-                    std::thread::spawn(move || {
-                        let _ = pty.wait_for_exit();
-                    });
-                }
-            }
+        if let Some(mut pty) = self.sessions.remove(id).and_then(|session| session.pty) {
+            pty.close_output();
+            if pty.exit_fd().is_some() { self.retired.push(pty); }
         }
         Ok(())
     }
 
+    pub fn exit_fd(&self, id: &str) -> Option<RawFd> { self.sessions.get(id)?.pty.as_ref()?.exit_fd() }
+    pub fn retired_fds(&self) -> impl Iterator<Item = RawFd> + '_ { self.retired.iter().filter_map(PtyProcess::exit_fd) }
+    pub fn reap_retired(&mut self) {
+        self.retired.retain_mut(|pty| match pty.poll_exit() {
+            Ok(Some(_)) | Err(PtyError::Nix(nix::errno::Errno::ECHILD)) => false,
+            _ => true,
+        });
+    }
+
+    pub fn mark_output_eof(&mut self, id: &str) {
+        if let Some(pty) = self.sessions.get_mut(id).and_then(|session| session.pty.as_mut()) {
+            // Stop polling EOF without closing the master: closing it while the
+            // leader is alive would deliver SIGHUP and change its exit status.
+            pty.mark_output_eof();
+        }
+    }
+
+    pub fn close_output(&mut self, id: &str) {
+        if let Some(session) = self.sessions.get_mut(id) {
+            if let Some(pty) = &mut session.pty { pty.close_output(); }
+            if matches!(session.state, SessionState::Exited(_)) {
+                session.pty.take(); self.running.remove(id);
+            }
+        }
+    }
+
     pub fn output_fd(&self, id: &str) -> Result<RawFd, PtyError> {
         let session = self.sessions.get(id).ok_or(PtyError::SessionNotFound)?;
-        Ok(session.pty.as_ref().ok_or(PtyError::SessionNotStarted)?.raw_fd())
+        session.pty.as_ref().and_then(PtyProcess::raw_fd).ok_or(PtyError::SessionNotStarted)
     }
 
     pub fn poll_exit(&mut self, id: &str) -> Result<Option<i32>, PtyError> {
         let session = self.sessions.get_mut(id).ok_or(PtyError::SessionNotFound)?;
         if let SessionState::Exited(code) = session.state { return Ok(Some(code)); }
-        let code = session.pty.as_ref().ok_or(PtyError::SessionNotStarted)?.poll_exit()?;
+        let code = session.pty.as_mut().ok_or(PtyError::SessionNotStarted)?.poll_exit()?;
         if let Some(exit_code) = code {
             session.state = SessionState::Exited(exit_code);
-            // The server calls this after draining PTY EOF. Preserve history,
-            // but release the master descriptor and stop polling this session.
-            session.pty.take();
-            self.running.remove(id);
+            // Reap immediately; inherited slave descriptors cannot keep a zombie.
+            // The server then drains the bounded final tail and closes the master.
         }
         Ok(code)
     }
@@ -168,10 +186,20 @@ mod tests {
     fn await_exit(registry: &mut SessionRegistry, id: &str) -> i32 {
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
         loop {
-            if let Some(code) = registry.poll_exit(id).unwrap() { return code; }
+            if let Some(code) = registry.poll_exit(id).unwrap() { registry.close_output(id); return code; }
             assert!(std::time::Instant::now() < deadline, "child did not exit");
             std::thread::sleep(std::time::Duration::from_millis(2));
         }
+    }
+
+    #[test]
+    fn failed_launch_leaves_no_created_session() {
+        let mut registry = SessionRegistry::default();
+        let id = registry.create_shell("/bin/sh", "/", 24, 80).id.clone();
+        assert!(registry.start_shell(&id, &[("DROID_SESSION_ARGV".into(), "invalid".into())]).is_err());
+        assert_eq!(0, registry.list().count());
+        assert_eq!(0, registry.running().count());
+        assert_eq!(0, registry.retired_fds().count());
     }
 
     #[test]

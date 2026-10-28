@@ -246,6 +246,17 @@ before acknowledging the new geometry. Verified Environment stop still removes
 its sessions; transient transport loss alone does not. See `PROTOCOL.md` for
 bounds and `AVF_UPDATES.md` for the required stopped-Environment guest update.
 
+The current guest also uses pidfd readiness in that same loop to reap a shell
+that exits while a background descendant holds its PTY. EOF alone does not send
+SIGHUP to a live shell. Final draining is finite; exit/history and pending-input
+failure no longer depend on a descendant closing its descriptors. Explicit close
+removes the session immediately, with no per-close reaper thread. Input saturation
+rejects the WRITE or drops a local graphics reply, never a sibling session.
+Reusable poll storage, single request decoding, direct frame encoding and 3 KiB
+media reads reduce transient allocations without adding workers/services.
+Slow regular-file reads remain synchronous; actual AVF latency needs device
+measurement after a verified guest update.
+
 Session-exit list refresh and workspace/migration reconciliation also run outside the output collector, with one worker and one coalesced pending pass. A sibling's output cannot block the list response behind a waiting exit handler. Updated guests additionally release a naturally exited session's PTY after its final output and exit status, retain its history until explicit close, and poll only running sessions. For legacy installed images, permanent replay-owner closure wakes both internal socket pumps, including blocked writes. These two guest fixes require an updated verified guest component/image and a stopped-Environment update under `AVF_UPDATES.md`; updating the APK alone applies only the host reconciliation fix.
 
 The guest graphics adapter passes UTF-8 text and complete ANSI CSI sequences through with one output copy when no string command is pending, carrying UTF-8 continuations across chunk boundaries. Malformed text, raw C1 controls, partial escapes and OSC/DCS/APC strings retain the full parser, including guest-file/shared-memory image conversion. This optimization needs an updated verified guest component/image; it does not disable terminal images or change the wire format. Host work tracking reuses parsed terminal activity, and terminal locks/checkpoint capture are scoped per session; those host changes apply with an APK update. Deferred checkpoint compression/storage uses a bounded capture budget and retains the original per-session file fallback under pressure. Repeated cell styles use compact row serialization during capture; densely changing styles retain array encoding, with full history and cell metadata preserved.

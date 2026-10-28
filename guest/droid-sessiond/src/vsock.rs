@@ -164,8 +164,14 @@ impl VsockConnection {
         }
     }
     pub fn write_frame(&mut self, frame: &Frame) -> Result<(), VsockError> {
-        if !self.nonblocking { return write_frame_to(&mut self.stream, frame); }
-        let bytes = frame.encode()?;
+        self.write_encoded(frame.encode()?)
+    }
+    pub fn write_encoded(&mut self, bytes: Vec<u8>) -> Result<(), VsockError> {
+        if !self.nonblocking {
+            self.stream.write_all(&bytes)?;
+            self.stream.flush()?;
+            return Ok(());
+        }
         if bytes.len() > OUTPUT_LIMIT - self.queued {
             return Err(io::Error::other("session output queue is full").into());
         }
