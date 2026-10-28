@@ -14,6 +14,7 @@ const MAX_BYTES: usize = 6 * 1024 * 1024;
 const FRAME_BYTES: usize = 32 * 1024;
 const MEDIA_BLOCK_BYTES: usize = 3072;
 const MEDIA_BLOCKS_PER_TURN: usize = 7;
+const MEDIA_TURN_BYTES: usize = MEDIA_BLOCK_BYTES * MEDIA_BLOCKS_PER_TURN;
 const CANCEL_TRANSFER: &[u8] = b"\x1b_\x18";
 const BASE64: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
@@ -148,10 +149,14 @@ impl GraphicsTransport {
         }
     }
 
-    pub fn discard_partial(&mut self) -> bool {
+    pub fn discard_partial(&mut self) -> (bool, Output) {
         let discarded = self.state != 0 || self.chunked || self.utf8_remaining != 0 || self.has_pending_media();
+        let mut output = Output::default();
+        if let Some(transfer) = &self.media {
+            failure(&mut output, &transfer.keys, "ECANCELED: media resized");
+        }
         *self = Self::default(); // Dropping an incomplete media reader never unlinks it.
-        discarded
+        (discarded, output)
     }
 
     pub fn finish(&mut self) -> Output {
@@ -287,13 +292,15 @@ impl MediaTransfer {
             self.keys.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(",")
         } else { String::new() };
         let frame = self.keys.get(&'a').is_some_and(|action| action == "f");
-        let raw = self.media.length.min(MEDIA_BLOCK_BYTES * MEDIA_BLOCKS_PER_TURN);
+        let raw = self.media.length.min(MEDIA_TURN_BYTES);
         let mut output = Vec::with_capacity((raw + 2) / 3 * 4 + header.len() + MEDIA_BLOCKS_PER_TURN * 13);
-        let mut buffer = [0u8; MEDIA_BLOCK_BYTES];
-        for _ in 0..MEDIA_BLOCKS_PER_TURN {
-            let count = self.media.length.min(buffer.len());
-            self.media.reader.read_exact(&mut buffer[..count]).map_err(|_| "EIO: media read")?;
-            self.media.length -= count;
+        let mut buffer = [0u8; MEDIA_TURN_BYTES];
+        self.media.reader.read_exact(&mut buffer[..raw]).map_err(|_| "EIO: media read")?;
+        // One bounded read, with unchanged Kitty chunk sizes and turn budget.
+        // An empty image still needs one terminating APC.
+        for offset in (0..raw.max(1)).step_by(MEDIA_BLOCK_BYTES) {
+            let chunk = &buffer[offset..raw.min(offset + MEDIA_BLOCK_BYTES)];
+            self.media.length -= chunk.len();
             // The terminating m=0 chunk commits the image at the receiver. Never
             // publish it until all reads and optional source cleanup succeeded.
             if self.media.length == 0 { self.media.finish()?; }
@@ -301,7 +308,7 @@ impl MediaTransfer {
             output.extend_from_slice(b"\x1b_G");
             if !metadata.is_empty() { output.extend_from_slice(metadata.as_bytes()); output.push(b','); }
             output.extend_from_slice(if self.media.length > 0 { b"m=1;" } else { b"m=0;" });
-            encode_base64_into(&buffer[..count], &mut output);
+            encode_base64_into(chunk, &mut output);
             output.extend_from_slice(b"\x1b\\");
             self.first = false;
             if self.media.length == 0 { return Ok((true, output)); }
@@ -459,12 +466,52 @@ mod tests {
             let bytes = flatten(transport.advance_media());
             assert!(bytes.len() <= FRAME_BYTES);
             assert!(!bytes.windows(4).any(|b| b == b"m=0;"));
-            assert_eq!(calls.load(Ordering::Relaxed), turn * MEDIA_BLOCKS_PER_TURN);
+            assert_eq!(calls.load(Ordering::Relaxed), turn);
             assert!(transport.has_pending_media());
         }
-        assert!(transport.discard_partial());
+        let (discarded, output) = transport.discard_partial();
+        assert!(discarded);
+        assert_eq!(output.replies, vec![sequence("i=1", "ECANCELED: media resized")]);
         assert!(!transport.has_pending_media());
         assert!(transport.advance_media().bytes.is_empty());
+    }
+
+    #[test]
+    fn resize_cancellation_honors_quiet_and_identity_and_replies_once() {
+        for (header, expected) in [
+            ("i=7,t=f", Some("i=7")),
+            ("I=9,p=2,q=1,t=f", Some("i=0,I=9,p=2")),
+            ("i=7,q=2,t=f", None),
+            ("t=f", None),
+        ] {
+            let mut transport = GraphicsTransport::default();
+            transport.accept_prefix_inner(&sequence(header, &encode_base64(b"/image")), 65536,
+                |_, _, _, _| Ok(Media::memory(vec![7; 65536])), true);
+            let (discarded, output) = transport.discard_partial();
+            assert!(discarded); assert!(output.bytes.is_empty());
+            assert_eq!(output.replies, expected.map(|keys| sequence(keys, "ECANCELED: media resized")).into_iter().collect::<Vec<_>>());
+            let (discarded, output) = transport.discard_partial();
+            assert!(!discarded); assert!(output.replies.is_empty());
+            assert_eq!(flatten(transport.accept_prefix(b"after").1), b"after");
+        }
+    }
+
+    #[test]
+    fn maximum_image_uses_one_read_per_turn_with_unchanged_payload() {
+        use std::sync::Arc;
+        struct CountingReader(Arc<AtomicUsize>);
+        impl Read for CountingReader {
+            fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+                assert!(bytes.len() <= MEDIA_TURN_BYTES);
+                self.0.fetch_add(1, Ordering::Relaxed); bytes.fill(7); Ok(bytes.len())
+            }
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        let media = Media { reader: Box::new(CountingReader(calls.clone())), length: MAX_BYTES, cleanup: None };
+        let chunks = encode_media(media, "i=1,t=d", "t").unwrap();
+        let encoded: String = chunks.iter().map(|chunk| parse_apc(chunk).unwrap().1).collect();
+        assert_eq!(encoded, encode_base64(&vec![7; MAX_BYTES]));
+        assert_eq!(calls.load(Ordering::Relaxed), 293);
     }
 
     #[test]

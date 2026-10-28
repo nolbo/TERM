@@ -135,7 +135,9 @@ impl SessionServer {
                                         self.flush_tail(&mut client.connection, &session_id)?;
                                     }
                                     let staged = self.staged_output.remove(&session_id).is_some();
-                                    let partial = self.graphics.get_mut(&session_id).is_some_and(GraphicsTransport::discard_partial);
+                                    let (partial, cancelled) = self.graphics.get_mut(&session_id)
+                                        .map(GraphicsTransport::discard_partial).unwrap_or_default();
+                                    self.write_graphics_output(&session_id, cancelled);
                                     let dropped = self.output.resize_boundary(&session_id);
                                     if let Some(dropped_bytes) = if staged || partial { Some(-1) } else { dropped } {
                                         Self::write_event(&mut client.connection, SessionEvent::OutputGap { session_id: &session_id, dropped_bytes })?;
@@ -763,7 +765,14 @@ mod multiplex_tests {
     #[test]
     fn resize_discards_pending_media_and_old_raw_text_before_response() {
         let mut server = SessionServer::default();
-        let id = script(&mut server, "exec sleep 10");
+        let cancelled = b"\x1b_Gi=1;ECANCELED: media resized\x1b\\";
+        let id = script(&mut server, &format!("stty raw -echo; printf READY; exec head -c {}", cancelled.len()));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(3);
+        while !server.output.tails.get(&id).is_some_and(|tail|
+            tail.chunks.iter().any(|(_, bytes)| bytes.ends_with(b"READY"))) {
+            assert!(std::time::Instant::now() < deadline);
+            server.turn(None, 10).unwrap();
+        }
         let mut host = client_pair(&mut server, &[&id]);
         let file = std::env::temp_dir().join(format!("tty-graphics-protocol-resize-{}", std::process::id()));
         std::fs::write(&file, vec![7; 65536]).unwrap();
@@ -783,8 +792,21 @@ mod multiplex_tests {
         }
         assert!(gap); assert!(!server.has_buffered_output(&id));
         assert!(file.exists(), "resize must not unlink a cancelled source");
-        server.turn(None, 0).unwrap(); server.service_client();
-        assert!(!server.output.has_pending(&id));
+        // The waiting guest reads the cancellation reply from its real PTY and
+        // echoes it back through head, then exits without waiting for a timeout.
+        while !matches!(server.sessions.get(&id).unwrap().state, crate::session::SessionState::Exited(0)) {
+            assert!(std::time::Instant::now() < deadline);
+            server.turn(None, 10).unwrap();
+        }
+        server.service_client();
+        let mut replied = false;
+        loop {
+            let frame = crate::vsock::read_frame_from(&mut host).unwrap();
+            replied |= frame.payload.ends_with(cancelled);
+            assert!(!frame.payload.windows(b"OLD_GEOMETRY_TEXT".len()).any(|b| b == b"OLD_GEOMETRY_TEXT"));
+            if frame.payload[0] == 0x91 { break; }
+        }
+        assert!(replied, "the guest must receive the cancellation result");
         server.sessions.terminate(&id, nix::sys::signal::Signal::SIGKILL).unwrap();
         while server.sessions.retired_fds().next().is_some() { server.turn(None, 10).unwrap(); }
         std::fs::remove_file(file).unwrap();

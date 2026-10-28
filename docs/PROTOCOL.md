@@ -387,16 +387,31 @@ A session request deadline covers both sending and response waiting, using 10 se
 
 Platform connection attempts are separately bounded to 10 seconds with eight workers and no queued opens. A platform call returning after timeout/cancellation loses ownership and its descriptor is closed. Resumable attachment/retry sleeps share its 60-second recovery deadline. No protocol version or guest capability changes are required by these host changes.
 
+Host event delivery is decoupled from frame reception. A lazy 9 MiB / 512-event
+queue replaces the 64-event SharedFlow buffer; an unbuffered emitter may hold one
+additional protocol-sized event. Slow output consumers do not delay LIST, WRITE,
+TERMINATE or resize response decoding. Only pending output may be shed, with a
+host-local OutputGap before surviving bytes and that session's resize/exit markers.
+Gap counts may therefore describe host or guest loss. Resize RPC acknowledgement
+and emulator application are distinct: its ordered marker must still be consumed
+before the caller exposes new geometry. Metadata-only saturation closes the logical
+connection for reconciliation; no control marker is silently dropped. Closing the
+client cancels delivery and releases queued bytes. The same rule covers legacy
+replay transports without changing their wire schema or replay acknowledgements.
+
 Kitty media conversion does not change the session wire schema. File paths,
 shared-memory handles and guest descriptors never become host file operations;
 `droid-sessiond` reads bounded regular-file data in the guest and emits direct
 APCs in output frames of at most 32 KiB. Guest conversion processes at most seven
-3 KiB blocks per session turn, emitting ordinary 4 KiB-base64 m=1 chunks through
+3 KiB blocks per session turn, read together in one at-most-21 KiB quantum,
+emitting ordinary 4 KiB-base64 m=1 chunks through
 the existing bounded output queue. The final m=0 chunk commits only after all
 reads and optional unlink succeed. On failure, APC + CAN (`ESC _ CAN`) cancels
 any partial upload without deleting committed images; short reads leave the
 source intact. Resize discards staged raw bytes and cancels partial conversion,
-with an unknown-size OutputGap before its response. No new wire opcode, worker
+with an unknown-size OutputGap before its response. A cancelled local-media
+request receives ECANCELED through the existing best-effort local input lane,
+with its i/I/p identity and quiet-error policy (q=2 suppresses replies). No new wire opcode, worker
 or image queue is introduced. Native/Rootless perform the equivalent
 conversion before their 8 MiB transcript/replay buffer. Runtime emulator replies
 remain ordinary PTY input. UI mirrors suppress duplicate

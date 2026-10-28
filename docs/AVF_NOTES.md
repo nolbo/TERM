@@ -92,6 +92,77 @@ command used the aggregate `test` task with `--tests`; selecting the concrete
 still requires a privileged provisioned VM.
 
 
+A further review of `365abfc` reproduced host-side response starvation: a blocked
+terminal event subscriber filled the 64-event SharedFlow buffer, preventing the
+same frame collector from reaching an already available TERMINATE response. An
+ordered resize timed out and disconnected under the same condition. The fix
+replaces that buffer with a lazy 9 MiB / 512-event pending-delivery queue and one
+coroutine on the existing dispatcher, with no buffered second SharedFlow. One
+additional protocol-sized event may be in delivery. This is an event-stage bound,
+not the memory bound of transport buffers, terminal images or the whole VM.
+
+The receiver completes RPCs independently. Batch shedding replaces discarded
+output with per-session gaps while preserving every retained resize/exit marker;
+new geometry still waits for the ordered marker to be applied. A supported maximum
+image fits without artificial loss. Metadata-only overload reconciles the logical
+connection rather than growing the queue or dropping control markers. Close
+releases pending bytes and cancels delivery. A larger SharedFlow alone would only
+postpone the same blockage; dropping arbitrary SharedFlow entries could lose
+resize/exit markers; another socket or per-session worker pool is unnecessary.
+
+The guest now returns ECANCELED for a resized in-progress local-media request,
+using its existing reply lane, image/placement identity and quiet-error rules.
+The source remains intact, and a second cancellation sends no duplicate reply.
+The lane retains its existing bounded, best-effort overload policy. Each 21 KiB
+conversion turn now uses one read batch before splitting into normal 3 KiB Kitty
+chunks. A complete 6 MiB read takes 293 reader calls instead of 2,048, with unchanged
+wire bytes and scheduling quantum. The temporary stack buffer grows from 3 KiB
+to 21 KiB; there is no new retained image or worker. Short/failed reads still
+cancel without committing m=0 or deleting the source.
+
+Validation of this follow-up:
+
+- `cargo test --offline --manifest-path guest/droid-sessiond/Cargo.toml`: 52 pass,
+  including a real-PTY program receiving the resize cancellation and exiting,
+  quiet/identity/single-reply behavior and byte-exact maximum-image encoding.
+- `./gradlew :protocol:test`: 71 pass, including RPC completion with a blocked
+  output subscriber, gap/resize/exit ordering, maximum-image retention, byte/count
+  limits, metadata-only overload and closed-queue rejection.
+- Canonical `:android-app:assembleDebug :android-runtime:testDebugUnitTest
+  :image:test` plus `:android-runtime:assembleDebugAndroidTest`: pass with JDK 17
+  and the existing ARM64 AAPT2 override. Runtime tests: 488 pass, one existing
+  opt-in pinned-archive fixture skipped; image JVM tests: 70 pass.
+- Android MCP installed the rebuilt test APK on ReDroid and ran
+  `ProtocolOutputDeliveryDeviceTest` plus
+  `TerminalCheckpointDeliveryDeviceTest#outputGapQueuesParserResetBeforeResumedBytes`:
+  two pass. These cover actual Android parsing/checkpoint order after host pressure;
+  ReDroid is not a provisioned AVF VM or a device-performance result.
+- External Jev source export remained unavailable after the earlier automatic
+  approval rejection; local diff review and executable regressions were used.
+
+Five alternating release runs of
+`python3 tests/benchmarks/avf_sessiond_overhead.py --baseline 365abfc` measured:
+
+| Operation | 365abfc | Batched read |
+| --- | ---: | ---: |
+| 6 MiB conversion, median total time | 13.106 ms | 13.072 ms |
+| Converter peak transient heap | 29,120 bytes | 29,120 bytes |
+| Converter allocation/reallocation calls | 613 | 609 |
+| Healthy 8 KiB output allocations | 3 | 3 |
+| Idle eight-session turn allocations | 0 | 0 |
+
+The approximately 0.3% timing difference is too small to establish a practical
+wall-time gain; encoding still dominates this cached-file fixture. The verified
+improvement is fewer read calls with the same per-turn work bound. Peak heap does
+not include the 21 KiB stack buffer, existing output tails or host terminal state.
+These numbers do not measure host delivery latency or real AVF performance.
+
+The host change is APK-only and supports legacy connections too. Guest fixes need
+a verified stopped-Environment component/image update; this task does not publish
+or activate images. Slow regular-file operations remain synchronous and do not
+gain a hard latency deadline.
+
+
 Alternatives rejected were another relay optimization (still coupled process
 progress to replay), a second priority socket (more ownership/recovery state),
 and unlimited memory/disk output retention (unbounded resource use). The chosen

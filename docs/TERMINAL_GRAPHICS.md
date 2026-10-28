@@ -70,13 +70,17 @@ the selected shared-memory root. Unlink uses the pinned parent and an inode
 check. No host path or descriptor crosses the AVF boundary.
 
 AVF converts local media cooperatively in the session loop: one turn reads at
-most seven 3 KiB blocks and emits <32 KiB of ordinary direct-transfer APCs. The
+most 21 KiB in one read and encodes seven 3 KiB blocks into <32 KiB of ordinary
+direct-transfer APCs. The
 existing bounded output queue owns those chunks; no per-image encoded backlog
 or worker pool is added. m=1 chunks remain incomplete at the emulator. Only a
 successful final read/cleanup emits m=0. Read failure sends APC + CAN to cancel
 that transfer, preserving committed images and the failed source. Resize cancels
 the reader and staged raw remainder before its response, with an OutputGap that
-also clears incomplete multipart transfers on both screens. Individual regular-file
+also clears incomplete multipart transfers on both screens. The guest receives
+ECANCELED through the existing reply lane, retaining image/placement identity and
+honoring q=2; no success is fabricated and the cancelled source remains intact.
+As with other local replies, input saturation may discard it. Individual regular-file
 operations are synchronous and have no new hard latency guarantee.
 
 Files on an SSH server must use direct transfer unless the client and PTY owner

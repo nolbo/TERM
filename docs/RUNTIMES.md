@@ -262,12 +262,21 @@ Reusable poll storage, single request decoding, direct frame encoding and reused
 empty live-session queues reduce transient allocations without adding services.
 Media conversion yields after at most 21 KiB of source data per session turn, so
 sibling output, resource queries and termination run before a whole image finishes.
+Each quantum is read together, retaining ordinary 3 KiB Kitty encoding chunks.
 Failed reads cancel the partial Kitty upload without replacing committed images.
 Resize also clears already-read raw remainder and cancels incomplete conversion
-before acknowledging geometry; the source is retained on cancellation. Host gap
+before acknowledging geometry; the source is retained on cancellation and the
+guest receives an ECANCELED reply subject to its quiet setting and input capacity. Host gap
 handling cancels incomplete multipart transfers on both screens while retaining
 existing images/history. Slow regular-file operations remain synchronous; actual
 AVF latency needs device measurement after a verified guest update.
+
+Host terminal delivery has a lazy 9 MiB / 512-event queue and one delivery
+coroutine on the existing dispatcher, replacing the former SharedFlow buffer.
+A slow consumer cannot stop RPC reception. Overflow sheds output with gap notices,
+while resize/exit markers retain their per-session ordering. One maximum supported
+image fits; unlimited output does not. Metadata-only overload reconnects rather
+than losing ordering markers. No extra service, socket or thread is introduced.
 
 Session-exit list refresh and workspace/migration reconciliation also run outside the output collector, with one worker and one coalesced pending pass. A sibling's output cannot block the list response behind a waiting exit handler. Updated guests additionally release a naturally exited session's PTY after its final output and exit status, retain its history until explicit close, and poll only running sessions. For legacy installed images, permanent replay-owner closure wakes both internal socket pumps, including blocked writes. These two guest fixes require an updated verified guest component/image and a stopped-Environment update under `AVF_UPDATES.md`; updating the APK alone applies only the host reconciliation fix.
 

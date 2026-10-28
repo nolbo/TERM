@@ -24,6 +24,7 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.channels.Channel
 
 /** Transport boundary for vsock, in-memory tests, or another framed byte stream. */
 interface FrameTransport : Closeable {
@@ -72,7 +73,14 @@ class ProtocolSessionClient(
     private val pending = ConcurrentHashMap<Long, CompletableDeferred<Result<SessionResponse>>>()
     private val resizeBarriers = ConcurrentHashMap<Long, Pair<SessionRequest.Resize, Any>>()
     override val supportsOrderedResize = true
-    private val mutableEvents = MutableSharedFlow<SessionEvent>(extraBufferCapacity = 64)
+    private val mutableEvents = MutableSharedFlow<SessionEvent>()
+    private val eventBuffer = SessionEventBuffer()
+    private val eventReady = Channel<Unit>(Channel.CONFLATED)
+    private val eventJob = scope.launch {
+        for (ready in eventReady) {
+            while (true) mutableEvents.emit(eventBuffer.poll() ?: break)
+        }
+    }
     private val mutableConnectionState = MutableStateFlow(SessionConnectionState.CONNECTED)
     override val events: SharedFlow<SessionEvent> = mutableEvents.asSharedFlow()
     override val connectionState: StateFlow<SessionConnectionState> = mutableConnectionState.asStateFlow()
@@ -157,6 +165,9 @@ class ProtocolSessionClient(
         pending.values.forEach { it.completeExceptionally(reason) }
         pending.clear()
         resizeBarriers.clear()
+        eventBuffer.close()
+        eventReady.close()
+        eventJob.cancel()
         linkJob?.cancel()
         // Cleanup of a broken/closed descriptor must not escape to another owner.
         runCatching { transport.close() }
@@ -277,15 +288,22 @@ class ProtocolSessionClient(
         runCatching { onRequestDiagnostic(event, fields, error) }
     }
 
-    private suspend fun handleIncomingFrame(frame: ProtocolFrame) {
+    private fun publishEvent(event: SessionEvent) {
+        if (!eventBuffer.offer(event)) throw ProtocolRequestException("Session control event backlog exceeded")
+        eventReady.trySend(Unit)
+    }
+
+    private fun handleIncomingFrame(frame: ProtocolFrame) {
         if (frame.service != Service.SESSION) return
         when (frame.kind) {
-            FrameKind.STREAM -> runCatching { SessionEventCodec.decode(frame.payload) }
-                .onSuccess { event ->
-                    val mapped = if (identities == null) event else identities.event(event)
-                    if (mapped != null) mutableEvents.emit(mapped)
+            FrameKind.STREAM -> {
+                val event = runCatching { SessionEventCodec.decode(frame.payload) }.getOrElse {
+                    runCatching { onDiagnostic("session.event.invalid", it) }
+                    return
                 }
-                .onFailure { runCatching { onDiagnostic("session.event.invalid", it) } }
+                val mapped = if (identities == null) event else identities.event(event)
+                if (mapped != null) publishEvent(mapped)
+            }
             FrameKind.RESPONSE, FrameKind.ERROR -> {
                 val waiting = pending[frame.requestId] ?: return
                 val decoded = runCatching {
@@ -306,12 +324,12 @@ class ProtocolSessionClient(
                     }.getOrElse { waiting.completeExceptionally(it); return }
                     // This marker occupies the response's exact place in the output
                     // stream, before any following output is handed to the parser.
-                    mutableEvents.emit(SessionEvent.Resized(response.session.id, request.rows, request.cols, barrier))
+                    publishEvent(SessionEvent.Resized(response.session.id, request.rows, request.cols, barrier))
                 }
                 waiting.complete(decoded)
                 // CREATE/LIST callers can initialize terminal state before buffered
                 // output fills their event queue. No second response codec pass.
-                identities?.identifiedEvents()?.forEach { mutableEvents.emit(it) }
+                identities?.identifiedEvents()?.forEach(::publishEvent)
             }
             else -> Unit
         }

@@ -833,17 +833,34 @@ Live sessions retain empty output-queue metadata and reuse borrowed ID lookups;
 only pending bytes/gap/exit events make a tail runnable. Exit delivery and explicit
 termination release that metadata, and empty queues never force immediate polling.
 
+Host session reception never waits for terminal event consumption. The former
+64-event SharedFlow buffer is replaced by one lazy pending-delivery queue bounded
+to 9 MiB / 512 events per connection, accommodating one supported graphic after
+base64 expansion. One delivery coroutine uses the existing dispatcher and an
+unbuffered SharedFlow; at most one additional protocol-sized event is in flight.
+There is no new thread, pool, socket or service. Overflow sheds a batch of pending
+output, preserving the newest fitting packet and inserting per-session gaps
+before retained resize/exit boundaries or subsequent output. Unknown loss remains
+unknown when gaps merge. RPC responses complete independently, while ordered resize
+still waits for its queued marker to reach the terminal before exposing the new
+geometry. Control-only overflow disconnects that connection for reconciliation
+rather than silently losing a barrier or growing without bound. Close clears the
+queue and cancels delivery. These host rules also apply to legacy guest transports;
+wire replay does not promise lossless terminal delivery under host overload.
+
 Local media conversion is incremental inside the existing graphics parser: at
 most seven 3 KiB source blocks (21 KiB) form one <32 KiB output frame per session
-turn. Control requests run between pending parser slices. Following raw output
+turn. A single read fills that 21 KiB quantum before encoding its seven ordinary
+3 KiB Kitty chunks. Control requests run between pending parser slices. Following raw output
 waits in the existing staged buffer, preserving per-session ordering. Each parser
 holds only its current reader/keys, never a complete encoded image; the existing
 9/16 MiB output bounds also cover interleaved image chunks from multiple sessions.
 The final Kitty m=0 chunk is emitted only after all reads and optional unlink
 succeed. Earlier m=1 chunks do not commit an image. Read/cleanup failure emits
 APC + CAN to cancel that upload plus the usual quiet-aware local error reply;
-read failure leaves the source intact. Resize cancels the reader without unlink
-and uses OutputGap to clear partial terminal and multipart Kitty state on both
+read failure leaves the source intact. Resize cancels the reader without unlink,
+returns ECANCELED through the existing local-reply lane (honoring q and image
+identity), and uses OutputGap to clear partial terminal and multipart Kitty state on both
 host screens, preserving committed images/history. Regular-file operations remain
 synchronous: a per-turn byte bound is not a wall-clock deadline for slow storage.
 

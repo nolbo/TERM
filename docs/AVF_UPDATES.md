@@ -31,6 +31,13 @@ uses ordinary Kitty m=1/m=0 and APC cancellation; no extra daemon, port or manif
 capability is added. Existing guest paths, permissions and the source-file unlink
 policy are unchanged; an interrupted conversion leaves its source available.
 
+The host output-delivery refinement needs only the updated APK and applies to
+both direct and legacy session connections: output pressure no longer blocks RPC
+responses, and host-local gaps preserve parser/resize ordering. Guest resize
+cancellation replies and batched 21 KiB file reads need the verified updated
+sessiond component. They change no manifest capability or wire opcode, and do not
+publish or activate an image as part of a source-only update.
+
 ## Decision and compatibility
 
 Format v1 `home.img` contains the root OverlayFS upper/work trees. Format v2

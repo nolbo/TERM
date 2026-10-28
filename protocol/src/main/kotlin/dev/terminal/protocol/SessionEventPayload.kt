@@ -8,7 +8,7 @@ import java.nio.ByteOrder
 sealed interface SessionEvent {
     /** replay is host-local metadata; it is not part of the guest wire format. */
     data class Output(val sessionId: String, val bytes: ByteArray, val replay: Boolean = false) : SessionEvent
-    /** -1 means delivery on the previous connection is unknown; otherwise bytes discarded by the guest. */
+    /** -1 means unknown loss; otherwise bytes discarded by guest or host output delivery. */
     data class OutputGap(val sessionId: String, val droppedBytes: Long) : SessionEvent
     data class Exited(val sessionId: String, val exitCode: Int) : SessionEvent
     /** Host-only ordering marker; barrier is the requesting host operation's identity. */
