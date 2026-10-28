@@ -1517,9 +1517,6 @@ class VmRuntimeService : Service() {
                     dev.terminal.runtime.session.TerminalPalette.asProperties(
                         dev.terminal.runtime.session.TerminalPalette.resolve({ key, fallback -> preferences.getString(key, fallback).orEmpty() }, spec.palette))
                 })
-            // The new owner has no surviving local PTYs. Prune their old memberships
-            // before publication even when an unrecovered AVF owner blocks collection.
-            workspaces.reconcileAfterOwnerRestart(registry.cachedSessions().mapTo(mutableSetOf()) { it.id })
             sessionClient = registry
             val exitReconciler = SessionExitReconciler(scope, reconcile = {
                 refreshSessions(registry)
