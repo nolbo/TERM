@@ -18,8 +18,12 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -44,6 +48,7 @@ class UnifiedSessionRegistry(
     private data class Registration(val controller: SessionController, val jobs: List<Job>, val inputOwner: Any,
         val terminalReplies: dev.terminal.runtime.lifecycle.OrderedSessionInput, val lifetime: Job,
         val creation: Mutex = Mutex(),
+        var version: Long = 0, var query: Long = 0,
         var resourceJob: Job? = null, var resourceCheckedAt: Long = 0,
         var resourceUnsupported: Boolean = false, var resources: dev.terminal.protocol.GuestResourceUsage? = null)
     private data class StorageKey(val runtime: SessionRuntime, val storageId: String = "legacy")
@@ -150,6 +155,14 @@ class UnifiedSessionRegistry(
                     }
                 } else {
                     if (event is SessionEvent.Exited) {
+                        listMutex.withLock {
+                            if (registrations[key] === registration) {
+                                registration.version++
+                                lastKnownSessions.computeIfPresent(key) { _, sessions -> sessions.map {
+                                    if (it.id == sessionId) it.copy(state = dev.terminal.protocol.SessionStatus.EXITED, exitCode = event.exitCode) else it
+                                } }
+                            }
+                        }
                         inputSessions.remove(sessionId)
                         failResize(sessionId)
                         controlStreams.remove(sessionId)?.finish()?.takeIf { it.isNotEmpty() }?.let {
@@ -182,12 +195,26 @@ class UnifiedSessionRegistry(
         state: Any?, replies: List<ByteArray>) {
         if (replies.isEmpty() || state == null) return
         val session = inputSessions[sessionId] ?: return
-        val target = SessionInputTarget(registration.inputOwner, sessionId,
-            current = { registrations[key] === registration && owners[sessionId] == key &&
+        val current = { registrations[key] === registration && owners[sessionId] == key &&
                 inputSessions[sessionId] === session && terminalStates.identity(sessionId) === state &&
-                registration.controller.connectionState.value == SessionConnectionState.CONNECTED },
+                registration.controller.connectionState.value != SessionConnectionState.DISCONNECTED }
+        val target = SessionInputTarget(registration.inputOwner, sessionId, current = current,
             // Terminal-generated replies are not user input or a shell-activity signal.
-            deliver = { registration.controller.write(sessionId, it) })
+            deliver = reply@{ bytes ->
+                // Already buffered output can contain a query while raw recovery
+                // runs. Keep its unsent reply in this bounded lane, not on the
+                // receive collector, so a TUI is not left waiting forever.
+                while (current()) {
+                    registration.controller.connectionState.first { it != SessionConnectionState.RECOVERING }
+                    if (!current()) break
+                    val result = registration.controller.write(sessionId, bytes)
+                    if (result.exceptionOrNull() !is dev.terminal.protocol.ProtocolRecoveringException) return@reply result
+                    // Recovery can begin between the state check and admission.
+                    // This specific rejection guarantees no bytes were sent.
+                    kotlinx.coroutines.yield()
+                }
+                Result.failure(IllegalStateException("Terminal reply destination changed"))
+            })
         val bytes = java.io.ByteArrayOutputStream().apply { replies.forEach { write(it) } }.toByteArray()
         // Never await a WRITE RPC from the output collector: its acknowledgement
         // shares the reader that backpressures on this collector's event buffer.
@@ -218,9 +245,16 @@ class UnifiedSessionRegistry(
     suspend fun refreshEnvironment(environment: Environment): Result<List<SessionDescriptor>> {
         val key = StorageKey(environment.sessionRuntime, environment.storage.id)
         val registration = registrations[key] ?: return Result.failure(IllegalStateException("Environment is not connected"))
+        return refreshRegistration(key, registration)
+    }
+
+    private suspend fun refreshRegistration(key: StorageKey, registration: Registration): Result<List<SessionDescriptor>> {
+        val ticket = listMutex.withLock { registration.version to ++registration.query }
         val current = registration.controller.list().getOrElse { return Result.failure(it) }
         return listMutex.withLock {
             if (registrations[key] !== registration) Result.failure(IllegalStateException("Environment owner changed"))
+            else if (registration.version != ticket.first || registration.query != ticket.second)
+                Result.success(lastKnownSessions[key].orEmpty())
             else Result.success(rememberSessions(key, current))
         }
     }
@@ -273,11 +307,12 @@ class UnifiedSessionRegistry(
      * Existing controllers retain their paths and AVF instance; only their idle registration changes.
      */
     suspend fun adoptLegacyStorageIfIdle(runtime: SessionRuntime, adopt: () -> String): Boolean = mutationLocks.withAll {
+        val old = StorageKey(runtime)
+        val registration = registrations[old]
+        val sessions = registration?.controller?.list()?.getOrThrow().orEmpty()
+        if (sessions.any { it.state != dev.terminal.protocol.SessionStatus.EXITED }) return@withAll false
         listMutex.withLock {
-            val old = StorageKey(runtime)
-            val registration = registrations[old]
-            val sessions = registration?.controller?.list()?.getOrThrow().orEmpty()
-            if (sessions.any { it.state != dev.terminal.protocol.SessionStatus.EXITED }) return@withLock false
+            check(registrations[old] === registration) { "Environment owner changed" }
             val next = StorageKey(runtime, adopt())
             check(next != old && !registrations.containsKey(next)) { "Invalid migration target" }
             if (registration != null) {
@@ -294,10 +329,12 @@ class UnifiedSessionRegistry(
 
     /** Excludes creation in every runtime while shared workspace trees are replaced. */
     suspend fun migrateIfAllIdle(runtime: SessionRuntime, storageId: String = "legacy", migrate: suspend () -> Unit) = mutationLocks.withAll {
+        val observed = registrations.toMap()
+        check(coroutineScope { observed.values.map { async { it.controller.list().getOrThrow().isEmpty() } }.awaitAll().all { it } }) {
+            "가속 형식 이전 전에 앱의 모든 터미널 세션을 종료하세요. 작업 폴더를 사용하는 파일 작업도 마쳐야 합니다"
+        }
         listMutex.withLock {
-            check(registrations.values.all { it.controller.list().getOrThrow().isEmpty() }) {
-                "가속 형식 이전 전에 앱의 모든 터미널 세션을 종료하세요. 작업 폴더를 사용하는 파일 작업도 마쳐야 합니다"
-            }
+            check(observed.size == registrations.size && observed.all { (key, value) -> registrations[key] === value }) { "Environment owner changed" }
             val key = StorageKey(runtime, storageId)
             registrations.remove(key)?.jobs?.forEach(Job::cancel)
             environments.remove(key)
@@ -308,12 +345,13 @@ class UnifiedSessionRegistry(
     }
 
     suspend fun removeIfIdle(runtime: SessionRuntime, storageId: String = "legacy", remove: suspend () -> Unit) = mutationLocks.withStorage(runtime, storageId) {
+        val key = StorageKey(runtime, storageId)
+        val registration = registrations[key]
+        check(registration?.controller?.list()?.getOrThrow().orEmpty().isEmpty()) {
+            "이 배포판의 모든 세션을 종료한 뒤 제거 또는 환경 보완을 실행하세요."
+        }
         listMutex.withLock {
-            val key = StorageKey(runtime, storageId)
-            val registration = registrations[key]
-            check(registration?.controller?.list()?.getOrThrow().orEmpty().isEmpty()) {
-                "이 배포판의 모든 세션을 종료한 뒤 제거 또는 환경 보완을 실행하세요."
-            }
+            check(registrations[key] === registration) { "Environment owner changed" }
             registrations.remove(key)?.jobs?.forEach(Job::cancel)
             environments.remove(key)
             forgetOwners(key)
@@ -328,7 +366,7 @@ class UnifiedSessionRegistry(
         mutationLocks.withStorage(runtime, storageId) {
             val key = StorageKey(runtime, storageId)
             val registration = registrations[key]
-            check(registration?.controller?.connectionState?.value != SessionConnectionState.DISCONNECTED) { "Cannot verify environment sessions" }
+            check(registration == null || registration.controller.connectionState.value == SessionConnectionState.CONNECTED) { "Cannot verify environment sessions" }
             check(registration?.controller?.list()?.getOrThrow().orEmpty().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) { "Storage has active sessions" }
             val release: suspend () -> Unit = {
                 val removedIds = owners.filterValues { it == key }.keys.toList()
@@ -391,6 +429,10 @@ class UnifiedSessionRegistry(
                     failResize(created.id)
                     terminalStates.create(created.id, cols.toInt(), rows.toInt())
                     terminalStates.palette(created.id, palette)
+                }
+                listMutex.withLock {
+                    check(registrations[key] === registration) { "Environment owner changed" }
+                    registration.version++
                     owners[created.id] = key
                     inputSessions[created.id] = Any()
                     lastKnownSessions.compute(key) { _, sessions -> sessions.orEmpty().filterNot { it.id == created.id } + created }
@@ -455,20 +497,12 @@ class UnifiedSessionRegistry(
     )
 
     override suspend fun list(): Result<List<SessionDescriptor>> = runCatching {
-        listMutex.withLock {
-            // Preserve runtime order for equal creation timestamps, independent
-            // of ConcurrentHashMap iteration order or backend registration timing.
-            registrations.entries.sortedWith(compareBy({ it.key.runtime.ordinal }, { it.key.storageId }))
-                .flatMap { (key, registration) ->
-                registration.controller.list().fold(
-                    onSuccess = { current -> rememberSessions(key, current) },
-                    // A transport/list failure is not evidence that the PTY owner
-                    // destroyed its sessions. Keep the last authoritative view for
-                    // this runtime until a successful list proves otherwise.
-                    onFailure = { lastKnownSessions[key].orEmpty() },
-                )
-            }.sortedBy { it.createdAtMs }
+        coroutineScope {
+            registrations.entries.map { (key, registration) -> async { refreshRegistration(key, registration) } }.awaitAll()
         }
+        // Failed owners retain their last authoritative view. Each owner's RPC
+        // runs outside the publication lock and commits independently.
+        cachedSessions()
     }
 
     override suspend fun attach(sessionId: String): Result<SessionDescriptor> = route(sessionId) { it.attach(sessionId) }
@@ -481,7 +515,7 @@ class UnifiedSessionRegistry(
     private fun resizeIsCurrent(sessionId: String, pending: PendingResize): Boolean =
         registrations[pending.key] === pending.registration && ownerKey(sessionId) == pending.key &&
             inputSessions[sessionId] === pending.session && terminalStates.identity(sessionId) === pending.state &&
-            pending.registration.controller.connectionState.value == SessionConnectionState.CONNECTED
+            pending.registration.controller.connectionState.value != SessionConnectionState.DISCONNECTED
 
     private suspend fun applyResize(sessionId: String, pending: PendingResize, rows: Int, cols: Int) {
         terminalStates.withSession(sessionId) {
@@ -510,6 +544,11 @@ class UnifiedSessionRegistry(
             if (!registration.controller.supportsOrderedResize) applyResize(sessionId, pending, rows, cols)
             pending.applied.await()
             check(resizeIsCurrent(sessionId, pending)) { "Resize destination changed" }
+            listMutex.withLock {
+                check(registrations[key] === registration) { "Environment owner changed" }
+                registration.version++
+                lastKnownSessions.computeIfPresent(key) { _, sessions -> sessions.map { if (it.id == sessionId) resized else it } }
+            }
             return resized
         } finally {
             pendingResizes.remove(sessionId, pending)
@@ -558,17 +597,22 @@ class UnifiedSessionRegistry(
     }
     override suspend fun terminate(sessionId: String, signal: Int): Result<Unit> {
         val key = ownerKey(sessionId) ?: return Result.failure(NoSuchElementException("Session not found"))
+        val registration = registrations[key]
         return controller(key).fold(
             onSuccess = { owner -> owner.terminate(sessionId, signal) },
             onFailure = { Result.failure(it) },
         ).onSuccess {
-            inputSessions.remove(sessionId)
-            failResize(sessionId)
-            lastKnownSessions.computeIfPresent(key) { _, sessions -> sessions.filterNot { it.id == sessionId } }
-            owners.remove(sessionId, key)
-            launches.remove(sessionId)
-            controlStreams.remove(sessionId)
-            keyboardFlags.remove(sessionId)
+            listMutex.withLock {
+                if (registrations[key] !== registration) return@onSuccess
+                registration?.let { it.version++ }
+                inputSessions.remove(sessionId)
+                failResize(sessionId)
+                lastKnownSessions.computeIfPresent(key) { _, sessions -> sessions.filterNot { it.id == sessionId } }
+                owners.remove(sessionId, key)
+                launches.remove(sessionId)
+                controlStreams.remove(sessionId)
+                keyboardFlags.remove(sessionId)
+            }
             terminalStates.withSession(sessionId) { terminalStates.remove(sessionId) }
         }
     }
@@ -578,18 +622,23 @@ class UnifiedSessionRegistry(
     fun environmentOf(sessionId: String): EnvironmentId? = launches[sessionId]?.environmentId ?: ownerKey(sessionId)?.let { environments[it]?.id }
     fun launchOf(sessionId: String): SessionLaunchSpec? = launches[sessionId]
     /** Collection of UI metadata requires a complete live-owner proof, including disconnected VMs. */
-    suspend fun verifiedWorkspaceSessions(rememberedIds: Set<String>): Set<String>? = listMutex.withLock {
-        if (rememberedIds.any { SessionRuntime.fromSessionId(it) == SessionRuntime.AVF && !owners.containsKey(it) }) return@withLock null
-        runCatching {
-            registrations.values.flatMap { registration ->
-                check(registration.controller.connectionState.value != SessionConnectionState.DISCONNECTED)
+    suspend fun verifiedWorkspaceSessions(rememberedIds: Set<String>): Set<String>? {
+        if (rememberedIds.any { SessionRuntime.fromSessionId(it) == SessionRuntime.AVF && !owners.containsKey(it) }) return null
+        val observed = registrations.toMap()
+        val sessions = runCatching { coroutineScope {
+            observed.values.map { registration -> async {
+                check(registration.controller.connectionState.value == SessionConnectionState.CONNECTED)
                 registration.controller.list().getOrThrow()
-            }.filter { it.state != dev.terminal.protocol.SessionStatus.EXITED }.mapTo(mutableSetOf()) { it.id }
-        }.getOrNull()
+            } }.awaitAll().flatten()
+        } }.getOrNull() ?: return null
+        return listMutex.withLock {
+            if (observed.size != registrations.size || observed.any { (key, value) -> registrations[key] !== value }) null
+            else (sessions + cachedSessions()).filter { it.state != dev.terminal.protocol.SessionStatus.EXITED }.mapTo(mutableSetOf()) { it.id }
+        }
     }
     suspend fun verifiedSessions(environment: Environment): Result<List<SessionDescriptor>> {
         val registration = registrations[StorageKey(environment.sessionRuntime, environment.storage.id)] ?: return Result.success(emptyList())
-        if (registration.controller.connectionState.value == SessionConnectionState.DISCONNECTED)
+        if (registration.controller.connectionState.value != SessionConnectionState.CONNECTED)
             return Result.failure(IllegalStateException("Cannot verify environment sessions"))
         return registration.controller.list()
     }

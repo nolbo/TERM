@@ -6,6 +6,9 @@ import dev.terminal.runtime.session.Environment
 import dev.terminal.runtime.session.SessionRuntime
 import dev.terminal.runtime.session.UnifiedSessionRegistry
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 
 /** Reconnect failed AVF links without replacing healthy controllers or terminal state. */
 internal suspend fun reconnectAvfSessions(
@@ -15,12 +18,12 @@ internal suspend fun reconnectAvfSessions(
     onConnected: (Environment) -> Unit,
     canReconnect: (Environment) -> Boolean = { true },
     withEnvironmentLease: suspend (Environment, suspend () -> Unit) -> Unit = { _, action -> action() },
-) {
-    for (id in registry.disconnectedStorages(SessionRuntime.AVF)) {
+) = coroutineScope {
+    registry.disconnectedStorages(SessionRuntime.AVF).map { id -> async {
         var replacement: SessionController? = null
         try {
             val environment = environmentForStorage(id)
-            if (!canReconnect(environment)) continue
+            if (!canReconnect(environment)) return@async
             withEnvironmentLease(environment) retry@{
                 if (id !in registry.disconnectedStorages(SessionRuntime.AVF) || !canReconnect(environment)) return@retry
                 ConnectionDiagnostics.record("session.reconnect.owner", environment.id.value, details = mapOf("storage" to id))
@@ -50,5 +53,6 @@ internal suspend fun reconnectAvfSessions(
             replacement?.let { runCatching { it.close() } }
             ConnectionDiagnostics.record("session.reconnect.failed", id, error = error)
         }
-    }
+    } }.awaitAll()
+    Unit
 }

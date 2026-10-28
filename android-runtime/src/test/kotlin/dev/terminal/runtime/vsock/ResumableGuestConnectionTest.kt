@@ -78,7 +78,7 @@ class ResumableGuestConnectionTest {
                     throw IllegalStateException("A broken diagnostic observer must not replace the real failure")
                 })
             }
-            val diagnostic = diagnostics.single()
+            val diagnostic = diagnostics.single { it.event == "session.attach.failed" }
             assertEquals("session.attach.failed", diagnostic.event)
             assertSame(failure, diagnostic.error)
             assertTrue(requireNotNull(diagnostic.code).matches(
@@ -205,6 +205,42 @@ class ResumableGuestConnectionTest {
         }
     }
 
+    @Test(timeout = 10_000) fun explicitCloseReleasesOnlyItsOwnerOnABoundedSeparateConnection() {
+        val listener = ServerSocket(0)
+        val peer = ReplayByteStream()
+        val released = CountDownLatch(1)
+        val failure = AtomicReference<Throwable>()
+        val server = thread(isDaemon = true) {
+            try {
+                val first = listener.accept()
+                val input = DataInputStream(first.getInputStream())
+                assertEquals(0x54535231, input.readInt())
+                val token = input.readLong() to input.readLong()
+                assertEquals(1, input.readUnsignedByte())
+                first.getOutputStream().write(0)
+                peer.attach(input, first.getOutputStream()) { first.close() }
+                listener.accept().use { release ->
+                    val request = DataInputStream(release.getInputStream())
+                    assertEquals(0x54535231, request.readInt())
+                    assertEquals(token, request.readLong() to request.readLong())
+                    assertEquals(2, request.readUnsignedByte())
+                    release.getOutputStream().write(0)
+                }
+            } catch (error: Throwable) { failure.set(error) }
+            finally { released.countDown() }
+        }
+        val client = ResumableGuestConnection(0, connect = {
+            val raw = Socket("127.0.0.1", listener.localPort)
+            guest(raw.getInputStream(), raw.getOutputStream()) { raw.close() }
+        })
+        try {
+            client.close()
+            assertTrue(released.await(3, TimeUnit.SECONDS))
+            failure.get()?.let { throw it }
+            assertEquals(dev.terminal.protocol.SessionConnectionState.DISCONNECTED, client.linkState.value)
+        } finally { client.close(); peer.close(); listener.close(); server.join(1_000) }
+    }
+
     @Test(timeout = 10_000) fun aStuckReplacementConnectCannotOutliveRecoveryOrLeakItsLateSocket() = runBlocking {
         val listener = ServerSocket(0)
         val peer = ReplayByteStream()
@@ -244,7 +280,7 @@ class ResumableGuestConnectionTest {
             recoveryTimeoutMillis = 300, handshakeTimeoutMillis = 200)
         try {
             assertTrue(ready.await(2, TimeUnit.SECONDS))
-            assertEquals(500, client.requestTimeoutMillis)
+            assertEquals(10_000, client.requestTimeoutMillis)
             val frames = async { withTimeout(2_000) { client.incomingFrames().toList() } }
             current.get().close()
             assertTrue(frames.await().isEmpty())

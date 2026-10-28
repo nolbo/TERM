@@ -1,5 +1,72 @@
 # AVF notes
 
+## Runtime isolation and native recovery redesign (2026-10-28)
+
+The review found that recovery had enlarged the failure domain: a LIST held
+publication locks needed by termination, one owner FIFO blocked sibling PTYs,
+and the 70-second RPC budget coupled interaction to the 60-second replay lease.
+A normal response timeout then discarded the logical owner while the guest
+retained its old token. Separately, PTY EOF before child exit disconnected the
+entire session stream and could repeat after reconnect. The older observations
+below describe earlier revisions, not the current contracts.
+
+The host now keeps network calls outside publication locks and rejects stale
+list results with registration/query versions. Successful mutations publish the
+registry's local projection. Input is ordered per session (64 packets per lane,
+256 overall), and owner refresh/reconnect attempts run independently. Both
+transport versions use a 10-second RPC budget; known raw recovery rejects new
+requests promptly. Missing ordinary responses no longer tear down sibling
+requests. Unknown CREATE/ordered RESIZE and incomplete sends still require
+connection reconciliation because their terminal identity/geometry or framing
+cannot safely be assumed. Uncertain mutations are never replayed as RPCs.
+
+Guest recovery keeps TSR1/TRS2 compatibility but runs inside the Rust guest
+binary as a separate service process. Four bounded-stack workers replace the
+Python session relay pumps; no socket write holds replay metadata locks.
+The root-only Unix hop remains to preserve sessiond's ownership boundary.
+Optional token-scoped release lets an intentionally closed host relinquish its
+old lease immediately. An old guest may reject it and retain the old lease.
+PTY EOF stops polling that output descriptor while the child remains listable
+and terminable; a conditional 100 ms reap checks its eventual exit status.
+
+A retained opt-in benchmark compares both relays using the same Rust peer,
+local Unix sockets, 100 warmup echoes, 2,000 one-byte echoes and 8 MiB output.
+One shared ARM64-host run measured mean RTT 209.47 microseconds for Python and
+59.54 for native; output throughput was 219.63 versus 467.48 MiB/s. This is an
+isolated relay measurement, not Android vsock, terminal display, VM scheduling,
+Internet performance or evidence that the user's full symptom is resolved.
+Run `cargo test --release --manifest-path guest/droid-sessiond/Cargo.toml --offline
+native_and_python_transport_benchmark -- --ignored --nocapture` on one line.
+
+The changes deliberately keep the same byte stream and bounded backpressure;
+there is no separate priority channel that can terminate a guest through a
+physically unavailable link. Partial frame delivery can still invalidate the
+logical owner. Default/saved CPU and memory choices are unchanged. The native
+relay, explicit release and EOF correction require a verified guest component
+or image update with the Environment stopped; updating the APK alone does not
+change installed images. Publishing such images is a separate release task.
+
+Validation of this redesign passed the canonical debug APK/runtime/image tasks,
+plus protocol and AOSP AVF unit tests: 632 JVM tests passed and one was skipped.
+The final protocol check passed all 59 tests after fixing a missing test import;
+the release-handshake fixture was rerun after accounting for asynchronous
+release diagnostics. Guest tests passed 40 cases (the performance fixture is
+opt-in and was run separately), and all 130 Python image tests passed. Android
+MCP ran two ReDroid15 ARM64 checks using real Android socket I/O and a live
+Native PTY: exit reconciliation keeps sibling output moving, and an injected
+AVF transport reset during stop preserves the owner process and sibling shell.
+Neither test boots AVF.
+
+The default build configuration still refers to the old checkout's AAPT2 path.
+Validation reused the existing cached binary and local AAPT2 compatibility
+wrapper via `-Pandroid.aapt2FromMavenOverride`; no project toolchain settings or
+versions changed. Rust Clippy is absent from the installed toolchain, so it was
+not available; Rust compilation/tests and diff checks ran. Jev source export
+was rejected by automatic approval review; the review stayed local. No guest
+image was produced/published or installed user environment modified. A real
+privileged AVF target is required to verify end-to-end latency, disconnect
+frequency, native relay service boot and real-vsock recovery.
+
 ## Interactive transport regression review
 
 On 2026-10-24 the user reported delayed input echo and slow Codex CLI session loading even after updating the guest components. The slow-SSH comparison describes the perceived delay; it is not evidence from an external SSH connection. No privileged AVF target is attached to this development host, so the user's actual network, VM scheduling and screen latency remain unmeasured.

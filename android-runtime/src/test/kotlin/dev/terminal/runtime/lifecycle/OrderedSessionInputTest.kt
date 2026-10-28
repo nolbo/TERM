@@ -21,7 +21,7 @@ class OrderedSessionInputTest {
         write(bytes); Result.success(bytes.size)
     }
 
-    @Test fun sameEnvironmentRemainsOrderedWhileAnotherEnvironmentMakesProgress() = runBlocking {
+    @Test fun sameSessionRemainsOrderedWhileAnotherSessionInTheSameVmMakesProgress() = runBlocking {
         val worker = CoroutineScope(coroutineContext + SupervisorJob())
         val entered = CompletableDeferred<Unit>()
         val release = CompletableDeferred<Unit>()
@@ -38,11 +38,11 @@ class OrderedSessionInputTest {
             received += bytes.decodeToString()
             if (received.size == 3) done.complete(Unit)
         }
-        val second = target(owner, "session-b") { bytes ->
+        val second = target(owner, "session-a") { bytes ->
             received += bytes.decodeToString()
             if (received.size == 3) done.complete(Unit)
         }
-        val sibling = target(Any(), "another-environment") { siblingDone.complete(Unit) }
+        val sibling = target(owner, "session-b") { siblingDone.complete(Unit) }
         try {
             assertTrue(input.offer(first, "echo ".toByteArray()))
             withTimeout(5000) { entered.await() }
@@ -67,7 +67,7 @@ class OrderedSessionInputTest {
         val ownerA = Any()
         val first = target(ownerA, "a") { enteredA.complete(Unit); releaseA.await() }
         val second = target(Any(), "b") { enteredB.complete(Unit); releaseB.await() }
-        val queued = target(ownerA, "a-second") { }
+        val queued = target(ownerA, "a") { }
         val delivered = CompletableDeferred<Unit>()
         val third = target(Any(), "c") { delivered.complete(Unit) }
         try {
@@ -83,16 +83,33 @@ class OrderedSessionInputTest {
         } finally { input.close(); worker.cancel() }
     }
 
+    @Test fun oneStalledSessionCannotFillAllInputCapacity() = runBlocking {
+        val worker = CoroutineScope(coroutineContext + SupervisorJob())
+        val input = OrderedSessionInput(worker, capacity = 3, perSessionCapacity = 2)
+        val entered = CompletableDeferred<Unit>()
+        val siblingDone = CompletableDeferred<Unit>()
+        val owner = Any()
+        val blocked = target(owner, "a") { entered.complete(Unit); awaitCancellation() }
+        try {
+            assertTrue(input.offer(blocked, byteArrayOf(1)))
+            withTimeout(1_000) { entered.await() }
+            assertTrue(input.offer(blocked, byteArrayOf(2)))
+            assertEquals(OrderedSessionInput.Admission.FULL, input.offerResult(blocked, byteArrayOf(3)))
+            assertTrue(input.offer(target(owner, "b") { siblingDone.complete(Unit) }, byteArrayOf(4)))
+            withTimeout(1_000) { siblingDone.await() }
+        } finally { input.close(); worker.cancel() }
+    }
+
     @Test fun queuedInputIsNeverSentToAReplacementOwner() = runBlocking {
         val worker = CoroutineScope(coroutineContext + SupervisorJob())
         val entered = CompletableDeferred<Unit>(); val release = CompletableDeferred<Unit>()
         val replacementDone = CompletableDeferred<Unit>(); val rejected = CompletableDeferred<Unit>()
-        val input = OrderedSessionInput(worker, onFailure = { id, _ -> if (id == "old-queued") rejected.complete(Unit) })
+        val input = OrderedSessionInput(worker, onFailure = { _, _ -> rejected.complete(Unit) })
         val oldOwner = Any()
         var oldCurrent = true
         val received = mutableListOf<String>()
         val first = target(oldOwner, "old-in-flight", { oldCurrent }) { entered.complete(Unit); release.await() }
-        val stale = target(oldOwner, "old-queued", { oldCurrent }) { received += "stale" }
+        val stale = target(oldOwner, "old-in-flight", { oldCurrent }) { received += "stale" }
         val replacement = target(Any(), "new-owner") { received += "new"; replacementDone.complete(Unit) }
         try {
             assertTrue(input.offer(first, byteArrayOf(1)))
@@ -137,7 +154,7 @@ class OrderedSessionInputTest {
                 try { awaitCancellation() } finally { cancelled.complete(Unit) }
             }, byteArrayOf(1)))
             withTimeout(5_000) { entered.await() }
-            val queued = target(owner, "queued") { queuedWrites++ }
+            val queued = target(owner, "active") { queuedWrites++ }
             assertTrue(input.offer(queued, byteArrayOf(2)))
             input.close(); input.close()
             withTimeout(5_000) { cancelled.await() }
@@ -158,9 +175,9 @@ class OrderedSessionInputTest {
         var queuedWrites = 0
         try {
             assertTrue(input.offer(target(owner, "active") { throw CancellationException("owner cancelled") }, byteArrayOf(1)))
-            assertTrue(input.offer(target(owner, "queued") { queuedWrites++ }, byteArrayOf(2)))
+            assertTrue(input.offer(target(owner, "active") { queuedWrites++ }, byteArrayOf(2)))
             withTimeout(5_000) { failed.await() }
-            assertEquals(listOf("active", "queued"), failures)
+            assertEquals(listOf("active", "active"), failures)
             assertEquals(0, queuedWrites)
             assertTrue(input.offer(target(Any(), "healthy") { healthyDone.complete(Unit) }, byteArrayOf(3)))
             withTimeout(5_000) { healthyDone.await() }

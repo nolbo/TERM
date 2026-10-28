@@ -14,6 +14,30 @@ transport = module.transport
 
 
 class SessionRecoveryTests(unittest.TestCase):
+    def test_release_is_scoped_to_the_token_and_does_not_wait_for_expiry(self):
+        relay = module.SessionRelay('must-not-open')
+        owner = transport.ReplayStream()
+        application, peer = socket.socketpair()
+        owner.bridge(application)
+        relay.stream, relay.token = owner, bytes(16)
+        try:
+            for token, expected in [(bytes([1]) * 16, 1), (bytes(16), 0), (bytes(16), 0)]:
+                client, server = socket.socketpair()
+                try:
+                    client.sendall(b'TSR1' + token + b'\2')
+                    relay.attach(server)
+                    self.assertEqual(bytes([expected]), transport.exact(client, 1))
+                    if expected == 1:
+                        self.assertFalse(owner.closed)
+                finally:
+                    client.close(); server.close()
+            self.assertIsNone(relay.stream)
+            self.assertIsNone(relay.token)
+            peer.settimeout(1)
+            self.assertEqual(b'', peer.recv(1))
+        finally:
+            owner.close(); peer.close()
+
     def test_output_and_input_keep_one_application_connection_across_socket_loss(self):
         with tempfile.TemporaryDirectory() as directory:
             endpoint = str(Path(directory) / 'session.sock')

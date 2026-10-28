@@ -1,9 +1,13 @@
 # AVF guest and image updates
 
 Recovery images add userspace capabilities `shareBrokerVersion=2` and
-`sessionResumeVersion=1`. A verified component update installs both replay
+`sessionResumeVersion=1`. A verified component update installs the session daemon, compatibility replay
 helpers, the resumable session service and sessiond's root-authenticated Unix
-endpoint, and enables the new service for the next normal boot. The component
+endpoint, and enables the new service for the next normal boot. New packages run
+`/usr/local/lib/droid/droid-sessiond --session-recovery` instead of Python for
+that service and include independent PTY EOF/child-exit handling. The unchanged
+`sessionResumeVersion=1` wire protocol gains optional token-scoped release; older
+guests reject that operation safely and keep their lease expiry policy. The component
 receipt selects these capability versions; kernel/initrd capabilities still
 come from the base image. Update only a stopped Environment through the existing
 copy/health/activation transaction. Updating the APK alone does not retrofit a

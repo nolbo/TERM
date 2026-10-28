@@ -2,7 +2,7 @@
 //! renderer attachment never determines which terminal states the host can preserve.
 
 use crate::graphics_transport::{GraphicsTransport, Output as GraphicsOutput};
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use crate::protocol::{encode_error, ErrorCode, Frame, FrameKind, Service};
 use crate::pty::PtyError;
 use crate::session::SessionRegistry;
@@ -17,10 +17,11 @@ pub struct SessionServer {
     pending: HashMap<String, VecDeque<PendingInput>>,
     pending_bytes: usize,
     staged_output: HashMap<String, Vec<u8>>,
+    closed_outputs: HashSet<String>,
 }
 
 impl Default for SessionServer {
-    fn default() -> Self { Self { sessions: SessionRegistry::default(), graphics: HashMap::new(), pending: HashMap::new(), pending_bytes: 0, staged_output: HashMap::new() } }
+    fn default() -> Self { Self { sessions: SessionRegistry::default(), graphics: HashMap::new(), pending: HashMap::new(), pending_bytes: 0, staged_output: HashMap::new(), closed_outputs: HashSet::new() } }
 }
 
 impl SessionServer {
@@ -58,38 +59,49 @@ impl SessionServer {
         loop {
             connection.flush_output()?;
             if connection.has_capacity() { self.drain_input(connection)?; }
+            if connection.has_pty_capacity() { self.reap_closed_outputs(connection, attached)?; }
             for id in self.staged_output.keys().cloned().collect::<Vec<_>>() {
                 if connection.has_pty_capacity() { self.stream_output(connection, attached, &id)?; }
             }
             let outputs: Vec<_> = self.sessions.running()
+                .filter(|session| !self.closed_outputs.contains(&session.id))
                 .filter_map(|session| self.sessions.output_fd(&session.id).ok().map(|fd| (session.id.clone(), fd)))
                 .collect();
             let descriptors: Vec<_> = outputs.iter().map(|(_, fd)| *fd).collect();
             let writable: Vec<_> = outputs.iter().map(|(id, _)| self.pending.contains_key(id)).collect();
             let ready = poll_runtime(connection.raw_fd(), &descriptors, connection.has_capacity(),
-                connection.wants_write(), &writable, connection.has_pty_capacity())?;
-            for index in ready.outputs {
-                if connection.has_pty_capacity() { self.stream_output(connection, attached, &outputs[index].0)?; }
-            }
+                connection.wants_write(), &writable, connection.has_pty_capacity(),
+                if self.closed_outputs.is_empty() { -1 } else { 100 })?;
+            // Dispatch control before another turn of output. A terminated PTY
+            // may still appear in this poll snapshot; recheck it below.
             if ready.request_ready && connection.has_capacity() {
                 if let Some(frame) = connection.read_frame_ready()? {
-                    if frame.service == Service::Session && frame.kind == FrameKind::Request {
-                        if let Ok(SessionRequest::Write { session_id, bytes }) = SessionRequest::decode(&frame.payload) {
+                    let input = if frame.service == Service::Session && frame.kind == FrameKind::Request {
+                        SessionRequest::decode(&frame.payload).ok()
+                    } else { None };
+                    match input {
+                        Some(SessionRequest::Write { session_id, bytes }) => {
                             if let Err(error) = self.queue_input(session_id, bytes, Some(frame.request_id)) {
                                 connection.write_frame(&self.error(frame.request_id, error.code, error.message))?;
                             }
-                            continue;
                         }
+                        _ => { let response = self.handle(frame, attached); connection.write_frame(&response)?; }
                     }
-                    let response = self.handle(frame, attached);
-                    connection.write_frame(&response)?;
+                }
+            }
+            for index in ready.outputs {
+                let id = &outputs[index].0;
+                if connection.has_pty_capacity() && self.sessions.output_fd(id).is_ok() {
+                    self.stream_output(connection, attached, id)?;
                 }
             }
         }
     }
 
     fn queue_input(&mut self, id: String, bytes: Vec<u8>, request: Option<u64>) -> Result<(), DispatchError> {
-        if self.sessions.output_fd(&id).is_err() { return Err(DispatchError::not_found("session not found")); }
+        if self.sessions.output_fd(&id).is_err() || self.closed_outputs.contains(&id) {
+            return Err(DispatchError::not_found("session input is unavailable"));
+        }
         let count: usize = self.pending.values().map(VecDeque::len).sum();
         if count >= 256 || bytes.len() > 4 * 1024 * 1024 - self.pending_bytes {
             return Err(DispatchError { code: ErrorCode::GuestError, message: "session input queue is full" });
@@ -200,6 +212,8 @@ impl SessionServer {
                     .map_err(|_| DispatchError::invalid("invalid POSIX signal"))?;
                 self.sessions.terminate(&session_id, signal).map_err(DispatchError::from_pty)?;
                 self.graphics.remove(&session_id);
+                self.closed_outputs.remove(&session_id);
+                self.staged_output.remove(&session_id);
                 if attached.as_deref() == Some(session_id.as_str()) {
                     *attached = None;
                 }
@@ -240,19 +254,29 @@ impl SessionServer {
                 if let Some(mut graphics) = self.graphics.remove(&session_id) {
                     self.write_graphics_output(connection, &session_id, graphics.finish())?;
                 }
-                let exit_code = self.sessions.poll_exit(&session_id)
-                    .map_err(|_| std::io::Error::other("unable to inspect exited session"))?
-                    .ok_or_else(|| std::io::Error::other("PTY closed before its child exit status was available"))?;
-                self.write_event(connection, SessionEvent::Exited { session_id: &session_id, exit_code })?;
-                if attached.as_deref() == Some(session_id.as_str()) {
-                    let _ = self.sessions.detach(&session_id);
-                    *attached = None;
-                }
-                Ok(())
+                // PTY EOF and child exit are independent. Keep process ownership
+                // for LIST/TERMINATE, but never poll this permanent HUP again.
+                self.closed_outputs.insert(session_id);
+                self.reap_closed_outputs(connection, attached)
             }
             Err(PtyError::Nix(nix::errno::Errno::EAGAIN | nix::errno::Errno::EINTR)) => Ok(()),
             Err(_) => Err(VsockError::Io(std::io::Error::other("unable to read PTY output"))),
         }
+    }
+
+    fn reap_closed_outputs(&mut self, connection: &mut VsockConnection, attached: &mut Option<String>) -> Result<(), VsockError> {
+        for id in self.closed_outputs.iter().cloned().collect::<Vec<_>>() {
+            if !connection.has_pty_capacity() { break; }
+            if let Ok(Some(exit_code)) = self.sessions.poll_exit(&id) {
+                self.closed_outputs.remove(&id);
+                self.write_event(connection, SessionEvent::Exited { session_id: &id, exit_code })?;
+                if attached.as_deref() == Some(id.as_str()) {
+                    let _ = self.sessions.detach(&id);
+                    *attached = None;
+                }
+            }
+        }
+        Ok(())
     }
 
     fn process_output(&mut self, connection: &mut VsockConnection, id: &str, bytes: &[u8]) -> Result<(), VsockError> {
@@ -295,10 +319,10 @@ struct IoReady { request_ready: bool, outputs: Vec<usize> }
 
 #[cfg(test)]
 fn wait_for_io(connection_fd: std::os::fd::RawFd, pty_fds: &[std::os::fd::RawFd]) -> Result<IoReady, VsockError> {
-    poll_runtime(connection_fd, pty_fds, true, false, &vec![false; pty_fds.len()], true)
+    poll_runtime(connection_fd, pty_fds, true, false, &vec![false; pty_fds.len()], true, -1)
 }
 fn poll_runtime(connection_fd: std::os::fd::RawFd, pty_fds: &[std::os::fd::RawFd],
-    capacity: bool, network_write: bool, pending: &[bool], pty_capacity: bool) -> Result<IoReady, VsockError> {
+    capacity: bool, network_write: bool, pending: &[bool], pty_capacity: bool, timeout: i32) -> Result<IoReady, VsockError> {
     let mut descriptors = vec![nix::libc::pollfd {
         fd: connection_fd,
         events: (if capacity { nix::libc::POLLIN } else { 0 }) | (if network_write { nix::libc::POLLOUT } else { 0 }),
@@ -314,7 +338,7 @@ fn poll_runtime(connection_fd: std::os::fd::RawFd, pty_fds: &[std::os::fd::RawFd
         }
     }
     loop {
-        let result = unsafe { nix::libc::poll(descriptors.as_mut_ptr(), descriptors.len() as _, -1) };
+        let result = unsafe { nix::libc::poll(descriptors.as_mut_ptr(), descriptors.len() as _, timeout) };
         if result >= 0 { break; }
         if nix::errno::Errno::last() != nix::errno::Errno::EINTR { return Err(VsockError::Socket(nix::errno::Errno::last())); }
     }
@@ -374,6 +398,40 @@ mod multiplex_tests {
             if frame.kind == FrameKind::Stream && frame.payload.windows(needle.len()).any(|w| w == needle) { break; }
         }
     }
+    #[test]
+    fn closed_pty_with_live_child_does_not_disconnect_or_block_termination() {
+        let mut server = SessionServer::default();
+        let closed = script(&mut server, "exec </dev/null >/dev/null 2>&1; exec sleep 30");
+        let healthy = script(&mut server, "printf HEALTHY; exec sleep 30");
+        let (mut host, worker) = connected(server);
+        wait_text(&mut host, b"HEALTHY");
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        let terminate = Frame { service: Service::Session, kind: FrameKind::Request, flags: 0, request_id: 90,
+            payload: SessionRequest::Terminate { session_id: closed, signal: 9 }.encode().unwrap() };
+        crate::vsock::write_frame_to(&mut host, &terminate).unwrap();
+        let response = crate::vsock::read_frame_from(&mut host).unwrap();
+        assert_eq!((90, FrameKind::Response), (response.request_id, response.kind));
+        let list = Frame { service: Service::Session, kind: FrameKind::Request, flags: 0, request_id: 91,
+            payload: SessionRequest::List.encode().unwrap() };
+        crate::vsock::write_frame_to(&mut host, &list).unwrap();
+        let response = crate::vsock::read_frame_from(&mut host).unwrap();
+        assert_eq!((91, FrameKind::Response), (response.request_id, response.kind));
+        assert!(response.payload.windows(healthy.len()).any(|bytes| bytes == healthy.as_bytes()));
+        drop(host); worker.join().unwrap();
+    }
+
+    #[test]
+    fn delayed_child_exit_after_pty_eof_is_reported_without_another_host_request() {
+        let mut server = SessionServer::default();
+        let id = script(&mut server, "exec </dev/null >/dev/null 2>&1; sleep 0.2; exit 7");
+        let (mut host, worker) = connected(server);
+        let frame = crate::vsock::read_frame_from(&mut host).unwrap();
+        assert_eq!(FrameKind::Stream, frame.kind);
+        assert!(frame.payload.windows(id.len()).any(|bytes| bytes == id.as_bytes()));
+        assert_eq!(7i32.to_be_bytes(), frame.payload[frame.payload.len() - 4..]);
+        drop(host); worker.join().unwrap();
+    }
+
     #[test]
     fn partial_host_frame_does_not_pause_live_pty_output() {
         let mut server = SessionServer::default();

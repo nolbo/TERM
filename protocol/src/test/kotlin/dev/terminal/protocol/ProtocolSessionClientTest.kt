@@ -6,6 +6,7 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -227,20 +228,56 @@ class ProtocolSessionClientTest {
         }
     }
 
-    @Test fun oneResponseDeadlineFailsAllPendingCallsAndStopsTheReader() = runBlocking {
+    @Test fun responseDeadlineLeavesTheConnectionUsableAndNeverRepeatsTheRequest() = runBlocking {
         val transport = ClosingTransport()
         val diagnostics = mutableListOf<String>()
         ProtocolSessionClient(transport, requestTimeoutMillis = 100, scope = this,
             onDiagnostic = { event, _ -> diagnostics += event }).use { client ->
             val first = async { client.list() }
-            val second = async { client.write("session-1", byteArrayOf(1)) }
             withTimeout(1_000) {
                 assertTrue(first.await().exceptionOrNull() is ProtocolRequestTimeoutException)
-                assertTrue(second.await().exceptionOrNull() is ProtocolRequestTimeoutException)
             }
-            assertEquals(SessionConnectionState.DISCONNECTED, client.connectionState.value)
-            assertEquals(listOf("session.request.timeout"), diagnostics)
+            assertEquals(SessionConnectionState.CONNECTED, client.connectionState.value)
+            assertTrue(diagnostics.isEmpty())
+            val abandoned = transport.sent.receive()
+            val terminate = async { client.terminate("session-2", 9) }
+            val next = transport.sent.receive()
+            assertTrue(next.requestId > abandoned.requestId)
+            transport.incoming.send(ProtocolFrame(service = Service.SESSION, kind = FrameKind.RESPONSE,
+                requestId = next.requestId, payload = SessionResponseCodec.encode(SessionResponse.Terminating("session-2"))))
+            withTimeout(1_000) { terminate.await().getOrThrow() }
             assertTrue(isActive)
+        }
+    }
+
+    @Test fun unconfirmedCreationRequiresReconciliationWithoutResendingCreate() = runBlocking {
+        val transport = ClosingTransport()
+        ProtocolSessionClient(transport, requestTimeoutMillis = 100, scope = this).use { client ->
+            val create = async { client.create("/bin/sh", "/", rows = 24u, cols = 80u) }
+            transport.sent.receive()
+            assertTrue(withTimeout(1_000) { create.await() }.exceptionOrNull() is ProtocolRequestTimeoutException)
+            assertEquals(SessionConnectionState.DISCONNECTED, client.connectionState.value)
+            assertTrue(transport.sent.tryReceive().isFailure)
+        }
+    }
+
+    @Test fun cancellingACompleteWriteKeepsSiblingCallsAndIgnoresItsLateResponse() = runBlocking {
+        val transport = ClosingTransport()
+        ProtocolSessionClient(transport, scope = this).use { client ->
+            val write = async { client.write("session-1", byteArrayOf(1)) }
+            val abandoned = transport.sent.receive()
+            // The sender runs on IO; let it publish completion before cancelling
+            // the caller waiting for the missing response.
+            delay(50)
+            withTimeout(1_000) { write.cancelAndJoin() }
+            assertEquals(SessionConnectionState.CONNECTED, client.connectionState.value)
+            transport.incoming.send(abandoned.copy(kind = FrameKind.RESPONSE,
+                payload = SessionResponseCodec.encode(SessionResponse.Written("session-1", 1))))
+            val terminate = async { client.terminate("session-2", 9) }
+            val next = transport.sent.receive()
+            transport.incoming.send(next.copy(kind = FrameKind.RESPONSE,
+                payload = SessionResponseCodec.encode(SessionResponse.Terminating("session-2"))))
+            withTimeout(1_000) { terminate.await().getOrThrow() }
         }
     }
 
@@ -255,6 +292,23 @@ class ProtocolSessionClientTest {
             }
             assertTrue(transport.finished.await(1, TimeUnit.SECONDS))
             assertEquals(SessionConnectionState.DISCONNECTED, client.connectionState.value)
+        }
+    }
+
+    @Test fun recoveringTransportRejectsNewRequestsWithoutEnqueueingOrClosingIt() = runBlocking {
+        val transport = ClosingTransport()
+        ProtocolSessionClient(transport, scope = this).use { client ->
+            transport.linkState.value = SessionConnectionState.RECOVERING
+            assertTrue(client.terminate("session-1", 9).exceptionOrNull() is ProtocolRecoveringException)
+            assertTrue(transport.sent.tryReceive().isFailure)
+            assertFalse(transport.incoming.isClosedForSend)
+            transport.linkState.value = SessionConnectionState.CONNECTED
+            val request = async { client.list() }
+            val sent = transport.sent.receive()
+            transport.incoming.send(ProtocolFrame(service = Service.SESSION, kind = FrameKind.RESPONSE,
+                requestId = sent.requestId, payload = SessionResponseCodec.encode(SessionResponse.Listed(emptyList()))))
+            withTimeout(1_000) { request.await().getOrThrow() }
+            Unit
         }
     }
 
@@ -286,6 +340,7 @@ class ProtocolSessionClientTest {
     }
 
     private class ClosingTransport(private val closeFailure: IOException? = null) : FrameTransport {
+        override val linkState = kotlinx.coroutines.flow.MutableStateFlow(SessionConnectionState.CONNECTED)
         val sent = Channel<ProtocolFrame>(Channel.UNLIMITED)
         val incoming = Channel<ProtocolFrame>(Channel.UNLIMITED)
         override suspend fun send(frame: ProtocolFrame): Result<Unit> {

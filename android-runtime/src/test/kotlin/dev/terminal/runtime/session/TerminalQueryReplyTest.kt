@@ -16,6 +16,7 @@ import org.junit.Test
 
 class TerminalQueryReplyTest {
     private class Guest(private val prefix: String = "avf") : FrameTransport {
+        override val linkState = kotlinx.coroutines.flow.MutableStateFlow(SessionConnectionState.CONNECTED)
         val incoming = Channel<ProtocolFrame>(Channel.UNLIMITED)
         val writes = Channel<ProtocolFrame>(Channel.UNLIMITED)
         var burstBeforeReply = false
@@ -98,6 +99,23 @@ class TerminalQueryReplyTest {
         val request = SessionPayloadCodec.decode(second.payload) as SessionRequest.Write
         assertEquals("\u001b[0n", request.bytes.decodeToString())
         guest.acknowledge(second)
+    }
+
+    @Test fun aQueryInBufferedOutputWaitsForRecoveryWithoutBlockingSiblingOutput() = withGuest { guest, client, registry ->
+        guest.linkState.value = SessionConnectionState.RECOVERING
+        client.connectionState.first { it == SessionConnectionState.RECOVERING }
+        val parsed = async(start = CoroutineStart.UNDISPATCHED) {
+            registry.events.first { it is SessionEvent.Output && it.sessionId == "avf-sibling" }
+        }
+        guest.output("avf-query", "\u001b[6n")
+        guest.output("avf-sibling", "PROGRESS")
+        parsed.await()
+        assertTrue(guest.writes.tryReceive().isFailure)
+        guest.linkState.value = SessionConnectionState.CONNECTED
+        val reply = guest.writes.receive()
+        assertEquals("\u001b[1;1R", (SessionPayloadCodec.decode(reply.payload) as SessionRequest.Write).bytes.decodeToString())
+        guest.acknowledge(reply)
+        assertTrue(guest.writes.tryReceive().isFailure)
     }
 
     @Test fun controllerReplacementDiscardsQueuedRepliesFromThePreviousConnection() = withGuest { guest, _, registry ->

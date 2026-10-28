@@ -4,6 +4,7 @@ import java.io.Closeable
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import java.util.concurrent.atomic.AtomicBoolean
 import java.io.IOException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
@@ -26,8 +27,9 @@ import kotlinx.coroutines.delay
 
 /** Transport boundary for vsock, in-memory tests, or another framed byte stream. */
 interface FrameTransport : Closeable {
-    /** Total RPC budget, including a resumable transport's bounded recovery window. */
+    /** RPC responsiveness is independent of the transport's recovery lease. */
     val requestTimeoutMillis: Long get() = 10_000L
+    val linkState: StateFlow<SessionConnectionState>? get() = null
     suspend fun send(frame: ProtocolFrame): Result<Unit>
     fun incomingFrames(): Flow<ProtocolFrame>
     /** Unblocks pending reads and writes without flushing. */
@@ -72,6 +74,9 @@ class ProtocolSessionClient(
     private val mutableConnectionState = MutableStateFlow(SessionConnectionState.CONNECTED)
     override val events: SharedFlow<SessionEvent> = mutableEvents.asSharedFlow()
     override val connectionState: StateFlow<SessionConnectionState> = mutableConnectionState.asStateFlow()
+    private val linkJob = transport.linkState?.let { state -> scope.launch(start = CoroutineStart.UNDISPATCHED) {
+        state.collect { if (disconnectFailure.get() == null) mutableConnectionState.value = it }
+    } }
 
     private val receiveJob = scope.launch {
         var disconnectReason: Throwable = ProtocolRequestException("Session transport disconnected")
@@ -150,6 +155,7 @@ class ProtocolSessionClient(
         pending.values.forEach { it.completeExceptionally(reason) }
         pending.clear()
         resizeBarriers.clear()
+        linkJob?.cancel()
         // Cleanup of a broken/closed descriptor must not escape to another owner.
         runCatching { transport.close() }
     }
@@ -166,6 +172,8 @@ class ProtocolSessionClient(
             requestDiagnostic(request, 0, "disconnected", started, failure)
             return@coroutineScope Result.failure(failure)
         }
+        if (transport.linkState?.value == SessionConnectionState.RECOVERING)
+            return@coroutineScope Result.failure(ProtocolRecoveringException())
         val requestId = nextRequestId.getAndIncrement()
         val requestFrame = try {
             ProtocolFrame(service = Service.SESSION, kind = FrameKind.REQUEST, requestId = requestId,
@@ -175,13 +183,23 @@ class ProtocolSessionClient(
             return@coroutineScope Result.failure(error)
         }
         val waiting = CompletableDeferred<ProtocolFrame>()
+        val sent = AtomicBoolean()
+        // CREATE establishes the identity needed to initialize output; an
+        // abandoned CREATE must reconcile through a fresh owner attachment.
+        val needsReconciliation = request is SessionRequest.Create || resizeBarrier != null
         pending[requestId] = waiting
         if (request is SessionRequest.Resize && resizeBarrier != null) resizeBarriers[requestId] = request to resizeBarrier
         // The deadline runs independently of a possibly blocked send. Closing the
         // socket before joining the sender is what wakes a native vsock write.
         val deadline = scope.launch(start = CoroutineStart.UNDISPATCHED) {
             delay(requestTimeoutMillis)
-            if (!waiting.isCompleted) failRequestConnection(ProtocolRequestTimeoutException(), "session.request.timeout")
+            if (!waiting.isCompleted) {
+                val error = ProtocolRequestTimeoutException()
+                // Unknown creation/geometry requires reconciliation. Ordinary
+                // complete requests can expire independently of sibling calls.
+                if (!sent.get() || needsReconciliation) failRequestConnection(error, "session.request.timeout")
+                else waiting.completeExceptionally(error)
+            }
         }
         var sender: Deferred<Result<Unit>>? = null
         var stage = "send"
@@ -195,7 +213,7 @@ class ProtocolSessionClient(
                 return@coroutineScope Result.failure(disconnected)
             }
             sender = async(Dispatchers.IO) {
-                runCatching { transport.send(requestFrame).getOrThrow() }
+                runCatching { transport.send(requestFrame).getOrThrow(); sent.set(true) }
             }
             sender.await().getOrElse { error ->
                 failRequestConnection(error, "session.send.failed")
@@ -215,8 +233,9 @@ class ProtocolSessionClient(
             }
         } catch (cancelled: CancellationException) {
             failure = cancelled
-            // A partially transmitted frame cannot be safely reused or retried.
-            failRequestConnection(cancelled, "session.request.cancelled")
+            // Complete frames stay ordered even if their caller stops waiting.
+            // Never automatically repeat an uncertain mutation.
+            if (!sent.get() || needsReconciliation) failRequestConnection(cancelled, "session.request.cancelled")
             throw cancelled
         } catch (error: Exception) {
             failure = error
@@ -295,7 +314,9 @@ class ProtocolSessionClient(
 
 }
 
-enum class SessionConnectionState { CONNECTED, DISCONNECTED }
+enum class SessionConnectionState { CONNECTED, RECOVERING, DISCONNECTED }
+
+class ProtocolRecoveringException : IOException("Session connection is recovering; request was not sent")
 
 class GuestRequestException(val error: ProtocolErrorPayload) : Exception("${error.code}: ${error.message}")
 class ProtocolRequestException(message: String) : Exception(message)

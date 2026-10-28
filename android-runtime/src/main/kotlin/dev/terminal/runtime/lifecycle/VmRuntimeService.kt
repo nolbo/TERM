@@ -140,7 +140,8 @@ class VmRuntimeService : Service() {
     @Volatile private var publishedSessions = PublishedSessions(0L, "[]", 0)
     @Volatile private var liveAvfEnvironments: Set<EnvironmentId> = emptySet()
     private val sessionSnapshots = SessionSnapshotPipeline(::publishSessionSnapshot,
-        launchTitle = { id -> (sessionClient as? UnifiedSessionRegistry)?.launchOf(id)?.tabTitle })
+        launchTitle = { id -> (sessionClient as? UnifiedSessionRegistry)?.launchOf(id)?.tabTitle },
+        projection = { (it as? UnifiedSessionRegistry)?.cachedSessions() })
     private val pendingAvfLaunches = PendingAvfSessionLaunches()
     private val hostBackgroundOperationCount = AtomicInteger(0)
 

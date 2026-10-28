@@ -29,9 +29,20 @@ class SessionRelay:
             raise ValueError('invalid session relay')
         token = transport.exact(connection, 16)
         operation = transport.exact(connection, 1)
-        if operation not in (b'\0', b'\1'):
+        if operation not in (b'\0', b'\1', b'\2'):
             raise ValueError('invalid session generation operation')
         with self.lock:
+            # Optional TSR1 release: only the exact current token can relinquish
+            # its generation. Never replay input into a replacement owner.
+            if operation == b'\2':
+                if self.token is not None and token != self.token:
+                    connection.sendall(b'\1')
+                    return
+                if self.stream is not None:
+                    self.stream.close()
+                self.stream, self.token = None, None
+                connection.sendall(b'\0')
+                return
             if self.stream is not None and (self.stream.closed or
                     (self.stream.connection is None and time.monotonic() - self.last_seen > LEASE)):
                 self.stream.close()

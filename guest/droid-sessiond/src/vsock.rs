@@ -54,6 +54,12 @@ pub struct VsockListener {
 }
 
 impl VsockListener {
+    pub fn wait(&self, timeout: i32) -> Result<bool, VsockError> {
+        let mut fd = nix::libc::pollfd { fd: self.socket.as_raw_fd(), events: nix::libc::POLLIN, revents: 0 };
+        let result = unsafe { nix::libc::poll(&mut fd, 1, timeout) };
+        if result < 0 && Errno::last() != Errno::EINTR { return Err(Errno::last().into()); }
+        Ok(result > 0)
+    }
     pub fn bind(port: u32) -> Result<Self, VsockError> {
         let raw_fd = unsafe {
             nix::libc::socket(
@@ -82,7 +88,7 @@ impl VsockListener {
         if unsafe { nix::libc::listen(socket.as_raw_fd(), 16) } < 0 {
             return Err(VsockError::Socket(Errno::last()));
         }
-        let local = if let Some(path) = std::env::var_os("TERM_SESSION_RELAY") {
+        let local = if let Some(path) = std::env::var_os("TERM_SESSION_RELAY").filter(|_| port == SESSIOND_PORT) {
             match std::fs::remove_file(&path) {
                 Ok(()) => (),
                 Err(error) if error.kind() == io::ErrorKind::NotFound => (),
@@ -150,6 +156,9 @@ pub struct VsockConnection {
 }
 
 impl VsockConnection {
+    pub fn into_socket(self) -> std::os::unix::net::UnixStream {
+        std::os::unix::net::UnixStream::from(OwnedFd::from(self.stream))
+    }
     pub fn new(stream: File) -> Result<Self, VsockError> {
         Ok(Self { stream, incoming: Vec::new(), outgoing: VecDeque::new(), written: 0, queued: 0, nonblocking: false })
     }

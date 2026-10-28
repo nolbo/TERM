@@ -23,6 +23,29 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class AvfSessionReconnectTest {
+    @Test fun aStalledOwnerConnectionDoesNotDelaySiblingRecovery() = runBlocking {
+        val slow = avfEnvironment()
+        val fast = avfEnvironment()
+        val environments = listOf(slow, fast).associateBy { it.storage.id }
+        val registry = UnifiedSessionRegistry()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val recovered = CompletableDeferred<Unit>()
+        try {
+            registry.register(slow, Controller("avf-slow").also { it.disconnect() })
+            registry.register(fast, Controller("avf-fast").also { it.disconnect() })
+            val retry = async { reconnectAvfSessions(registry, environments::getValue,
+                connect = { environment ->
+                    if (environment == slow) { entered.complete(Unit); release.await() }
+                    Controller(if (environment == slow) "avf-slow" else "avf-fast")
+                }, onConnected = { if (it == fast) recovered.complete(Unit) }) }
+            withTimeout(2_000) { entered.await(); recovered.await() }
+            assertFalse(retry.isCompleted)
+            release.complete(Unit)
+            retry.await()
+        } finally { release.complete(Unit); registry.close() }
+    }
+
     @Test fun legacyAvfEnvironmentRecoversAlongsideHealthyOwners() = runBlocking {
         recoverEnvironment("legacy")
     }

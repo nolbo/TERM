@@ -340,3 +340,14 @@ Workspace membership is logical metadata, not filesystem ownership or a capabili
 Only verified main-UI callers can change Native/Rootless folder connections or submit legacy file jobs. New AVF folder connections and folder-copy jobs are rejected. Independent Android share-to-Linux file copies route through the host-selected running VM; the guest endpoint remains non-root, host-CID-only, limited to a fixed home subtree and bounded by SHA-256 verification, no-follow access and no-replace publication.
 
 Legacy Rootless workspace imports and ZIP exports keep originals, reject unsafe entries, limit expansion and require idle owners plus a same-UID writer probe under existing preparation leases. Import re-hashes the source tree before publication. Metadata validation and publication are serialized with connection edits; crash recovery cleans only unpublished job-owned temporary names. Host transfer publication checks the current VM connection under that same registry lock. Existing emulated-hardlink migration journals retain their original recovery path and block copy/deletion until recovered. Deleting a UUID Environment leaves regular-file workspace data at its original path, excludes that directory from storage removal and preserves discovery after the Environment is tombstoned. No automatic relocation is performed. Any workspace symlink can depend on rootfs/emulated-link data, so it blocks deletion before rootfs removal; Full environment backup remains the preservation path for those semantics. Legacy common and legacy AVF host folders are retained. Only an explicit shared directory data-delete operation removes shared directory files, after verifiable session idleness and completed file jobs.
+
+
+The native session relay retains the host-CID-only boundary and sessiond's
+root-authenticated Unix endpoint. Optional TSR1 release requires the existing
+16-byte owner token; it cannot replace or release a different generation and
+carries no terminal data. Host release workers are bounded and best effort.
+Completed ordinary requests may time out without tearing down the logical
+stream, but their outcomes remain unknown and they are never automatically
+resent. Partial frames, unconfirmed creation and ordered resize boundaries fail closed.
+A recovering/disconnected owner remains insufficient evidence for destructive
+idle checks. PTY EOF alone is not evidence of process exit or VM loss.

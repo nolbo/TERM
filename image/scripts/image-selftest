@@ -35,6 +35,8 @@ done
 echo TERM_AVF_NETWORK_CONFIG_OK
 command -v python3 setpriv >/dev/null
 test -x /usr/local/lib/droid/session-recovery.py
+test -x /usr/local/lib/droid/droid-sessiond
+grep -qx 'ExecStart=/usr/local/lib/droid/droid-sessiond --session-recovery' /etc/systemd/system/term-session-recovery.service
 systemctl --root=/ is-enabled --quiet term-session-recovery.service
 for service in term-shares term-share-broker term-share-selftest term-android-storage; do
   test ! -e "/etc/systemd/system/$service.service"

@@ -35,7 +35,32 @@ import kotlinx.coroutines.yield
 import org.junit.Test
 
 class UnifiedSessionRegistryTest {
-    @Test fun capturedInputUsesOneLanePerEnvironmentAndNeverFollowsAReplacementController() = runBlocking {
+    @Test fun stalledOwnerListDoesNotBlockSiblingPublicationOrResurrectTerminatedSessions() = runBlocking {
+        val slow = Environment.create(SessionRuntime.AVF, "Slow")
+        val healthy = Environment.create(SessionRuntime.NATIVE, "Healthy")
+        val a = FakeController("session-a")
+        val b = FakeController("native-b")
+        val started = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val registry = UnifiedSessionRegistry()
+        try {
+            registry.register(slow, a); registry.register(healthy, b)
+            registry.list().getOrThrow()
+            a.listGate = started to release
+            val staleList = async { registry.list().getOrThrow() }
+            started.await()
+            withTimeout(1_000) {
+                registry.refreshEnvironment(healthy).getOrThrow()
+                registry.terminate("session-a", 9).getOrThrow()
+            }
+            assertEquals(listOf("native-b"), registry.cachedSessions().map { it.id })
+            release.complete(Unit)
+            assertEquals(listOf("native-b"), staleList.await().map { it.id })
+            assertNull(registry.inputTarget("session-a"))
+        } finally { release.complete(Unit); registry.close() }
+    }
+
+    @Test fun capturedInputPinsEnvironmentIdentityAndNeverFollowsAReplacementController() = runBlocking {
         val first = Environment.create(SessionRuntime.NATIVE, "First")
         val second = Environment.create(SessionRuntime.NATIVE, "Second")
         val controller = FakeController("native-a", extraIds = listOf("native-a2"))
@@ -657,6 +682,7 @@ class UnifiedSessionRegistryTest {
         var closed = false
         var failList = failList
         var failTerminate = false
+        var listGate: Pair<kotlinx.coroutines.CompletableDeferred<Unit>, kotlinx.coroutines.CompletableDeferred<Unit>>? = null
         val terminatedIds = mutableListOf<String>()
         private val descriptors = (listOf(id) + extraIds).associateWithTo(linkedMapOf(), ::descriptor)
 
@@ -664,10 +690,10 @@ class UnifiedSessionRegistryTest {
             createCount++
             return Result.success(descriptors.getValue(id))
         }
-        override suspend fun list() = if (failList) {
-            Result.failure(IllegalStateException("runtime unavailable"))
-        } else {
-            Result.success(descriptors.values.toList())
+        override suspend fun list(): Result<List<SessionDescriptor>> {
+            val snapshot = descriptors.values.toList()
+            listGate?.let { (started, release) -> started.complete(Unit); release.await() }
+            return if (failList) Result.failure(IllegalStateException("runtime unavailable")) else Result.success(snapshot)
         }
         override suspend fun attach(sessionId: String) = runCatching { descriptors.getValue(sessionId) }
         override suspend fun detach(sessionId: String): Result<Unit> { detachCount++; return Result.success(Unit) }

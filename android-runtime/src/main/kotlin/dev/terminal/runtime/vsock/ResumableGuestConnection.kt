@@ -3,6 +3,7 @@ package dev.terminal.runtime.vsock
 import dev.terminal.protocol.Protocol
 import dev.terminal.protocol.ProtocolFrame
 import dev.terminal.protocol.ReplayByteStream
+import dev.terminal.protocol.SessionConnectionState
 import dev.terminal.runtime.api.GuestByteStream
 import dev.terminal.runtime.api.GuestConnection
 import java.io.DataInputStream
@@ -16,6 +17,8 @@ import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.channelFlow
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.launch
@@ -31,11 +34,13 @@ class ResumableGuestConnection(
     private val recoveryTimeoutMillis: Long = 60_000L,
     private val handshakeTimeoutMillis: Long = 10_000L,
 ) : GuestConnection {
-    override val requestTimeoutMillis: Long get() = recoveryTimeoutMillis + handshakeTimeoutMillis
+    private val state = MutableStateFlow(SessionConnectionState.CONNECTED)
+    override val linkState = state.asStateFlow()
     private val replay = ReplayByteStream()
     private val token = UUID.randomUUID()
     private val closed = AtomicBoolean()
     private val established = AtomicBoolean()
+    private val ownerAccepted = AtomicBoolean()
     private val socket = AtomicReference<GuestByteStream?>()
     private val input = DataInputStream(replay.input)
     private val writes = Mutex()
@@ -43,7 +48,7 @@ class ResumableGuestConnection(
 
     init {
         require(recoveryTimeoutMillis > 0 && handshakeTimeoutMillis > 0)
-        val first = try { attach() } catch (error: Throwable) { replay.close(); throw error }
+        val first = try { attach() } catch (error: Throwable) { close(); throw error }
         val thread = Thread(null, { reconnect(first) }, "session-reconnect", 256 * 1024).apply { isDaemon = true }
         worker.set(thread)
         thread.start()
@@ -74,8 +79,11 @@ class ResumableGuestConnection(
                 phase = "owner_status"
                 reply = raw.input.read()
                 when (reply) {
-                    0 -> Unit
-                    2 -> throw IllegalArgumentException("Guest lost session replay generation")
+                    0 -> ownerAccepted.set(true)
+                    2 -> {
+                        ownerAccepted.set(false)
+                        throw IllegalArgumentException("Guest lost session replay generation")
+                    }
                     else -> throw IOException("Guest session owner unavailable")
                 }
                 phase = "replay"
@@ -113,12 +121,17 @@ class ResumableGuestConnection(
             while (!closed.get()) {
                 link.awaitClosed()
                 if (closed.get()) break
+                state.value = SessionConnectionState.RECOVERING
                 record("session.link.reconnecting", link.failure?.cause, link.failure?.reason?.code,
                     link.failure?.details.orEmpty())
                 val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(recoveryTimeoutMillis)
                 var attempt = 0
                 while (!closed.get()) {
-                    try { link = attach(deadline, attempt + 1); record("session.link.restored"); break }
+                    try {
+                        link = attach(deadline, attempt + 1)
+                        state.value = SessionConnectionState.CONNECTED
+                        record("session.link.restored"); break
+                    }
                     catch (error: Exception) {
                         if (error is IllegalArgumentException || System.nanoTime() >= deadline) throw error
                         val remaining = TimeUnit.NANOSECONDS.toMillis(deadline - System.nanoTime())
@@ -155,12 +168,38 @@ class ResumableGuestConnection(
 
     override fun close() {
         if (!closed.compareAndSet(false, true)) return
+        state.value = SessionConnectionState.DISCONNECTED
         replay.close()
         socket.getAndSet(null)?.let { runCatching { it.close() } }
         worker.getAndSet(null)?.interrupt()
+        // Release this exact token on a separate, bounded connection. This never
+        // sends terminal bytes or takes over a different live owner. Old guests
+        // reject operation 2 and retain their existing expiry behavior.
+        if (ownerAccepted.get()) releaseOwner()
+    }
+
+    private fun releaseOwner() {
+        if (!RELEASE_SLOTS.tryAcquire()) return
+        Thread(null, {
+            var raw: GuestByteStream? = null
+            try {
+                raw = GuestConnectionOpener.open(1_000, connect)
+                val stream = raw
+                val timeout = WATCHDOG.schedule({ runCatching { stream.close() } }, 1, TimeUnit.SECONDS)
+                try {
+                    DataOutputStream(stream.output).apply {
+                        writeInt(0x54535231); writeLong(token.mostSignificantBits); writeLong(token.leastSignificantBits)
+                        writeByte(2); flush()
+                    }
+                    record("session.owner.release", code = if (stream.input.read() == 0) "released" else "unsupported")
+                } finally { timeout.cancel(false) }
+            } catch (_: Exception) { record("session.owner.release", code = "unavailable") }
+            finally { raw?.let { runCatching { it.close() } }; RELEASE_SLOTS.release() }
+        }, "session-release", 256 * 1024).apply { isDaemon = true; start() }
     }
 
     companion object {
+        private val RELEASE_SLOTS = java.util.concurrent.Semaphore(8)
         private val WATCHDOG = Executors.newSingleThreadScheduledExecutor { task ->
             Thread(task, "session-handshake-timeout").apply { isDaemon = true }
         }

@@ -211,9 +211,9 @@ implement the same header.
 
 ## Session payloads
 
-Host Binder keyboard/paste input pins the current controller and session lifetime before entering an Environment-specific FIFO. All sessions sharing a controller retain that FIFO order; a service-wide limit of 256 packets includes active writes. Queue overload or an unavailable destination is reported through the existing input-operation error callback. Old queued input cannot select a later controller or a recreated session, and failed writes are never automatically retried. Raw replay socket replacement retains the logical controller and does not change this input identity or the guest wire format.
+Host Binder keyboard/paste input pins the current controller and session lifetime before entering a controller/session-specific FIFO. Order is preserved within each session; sibling PTYs progress independently. A service-wide limit of 256 packets and per-session limit of 64 include active writes. Queue overload or an unavailable destination is reported through the existing input-operation error callback. Old queued input cannot select a later controller or a recreated session, and failed writes are never automatically retried. Raw replay socket replacement retains the logical controller and does not change this input identity or the guest wire format.
 
-AVF emulator-generated replies use the existing WRITE RPC through a separate per-controller FIFO, bounded to 256 batches per registration including active writes. Each output chunk's replies form one batch. The output collector must continue draining STREAM frames while the reply worker awaits RESPONSE frames on the same connection. Pending replies are pinned to their registration, session lifetime and terminal-state identity; replacement or exit invalidates them. Removing the registration cancels its reply worker. They do not invoke user-input/activity observers. Saturation records `terminal.reply.overload` and closes only the affected AVF session client, allowing existing reconnection without stopping the VM or resending uncertain writes. Other controllers have independent reply capacity. No guest wire change is required.
+AVF emulator-generated replies use the existing WRITE RPC through separate session FIFO lanes, bounded to 256 batches per registration and 64 per session including active writes. Each output chunk's replies form one batch. The output collector must continue draining STREAM frames while the reply worker awaits RESPONSE frames on the same connection. Pending replies are pinned to their registration, session lifetime and terminal-state identity; replacement or exit invalidates them. Removing the registration cancels its reply worker. Unsent terminal replies wait in their bounded session lane during raw recovery, allowing buffered output to keep draining. A recovery admission rejection proves that no bytes were sent and may wait again; an uncertain WRITE is never repeated. They do not invoke user-input/activity observers. Saturation records `terminal.reply.overload` and closes only the affected AVF session client, allowing existing reconnection without stopping the VM or resending uncertain writes. Other controllers have independent reply capacity. No guest wire change is required.
 
 Android Binder clients select `NATIVE`, `ROOTLESS` (existing Debian identity),
 `ROOTLESS_UBUNTU`, `ROOTLESS_ARCH`, or `AVF` before session
@@ -356,7 +356,7 @@ The host session client contains transport read and frame-validation exceptions 
 
 After PTY EOF has been drained and the child exit status collected, sessiond closes that session's PTY master and removes it from the active I/O poll set. LIST and attachment still expose the retained exited descriptor until explicit termination removes its history; an exited ID cannot restart a shell. Only running sessions enter the hot poll loop, independently of how many exited descriptors remain.
 
-A session request deadline covers both sending and response waiting, using 10 seconds on legacy transport and 70 seconds on the resumable session stream (the 60-second transport recovery window plus 10 seconds). Failure/cancellation closes the logical client, marks it `DISCONNECTED`, fails all pending requests and never reissues the original input/create/mutation. `session.request.timeout` and `session.request.cancelled` distinguish these stages from read/send failures. An independent deadline closes the socket before waiting for a blocked sender to finish. Descriptor shutdown wakes both native directions; close does not flush buffered partial frames. Successful error responses remain ordinary RPC errors rather than transport failure.
+A session request deadline covers both sending and response waiting, using 10 seconds on either transport. The 60-second raw-link recovery lease is independent. Transport state distinguishes `CONNECTED`, `RECOVERING` and `DISCONNECTED`; new requests during known recovery fail before sending. A complete ordinary request whose response times out or whose caller cancels is abandoned by request ID, without closing sibling requests. Late responses are ignored and the original mutation is never reissued. Incomplete sends, send failures, unconfirmed creation and unresolved ordered-resize boundaries still close the logical client and fail pending requests: reusing a partial frame or unknown initial terminal identity/output geometry is unsafe. `session.request.timeout` and `session.request.cancelled` distinguish these stages from read/send failures. An independent deadline closes the socket before waiting for a blocked sender to finish. Descriptor shutdown wakes both native directions; close does not flush buffered partial frames. Successful error responses remain ordinary RPC errors rather than transport failure.
 
 Platform connection attempts are separately bounded to 10 seconds with eight workers and no queued opens. A platform call returning after timeout/cancellation loses ownership and its descriptor is closed. Resumable attachment/retry sleeps share its 60-second recovery deadline. No protocol version or guest capability changes are required by these host changes.
 
@@ -637,7 +637,7 @@ The host applies the same 60-second recovery budget to failed v2 control/data li
 
 `sessionResumeVersion=1` enables the host-CID-only session relay on 40507.
 `TSR1` plus a random 16-byte process-owner token and u8 create (1) or resume (0)
-receives status zero, followed by TRS2; a different live owner receives status 1.
+receives status zero, followed by TRS2; a different live owner receives status 1. Optional operation 2 releases the exact matching token and returns status 0 without TRS2. A mismatched release returns status 1 and cannot affect the current owner; release with no retained owner succeeds idempotently. Older guests reject operation 2, so the host treats it as best effort and preserves legacy lease semantics.
 Resume without a retained generation receives status 2 and must close the host
 stream. This prevents re-executing unacknowledged input after proxy death even
 when the sender has not received its first consumption ACK. The relay retains one
@@ -684,3 +684,22 @@ This capability is retired. Older images recognize `androidStorageVersion=1`, `v
 Optional SESSION request opcode `0x08` has no fields. Response `0x88` contains four big-endian signed 64-bit byte counts (MemTotal, MemAvailable, SwapTotal, SwapFree), then three signed 32-bit values (available CPU count, load average times 1000, memory PSI `some avg10` percent times 1000). PSI `-1` means unavailable. Counts must be consistent, CPUs 1–4096, load nonnegative and PSI -1–100000. The response is exactly 45 payload bytes. No PIDs, paths or terminal content are exported. Old guests return their normal unsupported/invalid-request error; this does not disconnect a healthy stream. Host observations are asynchronous and registration-scoped, at most once per 15 seconds on demand from memory diagnostics. Metrics do not enter the app PSS sum.
 
 Guest session transport remains byte-compatible. Nonblocking framing handles partial reads/writes without delaying PTY draining. Outbound frames retain FIFO order and partial-write offsets. Output has a lazy 16MiB bound and stops reading new PTY output when response headroom is exhausted. Accepted pending PTY input has a 4MiB/256-packet bound, retains per-session order, acknowledges only complete delivery, and is not retried across logical connection death. Socket replacement inside the replay tunnel preserves the same logical connection. Empty or missing sessions and input overload receive explicit errors. Host recovery credits, heartbeat and authority timeouts are unchanged.
+
+
+## Native session recovery implementation
+
+New guest packages execute `droid-sessiond --session-recovery` for port 40507.
+The on-wire TSR1/TRS2 versions, offsets, credit, frame bounds and host-CID check
+are unchanged. No Python interpreter is involved in normal session forwarding.
+The relay uses lazy bounded rings and owned write batches; native socket I/O
+never runs under the ring mutex. Dropping a raw link retains application state;
+explicit release, application loss and lease expiry close both directions.
+The existing serial session daemon retains exclusive PTY ownership.
+
+Host list collection runs owner RPCs concurrently outside metadata/publication
+locks. Registration and mutation generations fence delayed responses. A
+successful local terminate removes only that session and immediately publishes
+the cached authoritative projection; it does not wait for another VM's LIST.
+PTY EOF without a child wait status leaves that process running/unknown until
+an actual exit is reaped or termination is requested. No EOF invents a guest
+exit or closes sibling sessions.

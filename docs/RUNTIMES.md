@@ -247,11 +247,11 @@ Input resets retry delays but schedules session recovery only for a disconnected
 
 Both legacy and resumable frame transports decode directly into one independently owned payload array using common header validation. SFTP writes each complete length-prefixed packet once and flushes immediately. These host optimizations preserve packet limits, byte order, socket-recovery budgets and file-handle lifetime; they require no guest/image update.
 
-Keyboard/paste input is ordered per Environment controller, so a suspended write in one Environment does not hold another Environment's input queue. All sessions sharing that controller retain their input order. A shared 256-packet limit includes active writes across all queues; overload is reported immediately. Each packet retains the session/controller identity captured when accepted. Session exit, termination or controller replacement rejects old pending input instead of sending it into a new connection. The existing resumable stream can still recover raw sockets while retaining the same controller. Service shutdown cancels input workers and discards pending packets. No input or uncertain write is automatically retried, and no guest/image update is needed.
+Keyboard/paste input is ordered per session within its Environment controller, so an unread PTY does not hold another session's input queue. A shared 256-packet limit and per-session 64-packet limit include active writes; overload is reported immediately. Each packet retains the session/controller identity captured when accepted. Session exit, termination or controller replacement rejects old pending input instead of sending it into a new connection. The existing resumable stream can still recover raw sockets while retaining the same controller. Service shutdown cancels input workers and discards pending packets. No input or uncertain write is automatically retried, and no guest/image update is needed.
 
 Terminal resize/configuration waits are isolated per session. Waiting for a guest response no longer holds the shared emulator lock or the service's entire terminal command queue. Output continues at the old geometry until the ordered resize response boundary, then uses the new geometry; checkpoints and callback ordering stay atomic. Replaced or exited sessions reject late resize completion. CREATE/ATTACH network waits also leave existing terminal state available. These host changes retain the existing connection recovery budgets and need no guest/image update.
 
-A failed socket send or total request deadline now disconnects its logical session client instead of leaving it falsely connected. Legacy requests allow ten seconds; resumable requests allow seventy seconds including the existing sixty-second link recovery window. Cancelling/timing out a transmitted command does not establish whether it executed, and the app never resends it automatically. Blocked native reads/writes are shut down on close. A late platform connection is closed rather than attached after its caller gave up.
+A failed socket send disconnects its logical session client instead of leaving it falsely connected. Both transport versions allow ten seconds per request, independently of the sixty-second raw-link recovery window. A completed ordinary request can expire without disconnecting sibling requests; unconfirmed creation or ordered resize requires reconciling the logical client. Cancelling/timing out a transmitted command does not establish whether it executed, and the app never resends it automatically. Blocked native reads/writes are shut down on close. A late platform connection is closed rather than attached after its caller gave up.
 
 Actual VM stop is handled separately: the platform must prove that VM stopped before the service removes its dead session records and reports unrecoverable loss. Other Environment sessions/screens remain intact, and that Environment can be started again explicitly. A mere disconnect or unknown platform state preserves its sessions. V2 shared-folder recovery exhaustion stops host retries and reports that the Environment must be stopped and started to restore sharing, preserving the VM and its other work. Old v1 sharing still fails its VM closed: update the stopped Environment's guest components through the existing verified update flow to gain v2 recovery. The APK alone cannot retrofit an installed old guest. Android/OEM process termination and Doze remain platform limits; optional user-controlled battery exemption and the persisted wake policy reduce risk but do not restore dead processes.
 
@@ -278,3 +278,26 @@ AVF connected folders require a verified `shareBrokerVersion=1` or `2` image and
 AVF resource settings expose Single CPU (new default) and All host CPUs, matching the actual platform API. The old numeric values 2–16 continue to select host topology. Memory 0 selects an automatic 1–4GiB budget capped by one third of total and half of available RAM, refusing automatic start if less than 1GiB can be provided; existing manual budgets remain unchanged. Saving affects the next start. Memory diagnostics observes guest RAM, swap, load and memory pressure separately from Android app PSS; old guests need a verified component update to supply these optional metrics. The diagnostic screen polls only while visible, at 15-second intervals.
 
 Updated guest components remove blocking session I/O and reduce replay-copy and idle port-scan costs. They require a verified component/image update; installing an APK does not modify an existing guest. Host replay allocation and SFTP copy improvements apply with the APK. Sharing cache-denial settings and recovery/authority leases are preserved. Idle port discovery may take up to ten seconds. Image startup continues full SHA-256 verification with lower temporary allocation; the first disk read and cryptographic work remain necessary.
+
+
+## AVF responsiveness and recovery boundaries
+
+The APK publishes successful session mutations from local authoritative state,
+without waiting for unrelated Environment lists. LIST calls and reconnect
+attempts run independently per owner; late list replies cannot resurrect a
+terminated session. Input preserves per-session order while allowing sibling
+sessions to make progress. Request budgets are 10 seconds on both transport
+versions. A completed send followed by an ordinary response timeout/cancellation
+leaves siblings connected and reports an unknown result, without retrying input.
+Partial frames, unconfirmed creation and ordered resize boundaries still invalidate the
+connection. Known raw recovery rejects new requests promptly rather than queuing
+them for the full 60-second recovery lease. A disconnected VM cannot truthfully
+confirm termination; its session remains visible until owner proof is available.
+
+Updated guest components replace the Python session relay with native Rust,
+accept a token-scoped explicit release, and separate PTY EOF from process exit.
+These changes require a verified stopped-Environment component/image update;
+the APK does not overwrite installed disks. Old guests remain connectable and
+retain their existing lease policy when optional release is unsupported.
+The resource policy and saved vCPU/memory choices are unchanged by this revision.
+For the local transport measurement, see `AVF_NOTES.md`.

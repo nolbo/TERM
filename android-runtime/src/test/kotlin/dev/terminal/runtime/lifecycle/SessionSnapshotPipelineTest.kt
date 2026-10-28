@@ -15,10 +15,44 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class SessionSnapshotPipelineTest {
+    @Test fun aBlockedMutationDoesNotHideAProvenSiblingExit() = runBlocking {
+        val controller = DelayedListController().also { it.releaseFirstList.complete(Unit) }
+        var projection = controller.list().getOrThrow()
+        val pipeline = SessionSnapshotPipeline({}, launchTitle = { null }, projection = { projection })
+        pipeline.refresh(controller).getOrThrow()
+        val entered = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val blocked = async { pipeline.mutateAndRefresh(controller) {
+            entered.complete(Unit); release.await()
+            Result.failure<Unit>(IllegalStateException("Owner unavailable"))
+        } }
+        entered.await()
+        projection = projection.map { if (it.id == "native-b") it.copy(state = SessionStatus.EXITED, exitCode = 0) else it }
+        val snapshot = pipeline.refresh(controller).getOrThrow()
+        assertEquals(SessionStatus.EXITED, snapshot.sessions.last().state)
+        release.complete(Unit)
+        assertTrue(blocked.await().operation.isFailure)
+    }
+
+    @Test fun mutationPublishesTheLocalProjectionWithoutASecondRpcAndClearFencesOldResults() = runBlocking {
+        val controller = DelayedListController()
+        val published = mutableListOf<SessionSnapshot>()
+        val pipeline = SessionSnapshotPipeline(published::add, launchTitle = { null }, projection = { emptyList() })
+        val old = async { pipeline.refresh(controller) }
+        controller.firstListStarted.await()
+        val result = pipeline.mutateAndRefresh(controller) { controller.terminate("native-a", 9) }
+        result.operation.getOrThrow()
+        assertEquals(1, controller.listCalls)
+        pipeline.clear { }
+        controller.releaseFirstList.complete(Unit)
+        old.await().getOrThrow()
+        assertTrue(published.all { it.sessions.isEmpty() })
+    }
+
     @Test fun configuredCustomTitleIsPresentInTheFirstSnapshotAndAllowsALaterRename() = runBlocking {
         val controller = DelayedListController().also { it.releaseFirstList.complete(Unit) }
         val published = mutableListOf<SessionSnapshot>()
-        fun newPipeline() = SessionSnapshotPipeline(published::add) { id -> if (id == "native-a") "Workspace build" else null }
+        fun newPipeline() = SessionSnapshotPipeline(published::add, launchTitle = { id -> if (id == "native-a") "Workspace build" else null })
         val pipeline = newPipeline()
         val created = pipeline.refresh(controller).getOrThrow()
         assertEquals("Workspace build", published.first().sessions.first().title)
@@ -101,15 +135,14 @@ class SessionSnapshotPipelineTest {
         val termination = async {
             pipeline.mutateAndRefresh(controller) { controller.terminate("native-a", 9) }
         }
+        // A stalled LIST cannot prevent dispatch or completion of TERMINATE.
+        val result = kotlinx.coroutines.withTimeout(1_000) { termination.await() }
         controller.releaseFirstList.complete(Unit)
-
         olderRefresh.await()
-        val result = termination.await()
 
         result.operation.getOrThrow()
         result.snapshot?.getOrThrow()
-        assertEquals(listOf(1L, 2L), published.map { it.revision })
-        assertEquals(listOf("native-a", "native-b"), published.first().sessions.map { it.id })
+        assertEquals(listOf(1L), published.map { it.revision })
         assertEquals(listOf("native-b"), published.last().sessions.map { it.id })
     }
 

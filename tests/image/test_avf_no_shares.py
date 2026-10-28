@@ -18,6 +18,8 @@ class AvfNoSharesTest(unittest.TestCase):
             self.assertEqual(['term-session-recovery.service'], sorted(p.name for p in units.glob('*.service')))
             self.assertFalse((units / 'droid-sessiond.service.d').exists())
             self.assertTrue((units / 'multi-user.target.wants/term-session-recovery.service').is_symlink())
+            self.assertIn('ExecStart=/usr/local/lib/droid/droid-sessiond --session-recovery',
+                          (units / 'term-session-recovery.service').read_text())
 
     def test_maintenance_retires_only_term_services_and_preserves_data(self):
         spec = importlib.util.spec_from_file_location('migrate_retired_shares', REPO / 'image/scripts/migrate-avf-state.py')

@@ -1,5 +1,6 @@
 mod graphics_transport;
 mod resources;
+mod recovery;
 mod package_init;
 mod protocol;
 mod pty;
@@ -16,6 +17,10 @@ use session_protocol::SessionRequest;
 use server::SessionServer;
 
 fn main() {
+    if std::env::args().any(|argument| argument == "--session-recovery") {
+        recovery::serve().expect("Session recovery listener terminated");
+        return;
+    }
     if std::env::args().any(|argument| argument == "--package-initializer" || argument == "--apt-initializer") {
         package_init::serve().expect("Package initializer listener terminated");
         return;

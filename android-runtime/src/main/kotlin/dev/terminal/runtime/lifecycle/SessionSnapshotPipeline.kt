@@ -5,10 +5,11 @@ import dev.terminal.protocol.SessionDescriptor
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
-/** Serializes controller mutations with the authoritative snapshot they publish. */
+/** Serializes publication, never guest I/O. Generation tickets reject obsolete RPC results. */
 internal class SessionSnapshotPipeline(
     private val publish: (SessionSnapshot) -> Unit,
     private val launchTitle: (String) -> String?,
+    private val projection: (SessionController) -> List<SessionDescriptor>? = { null },
 ) {
     constructor(publish: (SessionSnapshot) -> Unit) : this(publish, { null })
 
@@ -17,9 +18,20 @@ internal class SessionSnapshotPipeline(
     private val initialTitles = mutableMapOf<String, String>()
     private var revision = 0L
     private var current: SessionSnapshot? = null
+    private var generation = 0L
+    private var activeMutations = 0
+    private var lifetime = 0L
 
-    suspend fun refresh(client: SessionController): Result<SessionSnapshot> = mutex.withLock {
-        refreshLocked(client)
+    suspend fun refresh(client: SessionController): Result<SessionSnapshot> {
+        val ticket = mutex.withLock { ++generation to lifetime }
+        val result = try { client.list() } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (error: Exception) { Result.failure(error) }
+        return mutex.withLock {
+            if (ticket.second != lifetime) Result.success(existing())
+            else if (ticket.first != generation || activeMutations != 0)
+                Result.success(projection(client)?.let(::accept) ?: existing())
+            else result.map(::accept)
+        }
     }
 
     /** Publishes service-owned launch state without querying or starting a runtime. */
@@ -30,12 +42,24 @@ internal class SessionSnapshotPipeline(
     suspend fun <T> mutateAndRefresh(
         client: SessionController,
         mutation: suspend () -> Result<T>,
-    ): SessionMutationResult<T> = mutex.withLock {
-        val operation = runCatching { mutation().getOrThrow() }
-        SessionMutationResult(
-            operation = operation,
-            snapshot = if (operation.isSuccess) refreshLocked(client) else null,
-        )
+    ): SessionMutationResult<T> {
+        val owner = mutex.withLock { generation++; activeMutations++; lifetime }
+        val operation = try { mutation() } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (error: Exception) { Result.failure(error) }
+        finally {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                mutex.withLock { generation++; activeMutations-- }
+            }
+        }
+        // The service registry has already committed successful mutations locally.
+        // Publishing that projection must not query every other Environment.
+        val snapshot = if (operation.isSuccess) {
+            mutex.withLock {
+                if (owner != lifetime) Result.success(existing())
+                else projection(client)?.let { Result.success(accept(it)) }
+            } ?: refresh(client)
+        } else null
+        return SessionMutationResult(operation, snapshot)
     }
 
     suspend fun rename(sessionId: String, title: String): Result<SessionSnapshot> = mutex.withLock {
@@ -67,26 +91,29 @@ internal class SessionSnapshotPipeline(
     }
 
     suspend fun clear(close: () -> Unit): SessionSnapshot = mutex.withLock {
+        generation++
+        lifetime++
         close()
         renamedTitles.clear()
         initialTitles.clear()
         commit(emptyList(), force = true)
     }
 
-    private suspend fun refreshLocked(client: SessionController): Result<SessionSnapshot> =
-        runCatching { client.list().getOrThrow() }.map { sessions ->
-            val sessionIds = sessions.mapTo(mutableSetOf()) { it.id }
-            renamedTitles.keys.retainAll(sessionIds)
-            initialTitles.keys.retainAll(sessionIds)
-            sessions.forEach {
-                initialTitles.putIfAbsent(it.id, it.title)
-                // Assign a configured custom title before the session's first publication.
-                launchTitle(it.id)?.let { title -> renamedTitles.putIfAbsent(it.id, title) }
-            }
-            commit(sessions.map { session ->
-                (renamedTitles[session.id] ?: initialTitles[session.id])?.let { session.copy(title = it) } ?: session
-            })
+    private fun existing() = current ?: SessionSnapshot(revision, emptyList())
+
+    private fun accept(sessions: List<SessionDescriptor>): SessionSnapshot {
+        val sessionIds = sessions.mapTo(mutableSetOf()) { it.id }
+        renamedTitles.keys.retainAll(sessionIds)
+        initialTitles.keys.retainAll(sessionIds)
+        sessions.forEach {
+            initialTitles.putIfAbsent(it.id, it.title)
+            // Assign a configured custom title before the session's first publication.
+            launchTitle(it.id)?.let { title -> renamedTitles.putIfAbsent(it.id, title) }
         }
+        return commit(sessions.map { session ->
+            (renamedTitles[session.id] ?: initialTitles[session.id])?.let { session.copy(title = it) } ?: session
+        })
+    }
 
     private fun commit(sessions: List<SessionDescriptor>, force: Boolean = false): SessionSnapshot {
         val previous = current
