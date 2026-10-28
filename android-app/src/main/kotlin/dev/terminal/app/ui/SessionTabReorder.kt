@@ -51,10 +51,12 @@ internal fun ReorderableSessionTabs(sessions: List<SessionUi>, activeSessionId: 
     colors: TerminalChromeColors = LocalToolbarColors.current,
     canPair: (String, String) -> Boolean = { _, _ -> false },
     onPair: (String, String, Boolean) -> Unit = { _, _, _ -> },
+    displayPair: List<String> = paneState.splitSessionIds,
+    tabExits: Map<String, SessionTabExit> = emptyMap(),
     splitActions: @Composable (Modifier, Boolean, Boolean) -> Unit = { _, _, _ -> },
     content: @Composable (SessionUi, Modifier, Boolean, Boolean, Int?, Boolean) -> Unit) {
     val ids = sessions.map { it.id }
-    val rows = sessionTabRows(ids, paneState.splitSessionIds)
+    val rows = sessionTabRows(ids, displayPair)
     val density = LocalDensity.current
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     val haptics = LocalTerminalHaptics.current
@@ -82,6 +84,9 @@ internal fun ReorderableSessionTabs(sessions: List<SessionUi>, activeSessionId: 
     val visualRows = dragging?.let { source -> splitPreview?.let {
         splitTabPreviewRows(order, source, it.target, it.sourceFirst)
     } } ?: order
+    fun rowFraction(row: List<String>) = row.maxOf { tabExits[it]?.fraction ?: 1f }
+    fun rowTop(index: Int) = visualRows.take(index).sumOf { rowFraction(it).toDouble() }.toFloat() * stepPx
+    val closing = tabExits.values.any { it.fraction < 1f }
     fun showActions(row: List<String>): Boolean = row.size == 2 &&
         (activeSessionId in row || (dragging in row && splitPreview?.target in row))
     // Membership keys keep the same motion when a preview reverses or becomes the saved pair.
@@ -173,6 +178,7 @@ internal fun ReorderableSessionTabs(sessions: List<SessionUi>, activeSessionId: 
     }
     // Runtime changes and paging away revoke a drag; title updates keep stable IDs.
     LaunchedEffect(ids, activeSessionId, paneState.sessionIds, paneState.splitSessionIds) { cancel() }
+    LaunchedEffect(active) { if (!active) cancel() }
     LaunchedEffect(dragging) {
         if (dragging == null) return@LaunchedEffect
         var previous = withFrameNanos { it }
@@ -197,7 +203,7 @@ internal fun ReorderableSessionTabs(sessions: List<SessionUi>, activeSessionId: 
     ToolbarScrollEdges(scroll.canScrollBackward, scroll.canScrollForward, modifier) {
         Box(Modifier.fillMaxSize().onGloballyPositioned { viewport = it.boundsInRoot() }
             .verticalScroll(scroll).padding(horizontal = 8.dp, vertical = 4.dp)) {
-            Box(Modifier.fillMaxWidth().height((step * rows.size - 4.dp).coerceAtLeast(0.dp))
+            Box(Modifier.fillMaxWidth().height((step * rows.sumOf { rowFraction(it).toDouble() }.toFloat() - 4.dp).coerceAtLeast(0.dp))
                 .onGloballyPositioned {
                     // Hit testing uses the full scrolled content, rather than its clipped visible bounds.
                     val origin = it.localToRoot(Offset.Zero)
@@ -251,8 +257,8 @@ internal fun ReorderableSessionTabs(sessions: List<SessionUi>, activeSessionId: 
                     // Lifting a tab changes its drag position, not its membership or split geometry.
                     val segment = group.indexOf(session.id).takeIf { group.size == 2 }
                     val targetTop = if (lifted) (pointer.y - grid.top - grabOffset)
-                        .coerceIn(0f, (grid.height - rowPx).coerceAtLeast(0f)) else index * stepPx
-                    val top by animateFloatAsState(targetTop, if (lifted) snap() else effects, label = "Session tab position")
+                        .coerceIn(0f, (grid.height - rowPx).coerceAtLeast(0f)) else rowTop(index)
+                    val top by animateFloatAsState(targetTop, if (lifted || closing) snap() else effects, label = "Session tab position")
                     val left by animateFloatAsState(if (segment == null) 0f else insetPx + segment * (segmentPx + gapPx),
                         effects, label = "Session tab split position")
                     val width by animateFloatAsState(if (segment == null) grid.width else segmentPx,
@@ -292,7 +298,7 @@ internal fun ReorderableSessionTabs(sessions: List<SessionUi>, activeSessionId: 
                     val reveal = menuReveal(row)
                     val alpha by animateFloatAsState(if (actionsVisible) 1f else 0f,
                         MaterialTheme.motionScheme.defaultEffectsSpec(), label = "Split tab actions visibility")
-                    val top by animateFloatAsState(index * stepPx, effects, label = "Split tab actions position")
+                    val top by animateFloatAsState(rowTop(index), if (closing) snap() else effects, label = "Split tab actions position")
                     val inactiveGroup = dragging == null && row.size == 2 && row == paneState.splitSessionIds && activeSessionId !in row
                     val dividerAlpha by animateFloatAsState(
                         if (inactiveGroup) 1f else 0f,

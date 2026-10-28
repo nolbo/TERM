@@ -1456,6 +1456,82 @@ class ToolbarUiTest {
         }
     }
 
+    @Test fun closingTabsAnimatesNeighborsAndRemovesLastTabInBothSizes() {
+        val sessions = mutableStateOf(emptyList<SessionUi>())
+        val selected = mutableStateOf<String?>(null)
+        val progress = mutableFloatStateOf(0f)
+        var closeRequests = 0
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            scenario.onActivity { activity -> activity.setContent {
+                DroidTheme { TerminalHapticFeedbackProvider {
+                    Box(Modifier.fillMaxWidth().height(400.dp)) {
+                        ToolbarSessionsTool(sessions.value, selected.value, true, emptySet(), emptyList(),
+                            {}, {}, false, { selected.value = it }, {}, { closing ->
+                                closeRequests++
+                                sessions.value = sessions.value.filterNot { it.id == closing.id }
+                                selected.value = sessions.value.firstOrNull()?.id
+                            }, {}, {}, {}, expansionProgress = progress.floatValue)
+                    }
+                } }
+            } }
+            fun composeRoot(view: View): ViewRootForTest? {
+                if (view is ViewRootForTest) return view
+                if (view is ViewGroup) for (index in 0 until view.childCount) {
+                    composeRoot(view.getChildAt(index))?.let { return it }
+                }
+                return null
+            }
+            val animationScale = android.provider.Settings.Global.getFloat(context.contentResolver,
+                android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+            for (expanded in listOf(false, true)) {
+                scenario.onActivity {
+                    progress.floatValue = if (expanded) 1f else 0f
+                    sessions.value = listOf("A", "B").map { SessionUi(it, "NATIVE", it, "RUNNING") }
+                    selected.value = "A"
+                }
+                settle()
+                var root: ViewRootForTest? = null
+                scenario.onActivity { root = composeRoot(it.window.decorView) }
+                val compose = requireNotNull(root)
+                fun neighborPosition(): Float? {
+                    fun visit(node: SemanticsNode): Float? {
+                        if (node.config.getOrNull(SemanticsProperties.Text)?.any { it.text == "B" } == true) {
+                            return if (expanded) node.boundsInRoot.top else node.boundsInRoot.left
+                        }
+                        return node.children.firstNotNullOfOrNull(::visit)
+                    }
+                    return visit(compose.semanticsOwner.rootSemanticsNode)
+                }
+                val positions = mutableListOf<Float>()
+                val listener = ViewTreeObserver.OnPreDrawListener {
+                    neighborPosition()?.let(positions::add)
+                    true
+                }
+                var start = 0f
+                scenario.onActivity {
+                    start = requireNotNull(neighborPosition())
+                    compose.view.viewTreeObserver.addOnPreDrawListener(listener)
+                }
+                try {
+                    click(description(context.getString(R.string.terminate_session_description, "A")))
+                    scenario.onActivity {
+                        val end = requireNotNull(neighborPosition())
+                        assertTrue("Neighbor must fill the closed slot ($expanded)", end < start - 1f)
+                        if (animationScale > 0f) assertTrue("Intermediate exit frames required ($expanded): $positions",
+                            positions.any { it > end + 1f && it < start - 1f })
+                    }
+                    assertNull(find { it.text?.toString() == "A" })
+                    click(description(context.getString(R.string.terminate_session_description, "B")))
+                    assertNull(find { it.text?.toString() == "B" })
+                    description(label(R.string.new_session))
+                } finally {
+                    scenario.onActivity { compose.view.viewTreeObserver.removeOnPreDrawListener(listener) }
+                }
+            }
+            assertEquals("Each close must dispatch exactly once", 4, closeRequests)
+        }
+    }
+
     @Test fun expandedSessionHeaderOmitsCountsAndKeepsSessionSelection() {
         val selected = mutableStateOf("first")
         val sessions = mutableStateOf(listOf(

@@ -110,6 +110,10 @@ internal fun ToolbarSessionsTool(
     onSplitDirection: (SplitDirection) -> Unit = {},
 ) {
     val haptics = LocalTerminalHaptics.current
+    val presentation = rememberSessionTabPresentation(sessions, paneState.splitSessionIds, workspaceState.selected)
+    val tabExits = sessionTabExits(presentation)
+    val displayedSessions = presentation.displayed
+    val exitingIds = presentation.exitingIds
     // Keep each list's position when switching between the default and expanded headers.
     val tabScroll = rememberScrollState()
     val profileScroll = rememberLazyListState()
@@ -216,7 +220,7 @@ internal fun ToolbarSessionsTool(
             // IME/anchor updates can briefly lower progress before the Expanded mode is published.
             // Keep near-expanded drags eligible through that geometry change.
             val tabsDraggable = sessionsActive && (progress >= 0.95f || LocalToolbarExpandedContentHeight.current != null)
-            val showWorkspaceName = progress == 1f || sessions.isEmpty()
+            val showWorkspaceName = progress == 1f || displayedSessions.isEmpty()
             val selectedWorkspace = workspaceState.workspaces.firstOrNull { it.id == workspaceState.selected }
             val emptyPermanentWorkspace = selectedWorkspace?.takeIf { !it.temporary && sessions.isEmpty() }
             val emptyTemporaryWorkspace = selectedWorkspace
@@ -227,7 +231,7 @@ internal fun ToolbarSessionsTool(
             val headerPadding = 4.dp + 4.dp * progress
             // Isolate the header's changing tab/Workspace structure from the body slots.
             // Otherwise the gap-buffer composer can count the header twice when the picker closes.
-            key(sessions.map { it.id }) { Row(Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = headerPadding),
+            key(workspaceState.selected) { Row(Modifier.fillMaxWidth().height(headerHeight).padding(horizontal = headerPadding),
                 verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.weight(1f).height(48.dp),
                     verticalAlignment = Alignment.CenterVertically) {
@@ -235,12 +239,14 @@ internal fun ToolbarSessionsTool(
                         colors.appBarIcon,
                         showName = showWorkspaceName,
                         modifier = if (showWorkspaceName) Modifier.weight(1f) else Modifier)
-                    if (progress < 1f && sessions.isNotEmpty()) {
+                    if (progress < 1f && displayedSessions.isNotEmpty()) {
                         Box(Modifier.weight(1f).height(48.dp).clipToBounds().graphicsLayer { alpha = 1f - progress }) {
-                            CompactSessionTabs(sessions, activeSessionId, paneState.splitSessionIds,
-                                headerTabScroll, colors, Modifier.fillMaxSize()) { session, segment, expansion ->
-                                SessionToolTab(session, session.id == activeSessionId, sessionsActive && progress == 0f,
-                                    terminatingSessionIds, onSelect, onRename, onMove, onTerminate, colors, onInfo = onInfo, horizontal = true,
+                            CompactSessionTabs(displayedSessions, activeSessionId, presentation.pair,
+                                headerTabScroll, colors, Modifier.fillMaxSize(), tabExits) { session, segment, expansion ->
+                                SessionToolTab(session, session.id == activeSessionId, sessionsActive && progress == 0f && session.id !in exitingIds,
+                                    terminatingSessionIds, onSelect, onRename, onMove, onTerminate, colors,
+                                    itemModifier = Modifier.sessionTabExit(tabExits[session.id], session.id in exitingIds),
+                                    onInfo = onInfo, horizontal = true,
                                     paneState = paneState, canSplit = canSplit(session), onSplit = onSplit,
                                     onUnsplit = onUnsplit, onSplitDirection = onSplitDirection, groupedPosition = segment,
                                     compactExpansion = expansion, inactiveSplitGroup = !paneState.split && segment != null)
@@ -284,17 +290,19 @@ internal fun ToolbarSessionsTool(
                 TerminalSettingsButton(onSettings, enabled = sessionsActive, tint = colors.appBarIcon)
             } }
             Spacer(Modifier.height(8.dp * progress))
-            if (progress > 0f) ReorderableSessionTabs(sessions, activeSessionId, tabsDraggable, onReorder,
+            if (progress > 0f) ReorderableSessionTabs(displayedSessions, activeSessionId, tabsDraggable && exitingIds.isEmpty(), onReorder,
                 Modifier.weight(1f).fillMaxWidth().graphicsLayer { alpha = progress }, scroll = tabScroll,
                 paneState = paneState, canPair = canPair, onPair = onPair, colors = colors,
+                displayPair = presentation.pair, tabExits = tabExits,
                 splitActions = { modifier, enabled, inactiveGroup ->
                     sessions.firstOrNull { it.id == paneState.splitSessionIds.getOrNull(paneState.focus) }?.let { session ->
                         SplitTabActions(session, modifier, enabled && tabsActive && session.id !in terminatingSessionIds,
                             colors, paneState, onRename, onMove, onInfo, onSplit, onUnsplit, onSplitDirection, inactiveGroup)
                     }
                 }) { session, itemModifier, dragging, lifted, segment, inactiveGroup ->
-                SessionToolTab(session, session.id == activeSessionId, tabsActive && !dragging,
-                    terminatingSessionIds, onSelect, onRename, onMove, onTerminate, colors, itemModifier, lifted, onInfo = onInfo,
+                SessionToolTab(session, session.id == activeSessionId, tabsActive && !dragging && session.id !in exitingIds,
+                    terminatingSessionIds, onSelect, onRename, onMove, onTerminate, colors,
+                    itemModifier.sessionTabExit(tabExits[session.id], session.id in exitingIds), lifted, onInfo = onInfo,
                     paneState = paneState, canSplit = canSplit(session), onSplit = onSplit,
                     onUnsplit = onUnsplit, onSplitDirection = onSplitDirection,
                     groupedPosition = segment,
@@ -307,7 +315,7 @@ internal fun ToolbarSessionsTool(
 @Composable
 private fun CompactSessionTabs(sessions: List<SessionUi>, activeSessionId: String?, pair: List<String>,
     scroll: ScrollState, colors: TerminalChromeColors,
-    modifier: Modifier, content: @Composable (SessionUi, Int?, Float?) -> Unit) {
+    modifier: Modifier, tabExits: Map<String, SessionTabExit>, content: @Composable (SessionUi, Int?, Float?) -> Unit) {
     val rows = sessionTabRows(sessions.map { it.id }, pair)
     val byId = sessions.associateBy { it.id }
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
@@ -345,7 +353,7 @@ private fun CompactSessionTabs(sessions: List<SessionUi>, activeSessionId: Strin
             }
         }.nestedScroll(listGesture).horizontalScroll(scroll).selectableGroup(), verticalAlignment = Alignment.CenterVertically) {
             rows.forEachIndexed { index, row -> key(row) {
-                Box(Modifier.height(48.dp)) {
+                Box(Modifier.sessionTabExitWidth { row.maxOf { tabExits[it]?.fraction ?: 1f } }.height(48.dp)) {
                     if (row.size == 2) {
                         val firstExpansion by animateFloatAsState(if (activeSessionId == row.first()) 1f else 0f,
                             MaterialTheme.motionScheme.defaultSpatialSpec(), label = "Compact split tab focus")
