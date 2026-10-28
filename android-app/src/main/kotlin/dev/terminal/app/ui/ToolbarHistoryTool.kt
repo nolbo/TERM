@@ -169,7 +169,7 @@ internal fun ToolbarHistoryTool(active: Boolean, onReturnToTerminal: () -> Unit,
     val searchLabel = stringResource(R.string.history_search_description)
     val summary = when {
         !snapshot.attached || snapshot.query != query || snapshot.scope != searchScope -> stringResource(R.string.toolbar_loading)
-        !snapshot.available -> stringResource(R.string.history_application_viewport)
+        !snapshot.available -> ""
         searching && snapshot.searchCount == 0 -> stringResource(R.string.history_no_results)
         searching -> stringResource(R.string.history_search_count, snapshot.searchIndex + 1, snapshot.searchCount)
         snapshot.commands.isEmpty() -> stringResource(R.string.history_empty)
@@ -277,7 +277,8 @@ internal fun ToolbarHistoryTool(active: Boolean, onReturnToTerminal: () -> Unit,
                 if (!expanded) hideFromAccessibility()
             }, contentPadding = PaddingValues(bottom = 8.dp)) {
                 itemsIndexed(snapshot.commands.asReversed(), key = { _, item -> item.marker.anchor }) { index, command ->
-                    HistoryCommandRow(command, current === command.marker, ready && expanded,
+                    HistoryCommandRow(command, current === command.marker,
+                        enabled = active && snapshot.attached && expanded, navigationEnabled = ready && expanded,
                         outputExpanded = command.marker in expandedCommands, historyRevision = snapshot.historyRevision,
                         onToggleOutput = {
                             expandedCommands = if (command.marker in expandedCommands) expandedCommands - command.marker
@@ -317,7 +318,7 @@ private fun HistoryNavigationButton(edge: Boolean, next: Boolean, enabled: Boole
 }
 
 @Composable
-private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enabled: Boolean,
+private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enabled: Boolean, navigationEnabled: Boolean,
     outputExpanded: Boolean, historyRevision: Long, onToggleOutput: () -> Unit,
     first: Boolean, last: Boolean, modifier: Modifier, onClick: () -> Unit) {
     val colors = LocalToolbarColors.current
@@ -337,8 +338,9 @@ private fun HistoryCommandRow(command: HistoryCommand, selected: Boolean, enable
         commandText)
     val expansionState = stringResource(if (outputExpanded) R.string.history_output_expanded else R.string.history_output_collapsed)
     Column(modifier.fillMaxWidth()) {
-        Surface(onClick, enabled = enabled, shape = MaterialTheme.shapes.extraLarge,
-            color = Color.Transparent, contentColor = foreground,
+        Surface(onClick, enabled = navigationEnabled, shape = MaterialTheme.shapes.extraLarge,
+            color = Color.Transparent,
+            contentColor = if (navigationEnabled) baseForeground else baseForeground.copy(alpha = 0.38f),
             modifier = Modifier.fillMaxWidth().semantics { this.selected = selected; stateDescription = status }) {
             Row(Modifier.height(IntrinsicSize.Min).heightIn(min = 48.dp),
                 verticalAlignment = Alignment.CenterVertically) {

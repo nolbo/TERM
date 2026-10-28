@@ -642,7 +642,7 @@ class ToolbarHistoryToolTest {
             assertFalse(view.isVerticalScrollBarEnabled)
         }
         settle()
-        text(label(R.string.history_application_viewport))
+        assertHistoryActionsAvailable(scenario, view, writes)
         var button: AccessibilityNodeInfo? = description(R.string.history_search_previous)
         var disabled = false
         while (button != null) {
@@ -660,6 +660,72 @@ class ToolbarHistoryToolTest {
             assertTrue(view.topRow < 0)
             assertEquals(3, view.mEmulator.history.markers.size)
         }
+    }
+
+    @Test fun mainScreenApplicationModesAllowCopyAndOutputWithoutNavigation() =
+        withTool(ToolbarSheetMode.Expanded) { scenario, view, writes ->
+            for ((enter, leave) in listOf(
+                "\u001b[?1000h" to "\u001b[?1000l",
+                "\u001b[?1h" to "\u001b[?1l",
+                "\u001b[2;4r" to "\u001b[r",
+            )) {
+                scenario.onActivity {
+                    append(view, enter)
+                    writes.reset()
+                    assertTrue(view.mEmulator.isHistoryViewportOwnedByApplication)
+                    assertFalse(view.jumpToCommand(view.mEmulator.history.markers.first()))
+                }
+                settle()
+                assertHistoryActionsAvailable(scenario, view, writes)
+                query("needle")
+                assertHistoryActionsAvailable(scenario, view, writes)
+                scenario.onActivity { append(view, leave) }
+                settle()
+                query("")
+                click(text("false"))
+                scenario.onActivity {
+                    assertFalse(view.mEmulator.isHistoryViewportOwnedByApplication)
+                    assertEquals(view.mEmulator.history.markers[1].anchor.row!!.coerceAtMost(0), view.topRow)
+                }
+            }
+        }
+
+    private fun assertHistoryActionsAvailable(scenario: ActivityScenario<MainActivity>, view: TerminalView,
+        writes: ByteArrayOutputStream) {
+        assertNull(find { it.text?.toString()?.let { value ->
+            value.contains("제어하는 동안 이동") || value.contains("controls the viewport")
+        } == true })
+        assertNull(find { it.text?.toString() == label(R.string.history_no_results) })
+        var commandRow = text("sleep 9")
+        while (commandRow.stateDescription == null && commandRow.parent != null) commandRow = commandRow.parent
+        assertFalse("Command navigation must stay disabled", commandRow.isEnabled)
+        var originalRow = 0
+        var originalScreen = ""
+        scenario.onActivity {
+            originalRow = view.topRow
+            originalScreen = view.mEmulator.screen.transcriptText
+        }
+        fun clickEnabled(node: AccessibilityNodeInfo) {
+            var button = node
+            while (!button.isClickable && button.parent != null) button = button.parent
+            assertTrue("History action must expose enabled semantics", button.isEnabled)
+            click(button)
+        }
+        clickEnabled(description(R.string.history_copy_command))
+        scenario.onActivity {
+            assertEquals("sleep 9", it.getSystemService(ClipboardManager::class.java).primaryClip!!.getItemAt(0).text.toString())
+        }
+        clickEnabled(outputToggle("sleep 9"))
+        text("running-output-0")
+        assertEquals(label(R.string.history_output_expanded), outputToggle("sleep 9", true).stateDescription?.toString())
+        clickEnabled(outputToggle("sleep 9", true))
+        assertNull(find { it.text?.toString()?.contains("running-output-0") == true })
+        scenario.onActivity {
+            assertEquals(originalRow, view.topRow)
+            assertEquals(originalScreen, view.mEmulator.screen.transcriptText)
+        }
+        assertFalse(keyboardVisible(scenario))
+        assertEquals(0, writes.size())
     }
 
     @Test fun reattachingAnotherSessionReplacesTheHistoryWithoutStartingOrWritingIt() = withTool(ToolbarSheetMode.Expanded) { scenario, view, writes ->

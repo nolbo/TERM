@@ -343,7 +343,6 @@
     <string name="history_scope_choose">Choose search scope</string>
     <string name="history_search">Search</string>
     <string name="history_search_description">Search terminal content</string>
-    <string name="history_application_viewport">Navigation is unavailable while an application controls the viewport.</string>
     <string name="history_no_results">No matching text.</string>
     <string name="history_search_count">Match %1$d of %2$d</string>
     <string name="history_search_previous">Go to previous match</string>
