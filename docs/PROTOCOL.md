@@ -342,11 +342,22 @@ exactly one 24-byte frame header followed by its validated payload; therefore a
 partial socket read can never be interpreted as a request. Request dispatch
 preserves the request ID and returns a typed response or error frame.
 
-After a successful `Attach`, the connection receives `STREAM` frames with
-request ID `0`. Event `0x90` is raw PTY output (`session ID`, byte length,
-bytes, with kitty local media converted to direct transfers inside the guest);
-event `0x91` is process exit (`session ID`, exit code). Detaching or
-disconnecting removes only this output subscription—the guest PTY remains alive.
+After successful CREATE/LIST/ATTACH metadata identifies a session, the connection
+receives its `STREAM` frames with request ID `0`, independently of the selected
+renderer. Event `0x90` is output (u16 UTF-8 session ID, i32 length, bytes, with
+kitty local media converted inside the guest); `0x91` is process exit (ID, i32
+exit code). New direct guests also emit `0x92` OutputGap (ID, big-endian i64
+count). A nonnegative count is discarded output bytes; -1 means delivery on the
+previous connection is unknown. Counts below -1 or trailing bytes are invalid.
+A gap precedes the retained output tail and any pending exit event. It does not
+mean process/Environment death. The host clears incomplete ANSI/OSC/DCS/APC,
+UTF-8 and remote-control parsing, checkpoints subscribed mirrors and reports the
+loss. Existing screen, history and established modes remain; lost bytes cannot
+be reconstructed. Older hosts ignore unknown events and cannot provide this
+parser-reset guarantee, so new components must travel with their approved APK.
+Detach changes renderer attachment only. Disconnect discards uncertain user
+input while the guest independently drains PTYs, buffers bounded tails and reaps
+children. No input RPC is replayed on the new connection.
 
 AVF image initialization uses a dedicated host-CID-only vsock listener on port 40503, separate from sessiond (40500), Android capability RPC (40501) and port reports (40502). The existing v1 frame envelope carries only a `LIFECYCLE` request with payload `0x40`; no command, path, repository or environment argument is accepted. Progress is a STREAM frame with `0x40`, success is a RESPONSE containing an eight-byte big-endian positive epoch-seconds timestamp, and failure uses the standard ERROR payload. Replies preserve the request ID. Closing the connection cancels the fixed updater process group; execution is bounded, and only a successful distribution-selected package-index refresh writes the guest receipt (strict APT refresh for Debian/Ubuntu; pacman database refresh for Arch).
 
@@ -566,7 +577,7 @@ The app-private `deleteEmptyTemporaryWorkspace(workspaceId)` method is appended 
 
 ## Explicit guest file copies (TFT1)
 
-AVF shared-directory connections and folder-based copy jobs are retired. The TSB/TSF and virtiofs specifications below describe legacy images only: the current host does not activate them or open port 40506. TSR1 session recovery and standalone Android share-to-Linux TFT1 copies remain supported. Host Shared Directory APIs reject new AVF connections and TO_VM/FROM_VM folder jobs; old leases are retained only until verified stop.
+AVF shared-directory connections and folder-based copy jobs are retired. The TSB/TSF and virtiofs specifications below describe legacy images only: the current host does not activate them or open port 40506. Legacy installed-image TSR1 session recovery and standalone Android share-to-Linux TFT1 copies remain supported. Host Shared Directory APIs reject new AVF connections and TO_VM/FROM_VM folder jobs; old leases are retained only until verified stop.
 
 Live app-private mounts are independent of TFT1. `shareBrokerVersion=1` and `term.share-broker=1` enable host-initiated streams to guest vsock 40506 (host CID 2 only). The control stream begins big-endian u32 `0x54534231` (TSB1), u16 version 1, u16 folder count 1..128, 16 random token bytes, then each raw 16-byte UUID, u8 name byte count 1..64 and ASCII name. Existing name validation applies; identities/names must be unique and the complete manifest is validated before creating mount directories. The guest replies u8 zero to accept. The host opens one stream per folder with u32 `0x54534631` (TSF1), the same 16-byte token and that UUID. After guest u8 zero, this stream becomes SFTP v3 over the existing duplex transport; no SSH handshake or TCP listener exists. The guest runs passive SSHFS and sends a second zero on the control stream only when every expected FUSE mount is present and its root responds. Startup is bounded by host 50-second and guest 40-second readiness deadlines. In v1, control EOF or failed data clients power off this VM; reconnect requires a new boot.
 
@@ -635,7 +646,7 @@ and exception messages are excluded. These diagnostics do not change the
 
 The host applies the same 60-second recovery budget to failed v2 control/data links. Expiry permanently closes the corresponding host relay/SFTP handles and stops retrying that generation; owner-wide failure closes all its host actors, while an isolated folder failure leaves the control link and other folders alive. `ready` cannot remain true after permanent failure. Host metadata events `share.owner.unavailable`, `share.data.unavailable` and `share.data.revoked` surface an Environment-scoped warning without claiming VM/session death. Repair requires a stopped/new boot through the existing Environment controls. This does not release durable deletion leases, renew an expired guest authority, change the wire handshake, or replay uncertain filesystem operations.
 
-`sessionResumeVersion=1` enables the host-CID-only session relay on 40507.
+For legacy installed images, `sessionResumeVersion=1` enables the host-CID-only session relay on 40507. New image manifests omit this marker and use 40500 directly.
 `TSR1` plus a random 16-byte process-owner token and u8 create (1) or resume (0)
 receives status zero, followed by TRS2; a different live owner receives status 1. Optional operation 2 releases the exact matching token and returns status 0 without TRS2. A mismatched release returns status 1 and cannot affect the current owner; release with no retained owner succeeds idempotently. Older guests reject operation 2, so the host treats it as best effort and preserves legacy lease semantics.
 Resume without a retained generation receives status 2 and must close the host
@@ -683,18 +694,30 @@ This capability is retired. Older images recognize `androidStorageVersion=1`, `v
 
 Optional SESSION request opcode `0x08` has no fields. Response `0x88` contains four big-endian signed 64-bit byte counts (MemTotal, MemAvailable, SwapTotal, SwapFree), then three signed 32-bit values (available CPU count, load average times 1000, memory PSI `some avg10` percent times 1000). PSI `-1` means unavailable. Counts must be consistent, CPUs 1–4096, load nonnegative and PSI -1–100000. The response is exactly 45 payload bytes. No PIDs, paths or terminal content are exported. Old guests return their normal unsupported/invalid-request error; this does not disconnect a healthy stream. Host observations are asynchronous and registration-scoped, at most once per 15 seconds on demand from memory diagnostics. Metrics do not enter the app PSS sum.
 
-Guest session transport remains byte-compatible. Nonblocking framing handles partial reads/writes without delaying PTY draining. Outbound frames retain FIFO order and partial-write offsets. Output has a lazy 16MiB bound and stops reading new PTY output when response headroom is exhausted. Accepted pending PTY input has a 4MiB/256-packet bound, retains per-session order, acknowledges only complete delivery, and is not retried across logical connection death. Socket replacement inside the replay tunnel preserves the same logical connection. Empty or missing sessions and input overload receive explicit errors. Host recovery credits, heartbeat and authority timeouts are unchanged.
+Current direct session transport uses the existing v1 envelope and adds only
+OutputGap. One nonblocking poll loop owns the listener, optional client and PTYs.
+Frames preserve FIFO order and partial-write offsets. The network queue is
+bounded at 2 MiB; new output needs 256 KiB/128-frame headroom. Separate lossy tails
+are bounded at 9 MiB/512 chunks per session, 16 MiB/2,048 chunks overall. Overflow
+sheds batches, not producers; one supported graphic expansion fits the session
+bound. CREATE/LIST/ATTACH responses identify sessions before retained output.
+At successful RESIZE, buffered old-geometry output that fits is framed before
+the response; excess is discarded with a preceding OutputGap. Old output never
+crosses the acknowledged geometry boundary, and controls never wait for backlog
+flush. Pending input remains bounded at 4 MiB/256 packets, ordered per session
+and acknowledged only after complete delivery. Disconnect discards uncertain
+user writes; locally generated graphics replies remain guest-owned. PTY I/O or
+local reply-queue failure affects only that session, with Exited(-1) for an
+unavailable wait status. Ordinary exits retain the actual status.
 
+## Legacy session replay compatibility
 
-## Native session recovery implementation
-
-New guest packages execute `droid-sessiond --session-recovery` for port 40507.
-The on-wire TSR1/TRS2 versions, offsets, credit, frame bounds and host-CID check
-are unchanged. No Python interpreter is involved in normal session forwarding.
-The relay uses lazy bounded rings and owned write batches; native socket I/O
-never runs under the ring mutex. Dropping a raw link retains application state;
-explicit release, application loss and lease expiry close both directions.
-The existing serial session daemon retains exclusive PTY ownership.
+The host retains TSR1/TRS2 for installed images declaring
+`sessionResumeVersion=1`. Earlier packages ran a Python or native Rust relay on
+40507 through a root-authenticated Unix hop. Those guest implementations and
+their systemd unit are removed from current builds. Their credit, heartbeat,
+lease and optional release contracts above remain relevant to installed images;
+new direct connections have none of those protocol layers.
 
 Host list collection runs owner RPCs concurrently outside metadata/publication
 locks. Registration and mutation generations fence delayed responses. A

@@ -127,7 +127,7 @@ Resize/configuration operations serialize per session; no network resize/create/
 
 Connection diagnostics asynchronously retain metadata in app-private `connection-events.log` and logcat (`TermConnection`), up to 1,000 records and 256 KiB on disk. Recording defaults to enabled, preserving existing behavior. The AVF diagnostic logs Activity reads, enables/disables, searches, copies and clears these fixed files without binding or starting the runtime. A file-backed preference and process/file locks serialize UI, worker and `:vmhost` access. Toggle and deletion barriers reject older queued events, including events queued while disabled; disabling preserves saved history and stops this diagnostic file and tag. The 128-task writer queue is best effort during overload, storage failure or process death, and reports dropped tasks when possible. Events include VM preparation/start/stop/callbacks, channel and session connections/recovery, sharing startup/data loss, image operation phases, permission/API checks and process lifecycle. Wall/monotonic timestamps, PID, stable identities and symbolic codes exclude terminal bytes, commands, exception messages, paths and sharing tokens. Guest sharing failures remain in journald and `/var/log/term-share-failure.json`; this screen does not collect guest journals. Diagnostic write failures never weaken authority checks.
 
-Verified images opt into recoverable sharing (`shareBrokerVersion=2`) and session transport (`sessionResumeVersion=1`). Bounded duplex byte replay retains the same session client/emulator and SSHFS/SFTP handles across raw vsock replacement. This preserves request ordering without re-executing filesystem mutations or terminal input. Full buffers backpressure producers. A 60-second sharing authority lease and root-owned mode-000 underlying mount directories permit failed shares to deny I/O while the VM and unrelated sessions continue. Unproven startup/guards remain VM-fatal; v1 keeps its original failure policy. Session transport recovers for at most 60 seconds. The session RPC deadline includes sending and response waiting and is 10 seconds for both legacy and resumable streams, independently of the 60-second recovery lease. Raw recovery is observable as RECOVERING; new requests fail without enqueueing while that state is known. After a complete frame is sent, an ordinary response timeout/cancellation affects only its caller. Incomplete sends, send failures, unconfirmed creation and unresolved ordered-resize boundaries still close the logical stream because framing, initial terminal identity or emulator geometry cannot safely be reused. A transmitted mutation has an unknown result and is never automatically resent. Socket shutdown precedes descriptor close without flushing, waking blocked native IO. Platform vsock opens have a 10-second attempt limit; at most eight uncancellable platform calls run with no waiting queue, and late descriptors are closed.
+Legacy verified images opt into recoverable sharing (`shareBrokerVersion=2`) and session transport (`sessionResumeVersion=1`). Current guest builds instead use direct host-only 40500 as described below; the following replay guarantees apply only to legacy installed images. Bounded duplex byte replay retains the same session client/emulator and SSHFS/SFTP handles across raw vsock replacement. This preserves request ordering without re-executing filesystem mutations or terminal input. Full buffers backpressure producers. A 60-second sharing authority lease and root-owned mode-000 underlying mount directories permit failed shares to deny I/O while the VM and unrelated sessions continue. Unproven startup/guards remain VM-fatal; v1 keeps its original failure policy. Session transport recovers for at most 60 seconds. The session RPC deadline includes sending and response waiting and is 10 seconds for both legacy and resumable streams, independently of the 60-second recovery lease. Raw recovery is observable as RECOVERING; new requests fail without enqueueing while that state is known. After a complete frame is sent, an ordinary response timeout/cancellation affects only its caller. Incomplete sends, send failures, unconfirmed creation and unresolved ordered-resize boundaries still close the logical stream because framing, initial terminal identity or emulator geometry cannot safely be reused. A transmitted mutation has an unknown result and is never automatically resent. Socket shutdown precedes descriptor close without flushing, waking blocked native IO. Platform vsock opens have a 10-second attempt limit; at most eight uncancellable platform calls run with no waiting queue, and late descriptors are closed.
 
 After broker-v2 recovery expires, host sharing actors become unavailable and stop retrying, while preserving the VM, other sessions and durable deletion leases. Individual failed folders do not tear down healthy control/other folder actors. The error survives UI detach until a verified new boot; no failed generation is silently remounted or replayed. Legacy broker-v1 VM-fatal failure policy stays intact and requires an explicit verified recovery-component update for v2 behavior. Neither transport promises replay across process/daemon death. Capability receipts, migration and versioned wire details are in `PROTOCOL.md` and `AVF_UPDATES.md`. Post-readiness guest monitor failures retire sharing after re-proving the complete pinned guard set and closing its actors; they do not become boot failures. Failed startup or unproven isolation still powers off the VM. Guest diagnostics preserve the first fatal cause even after an earlier transient record.
 
@@ -736,7 +736,7 @@ Host replay rings allocate payload storage lazily and grow only with buffered da
 Guest resource observations are fixed aggregate metrics, requested only by visible memory diagnostics. They never start a VM/session or poll in the background. Each registration coalesces requests and caches success for at least 15 seconds; unsupported old guests are not reprobed until registration changes. Disconnects and samples older than 60 seconds expose unknown values. Guest memory is separate from app PSS and is not a measurement of crosvm host overhead. Startup still fully hashes every immutable artifact; one buffer is reused across the verification pass and digest hex encoding avoids per-byte formatters. No metadata-based verification cache is permitted.
 
 
-### AVF session isolation and native recovery
+### AVF session isolation and direct transport
 
 The 2026-10-28 revision separates publication locks, request waiting and PTY
 lifecycle. Environment reconnect attempts run concurrently under their own
@@ -744,15 +744,50 @@ preparation leases. No registry metadata mutex is held across guest LIST calls,
 including strict idle/migration checks; destructive operations retain their
 existing preparation/mutation leases and recheck registration identity.
 
-Updated guests run `droid-sessiond --session-recovery` on host-only port 40507.
-This native Rust implementation replaces Python on the session hot path while
-retaining TSR1/TRS2 and the root-authenticated Unix connection to the PTY owner.
-It has bounded 256KiB consumption-credit rings, four socket/application pumps,
-32KiB chunks, immediate batches of up to four frames, 5-second heartbeats and
-20-second socket deadlines. The Unix hop and bounded backpressure remain;
-this is not a separate priority control channel or persistence across death.
-Python helpers remain packaged for compatibility/testing, but systemd executes
-the native binary. New guest behavior needs a verified component/image update.
+Current guest builds use one host-CID-only vsock connection on 40500. They omit
+`sessionResumeVersion`, remove the recovery service and Unix relay endpoint,
+and keep listener, client framing and PTYs in one poll loop:
+
+```text
+Android runtime / session protocol
+              |
+       host-only vsock 40500
+              |
+       droid-sessiond event loop
+       +-- listener + optional client (nonblocking frames)
+       +-- every live PTY: input / output / child exit
+       +-- bounded terminal tails when output cannot be delivered
+```
+
+No relay process, replay pumps, consumption ACKs or session recovery heartbeats
+run on this path. PTYs keep draining and child exits keep being collected while
+the client is absent or slow. Input requests with uncertain results are discarded
+on disconnect; local graphics replies remain guest-owned. CREATE/LIST/ATTACH
+metadata precedes output for any identity unknown to the new connection.
+
+Output tails have lazy bounds of 9 MiB / 512 chunks per session and 16 MiB /
+2,048 chunks overall. The per-session byte limit accommodates one supported
+6 MiB graphic's base64 expansion. Contiguous small chunks coalesce up to 32 KiB.
+Overflow sheds old batches and reports an OutputGap before the retained tail;
+batching avoids a parser-reset storm. The frame queue has a separate 2 MiB bound,
+with terminal output admitted only below 256 KiB / 128 frames, preserving control
+headroom. Guest process progress never depends on those queues draining.
+A successful resize sends available old-geometry output before its response and
+explicitly discards any tail that cannot fit without waiting. Terminal parsers
+discard incomplete sequences at a gap; attached UI mirrors receive a checkpoint.
+This preserves existing screen/history, but cannot reconstruct missing output
+or a TUI's lost state. A redraw may be necessary. There is no disk output spool.
+
+A PTY failure or an unconsumed guest graphics-reply flood terminates only the
+affected session, reporting an unavailable exit status (-1); it does not stop
+the listener or sibling PTYs. Actual process exit still reports its wait status.
+Verified Environment stop continues to remove all of its sessions and terminal
+state, while a transport disconnect alone is not proof of Environment death.
+
+Installed `sessionResumeVersion=1` images retain the host's existing replay
+adapter until a verified stopped-Environment component/image update. The component
+receipt selects the new manifest's missing/zero capability, so updating the APK
+alone does not silently change the wire expected by an installed guest.
 
 TSR1 operation 2 explicitly releases only the matching process-owner token,
 closing its replay and application sockets without terminating PTYs. Host close
@@ -763,6 +798,6 @@ and retain lease expiry; new/different owners cannot displace a live generation.
 PTY EOF is recorded independently of child exit. A closed output descriptor is
 removed from the poll set while its process remains listable/terminable. Only
 pending EOF/exit pairs enable a 100ms reap timer; ordinary connected sessions
-remain event-driven. The actual wait status produces the exit event, never an
-invented code or a transport-wide error. Control requests are dispatched before
+remain event-driven. A normal child exit uses its actual wait status; PTY I/O failure is handled
+separately as described above. Control requests are dispatched before
 a further turn of PTY output, and terminated descriptors are revalidated.

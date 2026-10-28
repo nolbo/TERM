@@ -57,6 +57,21 @@ class AvfImageVerifierTest {
         }
     }
 
+    @Test fun componentUpdateCanRetireRelayWithoutReplacingBootCapabilities() {
+        val root = Files.createTempDirectory("relay-base")
+        val candidate = Files.createTempDirectory("direct-components")
+        try {
+            writeVerifiedImage(root); writeVerifiedImage(candidate)
+            Files.writeString(root.resolve("manifest.properties"), "\nsessionResumeVersion=1\n",
+                java.nio.file.StandardOpenOption.APPEND)
+            val base = AvfImageVerifier.parse(root.resolve("manifest.properties"))
+            assertEquals(1, AvfGuestComponents.effective(root, base).sessionResumeVersion)
+            AvfGuestComponents.record(root, candidate)
+            assertEquals(0, AvfGuestComponents.effective(root, base).sessionResumeVersion)
+            assertEquals(base.kernelSha256, AvfGuestComponents.effective(root, base).kernelSha256)
+        } finally { root.toFile().deleteRecursively(); candidate.toFile().deleteRecursively() }
+    }
+
     @Test fun componentReceiptSelectsRecoveryCapabilitiesWithoutReplacingBootCapabilities() {
         val root = Files.createTempDirectory("base-capabilities")
         val candidate = Files.createTempDirectory("recovery-capabilities")

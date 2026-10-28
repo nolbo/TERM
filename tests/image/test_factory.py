@@ -68,7 +68,7 @@ class ImageFactoryTests(unittest.TestCase):
             self.assertNotIn("virtiofsVersion", manifest)
             self.assertNotIn("androidStorageVersion", manifest)
             self.assertNotIn("shareBrokerVersion", manifest)
-            self.assertEqual("1", manifest["sessionResumeVersion"])
+            self.assertNotIn("sessionResumeVersion", manifest)
             for key, name in factory.ARTIFACTS.items():
                 self.assertEqual(manifest[key + ".sha256"], hashlib.sha256(gzip.decompress((root / (name + ".gz")).read_bytes())).hexdigest())
                 self.assertLessEqual((root / name).stat().st_size, int(catalog["maxArtifactBytes"]))

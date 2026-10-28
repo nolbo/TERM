@@ -40,11 +40,13 @@ internal class SessionIdentities(private val namespace: String) {
 
     private fun id(event: SessionEvent): String = when (event) {
         is SessionEvent.Output -> event.sessionId
+        is SessionEvent.OutputGap -> event.sessionId
         is SessionEvent.Exited -> event.sessionId
         is SessionEvent.Resized -> event.sessionId
     }
     private fun mapped(event: SessionEvent): SessionEvent = when (event) {
         is SessionEvent.Output -> event.copy(sessionId = host(event.sessionId))
+        is SessionEvent.OutputGap -> event.copy(sessionId = host(event.sessionId))
         is SessionEvent.Exited -> event.copy(sessionId = host(event.sessionId))
         is SessionEvent.Resized -> error("Resize markers are already host-local")
     }

@@ -8,9 +8,6 @@ ExecStart=/usr/local/lib/droid-terminal/droid-sessiond
 Restart=on-failure
 RestartSec=2
 User=droid
-RuntimeDirectory=droid-sessiond
-RuntimeDirectoryMode=0700
-Environment=TERM_SESSION_RELAY=/run/droid-sessiond/relay.sock
 # Interactive guest shells need setuid sudo for Debian package management.
 NoNewPrivileges=no
 PrivateTmp=yes

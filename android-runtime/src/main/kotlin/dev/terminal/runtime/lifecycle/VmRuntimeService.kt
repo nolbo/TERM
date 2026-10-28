@@ -1519,6 +1519,12 @@ class VmRuntimeService : Service() {
             scope.launch {
                 registry.events.collect { event ->
                     when (event) {
+                        is SessionEvent.OutputGap -> if (registry.hasSessionOwner(event.sessionId)) {
+                            recordAvfSession("session.output.gap", event.sessionId, event.droppedBytes.toString())
+                            notifyOperationError("터미널 출력 누락", if (event.droppedBytes < 0)
+                                "연결이 끊긴 구간의 출력 일부가 누락됐을 수 있습니다."
+                                else "출력이 밀려 오래된 출력 ${event.droppedBytes}바이트를 버렸습니다.")
+                        }
                         is SessionEvent.Resized -> Unit // Consumed inside the registry before forwarding.
                         is SessionEvent.Output -> if (registry.hasSessionOwner(event.sessionId))
                             notifyTerminalOutput(event.sessionId, event.bytes, event.replay)

@@ -23,7 +23,9 @@ class TerminalCheckpointDeliveryDeviceTest {
     @Test fun capturePressurePreservesFullStateThroughDiskFallback() = verifyDelivery(CheckpointBudget(0))
     @Test fun largeStyledHistorySurvivesCaptureAndAndroidDeserialization() = verifyDelivery(CheckpointBudget(), true)
 
-    private fun verifyDelivery(budget: CheckpointBudget, large: Boolean = false) = runBlocking {
+    @Test fun outputGapQueuesParserResetBeforeResumedBytes() = verifyDelivery(CheckpointBudget(), gap = true)
+
+    private fun verifyDelivery(budget: CheckpointBudget, large: Boolean = false, gap: Boolean = false) = runBlocking {
         val cache = Files.createTempDirectory(InstrumentationRegistry.getInstrumentation().targetContext.cacheDir.toPath(), "checkpoint-test-").toFile()
         val worker = Executors.newSingleThreadExecutor()
         val release = CountDownLatch(1)
@@ -59,10 +61,11 @@ class TerminalCheckpointDeliveryDeviceTest {
             val state = RuntimeTerminalState(if (large) 10_000 else 100)
             state.create("a", if (large) 200 else 40, 8); state.create("b", 40, 8)
             if (large) state.output("a", "history \u001b[31mred\u001b[0m\r\n".repeat(10_000).toByteArray())
-            state.output("a", "BEFORE".toByteArray())
+            state.output("a", ("BEFORE" + if (gap) "\u001b]0;partial" else "").toByteArray())
             state.withSession("a") { state.subscribe("a", sink) }
             assertTrue("No named checkpoint may remain", cache.listFiles()!!.isEmpty())
             state.withSession("a") {
+                if (gap) state.outputGap("a")
                 state.output("a", "AFTER".toByteArray())
                 state.resize("a", 41, 8)
                 state.exited("a", 7)
@@ -72,7 +75,8 @@ class TerminalCheckpointDeliveryDeviceTest {
             release.countDown()
             assertTrue(done.await(5, TimeUnit.SECONDS))
             assertTrue(failures.toString(), failures.isEmpty())
-            assertEquals(listOf("checkpoint", "AFTER", "resize:41", "exit:7"), calls.toList())
+            assertEquals((if (gap) listOf("checkpoint", "checkpoint") else listOf("checkpoint")) +
+                listOf("AFTER", "resize:41", "exit:7"), calls.toList())
             assertTrue("Checkpoint files must remain unlinked", cache.listFiles()!!.isEmpty())
         } finally {
             release.countDown(); sink.close(); worker.shutdownNow()

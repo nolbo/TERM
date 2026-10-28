@@ -3009,6 +3009,18 @@ public final class TerminalEmulator implements java.io.Serializable {
         mScrollCounter = 0;
     }
 
+    /** Discard a truncated transport fragment without erasing the screen or modes. */
+    public void discardPartialSequence() {
+        mSynchronizedOutput.end();
+        startGraphicsString();
+        mOSCOrDeviceControlArgs.setLength(0);
+        mOSCDiscarding = false;
+        mArgIndex = 0;
+        mContinueSequence = false;
+        mEscapeState = ESC_NONE;
+        mUtf8Index = mUtf8ToFollow = 0;
+    }
+
     /** Reset terminal state so user can interact with it regardless of present state. */
     public void reset() {
         reset(true);

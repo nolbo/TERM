@@ -20,9 +20,9 @@ import time
 import uuid
 import importlib.util
 
-spec = importlib.util.spec_from_file_location('smoke_recovery', Path(__file__).with_name('smoke-avf-recovery.py'))
-recovery = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(recovery)
+spec = importlib.util.spec_from_file_location('smoke_session', Path(__file__).with_name('smoke-avf-session.py'))
+session_probe = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(session_probe)
 
 HEADER = struct.Struct('>IHBBHHQI')
 MAGIC = 0x44505459
@@ -115,10 +115,11 @@ def boot(directory, state, docker_image, scratch, number, timeout=600):
                 raise RuntimeError(f'Normal systemd boot {number} did not serve vsock ports {sorted(pending)}; last error: {last_error}')
             result = {'boot': number, 'seconds': round(time.monotonic() - started, 2),
                       'sessionListRpc': 'passed', 'packageInitializationPort': 'passed'}
-            session = recovery.SessionProbe(cid)
+            session = session_probe.SessionProbe(cid)
             try:
                 session.verify_reconnect()
-                result.update(sessionResume='passed')
+                session.verify_offline_progress()
+                result.update(sessionDirectReconnect='passed', sessionOfflineProgress='passed')
             finally:
                 session.close()
             return result

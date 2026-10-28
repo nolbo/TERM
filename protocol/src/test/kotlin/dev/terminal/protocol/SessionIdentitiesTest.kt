@@ -7,6 +7,20 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class SessionIdentitiesTest {
+    @Test fun outputGapsRoundTripAndUseTheSameSessionIdentityAsOutput() {
+        val identities = SessionIdentities("boot")
+        for (count in listOf(-1L, 0L, 9L * 1024 * 1024 * 1024)) {
+            val gap = SessionEvent.OutputGap("session-1", count)
+            val bytes = SessionEventCodec.encode(gap)
+            assertEquals(gap, SessionEventCodec.decode(bytes))
+            assertThrows(IllegalArgumentException::class.java) { SessionEventCodec.decode(bytes.dropLast(1).toByteArray()) }
+            assertThrows(IllegalArgumentException::class.java) { SessionEventCodec.decode(bytes + byteArrayOf(0)) }
+        }
+        assertThrows(IllegalArgumentException::class.java) { SessionEventCodec.encode(SessionEvent.OutputGap("session-1", -2)) }
+        assertNull(identities.event(SessionEvent.OutputGap("session-1", -1)))
+        val session = (identities.response(SessionResponse.Created(descriptor(123))) as SessionResponse.Created).session
+        assertEquals(listOf(SessionEvent.OutputGap(session.id, -1)), identities.identifiedEvents())
+    }
     private fun descriptor(time: Long) = SessionDescriptor("session-1", "Shell", "/bin/sh", "/", time, 24u, 80u, SessionStatus.RUNNING)
 
     @Test fun environmentAndCreationIdentityFenceReusedGuestCounters() {

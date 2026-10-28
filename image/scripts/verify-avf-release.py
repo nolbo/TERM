@@ -195,6 +195,10 @@ def verify_directory(root, metadata_only=False, expected_commit=None, expected_m
             raise ValueError('Missing verified normal-boot evidence')
         if values.get('sessionResumeVersion') == '1' and any(boot.get('sessionResume') != 'passed' for boot in boots):
             raise ValueError('Missing verified session recovery evidence')
+        if values.get('sessionResumeVersion') != '1' and any(
+                boot.get(key) != 'passed' for boot in boots
+                for key in ('sessionDirectReconnect', 'sessionOfflineProgress')):
+            raise ValueError('Missing verified direct session evidence')
     if require_private_shares_boot:
         report = provenance.get('normalBootVerification') or {}
         boots = report.get('boots') or []

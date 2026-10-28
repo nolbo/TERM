@@ -1,19 +1,22 @@
 # AVF guest and image updates
 
-Recovery images add userspace capabilities `shareBrokerVersion=2` and
-`sessionResumeVersion=1`. A verified component update installs the session daemon, compatibility replay
-helpers, the resumable session service and sessiond's root-authenticated Unix
-endpoint, and enables the new service for the next normal boot. New packages run
-`/usr/local/lib/droid/droid-sessiond --session-recovery` instead of Python for
-that service and include independent PTY EOF/child-exit handling. The unchanged
-`sessionResumeVersion=1` wire protocol gains optional token-scoped release; older
-guests reject that operation safely and keep their lease expiry policy. The component
-receipt selects these capability versions; kernel/initrd capabilities still
-come from the base image. Update only a stopped Environment through the existing
-copy/health/activation transaction. Updating the APK alone does not retrofit a
-running or old guest. Unchanged kernel hashes permit component updates; a kernel
-change retains the full-transition rules below. Replay state is process-local
-and is never migrated as persistent input/output history.
+Current guest builds omit `sessionResumeVersion` and serve session frames directly
+on host-only vsock 40500. The daemon drains PTYs and collects exits without an
+active viewer, retaining bounded lossy output tails with explicit gap events.
+The recovery service, Python/native relay and Unix relay endpoint are retired.
+A verified component update removes the obsolete TERM unit/symlink/helpers;
+user files and distribution services remain unchanged. The existing component
+receipt selects the target's missing/zero session capability, including a
+transition from an installed `sessionResumeVersion=1` base.
+
+The APK retains its legacy relay adapter for unchanged installed images. Updating
+the APK alone cannot deliver the new guest architecture or its performance gains.
+Use the existing stopped-Environment copy/health/activation transaction to apply
+a verified component or image update. No live disk is overwritten. Matching
+kernel hashes permit component updates; full-transition rules below still apply.
+The new OutputGap handling requires the matching approved APK; an older host
+cannot safely reset incomplete terminal parsers after lost output. Input and
+output buffers are process-local and never migrate as persistent history.
 
 ## Decision and compatibility
 

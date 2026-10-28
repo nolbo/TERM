@@ -121,6 +121,7 @@ class UnifiedSessionRegistry(
                     is SessionEvent.Output -> event.sessionId
                     is SessionEvent.Exited -> event.sessionId
                     is SessionEvent.Resized -> event.sessionId
+                    is SessionEvent.OutputGap -> event.sessionId
                 }
                 if (sessionId in registration.removed) return@collect
                 if (event is SessionEvent.Resized) {
@@ -134,7 +135,13 @@ class UnifiedSessionRegistry(
                     owners.remove(sessionId, key)
                     return@collect
                 }
-                if (event is SessionEvent.Output && !event.replay) {
+                if (event is SessionEvent.OutputGap) {
+                    if (terminalStates.identity(sessionId) == null) registration.creation.withLock { }
+                    if (registrations[key] !== registration || sessionId in registration.removed) return@collect
+                    controlStreams[sessionId]?.discardPartialSequence()
+                    terminalStates.withSession(sessionId) { terminalStates.outputGap(sessionId) }
+                    mutableEvents.emit(event)
+                } else if (event is SessionEvent.Output && !event.replay) {
                     // CREATE may deliver its first output before the caller resumes. Only
                     // that new session waits for initialization; existing output keeps flowing.
                     if (terminalStates.identity(sessionId) == null) registration.creation.withLock { }

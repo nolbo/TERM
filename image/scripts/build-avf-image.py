@@ -103,7 +103,7 @@ def write_release(root, release_id, base_uri, source_url, source_sha, distributi
         hashes = dict(zip(names, workers.map(compress_artifact, (root / name for name in names))))
     if kernel_build:
         KERNEL["validate_provenance"](kernel_build, hashes["vmlinuz"])
-    manifest = f"formatVersion=2\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nsessionResumeVersion=1\nmaintenanceVersion=1\n"
+    manifest = f"formatVersion=2\ndistribution={distribution}\narchitecture=arm64\npackageInitializationVersion=1\nmaintenanceVersion=1\n"
     if distribution in ("debian", "ubuntu"):
         manifest += "aptInitializationVersion=1\n"
     for key, name in ARTIFACTS.items():

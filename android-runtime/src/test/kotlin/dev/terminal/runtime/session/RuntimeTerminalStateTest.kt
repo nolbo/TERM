@@ -9,6 +9,22 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class RuntimeTerminalStateTest {
+    @Test fun outputGapRestoresParsersInAttachedAndDetachedMirrorsWithoutErasingScreen() {
+        for (partial in listOf("\u001b]133;C", "\u001b[6", "\u001b_Gi=42;", "\u001bP\$q", "\u001b[4;")) {
+            val state = RuntimeTerminalState(); state.create("id", 40, 8)
+            val attached = Mirror(); state.subscribe("id", attached)
+            state.output("id", ("BEFORE\u001b[?2004h" + partial).toByteArray())
+            state.outputGap("id")
+            assertTrue(state.output("id", "AFTER".toByteArray()).isEmpty())
+            assertTrue(state.takeActivity("id").isEmpty())
+            val detached = Mirror(); state.subscribe("id", detached)
+            for (mirror in listOf(attached, detached)) {
+                assertTrue(mirror.emulator.screen.transcriptText.contains("BEFOREAFTER"))
+                assertTrue(mirror.output.replies.isEmpty())
+            }
+            assertEquals(listOf("checkpoint", "output", "checkpoint", "output"), attached.order)
+        }
+    }
     @Test fun commandHistoryContinuesWhileDetachedAndRestoresSearchableAnchors() {
         val state = RuntimeTerminalState(100)
         state.create("history", 40, 5)

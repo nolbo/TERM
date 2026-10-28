@@ -178,14 +178,14 @@ class CatalogVerificationTests(unittest.TestCase):
         provenance['normalBootVerification'] = {
             'mode': 'normal-systemd', 'transport': 'host-vsock', 'network': 'disabled',
             'boots': [{'boot': n, 'sessionListRpc': 'passed', 'packageInitializationPort': 'passed',
-                       'sessionResume': 'passed'} for n in [1, 2]]}
+                       'sessionDirectReconnect': 'passed', 'sessionOfflineProgress': 'passed'} for n in [1, 2]]}
         (self.root / 'provenance.json').write_text(json.dumps(provenance))
         self.refresh_checksums()
         verifier.verify_directory(self.root, metadata_only=True, require_normal_boot=True)
-        provenance['normalBootVerification']['boots'][0]['sessionResume'] = 'failed'
+        provenance['normalBootVerification']['boots'][0]['sessionOfflineProgress'] = 'failed'
         (self.root / 'provenance.json').write_text(json.dumps(provenance))
         self.refresh_checksums()
-        with self.assertRaisesRegex(ValueError, 'session recovery evidence'):
+        with self.assertRaisesRegex(ValueError, 'direct session evidence'):
             verifier.verify_directory(self.root, metadata_only=True, require_normal_boot=True)
 
     def test_metadata_transfer_is_checked_against_producer_outputs(self):

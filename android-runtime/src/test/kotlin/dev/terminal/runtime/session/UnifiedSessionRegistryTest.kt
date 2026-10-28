@@ -35,6 +35,31 @@ import kotlinx.coroutines.yield
 import org.junit.Test
 
 class UnifiedSessionRegistryTest {
+    @Test fun outputGapCannotCompleteAnEarlierRemoteCommandAndKeepsSessionOwnership() = runBlocking {
+        val commands = java.util.concurrent.ConcurrentLinkedQueue<String>()
+        val registry = UnifiedSessionRegistry(remoteCommand = { _, command -> commands.add(command); null })
+        val controller = FakeController("avf-a")
+        val events = Channel<SessionEvent>(Channel.UNLIMITED)
+        val collector = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            registry.events.collect { events.send(it) }
+        }
+        try {
+            registry.register(SessionRuntime.AVF, controller)
+            registry.list().getOrThrow()
+            registry.terminalStates.create("avf-a", 80, 24)
+            withTimeout(2_000) {
+                controller.emit(SessionEvent.Output("avf-a", "BEFORE\u001bP@kitty-cmd{}".toByteArray()))
+                assertTrue(events.receive() is SessionEvent.Output)
+                controller.emit(SessionEvent.OutputGap("avf-a", -1))
+                assertEquals(SessionEvent.OutputGap("avf-a", -1), events.receive())
+                controller.emit(SessionEvent.Output("avf-a", "\u001b\\AFTER".toByteArray()))
+                assertTrue(events.receive() is SessionEvent.Output)
+            }
+            assertTrue(commands.isEmpty())
+            assertEquals(listOf("avf-a"), registry.cachedSessions().map { it.id })
+            assertEquals(0, controller.writeCount)
+        } finally { collector.cancel(); registry.close() }
+    }
     @Test fun stalledOwnerListDoesNotBlockSiblingPublicationOrResurrectTerminatedSessions() = runBlocking {
         val slow = Environment.create(SessionRuntime.AVF, "Slow")
         val healthy = Environment.create(SessionRuntime.NATIVE, "Healthy")
@@ -671,6 +696,7 @@ class UnifiedSessionRegistryTest {
         private val mutableState = MutableStateFlow(SessionConnectionState.CONNECTED)
         override val events: SharedFlow<SessionEvent> = mutableEvents
         override val connectionState: StateFlow<SessionConnectionState> = mutableState
+        suspend fun emit(event: SessionEvent) { mutableEvents.emit(event) }
         fun disconnect() { mutableState.value = SessionConnectionState.DISCONNECTED }
         suspend fun exit(sessionId: String) {
             descriptors[sessionId] = descriptors.getValue(sessionId).copy(state = SessionStatus.EXITED, exitCode = 0)

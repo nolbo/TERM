@@ -28,9 +28,6 @@ COPY image/scripts/configure-avf-guest.sh /payload/configure-avf-guest.sh
 COPY image/scripts/configure-avf-user.sh /payload/configure-avf-user.sh
 COPY image/scripts/configure-avf-network.sh /payload/configure-avf-network.sh
 COPY image/scripts/configure-avf-session.sh /payload/configure-avf-session.sh
-COPY image/scripts/private-share-transport.py /payload/private-share-transport.py
-COPY image/scripts/session-recovery.py /payload/session-recovery.py
-COPY image/scripts/term-session-recovery.service /payload/term-session-recovery.service
 COPY image/scripts/initialize-avf-packages.sh /payload/initialize-avf-packages.sh
 COPY image/scripts/clean-avf-apt.sh /payload/clean-avf-apt.sh
 COPY image/scripts/term-virtio.network /payload/term-virtio.network

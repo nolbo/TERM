@@ -105,6 +105,11 @@ public final class KittyControlStream {
         return parts;
     }
 
+    /** Missing transport bytes cannot complete a command or keyboard-mode sequence. */
+    public void discardPartialSequence() {
+        pending.reset(); csi.setLength(0); state = utf8 = 0; osc = dcsC1 = false;
+    }
+
     /** Preserve an incomplete ordinary escape prefix at EOF; incomplete requests never execute. */
     public byte[] finish() {
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();

@@ -156,7 +156,7 @@ class EnvironmentBackupDeviceTest {
             controller.events.collect { event -> when (event) {
                 is SessionEvent.Output -> text.append(event.bytes.toString(Charsets.UTF_8))
                 is SessionEvent.Exited -> exited.complete(event.exitCode)
-                is SessionEvent.Resized -> Unit
+                is SessionEvent.Resized, is SessionEvent.OutputGap -> Unit
             } }
         }
         try {

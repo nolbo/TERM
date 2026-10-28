@@ -1,5 +1,79 @@
 # AVF notes
 
+## Direct session transport and independent PTYs (2026-10-28)
+
+This revision supersedes the guest relay design in the historical section below.
+The remaining structural problem was that replay credit and client socket
+capacity gated the session daemon's PTY reads and child reaping. An absent/slow
+viewer could therefore stop ordinary Linux writers. Replacing Python with Rust
+reduced overhead but retained that coupling, a separate process, four relay
+workers, a Unix hop, ACKs and recovery timers.
+
+Current guests use one nonblocking poll loop and direct host-only vsock 40500.
+PTY processing continues offline; bounded output tails shed old batches with an
+explicit OutputGap instead of blocking programs. Small chunks coalesce; the
+9 MiB session bound accommodates an existing maximum-size graphic expansion,
+with a 16 MiB total tail bound and independent 2 MiB frame queue. Healthy resize
+preserves queued output order; congested old-geometry tails are dropped before
+the response. Partial terminal/control parsers reset on a gap. Ordinary process
+exit is still distinct from PTY EOF, transport loss and verified VM stop.
+
+Alternatives rejected were another relay optimization (still coupled process
+progress to replay), a second priority socket (more ownership/recovery state),
+and unlimited memory/disk output retention (unbounded resource use). The chosen
+trade-off is explicit, bounded output loss under overload/disconnection; it is
+not exact replay or a promise to reconstruct lost TUI state. Old installed images
+keep the host compatibility adapter. New guest behavior requires a verified
+component/image update of a stopped Environment; no installed disk is rewritten
+by this source change or APK alone.
+
+Validation on the ARM64 development host:
+
+- Guest Rust: 38 tests passed, including 32 MiB production through real PTYs with
+  no client and with an unread client; both reached actual exit and released the
+  PTY. Bounds, output-gap ordering, discovery-before-tail, unknown input discard,
+  delayed exit, sibling progress and resize under congestion are covered.
+- Python image suite: 126 tests passed, including obsolete-unit removal and
+  release evidence checks. Normal-boot probes now require direct reconnect and
+  EXITED in the first LIST after a 32 MiB offline child; they were not run against
+  a privileged AVF image on this host.
+- Canonical Gradle verification plus protocol, terminal-emulator, app and AOSP
+  runtime unit tests passed (JDK 17, existing ARM64 AAPT2 wrapper).
+- Android MCP/ReDroid: output-gap checkpoint ordering, stopped-owner removal and
+  AVF transport failure isolation with a real sibling PTY passed (3 tests).
+  This target does not provide a real AVF VM. Userspace Linux versus AVF device
+  latency, throughput, CPU, battery and repeated disconnect rates remain unmeasured.
+
+A separate release-mode, same-host Unix-socket comparison isolates transport
+cost. The baseline is `e376ead55582e3fb76bf1b3e495d4a2d803a2035`; both paths use
+the same Rust echo/bulk producer, 100 warmups, 2,000 one-byte round trips and
+8 MiB bulk output with byte validation included. Five alternating runs gave:
+
+| Metric | Baseline native relay | Direct socket |
+| --- | ---: | ---: |
+| Median of mean echo RTT (µs) | 59.48 | 11.14 |
+| RTT range (µs) | 55.98–59.80 | 11.10–11.64 |
+| Median bulk throughput (MiB/s) | 684.20 | 779.77 |
+| Bulk range (MiB/s) | 521.15–737.63 | 656.61–978.86 |
+
+The bulk ranges overlap and vary with scheduling/allocation. These measurements
+exclude Android Binder, vsock/hypervisor, PTY parsing and rendering. They support
+removing relay overhead, not a claim that the whole AVF runtime is 5× faster or
+faster than Userspace Linux. The comparison harness lives only in tests and loads
+the historical relay; current production guests contain no relay implementation.
+To reproduce from the repository root without switching branches:
+
+```sh
+bench_root=$(mktemp -d /tmp/term-avf-compare.XXXXXX)
+git archive e376ead55582e3fb76bf1b3e495d4a2d803a2035 guest/droid-sessiond | tar -x -C "$bench_root"
+cp tests/benchmarks/avf_direct_vs_relay.rs "$bench_root/guest/droid-sessiond/src/recovery_benchmark.rs"
+cargo test --offline --release --manifest-path "$bench_root/guest/droid-sessiond/Cargo.toml" native_and_direct_transport_benchmark -- --ignored --nocapture
+```
+
+All sections below record earlier decisions and measurements; the current
+architecture, wire and update contracts are in ARCHITECTURE, PROTOCOL and
+AVF_UPDATES respectively.
+
 ## Runtime isolation and native recovery redesign (2026-10-28)
 
 The review found that recovery had enlarged the failure domain: a LIST held

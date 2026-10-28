@@ -7,6 +7,19 @@ import java.util.List;
 import junit.framework.TestCase;
 
 public class KittyControlStreamTest extends TestCase {
+    public void testOutputGapDiscardsIncompleteCommandWithoutResettingKeyboardMode() {
+        KittyControlStream stream = new KittyControlStream();
+        stream.accept("\033[>7u\033P@kitty-cmd{\"cmd\":\"launch\"}".getBytes(StandardCharsets.UTF_8));
+        stream.discardPartialSequence();
+        for (KittyControlStream.Part part : stream.accept("\033\\AFTER".getBytes(StandardCharsets.UTF_8))) {
+            assertNull(part.command);
+        }
+        assertEquals(7, stream.keyboard().flags());
+        stream.accept("\033[>".getBytes(StandardCharsets.UTF_8));
+        stream.discardPartialSequence();
+        stream.accept("31u".getBytes(StandardCharsets.UTF_8));
+        assertEquals(7, stream.keyboard().flags());
+    }
     public void testRemoteCommandFramingAtEveryByteBoundaryAndUtf8() {
         String json = "{\"cmd\":\"set-window-title\",\"payload\":{\"title\":\"М한글\"}}";
         byte[] input = ("before\033P@kitty-cmd" + json + "\033\\after").getBytes(StandardCharsets.UTF_8);

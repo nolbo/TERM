@@ -12,14 +12,10 @@ class AvfNoSharesTest(unittest.TestCase):
             root = Path(temporary)
             subprocess.run(['sh', str(REPO / 'image/scripts/configure-avf-session.sh'), str(root),
                             str(REPO / 'image/scripts')], check=True)
-            self.assertTrue((root / 'usr/local/lib/droid/session-recovery.py').is_file())
-            self.assertTrue((root / 'usr/local/lib/droid/private-share-transport.py').is_file())
-            units = root / 'etc/systemd/system'
-            self.assertEqual(['term-session-recovery.service'], sorted(p.name for p in units.glob('*.service')))
-            self.assertFalse((units / 'droid-sessiond.service.d').exists())
-            self.assertTrue((units / 'multi-user.target.wants/term-session-recovery.service').is_symlink())
-            self.assertIn('ExecStart=/usr/local/lib/droid/droid-sessiond --session-recovery',
-                          (units / 'term-session-recovery.service').read_text())
+            self.assertFalse((root / 'usr/local/lib/droid/session-recovery.py').exists())
+            self.assertFalse((root / 'usr/local/lib/droid/private-share-transport.py').exists())
+            self.assertFalse((root / 'etc/systemd/system/term-session-recovery.service').exists())
+            self.assertFalse((root / 'etc/systemd/system/multi-user.target.wants/term-session-recovery.service').is_symlink())
 
     def test_maintenance_retires_only_term_services_and_preserves_data(self):
         spec = importlib.util.spec_from_file_location('migrate_retired_shares', REPO / 'image/scripts/migrate-avf-state.py')
@@ -28,6 +24,9 @@ class AvfNoSharesTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             paths = ['etc/systemd/system/term-shares.service',
+                     'etc/systemd/system/term-session-recovery.service',
+                     'usr/local/lib/droid/session-recovery.py',
+                     'usr/local/lib/droid/private-share-transport.py',
                      'etc/systemd/system/droid-sessiond.service.d/shares.conf',
                      'etc/systemd/system/droid-sessiond.service.d/android-storage.conf',
                      'usr/local/lib/droid/private-share-broker.py']
@@ -38,9 +37,11 @@ class AvfNoSharesTest(unittest.TestCase):
             wants = root / 'etc/systemd/system/multi-user.target.wants'
             wants.mkdir()
             (wants / 'term-shares.service').symlink_to('/etc/systemd/system/term-shares.service')
+            (wants / 'term-session-recovery.service').symlink_to('/etc/systemd/system/term-session-recovery.service')
             migrate.retire_shared_directories(root)
             self.assertTrue(all(not (root / name).exists() for name in paths))
             self.assertFalse((wants / 'term-shares.service').is_symlink())
+            self.assertFalse((wants / 'term-session-recovery.service').is_symlink())
             self.assertEqual('keep', (root / 'home/droid/project/keep').read_text())
             self.assertEqual('keep', (root / 'etc/fuse.conf').read_text())
 

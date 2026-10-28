@@ -48,7 +48,7 @@ printf '[Service]\nGroup=droid\n' > /etc/systemd/system/droid-agent.service.d/ac
 # v2 boots a complete writable ext4 root. The separate sealed system is a
 # read-only baseline for verification, package provenance and three-way updates.
 printf '/dev/vdb / ext4 defaults 0 1\n/dev/vda /.droid/lower ext4 ro,noload,nodev,nosuid,noexec 0 0\n/dev/vdc /etc/droid-config ext4 ro,nodev,nosuid,noexec 0 0\n' > /etc/fstab
-for service in droid-sessiond droid-agent droid-port-agent droid-apt-init droid-file-transfer term-session-recovery; do
+for service in droid-sessiond droid-agent droid-port-agent droid-apt-init droid-file-transfer; do
   systemctl enable "$service.service"
   systemd-analyze verify "/etc/systemd/system/$service.service"
 done

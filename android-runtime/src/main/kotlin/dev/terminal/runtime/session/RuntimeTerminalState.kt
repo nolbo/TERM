@@ -51,6 +51,13 @@ class RuntimeTerminalState(private val transcriptRows: Int = 10_000) {
         return entry.replies.toList().also { entry.replies.clear() }
     }
 
+    fun outputGap(id: String) {
+        val entry = entries[id] ?: return
+        entry.emulator.discardPartialSequence()
+        // A checkpoint also resets every renderer's partial parser, in order.
+        deliver(entry) { it.checkpoint(entry.emulator, entry.viewport) }
+    }
+
     fun takeActivity(id: String): List<String> = entries[id]?.activity?.let { events ->
         if (events.isEmpty()) emptyList() else events.toList().also { events.clear() }
     } ?: emptyList()

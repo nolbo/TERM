@@ -3,6 +3,7 @@
 #[derive(Debug)]
 pub enum SessionEvent<'a> {
     Output { session_id: &'a str, bytes: &'a [u8] },
+    OutputGap { session_id: &'a str, dropped_bytes: i64 },
     Exited { session_id: &'a str, exit_code: i32 },
 }
 
@@ -14,6 +15,9 @@ impl SessionEvent<'_> {
                 if output.len() > 1_048_576 { return Err(EventError::InvalidLength); }
                 bytes.push(0x90); write_string(&mut bytes, session_id)?;
                 bytes.extend_from_slice(&(output.len() as i32).to_be_bytes()); bytes.extend_from_slice(output);
+            }
+            Self::OutputGap { session_id, dropped_bytes } => {
+                bytes.push(0x92); write_string(&mut bytes, session_id)?; bytes.extend_from_slice(&dropped_bytes.to_be_bytes());
             }
             Self::Exited { session_id, exit_code } => {
                 bytes.push(0x91); write_string(&mut bytes, session_id)?; bytes.extend_from_slice(&exit_code.to_be_bytes());

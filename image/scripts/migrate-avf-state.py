@@ -342,13 +342,13 @@ def retire_shared_directories(root):
         path.unlink(missing_ok=True)
 
     # Never remove user data or distro FUSE support; retire only TERM's mounts.
-    for name in ("term-shares", "term-share-broker", "term-share-selftest", "term-android-storage"):
+    for name in ("term-shares", "term-share-broker", "term-share-selftest", "term-android-storage", "term-session-recovery"):
         remove(root / "etc/systemd/system/multi-user.target.wants" / (name + ".service"))
         remove(root / "etc/systemd/system" / (name + ".service"))
     for name in ("shares.conf", "android-storage.conf"):
         remove(root / "etc/systemd/system/droid-sessiond.service.d" / name)
     for name in ("mount-shared-directories.sh", "mount-android-storage.sh", "private-share-broker.py",
-                 "private-share-recovery.py", "image-share-selftest.py"):
+                 "private-share-recovery.py", "image-share-selftest.py", "session-recovery.py", "private-share-transport.py"):
         remove(root / "usr/local/lib/droid" / name)
 
 
@@ -371,8 +371,7 @@ def main(operation):
                 run("chroot", str(OLD), "pacman", "-U", "--noconfirm", "--overwrite", overwrite, "/tmp/term-guest.pkg.tar")
         enabled = OLD / "etc/systemd/system/multi-user.target.wants"
         enabled.mkdir(parents=True, exist_ok=True)
-        for name in ("droid-sessiond", "droid-agent", "droid-port-agent", "droid-apt-init", "droid-file-transfer",
-                     "term-session-recovery"):
+        for name in ("droid-sessiond", "droid-agent", "droid-port-agent", "droid-apt-init", "droid-file-transfer"):
             target = enabled / (name + ".service")
             if not target.exists() and not target.is_symlink():
                 target.symlink_to("/etc/systemd/system/" + name + ".service")
