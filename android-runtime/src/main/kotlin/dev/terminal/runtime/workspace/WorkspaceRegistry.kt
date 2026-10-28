@@ -2,6 +2,7 @@ package dev.terminal.runtime.workspace
 
 import dev.terminal.runtime.session.SessionLaunchSpec
 import dev.terminal.runtime.session.SessionProfile
+import dev.terminal.runtime.session.SessionRuntime
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
@@ -121,6 +122,15 @@ class WorkspaceRegistry(private val read: () -> String?, private val write: (Str
         check(workspace.temporary) { "Workspace is no longer temporary" }
         check(id !in state.memberships.values && id !in pendingWorkspaceIds) { "Workspace has sessions or pending launches" }
         delete(id)
+    }
+    /** A new runtime owner cannot recover local PTYs; archived records still retain membership. */
+    @Synchronized fun reconcileAfterOwnerRestart(restoredSessionIds: Set<String>) {
+        val state = snapshot()
+        val memberships = state.memberships.filterKeys { id ->
+            val runtime = SessionRuntime.fromSessionId(id)
+            id in restoredSessionIds || runtime == null || runtime == SessionRuntime.AVF
+        }
+        if (memberships != state.memberships) persist(state.copy(memberships = memberships))
     }
     /** Null means the owner could not establish actual session state. Never collect from a UI cache. */
     @Synchronized fun reconcile(liveIds: Set<String>?, pendingWorkspaceIds: Set<String> = emptySet()) {
