@@ -39,10 +39,9 @@ class UnifiedSessionRegistry(
     private val onOutputActivity: (String, List<String>) -> Unit = { _, _ -> },
     private val recordLaunch: (String, SessionLaunchSpec) -> Unit = { _, _ -> },
     private val restoreLaunch: (String) -> SessionLaunchSpec? = { null },
+    private val onRemoved: (List<String>) -> Unit = {},
     private val remoteCommand: (suspend (String, String) -> ByteArray?)? = null,
     val terminalStates: RuntimeTerminalState = RuntimeTerminalState(),
-    private val archive: RetainedSessionArchive? = null,
-    private val retentionTitle: (String) -> String? = { null },
     private val initialPalette: (SessionLaunchSpec) -> java.util.Properties = { spec ->
         spec.palette?.let(TerminalPalette::asProperties) ?: java.util.Properties()
     },
@@ -50,6 +49,7 @@ class UnifiedSessionRegistry(
     private data class Registration(val controller: SessionController, val jobs: List<Job>, val inputOwner: Any,
         val terminalReplies: dev.terminal.runtime.lifecycle.OrderedSessionInput, val lifetime: Job,
         val creation: Mutex = Mutex(),
+        val removed: MutableSet<String> = ConcurrentHashMap.newKeySet(),
         var version: Long = 0, var query: Long = 0,
         var resourceJob: Job? = null, var resourceCheckedAt: Long = 0,
         var resourceUnsupported: Boolean = false, var resources: dev.terminal.protocol.GuestResourceUsage? = null)
@@ -79,8 +79,6 @@ class UnifiedSessionRegistry(
     private val environments = ConcurrentHashMap<StorageKey, Environment>()
     private val launches = ConcurrentHashMap<String, SessionLaunchSpec>()
     private val lastKnownSessions = ConcurrentHashMap<StorageKey, List<SessionDescriptor>>()
-    private val retainedSessions = ConcurrentHashMap<String, RetainedSession>()
-    private val unsavedSessions = ConcurrentHashMap.newKeySet<String>()
     private val listMutex = Mutex()
     private val mutationLocks = dev.terminal.runtime.lifecycle.StoragePreparationLocks()
     private val geometryLocks = SessionOperationLocks()
@@ -90,13 +88,6 @@ class UnifiedSessionRegistry(
 
     override val events: SharedFlow<SessionEvent> = mutableEvents.asSharedFlow()
     override val connectionState: StateFlow<SessionConnectionState> = mutableConnection.asStateFlow()
-
-    init {
-        archive?.restore(terminalStates)?.forEach { retained ->
-            retainedSessions[retained.descriptor.id] = retained
-            restoreLaunch(retained.descriptor.id)?.let { launches[retained.descriptor.id] = it }
-        }
-    }
 
     fun register(environment: Environment, controller: SessionController) {
         environments[StorageKey(environment.sessionRuntime, environment.storage.id)] = environment
@@ -131,7 +122,7 @@ class UnifiedSessionRegistry(
                     is SessionEvent.Exited -> event.sessionId
                     is SessionEvent.Resized -> event.sessionId
                 }
-                if (retainedSessions.containsKey(sessionId)) return@collect
+                if (sessionId in registration.removed) return@collect
                 if (event is SessionEvent.Resized) {
                     pendingResizes[sessionId]?.takeIf { it === event.barrier }?.let { pending ->
                         applyResize(sessionId, pending, event.rows.toInt(), event.cols.toInt())
@@ -139,22 +130,25 @@ class UnifiedSessionRegistry(
                     return@collect
                 }
                 owners.putIfAbsent(sessionId, key)
+                if (sessionId in registration.removed) {
+                    owners.remove(sessionId, key)
+                    return@collect
+                }
                 if (event is SessionEvent.Output && !event.replay) {
                     // CREATE may deliver its first output before the caller resumes. Only
                     // that new session waits for initialization; existing output keeps flowing.
                     if (terminalStates.identity(sessionId) == null) registration.creation.withLock { }
-                    if (registrations[key] !== registration) return@collect
+                    if (registrations[key] !== registration || sessionId in registration.removed) return@collect
                     val stream = controlStreams.getOrPut(sessionId) { dev.terminal.emulator.KittyControlStream() }
                     val parts = stream.accept(event.bytes)
                     keyboardFlags[sessionId] = stream.keyboard().flags()
                     for (part in parts) {
                         if (part.bytes != null) {
                             val (state, replies, activity) = terminalStates.withSession(sessionId) {
-                                if (isRetained(sessionId)) return@withSession Triple(null, emptyList<ByteArray>(), emptyList<String>())
+                                if (sessionId in registration.removed) return@withSession Triple(null, emptyList<ByteArray>(), emptyList<String>())
                                 val replies = terminalStates.output(sessionId, part.bytes)
                                 Triple(terminalStates.identity(sessionId), replies, terminalStates.takeActivity(sessionId))
                             }
-                            if (isRetained(sessionId)) return@collect
                             if (state != null) onOutputActivity(sessionId, activity)
                             if (key.runtime == SessionRuntime.AVF) {
                                 enqueueTerminalReplies(key, registration, sessionId, state, replies)
@@ -170,7 +164,7 @@ class UnifiedSessionRegistry(
                 } else {
                     if (event is SessionEvent.Exited) {
                         listMutex.withLock {
-                            if (isRetained(sessionId)) return@collect
+                            if (sessionId in registration.removed) return@collect
                             if (registrations[key] === registration) {
                                 registration.version++
                                 lastKnownSessions.computeIfPresent(key) { _, sessions -> sessions.map {
@@ -254,7 +248,7 @@ class UnifiedSessionRegistry(
     /** Read-only UI projection. A disconnected owner is not evidence of session death. */
     fun cachedSessions(): List<SessionDescriptor> = lastKnownSessions.entries
         .sortedWith(compareBy({ it.key.runtime.ordinal }, { it.key.storageId }))
-        .flatMap { it.value }.plus(retainedSessions.values.map { it.descriptor }).sortedBy { it.createdAtMs }
+        .flatMap { it.value }.sortedBy { it.createdAtMs }
 
     /** Unlike aggregate list(), exposes this owner's failure instead of its cached sessions. */
     suspend fun refreshEnvironment(environment: Environment): Result<List<SessionDescriptor>> {
@@ -263,108 +257,81 @@ class UnifiedSessionRegistry(
         return refreshRegistration(key, registration)
     }
 
-    private suspend fun refreshRegistration(key: StorageKey, registration: Registration): Result<List<SessionDescriptor>> {
-        val result = registration.creation.withLock {
+    private suspend fun refreshRegistration(key: StorageKey, registration: Registration): Result<List<SessionDescriptor>> =
+        registration.creation.withLock {
             val ticket = listMutex.withLock { registration.version to ++registration.query }
             val current = registration.controller.list().getOrElse { return Result.failure(it) }
+            var removed = emptyList<String>()
             val result = listMutex.withLock {
                 if (registrations[key] !== registration) Result.failure(IllegalStateException("Environment owner changed"))
                 else if (registration.version != ticket.first || registration.query != ticket.second)
                     Result.success(lastKnownSessions[key].orEmpty())
-                else runCatching { rememberSessions(key, current) }
+                else {
+                    val ids = current.mapTo(mutableSetOf()) { it.id }
+                    removed = lastKnownSessions[key].orEmpty().map { it.id }.filter { it !in ids }
+                    registration.removed.addAll(removed)
+                    Result.success(rememberSessions(key, current))
+                }
             }
-            // A recovered owner can contain sessions first seen by this host.
-            // Its initial output waits on this owner-only gate until state exists.
+            // RPCs and per-session cleanup never hold the global publication lock.
+            discardSessions(removed)
             result.getOrNull().orEmpty().forEach { session -> terminalStates.withSession(session.id) {
-                if (registrations[key] === registration && owners[session.id] == key && !isRetained(session.id)) {
+                if (registrations[key] === registration && owners[session.id] == key && session.id !in registration.removed) {
                     terminalStates.create(session.id, session.cols.toInt(), session.rows.toInt())
                     if (session.state == dev.terminal.protocol.SessionStatus.EXITED) terminalStates.exited(session.id, session.exitCode)
                 }
             } }
             result
         }
-        persistRetained()
-        return result
+
+    private suspend fun discardSessions(ids: List<String>) {
+        val discarded = mutableListOf<String>()
+        ids.forEach { id -> terminalStates.withSession(id) {
+            // A replacement registration may already have reclaimed this identity.
+            if (owners.containsKey(id)) return@withSession
+            terminalStates.remove(id)
+            launches.remove(id); controlStreams.remove(id); keyboardFlags.remove(id)
+            discarded.add(id)
+        } }
+        if (discarded.isNotEmpty()) onRemoved(discarded)
     }
 
-    /** Release proven-dead process ownership, retaining terminal/history identities. */
-    suspend fun retainStoppedEnvironment(environment: Environment, verifyStopped: suspend () -> Unit): List<String> =
+    /** Caller also holds its Environment preparation lease; unknown VM state preserves everything. */
+    suspend fun forgetStoppedEnvironment(environment: Environment, verifyStopped: suspend () -> Unit): List<String> =
         mutationLocks.withStorage(environment.sessionRuntime, environment.storage.id) {
             verifyStopped()
             val key = StorageKey(environment.sessionRuntime, environment.storage.id)
             val registration = registrations[key]
             registration?.let {
+                it.resourceJob?.cancel()
                 it.jobs.forEach(Job::cancel)
                 runCatching { it.controller.close() }
                 it.jobs.joinAll()
             }
-            val retained = listMutex.withLock {
+            val lost = listMutex.withLock {
                 check(registrations[key] === registration) { "Environment owner changed" }
-                val sessions = lastKnownSessions[key].orEmpty()
-                sessions.forEach { retain(key, it) }
+                val lost = (owners.filterValues { it == key }.keys + lastKnownSessions[key].orEmpty().map { it.id }).toList()
                 registrations.remove(key)
                 forgetOwners(key)
                 environments.remove(key)
                 lastKnownSessions.remove(key)
-                sessions.map { it.id }
+                lost
             }
-            persistRetained()
-            retained
+            discardSessions(lost)
+            lost
         }
 
-    /** An explicit idle stop releases resources, not the user's completed session history. */
+    /** An idle stop and a proven abnormal stop share the same session teardown. */
     suspend fun stopEnvironmentIfIdle(environment: Environment, stop: suspend () -> Unit): List<String> =
-        retainStoppedEnvironment(environment) {
-            verifiedSessions(environment).getOrThrow().also { sessions ->
-                check(sessions.none { it.state.isLive }) { "Storage has active sessions" }
-                val key = StorageKey(environment.sessionRuntime, environment.storage.id)
-                listMutex.withLock { if (registrations.containsKey(key)) rememberSessions(key, sessions) }
+        forgetStoppedEnvironment(environment) {
+            check(verifiedSessions(environment).getOrThrow().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) {
+                "Storage has active sessions"
             }
             stop()
         }
 
-    private fun retain(key: StorageKey, descriptor: SessionDescriptor) {
-        val retained = descriptor.takeUnless { it.state.isLive }
-            ?: descriptor.copy(state = dev.terminal.protocol.SessionStatus.INTERRUPTED, exitCode = SessionDescriptor.NO_EXIT_CODE)
-        val title = retentionTitle(descriptor.id)
-        retainedSessions.putIfAbsent(descriptor.id, RetainedSession(retained.copy(title = title ?: retained.title),
-            key.runtime, key.storageId, environments[key]?.id, title != null))
-        unsavedSessions.add(descriptor.id)
-        inputSessions.remove(descriptor.id)
-        failResize(descriptor.id)
-        controlStreams.remove(descriptor.id)
-        keyboardFlags.remove(descriptor.id)
-    }
-
-    private suspend fun persistRetained() {
-        for (id in unsavedSessions.toList()) terminalStates.withSession(id) {
-            val retained = retainedSessions[id] ?: return@withSession
-            if (terminalStates.identity(id) == null)
-                terminalStates.create(id, retained.descriptor.cols.toInt(), retained.descriptor.rows.toInt())
-            if (retained.descriptor.state == dev.terminal.protocol.SessionStatus.EXITED)
-                terminalStates.exited(id, retained.descriptor.exitCode)
-            if (archive == null || kotlinx.coroutines.withContext(Dispatchers.IO) { archive.saveSafely(retained, terminalStates) })
-                unsavedSessions.remove(id)
-        }
-    }
-
-    fun retainedTitle(sessionId: String): String? = retainedSessions[sessionId]?.takeIf { it.explicitTitle }?.descriptor?.title
-
-    suspend fun renameRetained(sessionId: String, title: String) {
-        terminalStates.withSession(sessionId) {
-            val retained = retainedSessions[sessionId] ?: return@withSession
-            retainedSessions[sessionId] = retained.copy(descriptor = retained.descriptor.copy(title = title), explicitTitle = true)
-            unsavedSessions.add(sessionId)
-        }
-        persistRetained()
-    }
-
-    fun isRetained(sessionId: String): Boolean = retainedSessions.containsKey(sessionId)
-
     private fun rememberSessions(key: StorageKey, current: List<SessionDescriptor>): List<SessionDescriptor> {
-        check(current.none { retainedSessions.containsKey(it.id) }) { "A new owner reused a retained session identity" }
         val currentIds = current.mapTo(mutableSetOf()) { it.id }
-        lastKnownSessions[key].orEmpty().filter { it.id !in currentIds }.forEach { retain(key, it) }
         forgetOwners(key, currentIds)
         current.forEach {
             val previous = owners.put(it.id, key)
@@ -390,7 +357,7 @@ class UnifiedSessionRegistry(
         val old = StorageKey(runtime)
         val registration = registrations[old]
         val sessions = registration?.controller?.list()?.getOrThrow().orEmpty()
-        if (sessions.any { it.state.isLive }) return@withAll false
+        if (sessions.any { it.state != dev.terminal.protocol.SessionStatus.EXITED }) return@withAll false
         listMutex.withLock {
             check(registrations[old] === registration) { "Environment owner changed" }
             val next = StorageKey(runtime, adopt())
@@ -447,7 +414,7 @@ class UnifiedSessionRegistry(
             val key = StorageKey(runtime, storageId)
             val registration = registrations[key]
             check(registration == null || registration.controller.connectionState.value == SessionConnectionState.CONNECTED) { "Cannot verify environment sessions" }
-            check(registration?.controller?.list()?.getOrThrow().orEmpty().none { it.state.isLive }) { "Storage has active sessions" }
+            check(registration?.controller?.list()?.getOrThrow().orEmpty().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) { "Storage has active sessions" }
             val release: suspend () -> Unit = {
                 val removedIds = owners.filterValues { it == key }.keys.toList()
                 removedIds.forEach { id -> terminalStates.withSession(id) { terminalStates.remove(id) } }
@@ -506,7 +473,6 @@ class UnifiedSessionRegistry(
                 val created = registration.controller.create(shell, cwd, env, rows, cols).getOrThrow()
                 terminalStates.withSession(created.id) {
                     check(registrations[key] === registration) { "Environment owner changed" }
-                    check(!isRetained(created.id)) { "A new owner reused a retained session identity" }
                     failResize(created.id)
                     terminalStates.create(created.id, cols.toInt(), rows.toInt())
                     terminalStates.palette(created.id, palette)
@@ -581,16 +547,13 @@ class UnifiedSessionRegistry(
         coroutineScope {
             registrations.entries.map { (key, registration) -> async { refreshRegistration(key, registration) } }.awaitAll()
         }
-        persistRetained()
         // Failed owners retain their last authoritative view. Each owner's RPC
         // runs outside the publication lock and commits independently.
         cachedSessions()
     }
 
-    override suspend fun attach(sessionId: String): Result<SessionDescriptor> =
-        retainedSessions[sessionId]?.let { Result.success(it.descriptor) } ?: route(sessionId) { it.attach(sessionId) }
-    override suspend fun detach(sessionId: String): Result<Unit> =
-        if (isRetained(sessionId)) Result.success(Unit) else route(sessionId) { it.detach(sessionId) }
+    override suspend fun attach(sessionId: String): Result<SessionDescriptor> = route(sessionId) { it.attach(sessionId) }
+    override suspend fun detach(sessionId: String): Result<Unit> = route(sessionId) { it.detach(sessionId) }
     override suspend fun resize(sessionId: String, rows: UShort, cols: UShort): Result<SessionDescriptor> =
         runCatching { geometryLocks.withSession(sessionId) {
             resizeTerminal(sessionId, rows.toInt(), cols.toInt())
@@ -616,13 +579,6 @@ class UnifiedSessionRegistry(
     private suspend fun resizeTerminal(sessionId: String, rows: Int, cols: Int,
         cellWidth: Int? = null, cellHeight: Int? = null): SessionDescriptor {
         require(rows in 1..65535 && cols in 1..65535)
-        if (isRetained(sessionId)) return terminalStates.withSession(sessionId) {
-            val retained = retainedSessions[sessionId] ?: error("Session was closed")
-            terminalStates.resize(sessionId, cols, rows, cellWidth, cellHeight)
-            retained.descriptor.copy(rows = rows.toUShort(), cols = cols.toUShort()).also {
-                retainedSessions[sessionId] = retained.copy(descriptor = it)
-            }
-        }
         val key = ownerKey(sessionId) ?: error("Session not found")
         val registration = registrations[key] ?: error("Environment is not connected")
         val pending = terminalStates.withSession(sessionId) {
@@ -661,7 +617,7 @@ class UnifiedSessionRegistry(
         palette: java.util.Properties, sink: RuntimeTerminalState.Sink? = null) = geometryLocks.withSession(sessionId) {
         require(rows in 1..65535 && cols in 1..65535 && cellWidth in 0..65535 && cellHeight in 0..65535)
         val identity = terminalStates.withSession(sessionId) { terminalStates.identity(sessionId) }
-        if (!isRetained(sessionId) && !terminalStates.withSession(sessionId) { terminalStates.sameDimensions(sessionId, cols, rows) })
+        if (!terminalStates.withSession(sessionId) { terminalStates.sameDimensions(sessionId, cols, rows) })
             resizeTerminal(sessionId, rows, cols, cellWidth, cellHeight)
         terminalStates.withSession(sessionId) {
             check(terminalStates.identity(sessionId) === identity) { "Terminal state changed" }
@@ -687,15 +643,6 @@ class UnifiedSessionRegistry(
         return target.takeIf { it.isCurrent() }
     }
     override suspend fun terminate(sessionId: String, signal: Int): Result<Unit> {
-        if (isRetained(sessionId)) return runCatching {
-            terminalStates.withSession(sessionId) {
-                kotlinx.coroutines.withContext(Dispatchers.IO) { archive?.remove(sessionId) }
-                retainedSessions.remove(sessionId)
-                unsavedSessions.remove(sessionId)
-                launches.remove(sessionId)
-                terminalStates.remove(sessionId)
-            }
-        }
         val key = ownerKey(sessionId) ?: return Result.failure(NoSuchElementException("Session not found"))
         val registration = registrations[key]
         return controller(key).fold(
@@ -717,13 +664,13 @@ class UnifiedSessionRegistry(
         }
     }
 
-    fun runtimeOf(sessionId: String): SessionRuntime? = retainedSessions[sessionId]?.runtime ?: owners[sessionId]?.runtime ?: SessionRuntime.fromSessionId(sessionId)
-    fun storageOf(sessionId: String): String? = retainedSessions[sessionId]?.storageId ?: ownerKey(sessionId)?.storageId
-    fun environmentOf(sessionId: String): EnvironmentId? = retainedSessions[sessionId]?.environmentId ?: launches[sessionId]?.environmentId ?: ownerKey(sessionId)?.let { environments[it]?.id }
+    fun runtimeOf(sessionId: String): SessionRuntime? = owners[sessionId]?.runtime ?: SessionRuntime.fromSessionId(sessionId)
+    fun storageOf(sessionId: String): String? = ownerKey(sessionId)?.storageId
+    fun environmentOf(sessionId: String): EnvironmentId? = launches[sessionId]?.environmentId ?: ownerKey(sessionId)?.let { environments[it]?.id }
     fun launchOf(sessionId: String): SessionLaunchSpec? = launches[sessionId]
     /** Collection of UI metadata requires a complete live-owner proof, including disconnected VMs. */
     suspend fun verifiedWorkspaceSessions(rememberedIds: Set<String>): Set<String>? {
-        if (rememberedIds.any { SessionRuntime.fromSessionId(it) == SessionRuntime.AVF && !owners.containsKey(it) && !retainedSessions.containsKey(it) }) return null
+        if (rememberedIds.any { SessionRuntime.fromSessionId(it) == SessionRuntime.AVF && !owners.containsKey(it) }) return null
         val observed = registrations.toMap()
         val sessions = runCatching { coroutineScope {
             observed.values.map { registration -> async {
@@ -733,7 +680,7 @@ class UnifiedSessionRegistry(
         } }.getOrNull() ?: return null
         return listMutex.withLock {
             if (observed.size != registrations.size || observed.any { (key, value) -> registrations[key] !== value }) null
-            else (sessions + cachedSessions()).filter { it.state.isLive }.mapTo(mutableSetOf()) { it.id }.apply { addAll(retainedSessions.keys) }
+            else (sessions + cachedSessions()).filter { it.state != dev.terminal.protocol.SessionStatus.EXITED }.mapTo(mutableSetOf()) { it.id }
         }
     }
     suspend fun verifiedSessions(environment: Environment): Result<List<SessionDescriptor>> {
@@ -761,8 +708,6 @@ class UnifiedSessionRegistry(
         environments.clear()
         launches.clear()
         lastKnownSessions.clear()
-        retainedSessions.clear()
-        unsavedSessions.clear()
         mutableConnection.value = SessionConnectionState.DISCONNECTED
         scope.cancel()
     }
@@ -771,7 +716,6 @@ class UnifiedSessionRegistry(
         ?: Result.failure(IllegalStateException("${key.runtime.wireName} storage is not ready"))
 
     private suspend fun <T> route(sessionId: String, operation: suspend (SessionController) -> Result<T>): Result<T> {
-        if (isRetained(sessionId)) return Result.failure(IllegalStateException("실행환경이 중지되었습니다. 세션 기록은 보존됩니다."))
         val key = ownerKey(sessionId) ?: return Result.failure(NoSuchElementException("Session not found"))
         return controller(key).fold(onSuccess = { operation(it) }, onFailure = { Result.failure(it) })
     }

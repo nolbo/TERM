@@ -705,24 +705,14 @@ an actual exit is reaped or termination is requested. No EOF invents a guest
 exit or closes sibling sessions.
 
 
-Host session projections may contain `INTERRUPTED` for retained history after
-proven execution-owner loss. It is not a guest wire state: the session-v1 codec
-still accepts/emits only CREATED, RUNNING and EXITED. Interrupted JSON records
-omit `exitCode`; actual EXITED records retain real codes, including negative
-signal values. Runtime terminal snapshots can still be attached/configured for
-retained records without a guest connection. Input is rejected; explicit Close
-removes only the history/checkpoint. Service startup completes history restoration
-before its initial observer replay or session JSON read, avoiding a transient
-empty list that would discard tabs and Workspace layouts.
+Session projections use only CREATED, RUNNING and EXITED. Verified execution-owner
+loss removes session records instead of manufacturing an exit code or an archived
+state. UI observers remove tabs when their IDs disappear from the authoritative
+snapshot. Transient transport failure is insufficient evidence for removal.
 
-
-AVF session IDs exposed to the host include an Environment boot namespace, the
-guest creation timestamp and the guest-local ID. Only the original ID travels
-on the guest wire. The namespace is persisted before first use, stable across
-transport reconnects and Android runtime-service recreation, and retired after
-verified Environment stop; reused counters such as `session-1`
-therefore cannot target an archived session or another VM. Descriptors establish
-identity before subsequent events. At most 256 events / 256 KiB of early output
-can wait for CREATE/LIST metadata without blocking receipt of that response.
-Identity mapping and response decoding happen in the existing receive worker,
-without an extra forwarding queue for normal traffic.
+AVF host IDs include a persisted Environment boot namespace, guest creation time
+and guest-local ID. Only raw IDs cross the guest wire. Reconnects and service
+recreation retain the namespace; verified stop retires it. Descriptors establish
+identity before buffered early events are forwarded. The receive worker buffers
+at most 256 events / 256 KiB awaiting CREATE/LIST metadata, without blocking the
+response needed to identify them or adding a worker on the normal output path.

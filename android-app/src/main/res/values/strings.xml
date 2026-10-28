@@ -339,7 +339,6 @@
     <string name="session_state_created">생성됨</string>
     <string name="session_state_running">실행 중</string>
     <string name="session_state_exited">종료됨</string>
-    <string name="session_state_interrupted">중단됨 · 기록 보존</string>
     <string name="session_state_unknown">상태 확인 중</string>
     <string name="key_escape" translatable="false">ESC</string>
     <string name="key_slash" translatable="false">/</string>

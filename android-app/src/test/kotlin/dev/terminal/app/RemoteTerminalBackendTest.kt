@@ -5,23 +5,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class RemoteTerminalBackendTest {
-    @Test fun interruptedHistoryRejectsInputWithoutInventingAnExitAndStillAttaches() {
-        var writes = 0
-        var exits = 0
-        var attaches = 0
-        val backend = RemoteTerminalBackend(write = { writes++ }, resize = { _, _ -> }, authoritative = true,
-            onStarted = { attaches++ })
-        backend.interrupt()
-        backend.start(80, 24, 0, 0, object : TerminalSessionBackend.Callback {
-            override fun onOutput(data: ByteArray, offset: Int, count: Int) = Unit
-            override fun onExit(exitCode: Int) { exits++ }
-        })
-        backend.write(byteArrayOf(1), 0, 1)
-        assertEquals(false, backend.isRunning())
-        assertEquals(0, writes)
-        assertEquals(0, exits)
-        assertEquals(1, attaches)
-    }
     @Test fun paneResizesRejectZeroDimensionsAndCoalesceIdenticalPendingGeometryPerSession() {
         var firstResizes = 0
         var secondResizes = 0

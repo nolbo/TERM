@@ -303,22 +303,15 @@ The resource policy and saved vCPU/memory choices are unchanged by this revision
 For the local transport measurement, see `AVF_NOTES.md`.
 
 
-## Retained sessions after Environment stop
+## Sessions when an Environment stops
 
-Environment stop and proven VM/process-owner loss retain session tabs, output,
-Workspace membership and terminal view state. Interrupted processes appear as
-`INTERRUPTED` (중단됨 · 기록 보존), without a fabricated exit code; a known normal
-exit keeps its actual status. A successful reconnect whose LIST omits old IDs
-also retains those IDs as interrupted history. Unknown/disconnected owners
-remain recoverable and are not declared dead.
-
-The runtime saves retired sessions under app-private `retained-sessions` and
-restores them before publishing its initial list after recreation. Explicit
-Close removes a retired record locally even when its Environment is stopped.
-Viewing/resizing history sends no guest RPC and cannot revive a process. A new
-Profile launch creates a new session; no uncertain input is replayed. Existing
-idle-only Environment Stop behavior is preserved. History needs no foreground
-or wake lease. Persistence failures are reported while in-memory history remains.
-This is retirement-time preservation, not periodic live process/terminal backup;
-a force-killed Android owner before retirement cannot guarantee its final output.
-No guest/image update is required for this host lifecycle change.
+Confirmed Environment stop removes its sessions and terminal buffers, including
+abnormal VM loss. Session routing, queued input, resize requests, UI callbacks,
+notifications, launch metadata and Workspace membership are cleaned up together.
+No interrupted/history tab is retained or restored. A successful owner LIST that
+no longer contains a known session also removes it; late events cannot revive it.
+Normal process exit while the Environment remains available keeps the existing
+EXITED behavior. Explicit Environment Stop still requires an idle owner.
+Transport disconnection alone preserves sessions for recovery; an unknown owner
+is never treated as stopped. Healthy sibling owners continue independently.
+These lifecycle changes are host-only and need no guest image update.

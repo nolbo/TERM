@@ -20,7 +20,7 @@ class UiModelsTest {
     }
     @Test fun liveSessionsDoNotInterpretTheWireSentinelAsSighup() {
         for (runtime in listOf("NATIVE", "ROOTLESS", "AVF")) {
-            for (state in listOf("CREATED", "RUNNING", "INTERRUPTED")) {
+            for (state in listOf("CREATED", "RUNNING")) {
                 val session = parseSessions("""[{"id":"session-1","runtime":"$runtime","state":"$state","exitCode":-1}]""").single()
                 assertEquals("$runtime $state must not finish the renderer", null, session.exitCode)
             }

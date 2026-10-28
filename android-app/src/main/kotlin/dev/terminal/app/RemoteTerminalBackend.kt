@@ -16,14 +16,13 @@ class RemoteTerminalBackend(
     override fun ownsTerminalState() = authoritative
     @Volatile private var callback: TerminalSessionBackend.Callback? = null
     @Volatile private var running = false
-    @Volatile private var interrupted = false
     @Volatile private var pendingExitCode: Int? = null
 
     override fun start(columns: Int, rows: Int, cellWidthPixels: Int, cellHeightPixels: Int, callback: TerminalSessionBackend.Callback) {
         this.columns = columns; this.rows = rows
         cellWidth = cellWidthPixels; cellHeight = cellHeightPixels
         this.callback = callback
-        running = !interrupted
+        running = true
         pendingExitCode?.let {
             pendingExitCode = null
             running = false
@@ -45,16 +44,13 @@ class RemoteTerminalBackend(
     fun checkpoint(state: dev.terminal.emulator.TerminalEmulator) {
         callback?.let { current ->
             // Every checkpoint is followed by the owner's current exit status, if any.
-            running = !interrupted
+            running = true
             current.onCheckpoint(state)
         }
     }
     fun mirrorOutput(bytes: ByteArray) { callback?.onMirrorOutput(bytes, 0, bytes.size) }
     fun resized(columns: Int, rows: Int, cellWidth: Int, cellHeight: Int) { callback?.onResize(columns, rows, cellWidth, cellHeight) }
-    fun interrupt() { interrupted = true; running = false }
-    override fun write(data: ByteArray, offset: Int, count: Int) {
-        if (!interrupted) write(data.copyOfRange(offset, offset + count))
-    }
+    override fun write(data: ByteArray, offset: Int, count: Int) = write(data.copyOfRange(offset, offset + count))
     fun output(data: ByteArray, replay: Boolean = false) {
         if (replay) callback?.onReplayOutput(data, 0, data.size)
         else callback?.onOutput(data, 0, data.size)

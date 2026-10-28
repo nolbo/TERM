@@ -213,7 +213,7 @@ class AvfSessionReconnectTest {
                 withEnvironmentLease = { owner, work -> locks.withStorage(owner.sessionRuntime, owner.storage.id) { work() } }) }
             entered.await()
             val loss = async { locks.withStorage(environment.sessionRuntime, environment.storage.id) {
-                registry.retainStoppedEnvironment(environment) { verified = true }
+                registry.forgetStoppedEnvironment(environment) { verified = true }
             } }
             yield(); assertFalse(verified)
             proceed.complete(Unit)

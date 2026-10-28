@@ -107,9 +107,9 @@ class VmRuntimeService : Service() {
     }
     private val latestResizeRequests = LatestSessionResizeRequests()
     @Volatile private var sessionClient: SessionController? = null
-    private val sessionHistoryReady = kotlinx.coroutines.CompletableDeferred<Unit>()
-    private fun awaitSessionHistory() = kotlinx.coroutines.runBlocking {
-        kotlinx.coroutines.withTimeout(5_000) { sessionHistoryReady.await() }
+    private val sessionRegistryReady = kotlinx.coroutines.CompletableDeferred<Unit>()
+    private fun awaitSessionRegistry() = kotlinx.coroutines.runBlocking {
+        kotlinx.coroutines.withTimeout(5_000) { sessionRegistryReady.await() }
     }
     private var sessionExitReconciler: SessionExitReconciler? = null
     // Native PTY writes may block: input must not occupy the runtime's CPU dispatcher.
@@ -150,7 +150,7 @@ class VmRuntimeService : Service() {
     @Volatile private var publishedSessions = PublishedSessions(0L, "[]", 0)
     @Volatile private var liveAvfEnvironments: Set<EnvironmentId> = emptySet()
     private val sessionSnapshots = SessionSnapshotPipeline(::publishSessionSnapshot,
-        launchTitle = { id -> (sessionClient as? UnifiedSessionRegistry)?.let { it.retainedTitle(id) ?: it.launchOf(id)?.tabTitle } },
+        launchTitle = { id -> (sessionClient as? UnifiedSessionRegistry)?.launchOf(id)?.tabTitle },
         projection = { (it as? UnifiedSessionRegistry)?.cachedSessions() })
     private val pendingAvfLaunches = PendingAvfSessionLaunches()
     private val hostBackgroundOperationCount = AtomicInteger(0)
@@ -203,7 +203,6 @@ class VmRuntimeService : Service() {
             override suspend fun title(window: dev.terminal.runtime.session.KittyRemoteControl.Window, title: String) {
                 sessionSnapshots.rename(window.session.id, title).getOrThrow()
                 kittyTitles[window.session.id] = title
-                (sessionClient as? UnifiedSessionRegistry)?.renameRetained(window.session.id, title)
             }
             override suspend fun close(window: dev.terminal.runtime.session.KittyRemoteControl.Window) {
                 val client = sessionClient ?: error("Runtime unavailable")
@@ -320,7 +319,7 @@ class VmRuntimeService : Service() {
         }) {
             dev.terminal.runtime.storage.LegacyWorkspaces.verifyNoPendingMigration(filesDir.canonicalFile, source)
             selected.forEach { environment ->
-                check(client.verifiedSessions(environment).getOrThrow().none { it.state.isLive }) {
+                check(client.verifiedSessions(environment).getOrThrow().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) {
                     "Close this environment's sessions before copying old /workspace data: ${environment.name}"
                 }
                 val owner = environmentBackends[environment.id] ?: rootlessBackends[environment.sessionRuntime]
@@ -521,7 +520,7 @@ class VmRuntimeService : Service() {
             return kotlinx.coroutines.runBlocking(Dispatchers.IO) {
                 val environment = environmentRegistry.transaction(storageDefaults()) { requireEnvironment(EnvironmentId(environmentId)) }
                 val sessions = (sessionClient as? UnifiedSessionRegistry)?.verifiedSessions(environment)
-                val idle = sessions?.getOrNull()?.none { it.state.isLive } ?: (sessions == null)
+                val idle = sessions?.getOrNull()?.none { it.state != dev.terminal.protocol.SessionStatus.EXITED } ?: (sessions == null)
                 val busy = preparationLocks.isLocked(environment.sessionRuntime, environment.storage.id)
                 when (environment.runtime) {
                     dev.terminal.runtime.session.EnvironmentRuntime.ROOTLESS -> {
@@ -687,7 +686,9 @@ class VmRuntimeService : Service() {
                         "STOP" -> preparationLocks.withStorage(environment.sessionRuntime, environment.storage.id) {
                             check(environmentRuntimeState(environment, client) != null) { "Cannot verify environment runtime state" }
                             val owner = environmentBackends[environment.id]
-                            client.stopEnvironmentIfIdle(environment) { owner?.stop(StopMode.GRACEFUL)?.getOrThrow() }
+                            sessionSnapshots.mutateAndRefresh(client) { runCatching {
+                                client.stopEnvironmentIfIdle(environment) { owner?.stop(StopMode.GRACEFUL)?.getOrThrow() }
+                            } }.operation.getOrThrow()
                             clearEnvironmentStart(environment.id)
                             avfConnectionIssues.remove(environment.id)
                         }
@@ -722,7 +723,7 @@ class VmRuntimeService : Service() {
                         }
                         else -> error("Unsupported environment operation")
                     }
-                    refreshSessions(client)
+                    if (operation != "STOP") refreshSessions(client)
                 }
             }; "" }.exceptionOrNull()?.takeUnless {
                 it is dev.terminal.runtime.rootless.RootlessInstallationCancelledException
@@ -772,7 +773,7 @@ class VmRuntimeService : Service() {
         override fun getRuntimeStatusJson(): String = runtimeStatusJson()
 
         override fun getSessionsJson(): String {
-            awaitSessionHistory()
+            awaitSessionRegistry()
             return pendingAvfLaunches.project(publishedSessions.json)
         }
 
@@ -1047,7 +1048,7 @@ class VmRuntimeService : Service() {
 
         override fun renameSession(sessionId: String, title: String) = launchRuntimeOperation {
             sessionSnapshots.rename(sessionId, title)
-                .onSuccess { kittyTitles[sessionId] = title; (sessionClient as? UnifiedSessionRegistry)?.renameRetained(sessionId, title) }
+                .onSuccess { kittyTitles[sessionId] = title }
                 .onFailure { notifyOperationError("세션 이름 변경", it.userMessage()) }
         }
 
@@ -1068,17 +1069,7 @@ class VmRuntimeService : Service() {
             val result = sessionSnapshots.mutateAndRefresh(client) { client.terminate(sessionId, SIGKILL).onSuccess { workspaces.move(sessionId, null) } }
             result.operation
                 .onSuccess {
-                    taskNotifications.forget(sessionId)
-                    getSharedPreferences("session-launches", MODE_PRIVATE).edit().remove(sessionId).apply()
-                    getSharedPreferences("session-launch-requests", MODE_PRIVATE).edit().remove(sessionId).apply()
-                    kittyGrants.remove(sessionId)
-                    kittyIdentities.remove(sessionId)
-                    kittyTitles.remove(sessionId)
-                    latestResizeRequests.forget(sessionId)
-                    terminalSinks.keys.filter { it.first == sessionId }.forEach { key ->
-                        terminalSinks.remove(key)?.close()
-                        terminalDeaths.remove(key)?.let { runCatching { key.second.unlinkToDeath(it, 0) } }
-                    }
+                    forgetSessionMetadata(sessionId)
                     val snapshot = result.snapshot?.getOrNull()
                     Log.i(TAG, "session.terminate success id=$sessionId runtime=$runtime revision=${snapshot?.revision} count=${snapshot?.sessions?.size}")
                 }
@@ -1199,9 +1190,8 @@ class VmRuntimeService : Service() {
         }
 
         override fun registerListener(listener: IRuntimeStateListener) {
-            // An empty pre-restoration snapshot would remove saved tabs/layouts.
-            // Only the Binder caller waits; no runtime or publication lock is held.
-            awaitSessionHistory()
+            // Reconcile dead local memberships before the initial session replay.
+            awaitSessionRegistry()
             val initialized = java.util.concurrent.CountDownLatch(1)
             synchronized(listenerLock) {
                 val key = listener.asBinder()
@@ -1294,8 +1284,8 @@ class VmRuntimeService : Service() {
         // Recover revoked exports even if Android killed :vmhost before its app-op callback.
         checkAvfStoragePermission()
         scope.launch {
-            try { ensureSessionRegistry(); sessionHistoryReady.complete(Unit) }
-            catch (error: Exception) { sessionHistoryReady.completeExceptionally(error) }
+            try { ensureSessionRegistry(); sessionRegistryReady.complete(Unit) }
+            catch (error: Exception) { sessionRegistryReady.completeExceptionally(error) }
         }
     }
 
@@ -1460,7 +1450,7 @@ class VmRuntimeService : Service() {
         val client = sessionClient ?: return@launchRuntimeOperation
         val result = sessionSnapshots.mutateAndRefresh(client) {
             val sessions = client.list().getOrThrow()
-            sessions.filter { it.state.isLive }.forEach { session ->
+            sessions.filter { it.state != dev.terminal.protocol.SessionStatus.EXITED }.forEach { session ->
                 taskNotifications.forget(session.id)
                 runCatching { client.terminate(session.id, SIGKILL).getOrThrow() }
                     .onSuccess { latestResizeRequests.forget(session.id) }
@@ -1486,11 +1476,7 @@ class VmRuntimeService : Service() {
             return@withLock it
         }
         run {
-            val registry = UnifiedSessionRegistry(retentionTitle = { kittyTitles[it] }, archive = dev.terminal.runtime.session.RetainedSessionArchive(
-                java.io.File(filesDir, "retained-sessions"), onFailure = { failure ->
-                    ConnectionDiagnostics.record("session.archive.failed", error = failure)
-                    notifyOperationError("세션 기록 보존", "세션 기록을 저장하거나 읽지 못했습니다: ${failure.userMessage()}")
-                }), onDisconnected = { runtime, storageId ->
+            val registry = UnifiedSessionRegistry(onDisconnected = { runtime, storageId ->
                 if (runtime == SessionRuntime.AVF) {
                     recordRuntime("session.owner.disconnected", storageId)
                     runCatching { portObservers[environmentForStorage(runtime, storageId).id]?.second?.invalidate() }
@@ -1501,7 +1487,11 @@ class VmRuntimeService : Service() {
                 updateWakeState()
             }, onOutputActivity = { id, events ->
                 if (taskNotifications.activity(id, events) { sessionNotificationTitle(id) }) updateWakeState()
-            }, restoreLaunch = { id -> getSharedPreferences("session-launches", MODE_PRIVATE).getString(id, null)
+            }, onRemoved = { ids -> ids.forEach { id ->
+                runCatching { forgetSessionMetadata(id) }.onFailure {
+                    notifyOperationError("세션 정리", it.userMessage())
+                }
+            } }, restoreLaunch = { id -> getSharedPreferences("session-launches", MODE_PRIVATE).getString(id, null)
                 ?.let { runCatching { SessionLaunchSpec.fromJson(it) }.getOrNull() } }, recordLaunch = { id, spec ->
                 resetReconnectBackoff()
                 getSharedPreferences("session-launches", MODE_PRIVATE).edit().putString(id, spec.toJson().toString()).commit()
@@ -1561,7 +1551,7 @@ class VmRuntimeService : Service() {
 
     private suspend fun environmentsJson(): String {
         val client = ensureSessionRegistry()
-        val sessions = client?.cachedSessions().orEmpty().filter { it.state.isLive }
+        val sessions = client?.cachedSessions().orEmpty().filter { it.state != dev.terminal.protocol.SessionStatus.EXITED }
         val (environments, profiles) = environmentRegistry.transaction(storageDefaults()) { all() to profiles() }
         return JSONArray(environments.sortedWith(compareBy({ it.runtime.ordinal }, { it.name }, { it.id.value })).map { environment ->
             val linked = profiles.filter { it.environmentId == environment.id }
@@ -1627,7 +1617,7 @@ class VmRuntimeService : Service() {
     private suspend fun verifyRootlessOwnerIdle(owner: RootlessDebianBackend) {
         val controller = owner.sessionController() ?: return
         check(controller.connectionState.value != dev.terminal.protocol.SessionConnectionState.DISCONNECTED) { "Cannot verify environment sessions" }
-        check(controller.list().getOrThrow().none { it.state.isLive }) { "Environment has active sessions" }
+        check(controller.list().getOrThrow().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) { "Environment has active sessions" }
     }
 
     /** Reserve only the selected persistence, plus all users of an explicitly selected legacy Workspace.
@@ -1650,7 +1640,7 @@ class VmRuntimeService : Service() {
             selected.map { it.sessionRuntime to it.storage.id }
         }) {
             selected.forEach { current ->
-                check(client.verifiedSessions(current).getOrThrow().none { it.state.isLive }) {
+                check(client.verifiedSessions(current).getOrThrow().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) {
                     "Close this environment's sessions before backup: ${current.name}"
                 }
                 val owner = environmentBackends[current.id] ?: if (current.storage.id == legacyStorageId(current.sessionRuntime))
@@ -1767,7 +1757,7 @@ class VmRuntimeService : Service() {
                             } else {
                                 val owner = environmentBackends[id]
                                 val controller = (owner as? NativeBackend)?.sessionController()
-                                check(controller?.list()?.getOrThrow().orEmpty().none { it.state.isLive }) { "Environment has active sessions" }
+                                check(controller?.list()?.getOrThrow().orEmpty().none { it.state != dev.terminal.protocol.SessionStatus.EXITED }) { "Environment has active sessions" }
                                 owner?.stop(StopMode.GRACEFUL)?.getOrThrow()
                                 release()
                                 clearEnvironmentStart(id)
@@ -1814,7 +1804,7 @@ class VmRuntimeService : Service() {
                             is RootlessDebianBackend -> localOwner.sessionController()
                             else -> rootlessBackends[runtime]?.sessionController()
                         }
-                        if (localController?.list()?.getOrThrow().orEmpty().any { it.state.isLive }) continue
+                        if (localController?.list()?.getOrThrow().orEmpty().any { it.state != dev.terminal.protocol.SessionStatus.EXITED }) continue
                         // An unattached persistent VM may still be running after host restart.
                         // Only its reachable PTY owner can prove that changing registration is safe.
                         if (runtime == SessionRuntime.AVF &&
@@ -2042,25 +2032,21 @@ class VmRuntimeService : Service() {
             if (environment.id !in startedEnvironmentBackends &&
                 !registry.isRegistered(environment.sessionRuntime, environment.storage.id)) return@withStorage
             val activeIds = registry.cachedSessions().filter {
-                registry.environmentOf(it.id) == environment.id && it.state.isLive
+                registry.environmentOf(it.id) == environment.id && it.state != dev.terminal.protocol.SessionStatus.EXITED
             }.mapTo(mutableSetOf()) { it.id }
             val hadBackgroundWork = environment.id in explicitlyStartedEnvironments || environment.id in guestWorkEnvironments
-            val retained = registry.retainStoppedEnvironment(environment) {
-                owner.verifyStoppedInstance(requireNotNull(environment.runtimeMetadata.vmInstanceId)).getOrThrow()
-            }
+            val removed = sessionSnapshots.mutateAndRefresh(registry) { runCatching {
+                registry.forgetStoppedEnvironment(environment) {
+                    owner.verifyStoppedInstance(requireNotNull(environment.runtimeMetadata.vmInstanceId)).getOrThrow()
+                }
+            } }.operation.getOrThrow()
             clearEnvironmentStart(environment.id)
-            for (id in retained) {
-                taskNotifications.forget(id)
-                kittyGrants.remove(id); kittyIdentities.remove(id)
-                latestResizeRequests.forget(id)
-            }
-            val lostCount = retained.count { it in activeIds }
+            val lostCount = removed.count { it in activeIds }
             ConnectionDiagnostics.record("vm.owner.lost", environment.id.value, lostCount.toString())
             if (lostCount > 0 || hadBackgroundWork) reportAvfIssue(environment,
                 "${environment.name}: VM 종료를 확인했습니다. " +
-                    (if (lostCount > 0) "프로세스 ${lostCount}개가 중단되었으며 세션과 출력 기록은 보존됩니다. " else "종료된 세션의 출력 기록은 보존됩니다. ") +
+                    (if (lostCount > 0) "종료된 세션 ${lostCount}개를 정리했습니다. " else "환경의 프로세스가 종료되었습니다. ") +
                     "저장된 환경 데이터는 유지되며 프로필로 새 세션을 열 수 있습니다.", true)
-            refreshSessions(registry)
             updateWakeState()
             updateServiceLifetime()
             notifyRuntimeChoices()
@@ -2175,6 +2161,21 @@ class VmRuntimeService : Service() {
         kittyTitles[sessionId] ?: getSharedPreferences("session-launches", MODE_PRIVATE).getString(sessionId, null)
             ?.let { runCatching { JSONObject(it).getString("name") }.getOrNull() }
             ?: SessionRuntime.fromSessionId(sessionId)?.wireName.orEmpty()
+
+    /** The same metadata and callback cleanup applies to Close and execution-owner loss. */
+    private fun forgetSessionMetadata(sessionId: String) {
+        taskNotifications.forget(sessionId)
+        getSharedPreferences("session-launches", MODE_PRIVATE).edit().remove(sessionId).apply()
+        getSharedPreferences("session-launch-requests", MODE_PRIVATE).edit().remove(sessionId).apply()
+        kittyGrants.remove(sessionId); kittyIdentities.remove(sessionId); kittyTitles.remove(sessionId)
+        latestResizeRequests.forget(sessionId)
+        terminalSinks.keys.filter { it.first == sessionId }.forEach { key ->
+            terminalSinks.remove(key)?.close()
+            terminalDeaths.remove(key)?.let { runCatching { key.second.unlinkToDeath(it, 0) } }
+        }
+        if (focusedSession == sessionId) focusedSession = null
+        workspaces.move(sessionId, null)
+    }
 
     private fun notifyTerminalOutput(sessionId: String, bytes: ByteArray, replay: Boolean) {
         synchronized(broadcastLock) {
