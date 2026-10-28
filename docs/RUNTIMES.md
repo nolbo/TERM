@@ -252,10 +252,16 @@ SIGHUP to a live shell. Final draining is finite; exit/history and pending-input
 failure no longer depend on a descendant closing its descriptors. Explicit close
 removes the session immediately, with no per-close reaper thread. Input saturation
 rejects the WRITE or drops a local graphics reply, never a sibling session.
-Reusable poll storage, single request decoding, direct frame encoding and 3 KiB
-media reads reduce transient allocations without adding workers/services.
-Slow regular-file reads remain synchronous; actual AVF latency needs device
-measurement after a verified guest update.
+Reusable poll storage, single request decoding, direct frame encoding and reused
+empty live-session queues reduce transient allocations without adding services.
+Media conversion yields after at most 21 KiB of source data per session turn, so
+sibling output, resource queries and termination run before a whole image finishes.
+Failed reads cancel the partial Kitty upload without replacing committed images.
+Resize also clears already-read raw remainder and cancels incomplete conversion
+before acknowledging geometry; the source is retained on cancellation. Host gap
+handling cancels incomplete multipart transfers on both screens while retaining
+existing images/history. Slow regular-file operations remain synchronous; actual
+AVF latency needs device measurement after a verified guest update.
 
 Session-exit list refresh and workspace/migration reconciliation also run outside the output collector, with one worker and one coalesced pending pass. A sibling's output cannot block the list response behind a waiting exit handler. Updated guests additionally release a naturally exited session's PTY after its final output and exit status, retain its history until explicit close, and poll only running sessions. For legacy installed images, permanent replay-owner closure wakes both internal socket pumps, including blocked writes. These two guest fixes require an updated verified guest component/image and a stopped-Environment update under `AVF_UPDATES.md`; updating the APK alone applies only the host reconciliation fix.
 

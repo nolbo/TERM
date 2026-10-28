@@ -15,6 +15,32 @@ public class KittyProtocolTest extends TerminalTestCase {
     }
     private static final String CELL = new String(Character.toChars(KittyPlaceholders.CODE_POINT));
 
+    public void testOutputGapCancelsMultipartUploadsWithoutDeletingImages() {
+        withTerminalSized(20, 8);
+        red("a=T,i=1,C=1");
+        enterString(command("a=T,i=2,f=24,s=2,v=1,m=1", "/wAA"));
+        enterString("\033[?1049h");
+        red("a=T,i=4,C=1");
+        enterString(command("a=T,i=5,f=24,s=2,v=1,m=1", "/wAA"));
+        mTerminal.discardPartialSequence();
+        red("a=T,i=6,C=1");
+        assertNotNull(placement(4, 0)); assertNull(placement(5, 0)); assertNotNull(placement(6, 0));
+        enterString("\033[?1049l");
+        red("a=T,i=3,C=1");
+        assertNotNull(placement(1, 0)); assertNull(placement(2, 0)); assertNotNull(placement(3, 0));
+        assertFalse(mOutput.getOutputAndClear().contains("EINVAL"));
+    }
+
+    public void testCancelledStreamingMediaDoesNotCommitPartialImage() {
+        withTerminalSized(20, 8);
+        red("a=T,i=1,C=1");
+        enterString(command("a=T,i=2,f=24,s=2,v=1,m=1", "/wAA"));
+        enterString("\033_\030after"); // APC + CAN from the guest's failed reader.
+        red("a=T,i=3,C=1");
+        assertNotNull(placement(1, 0)); assertNull(placement(2, 0)); assertNotNull(placement(3, 0));
+        assertFalse(mOutput.getOutputAndClear().contains("EINVAL"));
+    }
+
     public void testImageNumbersAllocateNewIdsAndResolveNewest() {
         withTerminalSized(20, 8);
         red("a=T,I=42,C=1");

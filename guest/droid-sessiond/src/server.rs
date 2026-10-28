@@ -56,9 +56,6 @@ impl SessionServer {
                 count += 1;
             }
             poll.ids.truncate(count);
-            for id in &poll.ids {
-                if self.staged_output.contains_key(id) { self.drain_output(id); }
-            }
             poll.fds.clear();
             poll.push(listener.map_or(-1, VsockListener::raw_fd), nix::libc::POLLIN);
             let client = self.client.as_ref();
@@ -66,18 +63,22 @@ impl SessionServer {
             poll.push(client.map_or(-1, |c| c.connection.raw_fd()),
                 (if capacity { nix::libc::POLLIN } else { 0 }) |
                 (if client.is_some_and(|c| c.connection.wants_write()) { nix::libc::POLLOUT } else { 0 }));
+            let mut buffered_output = false;
             for index in 0..poll.ids.len() {
                 let id = &poll.ids[index];
                 let writable = self.pending.get(id).and_then(|q| q.front())
                     .is_some_and(|input| input.request.is_none() || capacity);
                 let output = self.sessions.output_fd(id).unwrap_or(-1);
                 let exit = self.sessions.exit_fd(id).unwrap_or(-1);
-                poll.push(output, nix::libc::POLLIN | if writable { nix::libc::POLLOUT } else { 0 });
+                let buffered = self.has_buffered_output(id);
+                buffered_output |= buffered;
+                poll.push(output, (if buffered { 0 } else { nix::libc::POLLIN }) |
+                    if writable { nix::libc::POLLOUT } else { 0 });
                 poll.push(exit, nix::libc::POLLIN);
             }
             for fd in self.sessions.retired_fds() { poll.push(fd, nix::libc::POLLIN); }
-            let immediate = !self.staged_output.is_empty() || client.is_some_and(|c|
-                c.connection.has_pty_capacity() && self.output.tails.keys().any(|id| c.known.contains(id)));
+            let immediate = buffered_output || client.is_some_and(|c|
+                c.connection.has_pty_capacity() && self.output.tails.iter().any(|(id, tail)| tail.has_pending() && c.known.contains(id)));
             poll.wait(if immediate || (listener.is_none() && client.is_none() && timeout < 0) { 0 } else { timeout })?;
             if poll.readable(1) { self.service_client(); }
             if poll.readable(0) {
@@ -89,11 +90,18 @@ impl SessionServer {
             }
             for (index, id) in poll.ids.iter().enumerate() {
                 let pty_index = 2 + index * 2;
-                if poll.readable(pty_index + 1) && self.sessions.exit_fd(id) == Some(poll.fds[pty_index + 1].fd) {
-                    self.finish_child(id);
-                }
-                if poll.readable(pty_index) && self.sessions.output_fd(id).ok() == Some(poll.fds[pty_index].fd) {
-                    self.drain_output(id);
+                // POLLIN was omitted only when parser work was already queued.
+                // Reuse that snapshot bit instead of rescanning every idle parser.
+                let buffered = poll.fds[pty_index].events & nix::libc::POLLIN == 0;
+                if buffered { self.service_client(); }
+                let exited = poll.readable(pty_index + 1) && self.sessions.exit_fd(id) == Some(poll.fds[pty_index + 1].fd);
+                if exited { self.finish_child(id); }
+                if buffered || exited || poll.readable(pty_index) {
+                    // Control may have terminated/resized this snapshot's session.
+                    if self.has_buffered_output(id) || self.sessions.output_fd(id).ok() == Some(poll.fds[pty_index].fd) {
+                        self.drain_output(id);
+                    }
+                    self.complete_exit(id);
                 }
             }
             if poll.fds.iter().skip(2 + 2 * poll.ids.len()).any(|fd| fd.revents != 0) { self.sessions.reap_retired(); }
@@ -123,10 +131,13 @@ impl SessionServer {
                                 if let Some(session_id) = resize {
                                     // Keep healthy output; discard only backlog that cannot
                                     // fit before the geometry boundary without blocking control.
-                                    while self.output.tails.contains_key(&session_id) && client.connection.has_pty_capacity() {
+                                    while self.output.has_pending(&session_id) && client.connection.has_pty_capacity() {
                                         self.flush_tail(&mut client.connection, &session_id)?;
                                     }
-                                    if let Some(dropped_bytes) = self.output.resize_boundary(&session_id) {
+                                    let staged = self.staged_output.remove(&session_id).is_some();
+                                    let partial = self.graphics.get_mut(&session_id).is_some_and(GraphicsTransport::discard_partial);
+                                    let dropped = self.output.resize_boundary(&session_id);
+                                    if let Some(dropped_bytes) = if staged || partial { Some(-1) } else { dropped } {
                                         Self::write_event(&mut client.connection, SessionEvent::OutputGap { session_id: &session_id, dropped_bytes })?;
                                     }
                                 }
@@ -146,7 +157,7 @@ impl SessionServer {
                     .next().or_else(|| self.output.tails.first_key_value()).map(|(id, _)| id);
                 let Some(next) = next else { break; };
                 self.output_cursor.clone_from(next);
-                if client.known.contains(&self.output_cursor) {
+                if client.known.contains(&self.output_cursor) && self.output.has_pending(&self.output_cursor) {
                     let id = std::mem::take(&mut self.output_cursor);
                     let result = self.flush_tail(&mut client.connection, &id);
                     self.output_cursor = id;
@@ -178,8 +189,10 @@ impl SessionServer {
         if tail.chunks.is_empty() {
             if let Some(exit_code) = tail.exit.take() {
                 Self::write_event(connection, SessionEvent::Exited { session_id: id, exit_code })?;
+                self.output.remove(id);
             }
-            self.output.remove(id);
+            // Keep empty live-session queue metadata for the next packet. Empty
+            // tails are never considered runnable, so they cannot cause a spin.
         }
         Ok(())
     }
@@ -353,7 +366,16 @@ impl SessionServer {
         }
     }
 
+    fn has_buffered_output(&self, id: &str) -> bool {
+        self.staged_output.contains_key(id) || self.graphics.get(id).is_some_and(GraphicsTransport::has_pending_media)
+    }
+
     fn stream_output(&mut self, id: &str) -> Result<bool, VsockError> {
+        if let Some(graphics) = self.graphics.get_mut(id).filter(|g| g.has_pending_media()) {
+            let output = graphics.advance_media();
+            self.write_graphics_output(id, output);
+            return Ok(true);
+        }
         let mut buffer = [0_u8; 8192];
         if let Some(bytes) = self.staged_output.remove(id) {
             self.process_output(id, &bytes);
@@ -376,32 +398,47 @@ impl SessionServer {
     }
 
     fn finish_child(&mut self, id: &str) {
-        if let Ok(Some(exit_code)) = self.sessions.poll_exit(id) {
-            // The session lifetime belongs to its leader, not inherited slave
-            // FDs. Drain the already available final tail with a finite budget;
-            // a continuously writing descendant cannot postpone exit forever.
+        if let Ok(Some(_)) = self.sessions.poll_exit(id) {
+            // Reap and close the PTY now. Retain only its finite already-available
+            // raw tail; accepted graphics finish in normal cooperative turns.
+            let mut bytes = self.staged_output.remove(id).unwrap_or_default();
+            let mut buffer = [0u8; 8192];
             let mut exhausted = true;
             for _ in 0..8 {
-                if self.sessions.output_fd(id).is_err() || !self.drain_output(id) { exhausted = false; break; }
-            }
-            let staged = self.staged_output.remove(id).is_some();
-            let unread = exhausted && matches!(self.sessions.read_output(id, &mut [0u8; 1]), Ok(1));
-            if staged || unread { self.output.tails.entry(id.into()).or_default().gap = Some(-1); }
-            self.finish_graphics(id);
-            self.sessions.close_output(id);
-            // The next input drain rejects outstanding WRITE requests explicitly
-            // now that the PTY is closed; do not silently discard their responses.
-            self.output.tails.entry(id.into()).or_default().exit = Some(exit_code);
-            if let Some(client) = self.client.as_mut() {
-                if client.attached.as_deref() == Some(id) {
-                    let _ = self.sessions.detach(id); client.attached = None;
+                match self.sessions.read_output(id, &mut buffer) {
+                    Ok(count) if count > 0 => bytes.extend_from_slice(&buffer[..count]),
+                    _ => { exhausted = false; break; }
                 }
+            }
+            if exhausted && matches!(self.sessions.read_output(id, &mut [0u8; 1]), Ok(1)) {
+                self.output.tails.entry(id.into()).or_default().gap = Some(-1);
+            }
+            if !bytes.is_empty() { self.staged_output.insert(id.into(), bytes); }
+            self.sessions.close_pty(id);
+            // The next input drain rejects WRITE requests explicitly. No PTY
+            // or descendant remains an owner of the final graphics conversion.
+        }
+    }
+
+    fn complete_exit(&mut self, id: &str) {
+        if self.has_buffered_output(id) { return; }
+        let code = match self.sessions.get(id).map(|s| &s.state) {
+            Some(crate::session::SessionState::Exited(code)) => *code,
+            _ => return,
+        };
+        self.finish_graphics(id);
+        self.sessions.close_output(id);
+        self.output.tails.entry(id.into()).or_default().exit = Some(code);
+        if let Some(client) = self.client.as_mut() {
+            if client.attached.as_deref() == Some(id) {
+                let _ = self.sessions.detach(id); client.attached = None;
             }
         }
     }
 
     fn process_output(&mut self, id: &str, bytes: &[u8]) {
-        let (consumed, output) = self.graphics.entry(id.to_owned()).or_default().accept_prefix(bytes);
+        if !self.graphics.contains_key(id) { self.graphics.insert(id.to_owned(), GraphicsTransport::default()); }
+        let (consumed, output) = self.graphics.get_mut(id).unwrap().accept_prefix(bytes);
         if consumed < bytes.len() { self.staged_output.insert(id.to_owned(), bytes[consumed..].to_vec()); }
         self.write_graphics_output(id, output)
     }
@@ -539,7 +576,7 @@ mod multiplex_tests {
     }
 
     #[test]
-    fn bounded_final_drain_reports_truncated_graphics_before_exit() {
+    fn reaped_child_finishes_accepted_graphics_in_cooperative_turns() {
         let mut server = SessionServer::default();
         let file = std::env::temp_dir().join(format!("term-final-drain-{}", std::process::id()));
         std::fs::write(&file, vec![7; 64 * 1024]).unwrap();
@@ -551,15 +588,24 @@ mod multiplex_tests {
             assert!(std::time::Instant::now() < deadline);
             std::thread::sleep(std::time::Duration::from_millis(1));
         }
-        // Ten expansions in an already-read PTY prefix exceed the final eight
-        // parser turns; neither staged graphics nor inherited writers hold exit.
+        // Reaping/PTY closure does not wait for ten accepted image conversions;
+        // their final output continues through the same bounded loop.
         server.staged_output.insert(id.clone(), command.repeat(10).into_bytes());
         server.finish_child(&id);
-        std::fs::remove_file(file).unwrap();
         assert!(server.sessions.output_fd(&id).is_err());
-        assert!(!server.staged_output.contains_key(&id));
-        assert_eq!(server.output.tails[&id].gap, Some(-1));
+        assert!(server.sessions.exit_fd(&id).is_none());
+        let mut turns = 0;
+        while server.sessions.running().next().is_some() {
+            assert!(std::time::Instant::now() < deadline);
+            server.turn(None, 0).unwrap(); turns += 1;
+        }
+        std::fs::remove_file(file).unwrap();
+        assert!(turns > 10);
+        assert!(!server.has_buffered_output(&id));
+        assert_eq!(server.output.tails[&id].gap, None);
         assert_eq!(server.output.tails[&id].exit, Some(0));
+        let final_output = server.output.tails[&id].chunks.iter().flat_map(|(_, b)| b.iter().copied()).collect::<Vec<_>>();
+        assert_eq!(final_output.windows(4).filter(|b| *b == b"m=0;").count(), 10);
     }
 
     #[test]
@@ -629,7 +675,7 @@ mod multiplex_tests {
                 Some(host)
             } else { None };
             let started = std::time::Instant::now();
-            while !matches!(server.sessions.get(&id).unwrap().state, crate::session::SessionState::Exited(7)) {
+            while !server.output.tails.get(&id).is_some_and(|tail| tail.exit == Some(7)) {
                 assert!(started.elapsed() < std::time::Duration::from_secs(5), "PTY stalled with slow_client={slow_client}");
                 server.turn(None, 10).unwrap();
             }
@@ -648,7 +694,7 @@ mod multiplex_tests {
         let mut server = SessionServer::default();
         let id = script(&mut server, "head -c 16777216 /dev/zero; printf TAIL; exit 9");
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
-        while !matches!(server.sessions.get(&id).unwrap().state, crate::session::SessionState::Exited(9)) {
+        while !server.output.tails.get(&id).is_some_and(|tail| tail.exit == Some(9)) {
             assert!(std::time::Instant::now() < deadline);
             server.turn(None, 10).unwrap();
         }
@@ -704,6 +750,94 @@ mod multiplex_tests {
         assert_eq!(server.output.tails[&id].gap, Some(-1));
         assert_eq!(server.staged_output[&id], b"partial graphics");
         server.sessions.terminate(&id, nix::sys::signal::Signal::SIGKILL).unwrap();
+    }
+
+    fn client_pair(server: &mut SessionServer, ids: &[&str]) -> UnixStream {
+        let (host, peer) = UnixStream::pair().unwrap();
+        host.set_read_timeout(Some(std::time::Duration::from_secs(2))).unwrap();
+        let mut client = Client::new(VsockConnection::new(std::fs::File::from(std::os::fd::OwnedFd::from(peer))).unwrap()).unwrap();
+        client.known.extend(ids.iter().map(|id| (*id).to_owned()));
+        server.client = Some(client); host
+    }
+
+    #[test]
+    fn resize_discards_pending_media_and_old_raw_text_before_response() {
+        let mut server = SessionServer::default();
+        let id = script(&mut server, "exec sleep 10");
+        let mut host = client_pair(&mut server, &[&id]);
+        let file = std::env::temp_dir().join(format!("tty-graphics-protocol-resize-{}", std::process::id()));
+        std::fs::write(&file, vec![7; 65536]).unwrap();
+        let name = crate::graphics_transport::encode_base64(file.to_str().unwrap().as_bytes());
+        server.process_output(&id, format!("\x1b_Gi=1,t=t;{name}\x1b\\OLD_GEOMETRY_TEXT").as_bytes());
+        server.drain_output(&id); // A multipart image has already started.
+        assert!(server.graphics[&id].has_pending_media());
+        crate::vsock::write_frame_to(&mut host, &Frame { service: Service::Session, kind: FrameKind::Request,
+            flags: 0, request_id: 81, payload: SessionRequest::Resize { session_id: id.clone(), rows: 40, cols: 120 }.encode().unwrap() }).unwrap();
+        server.service_client();
+        let mut gap = false;
+        loop {
+            let frame = crate::vsock::read_frame_from(&mut host).unwrap();
+            if frame.kind == FrameKind::Response { assert_eq!(frame.request_id, 81); break; }
+            gap |= frame.payload[0] == 0x92;
+            assert!(!frame.payload.windows(b"OLD_GEOMETRY_TEXT".len()).any(|b| b == b"OLD_GEOMETRY_TEXT"));
+        }
+        assert!(gap); assert!(!server.has_buffered_output(&id));
+        assert!(file.exists(), "resize must not unlink a cancelled source");
+        server.turn(None, 0).unwrap(); server.service_client();
+        assert!(!server.output.has_pending(&id));
+        server.sessions.terminate(&id, nix::sys::signal::Signal::SIGKILL).unwrap();
+        while server.sessions.retired_fds().next().is_some() { server.turn(None, 10).unwrap(); }
+        std::fs::remove_file(file).unwrap();
+    }
+
+    #[test]
+    fn media_conversion_yields_to_sibling_output_queries_and_termination() {
+        let mut server = SessionServer::default();
+        let image = script(&mut server, "exec sleep 10");
+        let sibling = script(&mut server, "exec sleep 10");
+        let mut host = client_pair(&mut server, &[&image, &sibling]);
+        let file = std::env::temp_dir().join(format!("tty-graphics-protocol-yield-{}", std::process::id()));
+        std::fs::write(&file, vec![7; 6 * 1024 * 1024]).unwrap();
+        let name = crate::graphics_transport::encode_base64(file.to_str().unwrap().as_bytes());
+        server.process_output(&image, format!("\x1b_Gi=1,t=t;{name}\x1b\\after").as_bytes());
+        server.process_output(&sibling, b"SIBLING_PROGRESS");
+        let mut sibling_progress = false;
+        for request in 1..=2 {
+            crate::vsock::write_frame_to(&mut host, &Frame { service: Service::Session, kind: FrameKind::Request,
+                flags: 0, request_id: request, payload: SessionRequest::ResourceUsage.encode().unwrap() }).unwrap();
+            server.turn(None, 0).unwrap();
+            assert!(server.graphics[&image].has_pending_media(), "a query must not wait for the whole image");
+            loop {
+                let frame = crate::vsock::read_frame_from(&mut host).unwrap();
+                if frame.request_id == request { assert_eq!(frame.kind, FrameKind::Response); break; }
+                sibling_progress |= frame.payload.ends_with(b"SIBLING_PROGRESS");
+            }
+        }
+        assert!(sibling_progress);
+        crate::vsock::write_frame_to(&mut host, &Frame { service: Service::Session, kind: FrameKind::Request,
+            flags: 0, request_id: 3, payload: SessionRequest::Terminate { session_id: image.clone(), signal: 9 }.encode().unwrap() }).unwrap();
+        server.turn(None, 0).unwrap();
+        loop { let frame = crate::vsock::read_frame_from(&mut host).unwrap(); if frame.request_id == 3 { assert_eq!(frame.kind, FrameKind::Response); break; } }
+        assert!(server.sessions.get(&image).is_none()); assert!(!server.has_buffered_output(&image));
+        assert!(file.exists());
+        server.sessions.terminate(&sibling, nix::sys::signal::Signal::SIGKILL).unwrap();
+        while server.sessions.retired_fds().next().is_some() { server.turn(None, 10).unwrap(); }
+        std::fs::remove_file(file).unwrap();
+    }
+
+    #[test]
+    fn reused_empty_tail_does_not_busy_poll_an_idle_connected_session() {
+        let mut server = SessionServer::default();
+        let id = script(&mut server, "exec sleep 10");
+        let mut host = client_pair(&mut server, &[&id]);
+        server.process_output(&id, b"ready"); server.service_client();
+        crate::vsock::read_frame_from(&mut host).unwrap();
+        assert!(server.output.tails.contains_key(&id)); assert!(!server.output.has_pending(&id));
+        let started = std::time::Instant::now();
+        server.turn(None, 60).unwrap();
+        assert!(started.elapsed() >= std::time::Duration::from_millis(40), "empty queue forced an immediate poll");
+        server.sessions.terminate(&id, nix::sys::signal::Signal::SIGKILL).unwrap();
+        while server.sessions.retired_fds().next().is_some() { server.turn(None, 10).unwrap(); }
     }
 
     #[test]

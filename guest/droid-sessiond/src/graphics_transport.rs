@@ -12,6 +12,9 @@ use std::path::{Component, Path};
 
 const MAX_BYTES: usize = 6 * 1024 * 1024;
 const FRAME_BYTES: usize = 32 * 1024;
+const MEDIA_BLOCK_BYTES: usize = 3072;
+const MEDIA_BLOCKS_PER_TURN: usize = 7;
+const CANCEL_TRANSFER: &[u8] = b"\x1b_\x18";
 const BASE64: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 #[derive(Default)]
@@ -24,6 +27,7 @@ pub struct GraphicsTransport {
     osc: bool,
     chunked: bool,
     utf8_remaining: u8,
+    media: Option<MediaTransfer>,
 }
 
 impl GraphicsTransport {
@@ -41,11 +45,20 @@ impl GraphicsTransport {
     #[cfg(test)]
     fn accept_prefix_with<F>(&mut self, input: &[u8], limit: usize, mut read: F) -> (usize, Output)
     where F: FnMut(char, &str, u64, u64) -> Result<Vec<u8>, &'static str> {
-        self.accept_prefix_inner(input, limit, |m, n, o, s| read(m, n, o, s).map(Media::memory), true)
+        let mut used = 0;
+        let mut output = Output::default();
+        while used < input.len() || self.has_pending_media() {
+            let (count, next) = self.accept_prefix_inner(&input[used..], limit,
+                |m, n, o, s| read(m, n, o, s).map(Media::memory), true);
+            used += count; output.bytes.extend(next.bytes); output.replies.extend(next.replies);
+            if !self.has_pending_media() && output.bytes.iter().map(Vec::len).sum::<usize>() >= limit { break; }
+        }
+        (used, output)
     }
 
     fn accept_prefix_inner<F>(&mut self, input: &[u8], limit: usize, mut read: F, fast: bool) -> (usize, Output)
     where F: FnMut(char, &str, u64, u64) -> Result<Media, &'static str> {
+        if self.has_pending_media() { return (0, self.advance_media()); }
         let mut result = Output::default();
         // UTF-8 text and complete CSI sequences cannot introduce graphics media.
         // Carry split UTF-8 continuations; malformed text and strings keep the full parser.
@@ -94,7 +107,7 @@ impl GraphicsTransport {
                         append(&mut result, &normal); normal.clear();
                         self.process(&mut result, &mut read);
                         self.apc.clear(); self.state = 0;
-                        if result.bytes.iter().map(Vec::len).sum::<usize>() >= limit { break; }
+                        if self.has_pending_media() || result.bytes.iter().map(Vec::len).sum::<usize>() >= limit { break; }
                     } else if self.apc.len() > 5124 {
                         append(&mut result, &normal); normal.clear(); append(&mut result, &self.apc);
                         self.apc.clear(); self.state = if b == 27 { 7 } else { 6 }; self.chunked = false;
@@ -115,8 +128,35 @@ impl GraphicsTransport {
         (consumed, result)
     }
 
+    pub fn has_pending_media(&self) -> bool { self.media.is_some() }
+
+    pub fn advance_media(&mut self) -> Output {
+        let Some(mut transfer) = self.media.take() else { return Output::default(); };
+        match transfer.step() {
+            Ok((done, bytes)) => {
+                if !done { self.media = Some(transfer); }
+                Output { bytes: vec![bytes], replies: Vec::new() }
+            }
+            Err(error) => {
+                // CAN inside an APC cancels a multipart Kitty upload without
+                // deleting a previously committed image or ordinary screen text.
+                let mut output = Output::default();
+                append(&mut output, CANCEL_TRANSFER);
+                failure(&mut output, &transfer.keys, error);
+                output
+            }
+        }
+    }
+
+    pub fn discard_partial(&mut self) -> bool {
+        let discarded = self.state != 0 || self.chunked || self.utf8_remaining != 0 || self.has_pending_media();
+        *self = Self::default(); // Dropping an incomplete media reader never unlinks it.
+        discarded
+    }
+
     pub fn finish(&mut self) -> Output {
         let mut result = Output::default();
+        if self.has_pending_media() { append(&mut result, CANCEL_TRANSFER); }
         if self.state == 1 { append(&mut result, &[27]); }
         if self.state == 2 || self.state == 3 { append(&mut result, &self.apc); }
         *self = Self::default();
@@ -151,11 +191,8 @@ impl GraphicsTransport {
             Err(error) => { failure(result, &keys, error); return; }
         };
         keys.insert('t', "d".into()); keys.remove(&'S'); keys.remove(&'O'); keys.remove(&'m');
-        let header = keys.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(",");
-        match encode_media(data, &header, &action) {
-            Ok(bytes) => result.bytes.extend(bytes),
-            Err(error) => failure(result, &keys, error),
-        }
+        // Consume only the command here; encoding resumes in later loop turns.
+        self.media = Some(MediaTransfer { media: data, keys, first: true });
     }
 }
 
@@ -241,33 +278,40 @@ fn encode_base64_into(bytes: &[u8], out: &mut Vec<u8>) {
     }
 }
 
-// Only encoded wire chunks are retained. Neither a complete source-file buffer
-// nor a complete base64 string is allocated. Stage these chunks until reading
-// and optional unlink succeed, so a short read cannot publish half an image.
-fn encode_media(mut media: Media, header: &str, action: &str) -> Result<Vec<Vec<u8>>, &'static str> {
-    let mut chunks = Vec::new();
-    let mut remaining = media.length;
-    let mut buffer = [0u8; 3072]; // Exactly 4096 base64 bytes, without intermediate padding.
-    loop {
-        let count = remaining.min(buffer.len());
-        media.reader.read_exact(&mut buffer[..count]).map_err(|_| "EIO: media read")?;
-        remaining -= count;
-        let metadata = if chunks.is_empty() { header } else if action == "f" { "a=f" } else { "" };
-        let mut chunk = Vec::with_capacity(12 + metadata.len() + (count + 2) / 3 * 4);
-        chunk.extend_from_slice(b"\x1b_G");
-        if !metadata.is_empty() { chunk.extend_from_slice(metadata.as_bytes()); chunk.push(b','); }
-        chunk.extend_from_slice(if remaining > 0 { b"m=1;" } else { b"m=0;" });
-        encode_base64_into(&buffer[..count], &mut chunk);
-        chunk.extend_from_slice(b"\x1b\\");
-        chunks.push(chunk);
-        if remaining == 0 { break; }
+// One in-progress reader per parser; encoded chunks go through the existing
+// bounded output tails. No complete-image staging queue or worker is needed.
+struct MediaTransfer { media: Media, keys: BTreeMap<char, String>, first: bool }
+impl MediaTransfer {
+    fn step(&mut self) -> Result<(bool, Vec<u8>), &'static str> {
+        let header = if self.first {
+            self.keys.iter().map(|(k, v)| format!("{k}={v}")).collect::<Vec<_>>().join(",")
+        } else { String::new() };
+        let frame = self.keys.get(&'a').is_some_and(|action| action == "f");
+        let raw = self.media.length.min(MEDIA_BLOCK_BYTES * MEDIA_BLOCKS_PER_TURN);
+        let mut output = Vec::with_capacity((raw + 2) / 3 * 4 + header.len() + MEDIA_BLOCKS_PER_TURN * 13);
+        let mut buffer = [0u8; MEDIA_BLOCK_BYTES];
+        for _ in 0..MEDIA_BLOCKS_PER_TURN {
+            let count = self.media.length.min(buffer.len());
+            self.media.reader.read_exact(&mut buffer[..count]).map_err(|_| "EIO: media read")?;
+            self.media.length -= count;
+            // The terminating m=0 chunk commits the image at the receiver. Never
+            // publish it until all reads and optional source cleanup succeeded.
+            if self.media.length == 0 { self.media.finish()?; }
+            let metadata = if self.first { header.as_str() } else if frame { "a=f" } else { "" };
+            output.extend_from_slice(b"\x1b_G");
+            if !metadata.is_empty() { output.extend_from_slice(metadata.as_bytes()); output.push(b','); }
+            output.extend_from_slice(if self.media.length > 0 { b"m=1;" } else { b"m=0;" });
+            encode_base64_into(&buffer[..count], &mut output);
+            output.extend_from_slice(b"\x1b\\");
+            self.first = false;
+            if self.media.length == 0 { return Ok((true, output)); }
+        }
+        Ok((false, output))
     }
-    media.finish()?;
-    Ok(chunks)
 }
 
 struct Media {
-    reader: Box<dyn Read>,
+    reader: Box<dyn Read + Send>,
     length: usize,
     cleanup: Option<MediaCleanup>,
 }
@@ -277,8 +321,8 @@ impl Media {
     fn memory(bytes: Vec<u8>) -> Self {
         Self { length: bytes.len(), reader: Box::new(std::io::Cursor::new(bytes)), cleanup: None }
     }
-    fn finish(self) -> Result<(), &'static str> {
-        if let Some(cleanup) = self.cleanup {
+    fn finish(&mut self) -> Result<(), &'static str> {
+        if let Some(cleanup) = self.cleanup.take() {
             let mut current = std::mem::MaybeUninit::<nix::libc::stat>::uninit();
             let status = unsafe { nix::libc::fstatat(cleanup.directory.as_raw_fd(), cleanup.name.as_ptr(), current.as_mut_ptr(), nix::libc::AT_SYMLINK_NOFOLLOW) };
             if status == 0 {
@@ -369,11 +413,78 @@ mod tests {
         Ok(bytes)
     }
 
+    fn encode_media(media: Media, header: &str, _action: &str) -> Result<Vec<Vec<u8>>, &'static str> {
+        let keys = header.split(',').map(|item| {
+            let (key, value) = item.split_once('=').unwrap(); (key.chars().next().unwrap(), value.to_owned())
+        }).collect();
+        let mut transfer = MediaTransfer { media, keys, first: true };
+        let mut bytes = Vec::new();
+        loop {
+            let (done, batch) = transfer.step()?;
+            // Split complete APCs so the existing per-chunk assertions still
+            // verify the 4096-byte payload and continuation metadata boundaries.
+            let mut start = 0;
+            for index in 0..batch.len() - 1 {
+                if &batch[index..index+2] == b"\x1b\\" { bytes.push(batch[start..index+2].to_vec()); start = index+2; }
+            }
+            if done { return Ok(bytes); }
+        }
+    }
+
     fn sequence(header: &str, payload: &str) -> Vec<u8> { format!("\x1b_G{header};{payload}\x1b\\").into_bytes() }
     fn flatten(output: Output) -> Vec<u8> { output.bytes.concat() }
     fn fixture() -> std::path::PathBuf {
         let p = std::env::temp_dir().join(format!("tty-graphics-protocol-test-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         std::fs::create_dir(&p).unwrap(); p
+    }
+
+    #[test]
+    fn media_work_yields_between_bounded_reads_and_cancels_without_committing() {
+        use std::sync::Arc;
+        struct CountingReader(Arc<AtomicUsize>);
+        impl Read for CountingReader {
+            fn read(&mut self, bytes: &mut [u8]) -> std::io::Result<usize> {
+                self.0.fetch_add(1, Ordering::Relaxed); bytes.fill(7); Ok(bytes.len())
+            }
+        }
+        let calls = Arc::new(AtomicUsize::new(0));
+        let mut transport = GraphicsTransport::default();
+        let command = sequence("i=1,t=f", &encode_base64(b"/image"));
+        let (used, first) = transport.accept_prefix_inner(&command, 65536, |_, _, _, _| Ok(Media {
+            reader: Box::new(CountingReader(calls.clone())), length: 196608, cleanup: None,
+        }), true);
+        assert_eq!(used, command.len()); assert!(first.bytes.is_empty());
+        assert_eq!(calls.load(Ordering::Relaxed), 0, "parsing a path does not run the conversion");
+        for turn in 1..=2 {
+            let bytes = flatten(transport.advance_media());
+            assert!(bytes.len() <= FRAME_BYTES);
+            assert!(!bytes.windows(4).any(|b| b == b"m=0;"));
+            assert_eq!(calls.load(Ordering::Relaxed), turn * MEDIA_BLOCKS_PER_TURN);
+            assert!(transport.has_pending_media());
+        }
+        assert!(transport.discard_partial());
+        assert!(!transport.has_pending_media());
+        assert!(transport.advance_media().bytes.is_empty());
+    }
+
+    #[test]
+    fn failure_after_published_chunks_cancels_upload_and_keeps_source() {
+        let dir = fixture(); let file = dir.join("partial-image");
+        std::fs::write(&file, vec![7; 128 * 1024]).unwrap();
+        let command = sequence("i=9,t=t", &encode_base64(file.to_str().unwrap().as_bytes()));
+        let mut transport = GraphicsTransport::default();
+        transport.accept_prefix(&command);
+        let first = flatten(transport.advance_media());
+        assert!(first.starts_with(b"\x1b_G"));
+        assert!(!first.windows(4).any(|b| b == b"m=0;"));
+        std::fs::OpenOptions::new().write(true).open(&file).unwrap().set_len(0).unwrap();
+        let failed = transport.advance_media();
+        assert_eq!(failed.replies, vec![sequence("i=9", "EIO: media read")]);
+        assert_eq!(flatten(failed), CANCEL_TRANSFER);
+        assert!(!transport.has_pending_media()); assert!(file.exists());
+        let (_, normal) = transport.accept_prefix(b"after");
+        assert_eq!(flatten(normal), b"after");
+        std::fs::remove_dir_all(dir).unwrap();
     }
 
     #[test]
@@ -395,9 +506,14 @@ mod tests {
         let mut media = Some(read_media('t', file.to_str().unwrap(), 0, 0).unwrap());
         std::fs::OpenOptions::new().write(true).open(&file).unwrap().set_len(4096).unwrap();
         let input = [b"before".to_vec(), sequence("i=8,t=t", &encode_base64(file.to_str().unwrap().as_bytes())), b"after".to_vec()].concat();
-        let (_, output) = GraphicsTransport::default().accept_prefix_inner(&input, usize::MAX, |_, _, _, _| Ok(media.take().unwrap()), true);
-        assert_eq!(output.replies, vec![sequence("i=8", "EIO: media read")]);
-        assert_eq!(flatten(output), b"beforeafter");
+        let mut transport = GraphicsTransport::default();
+        let (used, first) = transport.accept_prefix_inner(&input, usize::MAX, |_, _, _, _| Ok(media.take().unwrap()), true);
+        assert_eq!(flatten(first), b"before");
+        let failed = transport.advance_media();
+        assert_eq!(failed.replies, vec![sequence("i=8", "EIO: media read")]);
+        assert_eq!(flatten(failed), CANCEL_TRANSFER);
+        let (_, following) = transport.accept_prefix(&input[used..]);
+        assert_eq!(flatten(following), b"after");
         assert!(file.exists(), "a partial read must not unlink the source");
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -491,15 +607,20 @@ mod tests {
                 let mut fast = GraphicsTransport::default();
                 let mut reference = GraphicsTransport::default();
                 for chunk in sample.chunks(width) {
-                    let (used, actual) = fast.accept_prefix_inner(chunk, usize::MAX, |_, _, _, _| Ok(Media::memory(vec![1, 2, 3])), true);
-                    let (expected_used, expected) = reference.accept_prefix_inner(chunk, usize::MAX, |_, _, _, _| Ok(Media::memory(vec![1, 2, 3])), false);
-                    assert_eq!(used, expected_used, "width {width}");
-                    assert_eq!(actual.replies, expected.replies);
-                    assert_eq!(flatten(actual), flatten(expected), "width {width}");
-                    assert_eq!(fast.state, reference.state);
-                    assert_eq!(fast.utf8_remaining, reference.utf8_remaining);
-                    assert_eq!(fast.apc, reference.apc);
-                    assert_eq!(fast.chunked, reference.chunked);
+                    let mut offset = 0;
+                    while offset < chunk.len() || fast.has_pending_media() {
+                        let (used, actual) = fast.accept_prefix_inner(&chunk[offset..], usize::MAX, |_, _, _, _| Ok(Media::memory(vec![1, 2, 3])), true);
+                        let (expected_used, expected) = reference.accept_prefix_inner(&chunk[offset..], usize::MAX, |_, _, _, _| Ok(Media::memory(vec![1, 2, 3])), false);
+                        assert_eq!(used, expected_used, "width {width}");
+                        offset += used;
+                        assert_eq!(fast.has_pending_media(), reference.has_pending_media());
+                        assert_eq!(actual.replies, expected.replies);
+                        assert_eq!(flatten(actual), flatten(expected), "width {width}");
+                        assert_eq!(fast.state, reference.state);
+                        assert_eq!(fast.utf8_remaining, reference.utf8_remaining);
+                        assert_eq!(fast.apc, reference.apc);
+                        assert_eq!(fast.chunked, reference.chunked);
+                    }
                 }
                 assert_eq!(flatten(fast.finish()), flatten(reference.finish()));
             }

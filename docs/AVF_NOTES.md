@@ -28,8 +28,8 @@ See `ARCHITECTURE.md` for bounded final draining and the extra per-child pidfd.
 Linux 5.3+ pidfd support is covered by the pinned Linux 6.12 guest ([Linux manual](https://man7.org/linux/man-pages/man2/pidfd_open.2.html)).
 
 A reproducible host microbenchmark is `tests/benchmarks/avf_sessiond_overhead.py`
-(baseline `545d204`, release builds, five alternating runs on this ARM64 Linux
-host). It isolates allocations/CPU, not AVF/vsock/UI latency. Timing uses disabled
+(baseline `545d204`, candidate `ccacad7`, release builds, five alternating runs
+on this ARM64 Linux host). It isolates allocations/CPU, not AVF/vsock/UI latency. Timing uses disabled
 allocation counting; counts include allocation/reallocation calls in a separate
 sample after warm-up. The 6 MiB file is in the host page cache.
 
@@ -46,6 +46,52 @@ The graphic peak includes retained encoded chunks; it is not process RSS. Full
 raw-file/Base64 copies are removed, but slow regular-file I/O is still synchronous.
 These figures do not establish device-level performance against Userspace Linux.
 
+A subsequent refinement fixes a reproduced resize-boundary hole: raw bytes staged
+after a local-media command could cross the resize acknowledgement. Resize now
+cancels the in-progress reader, drops that raw remainder and resets partial
+parsers with a gap before the response. Conversion advances at most seven 3 KiB
+blocks per session turn and checks control between slices. m=1 chunks use the
+existing bounded tail, and only the final m=0 commits an image after successful
+read/cleanup. Failure sends APC + CAN, preserving committed images and the source.
+Host gap handling clears multipart state on both screens. Reaped children release
+the PTY immediately after bounded raw-tail capture; accepted images finish through
+the same loop without keeping a child or PTY alive. Empty live-session tail
+metadata is reused, but never makes an idle session runnable.
+
+Compared with `ccacad7`, five alternating release runs of
+`python3 tests/benchmarks/avf_sessiond_overhead.py --baseline ccacad7` measured:
+
+| Operation | ccacad7 | Cooperative conversion |
+| --- | ---: | ---: |
+| Healthy 8 KiB output path: transient allocations | 6 | 3 |
+| Same path, median loopback time | 5.989 us | 5.874 us |
+| 6 MiB conversion: peak transient allocated bytes | 8,512,054 | 29,120 |
+| Same conversion, allocation/reallocation calls | 2,086 | 609 |
+| Same conversion, median total time | 14.027 ms | 12.820 ms |
+| Idle turn with 8 sessions: allocations | 0 | 0 |
+| Same idle turn, median time | 1.985 us | 2.099 us |
+
+The output-path allocation count excludes peer decoding; its elapsed time includes
+the local socket round trip. Conversion output is consumed/dropped as returned,
+so the peak measures the converter, excluding the existing 9/16 MiB guest tails
+and host image storage. It is not whole-VM RSS. The idle-turn increase is about
+0.11 us; a connected idle loop blocks rather than waking periodically. This test
+uses cached regular-file data and establishes no slow-storage deadline or AVF
+versus Userspace Linux device result. No service, worker pool, extra socket or
+second image queue was introduced.
+
+Regression coverage includes resize with a partially transmitted image, sibling
+output/resource requests/termination before conversion completes, late short-read
+cancellation, both-screen multipart reset, final images after child reaping and
+blocking poll with a reused empty queue. Guest Rust tests pass 50 cases; the
+focused host Kitty suite passes 26. Canonical app/runtime/image Gradle checks
+passed, and Android MCP/ReDroid passed the output-gap checkpoint-ordering device
+test (one case) using the rebuilt runtime test APK. The initial focused Gradle
+command used the aggregate `test` task with `--tests`; selecting the concrete
+`testDebugUnitTest` task corrected that invocation. Full-device AVF acceptance
+still requires a privileged provisioned VM.
+
+
 Alternatives rejected were another relay optimization (still coupled process
 progress to replay), a second priority socket (more ownership/recovery state),
 and unlimited memory/disk output retention (unbounded resource use). The chosen
@@ -55,7 +101,7 @@ keep the host compatibility adapter. New guest behavior requires a verified
 component/image update of a stopped Environment; no installed disk is rewritten
 by this source change or APK alone.
 
-Validation on the ARM64 development host:
+Initial direct-transport validation on the ARM64 development host:
 
 - Guest Rust: 38 tests passed, including 32 MiB production through real PTYs with
   no client and with an unread client; both reached actual exit and released the

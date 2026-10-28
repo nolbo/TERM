@@ -24,6 +24,13 @@ reused loop storage and chunked media encoding reside in `droid-sessiond`, not
 the APK. It requires Linux 5.3+ (the pinned guest is 6.12), adds no service or wire
 version, and does not itself publish an image or alter installed environments.
 
+Cooperative media conversion, staged-output resize cancellation and output-queue
+reuse also require the updated guest component. The matching APK clears incomplete
+multipart Kitty transfers on both terminal screens at an OutputGap. Conversion
+uses ordinary Kitty m=1/m=0 and APC cancellation; no extra daemon, port or manifest
+capability is added. Existing guest paths, permissions and the source-file unlink
+policy are unchanged; an interrupted conversion leaves its source available.
+
 ## Decision and compatibility
 
 Format v1 `home.img` contains the root OverlayFS upper/work trees. Format v2

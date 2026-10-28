@@ -35,16 +35,20 @@ unsafe impl GlobalAlloc for Counter {
 #[global_allocator]
 static ALLOCATOR: Counter = Counter;
 
-fn sample(name: &str, rounds: usize, mut run: impl FnMut()) {
-    run(); // Warm persistent capacities before counting transient allocations.
+fn sample(name: &str, rounds: usize, run: impl FnMut()) {
+    sample_with_cleanup(name, rounds, run, || {});
+}
+fn sample_with_cleanup(name: &str, rounds: usize, mut run: impl FnMut(), mut cleanup: impl FnMut()) {
+    run(); cleanup(); // Warm persistent capacities before counting transient allocations.
     CALLS.store(0, Relaxed); LIVE.store(0, Relaxed); PEAK.store(0, Relaxed);
     TRACK.store(true, Relaxed);
     run();
     TRACK.store(false, Relaxed);
     let calls = CALLS.load(Relaxed); let peak = PEAK.load(Relaxed);
     assert_eq!(LIVE.load(Relaxed), 0, "measured operation must release its transient allocations");
+    cleanup();
     let start = std::time::Instant::now();
-    for _ in 0..rounds { run(); }
+    for _ in 0..rounds { run(); cleanup(); }
     println!("BENCH {name} allocations={calls} peak_bytes={peak} mean_us={:.3}",
         start.elapsed().as_secs_f64() * 1e6 / rounds as f64);
 }
@@ -58,6 +62,18 @@ fn overhead() {
         let frame = __ENCODE_EVENT__;
         std::hint::black_box(frame);
     });
+    // Actual healthy guest output path. Peer decoding is outside allocation
+    // counting; elapsed time includes the local socket round trip on both builds.
+    let mut live = SessionServer::default();
+    let id = live.sessions.create_shell("/bin/sh", "/", 24, 80).id.clone();
+    let (mut peer, socket) = std::os::unix::net::UnixStream::pair().unwrap();
+    peer.set_read_timeout(Some(std::time::Duration::from_secs(3))).unwrap();
+    let mut client = Client::new(VsockConnection::new(std::fs::File::from(std::os::fd::OwnedFd::from(socket))).unwrap()).unwrap();
+    client.known.insert(id.clone()); live.client = Some(client);
+    sample_with_cleanup("active_output_8k", 10_000, || {
+        live.process_output(&id, &payload); live.service_client();
+    }, || { crate::vsock::read_frame_from(&mut peer).unwrap(); });
+
     let mut server = SessionServer::default();
     for _ in 0..8 {
         let id = server.sessions.create_shell("/bin/sh", "/", 24, 80).id.clone();
@@ -74,10 +90,7 @@ fn overhead() {
     let command = __MEDIA_COMMAND__;
     let mut graphics = GraphicsTransport::default();
     sample("graphic_6m", 5, || {
-        let (_, output) = graphics.accept_prefix(command);
-        assert!(output.replies.is_empty());
-        assert!(output.bytes.iter().map(Vec::len).sum::<usize>() > 8 * 1024 * 1024);
-        std::hint::black_box(output);
+        __CONVERT_MEDIA__
     });
     std::fs::remove_file(file).unwrap();
 }

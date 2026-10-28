@@ -3012,6 +3012,8 @@ public final class TerminalEmulator implements java.io.Serializable {
     /** Discard a truncated transport fragment without erasing the screen or modes. */
     public void discardPartialSequence() {
         mSynchronizedOutput.end();
+        mMainGraphics.cancelTransfer();
+        mAltGraphics.cancelTransfer();
         startGraphicsString();
         mOSCOrDeviceControlArgs.setLength(0);
         mOSCDiscarding = false;

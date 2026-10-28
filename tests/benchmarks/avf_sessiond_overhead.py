@@ -42,7 +42,24 @@ def main():
             command = "\x1b_Gi=1,t=f;" + base64.b64encode(media.encode()).decode() + "\x1b\\"
             # json escapes ESC as \u001b, whereas Rust byte strings need \x1b.
             rust_command = "b" + json.dumps(command).replace("\\u001b", "\\x1b")
-            fixture = template.replace("__ENCODE_EVENT__", encode).replace("__MEDIA_PATH__", json.dumps(media)).replace("__MEDIA_COMMAND__", rust_command)
+            conversion = """
+                let (_, output) = graphics.accept_prefix(command);
+                assert!(output.replies.is_empty());
+                let mut bytes = output.bytes.iter().map(Vec::len).sum::<usize>();
+                std::hint::black_box(output);
+            """
+            if "fn advance_media(" in (directory / "src/graphics_transport.rs").read_text():
+                conversion += """
+                    while graphics.has_pending_media() {
+                        let output = graphics.advance_media();
+                        assert!(output.replies.is_empty());
+                        bytes += output.bytes.iter().map(Vec::len).sum::<usize>();
+                        std::hint::black_box(output);
+                    }
+                """
+            conversion += "assert!(bytes > 8 * 1024 * 1024);"
+            fixture = (template.replace("__ENCODE_EVENT__", encode).replace("__MEDIA_PATH__", json.dumps(media))
+                       .replace("__MEDIA_COMMAND__", rust_command).replace("__CONVERT_MEDIA__", conversion))
             (directory / "src/overhead.rs").write_text(fixture)
             with (directory / "src/server.rs").open("a") as output:
                 output.write('\n#[cfg(test)] mod overhead { include!("overhead.rs"); }\n')

@@ -348,11 +348,12 @@ renderer. Event `0x90` is output (u16 UTF-8 session ID, i32 length, bytes, with
 kitty local media converted inside the guest); `0x91` is process exit (ID, i32
 exit code). New direct guests also emit `0x92` OutputGap (ID, big-endian i64
 count). A nonnegative count is discarded output bytes; -1 means delivery on the
-previous connection or the bounded final drain is unknown. Counts below -1 or
+previous connection, a discarded partial resize conversion or the bounded final
+drain is unknown. Counts below -1 or
 trailing bytes are invalid.
 A gap precedes the retained output tail and any pending exit event. It does not
 mean process/Environment death. The host clears incomplete ANSI/OSC/DCS/APC,
-UTF-8 and remote-control parsing, checkpoints subscribed mirrors and reports the
+UTF-8, multipart Kitty transfers on both screens and remote-control parsing, checkpoints subscribed mirrors and reports the
 loss. Existing screen, history and established modes remain; lost bytes cannot
 be reconstructed. Older hosts ignore unknown events and cannot provide this
 parser-reset guarantee, so new components must travel with their approved APK.
@@ -367,12 +368,16 @@ Host-only appended `initializeAvfImage(storageId, requestId, callback)` and `can
 The host session client contains transport read and frame-validation exceptions within its receive job. EOF, a failed read or explicit close publishes `DISCONNECTED`, fails pending requests and closes only that transport; new requests on a disconnected client fail without a send or request timeout. Cleanup failures cannot escape to the shared runtime owner. Coroutine cancellation still propagates, and disconnection emits no synthetic PTY exit or sibling-session removal. Guest wire frames and protocol version remain unchanged.
 
 Child exit is polled independently through a pidfd and reaped even while a
-descendant retains the slave. Sessiond drains at most eight final parser/read
-turns (PTY reads <= 8 KiB), reports an unknown-size gap if more output is observed,
-then closes the master and emits the actual exit status after the retained tail.
+descendant retains the slave. Sessiond captures at most eight final 8 KiB raw
+reads and closes the master, reporting an unknown-size gap if more output is
+observed. The existing staged buffer may also contain a prior 8 KiB read. Accepted
+raw bytes/media continue in bounded parser turns before the actual exit event;
+LIST already exposes the reaped status, and explicit termination cancels this
+remaining output immediately.
 EOF alone stops PTY I/O polling without closing the master or signalling a live
 leader. LIST and attachment retain exited history until explicit termination;
-an exited ID cannot restart a shell. Only active child/PTY handles enter the loop.
+an exited ID cannot restart a shell. Only live I/O or buffered parser work enters
+the loop; exited history with no pending work does not.
 Pending WRITE requests fail when their destination exits; they are never replayed.
 Guest input is bounded to 1 MiB/64 packets per session and 4 MiB/256 packets total.
 Rejected user WRITE receives ERROR. Generated local graphics replies may be
@@ -385,10 +390,14 @@ Platform connection attempts are separately bounded to 10 seconds with eight wor
 Kitty media conversion does not change the session wire schema. File paths,
 shared-memory handles and guest descriptors never become host file operations;
 `droid-sessiond` reads bounded regular-file data in the guest and emits direct
-APCs in output frames of at most 32 KiB. Guest conversion reads 3 KiB blocks,
-encoding directly into 4 KiB-base64 APC chunks without full raw/base64 copies.
-Chunks are published only after the entire bounded read and optional unlink
-succeed; short reads leave the source intact. Native/Rootless perform the equivalent
+APCs in output frames of at most 32 KiB. Guest conversion processes at most seven
+3 KiB blocks per session turn, emitting ordinary 4 KiB-base64 m=1 chunks through
+the existing bounded output queue. The final m=0 chunk commits only after all
+reads and optional unlink succeed. On failure, APC + CAN (`ESC _ CAN`) cancels
+any partial upload without deleting committed images; short reads leave the
+source intact. Resize discards staged raw bytes and cancels partial conversion,
+with an unknown-size OutputGap before its response. No new wire opcode, worker
+or image queue is introduced. Native/Rootless perform the equivalent
 conversion before their 8 MiB transcript/replay buffer. Runtime emulator replies
 remain ordinary PTY input. UI mirrors suppress duplicate
 query replies, and checkpoint installation never re-executes historical effects.

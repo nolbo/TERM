@@ -2,7 +2,7 @@
 use std::collections::{BTreeMap, VecDeque};
 
 // A supported 6 MiB local graphic expands to slightly over 8 MiB of wire APCs.
-// Retain one complete expansion even when it is produced in a single parser turn.
+// Retain one complete expansion when a disconnected client cannot consume it.
 const SESSION_BYTES: usize = 9 * 1024 * 1024;
 const TOTAL_BYTES: usize = 16 * 1024 * 1024;
 const TOTAL_CHUNKS: usize = 2048;
@@ -15,6 +15,10 @@ pub struct Tail {
     pub exit: Option<i32>,
 }
 
+impl Tail {
+    pub fn has_pending(&self) -> bool { !self.chunks.is_empty() || self.gap.is_some() || self.exit.is_some() }
+}
+
 #[derive(Default)]
 pub struct OutputBuffer {
     pub tails: BTreeMap<String, Tail>,
@@ -24,10 +28,13 @@ pub struct OutputBuffer {
 }
 
 impl OutputBuffer {
+    pub fn has_pending(&self, id: &str) -> bool { self.tails.get(id).is_some_and(Tail::has_pending) }
+
     pub fn push(&mut self, id: &str, bytes: Vec<u8>) {
         if bytes.is_empty() { return; }
         self.sequence += 1;
-        let tail = self.tails.entry(id.into()).or_default();
+        if !self.tails.contains_key(id) { self.tails.insert(id.into(), Tail::default()); }
+        let tail = self.tails.get_mut(id).unwrap();
         tail.bytes += bytes.len(); self.bytes += bytes.len();
         if let Some((_, last)) = tail.chunks.back_mut().filter(|(_, last)| last.len() + bytes.len() <= 32 * 1024) {
             last.extend_from_slice(&bytes);
@@ -71,8 +78,9 @@ impl OutputBuffer {
     pub fn resize_boundary(&mut self, id: &str) -> Option<i64> {
         let tail = self.tails.get(id)?;
         let count = if tail.gap == Some(-1) { -1 } else { tail.gap.unwrap_or(0).saturating_add(tail.bytes as i64) };
+        if count == 0 { return None; }
         self.remove(id);
-        (count != 0).then_some(count)
+        Some(count)
     }
 
     pub fn disconnected(&mut self, ids: impl Iterator<Item = String>) {

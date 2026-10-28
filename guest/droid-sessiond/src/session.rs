@@ -152,6 +152,10 @@ impl SessionRegistry {
         }
     }
 
+    pub fn close_pty(&mut self, id: &str) {
+        if let Some(pty) = self.sessions.get_mut(id).and_then(|session| session.pty.as_mut()) { pty.close_output(); }
+    }
+
     pub fn close_output(&mut self, id: &str) {
         if let Some(session) = self.sessions.get_mut(id) {
             if let Some(pty) = &mut session.pty { pty.close_output(); }

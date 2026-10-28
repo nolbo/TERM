@@ -773,7 +773,11 @@ batching avoids a parser-reset storm. The frame queue has a separate 2 MiB bound
 with terminal output admitted only below 256 KiB / 128 frames, preserving control
 headroom. Guest process progress never depends on those queues draining.
 A successful resize sends available old-geometry output before its response and
-explicitly discards any tail that cannot fit without waiting. Terminal parsers
+explicitly discards any tail that cannot fit without waiting. It also discards
+already-read raw remainder, partial guest parsing and an in-progress local-media
+conversion, reporting an unknown-size gap before the response when necessary.
+This boundary covers bytes already read by sessiond; concurrent guest writes
+still follow normal PTY/resize semantics. Terminal parsers
 discard incomplete sequences at a gap; attached UI mirrors receive a checkpoint.
 This preserves existing screen/history, but cannot reconstruct missing output
 or a TUI's lost state. A redraw may be necessary. There is no disk output spool.
@@ -803,10 +807,12 @@ the guest's pinned Linux 6.12 kernel. No reap timer, signal-handler infrastructu
 or termination-wait thread is needed. EOF stops PTY polling but keeps the master
 until the leader exits: closing it earlier would send SIGHUP to a live leader.
 A ready pidfd triggers nonblocking waitpid immediately, even if descendants hold
-the slave. After at most eight final parser/read turns (each PTY read <= 8 KiB),
-the master closes; descendants cannot extend the session lifetime. Any observed
-undrained remainder produces an unknown-size OutputGap. Exit follows the retained
-tail. Exited history remains until explicit close; a stopped Environment still
+the slave. At exit, at most eight nonblocking 8 KiB reads capture the available
+raw tail, then the master closes immediately; descendants cannot extend its
+lifetime. The existing staged buffer holds at most that 64 KiB plus a prior 8 KiB
+read. Any observed unread remainder produces an unknown-size OutputGap. Accepted
+media and raw bytes finish in ordinary loop turns with no PTY/pidfd held open;
+the exit event follows them. LIST already reports the reaped exit status. Exited history remains until explicit close; a stopped Environment still
 removes all its sessions. Explicit termination removes metadata immediately and
 leaves only the child handle in this same poll loop until reaped. Failed launches
 remove their provisional metadata. PTY masters are close-on-exec, preventing
@@ -816,10 +822,23 @@ snapshot descriptors are revalidated after dispatch.
 The loop reuses poll descriptors and session-ID storage; ordered tail traversal
 uses one cursor instead of allocating and sorting ID vectors each turn. Requests
 are decoded once. Stream events serialize directly into their final frame buffer.
-Local graphics read 3 KiB blocks and encode into the existing bounded wire chunks,
-without whole-file or whole-base64 temporary buffers. A short read publishes no
-partial image and does not unlink the source. Regular-file reads remain synchronous:
-these memory/CPU savings do not impose a latency bound on slow storage.
+Live sessions retain empty output-queue metadata and reuse borrowed ID lookups;
+only pending bytes/gap/exit events make a tail runnable. Exit delivery and explicit
+termination release that metadata, and empty queues never force immediate polling.
+
+Local media conversion is incremental inside the existing graphics parser: at
+most seven 3 KiB source blocks (21 KiB) form one <32 KiB output frame per session
+turn. Control requests run between pending parser slices. Following raw output
+waits in the existing staged buffer, preserving per-session ordering. Each parser
+holds only its current reader/keys, never a complete encoded image; the existing
+9/16 MiB output bounds also cover interleaved image chunks from multiple sessions.
+The final Kitty m=0 chunk is emitted only after all reads and optional unlink
+succeed. Earlier m=1 chunks do not commit an image. Read/cleanup failure emits
+APC + CAN to cancel that upload plus the usual quiet-aware local error reply;
+read failure leaves the source intact. Resize cancels the reader without unlink
+and uses OutputGap to clear partial terminal and multipart Kitty state on both
+host screens, preserving committed images/history. Regular-file operations remain
+synchronous: a per-turn byte bound is not a wall-clock deadline for slow storage.
 
 These decisions replace periodic reaping, per-termination threads and full media
 copies without adding a service, worker pool or wire version. The trade-off is
