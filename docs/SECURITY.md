@@ -351,3 +351,12 @@ stream, but their outcomes remain unknown and they are never automatically
 resent. Partial frames, unconfirmed creation and ordered resize boundaries fail closed.
 A recovering/disconnected owner remains insufficient evidence for destructive
 idle checks. PTY EOF alone is not evidence of process exit or VM loss.
+
+
+Retired session checkpoints contain terminal contents and remain under the app's
+private `retained-sessions` directory. Filenames are hashes of session IDs, never
+caller-controlled paths. Atomic replacement publishes complete records; restore
+uses the existing checkpoint class allowlist and rejects malformed metadata or
+oversized files. They authorize no PTY, VM, capability, background lease or input
+replay. Explicit history close deletes the file before discarding its in-memory
+record. Application-data deletion removes this archive with the rest of app data.

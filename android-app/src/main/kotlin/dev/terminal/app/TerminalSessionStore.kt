@@ -72,6 +72,7 @@ internal class TerminalSessionStore(context: Context) {
     internal fun hasMirror(id: String) = id in attached
     companion object { const val BACKGROUND_GRACE_MS = 5_000L }
     private val exitCodes = mutableMapOf<String, Int>()
+    private val interruptedIds = mutableSetOf<String>()
 
     fun observe(owner: Any, onCopy: (String, String) -> Unit = { _, _ -> }, changed: (String) -> Unit) {
         main.removeCallbacks(detachBackground)
@@ -109,6 +110,7 @@ internal class TerminalSessionStore(context: Context) {
             onGeometry = { configure(id) },
         )
         backends[id] = backend
+        if (id in interruptedIds) backend.interrupt()
         TerminalSession("", "/", emptyArray(), emptyArray(), transcriptRows,
             TerminalCallbacks(copyText = { text ->
                 val owner = observerOwner
@@ -248,8 +250,14 @@ internal class TerminalSessionStore(context: Context) {
                 }
                 sessions.keys.filter { it !in ids }.forEach(::remove)
                 exitCodes.keys.retainAll(ids)
+                interruptedIds.retainAll(ids)
                 for (i in 0 until descriptors.length()) {
                     val descriptor = descriptors.getJSONObject(i)
+                    if (descriptor.optString("state") == "INTERRUPTED") {
+                        val id = descriptor.getString("id")
+                        interruptedIds.add(id)
+                        backends[id]?.interrupt()
+                    }
                     if (!descriptor.isNull("exitCode")) {
                         val id = descriptor.getString("id")
                         val code = descriptor.getInt("exitCode")

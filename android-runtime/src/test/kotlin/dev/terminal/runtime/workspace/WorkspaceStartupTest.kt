@@ -53,4 +53,37 @@ class WorkspaceStartupTest {
         val disabled = workspace.copy(launches = listOf(two.copy(startWithWorkspace = false)))
         assertTrue(WorkspaceRegistry.State(listOf(disabled), selected = disabled.id).startupLaunches().isEmpty())
     }
+
+    @Test fun ownerRestartUnblocksLocalStartupDespiteAnUnrecoveredVm() {
+        val local = workspace(listOf(launch("Local", true)))
+        val remote = workspace(listOf(launch("VM", true)))
+        val temporary = Workspace(UUID.randomUUID().toString(), "Temporary", true)
+        var encoded = WorkspaceRegistry.State(listOf(local, remote, temporary), mapOf(
+            "native-dead" to local.id, "rootless-dead" to local.id,
+            "ubuntu-dead" to local.id, "archlinux-dead" to local.id,
+            "avf-unrecovered" to remote.id,
+        ), local.id).json().toString()
+        val registry = WorkspaceRegistry({ encoded }, { encoded = it })
+        assertTrue(registry.snapshot().startupLaunches().isEmpty())
+        registry.reconcileAfterOwnerRestart(emptySet())
+        // Unknown AVF state still prevents full collection, but cannot retain dead local PTYs.
+        registry.reconcile(null)
+        val restored = WorkspaceRegistry.State.parse(encoded)
+        assertEquals(local.launches, restored.startupLaunches())
+        assertEquals(local.id, restored.selected)
+        assertEquals(mapOf("avf-unrecovered" to remote.id), restored.memberships)
+        assertEquals(listOf(local, remote, temporary), restored.workspaces)
+        assertTrue(restored.copy(selected = remote.id).startupLaunches().isEmpty())
+    }
+
+    @Test fun ownerRestartPreservesArchivedLocalSessionsAndUnknownOwners() {
+        val workspace = workspace(listOf(launch("Local", true)))
+        val memberships = mapOf("native-retained" to workspace.id, "rootless-retained" to workspace.id,
+            "future-runtime-session" to workspace.id, "avf-unrecovered" to workspace.id)
+        var encoded = WorkspaceRegistry.State(listOf(workspace), memberships, workspace.id).json().toString()
+        val registry = WorkspaceRegistry({ encoded }, { encoded = it })
+        registry.reconcileAfterOwnerRestart(setOf("native-retained", "rootless-retained"))
+        assertEquals(memberships, registry.snapshot().memberships)
+        assertTrue(registry.snapshot().startupLaunches().isEmpty())
+    }
 }

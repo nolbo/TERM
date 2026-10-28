@@ -118,7 +118,7 @@ internal val TerminalSessionUnknown = Color(0xFF8F9096)
 internal fun sessionStateBadgeColor(state: String): Color = when (state) {
     "CREATED" -> TerminalSessionCreated
     "RUNNING" -> TerminalStatusBlue
-    "EXITED" -> TerminalSessionExited
+    "EXITED", "INTERRUPTED" -> TerminalSessionExited
     else -> TerminalSessionUnknown
 }
 
@@ -663,6 +663,7 @@ internal fun sessionStateLabel(state: String): String = stringResource(
         "CREATED" -> R.string.session_state_created
         "RUNNING" -> R.string.session_state_running
         "EXITED" -> R.string.session_state_exited
+        "INTERRUPTED" -> R.string.session_state_interrupted
         "PREPARING" -> R.string.avf_session_preparing_state
         "LAUNCH_FAILED" -> R.string.avf_session_failed_state
         else -> R.string.session_state_unknown

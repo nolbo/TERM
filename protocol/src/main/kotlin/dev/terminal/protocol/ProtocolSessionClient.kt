@@ -63,11 +63,13 @@ class ProtocolSessionClient(
     private val scope: CoroutineScope = CoroutineScope(SupervisorJob() + Dispatchers.Default),
     private val onDiagnostic: (String, Throwable) -> Unit = { _, _ -> },
     private val onRequestDiagnostic: (String, Map<String, String>, Throwable?) -> Unit = { _, _, _ -> },
+    sessionNamespace: String? = null,
 ) : SessionController {
     init { require(requestTimeoutMillis > 0) }
+    private val identities = sessionNamespace?.let(::SessionIdentities)
     private val disconnectFailure = AtomicReference<Throwable?>()
     private val nextRequestId = AtomicLong(1)
-    private val pending = ConcurrentHashMap<Long, CompletableDeferred<ProtocolFrame>>()
+    private val pending = ConcurrentHashMap<Long, CompletableDeferred<Result<SessionResponse>>>()
     private val resizeBarriers = ConcurrentHashMap<Long, Pair<SessionRequest.Resize, Any>>()
     override val supportsOrderedResize = true
     private val mutableEvents = MutableSharedFlow<SessionEvent>(extraBufferCapacity = 64)
@@ -177,12 +179,12 @@ class ProtocolSessionClient(
         val requestId = nextRequestId.getAndIncrement()
         val requestFrame = try {
             ProtocolFrame(service = Service.SESSION, kind = FrameKind.REQUEST, requestId = requestId,
-                payload = SessionPayloadCodec.encode(request))
+                payload = SessionPayloadCodec.encode(identities?.request(request) ?: request))
         } catch (error: Exception) {
             requestDiagnostic(request, requestId, "encode", started, error)
             return@coroutineScope Result.failure(error)
         }
-        val waiting = CompletableDeferred<ProtocolFrame>()
+        val waiting = CompletableDeferred<Result<SessionResponse>>()
         val sent = AtomicBoolean()
         // CREATE establishes the identity needed to initialize output; an
         // abandoned CREATE must reconcile through a fresh owner attachment.
@@ -221,13 +223,8 @@ class ProtocolSessionClient(
                 return@coroutineScope Result.failure(requireNotNull(failure))
             }
             stage = "response"
-            val frame = waiting.await()
-            stage = "decode"
-            when (frame.kind) {
-                FrameKind.RESPONSE -> runCatching { SessionResponseCodec.decode(frame.payload) }
-                FrameKind.ERROR -> Result.failure(GuestRequestException(ProtocolErrorCodec.decode(frame.payload)))
-                else -> Result.failure(ProtocolRequestException("Unexpected response frame"))
-            }.also {
+            waiting.await().also {
+                stage = "decode"
                 failure = it.exceptionOrNull()
                 acceptedBytes = (it.getOrNull() as? SessionResponse.Written)?.acceptedBytes
             }
@@ -284,15 +281,24 @@ class ProtocolSessionClient(
         if (frame.service != Service.SESSION) return
         when (frame.kind) {
             FrameKind.STREAM -> runCatching { SessionEventCodec.decode(frame.payload) }
-                .onSuccess { mutableEvents.emit(it) }
+                .onSuccess { event ->
+                    val mapped = if (identities == null) event else identities.event(event)
+                    if (mapped != null) mutableEvents.emit(mapped)
+                }
                 .onFailure { runCatching { onDiagnostic("session.event.invalid", it) } }
             FrameKind.RESPONSE, FrameKind.ERROR -> {
                 val waiting = pending[frame.requestId] ?: return
+                val decoded = runCatching {
+                    when (frame.kind) {
+                        FrameKind.RESPONSE -> SessionResponseCodec.decode(frame.payload).let { identities?.response(it) ?: it }
+                        else -> throw GuestRequestException(ProtocolErrorCodec.decode(frame.payload))
+                    }
+                }
                 val resize = resizeBarriers[frame.requestId]
                 if (frame.kind == FrameKind.RESPONSE && resize != null) {
                     val (request, barrier) = resize
                     val response = runCatching {
-                        val resized = SessionResponseCodec.decode(frame.payload) as? SessionResponse.Resized
+                        val resized = decoded.getOrThrow() as? SessionResponse.Resized
                             ?: throw ProtocolRequestException("Expected resize response")
                         require(resized.session.id == request.sessionId && resized.session.rows == request.rows &&
                             resized.session.cols == request.cols) { "Resize response does not match request" }
@@ -302,7 +308,10 @@ class ProtocolSessionClient(
                     // stream, before any following output is handed to the parser.
                     mutableEvents.emit(SessionEvent.Resized(response.session.id, request.rows, request.cols, barrier))
                 }
-                waiting.complete(frame)
+                waiting.complete(decoded)
+                // CREATE/LIST callers can initialize terminal state before buffered
+                // output fills their event queue. No second response codec pass.
+                identities?.identifiedEvents()?.forEach { mutableEvents.emit(it) }
             }
             else -> Unit
         }

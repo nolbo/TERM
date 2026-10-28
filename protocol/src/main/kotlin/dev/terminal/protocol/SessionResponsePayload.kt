@@ -18,7 +18,12 @@ data class SessionDescriptor(
     companion object { const val NO_EXIT_CODE = -1 }
 }
 
-enum class SessionStatus { CREATED, RUNNING, EXITED }
+enum class SessionStatus {
+    CREATED, RUNNING, EXITED,
+    /** Host-retained history after proven owner loss; never a guest wire state. */
+    INTERRUPTED;
+    val isLive: Boolean get() = this == CREATED || this == RUNNING
+}
 
 sealed interface SessionResponse {
     data class Resources(val usage: GuestResourceUsage) : SessionResponse
@@ -91,6 +96,7 @@ object SessionResponseCodec {
             u16(encoded.size.toUShort()); raw(encoded)
         }
         fun descriptor(value: SessionDescriptor) {
+            require(value.state != SessionStatus.INTERRUPTED) { "Retained history is not a guest session" }
             string(value.id); string(value.title); string(value.command); string(value.cwd)
             i64(value.createdAtMs); u16(value.rows); u16(value.cols); byte(value.state.ordinal); i32(value.exitCode)
         }
@@ -111,7 +117,7 @@ object SessionResponseCodec {
         fun descriptor(): SessionDescriptor = SessionDescriptor(
             id = string(), title = string(), command = string(), cwd = string(), createdAtMs = i64(),
             rows = u16(), cols = u16(),
-            state = SessionStatus.entries.getOrNull(byte()) ?: throw IllegalArgumentException("Unknown session state"),
+            state = SessionStatus.entries.take(3).getOrNull(byte()) ?: throw IllegalArgumentException("Unknown guest session state"),
             exitCode = i32(),
         )
         fun requireFullyRead() = require(!buffer.hasRemaining()) { "Unexpected bytes after session response" }

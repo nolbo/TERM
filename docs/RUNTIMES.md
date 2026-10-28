@@ -301,3 +301,24 @@ the APK does not overwrite installed disks. Old guests remain connectable and
 retain their existing lease policy when optional release is unsupported.
 The resource policy and saved vCPU/memory choices are unchanged by this revision.
 For the local transport measurement, see `AVF_NOTES.md`.
+
+
+## Retained sessions after Environment stop
+
+Environment stop and proven VM/process-owner loss retain session tabs, output,
+Workspace membership and terminal view state. Interrupted processes appear as
+`INTERRUPTED` (중단됨 · 기록 보존), without a fabricated exit code; a known normal
+exit keeps its actual status. A successful reconnect whose LIST omits old IDs
+also retains those IDs as interrupted history. Unknown/disconnected owners
+remain recoverable and are not declared dead.
+
+The runtime saves retired sessions under app-private `retained-sessions` and
+restores them before publishing its initial list after recreation. Explicit
+Close removes a retired record locally even when its Environment is stopped.
+Viewing/resizing history sends no guest RPC and cannot revive a process. A new
+Profile launch creates a new session; no uncertain input is replayed. Existing
+idle-only Environment Stop behavior is preserved. History needs no foreground
+or wake lease. Persistence failures are reported while in-memory history remains.
+This is retirement-time preservation, not periodic live process/terminal backup;
+a force-killed Android owner before retirement cannot guarantee its final output.
+No guest/image update is required for this host lifecycle change.

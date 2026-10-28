@@ -194,7 +194,7 @@ class MainActivity : TerminalActivity() {
             ?: TerminalPaneState(first = remembered ?: preferred ?: activeSessionId)
         val restoring = layoutWorkspaceId != target
         layoutWorkspaceId = target
-        val candidates = if (restoring) visible.filter { it.pendingLaunch || it.state == "RUNNING" } else visible
+        val candidates = if (restoring) visible.filter { it.pendingLaunch || it.state == "RUNNING" || it.state == "INTERRUPTED" || it.state == "EXITED" } else visible
         applyPaneState(seed.reconcile(candidates, workspaceState.memberships, preferred))
         ensureVisibleSessionMirrors()
     }

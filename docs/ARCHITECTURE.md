@@ -75,6 +75,29 @@ The runtime service or guest session daemon is authoritative for live sessions.
 Cached UI state is never authoritative. If the runtime or PTY owner actually
 dies, report session loss honestly; do not fake restoration.
 
+A session record outlives its execution owner. Verified owner loss or a successful
+owner LIST proving a previously known ID absent retains that ID as host-only
+`INTERRUPTED` history, with no invented exit code. Real completed sessions keep
+`EXITED` and their actual code. Transport failure alone still retains the live
+owner for recovery. History rejects input and never acquires a live-owner,
+reconnect or wake lease; a newly started Environment cannot inherit its input
+or identity. AVF host IDs combine the Environment boot namespace, guest creation
+time and guest-local ID, so guest counter reuse cannot revive retired input.
+Only raw guest IDs cross the wire; reconnects and Android runtime-service
+recreation keep the same persisted boot namespace until verified stop.
+Existing explicit idle-stop restrictions remain in force.
+
+Before publishing stopped history, the runtime writes an atomic app-private
+metadata/checkpoint file per session. It restores those records before the first
+session-list replay after service recreation. Saving failures retain the in-memory
+record, report an error and remain eligible for retry. Checkpoint persistence
+occurs on retirement or an explicit history rename, not on the live output path.
+The archive contains terminal contents and remains in app-private storage until
+explicit session close deletes it. It does not restore dead processes or provide
+continuous crash checkpoints for a killed Android runtime process before an
+Environment-loss record was saved. History alone does not keep the service awake.
+
+
 AVF creation immediately selects a loading tab identified by a request UUID.
 Before Binder connects, the UI keeps only the unsent request and its immutable
 profile snapshot; it submits once after connection. Once accepted, `:vmhost`
@@ -90,7 +113,7 @@ Runtime-specific process ownership stays behind Native, Rootless, and AVF
 backend interfaces. UI code must not depend directly on PRoot, AVF, crosvm,
 vsock, or package-manager implementation details.
 
-Stopping an idle Environment releases only that Environment's backend and session registration. AVF transport read, frame-validation and cleanup failures must remain local to that connection; they must not escape as uncaught coroutine failures that kill the shared `:vmhost` process and its Native/Rootless or other AVF owners. Disconnecting never fabricates session exits or clears sibling terminal checkpoints.
+Stopping an idle Environment releases only that Environment's backend and live registration, preserving completed sessions and their terminal history. AVF transport read, frame-validation and cleanup failures must remain local to that connection; they must not escape as uncaught coroutine failures that kill the shared `:vmhost` process and its Native/Rootless or other AVF owners. Disconnecting never fabricates session exits or clears sibling terminal checkpoints.
 
 Every runtime backend belongs to a Profile-selected Environment. There is no primary/default runtime, app-wide preferred Environment, or implicit runtime startup when binding the UI. The service itself is ready to accept Profile launches without constructing a Native shell controller or VM. A Profile resolves its Environment and starts or reuses only that owner. Service/notification/wake lifetime aggregates live sessions, host operations, per-Environment guest work and explicitly started Environments, including those with no terminal sessions.
 
@@ -102,7 +125,7 @@ AVF session reconnection, Android capability bridges and port observers follow e
 
 Session reconnect holds that Environment's preparation lease through controller registration, a successful owner-specific LIST and all reattachments; a socket alone is not proof of recovery. Failed owner RPCs leave the previous session projection/checkpoints intact and remain eligible for retry. UI Environment projections use cached authoritative descriptors and backend state, rather than blocking on a guest RPC; destructive/idle checks still query and verify the actual owner.
 
-A platform stop/error callback triggers Environment-local reconciliation. Only a successful platform proof of stopped/absent VM and completed sharing teardown permits discarding that owner's controller, session routing, checkpoints and explicit-start demand. A failed proof preserves the owner as unknown. Proven loss emits no fabricated guest exit code and never resets sibling controllers/checkpoints. Its UI error is replayed on a returning screen while `:vmhost` remains alive. A new explicit Profile/Environment start can boot that Environment again, but cannot restore dead guest processes. Error callbacks without stop proof retain the VM Binder reference.
+A platform stop/error callback triggers Environment-local reconciliation. Only a successful platform proof of stopped/absent VM and completed sharing teardown permits releasing that owner's controller, live input routing and explicit-start demand. Its session identities, terminal checkpoints and Workspace memberships remain as history until explicitly closed. A failed proof preserves the owner as unknown. Proven loss emits no fabricated guest exit code and never resets sibling controllers/checkpoints. Its UI error is replayed on a returning screen while `:vmhost` remains alive. A new explicit Profile/Environment start can boot that Environment again, but cannot restore dead guest processes. Error callbacks without stop proof retain the VM Binder reference.
 
 UI checkpoint/output and runtime-observer callbacks use bounded serial delivery queues rather than invoking Binder under the terminal-state lock or runtime event collector. Checkpoints are captured into immutable, read-only, unlinked temporary files before delivery. An overloaded or failed observer is invalidated and its UI registration/mirror reconnects from authoritative state; it cannot pause guest output processing or terminate a PTY. Callback threads, queued bytes, descriptors and observer counts are bounded. See `PROTOCOL.md` for limits and ordering.
 
@@ -678,6 +701,14 @@ Workspace order is the persisted `State.workspaces` array order, owned by the ru
 Workspace launch names are optional and remain bounded to 128 printable characters. Lists and launch pickers show the referenced Profile name for unnamed configurations; missing-profile rows use a generic configuration label and remain disabled for launch. Resolving a named Workspace launch snapshots its configuration name as the optional `SessionLaunchSpec.tabTitle`, independently of the referenced profile name. The runtime snapshot pipeline applies that label as an explicit custom title before the first session publication; subsequent user renames take precedence. Shell OSC titles remain automatic subtitles. AVF loading/failure tabs carry the same custom title, and serialization plus Environment resolution preserve it through recreation and preparation. Unnamed Workspace launches and ordinary profile launches preserve normal Profile resolution without introducing a custom title. Moving an existing session into a Workspace does not rename it.
 
 Each launch configuration optionally persists `startWithWorkspace` (absent means false). Opening an empty Workspace queues all selected configurations in their saved order as immutable launch snapshots. The empty permanent Workspace header also exposes an explicit Run default sessions action that refreshes runtime membership and reuses the same queue. The action is disabled when session state is unknown or no startup configurations are selected; temporary Workspaces and the unassigned filter do not expose it. Existing or pending memberships suppress the entire startup batch, so returning to an occupied Workspace never replaces or duplicates sessions. Native/Rootless and AVF accepted creation requests occupy their Workspace in the runtime projection while preparing. The UI serializes pending startup snapshots across recreation, preserves each target Workspace even after filter changes, and submits through the normal installation-consent and Binder creation paths. Installing environments still require explicit consent; cancelling one confirmation skips that configuration and leaves later choices queued. Reconnection, rendering an empty filter, session exit and Close all do not independently enqueue startup work. Manually selecting a new session cancels any startup snapshots still waiting in the UI.
+
+On runtime-owner recreation, restored terminal-history records retain their Workspace
+memberships. Native and Rootless PTYs from the previous owner cannot survive that
+owner, so memberships without restored records are removed before the first session
+projection. Unrecovered AVF and unrecognized session IDs remain untouched; this
+local reconciliation does not collect temporary Workspaces. An unknown VM owner
+therefore cannot leave a dead local session blocking a saved Workspace's startup
+button. UI recreation and reconnection to an existing owner do not run this cleanup.
 
 See [SHARED_FOLDERS.md](SHARED_FOLDERS.md) for retirement, preserved data paths, transfer limits and compatibility.
 

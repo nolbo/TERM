@@ -162,6 +162,20 @@ class WorkspaceStartupDeviceTest {
                 }
                 assertEquals("Opening the console must not create sessions", existingIds,
                     rows(runtime).mapTo(mutableSetOf()) { it.getString("id") })
+                val runDescription = context.getString(R.string.workspace_run_default_sessions)
+                tap { it.contentDescription?.toString() == runDescription }
+                await("Run default sessions works immediately after restoring an empty Workspace") {
+                    owned += rows(runtime).filter { state(runtime).memberships[it.getString("id")] == workspace.id }.map { it.getString("id") }
+                    owned.size == 2
+                }
+                assertEquals(workspace.launches.filter { it.startWithWorkspace }.map { it.name }.toSet(),
+                    rows(runtime).filter { it.getString("id") in owned }.map { it.getString("title") }.toSet())
+                val initiallyStarted = owned.toSet()
+                initiallyStarted.forEach { runtime.terminateSession(it) }
+                await("Initial Workspace sessions close") {
+                    rows(runtime).none { it.getString("id") in initiallyStarted }
+                }
+                owned.clear()
                 tap { it.contentDescription?.toString() == context.getString(R.string.workspace_selector, workspace.name) }
                 text(context.getString(R.string.workspace_unassigned))
                 await("Unassigned filter is explicitly selected") { state(runtime).selected == WorkspaceRegistry.UNASSIGNED }
@@ -187,7 +201,6 @@ class WorkspaceStartupDeviceTest {
                 assertTrue(launches.all { it.getString("cwd") == context.filesDir.path })
                 val previousSessionIds = owned.toSet()
                 previousSessionIds.forEach { runtime.terminateSession(it) }
-                val runDescription = context.getString(R.string.workspace_run_default_sessions)
                 await("An empty permanent Workspace offers default sessions") {
                     rows(runtime).none { it.getString("id") in previousSessionIds } && node {
                         it.contentDescription?.toString() == runDescription && it.isEnabled

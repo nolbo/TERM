@@ -703,3 +703,26 @@ the cached authoritative projection; it does not wait for another VM's LIST.
 PTY EOF without a child wait status leaves that process running/unknown until
 an actual exit is reaped or termination is requested. No EOF invents a guest
 exit or closes sibling sessions.
+
+
+Host session projections may contain `INTERRUPTED` for retained history after
+proven execution-owner loss. It is not a guest wire state: the session-v1 codec
+still accepts/emits only CREATED, RUNNING and EXITED. Interrupted JSON records
+omit `exitCode`; actual EXITED records retain real codes, including negative
+signal values. Runtime terminal snapshots can still be attached/configured for
+retained records without a guest connection. Input is rejected; explicit Close
+removes only the history/checkpoint. Service startup completes history restoration
+before its initial observer replay or session JSON read, avoiding a transient
+empty list that would discard tabs and Workspace layouts.
+
+
+AVF session IDs exposed to the host include an Environment boot namespace, the
+guest creation timestamp and the guest-local ID. Only the original ID travels
+on the guest wire. The namespace is persisted before first use, stable across
+transport reconnects and Android runtime-service recreation, and retired after
+verified Environment stop; reused counters such as `session-1`
+therefore cannot target an archived session or another VM. Descriptors establish
+identity before subsequent events. At most 256 events / 256 KiB of early output
+can wait for CREATE/LIST metadata without blocking receipt of that response.
+Identity mapping and response decoding happen in the existing receive worker,
+without an extra forwarding queue for normal traffic.

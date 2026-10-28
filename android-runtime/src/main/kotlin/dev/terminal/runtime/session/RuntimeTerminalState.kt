@@ -84,6 +84,25 @@ class RuntimeTerminalState(private val transcriptRows: Int = 10_000) {
     fun remove(id: String) { entries.remove(id) }
     fun clear() { entries.clear() }
 
+    internal fun save(id: String, output: java.io.DataOutputStream) {
+        val entry = entries[id] ?: error("Terminal state missing: $id")
+        output.writeBoolean(entry.exitCode != null)
+        entry.exitCode?.let(output::writeInt)
+        output.writeBoolean(entry.viewport != null)
+        entry.viewport?.let { output.writeInt(it.row); output.writeFloat(it.offset); output.writeLong(it.transcriptShift) }
+        dev.terminal.emulator.TerminalCheckpoint.write(entry.emulator, object : java.io.FilterOutputStream(output) {
+            override fun close() { flush() }
+        })
+    }
+
+    internal fun restore(id: String, input: java.io.DataInputStream) {
+        val exitCode = if (input.readBoolean()) input.readInt() else null
+        val viewport = if (input.readBoolean()) Viewport(input.readInt(), input.readFloat(), input.readLong()) else null
+        val emulator = dev.terminal.emulator.TerminalCheckpoint.read(input)
+        create(id, emulator.mColumns, emulator.mRows)
+        entries.getValue(id).also { it.emulator.restoreState(emulator); it.exitCode = exitCode; it.viewport = viewport }
+    }
+
     private fun deliver(entry: Entry, action: (Sink) -> Unit) {
         entry.sinks.removeAll { sink -> runCatching { action(sink) }.isFailure }
     }
