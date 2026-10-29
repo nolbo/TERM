@@ -4,6 +4,9 @@
 [proroot 정적 분석](PROROOT_STATIC_ANALYSIS.md)은 문제를 구체화하는 근거이며
 아래 객체·ABI·상태·테스트는 자체 엔진에 새로 정의하는 계약이다. 아직 구현된 API가 아니다.
 
+각 계약을 담당할 Rust crate/module, syscall dispatcher 인터페이스, 공유 상태와
+Android launch adapter의 코드 배치는 [코드 구조](USERSPACE_ENGINE_CODE_STRUCTURE.md)를 따른다.
+
 ## 1. 구성과 공통 ABI
 
 논리적으로 host launcher, freestanding exec bootstrap, freestanding syscall core를

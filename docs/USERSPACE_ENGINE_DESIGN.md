@@ -1,6 +1,6 @@
 # Userspace Linux 자체 엔진 설계
 
-작성일: 2026-10-28. 2026-10-29 공개 바이너리 정적 분석과 실행 계약 추가.
+작성일: 2026-10-28. 2026-10-29 공개 바이너리 정적 분석, 실행 계약과 코드 구조 추가.
 상태: 구현 전 설계안.
 
 목표는 Userspace Linux의 실행 엔진을 독립적으로 구현하여 Linux 프로그램의
@@ -14,8 +14,10 @@ proroot 바이너리 통합, 중단된 Direct Linux 복원은 구현 경로에 �
 기록되어 있으며, 이번 설계로 실행 파일·설치 환경·기본 엔진을 변경하지 않는다.
 
 내부 ABI, patch 공개/무효화, 신호 상태, exec handoff와 첫 probe 조건은
-[실행 계약](USERSPACE_ENGINE_EXECUTION.md)에 정의한다. 참고 바이너리의 실제 관찰은
-[proroot 정적 분석](PROROOT_STATIC_ANALYSIS.md)에 기록한다.
+[실행 계약](USERSPACE_ENGINE_EXECUTION.md)에 정의한다. 이를 구현할 crate/module,
+타입·의존성·호출 흐름과 제품 연결은 [코드 구조](USERSPACE_ENGINE_CODE_STRUCTURE.md)에
+정의한다. 참고 바이너리의 실제 관찰은 [proroot 정적 분석](PROROOT_STATIC_ANALYSIS.md)에
+기록한다.
 
 ## 1. 설계 결정과 범위
 
