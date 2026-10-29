@@ -1,6 +1,7 @@
 # Userspace Linux 자체 엔진 설계
 
-작성일: 2026-10-28. 상태: 구현 전 설계안.
+작성일: 2026-10-28. 2026-10-29 공개 바이너리 정적 분석과 실행 계약 추가.
+상태: 구현 전 설계안.
 
 목표는 Userspace Linux의 실행 엔진을 독립적으로 구현하여 Linux 프로그램의
 호환성을 높이고 실행 시간·CPU·메모리 비용을 네이티브에 가깝게 만드는 것이다.
@@ -11,6 +12,10 @@ proroot 바이너리 통합, 중단된 Direct Linux 복원은 구현 경로에 �
 이 문서의 성능 수치와 지원 항목은 목표 및 검증 조건이다. 새 엔진의 구현이나
 달성된 성능을 뜻하지 않는다. 제품의 현재 PRoot 경로는 [RUNTIMES.md](RUNTIMES.md)에
 기록되어 있으며, 이번 설계로 실행 파일·설치 환경·기본 엔진을 변경하지 않는다.
+
+내부 ABI, patch 공개/무효화, 신호 상태, exec handoff와 첫 probe 조건은
+[실행 계약](USERSPACE_ENGINE_EXECUTION.md)에 정의한다. 참고 바이너리의 실제 관찰은
+[proroot 정적 분석](PROROOT_STATIC_ANALYSIS.md)에 기록한다.
 
 ## 1. 설계 결정과 범위
 
@@ -50,12 +55,16 @@ PTY를 소유하고 `NativeExecutableLoader`는 APK의 고정 실행 파일만 �
 검토 대상은 [coderredlab/proroot의 고정 리비전](https://github.com/coderredlab/proroot/tree/c01039ab017448263a4ddbd9221ecb88e737553c)이다.
 공식 README는 ptrace 없는 Android ARM64/glibc runtime과 launcher/runtime/bridge/
 linker/stub-loader 구성을 설명한다. 해당 트리에는 README, LICENSE와 다섯 바이너리만
-있고 구현 소스는 비공개다. 따라서 loader, patcher, 신호·동시성의 실제 코드는
-검토할 수 없다. 실기기 동작 목록은 upstream 보고이며 이번 프로젝트의 재현 결과가 아니다.
+있고 구현 소스는 비공개다. 후속 사용자 요청으로 v1.2.8의 다섯 ELF를 hash 검증한
+뒤 정적으로 분석했다. 남아 있는 심볼과 disassembly에서 직접 코드 패치와
+seccomp TRAP 코드, glibc runtime과 별도 loader 경계를 확인했다.
+원본 소스·모든 실행 경로·동시성은 복원하지 않았다. 실기기 동작 목록은 upstream
+보고이며 이번 프로젝트의 재현 결과가 아니다. 세부 근거와 주소는
+[정적 분석 기록](PROROOT_STATIC_ANALYSIS.md)을 따른다.
 
 [Termux 제안 글](https://github.com/termux/termux-app/issues/5245)은 LD_PRELOAD와 ELF의
-SVC 명령 패칭을 결합한다고 설명한다. 이는 공개 설명 수준의 참고이며, 엔진 소스로
-확인된 사실이나 전체 syscall 포괄성의 증거로 취급하지 않는다. 글의 네이티브 성능,
+SVC 명령 패칭을 결합한다고 설명한다. 실제 바이너리에서도 패치 경로를 확인했지만
+이 글 자체나 해당 경로의 존재를 전체 syscall 포괄성의 증거로 취급하지 않는다. 글의 네이티브 성능,
 GPU 배속, 무비용 주장도 우리 성능 목표의 근거로 사용하지 않는다.
 
 공식 [v1.2.8 릴리스 기록](https://github.com/coderredlab/proroot/releases/tag/v1.2.8)은
@@ -64,6 +73,10 @@ PLT 가로채기를 통과하지 않은 fortified libc 함수의 `/proc/self/exe
 여기서 얻는 설계 요구는 공개 함수 후킹만으로 포괄성을 선언하지 않는 것,
 경로 변환과 FD·링크 수명을 한 규칙으로 처리하는 것이다. 바이너리를 도입하거나
 비공개 구현을 추정해 복제하지 않는다.
+
+정적 분석에서 확인한 RWX 요청, guest 신호에 개입하는 경로, 일부 maintainer helper의
+조건부 성공 종료는 그대로 채택하지 않는다. 자체 엔진에는 W^X patch transaction,
+guest/engine signal state 분리, 실제 패키지 결과 검증을 적용한다.
 
 ### 2.2 proot-rs
 
